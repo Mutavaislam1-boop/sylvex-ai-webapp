@@ -1,37 +1,113 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>SYLVEX AI Settings</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>SYLVEX AI</title>
+
+<style>
+
+body{
+    margin:0;
+    min-height:100vh;
+
+    background-image:url("images/background.jpg");
+    background-size:cover;
+    background-position:center;
+    background-repeat:no-repeat;
+
+    display:flex;
+    justify-content:center;
+    align-items:center;
+
+    font-family:Arial,sans-serif;
+}
+
+/* затемнение поверх картинки */
+body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.65);
+}
+
+.card{
+    position:relative;
+    z-index:1;
+
+    width:90%;
+    max-width:500px;
+
+    background:rgba(255,255,255,0.08);
+
+    backdrop-filter:blur(15px);
+
+    border-radius:20px;
+
+    padding:25px;
+
+    color:white;
+}
+
+h2{
+    text-align:center;
+}
+
+select{
+    width:100%;
+    padding:12px;
+    margin-top:5px;
+    margin-bottom:15px;
+
+    border:none;
+    border-radius:10px;
+}
+
+button{
+    width:100%;
+    padding:15px;
+
+    border:none;
+    border-radius:12px;
+
+    background:#2d7fff;
+    color:white;
+
+    font-size:16px;
+}
+
+</style>
 </head>
+
 <body>
-    <h2>⚙️ Настройки Kling</h2>
 
-    <label>Формат:</label>
-    <select>
-        <option>16:9</option>
-        <option>9:16</option>
-        <option>1:1</option>
-    </select>
+<div class="card">
 
-    <br><br>
+<h2>⚙️ Настройки Kling</h2>
 
-    <label>Качество:</label>
-    <select>
-        <option>720p</option>
-        <option>1080p</option>
-    </select>
+<label>Формат</label>
+<select>
+    <option>16:9</option>
+    <option>9:16</option>
+    <option>1:1</option>
+</select>
 
-    <br><br>
+<label>Качество</label>
+<select>
+    <option>720p</option>
+    <option>1080p</option>
+</select>
 
-    <label>Длительность:</label>
-    <select>
-        <option>5 сек</option>
-        <option>10 сек</option>
-    </select>
+<label>Длительность</label>
+<select>
+    <option>5 сек</option>
+    <option>10 сек</option>
+</select>
 
-    <br><br>
+<button>Сохранить</button>
 
-    <button>Сохранить настройки</button>
+</div>
+
 </body>
 </html>
