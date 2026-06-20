@@ -39,6 +39,7 @@ async def save_settings(request: Request):
     data = await request.json()
 
     telegram_id = data.get("telegram_id")
+    message_id = data.get("message_id")
 
     body = (
         f"Модель: {data.get('model')}\n"
@@ -56,24 +57,26 @@ async def save_settings(request: Request):
         body
     )
 
-    if BOT_TOKEN and telegram_id:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+    if BOT_TOKEN and telegram_id and message_id:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
             json={
                 "chat_id": telegram_id,
-                "text": "⌨️ Меню обновлено",
+                "message_id": message_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": False,
                 "reply_markup": {
-                    "keyboard": [
+                    "inline_keyboard": [
                         [
-                            {"text": "👤 Мой кабинет"},
-                            {"text": "🛒 Магазин"}
-                        ],
-                        [
-                            {"text": "🆘 Помощь"},
-                            {"text": "🏠 Главное меню"}
+                            {
+                                "text": "⚙️ Настройки модели",
+                                "web_app": {
+                                    "url": WEBAPP_URL
+                                }
+                            }
                         ]
-                    ],
-                    "resize_keyboard": True
+                    ]
                 }
             },
             timeout=10
