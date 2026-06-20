@@ -268,7 +268,7 @@ async function saveSettings() {
         prompt_enhance: document.querySelector("#prompt_enhance").checked
     };
 
-    const response = await fetch("/save-settings", {
+    await fetch("/save-settings", {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
@@ -276,9 +276,11 @@ async function saveSettings() {
         body: JSON.stringify(data)
     });
 
-    const result = await response.json();
+    tg.sendData(JSON.stringify(data));
 
-    alert(result.message);
+    setTimeout(() => {
+        tg.close();
+    }, 500);
 }
 </script>
 
