@@ -57,24 +57,23 @@ async def save_settings(request: Request):
     )
 
     if BOT_TOKEN and telegram_id:
-        response = requests.post(
+        requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
                 "chat_id": telegram_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": False,
+                "text": "⌨️ Меню обновлено",
                 "reply_markup": {
-                    "inline_keyboard": [
+                    "keyboard": [
                         [
-                            {
-                                "text": "⚙️ Настройки модели",
-                                "web_app": {
-                                    "url": WEBAPP_URL
-                                }
-                            }
+                            {"text": "👤 Мой кабинет"},
+                            {"text": "🛒 Магазин"}
+                        ],
+                        [
+                            {"text": "🆘 Помощь"},
+                            {"text": "🏠 Главное меню"}
                         ]
-                    ]
+                    ],
+                    "resize_keyboard": True
                 }
             },
             timeout=10
