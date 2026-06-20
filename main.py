@@ -4,7 +4,7 @@ import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from app.database.db import save_kling_settings
+
 
 app = FastAPI()
 
