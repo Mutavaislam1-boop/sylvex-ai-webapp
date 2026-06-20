@@ -10,11 +10,12 @@ app = FastAPI()
 app.mount("/image", StaticFiles(directory="image"), name="image")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBAPP_URL = "https://sylvex-ai-webapp-production.up.railway.app"
 
 
 def design(title: str, body: str) -> str:
-    return f"""   
-<pre>                                   
+    return f"""
+<pre>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏷{title}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -23,7 +24,7 @@ def design(title: str, body: str) -> str:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌐SYLVEX AI creator bot • top ai creation platform©️
-</pre> 
+</pre>
 <a href="https://t.me/sylvexai_bot">Official Bot</a>
 """
 
@@ -59,23 +60,26 @@ async def save_settings(request: Request):
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
-    "chat_id": telegram_id,
-    "text": text,
-    "parse_mode": "HTML",
-    "disable_web_page_preview": True,
-    "reply_markup": {
-        "inline_keyboard": [
-            [
-                {
-                    "text": "⚙️ Настройки модели",
-                    "web_app": {
-                        "url": "https://sylvex-ai-webapp-production.up.railway.app"
-                    }
+                "chat_id": telegram_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": {
+                    "inline_keyboard": [
+                        [
+                            {
+                                "text": "⚙️ Настройки модели",
+                                "web_app": {
+                                    "url": WEBAPP_URL
+                                }
+                            }
+                        ]
+                    ]
                 }
-            ]
-        ]
-    }
-}
+            },
+            timeout=10
+        )
+
         print("TELEGRAM STATUS:", response.status_code)
         print("TELEGRAM RESPONSE:", response.text)
 
