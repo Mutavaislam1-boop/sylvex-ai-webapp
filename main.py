@@ -42,16 +42,7 @@ async def save_settings(request: Request):
     telegram_id = data.get("telegram_id")
     message_id = data.get("message_id")
 
-    save_kling_settings(
-        telegram_id=telegram_id,
-        model=data.get("model"),
-        mode=data.get("mode"),
-        ratio=data.get("ratio"),
-        quality=data.get("quality"),
-        duration=int(str(data.get("duration")).split()[0]),
-        sound=1 if data.get("sound") else 0,
-        prompt_enhance=1 if data.get("prompt_enhance") else 0
-    )
+    
 
     body = (
         f"Модель: {data.get('model')}\n"
