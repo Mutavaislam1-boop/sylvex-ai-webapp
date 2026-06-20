@@ -63,7 +63,7 @@ async def save_settings(request: Request):
                 "chat_id": telegram_id,
                 "text": text,
                 "parse_mode": "HTML",
-                "disable_web_page_preview": True,
+                "disable_web_page_preview": False,
                 "reply_markup": {
                     "inline_keyboard": [
                         [
