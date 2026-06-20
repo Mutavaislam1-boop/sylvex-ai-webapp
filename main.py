@@ -10,6 +10,7 @@ app = FastAPI()
 app.mount("/image", StaticFiles(directory="image"), name="image")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 WEBAPP_URL = "https://sylvex-ai-webapp-production.up.railway.app"
 
 
@@ -33,11 +34,57 @@ def design(title: str, body: str) -> str:
 async def home():
     return FileResponse("index.html")
 
+def save_kling_settings_to_db(data):
+    duration_raw = str(data.get("duration", "5"))
+    duration = int(duration_raw.split()[0])
+
+    sound = 1 if data.get("sound") else 0
+    prompt_enhance = 1 if data.get("prompt_enhance") else 0
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO user_ai_settings (
+        telegram_id,
+        kling_model,
+        kling_mode,
+        kling_ratio,
+        kling_quality,
+        kling_duration,
+        kling_sound,
+        kling_prompt_enhance
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (telegram_id) DO UPDATE SET
+        kling_model = EXCLUDED.kling_model,
+        kling_mode = EXCLUDED.kling_mode,
+        kling_ratio = EXCLUDED.kling_ratio,
+        kling_quality = EXCLUDED.kling_quality,
+        kling_duration = EXCLUDED.kling_duration,
+        kling_sound = EXCLUDED.kling_sound,
+        kling_prompt_enhance = EXCLUDED.kling_prompt_enhance
+    """, (
+        int(data.get("telegram_id")),
+        data.get("model"),
+        data.get("mode"),
+        data.get("ratio"),
+        data.get("quality"),
+        duration,
+        sound,
+        prompt_enhance
+    ))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 @app.post("/save-settings")
 async def save_settings(request: Request):
     data = await request.json()
     print("SETTINGS RECEIVED:", data)
+
+    save_kling_settings_to_db(data)
+    print("SETTINGS SAVED TO POSTGRES")
     
     telegram_id = data.get("telegram_id")
     message_id = data.get("message_id")
@@ -89,8 +136,7 @@ async def save_settings(request: Request):
         print("SETTINGS SAVED TO DB") 
         print("SETTINGS:", data)
 
-        with open("settings.txt", "w") as f:
-            f.write(str(data))
+        import psycopg2
 
         return {
             "success": True,
