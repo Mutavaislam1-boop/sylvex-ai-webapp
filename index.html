@@ -144,6 +144,16 @@ button{
     transition:0.2s;
 }
 
+.format-card.selected{
+    border-color:#2d7fff;
+
+    background:rgba(45,127,255,0.25);
+
+    box-shadow:0 0 20px rgba(45,127,255,0.5);
+
+    transform:translateY(-2px);
+}
+
 .format-card:hover{
     border-color:#2d7fff;
     transform:translateY(-2px);
@@ -182,6 +192,20 @@ button{
 </style>
 </head>
 
+<script>
+
+function selectFormat(card){
+
+    document.querySelectorAll(".format-card")
+        .forEach(el => {
+            el.classList.remove("selected");
+        });
+
+    card.classList.add("selected");
+}
+
+</script>
+
 <body>
 
 <div class="card">
@@ -210,17 +234,17 @@ button{
 
 <div class="format-grid">
 
-<div class="format-card">
+<div class="format-card" onclick="selectFormat(this)"></div>
 <div class="frame-169"></div>
 16:9
 </div>
 
-<div class="format-card">
+<div class="format-card" onclick="selectFormat(this)"></div>
 <div class="frame-11"></div>
 1:1
 </div>
 
-<div class="format-card">
+<div class="format-card" onclick="selectFormat(this)"></div>
 <div class="frame-916"></div>
 9:16
 </div>
