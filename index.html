@@ -268,7 +268,7 @@ async function saveSettings() {
         prompt_enhance: document.querySelector("#prompt_enhance").checked
     };
 
-    await fetch("/save-settings", {
+    const response = await fetch("/save-settings", {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
@@ -276,7 +276,9 @@ async function saveSettings() {
         body: JSON.stringify(data)
     });
 
-    alert("✅ Настройки сохранены");
+    const result = await response.json();
+
+    alert(result.message);
 }
 </script>
 
