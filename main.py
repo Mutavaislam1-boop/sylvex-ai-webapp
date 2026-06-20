@@ -13,8 +13,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 
 def design(title: str, body: str) -> str:
-    return f"""
-<pre>
+    return f"""   
+<pre>                                   
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏷{title}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -23,7 +23,7 @@ def design(title: str, body: str) -> str:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌐SYLVEX AI creator bot • top ai creation platform©️
-</pre>
+</pre> 
 <a href="https://t.me/sylvexai_bot">Official Bot</a>
 """
 
