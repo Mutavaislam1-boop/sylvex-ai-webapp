@@ -59,14 +59,23 @@ async def save_settings(request: Request):
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
-                "chat_id": telegram_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True
-            },
-            timeout=10
-        )
-
+    "chat_id": telegram_id,
+    "text": text,
+    "parse_mode": "HTML",
+    "disable_web_page_preview": True,
+    "reply_markup": {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "⚙️ Настройки модели",
+                    "web_app": {
+                        "url": "https://sylvex-ai-webapp-production.up.railway.app"
+                    }
+                }
+            ]
+        ]
+    }
+}
         print("TELEGRAM STATUS:", response.status_code)
         print("TELEGRAM RESPONSE:", response.text)
 
