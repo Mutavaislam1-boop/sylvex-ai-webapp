@@ -36,7 +36,7 @@ async def save_settings(request: Request):
     )
 
     if BOT_TOKEN and telegram_id:
-        requests.post(
+        response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
                 "chat_id": telegram_id,
@@ -44,6 +44,9 @@ async def save_settings(request: Request):
             },
             timeout=10
         )
+
+        print("TELEGRAM STATUS:", response.status_code)
+        print("TELEGRAM RESPONSE:", response.text)
 
     print("SETTINGS:", data)
 
