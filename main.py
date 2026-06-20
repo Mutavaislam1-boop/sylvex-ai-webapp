@@ -13,6 +13,7 @@ app.mount("/image", StaticFiles(directory="image"), name="image")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+print("MINIAPP DATABASE:", DATABASE_URL)
 WEBAPP_URL = "https://sylvex-ai-webapp-production.up.railway.app"
 
 
