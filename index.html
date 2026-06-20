@@ -7,7 +7,6 @@
 <title>SYLVEX AI - Kling</title>
 
 <style>
-
 *{
     box-sizing:border-box;
 }
@@ -15,20 +14,16 @@
 body{
     margin:0;
     min-height:100vh;
-
     background-image:url("image/background.jpg");
     background-size:cover;
     background-position:center;
     background-repeat:no-repeat;
-
     display:flex;
     justify-content:center;
     align-items:center;
-
     font-family:Arial,sans-serif;
 }
 
-/* затемнение */
 body::before{
     content:"";
     position:fixed;
@@ -39,17 +34,12 @@ body::before{
 .card{
     position:relative;
     z-index:1;
-
     width:95%;
     max-width:550px;
-
     background:rgba(255,255,255,0.08);
     backdrop-filter:blur(18px);
-
     border-radius:24px;
-
     padding:25px;
-
     color:white;
 }
 
@@ -72,10 +62,8 @@ label{
 select{
     width:100%;
     padding:12px;
-
     border:none;
     border-radius:12px;
-
     background:white;
 }
 
@@ -83,7 +71,6 @@ select{
     display:flex;
     justify-content:space-between;
     align-items:center;
-
     margin-bottom:15px;
 }
 
@@ -94,13 +81,9 @@ select{
 
 .price{
     text-align:center;
-
     background:rgba(45,127,255,0.2);
-
     padding:15px;
-
     border-radius:14px;
-
     margin-top:15px;
     margin-bottom:15px;
 }
@@ -108,14 +91,10 @@ select{
 button{
     width:100%;
     padding:15px;
-
     border:none;
     border-radius:14px;
-
     background:#2d7fff;
-
     color:white;
-
     font-size:16px;
     font-weight:bold;
 }
@@ -128,29 +107,19 @@ button{
 
 .format-card{
     flex:1;
-
     background:rgba(255,255,255,0.08);
-
     border:2px solid rgba(255,255,255,0.15);
-
     border-radius:16px;
-
     padding:15px;
-
     cursor:pointer;
-
     text-align:center;
-
     transition:0.2s;
 }
 
 .format-card.selected{
     border-color:#2d7fff;
-
     background:rgba(45,127,255,0.25);
-
     box-shadow:0 0 20px rgba(45,127,255,0.5);
-
     transform:translateY(-2px);
 }
 
@@ -162,9 +131,7 @@ button{
 .frame-169{
     width:60px;
     height:34px;
-
     border:2px solid white;
-
     margin:auto;
     margin-bottom:10px;
 }
@@ -172,9 +139,7 @@ button{
 .frame-11{
     width:45px;
     height:45px;
-
     border:2px solid white;
-
     margin:auto;
     margin-bottom:10px;
 }
@@ -182,29 +147,12 @@ button{
 .frame-916{
     width:30px;
     height:55px;
-
     border:2px solid white;
-
     margin:auto;
     margin-bottom:10px;
 }
-
 </style>
 </head>
-
-<script>
-
-function selectFormat(card){
-
-    document.querySelectorAll(".format-card")
-        .forEach(el => {
-            el.classList.remove("selected");
-        });
-
-    card.classList.add("selected");
-}
-
-</script>
 
 <body>
 
@@ -214,7 +162,7 @@ function selectFormat(card){
 
 <div class="section">
 <label>Модель</label>
-<select>
+<select id="model">
 <option>Kling 3.0 Turbo</option>
 <option>Kling 3.0 Master</option>
 </select>
@@ -222,7 +170,7 @@ function selectFormat(card){
 
 <div class="section">
 <label>Режим генерации</label>
-<select>
+<select id="mode">
 <option>Text → Video</option>
 <option>Image → Video</option>
 </select>
@@ -234,17 +182,17 @@ function selectFormat(card){
 
 <div class="format-grid">
 
-    <div class="format-card selected" onclick="selectFormat(this)">
+    <div class="format-card selected" data-ratio="16:9" onclick="selectFormat(this)">
         <div class="frame-169"></div>
         <div>16:9</div>
     </div>
 
-    <div class="format-card" onclick="selectFormat(this)">
+    <div class="format-card" data-ratio="1:1" onclick="selectFormat(this)">
         <div class="frame-11"></div>
         <div>1:1</div>
     </div>
 
-    <div class="format-card" onclick="selectFormat(this)">
+    <div class="format-card" data-ratio="9:16" onclick="selectFormat(this)">
         <div class="frame-916"></div>
         <div>9:16</div>
     </div>
@@ -255,7 +203,7 @@ function selectFormat(card){
 
 <div class="section">
 <label>Качество</label>
-<select>
+<select id="quality">
 <option>Standard</option>
 <option>Professional</option>
 </select>
@@ -263,7 +211,7 @@ function selectFormat(card){
 
 <div class="section">
 <label>Длительность</label>
-<select>
+<select id="duration">
 <option>5 секунд</option>
 <option>10 секунд</option>
 </select>
@@ -271,23 +219,57 @@ function selectFormat(card){
 
 <div class="switch-row">
 <span>🔊 Звук</span>
-<input type="checkbox" checked>
+<input id="sound" type="checkbox" checked>
 </div>
 
 <div class="switch-row">
 <span>✨ Prompt Enhance</span>
-<input type="checkbox" checked>
+<input id="prompt_enhance" type="checkbox" checked>
 </div>
 
 <div class="price">
 💎 Стоимость: 100 Credits
 </div>
 
-<button>
+<button onclick="saveSettings()">
 СОХРАНИТЬ НАСТРОЙКИ
 </button>
 
 </div>
+
+<script>
+function selectFormat(card){
+    document.querySelectorAll(".format-card")
+        .forEach(el => {
+            el.classList.remove("selected");
+        });
+
+    card.classList.add("selected");
+}
+
+async function saveSettings() {
+    const data = {
+        provider: "kling",
+        model: document.querySelector("#model").value,
+        mode: document.querySelector("#mode").value,
+        ratio: document.querySelector(".format-card.selected").dataset.ratio,
+        quality: document.querySelector("#quality").value,
+        duration: document.querySelector("#duration").value,
+        sound: document.querySelector("#sound").checked,
+        prompt_enhance: document.querySelector("#prompt_enhance").checked
+    };
+
+    await fetch("/save-settings", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+    });
+
+    alert("✅ Настройки сохранены");
+}
+</script>
 
 </body>
 </html>
