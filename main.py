@@ -102,7 +102,7 @@ with open("settings.txt", "w") as f:
             sound=1 if data["sound"] else 0,
             prompt_enhance=1 if data["prompt_enhance"] else 0
         )
-
+        print("SETTINGS SAVED TO DB") 
         print("SETTINGS:", data)
 
         return {
