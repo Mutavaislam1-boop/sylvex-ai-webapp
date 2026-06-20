@@ -42,8 +42,9 @@ async def save_settings(request: Request):
     
     telegram_id = data.get("telegram_id")
     message_id = data.get("message_id")
-with open("settings.txt", "w") as f:
-    f.write(str(data))
+
+    with open("settings.txt", "w") as f:
+        f.write(str(data))
     
 
     body = (
