@@ -120,6 +120,65 @@ button{
     font-weight:bold;
 }
 
+.format-grid{
+    display:flex;
+    gap:12px;
+    margin-top:10px;
+}
+
+.format-card{
+    flex:1;
+
+    background:rgba(255,255,255,0.08);
+
+    border:2px solid rgba(255,255,255,0.15);
+
+    border-radius:16px;
+
+    padding:15px;
+
+    cursor:pointer;
+
+    text-align:center;
+
+    transition:0.2s;
+}
+
+.format-card:hover{
+    border-color:#2d7fff;
+    transform:translateY(-2px);
+}
+
+.frame-169{
+    width:60px;
+    height:34px;
+
+    border:2px solid white;
+
+    margin:auto;
+    margin-bottom:10px;
+}
+
+.frame-11{
+    width:45px;
+    height:45px;
+
+    border:2px solid white;
+
+    margin:auto;
+    margin-bottom:10px;
+}
+
+.frame-916{
+    width:30px;
+    height:55px;
+
+    border:2px solid white;
+
+    margin:auto;
+    margin-bottom:10px;
+}
+
 </style>
 </head>
 
@@ -146,12 +205,28 @@ button{
 </div>
 
 <div class="section">
-<label>Формат</label>
-<select>
-<option>16:9</option>
-<option>9:16</option>
-<option>1:1</option>
-</select>
+
+<label>Формат видео</label>
+
+<div class="format-grid">
+
+<div class="format-card">
+<div class="frame-169"></div>
+16:9
+</div>
+
+<div class="format-card">
+<div class="frame-11"></div>
+1:1
+</div>
+
+<div class="format-card">
+<div class="frame-916"></div>
+9:16
+</div>
+
+</div>
+
 </div>
 
 <div class="section">
