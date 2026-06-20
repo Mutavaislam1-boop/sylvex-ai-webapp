@@ -4,7 +4,7 @@ import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
+from database.db import save_kling_settings
 
 app = FastAPI()
 
@@ -38,10 +38,12 @@ async def home():
 @app.post("/save-settings")
 async def save_settings(request: Request):
     data = await request.json()
-
+    print("SETTINGS RECEIVED:", data)
+    
     telegram_id = data.get("telegram_id")
     message_id = data.get("message_id")
-
+with open("settings.txt", "w") as f:
+    f.write(str(data))
     
 
     body = (
@@ -88,9 +90,22 @@ async def save_settings(request: Request):
         print("TELEGRAM STATUS:", response.status_code)
         print("TELEGRAM RESPONSE:", response.text)
 
-    print("SETTINGS:", data)
+        save_kling_settings(
+            telegram_id=int(data["telegram_id"]),
+            model=data["model"],
+            mode=data["mode"],
+            ratio=data["ratio"],
+            quality=data["quality"],
+            duration=int(
+                str(data["duration"]).replace(" секунд", "")
+            ),
+            sound=1 if data["sound"] else 0,
+            prompt_enhance=1 if data["prompt_enhance"] else 0
+        )
 
-    return {
-        "success": True,
-        "message": "✅ Настройки Kling сохранены"
-    }
+        print("SETTINGS:", data)
+
+        return {
+            "success": True,
+            "message": "✅ Настройки Kling сохранены"
+        }
