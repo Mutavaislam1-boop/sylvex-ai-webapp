@@ -4,9 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>SYLVEX AI</title>
+<title>SYLVEX AI - Kling</title>
 
 <style>
+
+*{
+    box-sizing:border-box;
+}
 
 body{
     margin:0;
@@ -24,44 +28,81 @@ body{
     font-family:Arial,sans-serif;
 }
 
-/* затемнение поверх картинки */
+/* затемнение */
 body::before{
     content:"";
     position:fixed;
     inset:0;
-    background:rgba(0,0,0,0.65);
+    background:rgba(0,0,0,0.75);
 }
 
 .card{
     position:relative;
     z-index:1;
 
-    width:90%;
-    max-width:500px;
+    width:95%;
+    max-width:550px;
 
     background:rgba(255,255,255,0.08);
+    backdrop-filter:blur(18px);
 
-    backdrop-filter:blur(15px);
-
-    border-radius:20px;
+    border-radius:24px;
 
     padding:25px;
 
     color:white;
 }
 
-h2{
+h1{
     text-align:center;
+    margin-top:0;
+}
+
+.section{
+    margin-bottom:18px;
+}
+
+label{
+    display:block;
+    margin-bottom:8px;
+    font-size:14px;
+    opacity:0.9;
 }
 
 select{
     width:100%;
     padding:12px;
-    margin-top:5px;
-    margin-bottom:15px;
 
     border:none;
-    border-radius:10px;
+    border-radius:12px;
+
+    background:white;
+}
+
+.switch-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+
+    margin-bottom:15px;
+}
+
+.switch-row input{
+    width:22px;
+    height:22px;
+}
+
+.price{
+    text-align:center;
+
+    background:rgba(45,127,255,0.2);
+
+    padding:15px;
+
+    border-radius:14px;
+
+    margin-top:15px;
+    margin-bottom:15px;
 }
 
 button{
@@ -69,12 +110,14 @@ button{
     padding:15px;
 
     border:none;
-    border-radius:12px;
+    border-radius:14px;
 
     background:#2d7fff;
+
     color:white;
 
     font-size:16px;
+    font-weight:bold;
 }
 
 </style>
@@ -84,28 +127,66 @@ button{
 
 <div class="card">
 
-<h2>⚙️ Настройки Kling</h2>
+<h1>⚙️ Kling Settings</h1>
 
+<div class="section">
+<label>Модель</label>
+<select>
+<option>Kling 3.0 Turbo</option>
+<option>Kling 3.0 Master</option>
+</select>
+</div>
+
+<div class="section">
+<label>Режим генерации</label>
+<select>
+<option>Text → Video</option>
+<option>Image → Video</option>
+</select>
+</div>
+
+<div class="section">
 <label>Формат</label>
 <select>
-    <option>16:9</option>
-    <option>9:16</option>
-    <option>1:1</option>
+<option>16:9</option>
+<option>9:16</option>
+<option>1:1</option>
 </select>
+</div>
 
+<div class="section">
 <label>Качество</label>
 <select>
-    <option>720p</option>
-    <option>1080p</option>
+<option>Standard</option>
+<option>Professional</option>
 </select>
+</div>
 
+<div class="section">
 <label>Длительность</label>
 <select>
-    <option>5 сек</option>
-    <option>10 сек</option>
+<option>5 секунд</option>
+<option>10 секунд</option>
 </select>
+</div>
 
-<button>Сохранить</button>
+<div class="switch-row">
+<span>🔊 Звук</span>
+<input type="checkbox" checked>
+</div>
+
+<div class="switch-row">
+<span>✨ Prompt Enhance</span>
+<input type="checkbox" checked>
+</div>
+
+<div class="price">
+💎 Стоимость: 100 Credits
+</div>
+
+<button>
+СОХРАНИТЬ НАСТРОЙКИ
+</button>
 
 </div>
 
