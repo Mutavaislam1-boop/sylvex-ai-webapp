@@ -1,321 +1,159 @@
-from pathlib import Path
-
-html = r'''<!DOCTYPE html>
-
+<!DOCTYPE html>
 <html lang="ru">
 
 <head>
-
 <meta charset="UTF-8">
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>SYLVEX AI - Video Settings</title>
+<title>SYLVEX AI - Kling</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
 <style>
-
 *{
-
     box-sizing:border-box;
-
 }
 
 body{
-
     margin:0;
-
     min-height:100vh;
-
     background-image:url("image/background.jpg");
-
     background-size:cover;
-
     background-position:center;
-
     background-repeat:no-repeat;
-
     display:flex;
-
     justify-content:center;
-
     align-items:center;
-
     font-family:Arial,sans-serif;
-
 }
 
 body::before{
-
     content:"";
-
     position:fixed;
-
     inset:0;
-
     background:rgba(0,0,0,0.75);
-
 }
 
 .card{
-
     position:relative;
-
     z-index:1;
-
     width:95%;
-
     max-width:550px;
-
     background:rgba(255,255,255,0.08);
-
     backdrop-filter:blur(18px);
-
     border-radius:24px;
-
     padding:25px;
-
     color:white;
-
-    max-height:95vh;
-
-    overflow-y:auto;
-
 }
 
 h1{
-
     text-align:center;
-
     margin-top:0;
-
 }
 
 .section{
-
     margin-bottom:18px;
-
 }
 
 label{
-
     display:block;
-
     margin-bottom:8px;
-
     font-size:14px;
-
     opacity:0.9;
-
 }
 
-select, input[type="text"], input[type="number"]{
-
+select{
     width:100%;
-
     padding:12px;
-
     border:none;
-
     border-radius:12px;
-
     background:white;
-
-    color:#111;
-
 }
 
 .switch-row{
-
     display:flex;
-
     justify-content:space-between;
-
     align-items:center;
-
     margin-bottom:15px;
-
-    gap:12px;
-
 }
 
 .switch-row input{
-
     width:22px;
-
     height:22px;
-
 }
 
 .price{
-
     text-align:center;
-
     background:rgba(45,127,255,0.2);
-
     padding:15px;
-
     border-radius:14px;
-
     margin-top:15px;
-
     margin-bottom:15px;
-
 }
 
 button{
-
     width:100%;
-
     padding:15px;
-
     border:none;
-
     border-radius:14px;
-
     background:#2d7fff;
-
     color:white;
-
     font-size:16px;
-
     font-weight:bold;
-
 }
 
 .format-grid{
-
     display:flex;
-
     gap:12px;
-
     margin-top:10px;
-
 }
 
 .format-card{
-
     flex:1;
-
     background:rgba(255,255,255,0.08);
-
     border:2px solid rgba(255,255,255,0.15);
-
     border-radius:16px;
-
     padding:15px;
-
     cursor:pointer;
-
     text-align:center;
-
     transition:0.2s;
-
 }
 
 .format-card.selected{
-
     border-color:#2d7fff;
-
     background:rgba(45,127,255,0.25);
-
     box-shadow:0 0 20px rgba(45,127,255,0.5);
-
     transform:translateY(-2px);
-
 }
 
 .format-card:hover{
-
     border-color:#2d7fff;
-
     transform:translateY(-2px);
-
 }
 
 .frame-169{
-
     width:60px;
-
     height:34px;
-
     border:2px solid white;
-
     margin:auto;
-
     margin-bottom:10px;
-
 }
 
 .frame-11{
-
     width:45px;
-
     height:45px;
-
     border:2px solid white;
-
     margin:auto;
-
     margin-bottom:10px;
-
 }
 
 .frame-916{
-
     width:30px;
-
     height:55px;
-
     border:2px solid white;
-
     margin:auto;
-
     margin-bottom:10px;
-
 }
-
-.hidden{
-
-    display:none;
-
-}
-
-.info-box{
-
-    background:rgba(255,255,255,0.08);
-
-    border:1px solid rgba(255,255,255,0.15);
-
-    border-radius:14px;
-
-    padding:12px;
-
-    font-size:13px;
-
-    line-height:1.45;
-
-    opacity:0.95;
-
-}
-
-.extra-title{
-
-    margin:20px 0 12px;
-
-    padding:12px;
-
-    text-align:center;
-
-    border-radius:14px;
-
-    background:rgba(45,127,255,0.15);
-
-    font-weight:bold;
-
-}
-
 </style>
 
 </head>
@@ -324,1340 +162,128 @@ button{
 
 <div class="card">
 
-<h1 id="pageTitle">⚙️ Video AI Settings</h1>
+<h1>⚙️ Kling Settings</h1>
 
 <div class="section">
-
-<label>ИИ / Провайдер</label>
-
-<select id="provider" onchange="loadProviderSettings()"></select>
-
-</div>
-
-<div class="section">
-
 <label>Модель</label>
-
-<select id="model"></select>
-
+<select id="model">
+<option>Kling 3.0 Turbo</option>
+<option>Kling 3.0 Master</option>
+</select>
 </div>
 
 <div class="section">
-
 <label>Режим генерации</label>
-
-<select id="mode"></select>
-
+<select id="mode">
+<option>Text → Video</option>
+<option>Image → Video</option>
+</select>
 </div>
 
-<div class="section" id="formatSection">
+<div class="section">
 
 <label>Формат видео</label>
 
 <div class="format-grid">
 
     <div class="format-card selected" data-ratio="16:9" onclick="selectFormat(this)">
-
         <div class="frame-169"></div>
-
         <div>16:9</div>
-
     </div>
 
     <div class="format-card" data-ratio="1:1" onclick="selectFormat(this)">
-
         <div class="frame-11"></div>
-
         <div>1:1</div>
-
     </div>
 
     <div class="format-card" data-ratio="9:16" onclick="selectFormat(this)">
-
         <div class="frame-916"></div>
-
         <div>9:16</div>
-
     </div>
 
 </div>
 
 </div>
 
-<div class="section" id="resolutionSection">
-
-<label>Разрешение</label>
-
-<select id="resolution"></select>
-
-</div>
-
-<div class="section" id="durationSection">
-
-<label>Длительность</label>
-
-<select id="duration"></select>
-
-</div>
-
-<div class="section" id="qualitySection">
-
+<div class="section">
 <label>Качество</label>
-
 <select id="quality">
-
 <option>Standard</option>
-
-<option>High</option>
-
 <option>Professional</option>
-
-<option>Ultra</option>
-
 </select>
-
 </div>
 
-<div class="section" id="styleSection">
-
-<label>Стиль</label>
-
-<select id="style">
-
-<option>Realistic</option>
-
-<option>Cinematic</option>
-
-<option>Anime</option>
-
-<option>3D</option>
-
-<option>Advertising</option>
-
-<option>Documentary</option>
-
-<option>Fantasy</option>
-
-<option>Cyberpunk</option>
-
+<div class="section">
+<label>Длительность</label>
+<select id="duration">
+<option>5 секунд</option>
+<option>10 секунд</option>
 </select>
-
 </div>
 
-<div class="section" id="realismSection">
-
-<label>Реализм</label>
-
-<select id="realism">
-
-<option>Balanced</option>
-
-<option>Low</option>
-
-<option>Medium</option>
-
-<option>High</option>
-
-<option>Ultra Realistic</option>
-
-</select>
-
-</div>
-
-<div class="section" id="motionSection">
-
-<label>Интенсивность движения</label>
-
-<select id="motion">
-
-<option>Low</option>
-
-<option>Medium</option>
-
-<option>High</option>
-
-<option>Extreme</option>
-
-</select>
-
-</div>
-
-<div class="section" id="cameraSection">
-
-<label>Движение камеры</label>
-
-<select id="camera"></select>
-
-</div>
-
-<div class="section" id="fpsSection">
-
-<label>FPS</label>
-
-<select id="fps">
-
-<option>24 FPS</option>
-
-<option>30 FPS</option>
-
-<option>60 FPS</option>
-
-</select>
-
-</div>
-
-<div class="section" id="promptStrengthSection">
-
-<label>Следование промпту / Prompt Strength</label>
-
-<select id="prompt_strength">
-
-<option>Balanced</option>
-
-<option>Low</option>
-
-<option>Medium</option>
-
-<option>High</option>
-
-<option>Maximum</option>
-
-</select>
-
-</div>
-
-<div class="section" id="negativePromptSection">
-
-<label>Negative Prompt</label>
-
-<input id="negative_prompt" type="text" placeholder="Что нужно исключить из генерации">
-
-</div>
-
-<div class="section" id="seedSection">
-
-<label>Seed</label>
-
-<input id="seed" type="number" placeholder="Оставь пустым для случайного seed">
-
-</div>
-
-<div id="extraSettings"></div>
-
-<div class="switch-row" id="soundRow">
-
+<div class="switch-row">
 <span>🔊 Звук</span>
-
 <input id="sound" type="checkbox" checked>
-
 </div>
 
-<div class="switch-row" id="promptEnhanceRow">
-
+<div class="switch-row">
 <span>✨ Prompt Enhance</span>
-
 <input id="prompt_enhance" type="checkbox" checked>
-
 </div>
 
-<div class="switch-row" id="characterRow">
-
-<span>🧍 Character Consistency</span>
-
-<input id="character_consistency" type="checkbox">
-
-</div>
-
-<div class="switch-row" id="referenceRow">
-
-<span>🖼 Reference Image</span>
-
-<input id="reference_image" type="checkbox">
-
-</div>
-
-<div class="price" id="priceBox">
-
+<div class="price">
 💎 Стоимость: 100 Credits
-
 </div>
 
 <button onclick="saveSettings()">
-
 СОХРАНИТЬ НАСТРОЙКИ
-
 </button>
 
 </div>
 
 <script>
-
-const AI_SETTINGS = {
-
-    kling: {
-
-        title: "⚙️ Kling Settings",
-
-        name: "KLING AI",
-
-        price: "100 Credits",
-
-        models: [
-
-            "Kling 2.1 Standard",
-
-            "Kling 2.1 Master",
-
-            "Kling 2.5 Standard",
-
-            "Kling 2.5 Master",
-
-            "Kling 3.0 Turbo",
-
-            "Kling 3.0 Master"
-
-        ],
-
-        modes: [
-
-            "Text → Video",
-
-            "Image → Video",
-
-            "Video → Video",
-
-            "Extend Video",
-
-            "Audio → Video",
-
-            "Character Consistency",
-
-            "Multi Scene Generation"
-
-        ],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "Extend"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p", "4K"],
-
-        cameras: [
-
-            "None",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan Left",
-
-            "Pan Right",
-
-            "Tilt Up",
-
-            "Tilt Down",
-
-            "Orbit",
-
-            "Dolly",
-
-            "Tracking Shot"
-
-        ],
-
-        extras: [
-
-            {id:"object_speed", label:"Скорость движения объектов", type:"select", options:["Slow","Medium","Fast"]},
-
-            {id:"scene_count", label:"Количество сцен", type:"select", options:["1 сцена","2 сцены","3 сцены","4 сцены"]}
-
-        ]
-
-    },
-
-    sora: {
-
-        title: "⚙️ Sora Settings",
-
-        name: "SORA",
-
-        price: "120 Credits",
-
-        models: ["Sora Turbo", "Sora Pro"],
-
-        modes: [
-
-            "Text → Video",
-
-            "Image → Video",
-
-            "Video → Video",
-
-            "Remix",
-
-            "Recut",
-
-            "Storyboard",
-
-            "Extend Video"
-
-        ],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "20 секунд", "25 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: [
-
-            "None",
-
-            "Static",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan Left",
-
-            "Pan Right",
-
-            "Tracking Shot",
-
-            "Handheld",
-
-            "Cinematic"
-
-        ],
-
-        extras: [
-
-            {id:"remix_strength", label:"Remix Strength", type:"select", options:["Low","Medium","High"]},
-
-            {id:"storyboard_control", label:"Storyboard Control", type:"select", options:["Simple","Balanced","Detailed"]}
-
-        ]
-
-    },
-
-    veo: {
-
-        title: "⚙️ Google Veo Settings",
-
-        name: "GOOGLE VEO",
-
-        price: "150 Credits",
-
-        models: ["Veo 2", "Veo 3"],
-
-        modes: [
-
-            "Text → Video",
-
-            "Image → Video",
-
-            "Video → Video",
-
-            "Sound Generation",
-
-            "Character Voice",
-
-            "Dialogues",
-
-            "Character Consistency"
-
-        ],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "30 секунд", "60 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["1080p", "4K"],
-
-        cameras: [
-
-            "None",
-
-            "Static",
-
-            "Camera Control",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan",
-
-            "Orbit",
-
-            "Dolly",
-
-            "Drone",
-
-            "Tracking Shot"
-
-        ],
-
-        extras: [
-
-            {id:"depth_of_field", label:"Глубина резкости", type:"select", options:["Off","Low","Medium","High"]},
-
-            {id:"lighting", label:"Освещение", type:"select", options:["Natural","Studio","Cinematic","Dark","Neon"]},
-
-            {id:"dialogue", label:"Диалоги персонажей", type:"select", options:["Off","On"]}
-
-        ]
-
-    },
-
-    runway: {
-
-        title: "⚙️ Runway Settings",
-
-        name: "RUNWAY",
-
-        price: "110 Credits",
-
-        models: ["Gen-3 Alpha", "Gen-4 Turbo", "Gen-4"],
-
-        modes: [
-
-            "Text → Video",
-
-            "Image → Video",
-
-            "Video → Video",
-
-            "Character Reference",
-
-            "Scene Reference",
-
-            "Motion Brush",
-
-            "Expand Video"
-
-        ],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "20 секунд", "30 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: [
-
-            "None",
-
-            "Camera Motion",
-
-            "Static",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan Left",
-
-            "Pan Right",
-
-            "Tracking Shot",
-
-            "Handheld"
-
-        ],
-
-        extras: [
-
-            {id:"motion_brush", label:"Motion Brush", type:"select", options:["Off","Low","Medium","High"]},
-
-            {id:"prompt_weight", label:"Prompt Weight", type:"select", options:["Low","Medium","High","Maximum"]},
-
-            {id:"scene_reference", label:"Scene Reference", type:"select", options:["Off","On"]}
-
-        ]
-
-    },
-
-    runway_act_two: {
-
-        title: "⚙️ Runway Act Two Settings",
-
-        name: "RUNWAY ACT TWO",
-
-        price: "90 Credits",
-
-        models: ["Act Two"],
-
-        modes: [
-
-            "Human Video → AI Character",
-
-            "Face Capture",
-
-            "Motion Capture",
-
-            "Emotion Capture"
-
-        ],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "30 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: ["None"],
-
-        hideCommon: ["style","realism","negative","seed","prompt_strength","camera","fps"],
-
-        extras: [
-
-            {id:"animation_strength", label:"Сила анимации", type:"select", options:["Low","Medium","High"]},
-
-            {id:"face_accuracy", label:"Точность лица", type:"select", options:["Low","Medium","High","Maximum"]},
-
-            {id:"lip_sync", label:"Синхронизация губ", type:"select", options:["Off","On"]},
-
-            {id:"emotion_strength", label:"Эмоции", type:"select", options:["Low","Medium","High"]},
-
-            {id:"body_motion", label:"Интенсивность движений", type:"select", options:["Low","Medium","High"]}
-
-        ]
-
-    },
-
-    luma: {
-
-        title: "⚙️ Luma Dream Machine Settings",
-
-        name: "LUMA DREAM MACHINE",
-
-        price: "100 Credits",
-
-        models: ["Dream Machine", "Ray 2"],
-
-        modes: ["Text → Video", "Image → Video", "Loop Video", "Extend Video"],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "20 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: [
-
-            "None",
-
-            "Cinematic",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan",
-
-            "Orbit",
-
-            "Tracking Shot"
-
-        ],
-
-        extras: [
-
-            {id:"cinematic_level", label:"Кинематографичность", type:"select", options:["Low","Medium","High"]},
-
-            {id:"detail_level", label:"Детализация", type:"select", options:["Low","Medium","High"]}
-
-        ]
-
-    },
-
-    seedance: {
-
-        title: "⚙️ Seedance Settings",
-
-        name: "SEEDANCE",
-
-        price: "95 Credits",
-
-        models: ["Seedance 1.0", "Seedance 1.5"],
-
-        modes: ["Text → Video", "Image → Video"],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: [
-
-            "None",
-
-            "Static",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan",
-
-            "Tracking"
-
-        ],
-
-        extras: [
-
-            {id:"dynamic", label:"Динамика", type:"select", options:["Low","Medium","High"]},
-
-            {id:"speed", label:"Скорость движения", type:"select", options:["Slow","Medium","Fast"]}
-
-        ]
-
-    },
-
-    higgsfield: {
-
-        title: "⚙️ Higgsfield Settings",
-
-        name: "HIGGSFIELD",
-
-        price: "100 Credits",
-
-        models: ["Higgsfield Creator"],
-
-        modes: ["Text → Video", "Image → Video"],
-
-        durations: ["3 секунды", "5 секунд", "10 секунд", "15 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: [
-
-            "Orbit",
-
-            "Drone",
-
-            "Bullet Time",
-
-            "Tracking",
-
-            "Push In",
-
-            "Pull Out",
-
-            "Crane",
-
-            "FPV",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan Left",
-
-            "Pan Right",
-
-            "Tilt Up",
-
-            "Tilt Down"
-
-        ],
-
-        extras: [
-
-            {id:"camera_intensity", label:"Интенсивность камеры", type:"select", options:["Low","Medium","High","Extreme"]},
-
-            {id:"cinematic_camera_pack", label:"Cinematic Camera Pack", type:"select", options:["Basic","Creator","Pro"]}
-
-        ]
-
-    },
-
-    hailuo: {
-
-        title: "⚙️ Hailuo AI Settings",
-
-        name: "HAILUO AI / MINIMAX",
-
-        price: "90 Credits",
-
-        models: ["Hailuo 01", "Hailuo 02"],
-
-        modes: ["Text → Video", "Image → Video", "Character Consistency"],
-
-        durations: ["6 секунд", "10 секунд", "15 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: [
-
-            "None",
-
-            "Static",
-
-            "Zoom In",
-
-            "Zoom Out",
-
-            "Pan",
-
-            "Tracking Shot"
-
-        ],
-
-        extras: [
-
-            {id:"face_detail", label:"Детализация лица", type:"select", options:["Low","Medium","High"]},
-
-            {id:"detail_level", label:"Общая детализация", type:"select", options:["Low","Medium","High"]}
-
-        ]
-
-    },
-
-    heygen: {
-
-        title: "⚙️ HeyGen Settings",
-
-        name: "HEYGEN",
-
-        price: "80 Credits",
-
-        models: ["Avatar IV", "Interactive Avatar"],
-
-        modes: [
-
-            "AI Avatar",
-
-            "Talking Character",
-
-            "Voice Clone",
-
-            "Video Translation",
-
-            "Lip Sync"
-
-        ],
-
-        durations: ["15 секунд", "30 секунд", "60 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: ["None"],
-
-        hideCommon: ["style","realism","motion","negative","seed","prompt_strength","camera","fps"],
-
-        extras: [
-
-            {id:"voice", label:"Голос", type:"select", options:["Male Calm","Male Energetic","Female Calm","Female Energetic"]},
-
-            {id:"language", label:"Язык", type:"select", options:["Russian","English","Kazakh","German","Spanish","French"]},
-
-            {id:"emotion", label:"Эмоции", type:"select", options:["Neutral","Happy","Serious","Confident","Calm"]},
-
-            {id:"speech_speed", label:"Скорость речи", type:"select", options:["Slow","Normal","Fast"]},
-
-            {id:"subtitles", label:"Субтитры", type:"select", options:["Off","On"]},
-
-            {id:"background", label:"Фон", type:"select", options:["Original","Studio","Office","Dark","Custom"]}
-
-        ]
-
-    },
-
-    hedra: {
-
-        title: "⚙️ Hedra Settings",
-
-        name: "HEDRA",
-
-        price: "75 Credits",
-
-        models: ["Character-3"],
-
-        modes: [
-
-            "Image → Talking Character",
-
-            "Text → Speech",
-
-            "Audio → Character"
-
-        ],
-
-        durations: ["5 секунд", "10 секунд", "15 секунд", "30 секунд", "60 секунд"],
-
-        ratios: ["16:9", "1:1", "9:16"],
-
-        resolutions: ["720p", "1080p"],
-
-        cameras: ["None"],
-
-        hideCommon: ["style","realism","motion","negative","seed","prompt_strength","camera","fps"],
-
-        extras: [
-
-            {id:"voice", label:"Голос", type:"select", options:["Male Calm","Male Energetic","Female Calm","Female Energetic"]},
-
-            {id:"emotion", label:"Эмоции", type:"select", options:["Neutral","Happy","Sad","Angry","Confident"]},
-
-            {id:"facial_expression", label:"Мимика", type:"select", options:["Low","Medium","High"]},
-
-            {id:"head_motion", label:"Движение головы", type:"select", options:["Low","Medium","High"]},
-
-            {id:"lip_sync", label:"Lip Sync", type:"select", options:["Off","On"]}
-
-        ]
-
-    },
-
-    topaz: {
-
-        title: "⚙️ Topaz Video AI Settings",
-
-        name: "TOPAZ AI",
-
-        price: "60 Credits",
-
-        models: ["Video AI"],
-
-        modes: [
-
-            "Upscale Video",
-
-            "Increase FPS",
-
-            "Denoise",
-
-            "Stabilize",
-
-            "Face Recovery",
-
-            "Sharpen"
-
-        ],
-
-        durations: ["Original"],
-
-        ratios: ["Original", "16:9", "1:1", "9:16"],
-
-        resolutions: ["1080p", "2K", "4K", "8K"],
-
-        cameras: ["None"],
-
-        hideCommon: ["style","realism","motion","negative","seed","prompt_strength","camera","fps"],
-
-        extras: [
-
-            {id:"upscale", label:"Upscale", type:"select", options:["Off","2x","4x"]},
-
-            {id:"denoise", label:"Denoise", type:"select", options:["Off","Low","Medium","High"]},
-
-            {id:"sharpen", label:"Sharpen", type:"select", options:["Off","Low","Medium","High"]},
-
-            {id:"stabilize", label:"Stabilize", type:"select", options:["Off","On"]},
-
-            {id:"frame_interpolation", label:"Frame Interpolation", type:"select", options:["Off","30 FPS","60 FPS","120 FPS"]},
-
-            {id:"face_recovery", label:"Face Recovery", type:"select", options:["Off","Low","Medium","High"]}
-
-        ]
-
-    }
-
-};
-
-const COMMON_SECTIONS = {
-
-    style: "styleSection",
-
-    realism: "realismSection",
-
-    motion: "motionSection",
-
-    negative: "negativePromptSection",
-
-    seed: "seedSection",
-
-    prompt_strength: "promptStrengthSection",
-
-    camera: "cameraSection",
-
-    fps: "fpsSection"
-
-};
-
-function fillSelect(id, values){
-
-    const select = document.getElementById(id);
-
-    select.innerHTML = "";
-
-    values.forEach(value => {
-
-        const option = document.createElement("option");
-
-        option.value = value;
-
-        option.textContent = value;
-
-        select.appendChild(option);
-
-    });
-
-}
-
 function selectFormat(card){
-
     document.querySelectorAll(".format-card")
-
         .forEach(el => {
-
             el.classList.remove("selected");
-
         });
 
     card.classList.add("selected");
-
-}
-
-function setFormatOptions(ratios){
-
-    const cards = document.querySelectorAll(".format-card");
-
-    cards.forEach(card => {
-
-        const ratio = card.dataset.ratio;
-
-        if(ratios.includes(ratio)){
-
-            card.classList.remove("hidden");
-
-        }else{
-
-            card.classList.add("hidden");
-
-            card.classList.remove("selected");
-
-        }
-
-    });
-
-    let selected = document.querySelector(".format-card.selected:not(.hidden)");
-
-    if(!selected){
-
-        const firstVisible = document.querySelector(".format-card:not(.hidden)");
-
-        if(firstVisible){
-
-            firstVisible.classList.add("selected");
-
-        }
-
-    }
-
-}
-
-function renderExtraSettings(extras){
-
-    const box = document.getElementById("extraSettings");
-
-    box.innerHTML = "";
-
-    if(!extras || extras.length === 0){
-
-        return;
-
-    }
-
-    const title = document.createElement("div");
-
-    title.className = "extra-title";
-
-    title.textContent = "Дополнительные настройки";
-
-    box.appendChild(title);
-
-    extras.forEach(item => {
-
-        const section = document.createElement("div");
-
-        section.className = "section";
-
-        const label = document.createElement("label");
-
-        label.textContent = item.label;
-
-        section.appendChild(label);
-
-        if(item.type === "select"){
-
-            const select = document.createElement("select");
-
-            select.id = item.id;
-
-            select.className = "extra-setting";
-
-            item.options.forEach(optionText => {
-
-                const option = document.createElement("option");
-
-                option.value = optionText;
-
-                option.textContent = optionText;
-
-                select.appendChild(option);
-
-            });
-
-            section.appendChild(select);
-
-        }
-
-        box.appendChild(section);
-
-    });
-
-}
-
-function showCommonSections(providerData){
-
-    Object.values(COMMON_SECTIONS).forEach(sectionId => {
-
-        document.getElementById(sectionId).classList.remove("hidden");
-
-    });
-
-    if(providerData.hideCommon){
-
-        providerData.hideCommon.forEach(key => {
-
-            const sectionId = COMMON_SECTIONS[key];
-
-            if(sectionId){
-
-                document.getElementById(sectionId).classList.add("hidden");
-
-            }
-
-        });
-
-    }
-
-}
-
-function loadProviderSettings(){
-
-    const provider = document.getElementById("provider").value;
-
-    const data = AI_SETTINGS[provider];
-
-    document.getElementById("pageTitle").textContent = data.title;
-
-    fillSelect("model", data.models);
-
-    fillSelect("mode", data.modes);
-
-    fillSelect("duration", data.durations);
-
-    fillSelect("resolution", data.resolutions);
-
-    fillSelect("camera", data.cameras);
-
-    setFormatOptions(data.ratios);
-
-    renderExtraSettings(data.extras);
-
-    showCommonSections(data);
-
-    document.getElementById("priceBox").textContent = "💎 Стоимость: " + data.price;
-
-    const soundRow = document.getElementById("soundRow");
-
-    if(provider === "topaz"){
-
-        soundRow.classList.add("hidden");
-
-    }else{
-
-        soundRow.classList.remove("hidden");
-
-    }
-
-}
-
-function getExtraSettings(){
-
-    const result = {};
-
-    document.querySelectorAll(".extra-setting").forEach(el => {
-
-        result[el.id] = el.value;
-
-    });
-
-    return result;
-
-}
-
-function getValueOrNull(id){
-
-    const el = document.getElementById(id);
-
-    if(!el || el.closest(".hidden")){
-
-        return null;
-
-    }
-
-    return el.value;
-
-}
-
-function getCheckedOrNull(id){
-
-    const el = document.getElementById(id);
-
-    if(!el || el.closest(".hidden")){
-
-        return null;
-
-    }
-
-    return el.checked;
-
 }
 
 async function saveSettings() {
 
     const tg = window.Telegram.WebApp;
-
     const user = tg.initDataUnsafe.user;
 
-    const providerKey = document.querySelector("#provider").value;
-
-    const providerData = AI_SETTINGS[providerKey];
-
-    const selectedFormat = document.querySelector(".format-card.selected");
-
     const data = {
-
         telegram_id: user ? user.id : null,
-
         message_id: new URLSearchParams(window.location.search).get("message_id"),
-
-        provider: providerKey,
-
-        provider_name: providerData.name,
-
+        provider: "kling",
         model: document.querySelector("#model").value,
-
         mode: document.querySelector("#mode").value,
-
-        ratio: selectedFormat ? selectedFormat.dataset.ratio : "Original",
-
-        resolution: document.querySelector("#resolution").value,
-
+        ratio: document.querySelector(".format-card.selected").dataset.ratio,
+        quality: document.querySelector("#quality").value,
         duration: document.querySelector("#duration").value,
-
-        quality: getValueOrNull("quality"),
-
-        style: getValueOrNull("style"),
-
-        realism: getValueOrNull("realism"),
-
-        motion: getValueOrNull("motion"),
-
-        camera: getValueOrNull("camera"),
-
-        fps: getValueOrNull("fps"),
-
-        prompt_strength: getValueOrNull("prompt_strength"),
-
-        negative_prompt: getValueOrNull("negative_prompt"),
-
-        seed: getValueOrNull("seed"),
-
-        sound: getCheckedOrNull("sound"),
-
-        prompt_enhance: getCheckedOrNull("prompt_enhance"),
-
-        character_consistency: getCheckedOrNull("character_consistency"),
-
-        reference_image: getCheckedOrNull("reference_image"),
-
-        extra_settings: getExtraSettings()
-
+        sound: document.querySelector("#sound").checked,
+        prompt_enhance: document.querySelector("#prompt_enhance").checked
     };
 
     await fetch("/save-settings", {
-
         method: "POST",
-
         headers: {
-
             "Content-Type": "application/json"
-
         },
-
         body: JSON.stringify(data)
-
     });
 
     tg.sendData(JSON.stringify(data));
 
     setTimeout(() => {
-
         tg.close();
-
     }, 500);
-
 }
-
-function initProviders(){
-
-    const providerSelect = document.getElementById("provider");
-
-    providerSelect.innerHTML = "";
-
-    Object.keys(AI_SETTINGS).forEach(key => {
-
-        const option = document.createElement("option");
-
-        option.value = key;
-
-        option.textContent = AI_SETTINGS[key].name;
-
-        providerSelect.appendChild(option);
-
-    });
-
-    loadProviderSettings();
-
-}
-
-document.addEventListener("DOMContentLoaded", initProviders);
-
 </script>
 
 </body>
-
 </html>
-
-'''
-
-path = Path("/mnt/data/index.html")
-
-path.write_text(html, encoding="utf-8")
-
-path.as_posix()
