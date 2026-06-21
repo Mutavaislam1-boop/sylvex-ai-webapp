@@ -259,7 +259,7 @@ async function saveSettings() {
     const data = {
         telegram_id: user ? user.id : null,
         message_id: new URLSearchParams(window.location.search).get("message_id"),
-        provider: "runway",
+        provider: "kling",
         model: document.querySelector("#model").value,
         mode: document.querySelector("#mode").value,
         ratio: document.querySelector(".format-card.selected").dataset.ratio,

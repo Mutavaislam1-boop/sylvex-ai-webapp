@@ -124,12 +124,12 @@ async def save_settings(request: Request):
 
     provider = data.get("provider")
 
-    if provider == "runway":
+    if provider == "kling":
         save_runway_settings_to_db(data)
-        title = "✅ НАСТРОЙКИ RUNWAY СОХРАНЕНЫ"
+        title = "✅ НАСТРОЙКИ KLONG СОХРАНЕНЫ"
     else:
         save_kling_settings_to_db(data)
-        title = "✅ НАСТРОЙКИ KLING СОХРАНЕНЫ"
+        title = "✅ НАСТРОЙКИ RUNWAY СОХРАНЕНЫ"
 
     print("SETTINGS SAVED TO POSTGRES")
 
