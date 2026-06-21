@@ -82,6 +82,9 @@ def save_kling_settings_to_db(data):
 
     print("DB AFTER SAVE:", cursor.fetchone())
 
+    cursor.close()
+    conn.close()
+
 def save_runway_settings_to_db(data):
     duration_raw = str(data.get("duration", "5"))
     duration = int(duration_raw.split()[0])
