@@ -16,8 +16,10 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 
 app.mount("/static", StaticFiles(directory=WEBAPP_DIR), name="static")
-
 app.mount("/image", StaticFiles(directory="image"), name="image")
+app.mount("/js", StaticFiles(directory="webapp/js"), name="js")
+app.mount("/css", StaticFiles(directory="webapp/css"), name="css")
+
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
