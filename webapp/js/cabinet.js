@@ -6,9 +6,12 @@
   // Pro Studio state.
   let studioMode = 'image';
   let activeCat = null;
-  let chatMessages = [
-    { role: 'ai', text: "Hi! I'm SYLVEX. Pick a mode above and tell me what to create." }
-  ];
+  let chatMessages = [];
+// inside init(), before renderChat():
+if (chatMessages.length === 0) {
+  chatMessages.push({ role: 'ai', text: t('ai_stub') + ' SYLVEX' });
+}
+
 
   /* ===== Rendering ===== */
   function renderModeStrip() {
