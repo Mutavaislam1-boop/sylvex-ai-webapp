@@ -1,58 +1,86 @@
-<script>
-const tg = window.Telegram?.WebApp;
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мой кабинет — Sylvex AI</title>
+  <link rel="stylesheet" href="/static/cabinet.css" />
+</head>
+<body>
+  <div class="cabinet-shell">
+    <header class="cabinet-header">
+      <button class="back-btn" id="backBtn">← Назад</button>
+      <h1>Мой кабинет</h1>
+      <div style="width: 44px;"></div>
+    </header>
 
-if (tg) {
-  tg.ready();
-  tg.expand();
-}
-
-document.getElementById("backBtn").addEventListener("click", () => {
-  if (tg) tg.close();
-  else window.history.back();
-});
-
-const user = tg?.initDataUnsafe?.user;
-const telegramId = user?.id;
-
-async function loadCabinet() {
-  if (!telegramId) return;
-
-  const response = await fetch(`/api/cabinet/${telegramId}`);
-  const data = await response.json();
-
-  if (!data.success) return;
-
-  const u = data.user;
-
-  document.getElementById("avatarText").textContent = (u.first_name || "S")[0];
-  document.getElementById("userName").textContent = u.first_name || "User";
-  document.getElementById("userId").textContent = `ID: ${u.telegram_id}`;
-  document.getElementById("regDate").textContent = `Дата регистрации: ${u.created_at || "-"}`;
-  document.getElementById("balance").textContent = `${u.balance} ⭐`;
-  document.getElementById("totalGenerations").textContent = u.total_generations;
-  document.getElementById("subscription").textContent = u.subscription;
-
-  const list = document.getElementById("generationsList");
-  list.innerHTML = "";
-
-  if (!data.generations.length) {
-    list.innerHTML = `<p class="no-generations">История пока пустая</p>`;
-    return;
-  }
-
-  data.generations.forEach(gen => {
-    list.innerHTML += `
-      <div class="generation-item">
-        <div class="gen-header">
-          <span class="gen-type">${gen.generation_type}</span>
-          <span class="gen-status" data-status="${gen.status}">${gen.status}</span>
+    <main class="cabinet-main">
+      <!-- Профиль -->
+      <section class="profile-card">
+        <div class="profile-avatar">
+          <span id="avatarText">?</span>
         </div>
-        <p class="gen-prompt">${gen.prompt}</p>
-        <span class="gen-date">${gen.created_at}</span>
-      </div>
-    `;
-  });
-}
+        <div class="profile-info">
+          <h2 id="userName">Загрузка...</h2>
+          <p class="user-id" id="userId">ID: -</p>
+          <p class="registration-date" id="regDate">Дата регистрации: -</p>
+        </div>
+      </section>
 
-loadCabinet();
-</script>
+      <!-- Баланс -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">💎</div>
+          <p class="stat-label">Баланс</p>
+          <p class="stat-value" id="balance">-</p>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📊</div>
+          <p class="stat-label">Всего генераций</p>
+          <p class="stat-value" id="totalGenerations">-</p>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">👑</div>
+          <p class="stat-label">Подписка</p>
+          <p class="stat-value subscription" id="subscription">-</p>
+        </div>
+      </section>
+
+      <!-- История генераций -->
+      <section class="history-section">
+        <h3>История генераций</h3>
+        <div id="generationsList" class="generations-list">
+          <p class="loading">Загрузка...</p>
+        </div>
+      </section>
+
+      <!-- Кнопки действий -->
+      <section class="actions-section">
+        <a href="#" class="action-button button-primary">💳 Пополнить баланс</a>
+        <a href="#" class="action-button button-secondary">⚙️ Настройки</a>
+      </section>
+    </main>
+
+    <footer class="cabinet-footer">
+      <p>Sylvex AI — Mini App © 2026</p>
+    </footer>
+  </div>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    document.getElementById('backBtn').addEventListener('click', () => {
+      if (tg) {
+        tg.close();
+      } else {
+        window.history.back();
+      }
+    });
+  </script>
+</body>
+</html>
