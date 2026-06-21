@@ -2,6 +2,7 @@ import os
 import pathlib
 import requests
 import psycopg2
+from fastapi.responses import JSONResponse
 
 
 from fastapi import FastAPI, Request
@@ -146,4 +147,71 @@ async def save_settings(request: Request):
     return {
         "success": True,
         "message": "✅ Настройки Kling сохранены"
+    }
+
+@app.get("/api/cabinet/{telegram_id}")
+async def get_cabinet(telegram_id: int):
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT
+        telegram_id,
+        username,
+        first_name,
+        balance,
+        subscription,
+        total_generations,
+        created_at
+    FROM users
+    WHERE telegram_id = %s
+    """, (telegram_id,))
+
+    user = cursor.fetchone()
+
+    cursor.execute("""
+    SELECT
+        generation_type,
+        prompt,
+        status,
+        created_at
+    FROM generations
+    WHERE telegram_id = %s
+    ORDER BY id DESC
+    LIMIT 10
+    """, (telegram_id,))
+
+    generations = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    if not user:
+        return JSONResponse(
+            {
+                "success": False
+            }
+        )
+
+    return {
+        "success": True,
+        "user": {
+            "telegram_id": user[0],
+            "username": user[1],
+            "first_name": user[2],
+            "balance": user[3],
+            "subscription": user[4],
+            "total_generations": user[5],
+            "created_at": user[6]
+        },
+        "generations": [
+            {
+                "generation_type": row[0],
+                "prompt": row[1],
+                "status": row[2],
+                "created_at": row[3]
+            }
+            for row in generations
+        ]
     }
