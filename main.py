@@ -87,7 +87,7 @@ from fastapi.responses import FileResponse
 
 @app.get("/")
 async def root():
-    return FileResponse("webapp/index.html")
+    return FileResponse(WEBAPP_DIR / "index.html")
 
 
 @app.get("/cabinet")
