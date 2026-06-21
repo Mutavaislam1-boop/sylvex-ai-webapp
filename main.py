@@ -5,6 +5,7 @@ import psycopg2
 from fastapi.responses import JSONResponse
 
 
+
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -82,14 +83,16 @@ def save_kling_settings_to_db(data):
 
     conn.commit()
 
+from fastapi.responses import FileResponse
+
 @app.get("/")
-async def home():
-    return FileResponse("index.html")
+async def root():
+    return FileResponse("webapp/index.html")
 
 
 @app.get("/cabinet")
 async def cabinet():
-    return FileResponse(WEBAPP_DIR / "cabinet.html")
+    return FileResponse("webapp/cabinet.html")
 
 @app.post("/save-settings")
 async def save_settings(request: Request):
