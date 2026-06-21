@@ -73,8 +73,6 @@ def save_kling_settings_to_db(data):
     ))
 
     conn.commit()
-    cursor.close()
-    conn.close()
 
 def save_runway_settings_to_db(data):
     duration_raw = str(data.get("duration", "5"))
@@ -112,6 +110,14 @@ def save_runway_settings_to_db(data):
     conn.commit()
     cursor.close()
     conn.close()
+
+    cursor.execute("""
+SELECT *
+FROM user_ai_settings
+WHERE telegram_id = %s
+""", (int(data["telegram_id"]),))
+
+print("DB AFTER SAVE:", cursor.fetchone())
 
 @app.get("/")
 async def home():
