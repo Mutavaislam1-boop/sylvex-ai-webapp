@@ -70,7 +70,6 @@
     max-width:480px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
     padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
   }
-  /* Top bar */
   .topbar{
     display:flex;align-items:center;justify-content:space-between;
     padding:14px 18px 10px;
@@ -90,17 +89,14 @@
   }
   .icon-btn:active{transform:scale(.94)}
   .topbar-actions{display:flex;gap:8px}
-  /* Scroll area */
   .scroll{flex:1;overflow-y:auto;padding:6px 16px 110px;scroll-behavior:smooth}
   .scroll::-webkit-scrollbar{width:0}
-  /* View switching */
   .view{display:none;animation:fadeUp .35s ease both}
   .view.active{display:block}
   @keyframes fadeUp{
     from{opacity:0;transform:translateY(10px)}
     to{opacity:1;transform:none}
   }
-  /* Cards / glass */
   .glass{
     background:var(--surface);
     backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
@@ -113,7 +109,6 @@
     border:1px solid var(--border-strong);
     border-radius:var(--radius);
   }
-  /* User card */
   .user-card{
     position:relative;padding:18px;border-radius:24px;overflow:hidden;
     background:var(--grad-card);
@@ -162,7 +157,6 @@
     padding:10px 16px;border-radius:14px;background:var(--grad-primary);
     box-shadow:0 10px 24px -8px rgba(99,102,241,.7);
   }
-  /* Stats grid */
   .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
   .stat{
     padding:14px;border-radius:18px;text-align:center;
@@ -170,14 +164,12 @@
   }
   .stat-val{font-size:18px;font-weight:700}
   .stat-lbl{font-size:11px;color:var(--text-mute);margin-top:2px;letter-spacing:.5px}
-  /* Section */
   .section-title{
     display:flex;align-items:center;justify-content:space-between;
     margin:22px 4px 12px;
   }
   .section-title h3{margin:0;font-size:15px;font-weight:600;letter-spacing:.3px}
   .section-title a{color:var(--text-dim);font-size:12px;text-decoration:none}
-  /* Tool grid */
   .tools{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   .tool{
     position:relative;padding:16px;border-radius:20px;cursor:pointer;
@@ -198,7 +190,6 @@
   .tool::after{
     content:"";position:absolute;inset:0;background:radial-gradient(200px 120px at 100% 0%,rgba(139,92,246,.25),transparent 60%);pointer-events:none;
   }
-  /* History list */
   .hist{display:flex;flex-direction:column;gap:10px}
   .hist-item{
     display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;
@@ -218,7 +209,6 @@
   }
   .chip.done{background:rgba(52,211,153,.12);color:#6ee7b7;border-color:rgba(52,211,153,.3)}
   .chip.pending{background:rgba(251,191,36,.12);color:#fcd34d;border-color:rgba(251,191,36,.3)}
-  /* Settings list */
   .list{display:flex;flex-direction:column;gap:8px}
   .row{
     display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:16px;
@@ -229,12 +219,10 @@
   .row .label{flex:1;font-size:14px}
   .row .label small{display:block;color:var(--text-mute);font-size:11px;margin-top:2px;font-weight:400}
   .row .chev{color:var(--text-mute)}
-  /* Switch */
   .switch{position:relative;width:46px;height:26px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid var(--border);cursor:pointer;transition:.25s}
   .switch::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.25s;box-shadow:0 2px 6px rgba(0,0,0,.4)}
   .switch.on{background:var(--grad-primary);border-color:transparent}
   .switch.on::after{left:22px}
-  /* Bottom nav */
   .nav{
     position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 14px);transform:translateX(-50%);
     width:min(440px,calc(100% - 24px));
@@ -261,7 +249,6 @@
   }
   [data-theme="light"] .nav-btn{color:var(--text-dim)}
   [data-theme="light"] .nav-btn.active{color:#fff}
-  /* Hero generation card */
   .hero{
     margin-top:14px;padding:18px;border-radius:22px;
     background:linear-gradient(135deg,rgba(139,92,246,.35),rgba(34,211,238,.18));
@@ -278,7 +265,6 @@
     content:"";position:absolute;right:-30px;top:-30px;width:160px;height:160px;border-radius:50%;
     background:radial-gradient(circle,rgba(255,255,255,.25),transparent 60%);
   }
-  /* Profile extras */
   .profile-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}
   .mini{
     padding:14px;border-radius:16px;background:var(--surface);border:1px solid var(--border);
@@ -286,7 +272,6 @@
   }
   .mini .k{font-size:11px;color:var(--text-mute);letter-spacing:.5px;text-transform:uppercase}
   .mini .v{font-size:18px;font-weight:700;margin-top:4px}
-  /* Toast */
   .toast{
     position:fixed;left:50%;top:18px;transform:translate(-50%,-80px);
     background:rgba(13,13,20,.9);color:#fff;padding:10px 16px;border-radius:14px;
@@ -314,27 +299,26 @@
     </div>
   </header>
   <main class="scroll">
-    <!-- HOME -->
     <section class="view active" data-view="home">
       <div class="user-card">
         <div class="user-row">
           <div class="avatar">SX<span class="dot"></span></div>
           <div class="user-meta">
-            <div class="user-name">Alex Carter <span class="badge">PRO</span></div>
-            <div class="user-sub">@alexcarter</div>
-            <div class="id-pill">ID · 729 481 320</div>
+            <div class="user-name"><span id="tgName">Загрузка...</span> <span class="badge" id="tgStatus">FREE</span></div>
+            <div class="user-sub" id="tgUsername">@username</div>
+            <div class="id-pill" id="tgId">ID · -</div>
           </div>
         </div>
         <div class="balance-row">
           <div>
             <div class="balance-label">Balance</div>
-            <div class="balance-val">1,250 ✦</div>
+            <div class="balance-val" id="tgBalance">0 ⭐</div>
           </div>
           <button class="topup" onclick="toast('Opening top-up…')">+ Top up</button>
         </div>
       </div>
       <div class="stats">
-        <div class="stat"><div class="stat-val">128</div><div class="stat-lbl">Generations</div></div>
+        <div class="stat"><div class="stat-val" id="tgGenerations">0</div><div class="stat-lbl">Generations</div></div>
         <div class="stat"><div class="stat-val">14</div><div class="stat-lbl">Today</div></div>
         <div class="stat"><div class="stat-val">7</div><div class="stat-lbl">Streak</div></div>
       </div>
@@ -348,7 +332,6 @@
       <div class="section-title"><h3>Recent</h3><a href="#" onclick="switchView('history');return false">View all</a></div>
       <div class="hist" id="homeHist"></div>
     </section>
-    <!-- PROFILE -->
     <section class="view" data-view="profile">
       <div class="user-card">
         <div class="user-row">
@@ -380,17 +363,14 @@
         <div class="row" onclick="toast('Invite link copied')"><div class="ico">🎁</div><div class="label">Invite friends<small>Earn 50 ✦ per friend</small></div><div class="chev">›</div></div>
       </div>
     </section>
-    <!-- HISTORY -->
     <section class="view" data-view="history">
       <div class="section-title"><h3>Generation history</h3><a href="#" onclick="toast('Filters');return false">Filter</a></div>
       <div class="hist" id="fullHist"></div>
     </section>
-    <!-- TOOLS -->
     <section class="view" data-view="tools">
       <div class="section-title"><h3>AI Tools</h3></div>
       <div class="tools" id="allTools"></div>
     </section>
-    <!-- SETTINGS -->
     <section class="view" data-view="settings">
       <div class="section-title"><h3>Appearance</h3></div>
       <div class="list">
@@ -442,10 +422,9 @@
   </nav>
 </div>
 <script>
-  // Telegram Web App init
   const tg = window.Telegram?.WebApp;
   if (tg) { try { tg.ready(); tg.expand(); tg.setHeaderColor?.('#07070b'); } catch(e){} }
-  // Data
+
   const tools = [
     {icon:'🎨', name:'Image Gen',    desc:'Text → image, HD'},
     {icon:'✍️', name:'Text Writer',  desc:'Articles & posts'},
@@ -456,6 +435,7 @@
     {icon:'🎵', name:'Music AI',     desc:'Compose tracks'},
     {icon:'📝', name:'Translator',   desc:'80+ languages'},
   ];
+
   const history = [
     {icon:'🎨', title:'Cyberpunk samurai portrait', sub:'Image · 2 min ago',  status:'done',    label:'Done'},
     {icon:'✍️', title:'Blog post: AI in 2026',     sub:'Text · 12 min ago',  status:'done',    label:'Done'},
@@ -464,15 +444,17 @@
     {icon:'🔍', title:'Upscale: landscape_04.png',  sub:'Upscale · yesterday',status:'done',    label:'Done'},
     {icon:'🎵', title:'Lo-fi beat draft',           sub:'Music · 2 d ago',    status:'done',    label:'Done'},
   ];
-  // Render tools
+
   function toolCard(t){
     return `<div class="tool" onclick="toast('Opening ${t.name}…')">
       <div class="ico">${t.icon}</div>
       <h4>${t.name}</h4><p>${t.desc}</p>
     </div>`;
   }
+
   document.getElementById('homeTools').innerHTML = tools.slice(0,4).map(toolCard).join('');
   document.getElementById('allTools').innerHTML  = tools.map(toolCard).join('');
+
   function histCard(h){
     return `<div class="hist-item">
       <div class="thumb">${h.icon}</div>
@@ -483,41 +465,48 @@
       <span class="chip ${h.status}">${h.label}</span>
     </div>`;
   }
+
   document.getElementById('homeHist').innerHTML = history.slice(0,3).map(histCard).join('');
   document.getElementById('fullHist').innerHTML = history.map(histCard).join('');
-  // View switching
+
   function switchView(name){
     document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active', v.dataset.view===name));
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
     document.querySelector('.scroll').scrollTo({top:0, behavior:'smooth'});
     if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
   }
+
   document.querySelectorAll('.nav-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>switchView(btn.dataset.view));
   });
-  // Theme
+
   function setTheme(mode){
     document.documentElement.dataset.theme = mode;
     localStorage.setItem('sylvex-theme', mode);
     document.getElementById('themeSwitch')?.classList.toggle('on', mode==='dark');
     if (tg) try { tg.setHeaderColor?.(mode==='dark' ? '#07070b' : '#eef0f7'); } catch(e){}
   }
+
   const saved = localStorage.getItem('sylvex-theme') || (tg?.colorScheme==='light' ? 'light':'dark');
   setTheme(saved);
+
   document.getElementById('themeBtn').addEventListener('click', ()=>{
     setTheme(document.documentElement.dataset.theme==='dark' ? 'light' : 'dark');
   });
+
   document.getElementById('themeSwitch').addEventListener('click', ()=>{
     setTheme(document.documentElement.dataset.theme==='dark' ? 'light' : 'dark');
   });
-  // Background toggle
+
   document.getElementById('bgSwitch').addEventListener('click', function(){
     this.classList.toggle('on');
     document.body.style.setProperty('animation-play-state', this.classList.contains('on') ? 'running':'paused');
   });
+
   function toggleSwitch(el){ el.classList.toggle('on'); }
-  // Toast
+
   let toastT;
+
   function toast(msg){
     const t = document.getElementById('toast');
     t.textContent = msg; t.classList.add('show');
@@ -525,6 +514,34 @@
     toastT = setTimeout(()=>t.classList.remove('show'), 1800);
     if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
   }
+
+  async function loadTelegramUserData() {
+    const tgUser = tg?.initDataUnsafe?.user;
+
+    if (!tgUser) {
+      toast("Telegram user not found");
+      return;
+    }
+
+    const telegramId = tgUser.id;
+
+    document.getElementById("tgName").textContent = tgUser.first_name || "User";
+    document.getElementById("tgUsername").textContent = tgUser.username ? "@" + tgUser.username : "@user";
+    document.getElementById("tgId").textContent = "ID · " + telegramId;
+
+    const response = await fetch(`/api/cabinet/${telegramId}`);
+    const data = await response.json();
+
+    if (!data.success) {
+      return;
+    }
+
+    document.getElementById("tgBalance").textContent = data.user.balance + " ⭐";
+    document.getElementById("tgStatus").textContent = data.user.subscription || "FREE";
+    document.getElementById("tgGenerations").textContent = data.user.total_generations || 0;
+  }
+
+  loadTelegramUserData();
 </script>
 </body>
 </html>
