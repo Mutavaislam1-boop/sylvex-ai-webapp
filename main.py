@@ -14,7 +14,7 @@ app = FastAPI()
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 WEBAPP_DIR = BASE_DIR 
 
-app.mount("/static", StaticFiles(directory=WEBAPP_DIR), name="static")
+app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
 
 app.mount("/image", StaticFiles(directory="image"), name="image")
 
@@ -84,11 +84,11 @@ def save_kling_settings_to_db(data):
 
 @app.get("/")
 async def home():
-    return FileResponse(WEBAPP_DIR / "index.html")
+    return FileResponse(BASE_DIR / "index.html")
 
 @app.get("/cabinet")
 async def cabinet():
-    return FileResponse(WEBAPP_DIR / "cabinet.html")
+    return FileResponse(BASE_DIR / "cabinet.html")
 
 @app.post("/save-settings")
 async def save_settings(request: Request):
