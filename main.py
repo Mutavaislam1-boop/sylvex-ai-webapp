@@ -84,7 +84,7 @@ def save_kling_settings_to_db(data):
 
 @app.get("/")
 async def home():
-    return FileResponse("index.html")
+    return FileResponse(WEBAPP_DIR / "index.html")
 
 @app.get("/cabinet")
 async def cabinet():
