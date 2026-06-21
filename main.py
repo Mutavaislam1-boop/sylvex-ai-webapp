@@ -84,11 +84,8 @@ async def save_settings(request: Request):
     data = await request.json()
     print("SETTINGS RECEIVED:", data)
 
-    provider = data.get("provider")
-
-    if provider == "kling":
-        save_runway_settings_to_db(data)
-        title = "✅ НАСТРОЙКИ KLONG СОХРАНЕНЫ"
+    save_kling_settings_to_db(data)
+    title = "✅ НАСТРОЙКИ KLING СОХРАНЕНЫ"
 
     print("SETTINGS SAVED TO POSTGRES")
 
@@ -135,12 +132,8 @@ async def save_settings(request: Request):
 
         print("TELEGRAM STATUS:", response.status_code)
         print("TELEGRAM RESPONSE:", response.text)
-        print("SETTINGS SAVED TO DB") 
-        print("SETTINGS:", data)
 
-        import psycopg2
-
-        return {
-            "success": True,
-            "message": "✅ Настройки Kling сохранены"
-        }
+    return {
+        "success": True,
+        "message": "✅ Настройки Kling сохранены"
+    }
