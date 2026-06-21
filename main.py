@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 app = FastAPI()
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
-WEBAPP_DIR = BASE_DIR / "webapp"
+WEBAPP_DIR = BASE_DIR 
 
 app.mount("/static", StaticFiles(directory=WEBAPP_DIR), name="static")
 
