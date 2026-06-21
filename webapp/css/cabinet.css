@@ -275,3 +275,64 @@ body::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;
 .plus-pop button{display:flex;width:100%;align-items:center;gap:10px;padding:10px 12px;background:transparent;border:none;color:var(--text);font-size:13px;cursor:pointer;border-radius:11px;text-align:left;font-family:inherit}
 .plus-pop button:hover{background:var(--surface-2)}
 .plus-pop .pi{width:28px;height:28px;border-radius:9px;background:rgba(96,165,250,.15);color:#93c5fd;display:grid;place-items:center;font-size:14px}
+.brand-mark{
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  background:var(--grad-primary);
+  display:grid;
+  place-items:center;
+  color:#fff;
+  font-weight:800;
+  font-size:14px;
+  letter-spacing:1px;
+  box-shadow:0 8px 24px -8px rgba(99,102,241,0.7);
+}
+
+.hero{
+  margin-top:14px;
+  padding:18px;
+  border-radius:22px;
+  background:linear-gradient(135deg,rgba(139,92,246,.35),rgba(34,211,238,.18));
+  border:1px solid var(--border-strong);
+  position:relative;
+  overflow:hidden;
+}
+
+.hero h2{
+  margin:0 0 6px;
+  font-size:20px;
+  font-weight:700;
+}
+
+.hero p{
+  margin:0;
+  color:var(--text-dim);
+  font-size:13px;
+}
+
+.hero .cta{
+  margin-top:14px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 16px;
+  border-radius:14px;
+  background:#fff;
+  color:#0f1228;
+  font-weight:600;
+  font-size:13px;
+  border:none;
+  cursor:pointer;
+}
+
+.hero::before{
+  content:"";
+  position:absolute;
+  right:-30px;
+  top:-30px;
+  width:160px;
+  height:160px;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(255,255,255,.25),transparent 60%);
+}
