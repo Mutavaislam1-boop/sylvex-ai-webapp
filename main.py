@@ -33,6 +33,7 @@ def design(title: str, body: str) -> str:
 """
 
 def save_kling_settings_to_db(data):
+    print("SAVE_KLING_FUNCTION_STARTED")
     duration_raw = str(data.get("duration", "5"))
     duration = int(duration_raw.split()[0])
 
@@ -74,55 +75,6 @@ def save_kling_settings_to_db(data):
 
     conn.commit()
 
-    cursor.execute("""
-    SELECT *
-    FROM user_ai_settings
-    WHERE telegram_id = %s
-    """, (int(data["telegram_id"]),))
-
-    print("DB AFTER SAVE:", cursor.fetchone())
-
-    cursor.close()
-    conn.close()
-
-def save_runway_settings_to_db(data):
-    duration_raw = str(data.get("duration", "5"))
-    duration = int(duration_raw.split()[0])
-
-    sound = 1 if data.get("sound") else 0
-
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    INSERT INTO user_ai_settings (
-        telegram_id,
-        runway_model,
-        runway_ratio,
-        runway_duration,
-        runway_quality,
-        runway_sound
-    ) VALUES (%s, %s, %s, %s, %s, %s)
-    ON CONFLICT (telegram_id) DO UPDATE SET
-        runway_model = EXCLUDED.runway_model,
-        runway_ratio = EXCLUDED.runway_ratio,
-        runway_duration = EXCLUDED.runway_duration,
-        runway_quality = EXCLUDED.runway_quality,
-        runway_sound = EXCLUDED.runway_sound
-    """, (
-        int(data.get("telegram_id")),
-        data.get("model"),
-        data.get("ratio"),
-        duration,
-        data.get("quality"),
-        sound
-    ))
-
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-
 @app.get("/")
 async def home():
     return FileResponse("index.html")
@@ -137,9 +89,6 @@ async def save_settings(request: Request):
     if provider == "kling":
         save_runway_settings_to_db(data)
         title = "✅ НАСТРОЙКИ KLONG СОХРАНЕНЫ"
-    else:
-        save_kling_settings_to_db(data)
-        title = "✅ НАСТРОЙКИ RUNWAY СОХРАНЕНЫ"
 
     print("SETTINGS SAVED TO POSTGRES")
 
