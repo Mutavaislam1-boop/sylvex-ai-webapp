@@ -32,11 +32,6 @@ def design(title: str, body: str) -> str:
 <a href="https://t.me/sylvexai_bot">Official Bot</a>
 """
 
-
-@app.get("/")
-async def home():
-    return FileResponse("index.html")
-
 def save_kling_settings_to_db(data):
     duration_raw = str(data.get("duration", "5"))
     duration = int(duration_raw.split()[0])
@@ -81,17 +76,65 @@ def save_kling_settings_to_db(data):
     cursor.close()
     conn.close()
 
+def save_runway_settings_to_db(data):
+    duration_raw = str(data.get("duration", "5"))
+    duration = int(duration_raw.split()[0])
+
+    sound = 1 if data.get("sound") else 0
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO user_ai_settings (
+        telegram_id,
+        runway_model,
+        runway_ratio,
+        runway_duration,
+        runway_quality,
+        runway_sound
+    ) VALUES (%s, %s, %s, %s, %s, %s)
+    ON CONFLICT (telegram_id) DO UPDATE SET
+        runway_model = EXCLUDED.runway_model,
+        runway_ratio = EXCLUDED.runway_ratio,
+        runway_duration = EXCLUDED.runway_duration,
+        runway_quality = EXCLUDED.runway_quality,
+        runway_sound = EXCLUDED.runway_sound
+    """, (
+        int(data.get("telegram_id")),
+        data.get("model"),
+        data.get("ratio"),
+        duration,
+        data.get("quality"),
+        sound
+    ))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+@app.get("/")
+async def home():
+    return FileResponse("index.html")
+
 @app.post("/save-settings")
 async def save_settings(request: Request):
     data = await request.json()
     print("SETTINGS RECEIVED:", data)
 
-    save_kling_settings_to_db(data)
+    provider = data.get("provider")
+
+    if provider == "runway":
+        save_runway_settings_to_db(data)
+        title = "✅ НАСТРОЙКИ RUNWAY СОХРАНЕНЫ"
+    else:
+        save_kling_settings_to_db(data)
+        title = "✅ НАСТРОЙКИ KLING СОХРАНЕНЫ"
+
     print("SETTINGS SAVED TO POSTGRES")
-    
+
     telegram_id = data.get("telegram_id")
     message_id = data.get("message_id")
-    
 
     body = (
         f"Модель: {data.get('model')}\n"
@@ -104,10 +147,7 @@ async def save_settings(request: Request):
         "Теперь отправьте описание видео."
     )
 
-    text = design(
-        "✅ НАСТРОЙКИ KLING СОХРАНЕНЫ",
-        body
-    )
+    text = design(title, body)
 
     if BOT_TOKEN and telegram_id and message_id:
         response = requests.post(
