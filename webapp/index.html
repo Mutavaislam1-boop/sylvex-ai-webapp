@@ -8,6 +8,7 @@
 <title>SYLVEX AI - Kling</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/static/cabinet.css" />
 
 <style>
 *{
@@ -269,20 +270,18 @@ async function saveSettings() {
         prompt_enhance: document.querySelector("#prompt_enhance").checked
     };
 
-   const response = await fetch("/save-settings", {
-    method: "POST",
-    headers: {
-        "Content-Type": "application/json"
-    },
-    body: JSON.stringify(data)
-});
+    const response = await fetch("/save-settings", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+    });
 
-console.log("SAVE STATUS:", response.status);
+    console.log("SAVE STATUS:", response.status);
 
-const result = await response.text();
-console.log("SAVE RESPONSE:", result);
-
-    //tg.sendData(JSON.stringify(data));
+    const result = await response.text();
+    console.log("SAVE RESPONSE:", result);
 
     setTimeout(() => {
         tg.close();
