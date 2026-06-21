@@ -1,37 +1,22 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>SYLVEX — Telegram Mini App</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="css/cabinet.css" />
-</head>
-
-<body>
-<div id="toast" class="toast">Coming soon</div>
-
 <div class="app">
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">SX</div>
+      <div class="brand-logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 6 6.5 1-4.7 4.6 1.1 6.4L12 17l-5.9 3 1.1-6.4L2.5 9 9 8z"/></svg>
+      </div>
       <div class="brand-name">SYLVEX</div>
     </div>
-
     <div class="topbar-actions">
-      <button class="icon-btn" id="langBtn" title="Language">RU</button>
+      <button class="icon-btn" id="langBtn" title="Language"><span id="langFlag">🇬🇧</span></button>
       <button class="icon-btn" id="themeBtn" title="Toggle theme">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
-        </svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
-
-      <button class="icon-btn" onclick="toast('No new notifications')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9z"/>
-          <path d="M10 21a2 2 0 0 0 4 0"/>
-        </svg>
-      </button>
+      <div class="lang-pop" id="langPop">
+        <button data-lang="en"><span class="lang-flag">🇬🇧</span> English</button>
+        <button data-lang="ru"><span class="lang-flag">🇷🇺</span> Русский</button>
+        <button data-lang="ar"><span class="lang-flag">🇸🇦</span> العربية</button>
+        <button data-lang="tr"><span class="lang-flag">🇹🇷</span> Türkçe</button>
+      </div>
     </div>
   </header>
 
@@ -41,56 +26,107 @@
         <div class="user-row">
           <div class="avatar">SX<span class="dot"></span></div>
           <div class="user-meta">
-            <div class="user-name">
-              <span id="tgName">Загрузка...</span>
-              <span class="badge" id="tgStatus">FREE</span>
-            </div>
-            <div class="user-sub" id="tgUsername">@username</div>
-            <div class="id-pill" id="tgId">ID · -</div>
+            <div class="user-name">Alex Carter <span class="badge" data-i18n="pro">PRO</span></div>
+            <div class="user-sub">@alexcarter · <span data-i18n="online">Online</span></div>
+            <div class="id-pill"><span data-i18n="id">ID</span> · 729 481 320</div>
           </div>
         </div>
-
         <div class="balance-row">
           <div>
-            <div class="balance-label">Balance</div>
-            <div class="balance-val" id="tgBalance">0 ⭐</div>
+            <div class="balance-label" data-i18n="balance">Balance</div>
+            <div class="balance-val">1,250 ✦</div>
           </div>
-          <button class="topup" onclick="toast('Opening top-up…')">+ Top up</button>
+          <button class="topup" onclick="toast(t('topup_open'))">+ <span data-i18n="topup">Top up</span></button>
         </div>
       </div>
 
       <div class="stats">
-        <div class="stat">
-          <div class="stat-val" id="tgGenerations">0</div>
-          <div class="stat-lbl">Generations</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val">14</div>
-          <div class="stat-lbl">Today</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val">7</div>
-          <div class="stat-lbl">Streak</div>
-        </div>
+        <div class="stat"><div class="stat-val">128</div><div class="stat-lbl" data-i18n="generations">Generations</div></div>
+        <div class="stat"><div class="stat-val">14</div><div class="stat-lbl" data-i18n="today">Today</div></div>
+        <div class="stat"><div class="stat-val">7</div><div class="stat-lbl" data-i18n="streak">Streak</div></div>
       </div>
 
-      <div class="hero">
-        <h2>Generate with SYLVEX AI</h2>
-        <p>Create images, text & voice — powered by next-gen models.</p>
-        <button class="cta" onclick="switchView('tools')">Start creating →</button>
+      <div class="section-title"><h3 data-i18n="generate_with">Generate with SYLVEX AI</h3></div>
+      <div class="hero-carousel">
+        <div class="hero-track" id="heroTrack">
+          <div class="hero-slide s1"><div><h2 data-i18n="slide1_t">AI Image Studio</h2><p data-i18n="slide1_d">Turn ideas into stunning HD images in seconds.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="start">Start creating</span> →</button></div>
+          <div class="hero-slide s2"><div><h2 data-i18n="slide2_t">Cinematic Video AI</h2><p data-i18n="slide2_d">Generate short-form clips with one prompt.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="try_now">Try now</span> →</button></div>
+          <div class="hero-slide s3"><div><h2 data-i18n="slide3_t">Voice & Music</h2><p data-i18n="slide3_d">Clone voices, compose tracks instantly.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="explore">Explore</span> →</button></div>
+          <div class="hero-slide s4"><div><h2 data-i18n="slide4_t">Smart Text Writer</h2><p data-i18n="slide4_d">Articles, posts and ideas in your style.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="write">Write</span> →</button></div>
+        </div>
+        <div class="dots" id="heroDots"></div>
       </div>
 
-      <div class="section-title">
-        <h3>Quick tools</h3>
-        <a href="#" onclick="switchView('tools');return false">See all</a>
-      </div>
+      <div class="section-title"><h3 data-i18n="quick_tools">Quick tools</h3><a onclick="switchView('tools')" data-i18n="see_all">See all</a></div>
       <div class="tools" id="homeTools"></div>
 
-      <div class="section-title">
-        <h3>Recent</h3>
-        <a href="#" onclick="switchView('history');return false">View all</a>
-      </div>
+      <div class="section-title"><h3 data-i18n="recent">Recent</h3><a onclick="switchView('history')" data-i18n="view_all">View all</a></div>
       <div class="hist" id="homeHist"></div>
+    </section>
+
+    <section class="view" data-view="tools">
+      <div class="studio">
+        <div class="studio-top">
+          <div class="studio-search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="studioSearch" type="text" placeholder="Search models, tools…" data-i18n-ph="studio_search_ph"/>
+          </div>
+          <div class="model-select" id="modelSelect" onclick="toggleModelPop(event)">
+            <span class="mdot"></span>
+            <div>
+              <div class="mlbl" data-i18n="ai_model">AI Model</div>
+              <div class="mval" id="modelVal">SYLVEX v3</div>
+            </div>
+            <span class="mchv">▾</span>
+            <div class="model-pop" id="modelPop"></div>
+          </div>
+          <div class="mode-strip" id="modeStrip"></div>
+        </div>
+        <div class="chat-area" id="chatArea"></div>
+        <div class="studio-input">
+          <div class="studio-input-row">
+            <button class="sib plus" id="plusBtn" onclick="togglePlusPop(event)" aria-label="Attach">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <textarea id="chatInput" rows="1" placeholder="Message SYLVEX…" data-i18n-ph="chat_ph" oninput="autoGrow(this)"></textarea>
+            <button class="sib mic" id="micBtn" onclick="toggleMic(this)" aria-label="Record">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            </button>
+            <button class="sib send" onclick="sendChat()" aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+            <div class="plus-pop" id="plusPop">
+              <button onclick="attach('image')"><span class="pi">🖼️</span><span data-i18n="att_image">Upload image</span></button>
+              <button onclick="attach('video')"><span class="pi">🎬</span><span data-i18n="att_video">Upload video</span></button>
+              <button onclick="attach('file')"><span class="pi">📎</span><span data-i18n="att_file">Upload file</span></button>
+              <button onclick="attach('audio')"><span class="pi">🎵</span><span data-i18n="att_audio">Upload audio</span></button>
+              <button onclick="attach('doc')"><span class="pi">📄</span><span data-i18n="att_doc">Upload document</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" data-view="history">
+      <div class="section-title"><h3 data-i18n="gen_history">Generation history</h3><a onclick="toast(t('filters'))" data-i18n="filter">Filter</a></div>
+      <div class="hist" id="fullHist"></div>
+    </section>
+
+    <section class="view" data-view="shop">
+      <div class="section-title"><h3 data-i18n="shop">Shop</h3><a onclick="switchView('profile')" data-i18n="profile">Profile</a></div>
+      <div class="user-card" style="margin-bottom:6px">
+        <div class="balance-row" style="margin-top:0">
+          <div><div class="balance-label" data-i18n="current_balance">Current balance</div><div class="balance-val">1,250 ✦</div></div>
+          <button class="topup" onclick="toast(t('topup_open'))">+ <span data-i18n="topup">Top up</span></button>
+        </div>
+      </div>
+      <div class="section-title"><h3 data-i18n="token_packs">Token packs</h3></div>
+      <div class="shop-grid" id="shopGrid"></div>
+      <div class="section-title"><h3 data-i18n="subscriptions">Subscriptions</h3></div>
+      <div class="list">
+        <div class="row" onclick="toast(t('subscribe'))"><div class="ico">⭐</div><div class="label"><span data-i18n="plan_pro">Pro plan</span><small data-i18n="plan_pro_d">Unlimited generations · priority queue</small></div><div class="val">$9.99/mo</div></div>
+        <div class="row" onclick="toast(t('subscribe'))"><div class="ico">💎</div><div class="label"><span data-i18n="plan_ultra">Ultra plan</span><small data-i18n="plan_ultra_d">All models · 4K · early access</small></div><div class="val">$24.99/mo</div></div>
+      </div>
     </section>
 
     <section class="view" data-view="profile">
@@ -98,156 +134,115 @@
         <div class="user-row">
           <div class="avatar">SX<span class="dot"></span></div>
           <div class="user-meta">
-            <div class="user-name">
-              <span id="profileName">Загрузка...</span>
-              <span class="badge" id="profileStatus">FREE</span>
-            </div>
-            <div class="user-sub" id="profileUsername">@username · Online</div>
-            <div class="id-pill" id="profileId">ID · -</div>
+            <div class="user-name">Alex Carter <span class="badge" data-i18n="pro">PRO</span></div>
+            <div class="user-sub">@alexcarter · <span data-i18n="online">Online</span></div>
+            <div class="id-pill"><span data-i18n="id">ID</span> · 729 481 320</div>
           </div>
         </div>
-
         <div class="balance-row">
-          <div>
-            <div class="balance-label">Balance</div>
-            <div class="balance-val" id="profileBalance">0 ⭐</div>
-          </div>
-          <button class="topup" onclick="toast('Opening top-up…')">+ Top up</button>
+          <div><div class="balance-label" data-i18n="balance">Balance</div><div class="balance-val">1,250 ✦</div></div>
+          <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
       </div>
-
       <div class="profile-grid">
-        <div class="mini"><div class="k">Plan</div><div class="v" id="profilePlan">Free</div></div>
-        <div class="mini"><div class="k">Member since</div><div class="v" id="profileCreated">-</div></div>
-        <div class="mini"><div class="k">Total generations</div><div class="v" id="profileGenerations">0</div></div>
-        <div class="mini"><div class="k">Referrals</div><div class="v">0</div></div>
+        <div class="mini"><div class="k" data-i18n="plan">Plan</div><div class="v">Pro</div></div>
+        <div class="mini"><div class="k" data-i18n="member_since">Member since</div><div class="v">Mar 2025</div></div>
+        <div class="mini"><div class="k" data-i18n="total_spent">Total spent</div><div class="v">3,420 ✦</div></div>
+        <div class="mini"><div class="k" data-i18n="referrals">Referrals</div><div class="v">18</div></div>
       </div>
-
-      <div class="section-title"><h3>Account</h3></div>
-
+      <div class="section-title"><h3 data-i18n="account">Account</h3></div>
       <div class="list">
-        <div class="row" onclick="toast('Edit profile')">
-          <div class="ico">👤</div>
-          <div class="label">Edit profile<small>Name, username, avatar</small></div>
-          <div class="chev">›</div>
-        </div>
-
-        <div class="row" onclick="toast('Subscription')">
-          <div class="ico">⭐</div>
-          <div class="label">Manage subscription<small>Plan and balance</small></div>
-          <div class="chev">›</div>
-        </div>
-
-        <div class="row" onclick="toast('Invite link copied')">
-          <div class="ico">🎁</div>
-          <div class="label">Invite friends<small>Earn rewards for referrals</small></div>
-          <div class="chev">›</div>
-        </div>
+        <div class="row" onclick="toast(t('edit_profile'))"><div class="ico">👤</div><div class="label"><span data-i18n="edit_profile">Edit profile</span><small data-i18n="edit_profile_d">Name, username, avatar</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('subscription'))"><div class="ico">⭐</div><div class="label"><span data-i18n="manage_sub">Manage subscription</span><small data-i18n="manage_sub_d">Pro · renews May 12</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('invite_copied'))"><div class="ico">🎁</div><div class="label"><span data-i18n="invite">Invite friends</span><small data-i18n="invite_d">Earn 50 ✦ per friend</small></div><div class="chev">›</div></div>
       </div>
-    </section>
-
-    <section class="view" data-view="history">
-      <div class="section-title">
-        <h3>Generation history</h3>
-        <a href="#" onclick="toast('Filters');return false">Filter</a>
-      </div>
-      <div class="hist" id="fullHist"></div>
-    </section>
-
-    <section class="view" data-view="tools">
-      <div class="section-title"><h3>AI Tools</h3></div>
-      <div class="tools" id="allTools"></div>
     </section>
 
     <section class="view" data-view="settings">
-      <div class="section-title"><h3>Appearance</h3></div>
-
-      <div class="list">
-        <div class="row">
-          <div class="ico">🌙</div>
-          <div class="label">Dark mode<small>Switch between light & dark</small></div>
-          <div class="switch on" id="themeSwitch"></div>
+      <div class="connect-card">
+        <div class="connect-head">
+          <h3 data-i18n="connect_with_us">Connect With Us</h3>
+          <small data-i18n="connect_sub">Stay close on your favourite platform</small>
         </div>
-
-        <div class="row">
-          <div class="ico">✨</div>
-          <div class="label">Animated background<small>Soft motion gradients</small></div>
-          <div class="switch on" id="bgSwitch"></div>
-        </div>
-      </div>
-
-      <div class="section-title"><h3>Notifications</h3></div>
-
-      <div class="list">
-        <div class="row">
-          <div class="ico">🔔</div>
-          <div class="label">Push notifications<small>Generation results</small></div>
-          <div class="switch on" onclick="toggleSwitch(this)"></div>
-        </div>
-
-        <div class="row">
-          <div class="ico">📩</div>
-          <div class="label">Email updates<small>Weekly digest</small></div>
-          <div class="switch" onclick="toggleSwitch(this)"></div>
+        <div class="socials">
+          <a class="social tg" href="https://t.me/sylvex" target="_blank" rel="noopener" aria-label="Telegram">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.04 15.47 8.9 19.3c.4 0 .58-.17.8-.38l1.92-1.83 3.98 2.91c.73.4 1.25.19 1.45-.67l2.63-12.33h0c.24-1.09-.39-1.51-1.1-1.25L3.36 10.41c-1.06.42-1.05.99-.18 1.26l4.1 1.28 9.5-5.99c.45-.29.86-.13.52.18z"/></svg>
+          </a>
+          <a class="social wa" href="https://wa.me/100000000" target="_blank" rel="noopener" aria-label="WhatsApp">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11 11 0 0 0 3.2 17.1L2 22l5-1.3a11 11 0 0 0 16.3-9.5 10.9 10.9 0 0 0-2.8-7.7zM12.1 20a8.9 8.9 0 0 1-4.6-1.3l-.3-.2-3 .8.8-2.9-.2-.3a9 9 0 1 1 16.7-4.7 9 9 0 0 1-9.4 8.6zm5.1-6.7c-.3-.1-1.7-.8-1.9-.9s-.4-.1-.6.2-.7.9-.8 1-.3.2-.6.1a7.4 7.4 0 0 1-3.7-3.2c-.3-.5.3-.5.8-1.5a.5.5 0 0 0 0-.5l-.9-2c-.2-.5-.4-.5-.6-.5h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-1 2.3c0 1.3 1 2.6 1.1 2.8s1.9 3 4.7 4.2a16 16 0 0 0 1.6.6 3.8 3.8 0 0 0 1.7.1c.5-.1 1.7-.7 1.9-1.3s.2-1.2.2-1.3-.2-.2-.5-.3z"/></svg>
+          </a>
+          <a class="social ig" href="https://instagram.com/sylvex" target="_blank" rel="noopener" aria-label="Instagram">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none"/></svg>
+          </a>
+          <a class="social vb" href="viber://chat?number=%2B100000000" target="_blank" rel="noopener" aria-label="Viber">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3.6A11 11 0 0 0 5 3.5C2.4 6 2 9.6 2.1 12.2c.2 2.6 1.1 4.7 2.5 5.5l.4.2v3l2.5-1.4a13 13 0 0 0 4.5.9 11 11 0 0 0 7-2.5c3-2.7 3.3-7.7 2.4-11A8.6 8.6 0 0 0 19 3.6zm-1 12a4 4 0 0 1-2 1.1l-.6-.1a13 13 0 0 1-6.4-3.7 13 13 0 0 1-2.4-3.6C6.3 8.4 6.4 7.4 7 6.8a1.6 1.6 0 0 1 1.2-.6c.3 0 .5.1.7.5l.8 1.7c.1.3.1.6-.1.9l-.5.6c-.2.2-.2.3-.1.5a8.4 8.4 0 0 0 1.8 2.3 8.4 8.4 0 0 0 2.3 1.4c.2.1.3.1.5-.1l.6-.6c.2-.2.5-.3.8-.2l1.8.8c.4.2.5.4.5.7a1.7 1.7 0 0 1-.3 1z"/></svg>
+          </a>
         </div>
       </div>
 
-      <div class="section-title"><h3>About</h3></div>
-
+      <div class="section-title"><h3 data-i18n="general">General</h3></div>
       <div class="list">
-        <div class="row" onclick="toast('SYLVEX v1.0.0')">
-          <div class="ico">ℹ️</div>
-          <div class="label">Version<small>1.0.0 · build 128</small></div>
-          <div class="chev">›</div>
-        </div>
+        <div class="row" id="langRow"><div class="ico">🌐</div><div class="label"><span data-i18n="language">Language</span><small data-i18n="language_d">Choose interface language</small></div><div class="val" id="langValue">English</div></div>
+        <div class="row"><div class="ico">🌙</div><div class="label"><span data-i18n="dark_mode">Dark mode</span><small data-i18n="dark_mode_d">Switch between light & dark</small></div><div class="switch on" id="themeSwitch"></div></div>
+        <div class="row"><div class="ico">✨</div><div class="label"><span data-i18n="anim_bg">Animated background</span><small data-i18n="anim_bg_d">Soft motion gradients</small></div><div class="switch on" id="bgSwitch"></div></div>
+      </div>
 
-        <div class="row" onclick="toast('Opening support')">
-          <div class="ico">💬</div>
-          <div class="label">Support<small>Get help from our team</small></div>
-          <div class="chev">›</div>
-        </div>
+      <div class="section-title"><h3 data-i18n="notifications">Notifications</h3></div>
+      <div class="list">
+        <div class="row"><div class="ico">🔔</div><div class="label"><span data-i18n="push">Push notifications</span><small data-i18n="push_d">Generation results</small></div><div class="switch on" onclick="toggleSwitch(this)"></div></div>
+        <div class="row"><div class="ico">📩</div><div class="label"><span data-i18n="email">Email updates</span><small data-i18n="email_d">Weekly digest</small></div><div class="switch" onclick="toggleSwitch(this)"></div></div>
+      </div>
 
-        <div class="row" onclick="toast('Signed out')">
-          <div class="ico">🚪</div>
-          <div class="label" style="color:#f87171">Sign out</div>
-          <div class="chev">›</div>
-        </div>
+      <div class="section-title"><h3 data-i18n="help_legal">Help & Legal</h3></div>
+      <div class="list">
+        <div class="row" onclick="openSupport()"><div class="ico">💬</div><div class="label"><span data-i18n="support">Support</span><small data-i18n="support_d">Get help from our team</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('privacy_open'))"><div class="ico">🔒</div><div class="label"><span data-i18n="privacy">Privacy Policy</span><small data-i18n="privacy_d">How we handle your data</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('terms_open'))"><div class="ico">📜</div><div class="label"><span data-i18n="terms">Terms of Service</span><small data-i18n="terms_d">Rules & responsibilities</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast('SYLVEX v1.1.0 · build 132')"><div class="ico">ℹ️</div><div class="label"><span data-i18n="app_version">App Version</span><small>1.1.0 · build 132</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('signed_out'))"><div class="ico">🚪</div><div class="label" style="color:#f87171" data-i18n="sign_out">Sign out</div><div class="chev">›</div></div>
       </div>
     </section>
   </main>
 
   <nav class="nav" id="nav">
-    <button class="nav-btn active" data-view="home">
-      <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
-      Home
-    </button>
-
-    <button class="nav-btn" data-view="tools">
-      <svg viewBox="0 0 24 24"><path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5L12 14.8 7.1 17.2 8 11.7 4 7.8l5.5-.8L12 2z"/></svg>
-      Tools
-    </button>
-
-    <button class="nav-btn" data-view="history">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-      History
-    </button>
-
-    <button class="nav-btn" data-view="profile">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-      Profile
-    </button>
-
-    <button class="nav-btn" data-view="settings">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1A2 2 0 1 1 4.4 17l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1A2 2 0 1 1 7 4.4l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1A2 2 0 1 1 19.6 7l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-      Settings
-    </button>
+    <button class="nav-btn active" data-view="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg><span data-i18n="nav_home">Home</span></button>
+    <button class="nav-btn" data-view="tools"><svg viewBox="0 0 24 24"><path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5L12 14.8 7.1 17.2 8 11.7 4 7.8l5.5-.8L12 2z"/></svg><span data-i18n="nav_studio">Pro Studio</span></button>
+    <button class="nav-btn" data-view="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span data-i18n="nav_history">History</span></button>
+    <button class="nav-btn" data-view="shop"><svg viewBox="0 0 24 24"><path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7h-11A2 2 0 0 1 4.5 18L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg><span data-i18n="nav_shop">Shop</span></button>
+    <button class="nav-btn" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5 2 2 0 1 1-4 0 1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3A2 2 0 1 1 4.4 17a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1 2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8A2 2 0 1 1 7 4.4a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5 2 2 0 1 1 4 0 1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3A2 2 0 1 1 19.6 7a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1 2 2 0 1 1 0 4 1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav_settings">Settings</span></button>
   </nav>
 </div>
 
-<script src="/static/js/telegram.js"></script>
-<script src="/static/js/language.js"></script>
-<script src="/static/js/data.js"></script>
-<script src="/static/js/ui.js"></script>
-<script src="/static/js/cabinet.js"></script>
-</body>
-</html>
+<div class="price-bar" id="priceBar">
+  <div>
+    <div class="pl" data-i18n="total">Total</div>
+    <div class="pv"><span id="priceVal">0</span> ✦</div>
+  </div>
+  <button class="pbtn" onclick="generateNow()">
+    <span data-i18n="generate_btn">Generate</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </button>
+</div>
+
+<div class="modal-overlay" id="supportModal">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div class="mt">
+        <div class="mi">💬</div>
+        <div>
+          <h3 data-i18n="support_title">Contact Support</h3>
+          <div class="ms" data-i18n="support_sub">Usually replies in under 1 hour</div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeSupport()" aria-label="Close">×</button>
+    </div>
+    <textarea id="supportMsg" data-i18n-ph="support_ph" placeholder="Describe your issue or question…"></textarea>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeSupport()" data-i18n="close">Close</button>
+      <button class="btn-primary" onclick="sendSupport()">
+        <span data-i18n="send">Send</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
