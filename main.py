@@ -135,7 +135,7 @@ async def save_settings(request: Request):
                     "inline_keyboard": [
                         [
                             {
-                                "text": "⚙️ Настройки модели",
+                                
                                 "web_app": {
                                     "url": f"{WEBAPP_URL}?message_id={message_id}&model=kling"
                                 }
