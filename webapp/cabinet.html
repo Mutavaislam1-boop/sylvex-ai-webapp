@@ -22,37 +22,46 @@
 
   <main class="scroll">
     <section class="view active" data-view="home">
-    <div class="user-name">
-      <span id="homeName">Загрузка...</span>
-      <span class="badge" id="homeStatus">FREE</span>
-    </div>
+      <div class="user-card">
+        <div class="user-row">
+          <div class="avatar">SX<span class="dot"></span></div>
+          <div class="user-meta">
+            <div class="user-name">Alex Carter <span class="badge" data-i18n="pro">PRO</span></div>
+            <div class="user-sub">@alexcarter · <span data-i18n="online">Online</span></div>
+            <div class="id-pill"><span data-i18n="id">ID</span> · 729 481 320</div>
+          </div>
+        </div>
+        <div class="balance-row">
+          <div>
+            <div class="balance-label" data-i18n="balance">Balance</div>
+            <div class="balance-val">1,250 ✦</div>
+          </div>
+          <button class="topup" onclick="toast(t('topup_open'))">+ <span data-i18n="topup">Top up</span></button>
+        </div>
+      </div>
 
-    <div class="user-sub">
-      <span id="homeUsername">@username</span> ·
-      <span data-i18n="online">Online</span>
-    </div>
+      <div class="stats">
+        <div class="stat"><div class="stat-val">128</div><div class="stat-lbl" data-i18n="generations">Generations</div></div>
+        <div class="stat"><div class="stat-val">14</div><div class="stat-lbl" data-i18n="today">Today</div></div>
+        <div class="stat"><div class="stat-val">7</div><div class="stat-lbl" data-i18n="streak">Streak</div></div>
+      </div>
 
-    <div class="id-pill">
-      <span data-i18n="id">ID</span> ·
-      <span id="homeId">-</span>
-    </div>
+      <div class="section-title"><h3 data-i18n="generate_with">Generate with SYLVEX AI</h3></div>
+      <div class="hero-carousel">
+        <div class="hero-track" id="heroTrack">
+          <div class="hero-slide s1"><div><h2 data-i18n="slide1_t">AI Image Studio</h2><p data-i18n="slide1_d">Turn ideas into stunning HD images in seconds.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="start">Start creating</span> →</button></div>
+          <div class="hero-slide s2"><div><h2 data-i18n="slide2_t">Cinematic Video AI</h2><p data-i18n="slide2_d">Generate short-form clips with one prompt.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="try_now">Try now</span> →</button></div>
+          <div class="hero-slide s3"><div><h2 data-i18n="slide3_t">Voice & Music</h2><p data-i18n="slide3_d">Clone voices, compose tracks instantly.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="explore">Explore</span> →</button></div>
+          <div class="hero-slide s4"><div><h2 data-i18n="slide4_t">Smart Text Writer</h2><p data-i18n="slide4_d">Articles, posts and ideas in your style.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="write">Write</span> →</button></div>
+        </div>
+        <div class="dots" id="heroDots"></div>
+      </div>
 
-    <div class="balance-val" id="homeBalance">0 ⭐</div>
+      <div class="section-title"><h3 data-i18n="quick_tools">Quick tools</h3><a onclick="switchView('tools')" data-i18n="see_all">See all</a></div>
+      <div class="tools" id="homeTools"></div>
 
-    <div class="stat">
-      <div class="stat-val" id="homeGenerations">0</div>
-      <div class="stat-lbl" data-i18n="generations">Generations</div>
-    </div>
-
-    <div class="stat">
-      <div class="stat-val" id="homeToday">0</div>
-      <div class="stat-lbl" data-i18n="today">Today</div>
-    </div>
-
-    <div class="stat">
-      <div class="stat-val" id="homeStreak">0</div>
-      <div class="stat-lbl" data-i18n="streak">Streak</div>
-    </div>
+      <div class="section-title"><h3 data-i18n="recent">Recent</h3><a onclick="switchView('history')" data-i18n="view_all">View all</a></div>
+      <div class="hist" id="homeHist"></div>
     </section>
 
     <section class="view" data-view="tools">
@@ -119,81 +128,33 @@
         <div class="row" onclick="toast(t('subscribe'))"><div class="ico">💎</div><div class="label"><span data-i18n="plan_ultra">Ultra plan</span><small data-i18n="plan_ultra_d">All models · 4K · early access</small></div><div class="val">$24.99/mo</div></div>
       </div>
     </section>
+   
     <section class="view" data-view="profile">
       <div class="user-card">
         <div class="user-row">
-          <div class="avatar"><span id="profileAvatar">SX</span><span class="dot"></span></div>
+          <div class="avatar">SX<span class="dot"></span></div>
           <div class="user-meta">
-            <div class="user-name">
-              <span id="profileName">Загрузка...</span>
-              <span class="badge" id="profileStatus">FREE</span>
-            </div>
-            <div class="user-sub">
-              <span id="profileUsername">@username</span> · <span data-i18n="online">Online</span>
-            </div>
-            <div class="id-pill">
-              <span data-i18n="id">ID</span> · <span id="profileId">-</span>
-            </div>
+            <div class="user-name">Alex Carter <span class="badge" data-i18n="pro">PRO</span></div>
+            <div class="user-sub">@alexcarter · <span data-i18n="online">Online</span></div>
+            <div class="id-pill"><span data-i18n="id">ID</span> · 729 481 320</div>
           </div>
         </div>
-
         <div class="balance-row">
-          <div>
-            <div class="balance-label" data-i18n="balance">Balance</div>
-            <div class="balance-val" id="profileBalance">0 ⭐</div>
-          </div>
+          <div><div class="balance-label" data-i18n="balance">Balance</div><div class="balance-val">1,250 ✦</div></div>
           <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
       </div>
-
       <div class="profile-grid">
-        <div class="mini">
-          <div class="k" data-i18n="plan">Plan</div>
-          <div class="v" id="profilePlan">Free</div>
-        </div>
-        <div class="mini">
-          <div class="k" data-i18n="member_since">Member since</div>
-          <div class="v" id="profileCreated">-</div>
-        </div>
-        <div class="mini">
-          <div class="k" data-i18n="total_generations">Total generations</div>
-          <div class="v" id="profileGenerations">0</div>
-        </div>
-        <div class="mini">
-          <div class="k" data-i18n="referrals">Referrals</div>
-          <div class="v" id="profileReferrals">0</div>
-        </div>
+        <div class="mini"><div class="k" data-i18n="plan">Plan</div><div class="v">Pro</div></div>
+        <div class="mini"><div class="k" data-i18n="member_since">Member since</div><div class="v">Mar 2025</div></div>
+        <div class="mini"><div class="k" data-i18n="total_spent">Total spent</div><div class="v">3,420 ✦</div></div>
+        <div class="mini"><div class="k" data-i18n="referrals">Referrals</div><div class="v">18</div></div>
       </div>
-
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
-
       <div class="list">
-        <div class="row" onclick="toast(t('edit_profile'))">
-          <div class="ico">👤</div>
-          <div class="label">
-            <span data-i18n="edit_profile">Edit profile</span>
-            <small data-i18n="edit_profile_d">Name, username, avatar</small>
-          </div>
-          <div class="chev">›</div>
-        </div>
-
-        <div class="row" onclick="toast(t('subscription'))">
-          <div class="ico">⭐</div>
-          <div class="label">
-            <span data-i18n="manage_sub">Manage subscription</span>
-            <small data-i18n="manage_sub_d">Plan and balance</small>
-          </div>
-          <div class="chev">›</div>
-        </div>
-
-        <div class="row" onclick="toast(t('invite_copied'))">
-          <div class="ico">🎁</div>
-          <div class="label">
-            <span data-i18n="invite">Invite friends</span>
-            <small data-i18n="invite_d">Earn rewards for referrals</small>
-          </div>
-          <div class="chev">›</div>
-        </div>
+        <div class="row" onclick="toast(t('edit_profile'))"><div class="ico">👤</div><div class="label"><span data-i18n="edit_profile">Edit profile</span><small data-i18n="edit_profile_d">Name, username, avatar</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('subscription'))"><div class="ico">⭐</div><div class="label"><span data-i18n="manage_sub">Manage subscription</span><small data-i18n="manage_sub_d">Pro · renews May 12</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="toast(t('invite_copied'))"><div class="ico">🎁</div><div class="label"><span data-i18n="invite">Invite friends</span><small data-i18n="invite_d">Earn 50 ✦ per friend</small></div><div class="chev">›</div></div>
       </div>
     </section>
 
