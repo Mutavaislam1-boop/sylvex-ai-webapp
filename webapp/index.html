@@ -16,13 +16,14 @@
 <script src="/js/data.js"></script>
 <script src="/js/ui.js"></script>
 <script src="/js/cabinet.js"></script>
-  // Load the cabinet markup, then boot the app.
-  fetch('cabinet.html')
-    .then(r => r.text())
-    .then(html => {
-      document.getElementById('app-root').innerHTML = html;
-      window.SYLVEX.init();
-    });
+
+<script>
+fetch('/static/cabinet.html')
+  .then(r => r.text())
+  .then(html => {
+    document.getElementById('app-root').innerHTML = html;
+    window.SYLVEX.init();
+  });
 </script>
 </body>
 </html>
