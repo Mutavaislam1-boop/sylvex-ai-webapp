@@ -264,7 +264,62 @@ if (chatMessages.length === 0) {
     }
   }
 
+
+
   /* ===== Init (called after cabinet.html is injected) ===== */
+  async function loadUserData() {
+    const tgUser = S.tg && S.tg.initDataUnsafe && S.tg.initDataUnsafe.user;
+
+    if (!tgUser || !tgUser.id) {
+      return;
+    }
+
+    const response = await fetch('/api/cabinet/' + tgUser.id);
+    const data = await response.json();
+
+    if (!data.success || !data.user) {
+      return;
+    }
+
+    const user = data.user;
+
+    const name = user.first_name || tgUser.first_name || 'User';
+    const username = user.username || tgUser.username || '';
+    const balance = user.balance || 0;
+    const subscription = user.subscription || 'FREE';
+    const totalGenerations = user.total_generations || 0;
+
+    setText('homeName', name);
+    setText('homeUsername', username ? '@' + username : '@user');
+    setText('homeId', user.telegram_id || tgUser.id);
+    setText('homeBalance', balance + ' ⭐');
+    setText('homeStatus', subscription);
+    setText('homeGenerations', totalGenerations);
+
+    setText('profileName', name);
+    setText('profileUsername', username ? '@' + username : '@user');
+    setText('profileId', user.telegram_id || tgUser.id);
+    setText('profileBalance', balance + ' ⭐');
+    setText('profileStatus', subscription);
+    setText('profilePlan', subscription);
+    setText('profileGenerations', totalGenerations);
+
+    if (user.created_at) {
+      setText('profileCreated', new Date(user.created_at).toLocaleDateString());
+    }
+
+    const avatar = document.getElementById('profileAvatar');
+    if (avatar) avatar.textContent = name.slice(0, 2).toUpperCase();
+
+    const homeAvatar = document.getElementById('homeAvatar');
+    if (homeAvatar) homeAvatar.textContent = name.slice(0, 2).toUpperCase();
+  }
+
+  function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
   function init() {
     // Restore saved theme.
     const tg = S.tg;
@@ -275,6 +330,7 @@ if (chatMessages.length === 0) {
     applyLang();       // triggers renderDynamic
     initHero();
     renderChat();
+    loadUserData();
   }
 
   // Expose to global scope.
