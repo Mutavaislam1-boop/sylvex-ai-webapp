@@ -138,7 +138,7 @@ async def save_settings(request: Request):
                                 "text": "⚙️ Настройки модели",
                                 "web_app": { 
                             
-                                    "url": f"https://t.me/sylvexai_bot/webapp/index.html"
+                                    "url": f"{WEBAPP_URL}?message_id={message_id}&model=kling"
                                 }
                             }
                         ]
