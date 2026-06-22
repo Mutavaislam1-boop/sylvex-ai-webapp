@@ -94,7 +94,7 @@ async def root():
 
 @app.get("/cabinet")
 async def cabinet():
-    return FileResponse("webapp/cabinet.html")
+    return FileResponse(WEBAPP_DIR / "index.html")
 
 @app.post("/save-settings")
 async def save_settings(request: Request):
