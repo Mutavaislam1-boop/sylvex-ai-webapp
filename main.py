@@ -122,7 +122,7 @@ async def save_settings(request: Request):
 
     text = design(title, body)
 
-    if BOT_TOKEN and telegram_id and message_id:
+    ##if BOT_TOKEN and telegram_id and message_id:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
             json={
@@ -135,7 +135,7 @@ async def save_settings(request: Request):
                     "inline_keyboard": [
                         [
                             {
-                                
+                                "text": "⚙️ Настройки модели",
                                 "web_app": {
                                     "url": f"{WEBAPP_URL}?message_id={message_id}&model=kling"
                                 }
@@ -150,7 +150,7 @@ async def save_settings(request: Request):
         print("TELEGRAM STATUS:", response.status_code)
         print("TELEGRAM RESPONSE:", response.text)
 
-    return {
+    ##return {
         "success": True,
         "message": "✅ Настройки Kling сохранены"
     }
