@@ -131,13 +131,12 @@ async def save_settings(request: Request):
                 "text": text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": False,
-                "reply_markup": {
+               "reply_markup": {
                     "inline_keyboard": [
                         [
                             {
                                 "text": "⚙️ Настройки модели",
-                                "web_app": { 
-                            
+                                "web_app": {
                                     "url": f"{WEBAPP_URL}?message_id={message_id}&model=kling"
                                 }
                             }
