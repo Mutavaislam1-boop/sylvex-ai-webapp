@@ -96,6 +96,21 @@ async def root():
 async def cabinet():
     return FileResponse(WEBAPP_DIR / "index.html")
 
+@app.get("/payments")
+async def payments():
+    return FileResponse(WEBAPP_DIR / "payments.html")
+
+@app.get("/api/payment-links")
+async def payment_links():
+    return {
+        "success": True,
+        "packages": {
+            "100": os.getenv("LEMON_100_CREDITS_URL", ""),
+            "500": os.getenv("LEMON_500_CREDITS_URL", ""),
+            "1000": os.getenv("LEMON_1000_CREDITS_URL", "")
+        }
+    }
+
 @app.post("/save-settings")
 async def save_settings(request: Request):
     data = await request.json()

@@ -275,6 +275,28 @@ body::before{content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;
 .plus-pop button{display:flex;width:100%;align-items:center;gap:10px;padding:10px 12px;background:transparent;border:none;color:var(--text);font-size:13px;cursor:pointer;border-radius:11px;text-align:left;font-family:inherit}
 .plus-pop button:hover{background:var(--surface-2)}
 .plus-pop .pi{width:28px;height:28px;border-radius:9px;background:rgba(96,165,250,.15);color:#93c5fd;display:grid;place-items:center;font-size:14px}
+.payment-app{height:100dvh}
+.payment-scroll{padding-bottom:32px}
+.payment-hero{margin-top:10px;padding:20px;border-radius:24px;background:linear-gradient(145deg,rgba(139,92,246,.32),rgba(34,211,238,.12));border:1px solid var(--border-strong);box-shadow:var(--shadow-lg);position:relative;overflow:hidden}
+.payment-hero::after{content:"";position:absolute;right:-70px;top:-90px;width:190px;height:190px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.18),transparent 62%);pointer-events:none}
+.payment-kicker{font-size:11px;text-transform:uppercase;letter-spacing:1.6px;color:#c4b5fd;font-weight:700;margin-bottom:10px}
+.payment-hero h1{margin:0;font-size:26px;line-height:1.08;letter-spacing:.1px}
+.payment-hero p{margin:12px 0 0;color:var(--text-dim);font-size:13px;line-height:1.6;max-width:340px}
+.payment-panel{margin-top:18px}
+.payment-title{margin-top:0}
+.payment-grid{display:flex;flex-direction:column;gap:12px}
+.payment-pack{position:relative;padding:16px;border-radius:20px;background:var(--surface);border:1px solid var(--border);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));overflow:hidden}
+.payment-pack::after{content:"";position:absolute;inset:0;background:radial-gradient(220px 110px at 100% 0%,rgba(139,92,246,.18),transparent 62%);pointer-events:none}
+.payment-pack.is-popular{border-color:rgba(139,92,246,.55);background:linear-gradient(160deg,rgba(139,92,246,.24),rgba(34,211,238,.08))}
+.payment-pack-top{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
+.payment-label{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;font-weight:700}
+.payment-amount{font-size:28px;font-weight:800;margin-top:4px;background:var(--grad-primary);-webkit-background-clip:text;background-clip:text;color:transparent}
+.payment-icon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:rgba(139,92,246,.18);border:1px solid rgba(139,92,246,.3);font-size:20px}
+.payment-tag{position:absolute;top:10px;right:10px;z-index:2;font-size:9px;padding:4px 8px;border-radius:999px;background:rgba(139,92,246,.28);color:#e9d5ff;border:1px solid rgba(139,92,246,.5);text-transform:uppercase;letter-spacing:.5px}
+.payment-button{position:relative;z-index:1;width:100%;border:none;border-radius:14px;padding:13px 14px;background:var(--grad-primary);color:#fff;font-weight:800;font-size:14px;font-family:inherit;cursor:pointer;box-shadow:0 10px 24px -8px rgba(99,102,241,.7)}
+.payment-button:active{transform:scale(.98)}
+.payment-button:disabled{cursor:not-allowed;opacity:.48;filter:grayscale(.35);box-shadow:none}
+.payment-note{margin-top:14px}
 .brand-mark{
   width:34px;
   height:34px;
