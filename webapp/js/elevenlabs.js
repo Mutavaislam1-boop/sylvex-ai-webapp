@@ -129,6 +129,17 @@
   async function preview() {
     const payload = collectSettings();
     payload.text = 'SYLVEX AI. Проверка выбранного голоса.';
+    console.log('ELEVENLABS PREVIEW FRONTEND PAYLOAD', {
+      telegram_id: payload.telegram_id,
+      voice_id: payload.voice_id,
+      model_id: payload.model_id,
+      stability: payload.stability,
+      similarity_boost: payload.similarity_boost,
+      style: payload.style,
+      speed: payload.speed,
+      speaker_boost: payload.speaker_boost,
+      text_length: payload.text.length
+    });
     els.previewButton.disabled = true;
     els.previewButton.textContent = 'Готовится...';
 
@@ -139,18 +150,46 @@
         body: JSON.stringify(payload)
       });
 
+      const contentType = response.headers.get('content-type') || '';
+      console.log('ELEVENLABS PREVIEW FRONTEND RESPONSE', {
+        status: response.status,
+        contentType
+      });
+
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error);
+        if (contentType.includes('application/json')) {
+          const data = await response.json();
+          throw new Error(data.error || 'ElevenLabs preview failed');
+        }
+
+        const errorText = await response.text();
+        throw new Error(errorText || 'ElevenLabs preview failed');
+      }
+
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        throw new Error(data.error || 'Expected audio, received JSON');
       }
 
       const blob = await response.blob();
+      if (!blob.size) {
+        throw new Error('Empty audio file');
+      }
+
       const audioUrl = URL.createObjectURL(blob);
       els.previewAudio.src = audioUrl;
       els.previewAudio.hidden = false;
-      await els.previewAudio.play();
+      els.previewAudio.load();
+
+      try {
+        await els.previewAudio.play();
+      } catch (playError) {
+        console.warn('ELEVENLABS PREVIEW AUTOPLAY BLOCKED', playError);
+        toast('Аудио загружено. Нажмите Play.');
+      }
     } catch (error) {
-      toast('Не удалось воспроизвести пример');
+      const message = error && error.message ? error.message : 'Не удалось воспроизвести пример';
+      toast(message.length > 120 ? message.slice(0, 120) + '...' : message);
       console.error(error);
     } finally {
       els.previewButton.disabled = false;

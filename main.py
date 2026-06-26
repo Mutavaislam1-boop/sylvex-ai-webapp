@@ -322,6 +322,27 @@ def save_elevenlabs_settings_to_db(data: dict):
         cursor.close()
         conn.close()
 
+def safe_log_elevenlabs_preview(data: dict, payload: dict):
+    print("ELEVENLABS PREVIEW REQUEST BODY:", {
+        "telegram_id": data.get("telegram_id"),
+        "voice_id": data.get("voice_id"),
+        "voice_name": data.get("voice_name"),
+        "model_id": data.get("model_id"),
+        "stability": data.get("stability"),
+        "similarity_boost": data.get("similarity_boost"),
+        "style": data.get("style"),
+        "speed": data.get("speed"),
+        "speaker_boost": data.get("speaker_boost"),
+        "language": data.get("language"),
+        "output_format": data.get("output_format"),
+        "text_length": len(data.get("text") or ""),
+    })
+    print("ELEVENLABS PREVIEW PAYLOAD:", {
+        "text_length": len(payload.get("text") or ""),
+        "model_id": payload.get("model_id"),
+        "voice_settings": payload.get("voice_settings"),
+    })
+
 @app.get("/api/elevenlabs/bootstrap")
 async def elevenlabs_bootstrap(telegram_id: int = 0):
     try:
@@ -384,17 +405,63 @@ async def elevenlabs_preview(request: Request):
         },
     }
 
-    response = requests.post(
-        f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}",
-        headers=elevenlabs_headers(),
-        params={"output_format": output_format},
-        data=json.dumps(payload),
-        timeout=60,
-    )
-    if response.status_code >= 400:
-        return JSONResponse({"success": False, "error": response.text}, status_code=502)
+    safe_log_elevenlabs_preview(data, payload)
+    print("ELEVENLABS PREVIEW SELECTED VOICE:", voice_id)
+    print("ELEVENLABS PREVIEW SELECTED MODEL:", model_id)
 
-    return Response(content=response.content, media_type="audio/mpeg")
+    try:
+        response = requests.post(
+            f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}",
+            headers=elevenlabs_headers(),
+            params={"output_format": output_format},
+            json=payload,
+            timeout=60,
+        )
+    except Exception as exc:
+        print("ELEVENLABS PREVIEW REQUEST FAILED:", repr(exc))
+        return JSONResponse({
+            "success": False,
+            "error": str(exc),
+        }, status_code=502)
+
+    content_type = response.headers.get("content-type", "")
+    print("ELEVENLABS PREVIEW HTTP STATUS:", response.status_code)
+    print("ELEVENLABS PREVIEW CONTENT-TYPE:", content_type)
+
+    if response.status_code >= 400:
+        print("ELEVENLABS PREVIEW ERROR RESPONSE:", response.text[:2000])
+        return JSONResponse({
+            "success": False,
+            "error": response.text,
+            "elevenlabs_status": response.status_code,
+            "elevenlabs_content_type": content_type,
+        }, status_code=502)
+
+    if not response.content:
+        print("ELEVENLABS PREVIEW EMPTY AUDIO RESPONSE")
+        return JSONResponse({
+            "success": False,
+            "error": "ElevenLabs returned empty audio",
+            "elevenlabs_status": response.status_code,
+            "elevenlabs_content_type": content_type,
+        }, status_code=502)
+
+    if "audio" not in content_type and "octet-stream" not in content_type:
+        print("ELEVENLABS PREVIEW NON-AUDIO RESPONSE:", response.text[:2000])
+        return JSONResponse({
+            "success": False,
+            "error": "ElevenLabs returned non-audio response",
+            "elevenlabs_status": response.status_code,
+            "elevenlabs_content_type": content_type,
+            "body": response.text[:2000],
+        }, status_code=502)
+
+    print("ELEVENLABS PREVIEW AUDIO BYTES:", len(response.content))
+    return Response(
+        content=response.content,
+        media_type=content_type.split(";")[0] if content_type else "audio/mpeg",
+        headers={"Cache-Control": "no-store"}
+    )
 
 @app.get("/api/public/config")
 async def public_config():
