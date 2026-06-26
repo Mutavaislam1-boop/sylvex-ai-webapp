@@ -6,27 +6,65 @@
   // Pro Studio state.
   let studioMode = 'image';
   let activeCat = null;
-  let chatMessages = [];
-// inside init(), before renderChat():
-if (chatMessages.length === 0) {
-  chatMessages.push({ role: 'ai', text: t('ai_stub') + ' SYLVEX' });
-}
+  let chatMessages = [
+    { role: 'ai', text: "Hi! I'm SYLVEX. Pick a mode above and tell me what to create." }
+  ];
+  // Pending attachment for next send.
+  let pendingAttachment = null; // { kind, mime, name, dataBase64 }
+  let pendingAttachAccept = '';
+  // Voice recording state.
+  let mediaRecorder = null;
+  let mediaChunks = [];
+  let mediaStream = null;
+  // Current "model label" selected from popover, mapped to OpenAI model id.
+  let currentModelLabel = 'SYLVEX Pro';
 
+  function getTelegramId() {
+    try {
+      const tg = S.tg;
+      const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+      return u && u.id ? Number(u.id) : 0;
+    } catch { return 0; }
+  }
+
+  function pickOpenAIModel() {
+    // Map mode to a sensible default OpenAI model id.
+    if (studioMode === 'image') return 'gpt-image-1';
+    if (currentModelLabel && /lite/i.test(currentModelLabel)) return 'gpt-4o-mini';
+    return 'gpt-4o-mini';
+  }
 
   /* ===== Rendering ===== */
   function renderModeStrip() {
     const el = document.getElementById('modeStrip'); if (!el) return;
-    el.innerHTML = S.STUDIO_MODES.map(m => (
-      '<div class="mode-ico' + (studioMode === m.k ? ' act' : '') + '" data-mode="' + m.k + '" onclick="SYLVEX.selMode(\'' + m.k + '\')">'
-      + '<div class="mi">' + m.icon + '</div><div class="ml">' + t('cat_' + m.k) + '</div></div>'
-    )).join('');
+    el.innerHTML = '';
   }
 
   function renderModelPop() {
     const el = document.getElementById('modelPop'); if (!el) return;
-    el.innerHTML = S.CTRL.model.map((m, i) => (
-      '<button class="' + (i === S.CTRL_IDX.model ? 'sel' : '') + '" data-i="' + i + '" onclick="SYLVEX.pickModel(event,' + i + ')">' + m + '</button>'
-    )).join('');
+    const cur = S.CTRL.model[S.CTRL_IDX.model] || 'SYLVEX Pro';
+    const groups = [
+      { items: [
+        { k:'pro',   label:'SYLVEX Pro' },
+        { k:'lite',  label:'SYLVEX Lite' },
+      ]},
+      { label:'AI Models', items: [
+        { k:'video', label:'Video AI Models' },
+        { k:'image', label:'Image AI Models' },
+        { k:'music', label:'Music AI Models' },
+        { k:'voice', label:'Voice AI Models' },
+        { k:'text',  label:'Text AI Models' },
+      ]},
+    ];
+    let html = '';
+    groups.forEach((g, gi) => {
+      if (gi > 0) html += '<div class="mp-div"></div>';
+      if (g.label) html += '<div class="mp-label">' + g.label + '</div>';
+      g.items.forEach(it => {
+        html += '<button class="' + (cur === it.label ? 'sel' : '') + '" onclick="SYLVEX.pickModelKey(event,\'' + it.k + '\',\'' + it.label + '\')">' + it.label + '</button>';
+      });
+    });
+    el.innerHTML = html;
   }
 
   function renderChat() {
@@ -37,12 +75,16 @@ if (chatMessages.length === 0) {
           + '<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>';
       }
       const actions = '<div class="msg-actions">'
-        + '<button onclick="SYLVEX.copyMsg(' + i + ')" title="Copy">📋</button>'
-        + (m.role === 'ai' ? '<button onclick="SYLVEX.regenMsg(' + i + ')" title="Regenerate">↻</button>' : '')
-        + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">🗑</button></div>';
+        + '<button onclick="SYLVEX.copyMsg(' + i + ')" title="Copy">Copy</button>'
+        + (m.role === 'ai' ? '<button onclick="SYLVEX.regenMsg(' + i + ')" title="Regenerate">Regenerate</button>' : '')
+        + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
+      let inner = '';
+      if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
+      if (m.imageUrl) inner += '<img class="gen-img" src="' + m.imageUrl + '" alt="generated" />';
+      if (m.attachmentName) inner = '<div style="opacity:.7;font-size:12px;margin-bottom:4px">📎 ' + S.escapeHtml(m.attachmentName) + '</div>' + inner;
       return '<div class="msg ' + m.role + '" data-i="' + i + '">'
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
-        + '<div class="bubble">' + S.escapeHtml(m.text) + '</div>' + actions + '</div>';
+        + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
     }).join('');
     el.scrollTop = el.scrollHeight;
   }
@@ -59,7 +101,7 @@ if (chatMessages.length === 0) {
     renderModeStrip();
     renderModelPop();
     const mv = document.getElementById('modelVal');
-    if (mv) mv.textContent = S.CTRL.model[S.CTRL_IDX.model];
+    if (mv) mv.textContent = 'SYLVEX';
     updatePrice();
   }
 
@@ -76,7 +118,7 @@ if (chatMessages.length === 0) {
   }
   function generateNow() {
     if (!activeCat) { toast(t('generating')); return; }
-    toast(t('generating') + ' · ' + computePrice() + ' ✦');
+    toast(t('generating') + ' · ' + computePrice() + ' ⚡️');
     S.haptic.impact('medium');
   }
 
@@ -100,37 +142,146 @@ if (chatMessages.length === 0) {
     document.getElementById('modelPop').classList.remove('show');
     S.haptic.select();
   }
-  function togglePlusPop(e) {
+  function pickModelKey(e, key, label) {
     e.stopPropagation();
-    document.getElementById('plusPop').classList.toggle('show');
-    document.getElementById('modelPop').classList.remove('show');
+    // Persist label in CTRL.model[0] slot so downstream price/aiReply still works.
+    S.CTRL.model[0] = label;
+    S.CTRL_IDX.model = 0;
+    currentModelLabel = label;
+    const mv = document.getElementById('modelVal');
+    if (mv) mv.textContent = 'SYLVEX';
+    // Map model categories to studio mode where applicable.
+    if (['video','image','music','voice','text'].indexOf(key) >= 0) {
+      studioMode = key; activeCat = key;
+    }
+    if (key === 'pro' || key === 'lite') {
+      // Pro/Lite default to text chat.
+      studioMode = 'text'; activeCat = 'text';
+    }
+    renderModelPop();
+    const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
+    const bb = document.getElementById('modelBtn'); if (bb) bb.setAttribute('aria-expanded','false');
+    toast(label);
+    S.haptic.select();
+  }
+  function togglePlusPop(e) {
+    if (e) e.stopPropagation();
+    const sheet = document.getElementById('plusSheet');
+    if (sheet) sheet.classList.add('show');
+    const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
+  }
+  function closePlusSheet(e) {
+    if (e && e.target && e.target.id !== 'plusSheet') return;
+    const sheet = document.getElementById('plusSheet');
+    if (sheet) sheet.classList.remove('show');
   }
   function attach(kind) {
-    document.getElementById('plusPop').classList.remove('show');
-    toast(t('att_' + kind));
+    const sheet = document.getElementById('plusSheet');
+    if (sheet) sheet.classList.remove('show');
+    const inp = document.getElementById('attachInput');
+    if (!inp) return;
+    if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
+    else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
+    else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
+    inp.value = '';
+    inp.click();
+  }
+  function onAttachFile(e) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    // Limit ~10MB.
+    if (f.size > 10 * 1024 * 1024) { toast('File too large (max 10 MB)'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const b64 = result.split(',')[1] || '';
+      pendingAttachment = {
+        kind: pendingAttachAccept || 'file',
+        mime: f.type || 'application/octet-stream',
+        name: f.name,
+        dataBase64: b64,
+      };
+    };
+    reader.readAsDataURL(f);
+  }
+  function clearAttachment() {
+    pendingAttachment = null;
+  }
+  function genAction(kind) {
+    const sheet = document.getElementById('plusSheet');
+    if (sheet) sheet.classList.remove('show');
+    studioMode = kind === 'voice' ? 'voice' : kind;
+    activeCat = studioMode;
+    const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Voiceover' };
+    toast(labels[kind] || kind);
+    const ta = document.getElementById('chatInput');
+    if (ta) ta.focus();
+  }
+  function toggleHistory(e) {
+    if (e) e.stopPropagation();
+    const d = document.getElementById('histDrawer');
+    const b = document.getElementById('histBackdrop');
+    if (!d || !b) return;
+    const on = !d.classList.contains('show');
+    d.classList.toggle('show', on);
+    b.classList.toggle('show', on);
   }
   function autoGrow(ta) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }
-  function aiReply(prompt) {
-    const m = S.CTRL.model[S.CTRL_IDX.model];
-    return '✨ ' + m + ' · ' + t('cat_' + studioMode) + '\n\n' + t('ai_stub') + ' "' + prompt + '"';
+  async function callGenerate(promptText, attachment) {
+    const history = chatMessages
+      .filter((m) => !m.typing && m.text && (m.role === 'user' || m.role === 'ai'))
+      .slice(-10)
+      .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
+    const payload = {
+      telegram_id: getTelegramId(),
+      prompt: promptText,
+      mode: studioMode,
+      model: pickOpenAIModel(),
+      history,
+      attachment: attachment || null,
+    };
+    const res = await fetch('/api/public/prostudio/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    return j;
   }
-  function sendChat() {
+
+  async function sendChat() {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
-    if (!v) return;
-    chatMessages.push({ role: 'user', text: v });
+    const attachment = pendingAttachment;
+    if (!v && !attachment) return;
+    chatMessages.push({
+      role: 'user',
+      text: v,
+      attachmentName: attachment ? attachment.name : null,
+    });
     ta.value = ''; autoGrow(ta);
+    clearAttachment();
     chatMessages.push({ typing: true, role: 'ai' });
     renderChat();
     S.haptic.impact('light');
-    setTimeout(() => {
+    try {
+      const j = await callGenerate(v, attachment);
       chatMessages.pop();
-      chatMessages.push({ role: 'ai', text: aiReply(v) });
-      renderChat();
-    }, 900);
+      if (j.type === 'image') {
+        chatMessages.push({ role: 'ai', text: '', imageUrl: j.image_url });
+      } else {
+        chatMessages.push({ role: 'ai', text: j.text || '' });
+      }
+    } catch (err) {
+      chatMessages.pop();
+      chatMessages.push({ role: 'ai', text: '⚠️ ' + (err && err.message ? err.message : 'Generation failed') });
+    }
+    renderChat();
   }
   function copyMsg(i) {
     const m = chatMessages[i]; if (!m) return;
@@ -141,15 +292,76 @@ if (chatMessages.length === 0) {
     const prev = chatMessages[i - 1];
     if (!prev || prev.role !== 'user') return;
     chatMessages[i] = { typing: true, role: 'ai' }; renderChat();
-    setTimeout(() => { chatMessages[i] = { role: 'ai', text: aiReply(prev.text) }; renderChat(); }, 800);
+    callGenerate(prev.text, null)
+      .then((j) => {
+        chatMessages[i] = j.type === 'image'
+          ? { role: 'ai', text: '', imageUrl: j.image_url }
+          : { role: 'ai', text: j.text || '' };
+        renderChat();
+      })
+      .catch((err) => {
+        chatMessages[i] = { role: 'ai', text: '⚠️ ' + (err && err.message ? err.message : 'Regeneration failed') };
+        renderChat();
+      });
+  }
+
+  /* ===== Voice (mic) recording → Whisper ===== */
+  async function toggleMic(e) {
+    if (e) e.stopPropagation();
+    const btn = document.getElementById('micBtn');
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Microphone not supported'); return;
+    }
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast('Microphone access denied'); return;
+    }
+    const mime = ['audio/webm', 'audio/mp4'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    try {
+      mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
+    } catch {
+      mediaRecorder = new MediaRecorder(mediaStream);
+    }
+    mediaChunks = [];
+    mediaRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) mediaChunks.push(ev.data); };
+    mediaRecorder.onstop = async () => {
+      if (btn) btn.classList.remove('rec');
+      try { mediaStream.getTracks().forEach((t) => t.stop()); } catch {}
+      const blob = new Blob(mediaChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      if (blob.size < 800) { toast('Recording too short'); return; }
+      const ta = document.getElementById('chatInput');
+      if (ta) { ta.placeholder = 'Transcribing…'; }
+      try {
+        const fd = new FormData();
+        const ext = (blob.type.includes('mp4') ? 'mp4' : 'webm');
+        fd.append('file', blob, 'voice.' + ext);
+        const r = await fetch('/api/public/prostudio/transcribe', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || 'transcribe failed');
+        if (ta) { ta.value = (ta.value ? ta.value + ' ' : '') + (j.text || ''); autoGrow(ta); ta.focus(); }
+      } catch (err) {
+        toast('Voice: ' + (err && err.message ? err.message : 'failed'));
+      } finally {
+        if (ta) ta.placeholder = 'Message SYLVEX…';
+      }
+    };
+    mediaRecorder.start();
+    if (btn) btn.classList.add('rec');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
   function deleteMsg(i) {
     chatMessages.splice(i, 1); renderChat();
     S.haptic.impact('light');
   }
-  function toggleMic(btn) {
-    btn.classList.toggle('rec');
-    toast(btn.classList.contains('rec') ? t('rec_start') : t('rec_stop'));
+  function newChat() {
+    chatMessages = [{ role: 'ai', text: "New conversation started. How can I help?" }];
+    renderChat();
+    S.haptic.impact('light');
   }
 
   /* ===== Support modal ===== */
@@ -229,7 +441,37 @@ if (chatMessages.length === 0) {
       if (langPop) langPop.classList.remove('show');
       const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
       const pp = document.getElementById('plusPop');  if (pp) pp.classList.remove('show');
+      const bp = document.getElementById('brandPop'); if (bp) bp.classList.remove('show');
+      const bb = document.getElementById('brandBtn'); if (bb) bb.setAttribute('aria-expanded','false');
     });
+
+    // Brand dropdown
+    const brandBtn = document.getElementById('brandBtn');
+    const brandPop = document.getElementById('brandPop');
+    if (brandBtn && brandPop) {
+      brandBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const show = !brandPop.classList.contains('show');
+        brandPop.classList.toggle('show', show);
+        brandBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+      });
+      brandPop.querySelectorAll('button[data-brand]').forEach(b => {
+        b.addEventListener('click', e => {
+          e.stopPropagation();
+          const k = b.dataset.brand;
+          brandPop.classList.remove('show');
+          brandBtn.setAttribute('aria-expanded','false');
+          if (k === 'settings') { switchView('settings'); return; }
+          if (k === 'studio' || k === 'pro' || k === 'lite') {
+            switchView('tools');
+            const mv = document.getElementById('modelVal');
+            const label = k === 'pro' ? 'SYLVEX Pro' : k === 'lite' ? 'SYLVEX Lite' : 'SYLVEX Studio';
+            if (mv) mv.textContent = label;
+            toast(label);
+          }
+        });
+      });
+    }
 
     // Bottom navigation
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -262,64 +504,24 @@ if (chatMessages.length === 0) {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
       });
     }
+
+    // Keyboard offset: keep the Pro Studio input pinned above the on-screen
+    // keyboard without shrinking the app or moving the header. The bottom
+    // nav stays in its natural position and gets covered by the keyboard.
+    const vv = window.visualViewport;
+    if (vv) {
+      const updateKb = () => {
+        const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        document.documentElement.style.setProperty('--kb', kb + 'px');
+        document.body.classList.toggle('kb-open', kb > 80);
+      };
+      vv.addEventListener('resize', updateKb);
+      vv.addEventListener('scroll', updateKb);
+      updateKb();
+    }
   }
-
-
 
   /* ===== Init (called after cabinet.html is injected) ===== */
-  async function loadUserData() {
-    const tgUser = S.tg && S.tg.initDataUnsafe && S.tg.initDataUnsafe.user;
-
-    if (!tgUser || !tgUser.id) {
-      return;
-    }
-
-    const response = await fetch('/api/cabinet/' + tgUser.id);
-    const data = await response.json();
-
-    if (!data.success || !data.user) {
-      return;
-    }
-
-    const user = data.user;
-
-    const name = user.first_name || tgUser.first_name || 'User';
-    const username = user.username || tgUser.username || '';
-    const balance = user.balance || 0;
-    const subscription = user.subscription || 'FREE';
-    const totalGenerations = user.total_generations || 0;
-
-    setText('homeName', name);
-    setText('homeUsername', username ? '@' + username : '@user');
-    setText('homeId', user.telegram_id || tgUser.id);
-    setText('homeBalance', balance + ' ⭐');
-    setText('homeStatus', subscription);
-    setText('homeGenerations', totalGenerations);
-
-    setText('profileName', name);
-    setText('profileUsername', username ? '@' + username : '@user');
-    setText('profileId', user.telegram_id || tgUser.id);
-    setText('profileBalance', balance + ' ⭐');
-    setText('profileStatus', subscription);
-    setText('profilePlan', subscription);
-    setText('profileGenerations', totalGenerations);
-
-    if (user.created_at) {
-      setText('profileCreated', new Date(user.created_at).toLocaleDateString());
-    }
-
-    const avatar = document.getElementById('profileAvatar');
-    if (avatar) avatar.textContent = name.slice(0, 2).toUpperCase();
-
-    const homeAvatar = document.getElementById('homeAvatar');
-    if (homeAvatar) homeAvatar.textContent = name.slice(0, 2).toUpperCase();
-  }
-
-  function setText(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  }
-
   function init() {
     // Restore saved theme.
     const tg = S.tg;
@@ -330,14 +532,15 @@ if (chatMessages.length === 0) {
     applyLang();       // triggers renderDynamic
     initHero();
     renderChat();
-    loadUserData();
+    if (S.syncUser) S.syncUser();
   }
 
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    selMode, pickModel, toggleModelPop, togglePlusPop, attach, autoGrow,
-    sendChat, copyMsg, regenMsg, deleteMsg, toggleMic,
+    selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
+    attach, onAttachFile, clearAttachment, genAction, toggleHistory, autoGrow, toggleMic,
+    sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
     get studioMode() { return studioMode; },
@@ -350,7 +553,6 @@ if (chatMessages.length === 0) {
   window.attach         = attach;
   window.autoGrow       = autoGrow;
   window.sendChat       = sendChat;
-  window.toggleMic      = toggleMic;
   window.openSupport    = openSupport;
   window.closeSupport   = closeSupport;
   window.sendSupport    = sendSupport;

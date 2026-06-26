@@ -59,17 +59,17 @@
     return '<div class="hist-item"><div class="thumb">' + h.icon + '</div>'
       + '<div class="hist-body"><div class="hist-title">' + t(h.tk) + '</div>'
       + '<div class="hist-sub">' + t(h.sk) + '</div></div>'
-      + '<span class="chip ' + h.status + '">' + t(h.label) + '</span></div>';
+      + '<button class="chip open" onclick="event.stopPropagation();toast(t(\u0027open\u0027)+\u0027 \u2192\u0027)">' + t('open') + '</button></div>';
   }
 
   function shopCard(s) {
     return '<div class="pack ' + (s.pop ? 'pop' : '') + '">'
       + (s.pop ? '<div class="pop-tag">' + t('popular') + '</div>' : '')
       + '<div class="pico">' + s.icon + '</div>'
-      + '<div class="pa">' + s.tokens.toLocaleString() + ' ✦</div>'
+      + '<div class="pa">' + s.tokens.toLocaleString() + ' ⚡️</div>'
       + '<div class="pn">' + t('tokens') + '</div>'
       + '<div class="pp">' + s.price + '</div>'
-      + '<button onclick="toast(\'' + t('buy') + ' ' + s.tokens + ' ✦\')">' + t('buy') + '</button></div>';
+      + '<button onclick="toast(\'' + t('buy') + ' ' + s.tokens + ' ⚡️\')">' + t('buy') + '</button></div>';
   }
 
   // Expose globally.

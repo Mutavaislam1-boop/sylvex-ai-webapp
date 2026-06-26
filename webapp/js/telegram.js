@@ -5,14 +5,9 @@
     try {
       tg.ready();
       tg.expand();
-   
+      tg.setHeaderColor && tg.setHeaderColor('#030308');
     } catch (e) {}
   }
-
-if (tg.setHeaderColor && parseFloat(tg.version) >= 6.9) {
-  tg.setHeaderColor('#030308');
-}
-
 
   window.SYLVEX = window.SYLVEX || {};
   window.SYLVEX.tg = tg;

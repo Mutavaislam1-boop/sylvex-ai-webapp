@@ -23,7 +23,7 @@
   ];
 
   const shopData = [
-    { icon: '✦',  tokens: 500,  price: '$4.99' },
+    { icon: '⚡️',  tokens: 500,  price: '$4.99' },
     { icon: '💎', tokens: 1200, price: '$9.99', pop: true },
     { icon: '🚀', tokens: 3000, price: '$19.99' },
     { icon: '👑', tokens: 8000, price: '$49.99' }
@@ -52,7 +52,7 @@
   };
   const CTRL_IDX = { model: 0, format: 0, video: 0, res: 0, time: 1 };
 
-  // Pricing model in ✦ tokens.
+  // Pricing model in ⚡️ tokens.
   const CAT_PRICE = { video: 50, image: 10, music: 30, text: 5, voice: 20 };
   const CTRL_PRICE = {
     model:  [0, 5, 10, 15, 20],
