@@ -131,82 +131,6 @@
     }
   }
 
-  async function preview() {
-    const payload = collectSettings();
-    payload.text = 'SYLVEX AI. Проверка выбранного голоса.';
-    console.log('ELEVENLABS PREVIEW FRONTEND PAYLOAD', {
-      telegram_id: payload.telegram_id,
-      voice_id: payload.voice_id,
-      model_id: payload.model_id,
-      stability: payload.stability,
-      similarity_boost: payload.similarity_boost,
-      style: payload.style,
-      speed: payload.speed,
-      speaker_boost: payload.speaker_boost,
-      text_length: payload.text.length
-    });
-    els.previewButton.disabled = true;
-    els.previewButton.textContent = 'Готовится...';
-
-    try {
-      const response = await fetch('/api/elevenlabs/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const contentType = response.headers.get('content-type') || '';
-      console.log('ELEVENLABS PREVIEW FRONTEND RESPONSE', {
-        status: response.status,
-        contentType
-      });
-
-      if (!response.ok) {
-        if (contentType.includes('application/json')) {
-          const data = await response.json();
-          let errorMessage = data.error || 'ElevenLabs preview failed';
-          try {
-            const parsed = typeof errorMessage === 'string' ? JSON.parse(errorMessage) : errorMessage;
-            errorMessage = parsed.detail && parsed.detail.message || parsed.message || errorMessage;
-          } catch (e) {}
-          throw new Error(errorMessage);
-        }
-
-        const errorText = await response.text();
-        throw new Error(errorText || 'ElevenLabs preview failed');
-      }
-
-      if (contentType.includes('application/json')) {
-        const data = await response.json();
-        throw new Error(data.error || 'Expected audio, received JSON');
-      }
-
-      const blob = await response.blob();
-      if (!blob.size) {
-        throw new Error('Empty audio file');
-      }
-
-      const audioUrl = URL.createObjectURL(blob);
-      els.previewAudio.src = audioUrl;
-      els.previewAudio.hidden = false;
-      els.previewAudio.load();
-
-      try {
-        await els.previewAudio.play();
-      } catch (playError) {
-        console.warn('ELEVENLABS PREVIEW AUTOPLAY BLOCKED', playError);
-        toast('Аудио загружено. Нажмите Play.');
-      }
-    } catch (error) {
-      const message = error && error.message ? error.message : 'Не удалось воспроизвести пример';
-      toast(message.length > 120 ? message.slice(0, 120) + '...' : message);
-      console.error(error);
-    } finally {
-      els.previewButton.disabled = false;
-      els.previewButton.textContent = 'Прослушать пример';
-    }
-  }
-
   async function save() {
     if (!state.telegramId) {
       toast('Откройте страницу из Telegram Mini App');
@@ -226,6 +150,9 @@
       if (!data.success) throw new Error(data.error || 'Save failed');
       toast('Настройки сохранены');
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      if (tg && typeof tg.close === 'function') {
+        setTimeout(() => tg.close(), 900);
+      }
     } catch (error) {
       toast('Не удалось сохранить настройки');
       console.error(error);
@@ -249,9 +176,7 @@
     els.similarityValue = document.getElementById('similarityValue');
     els.styleValue = document.getElementById('styleValue');
     els.speedValue = document.getElementById('speedValue');
-    els.previewButton = document.getElementById('previewButton');
     els.saveButton = document.getElementById('saveButton');
-    els.previewAudio = document.getElementById('previewAudio');
 
     els.voiceTypeSelect.addEventListener('change', renderVoices);
     [
@@ -264,7 +189,6 @@
         label.textContent = Number(input.value).toFixed(2);
       });
     });
-    els.previewButton.addEventListener('click', preview);
     els.saveButton.addEventListener('click', save);
   }
 
