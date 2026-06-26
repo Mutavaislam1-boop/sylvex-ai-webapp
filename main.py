@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
@@ -34,6 +34,12 @@ WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.rai
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
+ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
+ELEVENLABS_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
+ELEVENLABS_DEFAULT_VOICE_NAME = "Rachel"
+ELEVENLABS_DEFAULT_MODEL_ID = "eleven_multilingual_v2"
+ELEVENLABS_DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
 
 
 def design(title: str, body: str) -> str:
@@ -106,6 +112,289 @@ async def cabinet():
 @app.get("/payments")
 async def payments():
     return FileResponse(WEBAPP_DIR / "payments.html")
+
+@app.get("/elevenlabs")
+async def elevenlabs_page():
+    return FileResponse(WEBAPP_DIR / "elevenlabs.html")
+
+def ensure_elevenlabs_table():
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_voice_settings (
+            telegram_id BIGINT,
+            provider TEXT DEFAULT 'elevenlabs',
+            voice_id TEXT,
+            voice_name TEXT,
+            model_id TEXT,
+            stability REAL DEFAULT 0.5,
+            similarity_boost REAL DEFAULT 0.75,
+            style REAL DEFAULT 0.0,
+            speed REAL DEFAULT 1.0,
+            speaker_boost INTEGER DEFAULT 1,
+            language TEXT DEFAULT 'ru',
+            output_format TEXT DEFAULT 'mp3_44100_128',
+            updated_at TEXT,
+            PRIMARY KEY (telegram_id, provider)
+        )
+        """)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def default_elevenlabs_settings() -> dict:
+    return {
+        "voice_id": ELEVENLABS_DEFAULT_VOICE_ID,
+        "voice_name": ELEVENLABS_DEFAULT_VOICE_NAME,
+        "model_id": ELEVENLABS_DEFAULT_MODEL_ID,
+        "stability": 0.5,
+        "similarity_boost": 0.75,
+        "style": 0.0,
+        "speed": 1.0,
+        "speaker_boost": True,
+        "language": "ru",
+        "output_format": ELEVENLABS_DEFAULT_OUTPUT_FORMAT,
+    }
+
+def elevenlabs_headers(content_type: str = "application/json") -> dict:
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY is not configured")
+
+    headers = {"xi-api-key": ELEVENLABS_API_KEY}
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
+
+def fetch_elevenlabs_models() -> list:
+    response = requests.get(
+        f"{ELEVENLABS_BASE_URL}/v1/models",
+        headers=elevenlabs_headers(None),
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(response.text)
+
+    data = response.json()
+    models = data if isinstance(data, list) else data.get("models", [])
+    result = []
+    for model in models:
+        model_id = model.get("model_id") or model.get("id")
+        if not model_id:
+            continue
+        if model.get("can_do_text_to_speech", True) is False:
+            continue
+        result.append({
+            "model_id": model_id,
+            "name": model.get("name") or model_id,
+        })
+    return result
+
+def fetch_elevenlabs_voices(limit: int = 80) -> list:
+    response = requests.get(
+        f"{ELEVENLABS_BASE_URL}/v2/voices",
+        headers=elevenlabs_headers(None),
+        params={"page_size": limit},
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(response.text)
+
+    data = response.json()
+    voices = data.get("voices") or data.get("data") or []
+    result = []
+    for voice in voices[:limit]:
+        labels = voice.get("labels") or {}
+        voice_id = voice.get("voice_id")
+        if not voice_id:
+            continue
+        result.append({
+            "voice_id": voice_id,
+            "name": voice.get("name") or "Voice",
+            "category": voice.get("category") or labels.get("category") or "",
+            "gender": labels.get("gender") or labels.get("sex") or "",
+            "language": labels.get("language") or labels.get("accent") or "multilingual",
+            "preview_url": voice.get("preview_url") or voice.get("sample_url") or "",
+        })
+    return result
+
+def get_elevenlabs_settings_from_db(telegram_id: int) -> dict:
+    defaults = default_elevenlabs_settings()
+    if not DATABASE_URL or not telegram_id:
+        return defaults
+
+    ensure_elevenlabs_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        SELECT
+            voice_id,
+            voice_name,
+            model_id,
+            stability,
+            similarity_boost,
+            style,
+            speed,
+            speaker_boost,
+            language,
+            output_format
+        FROM user_voice_settings
+        WHERE telegram_id = %s
+          AND provider = 'elevenlabs'
+        """, (telegram_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not row:
+        return defaults
+
+    return {
+        "voice_id": row[0] or defaults["voice_id"],
+        "voice_name": row[1] or defaults["voice_name"],
+        "model_id": row[2] or defaults["model_id"],
+        "stability": row[3] if row[3] is not None else defaults["stability"],
+        "similarity_boost": row[4] if row[4] is not None else defaults["similarity_boost"],
+        "style": row[5] if row[5] is not None else defaults["style"],
+        "speed": row[6] if row[6] is not None else defaults["speed"],
+        "speaker_boost": bool(row[7]),
+        "language": row[8] or defaults["language"],
+        "output_format": row[9] or defaults["output_format"],
+    }
+
+def save_elevenlabs_settings_to_db(data: dict):
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not configured")
+
+    ensure_elevenlabs_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        INSERT INTO user_voice_settings (
+            telegram_id,
+            provider,
+            voice_id,
+            voice_name,
+            model_id,
+            stability,
+            similarity_boost,
+            style,
+            speed,
+            speaker_boost,
+            language,
+            output_format,
+            updated_at
+        ) VALUES (%s, 'elevenlabs', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()::TEXT)
+        ON CONFLICT (telegram_id, provider) DO UPDATE SET
+            voice_id = EXCLUDED.voice_id,
+            voice_name = EXCLUDED.voice_name,
+            model_id = EXCLUDED.model_id,
+            stability = EXCLUDED.stability,
+            similarity_boost = EXCLUDED.similarity_boost,
+            style = EXCLUDED.style,
+            speed = EXCLUDED.speed,
+            speaker_boost = EXCLUDED.speaker_boost,
+            language = EXCLUDED.language,
+            output_format = EXCLUDED.output_format,
+            updated_at = EXCLUDED.updated_at
+        """, (
+            int(data.get("telegram_id")),
+            data.get("voice_id") or ELEVENLABS_DEFAULT_VOICE_ID,
+            data.get("voice_name") or ELEVENLABS_DEFAULT_VOICE_NAME,
+            data.get("model_id") or ELEVENLABS_DEFAULT_MODEL_ID,
+            float(data.get("stability", 0.5)),
+            float(data.get("similarity_boost", 0.75)),
+            float(data.get("style", 0.0)),
+            float(data.get("speed", 1.0)),
+            1 if data.get("speaker_boost", True) else 0,
+            data.get("language") or "ru",
+            data.get("output_format") or ELEVENLABS_DEFAULT_OUTPUT_FORMAT,
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/api/elevenlabs/bootstrap")
+async def elevenlabs_bootstrap(telegram_id: int = 0):
+    try:
+        models = fetch_elevenlabs_models()
+    except Exception as exc:
+        print("ELEVENLABS MODELS LOAD FAILED:", exc)
+        models = [{
+            "model_id": ELEVENLABS_DEFAULT_MODEL_ID,
+            "name": "Eleven Multilingual v2",
+        }]
+
+    try:
+        voices = fetch_elevenlabs_voices()
+    except Exception as exc:
+        print("ELEVENLABS VOICES LOAD FAILED:", exc)
+        voices = [{
+            "voice_id": ELEVENLABS_DEFAULT_VOICE_ID,
+            "name": ELEVENLABS_DEFAULT_VOICE_NAME,
+            "category": "premade",
+            "gender": "female",
+            "language": "multilingual",
+            "preview_url": "",
+        }]
+
+    return {
+        "success": True,
+        "models": models,
+        "voices": voices,
+        "settings": get_elevenlabs_settings_from_db(telegram_id),
+        "defaults": default_elevenlabs_settings(),
+    }
+
+@app.post("/api/elevenlabs/settings")
+async def save_elevenlabs_settings(request: Request):
+    data = await request.json()
+    telegram_id = data.get("telegram_id")
+    if not telegram_id:
+        return JSONResponse({"success": False, "error": "telegram_id is required"}, status_code=400)
+
+    save_elevenlabs_settings_to_db(data)
+    return {"success": True, "message": "ElevenLabs settings saved"}
+
+@app.post("/api/elevenlabs/preview")
+async def elevenlabs_preview(request: Request):
+    data = await request.json()
+    voice_id = data.get("voice_id") or ELEVENLABS_DEFAULT_VOICE_ID
+    model_id = data.get("model_id") or ELEVENLABS_DEFAULT_MODEL_ID
+    output_format = data.get("output_format") or ELEVENLABS_DEFAULT_OUTPUT_FORMAT
+    text = (data.get("text") or "SYLVEX voice preview.").strip()[:220]
+
+    payload = {
+        "text": text,
+        "model_id": model_id,
+        "voice_settings": {
+            "stability": float(data.get("stability", 0.5)),
+            "similarity_boost": float(data.get("similarity_boost", 0.75)),
+            "style": float(data.get("style", 0.0)),
+            "speed": float(data.get("speed", 1.0)),
+            "use_speaker_boost": bool(data.get("speaker_boost", True)),
+        },
+    }
+
+    response = requests.post(
+        f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}",
+        headers=elevenlabs_headers(),
+        params={"output_format": output_format},
+        data=json.dumps(payload),
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        return JSONResponse({"success": False, "error": response.text}, status_code=502)
+
+    return Response(content=response.content, media_type="audio/mpeg")
 
 @app.get("/api/public/config")
 async def public_config():
