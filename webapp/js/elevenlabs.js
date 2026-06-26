@@ -124,6 +124,11 @@
     state.voices = data.voices || [];
     state.models = data.models || [];
     applySettings(data.settings || data.defaults || {});
+
+    if (data.warnings && data.warnings.length) {
+      console.warn('ELEVENLABS BOOTSTRAP WARNINGS', data.warnings);
+      toast('ElevenLabs API требует проверки ключа и прав доступа.');
+    }
   }
 
   async function preview() {
@@ -159,7 +164,12 @@
       if (!response.ok) {
         if (contentType.includes('application/json')) {
           const data = await response.json();
-          throw new Error(data.error || 'ElevenLabs preview failed');
+          let errorMessage = data.error || 'ElevenLabs preview failed';
+          try {
+            const parsed = typeof errorMessage === 'string' ? JSON.parse(errorMessage) : errorMessage;
+            errorMessage = parsed.detail && parsed.detail.message || parsed.message || errorMessage;
+          } catch (e) {}
+          throw new Error(errorMessage);
         }
 
         const errorText = await response.text();

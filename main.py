@@ -345,10 +345,12 @@ def safe_log_elevenlabs_preview(data: dict, payload: dict):
 
 @app.get("/api/elevenlabs/bootstrap")
 async def elevenlabs_bootstrap(telegram_id: int = 0):
+    warnings = []
     try:
         models = fetch_elevenlabs_models()
     except Exception as exc:
         print("ELEVENLABS MODELS LOAD FAILED:", exc)
+        warnings.append(f"models: {exc}")
         models = [{
             "model_id": ELEVENLABS_DEFAULT_MODEL_ID,
             "name": "Eleven Multilingual v2",
@@ -358,6 +360,7 @@ async def elevenlabs_bootstrap(telegram_id: int = 0):
         voices = fetch_elevenlabs_voices()
     except Exception as exc:
         print("ELEVENLABS VOICES LOAD FAILED:", exc)
+        warnings.append(f"voices: {exc}")
         voices = [{
             "voice_id": ELEVENLABS_DEFAULT_VOICE_ID,
             "name": ELEVENLABS_DEFAULT_VOICE_NAME,
@@ -373,6 +376,8 @@ async def elevenlabs_bootstrap(telegram_id: int = 0):
         "voices": voices,
         "settings": get_elevenlabs_settings_from_db(telegram_id),
         "defaults": default_elevenlabs_settings(),
+        "warnings": warnings,
+        "api_available": not warnings,
     }
 
 @app.post("/api/elevenlabs/settings")
