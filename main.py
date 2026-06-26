@@ -195,20 +195,35 @@ def fetch_elevenlabs_models() -> list:
     return result
 
 def fetch_elevenlabs_voices(limit: int = 80) -> list:
-    response = requests.get(
-        f"{ELEVENLABS_BASE_URL}/v2/voices",
-        headers=elevenlabs_headers(None),
-        params={"page_size": limit},
-        timeout=30,
-    )
-    if response.status_code >= 400:
-        raise RuntimeError(response.text)
+    voices = []
+    next_page_token = None
 
-    data = response.json()
-    voices = data.get("voices") or data.get("data") or []
+    while len(voices) < limit:
+        params = {"page_size": min(100, limit - len(voices))}
+        if next_page_token:
+            params["next_page_token"] = next_page_token
+
+        response = requests.get(
+            f"{ELEVENLABS_BASE_URL}/v2/voices",
+            headers=elevenlabs_headers(None),
+            params=params,
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(response.text)
+
+        data = response.json()
+        page_voices = data.get("voices") or data.get("data") or []
+        voices.extend(page_voices)
+        next_page_token = data.get("next_page_token") or data.get("next_cursor")
+
+        if not next_page_token or not data.get("has_more", bool(next_page_token)):
+            break
+
     result = []
     for voice in voices[:limit]:
         labels = voice.get("labels") or {}
+        fine_tuning = voice.get("fine_tuning") or {}
         voice_id = voice.get("voice_id")
         if not voice_id:
             continue
@@ -217,8 +232,11 @@ def fetch_elevenlabs_voices(limit: int = 80) -> list:
             "name": voice.get("name") or "Voice",
             "category": voice.get("category") or labels.get("category") or "",
             "gender": labels.get("gender") or labels.get("sex") or "",
-            "language": labels.get("language") or labels.get("accent") or "multilingual",
+            "language": labels.get("language") or labels.get("accent") or voice.get("language") or "multilingual",
             "preview_url": voice.get("preview_url") or voice.get("sample_url") or "",
+            "is_owner": voice.get("is_owner"),
+            "sharing_enabled": voice.get("sharing") is not None,
+            "fine_tuning_state": fine_tuning.get("state"),
         })
     return result
 
@@ -273,6 +291,19 @@ def save_elevenlabs_settings_to_db(data: dict):
         raise RuntimeError("DATABASE_URL is not configured")
 
     ensure_elevenlabs_table()
+    print("ELEVENLABS SETTINGS SAVE REQUEST:", {
+        "telegram_id": data.get("telegram_id"),
+        "voice_id": data.get("voice_id"),
+        "voice_name": data.get("voice_name"),
+        "model_id": data.get("model_id"),
+        "stability": data.get("stability"),
+        "similarity_boost": data.get("similarity_boost"),
+        "style": data.get("style"),
+        "speed": data.get("speed"),
+        "speaker_boost": data.get("speaker_boost"),
+        "language": data.get("language"),
+        "output_format": data.get("output_format"),
+    })
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     try:

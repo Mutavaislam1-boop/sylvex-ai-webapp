@@ -35,6 +35,16 @@
 
   function voiceMatchesType(voice, type) {
     if (!type || type === 'all') return true;
+    const gender = String(voice.gender || '').trim().toLowerCase();
+    const category = String(voice.category || '').trim().toLowerCase();
+    const name = String(voice.name || '').trim().toLowerCase();
+    const language = String(voice.language || '').trim().toLowerCase();
+    const words = [
+      name,
+      category,
+      gender,
+      language
+    ].join(' ').split(/[^a-zа-яё]+/i).filter(Boolean);
     const text = [
       voice.name || '',
       voice.category || '',
@@ -42,10 +52,10 @@
       voice.language || ''
     ].join(' ').toLowerCase();
 
-    if (type === 'male') return text.includes('male') || text.includes('man');
-    if (type === 'female') return text.includes('female') || text.includes('woman');
+    if (type === 'male') return gender === 'male' || words.includes('male') || words.includes('man');
+    if (type === 'female') return gender === 'female' || words.includes('female') || words.includes('woman');
     if (type === 'narration') return text.includes('narrat') || text.includes('news') || text.includes('professional');
-    if (type === 'character') return text.includes('character') || text.includes('cartoon') || text.includes('animated');
+    if (type === 'character') return text.includes('character') || text.includes('cartoon') || text.includes('animated') || text.includes('anime');
     return true;
   }
 
@@ -141,10 +151,24 @@
     els.saveButton.textContent = 'Сохраняется...';
 
     try {
+      const settingsPayload = collectSettings();
+      console.log('ELEVENLABS SETTINGS FRONTEND SAVE', {
+        telegram_id: settingsPayload.telegram_id,
+        voice_id: settingsPayload.voice_id,
+        voice_name: settingsPayload.voice_name,
+        model_id: settingsPayload.model_id,
+        stability: settingsPayload.stability,
+        similarity_boost: settingsPayload.similarity_boost,
+        style: settingsPayload.style,
+        speed: settingsPayload.speed,
+        speaker_boost: settingsPayload.speaker_boost,
+        language: settingsPayload.language
+      });
+
       const response = await fetch('/api/elevenlabs/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(collectSettings())
+        body: JSON.stringify(settingsPayload)
       });
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Save failed');
