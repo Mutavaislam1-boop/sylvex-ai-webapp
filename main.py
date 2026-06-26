@@ -40,6 +40,12 @@ ELEVENLABS_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 ELEVENLABS_DEFAULT_VOICE_NAME = "Rachel"
 ELEVENLABS_DEFAULT_MODEL_ID = "eleven_multilingual_v2"
 ELEVENLABS_DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
+HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY")
+HEYGEN_BASE_URL = "https://api.heygen.com/v3"
+HEYGEN_VOICE_MODEL_ID = "starfish"
+HEYGEN_DEFAULT_LANGUAGE = "ru"
+HEYGEN_DEFAULT_SPEED = 1.0
+HEYGEN_DEFAULT_OUTPUT_FORMAT = "mp3"
 
 
 def design(title: str, body: str) -> str:
@@ -116,6 +122,10 @@ async def payments():
 @app.get("/elevenlabs")
 async def elevenlabs_page():
     return FileResponse(WEBAPP_DIR / "elevenlabs.html")
+
+@app.get("/heygen-voice")
+async def heygen_voice_page():
+    return FileResponse(WEBAPP_DIR / "heygen-voice.html")
 
 def ensure_elevenlabs_table():
     if not DATABASE_URL:
@@ -353,6 +363,189 @@ def save_elevenlabs_settings_to_db(data: dict):
         cursor.close()
         conn.close()
 
+def default_heygen_voice_settings() -> dict:
+    return {
+        "voice_id": "",
+        "voice_name": "Auto",
+        "model_id": HEYGEN_VOICE_MODEL_ID,
+        "language": HEYGEN_DEFAULT_LANGUAGE,
+        "speed": HEYGEN_DEFAULT_SPEED,
+        "output_format": HEYGEN_DEFAULT_OUTPUT_FORMAT,
+    }
+
+def heygen_headers() -> dict:
+    if not HEYGEN_API_KEY:
+        raise RuntimeError("HEYGEN_API_KEY is not configured")
+
+    return {
+        "x-api-key": HEYGEN_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+def fetch_heygen_voice_page(
+    voice_type: str = "public",
+    language: str = "",
+    gender: str = "",
+    token: str = "",
+    limit: int = 100,
+) -> dict:
+    params = {
+        "type": voice_type,
+        "engine": HEYGEN_VOICE_MODEL_ID,
+        "limit": limit,
+    }
+
+    if language:
+        params["language"] = language
+    if gender:
+        params["gender"] = gender
+    if token:
+        params["token"] = token
+
+    response = requests.get(
+        f"{HEYGEN_BASE_URL}/voices",
+        headers=heygen_headers(),
+        params=params,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(response.text)
+
+    data = response.json()
+    return {
+        "voices": data.get("data") or [],
+        "has_more": data.get("has_more", False),
+        "next_token": data.get("next_token"),
+    }
+
+def fetch_heygen_voices(limit: int = 100) -> list:
+    voices = []
+
+    for voice_type in ("public", "private"):
+        token = ""
+        while len(voices) < limit:
+            page = fetch_heygen_voice_page(
+                voice_type=voice_type,
+                token=token,
+                limit=min(100, limit - len(voices)),
+            )
+            voices.extend(page["voices"])
+            if not page["has_more"] or not page["next_token"]:
+                break
+            token = page["next_token"]
+
+        if len(voices) >= limit:
+            break
+
+    result = []
+    seen = set()
+    for voice in voices[:limit]:
+        voice_id = voice.get("voice_id")
+        if not voice_id or voice_id in seen:
+            continue
+        seen.add(voice_id)
+        result.append({
+            "voice_id": voice_id,
+            "name": voice.get("name") or "Voice",
+            "language": voice.get("language") or "",
+            "gender": voice.get("gender") or "",
+            "type": voice.get("type") or "",
+            "preview_audio_url": voice.get("preview_audio_url") or "",
+            "support_pause": bool(voice.get("support_pause")),
+            "support_locale": bool(voice.get("support_locale")),
+        })
+    return result
+
+def get_heygen_voice_settings_from_db(telegram_id: int) -> dict:
+    defaults = default_heygen_voice_settings()
+    if not DATABASE_URL or not telegram_id:
+        return defaults
+
+    ensure_elevenlabs_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        SELECT
+            voice_id,
+            voice_name,
+            model_id,
+            speed,
+            language,
+            output_format
+        FROM user_voice_settings
+        WHERE telegram_id = %s
+          AND provider = 'heygen_voice'
+        """, (telegram_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not row:
+        return defaults
+
+    return {
+        "voice_id": row[0] or defaults["voice_id"],
+        "voice_name": row[1] or defaults["voice_name"],
+        "model_id": row[2] or defaults["model_id"],
+        "speed": row[3] if row[3] is not None else defaults["speed"],
+        "language": row[4] or defaults["language"],
+        "output_format": row[5] or defaults["output_format"],
+    }
+
+def save_heygen_voice_settings_to_db(data: dict):
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not configured")
+
+    ensure_elevenlabs_table()
+    print("HEYGEN VOICE SETTINGS SAVE REQUEST:", {
+        "telegram_id": data.get("telegram_id"),
+        "voice_id": data.get("voice_id"),
+        "voice_name": data.get("voice_name"),
+        "model_id": HEYGEN_VOICE_MODEL_ID,
+        "speed": data.get("speed"),
+        "language": data.get("language"),
+        "output_format": data.get("output_format"),
+    })
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        INSERT INTO user_voice_settings (
+            telegram_id,
+            provider,
+            voice_id,
+            voice_name,
+            model_id,
+            speed,
+            language,
+            output_format,
+            updated_at
+        ) VALUES (%s, 'heygen_voice', %s, %s, %s, %s, %s, %s, NOW()::TEXT)
+        ON CONFLICT (telegram_id, provider) DO UPDATE SET
+            voice_id = EXCLUDED.voice_id,
+            voice_name = EXCLUDED.voice_name,
+            model_id = EXCLUDED.model_id,
+            speed = EXCLUDED.speed,
+            language = EXCLUDED.language,
+            output_format = EXCLUDED.output_format,
+            updated_at = EXCLUDED.updated_at
+        """, (
+            int(data.get("telegram_id")),
+            data.get("voice_id") or "",
+            data.get("voice_name") or "HeyGen Voice",
+            HEYGEN_VOICE_MODEL_ID,
+            float(data.get("speed", HEYGEN_DEFAULT_SPEED)),
+            data.get("language") or HEYGEN_DEFAULT_LANGUAGE,
+            data.get("output_format") or HEYGEN_DEFAULT_OUTPUT_FORMAT,
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
 def safe_log_elevenlabs_preview(data: dict, payload: dict):
     print("ELEVENLABS PREVIEW REQUEST BODY:", {
         "telegram_id": data.get("telegram_id"),
@@ -498,6 +691,41 @@ async def elevenlabs_preview(request: Request):
         media_type=content_type.split(";")[0] if content_type else "audio/mpeg",
         headers={"Cache-Control": "no-store"}
     )
+
+@app.get("/api/heygen-voice/bootstrap")
+async def heygen_voice_bootstrap(telegram_id: int = 0):
+    warnings = []
+    try:
+        voices = fetch_heygen_voices()
+    except Exception as exc:
+        print("HEYGEN VOICE LOAD FAILED:", exc)
+        warnings.append(str(exc))
+        voices = []
+
+    return {
+        "success": True,
+        "model": {
+            "model_id": HEYGEN_VOICE_MODEL_ID,
+            "name": "HeyGen Starfish",
+        },
+        "voices": voices,
+        "settings": get_heygen_voice_settings_from_db(telegram_id),
+        "defaults": default_heygen_voice_settings(),
+        "warnings": warnings,
+        "api_available": not warnings,
+    }
+
+@app.post("/api/heygen-voice/settings")
+async def save_heygen_voice_settings(request: Request):
+    data = await request.json()
+    telegram_id = data.get("telegram_id")
+    if not telegram_id:
+        return JSONResponse({"success": False, "error": "telegram_id is required"}, status_code=400)
+    if not data.get("voice_id"):
+        return JSONResponse({"success": False, "error": "voice_id is required"}, status_code=400)
+
+    save_heygen_voice_settings_to_db(data)
+    return {"success": True, "message": "HeyGen Voice settings saved"}
 
 @app.get("/api/public/config")
 async def public_config():
