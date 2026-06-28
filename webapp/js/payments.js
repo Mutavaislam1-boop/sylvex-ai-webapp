@@ -1,24 +1,25 @@
 (function () {
-  const LEGACY_PACKAGES = [
-    { key: '100', credits: 100, label: 'Start' },
-    { key: '500', credits: 500, label: 'Popular', popular: true },
-    { key: '1000', credits: 1000, label: 'Pro' }
-  ];
-
   const S = window.SYLVEX || {};
-  const tg = S.tg || window.Telegram && window.Telegram.WebApp;
+  const tg = S.tg || (window.Telegram && window.Telegram.WebApp);
 
-  function stripHtml(value) {
-    const div = document.createElement('div');
-    div.innerHTML = value || '';
-    return (div.textContent || div.innerText || '').trim();
+  function toast(message) {
+    if (window.toast) {
+      window.toast(message);
+      return;
+    }
+
+    alert(message);
   }
 
-console.log("CHECKOUT URL:", button.dataset.url);
+  function stripHtml(value) {
+    const div = document.createElement("div");
+    div.innerHTML = value || "";
+    return (div.textContent || div.innerText || "").trim();
+  }
 
   function openCheckout(url) {
     if (!url) {
-      toast('Checkout link is not configured');
+      toast("Ссылка оплаты не найдена");
       return;
     }
 
@@ -31,58 +32,50 @@ console.log("CHECKOUT URL:", button.dataset.url);
   }
 
   function renderProducts(products) {
-    const grid = document.getElementById('paymentGrid');
+    const grid = document.getElementById("paymentGrid");
     if (!grid) return;
 
-    if (!products.length) {
-      grid.innerHTML = '<article class="payment-pack"><div class="payment-label">Нет доступных товаров</div><p class="payment-desc">Проверьте Lemon Squeezy API key и опубликованные товары.</p></article>';
+    if (!products || !products.length) {
+      grid.innerHTML = `
+        <article class="payment-pack">
+          <div class="payment-label">Нет доступных товаров</div>
+          <p class="payment-desc">Товары Lemon Squeezy не найдены.</p>
+        </article>
+      `;
       return;
     }
 
     grid.innerHTML = products.map((product, index) => {
-      const url = product.checkout_url || '';
-      const disabled = url ? '' : ' disabled';
+      const url = product.checkout_url || "";
       const description = stripHtml(product.description);
-      const tag = product.is_subscription ? 'Подписка' : 'Кредиты';
-      const testMode = product.test_mode ? '<div class="payment-tag">Test mode</div>' : '';
-      return '<article class="payment-pack ' + (index === 1 ? 'is-popular' : '') + '">'
-        + testMode
-        + '<div class="payment-pack-top">'
-        + '<div><div class="payment-label">' + tag + '</div>'
-        + '<div class="payment-amount">' + product.name + '</div>'
-        + '<div class="payment-price">' + (product.price_formatted || '') + '</div></div>'
-        + '<div class="payment-icon">⚡</div>'
-        + '</div>'
-        + (description ? '<p class="payment-desc">' + description + '</p>' : '')
-        + '<button class="payment-button"' + disabled + ' data-url="' + url + '">Оплатить банковской картой</button>'
-        + '</article>';
-    }).join('');
+      const tag = product.is_subscription ? "Подписка" : "Кредиты";
+      const disabled = url ? "" : "disabled";
 
-    grid.querySelectorAll('.payment-button').forEach(button => {
-      button.addEventListener('click', () => openCheckout(button.dataset.url));
-    });
-  }
+      return `
+        <article class="payment-pack ${index === 1 ? "is-popular" : ""}">
+          ${index === 1 ? '<div class="payment-tag">Популярно</div>' : ""}
+          <div class="payment-pack-top">
+            <div>
+              <div class="payment-label">${tag}</div>
+              <div class="payment-amount">${product.name || "SYLVEX"}</div>
+              <div class="payment-price">${product.price_formatted || ""}</div>
+            </div>
+            <div class="payment-icon">⚡</div>
+          </div>
 
-  function renderLegacy(packages) {
-    const grid = document.getElementById('paymentGrid');
-    if (!grid) return;
+          ${description ? `<p class="payment-desc">${description}</p>` : ""}
 
-    grid.innerHTML = LEGACY_PACKAGES.map(item => {
-      const url = packages[item.key] || '';
-      const disabled = url ? '' : ' disabled';
-      return '<article class="payment-pack ' + (item.popular ? 'is-popular' : '') + '">'
-        + (item.popular ? '<div class="payment-tag">Лучший выбор</div>' : '')
-        + '<div class="payment-pack-top">'
-        + '<div><div class="payment-label">' + item.label + '</div>'
-        + '<div class="payment-amount">' + item.credits.toLocaleString('ru-RU') + ' ⚡</div></div>'
-        + '<div class="payment-icon">⚡</div>'
-        + '</div>'
-        + '<button class="payment-button"' + disabled + ' data-url="' + url + '">Оплатить банковской картой</button>'
-        + '</article>';
-    }).join('');
+          <button class="payment-button" ${disabled} data-url="${url}">
+            Оплатить банковской картой
+          </button>
+        </article>
+      `;
+    }).join("");
 
-    grid.querySelectorAll('.payment-button').forEach(button => {
-      button.addEventListener('click', () => openCheckout(button.dataset.url));
+    grid.querySelectorAll(".payment-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        openCheckout(button.dataset.url);
+      });
     });
   }
 
@@ -94,22 +87,35 @@ console.log("CHECKOUT URL:", button.dataset.url);
       } catch (e) {}
     }
 
+    const grid = document.getElementById("paymentGrid");
+
     try {
-      const response = await fetch('/api/payment-links');
+      const response = await fetch("/api/payment-links", {
+        cache: "no-store"
+      });
+
       const data = await response.json();
-      if (data.products && data.products.length) {
-        renderProducts(data.products);
-      } else {
-        renderLegacy(data.packages || {});
+
+      console.log("PAYMENT API:", data);
+
+      if (!data.success) {
+        throw new Error(data.error || "Payment API error");
       }
-    } catch (e) {
-      renderLegacy({});
-      toast('Unable to load checkout links');
+
+      renderProducts(data.products || []);
+    } catch (error) {
+      console.error("PAYMENTS LOAD ERROR:", error);
+
+      if (grid) {
+        grid.innerHTML = `
+          <article class="payment-pack">
+            <div class="payment-label">Ошибка загрузки</div>
+            <p class="payment-desc">Не удалось загрузить товары. Попробуйте позже.</p>
+          </article>
+        `;
+      }
     }
   }
 
-  document.addEventListener('DOMContentLoaded', initPayments);
+  document.addEventListener("DOMContentLoaded", initPayments);
 })();
-
-console.log("PAYMENT API:", data);
-console.log("PRODUCTS:", data.products);
