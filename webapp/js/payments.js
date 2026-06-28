@@ -18,18 +18,18 @@
   }
 
   function openCheckout(url) {
-    if (!url) {
-      toast("Ссылка оплаты не найдена");
-      return;
-    }
-
-    if (tg && tg.openLink) {
-      tg.openLink(url);
-      return;
-    }
-
-    window.location.href = url;
+  if (!url) {
+    toast("Ссылка оплаты не найдена");
+    return;
   }
+
+  if (window.LemonSqueezy && window.LemonSqueezy.Url) {
+    window.LemonSqueezy.Url.Open(url);
+    return;
+  }
+
+  window.location.href = url;
+}
 
   function renderProducts(products) {
     const grid = document.getElementById("paymentGrid");
