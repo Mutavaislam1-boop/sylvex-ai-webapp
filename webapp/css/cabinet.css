@@ -639,6 +639,8 @@ body.kb-open .nav{
 .payment-amount{font-size:28px;font-weight:800;margin-top:4px;background:var(--grad-primary);-webkit-background-clip:text;background-clip:text;color:transparent}
 .payment-icon{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:rgba(139,92,246,.18);border:1px solid rgba(139,92,246,.3);font-size:20px}
 .payment-tag{position:absolute;top:10px;right:10px;z-index:2;font-size:9px;padding:4px 8px;border-radius:999px;background:rgba(139,92,246,.28);color:#e9d5ff;border:1px solid rgba(139,92,246,.5);text-transform:uppercase;letter-spacing:.5px}
+.payment-price{margin-top:4px;color:var(--text);font-size:14px;font-weight:800}
+.payment-desc{position:relative;z-index:1;margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.45}
 .payment-button{position:relative;z-index:1;width:100%;border:none;border-radius:14px;padding:13px 14px;background:var(--grad-primary);color:#fff;font-weight:800;font-size:14px;font-family:inherit;cursor:pointer;box-shadow:0 10px 24px -8px rgba(99,102,241,.7)}
 .payment-button:active{transform:scale(.98)}
 .payment-button:disabled{cursor:not-allowed;opacity:.48;filter:grayscale(.35);box-shadow:none}

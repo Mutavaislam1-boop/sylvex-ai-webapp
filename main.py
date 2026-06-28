@@ -41,6 +41,11 @@ ELEVENLABS_DEFAULT_VOICE_NAME = "Rachel"
 ELEVENLABS_DEFAULT_MODEL_ID = "eleven_multilingual_v2"
 ELEVENLABS_DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
 HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY")
+LEMONSQUEEZY_API_KEY = (
+    os.getenv("LEMONSQUEEZY_API_KEY")
+    or os.getenv("LEMONSQUEEYY_API_KEY")
+)
+LEMONSQUEEZY_BASE_URL = "https://api.lemonsqueezy.com/v1"
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
@@ -62,6 +67,87 @@ def design(title: str, body: str) -> str:
 </pre>
 <a href="https://t.me/sylvexai_bot">Official Bot</a>
 """
+
+def lemonsqueezy_headers():
+    if not LEMONSQUEEZY_API_KEY:
+        return None
+
+    return {
+        "Authorization": f"Bearer {LEMONSQUEEZY_API_KEY}",
+        "Accept": "application/vnd.api+json",
+        "Content-Type": "application/vnd.api+json",
+    }
+
+
+def normalize_lemon_product(item: dict) -> dict:
+    attributes = item.get("attributes") or {}
+    description = attributes.get("description") or ""
+    product_name = attributes.get("name") or "Lemon Squeezy product"
+    price_formatted = attributes.get("price_formatted") or attributes.get("from_price_formatted") or ""
+
+    return {
+        "id": item.get("id"),
+        "name": product_name,
+        "slug": attributes.get("slug"),
+        "description": description,
+        "status": attributes.get("status"),
+        "status_formatted": attributes.get("status_formatted"),
+        "price": attributes.get("price"),
+        "price_formatted": price_formatted,
+        "checkout_url": attributes.get("buy_now_url"),
+        "test_mode": bool(attributes.get("test_mode")),
+        "thumb_url": attributes.get("thumb_url") or attributes.get("large_thumb_url"),
+        "is_subscription": "/month" in price_formatted or "/year" in price_formatted,
+    }
+
+
+def fetch_lemon_products() -> list:
+    headers = lemonsqueezy_headers()
+
+    if not headers:
+        return []
+
+    response = requests.get(
+        f"{LEMONSQUEEZY_BASE_URL}/products",
+        headers=headers,
+        timeout=30,
+    )
+
+    print("LEMON PRODUCTS STATUS:", response.status_code)
+
+    if response.status_code >= 400:
+        print("LEMON PRODUCTS ERROR:", response.text[:1000])
+        raise RuntimeError(response.text)
+
+    data = response.json()
+    products = [normalize_lemon_product(item) for item in data.get("data", [])]
+
+    return [
+        product
+        for product in products
+        if product.get("status") == "published" and product.get("checkout_url")
+    ]
+
+
+def legacy_lemon_packages(products: list) -> dict:
+    packages = {}
+
+    for product in products:
+        name = (product.get("name") or "").lower()
+        price = int(product.get("price") or 0)
+        url = product.get("checkout_url") or ""
+
+        if "token" not in name:
+            continue
+
+        if price <= 52000:
+            packages.setdefault("100", url)
+        elif price <= 260000:
+            packages.setdefault("500", url)
+        else:
+            packages.setdefault("1000", url)
+
+    return packages
 
 def save_kling_settings_to_db(data):
     print("SAVE_KLING_FUNCTION_STARTED")
@@ -737,14 +823,35 @@ async def public_config():
 
 @app.get("/api/payment-links")
 async def payment_links():
-    return {
-        "success": True,
-        "packages": {
-            "100": os.getenv("LEMON_100_CREDITS_URL", ""),
-            "500": os.getenv("LEMON_500_CREDITS_URL", ""),
-            "1000": os.getenv("LEMON_1000_CREDITS_URL", "")
+    try:
+        products = fetch_lemon_products()
+        packages = legacy_lemon_packages(products)
+
+        return {
+            "success": True,
+            "source": "lemonsqueezy_api" if LEMONSQUEEZY_API_KEY else "env_links",
+            "products": products,
+            "packages": packages or {
+                "100": os.getenv("LEMON_100_CREDITS_URL", ""),
+                "500": os.getenv("LEMON_500_CREDITS_URL", ""),
+                "1000": os.getenv("LEMON_1000_CREDITS_URL", "")
+            }
         }
-    }
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "success": False,
+                "source": "lemonsqueezy_api",
+                "error": str(exc),
+                "products": [],
+                "packages": {
+                    "100": os.getenv("LEMON_100_CREDITS_URL", ""),
+                    "500": os.getenv("LEMON_500_CREDITS_URL", ""),
+                    "1000": os.getenv("LEMON_1000_CREDITS_URL", "")
+                }
+            }
+        )
 
 @app.post("/save-settings")
 async def save_settings(request: Request):
