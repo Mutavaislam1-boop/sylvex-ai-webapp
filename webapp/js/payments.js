@@ -14,6 +14,8 @@
     return (div.textContent || div.innerText || '').trim();
   }
 
+console.log("CHECKOUT URL:", button.dataset.url);
+
   function openCheckout(url) {
     if (!url) {
       toast('Checkout link is not configured');
@@ -108,3 +110,6 @@
 
   document.addEventListener('DOMContentLoaded', initPayments);
 })();
+
+console.log("PAYMENT API:", data);
+console.log("PRODUCTS:", data.products);
