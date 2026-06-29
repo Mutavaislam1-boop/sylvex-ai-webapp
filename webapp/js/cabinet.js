@@ -741,9 +741,23 @@
 
   function applyInitialViewFromUrl() {
     const view = initialViewFromUrl();
+    console.log('[SYLVEX initial view]', {
+      href: window.location.href,
+      search: window.location.search,
+      hash: window.location.hash,
+      view: view
+    });
 
     if (view && view !== 'home') {
-      switchView(view);
+      if (typeof switchView === 'function') {
+        switchView(view);
+        console.log('[SYLVEX initial view applied]', view);
+      } else if (S.switchView && typeof S.switchView === 'function') {
+        S.switchView(view);
+        console.log('[SYLVEX initial view applied via S.switchView]', view);
+      } else {
+        console.log('[SYLVEX initial view error] switchView is not available');
+      }
     }
   }
 
@@ -760,11 +774,18 @@
     if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
     updateSendButton();
-    if (S.syncUser) S.syncUser();
+    if (S.syncUser) {
+      S.userReady = S.syncUser();
+      Promise.resolve(S.userReady).finally(() => {
+        applyInitialViewFromUrl();
+        setTimeout(applyInitialViewFromUrl, 150);
+      });
+    }
     loadConversations();
     applyInitialViewFromUrl();
     setTimeout(applyInitialViewFromUrl, 150);
     setTimeout(applyInitialViewFromUrl, 600);
+    setTimeout(applyInitialViewFromUrl, 1200);
   }
 
   // Expose to global scope.
