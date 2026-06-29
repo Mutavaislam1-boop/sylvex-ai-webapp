@@ -733,9 +733,18 @@
   function initialViewFromUrl() {
     const allowed = new Set(['home', 'history', 'shop', 'pay', 'profile', 'settings', 'tools']);
     const params = new URLSearchParams(window.location.search || '');
-    const raw = params.get('view') || params.get('screen') || params.get('section') || window.location.hash.replace(/^#/, '');
+    const hash = (window.location.hash || '').replace(/^#/, '');
+    const raw = params.get('view') || params.get('screen') || params.get('section') || hash;
     const view = (raw || '').trim().toLowerCase();
     return allowed.has(view) ? view : 'home';
+  }
+
+  function applyInitialViewFromUrl() {
+    const view = initialViewFromUrl();
+
+    if (view && view !== 'home') {
+      switchView(view);
+    }
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
@@ -753,8 +762,9 @@
     updateSendButton();
     if (S.syncUser) S.syncUser();
     loadConversations();
-    const initialView = initialViewFromUrl();
-    if (initialView !== 'home') switchView(initialView);
+    applyInitialViewFromUrl();
+    setTimeout(applyInitialViewFromUrl, 150);
+    setTimeout(applyInitialViewFromUrl, 600);
   }
 
   // Expose to global scope.
