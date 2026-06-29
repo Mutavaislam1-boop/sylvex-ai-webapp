@@ -477,6 +477,20 @@
     else if (tgApp && tgApp.openLink)    tgApp.openLink(url);
     else window.open(url, '_blank');
   }
+  function isTelegramLink(url) {
+    return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
+  }
+  function openPaymentUrl(url, method) {
+    const tgApp = S.tg;
+
+    if (method === 'crypto' && isTelegramLink(url) && tgApp && tgApp.openTelegramLink) {
+      tgApp.openTelegramLink(url);
+      return;
+    }
+
+    if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
+    else window.open(url, '_blank');
+  }
   async function payWith(method) {
     const packId = pendingPack;
     if (!packId) return;
@@ -507,16 +521,16 @@
           else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
         });
       } else if (j.url) {
-        if (tgApp && tgApp.openLink) tgApp.openLink(j.url, { try_instant_view: false });
-        else window.open(j.url, '_blank');
+        openPaymentUrl(j.url, method);
       } else if (j.invoice_url) {
         if (method === 'stars' && tgApp && tgApp.openInvoice) {
           tgApp.openInvoice(j.invoice_url, (status) => {
             if (status === 'paid') { toast('Оплачено ✓'); S.syncUser && S.syncUser(); }
             else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
           });
-        } else if (tgApp && tgApp.openLink) tgApp.openLink(j.invoice_url);
-        else window.open(j.invoice_url, '_blank');
+        } else {
+          openPaymentUrl(j.invoice_url, method);
+        }
       }
     } catch (err) {
       toast('Сетевая ошибка');
