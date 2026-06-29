@@ -456,20 +456,15 @@
   window.SYLVEX = window.SYLVEX || {};
 
   function isDevEnabled() {
-    const tgId =
-        Number(window.SYLVEX?.user?.telegram_id) ||
-        Number(window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
-
-    return tgId === 7932380565;
-}
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.get('dev') === '1' || params.get('dev_sub') === '1') {
+      localStorage.setItem('sylvex-dev-mode', '1');
+      return true;
+    }
+    return localStorage.getItem('sylvex-dev-mode') === '1';
+  }
 
   function updateDevPanel() {
-    console.log('DEV CHECK', {
-      syUser: window.SYLVEX?.user,
-      tgId: window.SYLVEX?.user?.telegram_id,
-      initId: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
-      enabled: isDevEnabled()
-    });
     const panel = document.getElementById('devSubTools');
     if (panel) panel.hidden = !isDevEnabled();
   }
@@ -505,8 +500,5 @@
 
   document.addEventListener('DOMContentLoaded', updateDevPanel);
   setTimeout(updateDevPanel, 300);
-  setTimeout(updateDevPanel, 1000);
-  setTimeout(updateDevPanel, 3000);
-  setInterval(updateDevPanel, 5000);
 })();
 </script>
