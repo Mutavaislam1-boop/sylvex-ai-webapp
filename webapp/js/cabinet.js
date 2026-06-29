@@ -22,8 +22,31 @@
     try {
       const tg = S.tg;
       const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-      return u && u.id ? Number(u.id) : 0;
+      if (u && u.id) return Number(u.id);
+      if (S.user && S.user.telegram_id) return Number(S.user.telegram_id);
+      return 0;
     } catch { return 0; }
+  }
+
+  async function ensureTelegramUser() {
+    if (getTelegramId()) return S.user || null;
+
+    try {
+      if (S.userReady && typeof S.userReady.then === 'function') {
+        await S.userReady;
+      }
+    } catch {}
+
+    if (getTelegramId()) return S.user || null;
+
+    if (S.syncUser) {
+      try {
+        S.userReady = S.syncUser();
+        await S.userReady;
+      } catch {}
+    }
+
+    return S.user || null;
   }
 
   function pickOpenAIModel() {
@@ -494,8 +517,9 @@
   async function payWith(method) {
     const packId = pendingPack;
     if (!packId) return;
+    await ensureTelegramUser();
     const tg = getTelegramId();
-    if (!tg) { toast('Telegram ID не найден'); return; }
+    if (!tg) { toast('Telegram ID ещё загружается. Откройте магазин через Telegram и попробуйте снова.'); return; }
     toast('Создаём счёт…');
     try {
       let path = '';

@@ -124,12 +124,18 @@
       });
       if (!res.ok) throw new Error('sync ' + res.status);
       const json = await res.json();
-      if (json && json.user) renderUser(json.user);
+      if (json && json.user) {
+        renderUser(json.user);
+        return json.user;
+      }
     } catch (err) {
       console.warn('[SYLVEX] user sync failed', err);
     }
+
+    return S.user || null;
   }
 
   S.syncUser = syncUser;
+  S.userReady = syncUser();
   S.renderUser = renderUser;
 })();
