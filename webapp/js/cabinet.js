@@ -492,6 +492,73 @@
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
+  function parseSubscriptionDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatSubscriptionCountdown(expiresAt) {
+    const end = parseSubscriptionDate(expiresAt);
+    if (!end) return 'Осталось: —';
+
+    const diff = end.getTime() - Date.now();
+    if (diff <= 0) return 'Подписка закончилась';
+
+    const totalMinutes = Math.floor(diff / 60000);
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+
+    if (days > 0) return 'Осталось: ' + days + 'д ' + hours + 'ч';
+    if (hours > 0) return 'Осталось: ' + hours + 'ч ' + minutes + 'м';
+    return 'Осталось: ' + minutes + 'м';
+  }
+
+  function getUserSubscriptionInfo() {
+    const u = S.user || {};
+
+    const plan = (
+      u.subscription_plan ||
+      u.sub_plan ||
+      u.plan ||
+      localStorage.getItem('sylvex-dev-sub-plan') ||
+      ''
+    ).toString().toLowerCase();
+
+    const expiresAt = (
+      u.subscription_expires_at ||
+      u.subscription_until ||
+      u.sub_expires_at ||
+      u.pro_until ||
+      localStorage.getItem('sylvex-dev-sub-expires-at') ||
+      ''
+    );
+
+    const end = parseSubscriptionDate(expiresAt);
+    const active = !!end && end.getTime() > Date.now();
+
+    return { active, plan, expiresAt };
+  }
+
+  function renderSubscriptionCards() {
+    const info = getUserSubscriptionInfo();
+
+    document.querySelectorAll('[data-sub-plan]').forEach((card) => {
+      const plan = (card.dataset.subPlan || '').toLowerCase();
+      const isCurrentPlan = info.active && (!info.plan || info.plan === plan || info.plan === 'sub_' + plan);
+      const countdown = card.querySelector('[data-sub-countdown]');
+
+      card.classList.toggle('is-subscribed', !!isCurrentPlan);
+      if (countdown) countdown.textContent = isCurrentPlan ? formatSubscriptionCountdown(info.expiresAt) : 'Осталось: —';
+    });
+  }
+
+  function startSubscriptionTimer() {
+    renderSubscriptionCards();
+    setInterval(renderSubscriptionCards, 60000);
+  }
+
   function closeBuy() { switchView('shop'); }
   function contactAdmin() {
     const url = 'https://t.me/sylvex_admin';

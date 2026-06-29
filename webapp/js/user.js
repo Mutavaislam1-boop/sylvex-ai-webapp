@@ -85,6 +85,10 @@
 
     setText('shopBalance', balNum.toLocaleString());
     setText('shopBalanceUsd', usd);
+
+    if (typeof S.renderSubscriptionCards === 'function') {
+      S.renderSubscriptionCards();
+    }
   }
 
   async function syncUser() {
@@ -105,6 +109,8 @@
         is_premium: !!u.is_premium,
         status: u.is_premium ? 'premium' : 'free',
         balance: 0,
+        subscription_plan: null,
+        subscription_expires_at: null,
       });
       // Apply Telegram language code if we support it.
       if (u.language_code && S.setLang) {
@@ -125,6 +131,11 @@
       if (!res.ok) throw new Error('sync ' + res.status);
       const json = await res.json();
       if (json && json.user) {
+        console.log('[SYLVEX user sync]', {
+          status: json.user.status,
+          subscription_plan: json.user.subscription_plan || json.user.sub_plan || json.user.plan,
+          subscription_expires_at: json.user.subscription_expires_at || json.user.subscription_until || json.user.sub_expires_at || json.user.pro_until,
+        });
         renderUser(json.user);
         return json.user;
       }

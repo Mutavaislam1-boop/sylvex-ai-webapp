@@ -182,29 +182,38 @@
       </div>
 
       <div class="sub-grid">
-        <div class="sub-card">
+        <div class="sub-card" data-sub-plan="month">
           <div class="sub-badge">−50%</div>
           <div class="sub-title">SYLVEX Pro</div>
           <div class="sub-period">1 месяц</div>
-          <div class="sub-prices">
+          <div class="sub-prices" data-sub-price>
             <div class="sub-price-now">$5 <span class="sep">·</span> 230 ⭐</div>
             <div class="sub-price-old">$10 / 460 ⭐</div>
+          </div>
+          <div class="sub-active" data-sub-active hidden>
+            <div class="sub-active-label">✓ Вы подписаны</div>
+            <div class="sub-countdown" data-sub-countdown>Осталось: —</div>
           </div>
           <ul class="sub-perks">
             <li>Все функции генерации: видео, изображения, музыка, озвучка, текст</li>
             <li>Доступ ко всем AI-моделям: Kling, Veo, Seedance и др.</li>
             <li>100 ⚡️ SYLVEX BT в подарок</li>
           </ul>
-          <button class="sub-cta" onclick="SYLVEX.openBuy('sub_month')">Подписаться</button>
+          <button class="sub-cta" data-sub-buy onclick="SYLVEX.openBuy('sub_month')">Подписаться</button>
+          <button class="sub-cta sub-cta-active" data-sub-subscribed hidden>✓ Вы подписаны</button>
         </div>
 
-        <div class="sub-card sub-card-gold">
+        <div class="sub-card sub-card-gold" data-sub-plan="year">
           <div class="sub-badge">−50%</div>
           <div class="sub-title">SYLVEX Pro</div>
           <div class="sub-period">1 год · выгоднее</div>
-          <div class="sub-prices">
+          <div class="sub-prices" data-sub-price>
             <div class="sub-price-now">$59 <span class="sep">·</span> 2751 ⭐</div>
             <div class="sub-price-old">$118 / 5502 ⭐</div>
+          </div>
+          <div class="sub-active" data-sub-active hidden>
+            <div class="sub-active-label">✓ Вы подписаны</div>
+            <div class="sub-countdown" data-sub-countdown>Осталось: —</div>
           </div>
           <ul class="sub-perks">
             <li>Полный доступ ко всем функциям генерации</li>
@@ -212,7 +221,8 @@
             <li>500 ⚡️ SYLVEX BT сразу после покупки</li>
             <li>+100 ⚡️ автоматически каждый месяц</li>
           </ul>
-          <button class="sub-cta" onclick="SYLVEX.openBuy('sub_year')">Подписаться</button>
+          <button class="sub-cta" data-sub-buy onclick="SYLVEX.openBuy('sub_year')">Подписаться</button>
+          <button class="sub-cta sub-cta-active" data-sub-subscribed hidden>✓ Вы подписаны</button>
         </div>
       </div>
 
