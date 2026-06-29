@@ -1573,6 +1573,36 @@ async def public_stars_invoice(request: Request):
         "pack_id": pack_id,
     }
 
+# Developer payment endpoint for simulating successful payments (dev only)
+@app.post("/api/public/payments/dev/success")
+async def public_dev_payment(request: Request):
+    data = await request.json()
+
+    telegram_id = int(data.get("telegram_id") or 0)
+    pack_id = data.get("pack_id") or ""
+    item = shop_item(pack_id)
+
+    if telegram_id != 7932380565:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    if not item:
+        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+
+    finalize_shop_payment(
+        telegram_id=telegram_id,
+        provider="developer",
+        item=item,
+        amount=0,
+        currency="DEV",
+        payload=f"developer:{pack_id}",
+        charge_id=f"developer_{pack_id}_{uuid4().hex}",
+    )
+
+    return {
+        "ok": True,
+        "message": "Developer payment completed"
+    }
+
 @app.post("/api/public/payments/crypto/invoice")
 async def public_crypto_invoice(request: Request):
     data = await request.json()

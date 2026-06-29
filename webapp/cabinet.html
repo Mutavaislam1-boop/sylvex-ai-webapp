@@ -328,6 +328,14 @@
           </div>
           <div class="pm-arr">→</div>
         </button>
+        <button class="pm-card" id="devPaymentCard" hidden onclick="SYLVEX.payWith('developer')">
+          <div class="pm-ico">🛠</div>
+          <div class="pm-body">
+            <div class="pm-title">Режим разработчика</div>
+            <div class="pm-sub">Тестовая оплата без списания средств</div>
+          </div>
+          <div class="pm-arr">→</div>
+        </button>
       </div>
     </section>
 
@@ -456,17 +464,21 @@
   window.SYLVEX = window.SYLVEX || {};
 
   function isDevEnabled() {
-    const params = new URLSearchParams(window.location.search || '');
-    if (params.get('dev') === '1' || params.get('dev_sub') === '1') {
-      localStorage.setItem('sylvex-dev-mode', '1');
-      return true;
-    }
-    return localStorage.getItem('sylvex-dev-mode') === '1';
+    const tgId =
+      Number(window.SYLVEX?.user?.telegram_id) ||
+      Number(window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+
+    return tgId === 7932380565;
   }
 
   function updateDevPanel() {
+    const enabled = isDevEnabled();
+
     const panel = document.getElementById('devSubTools');
-    if (panel) panel.hidden = !isDevEnabled();
+    if (panel) panel.hidden = !enabled;
+
+    const payCard = document.getElementById('devPaymentCard');
+    if (payCard) payCard.hidden = !enabled;
   }
 
   window.SYLVEX.devSetSubscription = function (plan) {
@@ -500,5 +512,7 @@
 
   document.addEventListener('DOMContentLoaded', updateDevPanel);
   setTimeout(updateDevPanel, 300);
+  setTimeout(updateDevPanel, 1000);
+  setTimeout(updateDevPanel, 3000);
 })();
 </script>

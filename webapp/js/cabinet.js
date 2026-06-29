@@ -584,6 +584,48 @@
   async function payWith(method) {
     const packId = pendingPack;
     if (!packId) return;
+
+    const tgId = getTelegramId();
+
+    if (method === 'developer' && tgId === 7932380565) {
+      toast('Тестовая оплата...');
+
+      try {
+        const r = await fetch('/api/public/payments/dev/success', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            telegram_id: tgId,
+            pack_id: packId,
+          }),
+        });
+
+        const j = await r.json();
+
+        if (!r.ok || j.error) {
+          toast('Ошибка тестовой оплаты');
+          return;
+        }
+
+        toast('Тестовая оплата выполнена ✓');
+
+        if (S.syncUser) {
+          S.userReady = S.syncUser();
+          await Promise.resolve(S.userReady);
+        }
+
+        if (S.renderSubscriptionCards) {
+          S.renderSubscriptionCards();
+        }
+
+        closeBuy();
+        return;
+      } catch (e) {
+        toast('Ошибка тестовой оплаты');
+        return;
+      }
+    }
+
     await ensureTelegramUser();
     const tg = getTelegramId();
     if (!tg) { toast('Telegram ID ещё загружается. Откройте магазин через Telegram и попробуйте снова.'); return; }
