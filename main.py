@@ -4,6 +4,7 @@ import json
 import hmac
 import hashlib
 import urllib.parse
+import asyncio
 from uuid import uuid4
 import requests
 import psycopg2
@@ -48,11 +49,39 @@ LEMONSQUEEZY_API_KEY = (
     or os.getenv("LEMONSQUEEYY_API_KEY")
 )
 LEMONSQUEEZY_BASE_URL = "https://api.lemonsqueezy.com/v1"
+CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
+CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
 HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
 HEYGEN_DEFAULT_SPEED = 1.0
 HEYGEN_DEFAULT_OUTPUT_FORMAT = "mp3"
+
+SHOP_ITEMS = {
+    "sub_month": {
+        "kind": "subscription",
+        "title": "SYLVEX Pro · 1 месяц",
+        "plan_key": "month",
+        "days": 30,
+        "credits": 0,
+        "usd": 5.0,
+        "stars": 230,
+    },
+    "sub_year": {
+        "kind": "subscription",
+        "title": "SYLVEX Pro · 1 год",
+        "plan_key": "year",
+        "days": 365,
+        "credits": 0,
+        "usd": 59.0,
+        "stars": 2751,
+    },
+    "pack_100": {"kind": "credits", "title": "100 ⚡", "credits": 100, "usd": 1.0, "stars": 46},
+    "pack_500": {"kind": "credits", "title": "500 ⚡", "credits": 500, "usd": 5.0, "stars": 230},
+    "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0, "stars": 460},
+    "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0, "stars": 920},
+    "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0, "stars": 1380},
+}
 
 
 def design(title: str, body: str) -> str:
@@ -150,6 +179,311 @@ def legacy_lemon_packages(products: list) -> dict:
             packages.setdefault("1000", url)
 
     return packages
+
+
+def shop_item(pack_id: str):
+    return SHOP_ITEMS.get((pack_id or "").strip())
+
+
+def shop_payload(provider: str, telegram_id: int, pack_id: str, item: dict) -> str:
+    if item["kind"] == "subscription":
+        return f"sylvex_{provider}_sub:{telegram_id}:{item['plan_key']}:{item['usd']:.2f}"
+    return f"sylvex_{provider}_credits:{telegram_id}:{item['credits']}:{item['usd']:.2f}"
+
+
+def bot_stars_payload(telegram_id: int, item: dict) -> str:
+    if item["kind"] == "subscription":
+        return f"sylvex_sub:{telegram_id}:{item['plan_key']}:{item['stars']}"
+    return f"sylvex_stars:{telegram_id}:{item['credits']}:{item['stars']}"
+
+
+def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dict) -> str:
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
+        json={
+            "title": item["title"],
+            "description": f"Оплата {item['title']} в SYLVEX.",
+            "payload": bot_stars_payload(telegram_id, item),
+            "provider_token": "",
+            "currency": "XTR",
+            "prices": [
+                {
+                    "label": item["title"],
+                    "amount": int(item["stars"]),
+                }
+            ],
+        },
+        timeout=30,
+    )
+
+    data = response.json()
+    if response.status_code >= 400 or not data.get("ok"):
+        raise RuntimeError(str(data))
+
+    return data["result"]
+
+
+def crypto_pay_request(method: str, payload=None):
+    if not CRYPTO_API_KEY:
+        raise RuntimeError("CRYPTO_API_KEY / CRIPTO_API_KEY is not configured")
+
+    response = requests.post(
+        f"{CRYPTO_PAY_API_URL}/{method}",
+        headers={
+            "Crypto-Pay-API-Token": CRYPTO_API_KEY,
+            "Content-Type": "application/json",
+        },
+        json=payload or {},
+        timeout=30,
+    )
+    data = response.json()
+    if response.status_code >= 400 or not data.get("ok"):
+        raise RuntimeError(str(data))
+    return data.get("result")
+
+
+def crypto_invoice_url(invoice: dict) -> str:
+    return (
+        invoice.get("mini_app_invoice_url")
+        or invoice.get("bot_invoice_url")
+        or invoice.get("web_app_invoice_url")
+        or ""
+    )
+
+
+def create_crypto_invoice(telegram_id: int, pack_id: str, item: dict) -> dict:
+    invoice = crypto_pay_request(
+        "createInvoice",
+        {
+            "asset": "USDT",
+            "amount": f"{item['usd']:.2f}",
+            "description": f"SYLVEX {item['title']}",
+            "payload": shop_payload("crypto", telegram_id, pack_id, item),
+            "expires_in": 1800,
+        },
+    )
+    if not crypto_invoice_url(invoice):
+        raise RuntimeError("Crypto Pay did not return invoice URL")
+    return invoice
+
+
+def get_crypto_invoice(invoice_id: int):
+    result = crypto_pay_request("getInvoices", {"invoice_ids": str(invoice_id)})
+    if isinstance(result, dict):
+        items = result.get("items") or []
+        if items:
+            return items[0]
+        if result.get("invoice_id"):
+            return result
+    return None
+
+
+def ensure_payment_tables():
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS purchases (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            provider TEXT NOT NULL,
+            credits INTEGER DEFAULT 0,
+            amount INTEGER DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            payload TEXT,
+            charge_id TEXT UNIQUE,
+            status TEXT DEFAULT 'completed',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            subscription_type TEXT,
+            payment_method TEXT,
+            amount INTEGER DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,
+            status TEXT DEFAULT 'active',
+            charge_id TEXT UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: int, currency: str, payload: str, charge_id: str) -> bool:
+    if not DATABASE_URL:
+        return False
+
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO purchases (telegram_id, provider, credits, amount, currency, payload, charge_id, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'completed')
+            ON CONFLICT (charge_id) DO NOTHING
+        """, (telegram_id, provider, credits, amount, currency, payload, charge_id))
+        created = cursor.rowcount > 0
+        conn.commit()
+        return created
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def activate_subscription(telegram_id: int, item: dict, provider: str, amount: int, currency: str, payload: str, charge_id: str):
+    if not DATABASE_URL:
+        return
+
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO subscriptions (
+                telegram_id, subscription_type, payment_method, amount, currency, expires_at, status, charge_id
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, CURRENT_TIMESTAMP + (%s || ' days')::interval, 'active', %s
+            )
+            ON CONFLICT (charge_id) DO NOTHING
+        """, (telegram_id, item["plan_key"], provider, amount, currency, item["days"], charge_id))
+        cursor.execute("UPDATE users SET subscription = 'active' WHERE telegram_id = %s", (telegram_id,))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def add_user_balance(telegram_id: int, credits: int):
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE users SET balance = COALESCE(balance, 0) + %s WHERE telegram_id = %s",
+            (credits, telegram_id),
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: int, currency: str, payload: str, charge_id: str):
+    credits = int(item.get("credits") or 0)
+    created = create_purchase_once(telegram_id, provider, credits, amount, currency, payload, charge_id)
+
+    if not created:
+        return False
+
+    if item["kind"] == "subscription":
+        activate_subscription(telegram_id, item, provider, amount, currency, payload, charge_id)
+    else:
+        add_user_balance(telegram_id, credits)
+
+    return True
+
+
+async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
+    item = shop_item(pack_id)
+    if not item:
+        return
+
+    for _ in range(90):
+        await asyncio.sleep(20)
+        try:
+            invoice = get_crypto_invoice(invoice_id)
+        except Exception as exc:
+            print("MINIAPP CRYPTO POLL ERROR:", exc)
+            return
+        if not invoice:
+            return
+        status = invoice.get("status")
+        if status == "paid":
+            finalize_shop_payment(
+                telegram_id=telegram_id,
+                provider="crypto_pay",
+                item=item,
+                amount=int(round(float(invoice.get("amount") or 0) * 100)),
+                currency=invoice.get("asset") or "USDT",
+                payload=invoice.get("payload") or "",
+                charge_id=f"crypto_invoice_{invoice_id}",
+            )
+            return
+        if status == "expired":
+            return
+
+
+def lemon_checkout_url(pack_id: str, item: dict) -> str:
+    env_map = {
+        "sub_month": os.getenv("LEMON_SUB_MONTH_URL", ""),
+        "sub_year": os.getenv("LEMON_SUB_YEAR_URL", ""),
+        "pack_100": os.getenv("LEMON_100_CREDITS_URL", ""),
+        "pack_500": os.getenv("LEMON_500_CREDITS_URL", ""),
+        "pack_1000": os.getenv("LEMON_1000_CREDITS_URL", ""),
+        "pack_2000": os.getenv("LEMON_2000_CREDITS_URL", ""),
+        "pack_3000": os.getenv("LEMON_3000_CREDITS_URL", ""),
+    }
+    if env_map.get(pack_id):
+        return env_map[pack_id]
+
+    products = fetch_lemon_products()
+    target_price_cents = int(round(float(item["usd"]) * 100))
+    words = [str(item.get("credits") or ""), item.get("plan_key") or "", item["title"].lower()]
+
+    for product in products:
+        name = (product.get("name") or "").lower()
+        price = int(product.get("price") or 0)
+        if price != target_price_cents:
+            continue
+        if item["kind"] == "subscription" and ("sub" in name or "pro" in name or item["plan_key"] in name):
+            return product.get("checkout_url") or ""
+        if item["kind"] == "credits" and str(item["credits"]) in name:
+            return product.get("checkout_url") or ""
+
+    for product in products:
+        if int(product.get("price") or 0) == target_price_cents:
+            return product.get("checkout_url") or ""
+
+    return ""
+
+
+def with_lemon_custom_data(url: str, telegram_id: int, pack_id: str) -> str:
+    if not url:
+        return ""
+
+    params = {
+        "checkout[custom][telegram_id]": str(telegram_id),
+        "checkout[custom][pack_id]": pack_id,
+    }
+    separator = "&" if "?" in url else "?"
+    return url + separator + urllib.parse.urlencode(params)
+
+
+def verify_lemon_signature(raw_body: bytes, signature=None) -> bool:
+    secret = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET") or os.getenv("LEMON_WEBHOOK_SECRET")
+    if not secret:
+        return True
+    if not signature:
+        return False
+    digest = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(digest, signature)
 
 def save_kling_settings_to_db(data):
     print("SAVE_KLING_FUNCTION_STARTED")
@@ -1140,25 +1474,132 @@ async def delete_public_prostudio_conversation(
 @app.post("/api/public/payments/card/checkout")
 async def public_card_checkout(request: Request):
     data = await request.json()
+    pack_id = data.get("pack_id") or ""
+    item = shop_item(pack_id)
+    telegram_id = int(data.get("telegram_id") or 0)
+
+    if not item:
+        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    try:
+        url = lemon_checkout_url(pack_id, item)
+    except Exception as exc:
+        print("LEMON CHECKOUT ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "card_not_configured"}, status_code=502)
+
+    if not url:
+        return JSONResponse({"ok": False, "error": "card_not_configured"}, status_code=404)
+
     return {
         "ok": True,
-        "url": payment_url(data.get("pack_id") or "", "card"),
+        "url": with_lemon_custom_data(url, telegram_id, pack_id),
+        "pack_id": pack_id,
     }
+
+
+@app.post("/api/public/payments/card/webhook")
+async def public_card_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("X-Signature") or request.headers.get("x-signature")
+
+    if not verify_lemon_signature(raw_body, signature):
+        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=401)
+
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    meta = event.get("meta") or {}
+    event_name = meta.get("event_name") or ""
+    custom_data = meta.get("custom_data") or {}
+    data = event.get("data") or {}
+    attributes = data.get("attributes") or {}
+
+    if event_name not in {"order_created", "subscription_created", "subscription_payment_success"}:
+        return {"ok": True, "ignored": event_name}
+
+    try:
+        telegram_id = int(custom_data.get("telegram_id") or 0)
+    except Exception:
+        telegram_id = 0
+
+    pack_id = custom_data.get("pack_id") or ""
+    item = shop_item(pack_id)
+
+    if not telegram_id or not item:
+        return JSONResponse({"ok": False, "error": "missing_custom_data"}, status_code=400)
+
+    amount = int(attributes.get("total") or attributes.get("subtotal") or round(item["usd"] * 100))
+    currency = attributes.get("currency") or "USD"
+    order_id = data.get("id") or attributes.get("identifier") or uuid4().hex
+    payload = shop_payload("card", telegram_id, pack_id, item)
+
+    finalize_shop_payment(
+        telegram_id=telegram_id,
+        provider="lemonsqueezy",
+        item=item,
+        amount=amount,
+        currency=currency,
+        payload=payload,
+        charge_id=f"lemon_{order_id}",
+    )
+
+    return {"ok": True}
 
 @app.post("/api/public/payments/stars/invoice")
 async def public_stars_invoice(request: Request):
     data = await request.json()
+    pack_id = data.get("pack_id") or ""
+    item = shop_item(pack_id)
+    telegram_id = int(data.get("telegram_id") or 0)
+
+    if not item:
+        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    try:
+        invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item)
+    except Exception as exc:
+        print("STARS INVOICE ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "stars_invoice_failed", "detail": str(exc)}, status_code=502)
+
     return {
         "ok": True,
-        "url": payment_url(data.get("pack_id") or "", "stars"),
+        "invoice_url": invoice_url,
+        "pack_id": pack_id,
     }
 
 @app.post("/api/public/payments/crypto/invoice")
 async def public_crypto_invoice(request: Request):
     data = await request.json()
+    pack_id = data.get("pack_id") or ""
+    item = shop_item(pack_id)
+    telegram_id = int(data.get("telegram_id") or 0)
+
+    if not item:
+        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    try:
+        invoice = create_crypto_invoice(telegram_id, pack_id, item)
+    except Exception as exc:
+        print("CRYPTO INVOICE ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "crypto_not_configured", "detail": str(exc)}, status_code=502)
+
+    invoice_id = int(invoice.get("invoice_id"))
+    asyncio.create_task(poll_crypto_invoice(invoice_id, telegram_id, pack_id))
+
     return {
         "ok": True,
-        "url": payment_url(data.get("pack_id") or "", "crypto"),
+        "url": crypto_invoice_url(invoice),
+        "invoice_id": invoice_id,
+        "status": invoice.get("status"),
+        "pack_id": pack_id,
     }
 
 @app.post("/api/public/telegram/sync")

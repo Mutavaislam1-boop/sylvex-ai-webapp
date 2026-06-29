@@ -510,7 +510,12 @@
         if (tgApp && tgApp.openLink) tgApp.openLink(j.url, { try_instant_view: false });
         else window.open(j.url, '_blank');
       } else if (j.invoice_url) {
-        if (tgApp && tgApp.openLink) tgApp.openLink(j.invoice_url);
+        if (method === 'stars' && tgApp && tgApp.openInvoice) {
+          tgApp.openInvoice(j.invoice_url, (status) => {
+            if (status === 'paid') { toast('Оплачено ✓'); S.syncUser && S.syncUser(); }
+            else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
+          });
+        } else if (tgApp && tgApp.openLink) tgApp.openLink(j.invoice_url);
         else window.open(j.invoice_url, '_blank');
       }
     } catch (err) {
