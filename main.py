@@ -1602,7 +1602,7 @@ async def public_dev_payment(request: Request):
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
 
-    finalize_shop_payment(
+    created = finalize_shop_payment(
         telegram_id=telegram_id,
         provider="developer",
         item=item,
@@ -1612,8 +1612,18 @@ async def public_dev_payment(request: Request):
         charge_id=f"developer_{pack_id}_{uuid4().hex}",
     )
 
+    print("DEV PAYMENT:", {
+        "telegram_id": telegram_id,
+        "pack_id": pack_id,
+        "created": created,
+        "kind": item["kind"],
+    })
+
     return {
         "ok": True,
+        "created": created,
+        "kind": item["kind"],
+        "plan": item.get("plan_key"),
         "message": "Developer payment completed"
     }
 
