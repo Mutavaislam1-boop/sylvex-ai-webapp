@@ -656,7 +656,7 @@ body.kb-open .nav{
 .sub-perks li{font-size:11px;line-height:1.35;color:var(--text-dim,#bbb);padding-left:15px;position:relative}
 .sub-perks li::before{content:"✓";position:absolute;left:0;top:0;color:#4ade80;font-weight:700;font-size:12px}
 .sub-card-gold .sub-perks li::before{color:#f0d78c}
-.sub-cta{margin-top:5px;padding:10px 8px;border-radius:11px;border:0;cursor:pointer;
+.sub-cta{margin-top:auto;padding:10px 8px;border-radius:11px;border:0;cursor:pointer;
   background:#fff;color:#0a0a0a;font-weight:700;font-size:12.5px;letter-spacing:.2px;
   transition:transform .15s ease, box-shadow .2s ease;position:relative;z-index:1}
 .sub-cta:hover{box-shadow:0 8px 22px -8px rgba(255,255,255,.4)}
