@@ -4,6 +4,7 @@ import json
 import hmac
 import hashlib
 import urllib.parse
+from uuid import uuid4
 import requests
 import psycopg2
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -966,6 +967,194 @@ def save_generation(telegram_id: int, generation_type: str, prompt: str, status:
     except Exception as exc:
         print("GENERATION SAVE FAILED:", exc)
 
+def ensure_prostudio_table():
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prostudio_messages (
+            id SERIAL PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            telegram_id BIGINT NOT NULL,
+            mode TEXT,
+            prompt TEXT,
+            response_text TEXT,
+            image_url TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_prostudio_messages_user_conv
+        ON prostudio_messages (telegram_id, conversation_id, created_at DESC)
+        """)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def save_prostudio_message(payload: dict, result: dict) -> str:
+    conversation_id = payload.get("conversation_id") or str(uuid4())
+    telegram_id = int(payload.get("telegram_id") or 0)
+    if not DATABASE_URL or not telegram_id:
+        return conversation_id
+
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO prostudio_messages (
+                conversation_id,
+                telegram_id,
+                mode,
+                prompt,
+                response_text,
+                image_url
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            conversation_id,
+            telegram_id,
+            payload.get("mode") or "text",
+            payload.get("prompt") or "",
+            result.get("text") or "",
+            result.get("image_url") or "",
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("PROSTUDIO MESSAGE SAVE FAILED:", exc)
+
+    return conversation_id
+
+def payment_url(pack_id: str, method: str = "card") -> str:
+    params = urllib.parse.urlencode({
+        "pack_id": pack_id or "",
+        "method": method or "card",
+    })
+    return PAYMENT_WEBAPP_URL + ("&" if "?" in PAYMENT_WEBAPP_URL else "?") + params
+
+@app.get("/api/public/prostudio/conversations")
+async def public_prostudio_conversations(
+    telegram_id: int = 0,
+    conversation_id: str = "",
+):
+    if not DATABASE_URL or not telegram_id:
+        return {"ok": True, "conversations": [], "messages": []}
+
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+
+        if conversation_id:
+            cursor.execute("""
+                SELECT prompt, response_text, image_url, created_at
+                FROM prostudio_messages
+                WHERE telegram_id = %s
+                  AND conversation_id = %s
+                ORDER BY created_at ASC, id ASC
+            """, (telegram_id, conversation_id))
+            rows = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            messages = []
+            for prompt, response_text, image_url, created_at in rows:
+                if prompt:
+                    messages.append({
+                        "role": "user",
+                        "prompt": prompt,
+                        "created_at": created_at,
+                    })
+                messages.append({
+                    "role": "assistant",
+                    "response_text": response_text or "",
+                    "image_url": image_url or "",
+                    "created_at": created_at,
+                })
+            return {"ok": True, "messages": messages}
+
+        cursor.execute("""
+            SELECT
+                conversation_id,
+                COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                MAX(created_at) AS updated_at
+            FROM prostudio_messages
+            WHERE telegram_id = %s
+            GROUP BY conversation_id
+            ORDER BY updated_at DESC
+            LIMIT 30
+        """, (telegram_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return {
+            "ok": True,
+            "conversations": [
+                {
+                    "id": row[0],
+                    "title": (row[1] or "Chat")[:64],
+                    "updated_at": row[2],
+                }
+                for row in rows
+            ],
+        }
+    except Exception as exc:
+        print("PROSTUDIO CONVERSATIONS FAILED:", exc)
+        return {"ok": True, "conversations": [], "messages": []}
+
+@app.delete("/api/public/prostudio/conversations")
+async def delete_public_prostudio_conversation(
+    telegram_id: int = 0,
+    conversation_id: str = "",
+):
+    if not DATABASE_URL or not telegram_id or not conversation_id:
+        return {"ok": True}
+
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM prostudio_messages
+            WHERE telegram_id = %s
+              AND conversation_id = %s
+        """, (telegram_id, conversation_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("PROSTUDIO CONVERSATION DELETE FAILED:", exc)
+
+    return {"ok": True}
+
+@app.post("/api/public/payments/card/checkout")
+async def public_card_checkout(request: Request):
+    data = await request.json()
+    return {
+        "ok": True,
+        "url": payment_url(data.get("pack_id") or "", "card"),
+    }
+
+@app.post("/api/public/payments/stars/invoice")
+async def public_stars_invoice(request: Request):
+    data = await request.json()
+    return {
+        "ok": True,
+        "url": payment_url(data.get("pack_id") or "", "stars"),
+    }
+
+@app.post("/api/public/payments/crypto/invoice")
+async def public_crypto_invoice(request: Request):
+    data = await request.json()
+    return {
+        "ok": True,
+        "url": payment_url(data.get("pack_id") or "", "crypto"),
+    }
+
 @app.post("/api/public/telegram/sync")
 async def public_telegram_sync(request: Request):
     payload = await request.json()
@@ -1077,6 +1266,7 @@ async def public_prostudio_generate(request: Request):
         return JSONResponse(result, status_code=502)
 
     save_generation(int(payload.get("telegram_id") or 0), mode, prompt or "[attachment]")
+    result["conversation_id"] = save_prostudio_message(payload, result)
     return result
 
 @app.post("/api/public/prostudio/transcribe")

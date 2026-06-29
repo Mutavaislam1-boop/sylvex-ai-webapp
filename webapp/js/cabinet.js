@@ -4,11 +4,11 @@
   const S = (window.SYLVEX = window.SYLVEX || {});
 
   // Pro Studio state.
-  let studioMode = 'image';
+  let studioMode = 'pro';
   let activeCat = null;
-  let chatMessages = [
-    { role: 'ai', text: "Hi! I'm SYLVEX. Pick a mode above and tell me what to create." }
-  ];
+  let chatMessages = [];
+  let currentConvId = null;
+  let conversationsCache = [];
   // Pending attachment for next send.
   let pendingAttachment = null; // { kind, mime, name, dataBase64 }
   let pendingAttachAccept = '';
@@ -16,7 +16,6 @@
   let mediaRecorder = null;
   let mediaChunks = [];
   let mediaStream = null;
-  // Current "model label" selected from popover, mapped to OpenAI model id.
   let currentModelLabel = 'SYLVEX Pro';
 
   function getTelegramId() {
@@ -28,10 +27,20 @@
   }
 
   function pickOpenAIModel() {
-    // Map mode to a sensible default OpenAI model id.
     if (studioMode === 'image') return 'gpt-image-1';
-    if (currentModelLabel && /lite/i.test(currentModelLabel)) return 'gpt-4o-mini';
-    return 'gpt-4o-mini';
+    return /lite/i.test(currentModelLabel || '') ? 'gpt-4o-mini' : 'gpt-4o';
+  }
+
+  function uiLang() {
+    return (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
+  }
+
+  function localizedGreeting() {
+    const l = uiLang();
+    if (l === 'ru') return 'Здравствуйте! Чем могу помочь?';
+    if (l === 'ar') return 'مرحباً! كيف يمكنني مساعدتك؟';
+    if (l === 'tr') return 'Merhaba! Size nasıl yardımcı olabilirim?';
+    return 'Hi! How can I help you today?';
   }
 
   /* ===== Rendering ===== */
@@ -42,29 +51,14 @@
 
   function renderModelPop() {
     const el = document.getElementById('modelPop'); if (!el) return;
-    const cur = S.CTRL.model[S.CTRL_IDX.model] || 'SYLVEX Pro';
-    const groups = [
-      { items: [
-        { k:'pro',   label:'SYLVEX Pro' },
-        { k:'lite',  label:'SYLVEX Lite' },
-      ]},
-      { label:'AI Models', items: [
-        { k:'video', label:'Video AI Models' },
-        { k:'image', label:'Image AI Models' },
-        { k:'music', label:'Music AI Models' },
-        { k:'voice', label:'Voice AI Models' },
-        { k:'text',  label:'Text AI Models' },
-      ]},
+    const items = [
+      { k:'pro',  label:'SYLVEX Pro'  },
+      { k:'lite', label:'SYLVEX Lite' },
     ];
-    let html = '';
-    groups.forEach((g, gi) => {
-      if (gi > 0) html += '<div class="mp-div"></div>';
-      if (g.label) html += '<div class="mp-label">' + g.label + '</div>';
-      g.items.forEach(it => {
-        html += '<button class="' + (cur === it.label ? 'sel' : '') + '" onclick="SYLVEX.pickModelKey(event,\'' + it.k + '\',\'' + it.label + '\')">' + it.label + '</button>';
-      });
-    });
-    el.innerHTML = html;
+    el.innerHTML = items.map(it =>
+      '<button class="' + (currentModelLabel === it.label ? 'sel' : '') +
+      '" onclick="SYLVEX.pickModelKey(event,\'' + it.k + '\',\'' + it.label + '\')">' + it.label + '</button>'
+    ).join('');
   }
 
   function renderChat() {
@@ -101,7 +95,7 @@
     renderModeStrip();
     renderModelPop();
     const mv = document.getElementById('modelVal');
-    if (mv) mv.textContent = 'SYLVEX';
+    if (mv) mv.textContent = currentModelLabel;
     updatePrice();
   }
 
@@ -144,24 +138,14 @@
   }
   function pickModelKey(e, key, label) {
     e.stopPropagation();
-    // Persist label in CTRL.model[0] slot so downstream price/aiReply still works.
-    S.CTRL.model[0] = label;
-    S.CTRL_IDX.model = 0;
     currentModelLabel = label;
+    studioMode = key === 'pro' ? 'pro' : 'lite';
+    activeCat = studioMode;
     const mv = document.getElementById('modelVal');
-    if (mv) mv.textContent = 'SYLVEX';
-    // Map model categories to studio mode where applicable.
-    if (['video','image','music','voice','text'].indexOf(key) >= 0) {
-      studioMode = key; activeCat = key;
-    }
-    if (key === 'pro' || key === 'lite') {
-      // Pro/Lite default to text chat.
-      studioMode = 'text'; activeCat = 'text';
-    }
+    if (mv) mv.textContent = label;
     renderModelPop();
     const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
     const bb = document.getElementById('modelBtn'); if (bb) bb.setAttribute('aria-expanded','false');
-    toast(label);
     S.haptic.select();
   }
   function togglePlusPop(e) {
@@ -182,7 +166,6 @@
     const inp = document.getElementById('attachInput');
     if (!inp) return;
     if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
-    else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
     inp.value = '';
     inp.click();
@@ -202,11 +185,13 @@
         name: f.name,
         dataBase64: b64,
       };
+      try { updateSendButton(); } catch {}
     };
     reader.readAsDataURL(f);
   }
   function clearAttachment() {
     pendingAttachment = null;
+    try { updateSendButton(); } catch {}
   }
   function genAction(kind) {
     const sheet = document.getElementById('plusSheet');
@@ -243,6 +228,8 @@
       model: pickOpenAIModel(),
       history,
       attachment: attachment || null,
+      conversation_id: currentConvId,
+      language: uiLang(),
     };
     const res = await fetch('/api/public/prostudio/generate', {
       method: 'POST',
@@ -250,7 +237,13 @@
       body: JSON.stringify(payload),
     });
     const j = await res.json().catch(() => ({}));
+    if (res.status === 402 && j && j.paywall) {
+      const err = new Error('paywall');
+      err.paywall = true;
+      throw err;
+    }
     if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+    if (j.conversation_id) currentConvId = j.conversation_id;
     return j;
   }
 
@@ -264,7 +257,7 @@
       text: v,
       attachmentName: attachment ? attachment.name : null,
     });
-    ta.value = ''; autoGrow(ta);
+    ta.value = ''; autoGrow(ta); updateSendButton();
     clearAttachment();
     chatMessages.push({ typing: true, role: 'ai' });
     renderChat();
@@ -277,8 +270,14 @@
       } else {
         chatMessages.push({ role: 'ai', text: j.text || '' });
       }
+      loadConversations(); // refresh sidebar order
     } catch (err) {
       chatMessages.pop();
+      if (err && err.paywall) {
+        renderChat();
+        openPaywall();
+        return;
+      }
       chatMessages.push({ role: 'ai', text: '⚠️ ' + (err && err.message ? err.message : 'Generation failed') });
     }
     renderChat();
@@ -359,9 +358,175 @@
     S.haptic.impact('light');
   }
   function newChat() {
-    chatMessages = [{ role: 'ai', text: "New conversation started. How can I help?" }];
+    currentConvId = null;
+    chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
     S.haptic.impact('light');
+  }
+
+  /* ===== Real history sidebar ===== */
+  async function loadConversations() {
+    const tg = getTelegramId();
+    if (!tg) return;
+    try {
+      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg);
+      const j = await r.json();
+      conversationsCache = (j && j.conversations) || [];
+      renderConvList();
+    } catch {}
+  }
+  function renderConvList() {
+    const el = document.getElementById('hdConvList'); if (!el) return;
+    if (!conversationsCache.length) {
+      el.innerHTML = '<div class="hd-label" style="opacity:.5">No chats yet</div>';
+      return;
+    }
+    el.innerHTML = conversationsCache.map(c =>
+      '<div class="hd-item-row">' +
+        '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + c.id + '\')">' +
+          S.escapeHtml(c.title || 'Chat') +
+        '</button>' +
+        '<button class="hd-del" onclick="SYLVEX.deleteConv(event,\'' + c.id + '\')" aria-label="Delete">×</button>' +
+      '</div>'
+    ).join('');
+  }
+  async function openConv(id) {
+    const tg = getTelegramId(); if (!tg) return;
+    try {
+      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id);
+      const j = await r.json();
+      if (!j.ok) return;
+      currentConvId = id;
+      chatMessages = (j.messages || []).map(m => ({
+        role: m.role === 'assistant' ? 'ai' : 'user',
+        text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
+        imageUrl: m.image_url || undefined,
+      }));
+      if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
+      renderChat();
+      renderConvList();
+      toggleHistory();
+    } catch {}
+  }
+  async function deleteConv(e, id) {
+    e.stopPropagation();
+    const tg = getTelegramId(); if (!tg) return;
+    await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id, { method: 'DELETE' });
+    if (id === currentConvId) newChat();
+    loadConversations();
+  }
+
+  /* ===== Paywall ===== */
+  function openPaywall() {
+    const el = document.getElementById('paywall');
+    if (el) el.classList.add('show');
+  }
+  function closePaywall(e) {
+    if (e && e.target && e.target.id !== 'paywall') return;
+    const el = document.getElementById('paywall');
+    if (el) el.classList.remove('show');
+  }
+  function openShopFromPaywall() {
+    closePaywall();
+    switchView('shop');
+  }
+
+  /* ===== Shop: buy flow ===== */
+  const PACK_META = {
+    sub_month: { title: 'SYLVEX Pro · 1 месяц',  price: '$5 · 230 ⭐' },
+    sub_year:  { title: 'SYLVEX Pro · 1 год',    price: '$59 · 2751 ⭐' },
+    pack_100:  { title: '100 ⚡️ токенов',        price: '$1 · 46 ⭐' },
+    pack_500:  { title: '500 ⚡️ токенов',        price: '$5 · 230 ⭐' },
+    pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 460 ⭐' },
+    pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 920 ⭐' },
+    pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 1380 ⭐' },
+  };
+  let pendingPack = null;
+  function openBuy(packId) {
+    pendingPack = packId;
+    const m = PACK_META[packId] || { title: packId, price: '—' };
+    const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = m.title;
+    const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = m.price;
+    const u = S.user || {};
+    const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
+    const handle   = u.username ? '@' + u.username : '@user';
+    const nm = document.getElementById('payUserName');   if (nm) nm.textContent = fullName;
+    const hd = document.getElementById('payUserHandle'); if (hd) hd.textContent = handle;
+    const av = document.getElementById('payAvatar');
+    if (av) {
+      av.innerHTML = '';
+      if (u.photo_url) {
+        const img = document.createElement('img'); img.src = u.photo_url; img.alt = '';
+        av.appendChild(img);
+      } else {
+        const ini = ((u.first_name || u.username || '·').slice(0,1) + (u.last_name || '').slice(0,1)).toUpperCase();
+        av.textContent = ini || '··';
+      }
+    }
+    const bal = Number(u.balance || 0);
+    const bEl = document.getElementById('payBalance');    if (bEl) bEl.textContent = bal.toLocaleString();
+    const bU  = document.getElementById('payBalanceUsd'); if (bU)  bU.textContent  = '≈ $' + (bal/100).toFixed(2);
+    switchView('pay');
+    S.haptic && S.haptic.impact('light');
+  }
+  function closeBuy() { switchView('shop'); }
+  function contactAdmin() {
+    const url = 'https://t.me/sylvex_admin';
+    const tgApp = S.tg;
+    if (tgApp && tgApp.openTelegramLink) tgApp.openTelegramLink(url);
+    else if (tgApp && tgApp.openLink)    tgApp.openLink(url);
+    else window.open(url, '_blank');
+  }
+  async function payWith(method) {
+    const packId = pendingPack;
+    if (!packId) return;
+    const tg = getTelegramId();
+    if (!tg) { toast('Telegram ID не найден'); return; }
+    toast('Создаём счёт…');
+    try {
+      let path = '';
+      if (method === 'stars')  path = '/api/public/payments/stars/invoice';
+      if (method === 'card')   path = '/api/public/payments/card/checkout';
+      if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pack_id: packId, telegram_id: tg }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) {
+        if (j.error === 'card_not_configured')   { toast('Оплата картой ещё не настроена'); return; }
+        if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
+        toast('Ошибка: ' + (j.error || r.status));
+        return;
+      }
+      const tgApp = S.tg;
+      if (method === 'stars' && j.invoice_url && tgApp && tgApp.openInvoice) {
+        tgApp.openInvoice(j.invoice_url, (status) => {
+          if (status === 'paid') { toast('Оплачено ✓'); S.syncUser && S.syncUser(); }
+          else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
+        });
+      } else if (j.url) {
+        if (tgApp && tgApp.openLink) tgApp.openLink(j.url, { try_instant_view: false });
+        else window.open(j.url, '_blank');
+      } else if (j.invoice_url) {
+        if (tgApp && tgApp.openLink) tgApp.openLink(j.invoice_url);
+        else window.open(j.invoice_url, '_blank');
+      }
+    } catch (err) {
+      toast('Сетевая ошибка');
+    }
+  }
+
+  /* ===== Input mic/send toggle ===== */
+  function updateSendButton() {
+    const ta = document.getElementById('chatInput');
+    const mic = document.getElementById('micBtn');
+    const send = document.getElementById('sendBtn');
+    if (!ta || !mic || !send) return;
+    const has = (ta.value || '').trim().length > 0 || !!pendingAttachment;
+    mic.hidden = has;
+    send.hidden = !has;
   }
 
   /* ===== Support modal ===== */
@@ -503,6 +668,7 @@
       chatInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
       });
+      chatInput.addEventListener('input', updateSendButton);
     }
 
     // Keyboard offset: keep the Pro Studio input pinned above the on-screen
@@ -531,8 +697,11 @@
     bindEvents();
     applyLang();       // triggers renderDynamic
     initHero();
+    if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
+    updateSendButton();
     if (S.syncUser) S.syncUser();
+    loadConversations();
   }
 
   // Expose to global scope.
@@ -541,6 +710,8 @@
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     attach, onAttachFile, clearAttachment, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
+    openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
+    openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
     get studioMode() { return studioMode; },

@@ -39,7 +39,8 @@
         <div class="balance-row">
           <div>
             <div class="balance-label" data-i18n="balance">Balance</div>
-            <div class="balance-val" id="homeBalance">— ⚡️</div>
+              <div class="balance-val" id="homeBalance">— ⚡️</div>
+              <div class="balance-usd" id="homeBalanceUsd">≈ $0.00</div>
           </div>
           <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
@@ -99,10 +100,9 @@
           <button class="sb-icon" id="historyBtn" onclick="SYLVEX.toggleHistory(event)" aria-label="History">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </button>
-          <button class="sb-brand" id="modelBtn" onclick="SYLVEX.toggleModelPop(event)" aria-haspopup="menu" aria-expanded="false">
-            <img src="assets/logo.png" alt="" class="sb-brand-logo" aria-hidden="true" />
-            <span class="sb-brand-name" id="modelVal">SYLVEX</span>
-            <svg class="sb-brand-chv" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+          <button class="sb-brand sb-brand-sm" id="modelBtn" onclick="SYLVEX.toggleModelPop(event)" aria-haspopup="menu" aria-expanded="false">
+            <span class="sb-brand-name" id="modelVal">SYLVEX Pro</span>
+            <svg class="sb-brand-chv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <button class="sb-icon" onclick="switchView('home')" title="Home" aria-label="Home">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
@@ -120,7 +120,7 @@
             <button class="sib mic" id="micBtn" type="button" onclick="SYLVEX.toggleMic(event)" aria-label="Voice" title="Voice">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/></svg>
             </button>
-            <button class="sib send" onclick="sendChat()" aria-label="Send">
+            <button class="sib send" id="sendBtn" onclick="sendChat()" aria-label="Send" hidden>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             </button>
           </div>
@@ -132,45 +132,33 @@
           <div class="sheet" onclick="event.stopPropagation()">
             <div class="sheet-grab"></div>
             <div class="sheet-list">
-              <button onclick="SYLVEX.attach('image')"><span>Upload Image</span></button>
-              <button onclick="SYLVEX.attach('video')"><span>Upload Video</span></button>
-              <button onclick="SYLVEX.attach('file')"><span>Upload File</span></button>
-              <div class="sheet-div"></div>
-              <button onclick="SYLVEX.genAction('image')"><span>Generate Image</span></button>
-              <button onclick="SYLVEX.genAction('video')"><span>Generate Video</span></button>
-              <button onclick="SYLVEX.genAction('music')"><span>Generate Music</span></button>
-              <div class="sheet-div"></div>
-              <button onclick="SYLVEX.genAction('voice')"><span>Voiceover</span></button>
+              <button onclick="SYLVEX.attach('image')"><span data-i18n="att_photo">Photo</span></button>
+              <button onclick="SYLVEX.attach('file')"><span data-i18n="att_file">File</span></button>
             </div>
+          </div>
+        </div>
+
+        <!-- Paywall modal -->
+        <div class="sheet-overlay" id="paywall" onclick="SYLVEX.closePaywall(event)">
+          <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+            <div class="sheet-grab"></div>
+            <h3 style="margin:6px 0 8px;font-size:17px" data-i18n="paywall_t">Subscription required</h3>
+            <p style="opacity:.7;font-size:13px;margin:0 0 14px" data-i18n="paywall_d">To continue chatting, please subscribe.</p>
+            <button class="topup" style="width:100%" onclick="SYLVEX.openShopFromPaywall()" data-i18n="subscribe_btn">Subscribe</button>
           </div>
         </div>
 
         <!-- History drawer -->
         <aside class="hist-drawer" id="histDrawer">
           <div class="hd-head">
-            <span class="hd-title">Chats</span>
+            <span class="hd-title" data-i18n="chats">Chats</span>
             <button class="hd-close" onclick="SYLVEX.toggleHistory()" aria-label="Close">×</button>
           </div>
           <button class="hd-new" onclick="SYLVEX.newChat();SYLVEX.toggleHistory()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            New chat
+            <span data-i18n="new_chat">New chat</span>
           </button>
-          <div class="hd-section">
-            <div class="hd-label">Today</div>
-            <button class="hd-item">Create cinematic video</button>
-            <button class="hd-item">Generate logo</button>
-          </div>
-          <div class="hd-section">
-            <div class="hd-label">Yesterday</div>
-            <button class="hd-item">Voice narration</button>
-            <button class="hd-item">Marketing text</button>
-          </div>
-          <div class="hd-section">
-            <div class="hd-label">Previous 7 Days</div>
-            <button class="hd-item">Product description</button>
-            <button class="hd-item">Music intro</button>
-            <button class="hd-item">Image upscale</button>
-          </div>
+          <div class="hd-section" id="hdConvList"></div>
         </aside>
         <div class="hd-backdrop" id="histBackdrop" onclick="SYLVEX.toggleHistory()"></div>
       </div>
@@ -182,19 +170,145 @@
     </section>
 
     <section class="view" data-view="shop">
-      <div class="section-title"><h3 data-i18n="shop">Shop</h3><a onclick="switchView('profile')" data-i18n="profile">Profile</a></div>
-      <div class="user-card" style="margin-bottom:6px">
-        <div class="balance-row" style="margin-top:0">
-          <div><div class="balance-label" data-i18n="current_balance">Current balance</div><div class="balance-val" id="shopBalance">— ⚡️</div></div>
-          <button class="topup" onclick="toast(t('topup_open'))">+ <span data-i18n="topup">Top up</span></button>
+      <div class="section-title"><h3 data-i18n="shop">Магазин</h3><a onclick="switchView('profile')" data-i18n="profile">Профиль</a></div>
+
+      <div class="shop-balance">
+        <div class="sb-left">
+          <div class="sb-label">Текущий баланс</div>
+          <div class="sb-val"><span id="shopBalance">—</span> <span class="sb-bolt">⚡️</span></div>
+          <div class="sb-usd" id="shopBalanceUsd">≈ $0.00</div>
+        </div>
+        <div class="sb-rate">1$ = 100 ⚡️</div>
+      </div>
+
+      <div class="sub-grid">
+        <div class="sub-card">
+          <div class="sub-badge">−50%</div>
+          <div class="sub-title">SYLVEX Pro</div>
+          <div class="sub-period">1 месяц</div>
+          <div class="sub-prices">
+            <div class="sub-price-now">$5 <span class="sep">·</span> 230 ⭐</div>
+            <div class="sub-price-old">$10 / 460 ⭐</div>
+          </div>
+          <ul class="sub-perks">
+            <li>Все функции генерации: видео, изображения, музыка, озвучка, текст</li>
+            <li>Доступ ко всем AI-моделям: Kling, Veo, Seedance и др.</li>
+            <li>100 ⚡️ SYLVEX BT в подарок</li>
+          </ul>
+          <button class="sub-cta" onclick="SYLVEX.openBuy('sub_month')">Подписаться</button>
+        </div>
+
+        <div class="sub-card sub-card-gold">
+          <div class="sub-badge">−50%</div>
+          <div class="sub-title">SYLVEX Pro</div>
+          <div class="sub-period">1 год · выгоднее</div>
+          <div class="sub-prices">
+            <div class="sub-price-now">$59 <span class="sep">·</span> 2751 ⭐</div>
+            <div class="sub-price-old">$118 / 5502 ⭐</div>
+          </div>
+          <ul class="sub-perks">
+            <li>Полный доступ ко всем функциям генерации</li>
+            <li>Полный доступ ко всем AI-моделям</li>
+            <li>500 ⚡️ SYLVEX BT сразу после покупки</li>
+            <li>+100 ⚡️ автоматически каждый месяц</li>
+          </ul>
+          <button class="sub-cta" onclick="SYLVEX.openBuy('sub_year')">Подписаться</button>
         </div>
       </div>
-      <div class="section-title"><h3 data-i18n="token_packs">Token packs</h3></div>
-      <div class="shop-grid" id="shopGrid"></div>
-      <div class="section-title"><h3 data-i18n="subscriptions">Subscriptions</h3></div>
-      <div class="list">
-        <div class="row" onclick="toast(t('subscribe'))"><div class="ico">⭐</div><div class="label"><span data-i18n="plan_pro">Pro plan</span><small data-i18n="plan_pro_d">Unlimited generations · priority queue</small></div><div class="val">$9.99/mo</div></div>
-        <div class="row" onclick="toast(t('subscribe'))"><div class="ico">💎</div><div class="label"><span data-i18n="plan_ultra">Ultra plan</span><small data-i18n="plan_ultra_d">All models · 4K · early access</small></div><div class="val">$24.99/mo</div></div>
+
+      <div class="section-title"><h3>Купить токены ⚡️</h3></div>
+      <div class="tok-grid">
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_100')">
+          <div class="tok-amount">100</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$1</div>
+        </div>
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_500')">
+          <div class="tok-amount">500</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$5</div>
+        </div>
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_1000')">
+          <div class="tok-amount">1 000</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$10</div>
+        </div>
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_2000')">
+          <div class="tok-amount">2 000</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$20</div>
+        </div>
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_3000')">
+          <div class="tok-amount">3 000</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$30</div>
+        </div>
+      </div>
+
+      <button class="admin-cta" onclick="SYLVEX.contactAdmin()">
+        <span>Связаться с администратором</span>
+        <small>Для покупки большего количества токенов</small>
+      </button>
+    </section>
+
+    <section class="view" data-view="pay">
+      <div class="pay-head">
+        <button class="pay-back" onclick="switchView('shop')" aria-label="Назад">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <div class="pay-head-title">Оплата</div>
+        <div style="width:36px"></div>
+      </div>
+
+      <div class="pay-user">
+        <div class="avatar" id="payAvatar">··</div>
+        <div class="pay-user-meta">
+          <div class="pay-user-name" id="payUserName">—</div>
+          <div class="pay-user-handle" id="payUserHandle">@—</div>
+        </div>
+      </div>
+
+      <div class="pay-summary">
+        <div class="pay-row">
+          <div class="pay-row-k">Текущий баланс</div>
+          <div class="pay-row-v"><span id="payBalance">0</span> ⚡️ <span class="pay-usd" id="payBalanceUsd">≈ $0.00</span></div>
+        </div>
+        <div class="pay-row">
+          <div class="pay-row-k">К оплате</div>
+          <div class="pay-row-v pay-row-v-strong" id="payPackTitle">—</div>
+        </div>
+        <div class="pay-row pay-row-total">
+          <div class="pay-row-k">Стоимость</div>
+          <div class="pay-row-v" id="payPackPrice">—</div>
+        </div>
+      </div>
+
+      <div class="section-title"><h3>Способ оплаты</h3></div>
+      <div class="pay-methods">
+        <button class="pm-card" onclick="SYLVEX.payWith('stars')">
+          <div class="pm-ico">⭐</div>
+          <div class="pm-body">
+            <div class="pm-title">Telegram Stars</div>
+            <div class="pm-sub">Мгновенная оплата звёздами Telegram</div>
+          </div>
+          <div class="pm-arr">→</div>
+        </button>
+        <button class="pm-card" onclick="SYLVEX.payWith('card')">
+          <div class="pm-ico">💳</div>
+          <div class="pm-body">
+            <div class="pm-title">Банковская карта</div>
+            <div class="pm-sub">Visa · Mastercard · Apple/Google Pay</div>
+          </div>
+          <div class="pm-arr">→</div>
+        </button>
+        <button class="pm-card" onclick="SYLVEX.payWith('crypto')">
+          <div class="pm-ico">₿</div>
+          <div class="pm-body">
+            <div class="pm-title">Криптовалюта</div>
+            <div class="pm-sub">USDT · BTC · TON · ETH через Crypto Pay</div>
+          </div>
+          <div class="pm-arr">→</div>
+        </button>
       </div>
     </section>
 
@@ -209,7 +323,11 @@
           </div>
         </div>
         <div class="balance-row">
-          <div><div class="balance-label" data-i18n="balance">Balance</div><div class="balance-val" id="profileBalance">— ⚡️</div></div>
+          <div>
+            <div class="balance-label" data-i18n="balance">Balance</div>
+            <div class="balance-val" id="profileBalance">— ⚡️</div>
+            <div class="balance-usd" id="profileBalanceUsd">≈ $0.00</div>
+          </div>
           <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
       </div>
@@ -275,7 +393,6 @@
   <nav class="nav" id="nav">
     <button class="nav-btn active" data-view="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg><span data-i18n="nav_home">Home</span></button>
     <button class="nav-btn" data-view="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span data-i18n="nav_history">History</span></button>
-    <button class="nav-btn nav-studio-hl" data-view="tools"><svg viewBox="0 0 24 24"><path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5L12 14.8 7.1 17.2 8 11.7 4 7.8l5.5-.8L12 2z"/></svg><span data-i18n="nav_studio">Pro Studio</span></button>
     <button class="nav-btn" data-view="shop"><svg viewBox="0 0 24 24"><path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7h-11A2 2 0 0 1 4.5 18L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg><span data-i18n="nav_shop">Shop</span></button>
     <button class="nav-btn" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5 2 2 0 1 1-4 0 1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3A2 2 0 1 1 4.4 17a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1 2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8A2 2 0 1 1 7 4.4a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5 2 2 0 1 1 4 0 1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3A2 2 0 1 1 19.6 7a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1 2 2 0 1 1 0 4 1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav_settings">Settings</span></button>
   </nav>

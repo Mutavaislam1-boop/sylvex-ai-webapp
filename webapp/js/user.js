@@ -57,11 +57,14 @@
     const ini = initials(u.first_name, u.last_name, u.username);
     const badge = statusLabel(u.status);
     const bal = fmtNum(u.balance) + ' ⚡️';
+    const balNum = Number(u.balance || 0);
+    const usd = '≈ $' + (balNum / 100).toFixed(2);
 
     setText('homeUserName', fullName);
     setText('homeUserHandle', handle);
     setText('homeUserId', idStr);
     setText('homeBalance', bal);
+    setText('homeBalanceUsd', usd);
     const hb = document.getElementById('homeUserBadge'); if (hb) { hb.textContent = badge; hb.removeAttribute('data-i18n'); }
     setAvatar('homeAvatar', u.photo_url, ini);
 
@@ -69,6 +72,7 @@
     setText('profileUserHandle', handle);
     setText('profileUserId', idStr);
     setText('profileBalance', bal);
+    setText('profileBalanceUsd', usd);
     setText('profilePlan', badge.charAt(0) + badge.slice(1).toLowerCase());
     if (u.created_at) {
       try {
@@ -79,7 +83,8 @@
     const pb = document.getElementById('profileUserBadge'); if (pb) { pb.textContent = badge; pb.removeAttribute('data-i18n'); }
     setAvatar('profileAvatar', u.photo_url, ini);
 
-    setText('shopBalance', bal);
+    setText('shopBalance', balNum.toLocaleString());
+    setText('shopBalanceUsd', usd);
   }
 
   async function syncUser() {
