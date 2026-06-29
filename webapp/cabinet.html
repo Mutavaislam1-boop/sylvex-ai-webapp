@@ -226,6 +226,15 @@
         </div>
       </div>
 
+      <div id="devSubTools" hidden style="margin:10px 0 18px;padding:12px;border-radius:16px;background:rgba(34,197,94,.08);border:1px dashed rgba(34,197,94,.35)">
+        <div style="font-size:12px;font-weight:700;color:#4ade80;margin-bottom:8px">DEV · Проверка подписки без оплаты</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="sub-cta" type="button" onclick="SYLVEX.devSetSubscription('month')">Тест: 1 месяц</button>
+          <button class="sub-cta" type="button" onclick="SYLVEX.devSetSubscription('year')">Тест: 1 год</button>
+        </div>
+        <button class="sub-cta" type="button" style="margin-top:8px;background:#1f2937;color:#fff" onclick="SYLVEX.devClearSubscription()">Сбросить тест</button>
+      </div>
+
       <div class="section-title"><h3>Купить токены ⚡️</h3></div>
       <div class="tok-grid">
         <div class="tok-card" onclick="SYLVEX.openBuy('pack_100')">
@@ -440,4 +449,55 @@
       </button>
     </div>
   </div>
-</div>
+ </div>
+
+<script>
+(function () {
+  window.SYLVEX = window.SYLVEX || {};
+
+  function isDevEnabled() {
+    const tgId =
+        Number(window.SYLVEX?.user?.telegram_id) ||
+        Number(window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+
+    return tgId === 7932380565;
+}
+
+  function updateDevPanel() {
+    const panel = document.getElementById('devSubTools');
+    if (panel) panel.hidden = !isDevEnabled();
+  }
+
+  window.SYLVEX.devSetSubscription = function (plan) {
+    const days = plan === 'year' ? 365 : 30;
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+    localStorage.setItem('sylvex-dev-sub-plan', plan);
+    localStorage.setItem('sylvex-dev-sub-expires-at', expiresAt);
+
+    if (window.SYLVEX.renderSubscriptionCards) {
+      window.SYLVEX.renderSubscriptionCards();
+    }
+
+    if (window.toast) {
+      window.toast('DEV подписка включена: ' + plan);
+    }
+  };
+
+  window.SYLVEX.devClearSubscription = function () {
+    localStorage.removeItem('sylvex-dev-sub-plan');
+    localStorage.removeItem('sylvex-dev-sub-expires-at');
+
+    if (window.SYLVEX.renderSubscriptionCards) {
+      window.SYLVEX.renderSubscriptionCards();
+    }
+
+    if (window.toast) {
+      window.toast('DEV подписка сброшена');
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', updateDevPanel);
+  setTimeout(updateDevPanel, 300);
+})();
+</script>
