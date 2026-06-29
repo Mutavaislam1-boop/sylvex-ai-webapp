@@ -33,6 +33,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 print("MINIAPP DATABASE:", DATABASE_URL)
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
+SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/shop")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
@@ -201,6 +202,10 @@ async def root():
 @app.get("/cabinet")
 async def cabinet():
     return RedirectResponse("/webapp/index.html")
+
+@app.get("/shop")
+async def shop():
+    return RedirectResponse("/webapp/index.html?view=shop")
 
 @app.get("/payments")
 async def payments():
@@ -819,7 +824,8 @@ async def public_config():
     return {
         "ok": True,
         "webapp_url": WEBAPP_URL,
-        "payment_webapp_url": PAYMENT_WEBAPP_URL
+        "payment_webapp_url": PAYMENT_WEBAPP_URL,
+        "shop_webapp_url": SHOP_WEBAPP_URL
     }
 
 @app.get("/api/payment-links")

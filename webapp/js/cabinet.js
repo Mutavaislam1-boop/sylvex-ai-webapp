@@ -687,6 +687,14 @@
     }
   }
 
+  function initialViewFromUrl() {
+    const allowed = new Set(['home', 'history', 'shop', 'pay', 'profile', 'settings', 'tools']);
+    const params = new URLSearchParams(window.location.search || '');
+    const raw = params.get('view') || params.get('screen') || params.get('section') || window.location.hash.replace(/^#/, '');
+    const view = (raw || '').trim().toLowerCase();
+    return allowed.has(view) ? view : 'home';
+  }
+
   /* ===== Init (called after cabinet.html is injected) ===== */
   function init() {
     // Restore saved theme.
@@ -702,6 +710,8 @@
     updateSendButton();
     if (S.syncUser) S.syncUser();
     loadConversations();
+    const initialView = initialViewFromUrl();
+    if (initialView !== 'home') switchView(initialView);
   }
 
   // Expose to global scope.
