@@ -691,7 +691,8 @@ body.kb-open .nav{
 .pay-head-title{font-size:16px;font-weight:700;color:var(--text)}
 .pay-user{display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;
   background:rgba(255,255,255,.04);border:1px solid var(--bd);margin-bottom:12px}
-.pay-user .avatar{width:42px;height:42px;font-size:14px}
+.pay-user .avatar{width:42px;height:42px;flex:0 0 42px;font-size:14px;overflow:hidden}
+.pay-user .avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover;display:block}
 .pay-user-name{font-size:14px;font-weight:600;color:var(--text)}
 .pay-user-handle{font-size:12px;color:var(--text-mute)}
 .pay-summary{padding:4px 16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--bd);margin-bottom:18px}
