@@ -1275,13 +1275,24 @@ def sync_user_to_db(user_data: dict) -> dict:
             user_data.get("first_name") or "Guest",
         ))
         row = cursor.fetchone()
+        # Query for active subscription before closing connection
+        cursor.execute("""
+SELECT subscription_type, expires_at
+FROM subscriptions
+WHERE telegram_id = %s
+  AND status = 'active'
+  AND expires_at > NOW()
+ORDER BY expires_at DESC
+LIMIT 1
+""", (int(user_data["telegram_id"]),))
+        sub = cursor.fetchone()
         conn.commit()
     finally:
         cursor.close()
         conn.close()
 
     subscription = row[4] or user_data.get("status") or "free"
-    return {
+    user_dict = {
         **user_data,
         "telegram_id": row[0],
         "username": row[1],
@@ -1290,6 +1301,9 @@ def sync_user_to_db(user_data: dict) -> dict:
         "status": subscription,
         "created_at": row[5],
     }
+    user_dict["subscription_plan"] = sub[0] if sub else None
+    user_dict["subscription_expires_at"] = sub[1].isoformat() if sub and sub[1] else None
+    return user_dict
 
 def save_generation(telegram_id: int, generation_type: str, prompt: str, status: str = "done"):
     if not DATABASE_URL or not telegram_id:

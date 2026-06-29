@@ -543,14 +543,49 @@
 
   function renderSubscriptionCards() {
     const info = getUserSubscriptionInfo();
-
     document.querySelectorAll('[data-sub-plan]').forEach((card) => {
       const plan = (card.dataset.subPlan || '').toLowerCase();
-      const isCurrentPlan = info.active && (!info.plan || info.plan === plan || info.plan === 'sub_' + plan);
-      const countdown = card.querySelector('[data-sub-countdown]');
+      const isActive = info.active && (info.plan === plan || info.plan === 'sub_' + plan || !info.plan);
+      card.classList.toggle('is-subscribed', !!isActive);
 
-      card.classList.toggle('is-subscribed', !!isCurrentPlan);
-      if (countdown) countdown.textContent = isCurrentPlan ? formatSubscriptionCountdown(info.expiresAt) : 'Осталось: —';
+      // Find relevant elements inside the card if they exist
+      const countdownEl = card.querySelector('[data-sub-countdown]');
+      const activeBlock = card.querySelector('[data-sub-active]');
+      const priceBlock = card.querySelector('[data-sub-price]');
+      const buyBtn = card.querySelector('[data-sub-buy]');
+      const subscribedBtn = card.querySelector('[data-sub-subscribed]');
+      const discountBadge = card.querySelector('.discount-badge');
+
+      if (isActive) {
+        // Set the countdown text
+        if (countdownEl) countdownEl.textContent = formatSubscriptionCountdown(info.expiresAt);
+        // Show active block
+        if (activeBlock) activeBlock.hidden = false;
+        // Hide price block
+        if (priceBlock) priceBlock.hidden = true;
+        // Hide buy button
+        if (buyBtn) buyBtn.hidden = true;
+        // Show subscribed button
+        if (subscribedBtn) {
+          subscribedBtn.hidden = false;
+          subscribedBtn.textContent = '✅ Вы подписаны';
+        }
+        // Hide discount badge if exists
+        if (discountBadge) discountBadge.hidden = true;
+      } else {
+        // Reset countdown text
+        if (countdownEl) countdownEl.textContent = 'Осталось: —';
+        // Hide active block
+        if (activeBlock) activeBlock.hidden = true;
+        // Show price block
+        if (priceBlock) priceBlock.hidden = false;
+        // Show buy button
+        if (buyBtn) buyBtn.hidden = false;
+        // Hide subscribed button
+        if (subscribedBtn) subscribedBtn.hidden = true;
+        // Show discount badge if exists
+        if (discountBadge) discountBadge.hidden = false;
+      }
     });
   }
 
