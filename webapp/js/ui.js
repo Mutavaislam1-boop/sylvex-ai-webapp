@@ -63,13 +63,15 @@
   }
 
   function shopCard(s) {
+    const packId = s.id || ('pack_' + s.tokens);
+
     return '<div class="pack ' + (s.pop ? 'pop' : '') + '">'
       + (s.pop ? '<div class="pop-tag">' + t('popular') + '</div>' : '')
       + '<div class="pico">' + s.icon + '</div>'
       + '<div class="pa">' + s.tokens.toLocaleString() + ' ⚡️</div>'
       + '<div class="pn">' + t('tokens') + '</div>'
       + '<div class="pp">' + s.price + '</div>'
-      + '<button onclick="toast(\'' + t('buy') + ' ' + s.tokens + ' ⚡️\')">' + t('buy') + '</button></div>';
+      + '<button onclick="SYLVEX.openBuy(\'' + packId + '\')">' + t('buy') + '</button></div>';
   }
 
   // Expose globally.
