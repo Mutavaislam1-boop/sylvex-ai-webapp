@@ -56,6 +56,8 @@ HEYGEN_VOICE_MODEL_ID = "starfish"
 HEYGEN_DEFAULT_LANGUAGE = "ru"
 HEYGEN_DEFAULT_SPEED = 1.0
 HEYGEN_DEFAULT_OUTPUT_FORMAT = "mp3"
+DEV_TELEGRAM_ID = int(os.getenv("DEV_TELEGRAM_ID", "7932380565"))
+SUBSCRIPTION_BONUS_CREDITS = int(os.getenv("SUBSCRIPTION_BONUS_CREDITS", "100"))
 
 SHOP_ITEMS = {
     "sub_month": {
@@ -64,6 +66,7 @@ SHOP_ITEMS = {
         "plan_key": "month",
         "days": 30,
         "credits": 0,
+        "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 5.0,
         "stars": 230,
     },
@@ -73,6 +76,7 @@ SHOP_ITEMS = {
         "plan_key": "year",
         "days": 365,
         "credits": 0,
+        "bonus_credits": SUBSCRIPTION_BONUS_CREDITS,
         "usd": 59.0,
         "stars": 2751,
     },
@@ -348,6 +352,7 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
     if not DATABASE_URL:
         return
 
+    ensure_user_exists(telegram_id)
     ensure_payment_tables()
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -368,10 +373,30 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
         conn.close()
 
 
-def add_user_balance(telegram_id: int, credits: int):
-    if not DATABASE_URL:
+
+
+def ensure_user_exists(telegram_id: int):
+    if not DATABASE_URL or not telegram_id:
         return
 
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO users (telegram_id, first_name, balance, subscription)
+            VALUES (%s, 'Developer', 0, 'free')
+            ON CONFLICT (telegram_id) DO NOTHING
+        """, (telegram_id,))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def add_user_balance(telegram_id: int, credits: int):
+    if not DATABASE_URL or not telegram_id or not credits:
+        return
+
+    ensure_user_exists(telegram_id)
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -387,17 +412,62 @@ def add_user_balance(telegram_id: int, credits: int):
 
 def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: int, currency: str, payload: str, charge_id: str):
     credits = int(item.get("credits") or 0)
-    created = create_purchase_once(telegram_id, provider, credits, amount, currency, payload, charge_id)
+    bonus_credits = int(item.get("bonus_credits") or 0)
+    created = create_purchase_once(telegram_id, provider, credits or bonus_credits, amount, currency, payload, charge_id)
 
     if not created:
         return False
 
     if item["kind"] == "subscription":
         activate_subscription(telegram_id, item, provider, amount, currency, payload, charge_id)
+        if bonus_credits:
+            add_user_balance(telegram_id, bonus_credits)
     else:
         add_user_balance(telegram_id, credits)
 
     return True
+
+
+def reset_developer_subscription(telegram_id: int, reset_credits: bool = False) -> dict:
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not configured")
+
+    ensure_payment_tables()
+    ensure_user_exists(telegram_id)
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE subscriptions
+            SET status = 'cancelled'
+            WHERE telegram_id = %s
+              AND status = 'active'
+        """, (telegram_id,))
+        cancelled = cursor.rowcount
+
+        if reset_credits:
+            cursor.execute("""
+                UPDATE users
+                SET subscription = 'free', balance = 0
+                WHERE telegram_id = %s
+            """, (telegram_id,))
+        else:
+            cursor.execute("""
+                UPDATE users
+                SET subscription = 'free'
+                WHERE telegram_id = %s
+            """, (telegram_id,))
+
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+    return {
+        "cancelled_subscriptions": cancelled,
+        "reset_credits": reset_credits,
+    }
 
 
 async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
@@ -1588,6 +1658,8 @@ async def public_stars_invoice(request: Request):
     }
 
 # Developer payment endpoint for simulating successful payments (dev only)
+DEV_TELEGRAM_ID = int(os.getenv("DEV_TELEGRAM_ID", "7932380565"))
+
 @app.post("/api/public/payments/dev/success")
 async def public_dev_payment(request: Request):
     data = await request.json()
@@ -1596,7 +1668,7 @@ async def public_dev_payment(request: Request):
     pack_id = data.get("pack_id") or ""
     item = shop_item(pack_id)
 
-    if telegram_id != 7932380565:
+    if telegram_id != DEV_TELEGRAM_ID:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
 
     if not item:
@@ -1617,6 +1689,16 @@ async def public_dev_payment(request: Request):
         "pack_id": pack_id,
         "created": created,
         "kind": item["kind"],
+        "plan": item.get("plan_key"),
+        "bonus_credits": item.get("bonus_credits", 0),
+    })
+
+    user = sync_user_to_db({
+        "telegram_id": telegram_id,
+        "username": "developer",
+        "first_name": "Developer",
+        "status": "free",
+        "balance": 0,
     })
 
     return {
@@ -1624,7 +1706,46 @@ async def public_dev_payment(request: Request):
         "created": created,
         "kind": item["kind"],
         "plan": item.get("plan_key"),
+        "bonus_credits": item.get("bonus_credits", 0),
+        "user": user,
         "message": "Developer payment completed"
+    }
+
+
+# Developer reset endpoint for resetting developer subscription (dev only)
+@app.post("/api/public/payments/dev/reset")
+async def public_dev_reset(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    reset_credits = bool(data.get("reset_credits", False))
+
+    if telegram_id != DEV_TELEGRAM_ID:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    try:
+        reset_result = reset_developer_subscription(telegram_id, reset_credits=reset_credits)
+    except Exception as exc:
+        print("DEV RESET ERROR:", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+
+    user = sync_user_to_db({
+        "telegram_id": telegram_id,
+        "username": "developer",
+        "first_name": "Developer",
+        "status": "free",
+        "balance": 0,
+    })
+
+    print("DEV RESET:", {
+        "telegram_id": telegram_id,
+        **reset_result,
+    })
+
+    return {
+        "ok": True,
+        **reset_result,
+        "user": user,
+        "message": "Developer subscription reset completed"
     }
 
 @app.post("/api/public/payments/crypto/invoice")
