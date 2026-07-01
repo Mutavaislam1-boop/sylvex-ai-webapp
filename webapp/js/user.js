@@ -43,7 +43,7 @@
 
   function statusLabel(status) {
     const s = (status || 'free').toLowerCase();
-    if (s === 'premium') return 'PREMIUM';
+    if (s === 'active' || s === 'pro' || s === 'premium') return 'PRO';
     if (s === 'vip') return 'VIP';
     return 'FREE';
   }
@@ -51,6 +51,8 @@
   function renderUser(u) {
     if (!u) return;
     S.user = u;
+    S.currentUser = u;
+    window.currentUser = u;
     const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
     const handle = u.username ? '@' + u.username : '@user';
     const idStr = u.telegram_id ? String(u.telegram_id) : '—';
@@ -86,7 +88,9 @@
     setText('shopBalance', balNum.toLocaleString());
     setText('shopBalanceUsd', usd);
 
-    if (typeof S.renderSubscriptionCards === 'function') {
+    if (typeof S.renderDynamic === 'function' && document.getElementById('shopGrid')) {
+      S.renderDynamic();
+    } else if (typeof S.renderSubscriptionCards === 'function') {
       S.renderSubscriptionCards();
     }
   }
@@ -107,7 +111,7 @@
         language_code: u.language_code,
         photo_url: u.photo_url,
         is_premium: !!u.is_premium,
-        status: u.is_premium ? 'premium' : 'free',
+        status: S.user && S.user.status ? S.user.status : (u.is_premium ? 'premium' : 'free'),
         balance: 0,
         subscription_plan: null,
         subscription_expires_at: null,
