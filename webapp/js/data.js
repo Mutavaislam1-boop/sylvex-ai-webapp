@@ -23,29 +23,10 @@
   ];
 
   const shopData = [
-    {
-      id: 'sub_month',
-      kind: 'subscription',
-      plan_key: 'month',
-      icon: '👑',
-      title: 'PRO · 1 месяц',
-      price: '$5 · 230 Stars',
-      pop: true
-    },
-    {
-      id: 'sub_year',
-      kind: 'subscription',
-      plan_key: 'year',
-      icon: '💎',
-      title: 'PRO · 1 год',
-      price: '$59 · 2751 Stars',
-      pop: true
-    },
-    { id: 'pack_100', icon: '⚡️', tokens: 100, price: '$1 · 46 Stars' },
-    { id: 'pack_500', icon: '💎', tokens: 500, price: '$5 · 230 Stars', pop: true },
-    { id: 'pack_1000', icon: '🚀', tokens: 1000, price: '$10 · 460 Stars' },
-    { id: 'pack_2000', icon: '👑', tokens: 2000, price: '$20 · 920 Stars' },
-    { id: 'pack_3000', icon: '⚡️', tokens: 3000, price: '$30 · 1380 Stars' }
+    { icon: '⚡️',  tokens: 500,  price: '$4.99' },
+    { icon: '💎', tokens: 1200, price: '$9.99', pop: true },
+    { icon: '🚀', tokens: 3000, price: '$19.99' },
+    { icon: '👑', tokens: 8000, price: '$49.99' }
   ];
 
   const catsData = [
