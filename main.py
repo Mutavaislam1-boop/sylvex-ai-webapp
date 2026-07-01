@@ -358,6 +358,12 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
     cursor = conn.cursor()
     try:
         cursor.execute("""
+            UPDATE subscriptions
+            SET status = 'cancelled'
+            WHERE telegram_id = %s
+              AND status = 'active'
+        """, (telegram_id,))
+        cursor.execute("""
             INSERT INTO subscriptions (
                 telegram_id, subscription_type, payment_method, amount, currency, expires_at, status, charge_id
             )
@@ -1693,10 +1699,18 @@ async def public_dev_payment(request: Request):
 
     user = sync_user_to_db({
         "telegram_id": telegram_id,
-        "username": "developer",
-        "first_name": "Developer",
+        "username": data.get("username") or None,
+        "first_name": data.get("first_name") or "Developer",
         "status": "free",
         "balance": 0,
+    })
+
+    print("DEV PAYMENT USER:", {
+        "telegram_id": user.get("telegram_id"),
+        "status": user.get("status"),
+        "subscription_plan": user.get("subscription_plan"),
+        "subscription_expires_at": user.get("subscription_expires_at"),
+        "balance": user.get("balance"),
     })
 
     return {
@@ -1728,8 +1742,8 @@ async def public_dev_reset(request: Request):
 
     user = sync_user_to_db({
         "telegram_id": telegram_id,
-        "username": "developer",
-        "first_name": "Developer",
+        "username": data.get("username") or None,
+        "first_name": data.get("first_name") or "Developer",
         "status": "free",
         "balance": 0,
     })
