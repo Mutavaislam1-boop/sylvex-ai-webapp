@@ -557,6 +557,18 @@ def log_user_event(
         print("LOG EVENT FAILED:", exc)
 
 
+def _to_iso(v):
+    if v is None:
+        return None
+    try:
+        return v.isoformat()
+    except Exception:
+        try:
+            return str(v)
+        except Exception:
+            return None
+
+
 def get_user_state(telegram_id: int, username: str = None, first_name: str = None) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
@@ -659,7 +671,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         "balance": user_row[3] or 0,
         "status": "active" if active_sub else (user_row[4] or "free"),
         "subscription_plan": active_sub[0] if active_sub else None,
-        "subscription_expires_at": active_sub[1].isoformat() if active_sub and active_sub[1] else None,
+        "subscription_expires_at": _to_iso(active_sub[1]) if active_sub and active_sub[1] else None,
         "created_at": user_row[5],
         "total_generations": total_generations,
         "last_actions": [
@@ -668,7 +680,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                 "event_name": row[1],
                 "source": row[2],
                 "payload": row[3],
-                "created_at": row[4].isoformat() if row[4] else None,
+                "created_at": _to_iso(row[4]) if row[4] else None,
             }
             for row in events
         ],
@@ -681,7 +693,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                 "payload": row[4],
                 "charge_id": row[5],
                 "status": row[6],
-                "created_at": row[7].isoformat() if row[7] else None,
+                "created_at": _to_iso(row[7]) if row[7] else None,
             }
             for row in purchases
         ],
@@ -690,7 +702,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                 "generation_type": row[0],
                 "prompt": row[1],
                 "status": row[2],
-                "created_at": row[3].isoformat() if row[3] else None,
+                "created_at": _to_iso(row[3]) if row[3] else None,
             }
             for row in generations
         ],
@@ -2353,7 +2365,7 @@ async def public_get_events(telegram_id: int = 0):
             "event_type": row[2],
             "event_name": row[3],
             "payload": row[4],
-            "created_at": row[5].isoformat() if row[5] else None,
+            "created_at": _to_iso(row[5]) if row[5] else None,
         }
         for row in rows
     ]
