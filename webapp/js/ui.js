@@ -80,22 +80,31 @@
 
   function hasActiveSubscription(user) {
     if (!user) return false;
+
     const status = String(user.status || user.subscription || '').toLowerCase();
+    const plan = getSubscriptionPlan(user);
     const expiresAt = getSubscriptionExpiresAt(user);
     const end = expiresAt ? new Date(expiresAt).getTime() : 0;
-    return ['active', 'pro', 'premium', 'vip'].includes(status) && Number.isFinite(end) && end > Date.now();
+
+    return (
+      ['active', 'pro', 'premium', 'vip'].includes(status) &&
+      Boolean(plan) &&
+      Number.isFinite(end) &&
+      end > Date.now()
+    );
   }
 
   function isActiveSubscriptionCard(s) {
-    const user = getCurrentUser();
-    if (!hasActiveSubscription(user)) return false;
     const itemKind = s.kind || (s.id && String(s.id).startsWith('sub_') ? 'subscription' : 'credits');
     if (itemKind !== 'subscription') return false;
 
-    const activePlan = getSubscriptionPlan(user);
-    const cardPlan = s.plan_key || s.plan || (s.id === 'sub_month' ? 'month' : s.id === 'sub_year' ? 'year' : null);
+    const user = getCurrentUser();
+    if (!hasActiveSubscription(user)) return false;
 
-    return Boolean(activePlan && cardPlan && String(activePlan).toLowerCase() === String(cardPlan).toLowerCase());
+    const activePlan = String(getSubscriptionPlan(user) || '').toLowerCase();
+    const cardPlan = String(s.plan_key || s.plan || (s.id === 'sub_month' ? 'month' : s.id === 'sub_year' ? 'year' : '')).toLowerCase();
+
+    return activePlan && cardPlan && activePlan === cardPlan;
   }
 
   function formatSubscriptionCountdown(expiresAt) {
@@ -133,7 +142,6 @@
 
   function shopCard(s) {
     const packId = s.id || ('pack_' + s.tokens);
-    const debugUser = getCurrentUser();
     const itemKind = s.kind || (String(packId).startsWith('sub_') ? 'subscription' : 'credits');
     const user = getCurrentUser();
     const isSub = itemKind === 'subscription';
@@ -145,16 +153,6 @@
     const priceText = s.price || '';
     const activeClass = isActive ? ' active-subscription' : '';
 
-    if (isSub) {
-      console.log('SYLVEX SHOP CARD:', {
-        packId,
-        userStatus: debugUser && (debugUser.status || debugUser.subscription),
-        activePlan: debugUser && getSubscriptionPlan(debugUser),
-        expiresAt: debugUser && getSubscriptionExpiresAt(debugUser),
-        isActive,
-      });
-    }
-
     return '<div class="pack ' + (s.pop && !isActive ? 'pop ' : '') + activeClass + '" data-pack-id="' + escapeHtml(packId) + '">'
       + (s.pop && !isActive ? '<div class="pop-tag">' + t('popular') + '</div>' : '')
       + '<div class="pico">' + (s.icon || '⚡️') + '</div>'
@@ -164,7 +162,7 @@
         ? '<div class="pp subscription-countdown" data-subscription-countdown="' + escapeHtml(expiresAt || '') + '">' + escapeHtml(countdown || 'активна') + '</div>'
         : '<div class="pp">' + escapeHtml(priceText) + '</div>')
       + (isActive
-        ? '<button class="subscribed-btn" disabled>✓</button>'
+        ? '<button class="subscribed-btn" disabled>✓ Подписаны</button>'
         : '<button onclick="SYLVEX.openBuy(\'' + packId + '\')">' + t('buy') + '</button>')
       + '</div>';
   }
