@@ -41,6 +41,26 @@
     if (dot) el.appendChild(dot);
   }
 
+  async function sendUserEvent(eventType, eventName, payload) {
+    const u = S.user || S.currentUser || window.currentUser || {};
+    const telegram_id = Number(u.telegram_id || 0);
+    if (!telegram_id) return;
+    try {
+      await fetch('/api/public/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegram_id,
+          event_type: eventType,
+          event_name: eventName,
+          payload: payload || {},
+        }),
+      });
+    } catch (err) {
+      console.warn('Send user event failed', err);
+    }
+  }
+
   function statusLabel(status) {
     const s = (status || 'free').toLowerCase();
     if (s === 'active' || s === 'pro' || s === 'premium') return 'PRO';
@@ -141,6 +161,12 @@
           subscription_expires_at: json.user.subscription_expires_at || json.user.subscription_until || json.user.sub_expires_at || json.user.pro_until,
         });
         renderUser(json.user);
+        sendUserEvent('sync', 'user_sync', {
+          subscription_plan: json.user.subscription_plan,
+          subscription_expires_at: json.user.subscription_expires_at,
+          status: json.user.status,
+          balance: json.user.balance,
+        });
         return json.user;
       }
     } catch (err) {
@@ -151,6 +177,7 @@
   }
 
   S.syncUser = syncUser;
+  S.sendUserEvent = sendUserEvent;
   S.userReady = syncUser();
   S.renderUser = renderUser;
 })();

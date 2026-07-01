@@ -331,6 +331,26 @@ def _restore_active_subscription(telegram_id: int) -> bool:
 
     if inserted and item.get("bonus_credits"):
         add_user_balance(telegram_id, int(item["bonus_credits"]))
+        log_user_event(
+            telegram_id=telegram_id,
+            source="system",
+            event_type="subscription_restored",
+            event_name=f"restore_{item.get('plan_key')}",
+            payload={
+                "subscription_type": item.get("plan_key"),
+                "charge_id": charge_id,
+            },
+        )
+        log_user_event(
+            telegram_id=telegram_id,
+            source="system",
+            event_type="credits_added",
+            event_name="subscription_bonus_restored",
+            payload={
+                "credits": int(item["bonus_credits"]),
+                "charge_id": charge_id,
+            },
+        )
     return inserted
 
 
@@ -418,6 +438,30 @@ def get_crypto_invoice(invoice_id: int):
     return None
 
 
+def ensure_user_events_table():
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_events (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            source TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            event_name TEXT,
+            payload JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def ensure_payment_tables():
     if not DATABASE_URL:
         return
@@ -458,6 +502,200 @@ def ensure_payment_tables():
     finally:
         cursor.close()
         conn.close()
+
+
+def _sanitize_event_payload(value, max_text=512, max_items=20, depth=3):
+    if depth <= 0:
+        return None
+    if isinstance(value, dict):
+        sanitized = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= max_items:
+                break
+            sanitized[str(k)] = _sanitize_event_payload(v, max_text, max_items, depth - 1)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_event_payload(v, max_text, max_items, depth - 1) for v in value[:max_items]]
+    if isinstance(value, str):
+        return value if len(value) <= max_text else value[:max_text] + '…'
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return str(value)[:max_text]
+
+
+def log_user_event(
+    telegram_id: int,
+    source: str,
+    event_type: str,
+    event_name: str = "",
+    payload: dict | None = None,
+):
+    if not DATABASE_URL or not telegram_id or not source or not event_type:
+        return
+
+    ensure_user_events_table()
+    try:
+        payload = payload or {}
+        sanitized = _sanitize_event_payload(payload)
+        payload_str = json.dumps(sanitized, ensure_ascii=False)
+
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO user_events (telegram_id, source, event_type, event_name, payload)
+                VALUES (%s, %s, %s, %s, %s::jsonb)
+                """,
+                (telegram_id, source, event_type, event_name or None, payload_str),
+            )
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as exc:
+        print("LOG EVENT FAILED:", exc)
+
+
+def get_user_state(telegram_id: int, username: str = None, first_name: str = None) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {}
+
+    ensure_user_exists(telegram_id)
+    if username or first_name:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE users
+                SET username = COALESCE(%s, username),
+                    first_name = COALESCE(%s, first_name)
+                WHERE telegram_id = %s
+            """, (username, first_name, telegram_id))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT telegram_id, username, first_name, balance, subscription, created_at
+            FROM users
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return {}
+
+        cursor.execute("""
+            SELECT subscription_type, expires_at::timestamp
+            FROM subscriptions
+            WHERE telegram_id = %s
+              AND status = 'active'
+              AND expires_at::timestamp > NOW()
+            ORDER BY expires_at::timestamp DESC
+            LIMIT 1
+        """, (telegram_id,))
+        active_sub = cursor.fetchone()
+
+        if not active_sub and (str(user_row[4] or '').lower() == 'active' or _has_subscription_purchase(telegram_id)):
+            restored = _restore_active_subscription(telegram_id)
+            if restored:
+                cursor.execute("""
+                    SELECT subscription_type, expires_at::timestamp
+                    FROM subscriptions
+                    WHERE telegram_id = %s
+                      AND status = 'active'
+                      AND expires_at::timestamp > NOW()
+                    ORDER BY expires_at::timestamp DESC
+                    LIMIT 1
+                """, (telegram_id,))
+                active_sub = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM generations
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        total_generations = cursor.fetchone()[0] or 0
+
+        cursor.execute("""
+            SELECT event_type, event_name, source, payload, created_at
+            FROM user_events
+            WHERE telegram_id = %s
+            ORDER BY created_at DESC
+            LIMIT 20
+        """, (telegram_id,))
+        events = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT provider, credits, amount, currency, payload, charge_id, status, created_at
+            FROM purchases
+            WHERE telegram_id = %s
+            ORDER BY created_at DESC
+            LIMIT 10
+        """, (telegram_id,))
+        purchases = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT generation_type, prompt, status, created_at
+            FROM generations
+            WHERE telegram_id = %s
+            ORDER BY created_at DESC
+            LIMIT 10
+        """, (telegram_id,))
+        generations = cursor.fetchall()
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+    result = {
+        "telegram_id": user_row[0],
+        "username": user_row[1],
+        "first_name": user_row[2],
+        "balance": user_row[3] or 0,
+        "status": "active" if active_sub else (user_row[4] or "free"),
+        "subscription_plan": active_sub[0] if active_sub else None,
+        "subscription_expires_at": active_sub[1].isoformat() if active_sub and active_sub[1] else None,
+        "created_at": user_row[5],
+        "total_generations": total_generations,
+        "last_actions": [
+            {
+                "event_type": row[0],
+                "event_name": row[1],
+                "source": row[2],
+                "payload": row[3],
+                "created_at": row[4].isoformat() if row[4] else None,
+            }
+            for row in events
+        ],
+        "last_purchases": [
+            {
+                "provider": row[0],
+                "credits": row[1],
+                "amount": row[2],
+                "currency": row[3],
+                "payload": row[4],
+                "charge_id": row[5],
+                "status": row[6],
+                "created_at": row[7].isoformat() if row[7] else None,
+            }
+            for row in purchases
+        ],
+        "last_generations": [
+            {
+                "generation_type": row[0],
+                "prompt": row[1],
+                "status": row[2],
+                "created_at": row[3].isoformat() if row[3] else None,
+            }
+            for row in generations
+        ],
+    }
+    return result
 
 
 def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: int, currency: str, payload: str, charge_id: str) -> bool:
@@ -559,12 +797,59 @@ def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: i
     if not created:
         return False
 
+    log_user_event(
+        telegram_id=telegram_id,
+        source="payment",
+        event_type="payment_success",
+        event_name="payment_success",
+        payload={
+            "provider": provider,
+            "pack_id": item.get("plan_key") or f"credits_{credits}",
+            "amount": amount,
+            "currency": currency,
+            "charge_id": charge_id,
+            "payload": payload,
+        },
+    )
+
     if item["kind"] == "subscription":
-        activate_subscription(telegram_id, item, provider, amount, currency, payload, charge_id)
+        activated = activate_subscription(telegram_id, item, provider, amount, currency, payload, charge_id)
+        if activated:
+            log_user_event(
+                telegram_id=telegram_id,
+                source="payment",
+                event_type="subscription_activated",
+                event_name=f"activate_{item.get('plan_key')}",
+                payload={
+                    "subscription_type": item.get("plan_key"),
+                    "expires_in_days": item.get("days"),
+                    "charge_id": charge_id,
+                },
+            )
         if bonus_credits:
             add_user_balance(telegram_id, bonus_credits)
+            log_user_event(
+                telegram_id=telegram_id,
+                source="payment",
+                event_type="credits_added",
+                event_name="subscription_bonus_credits",
+                payload={
+                    "credits": bonus_credits,
+                    "charge_id": charge_id,
+                },
+            )
     else:
         add_user_balance(telegram_id, credits)
+        log_user_event(
+            telegram_id=telegram_id,
+            source="payment",
+            event_type="credits_added",
+            event_name="credits_purchase",
+            payload={
+                "credits": credits,
+                "charge_id": charge_id,
+            },
+        )
 
     return True
 
@@ -1470,73 +1755,11 @@ def sync_user_to_db(user_data: dict) -> dict:
     if not DATABASE_URL or not user_data.get("telegram_id"):
         return user_data
 
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            INSERT INTO users (telegram_id, username, first_name)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (telegram_id) DO UPDATE SET
-                username = EXCLUDED.username,
-                first_name = EXCLUDED.first_name
-            RETURNING telegram_id, username, first_name, balance, subscription, created_at
-        """, (
-            int(user_data["telegram_id"]),
-            user_data.get("username"),
-            user_data.get("first_name") or "Guest",
-        ))
-        row = cursor.fetchone()
-        # Query for active subscription before closing connection
-        cursor.execute("""
-        SELECT subscription_type, expires_at::timestamp
-        FROM subscriptions
-        WHERE telegram_id = %s
-            AND status = 'active'
-            AND expires_at::timestamp > NOW()
-        ORDER BY expires_at::timestamp DESC
-        LIMIT 1
-        """, (int(user_data["telegram_id"]),))
-        sub = cursor.fetchone()
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
-
-    if not sub:
-        has_active_flag = (row[4] or "").lower() in ("active", "pro", "premium", "vip")
-        if has_active_flag or _has_subscription_purchase(int(user_data["telegram_id"])):
-            _restore_active_subscription(int(user_data["telegram_id"]))
-            conn = psycopg2.connect(DATABASE_URL)
-            cursor = conn.cursor()
-            try:
-                cursor.execute("""
-                SELECT subscription_type, expires_at::timestamp
-                FROM subscriptions
-                WHERE telegram_id = %s
-                    AND status = 'active'
-                    AND expires_at::timestamp > NOW()
-                ORDER BY expires_at::timestamp DESC
-                LIMIT 1
-                """, (int(user_data["telegram_id"]),))
-                sub = cursor.fetchone()
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
-
-    subscription = "active" if sub else "free"
-    user_dict = {
-        **user_data,
-        "telegram_id": row[0],
-        "username": row[1],
-        "first_name": row[2],
-        "balance": row[3] or 0,
-        "status": subscription,
-        "created_at": row[5],
-    }
-    user_dict["subscription_plan"] = sub[0] if sub else None
-    user_dict["subscription_expires_at"] = sub[1].isoformat() if sub and sub[1] else None
-    return user_dict
+    return get_user_state(
+        telegram_id=int(user_data["telegram_id"]),
+        username=user_data.get("username"),
+        first_name=user_data.get("first_name") or "Guest",
+    )
 
 def save_generation(telegram_id: int, generation_type: str, prompt: str, status: str = "done"):
     if not DATABASE_URL or not telegram_id:
@@ -1739,9 +1962,21 @@ async def public_card_checkout(request: Request):
     if not url:
         return JSONResponse({"ok": False, "error": "card_not_configured"}, status_code=404)
 
+    checkout_url = with_lemon_custom_data(url, telegram_id, pack_id)
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="payment_invoice_created",
+        event_name="card_invoice_created",
+        payload={
+            "pack_id": pack_id,
+            "url": checkout_url,
+        },
+    )
+
     return {
         "ok": True,
-        "url": with_lemon_custom_data(url, telegram_id, pack_id),
+        "url": checkout_url,
         "pack_id": pack_id,
     }
 
@@ -1814,6 +2049,18 @@ async def public_stars_invoice(request: Request):
     except Exception as exc:
         print("STARS INVOICE ERROR:", exc)
         return JSONResponse({"ok": False, "error": "stars_invoice_failed", "detail": str(exc)}, status_code=502)
+
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="payment_invoice_created",
+        event_name="stars_invoice_created",
+        payload={
+            "pack_id": pack_id,
+            "charge_id": charge_id,
+            "invoice_url": invoice_url,
+        },
+    )
 
     return {
         "ok": True,
@@ -1982,6 +2229,18 @@ async def public_crypto_invoice(request: Request):
     invoice_id = int(invoice.get("invoice_id"))
     asyncio.create_task(poll_crypto_invoice(invoice_id, telegram_id, pack_id))
 
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="payment_invoice_created",
+        event_name="crypto_invoice_created",
+        payload={
+            "pack_id": pack_id,
+            "invoice_id": invoice_id,
+            "url": crypto_invoice_url(invoice),
+        },
+    )
+
     return {
         "ok": True,
         "url": crypto_invoice_url(invoice),
@@ -2003,11 +2262,81 @@ async def public_telegram_sync(request: Request):
 
     try:
         user = sync_user_to_db(user_data)
+        log_user_event(
+            telegram_id=user_data.get("telegram_id"),
+            source="mini_app",
+            event_type="sync",
+            event_name="user_sync",
+            payload={
+                "subscription_plan": user.get("subscription_plan"),
+                "subscription_expires_at": user.get("subscription_expires_at"),
+                "status": user.get("status"),
+                "balance": user.get("balance"),
+            },
+        )
     except Exception as exc:
         print("USER SYNC FAILED:", exc)
         user = user_data
 
     return {"ok": True, "user": user}
+
+@app.post("/api/public/events")
+async def public_log_event(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    event_type = data.get("event_type") or "event"
+    event_name = data.get("event_name") or ""
+    payload = data.get("payload") or {}
+
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type=event_type,
+        event_name=event_name,
+        payload=payload,
+    )
+
+    return {"ok": True}
+
+
+@app.get("/api/public/events")
+async def public_get_events(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=500)
+
+    ensure_user_events_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT id, source, event_type, event_name, payload, created_at
+            FROM user_events
+            WHERE telegram_id = %s
+            ORDER BY created_at DESC
+            LIMIT 50
+        """, (telegram_id,))
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+    events = [
+        {
+            "id": row[0],
+            "source": row[1],
+            "event_type": row[2],
+            "event_name": row[3],
+            "payload": row[4],
+            "created_at": row[5].isoformat() if row[5] else None,
+        }
+        for row in rows
+    ]
+
+    return {"ok": True, "events": events}
+
 
 def openai_headers():
     return {

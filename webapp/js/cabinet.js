@@ -1291,6 +1291,7 @@ Kling — видео-инструмент для генерации ролико
   }
   function openShopFromPaywall() {
     closePaywall();
+    sendUserEvent && sendUserEvent('button_click', 'open_shop', { view: 'shop' });
     switchView('shop');
   }
 
@@ -1329,6 +1330,7 @@ Kling — видео-инструмент для генерации ролико
     const bal = Number(u.balance || 0);
     const bEl = document.getElementById('payBalance');    if (bEl) bEl.textContent = bal.toLocaleString();
     const bU  = document.getElementById('payBalanceUsd'); if (bU)  bU.textContent  = '≈ $' + (bal/100).toFixed(2);
+    sendUserEvent && sendUserEvent('button_click', 'open_buy', { pack_id: packId, price: m.price });
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
@@ -1490,6 +1492,7 @@ Kling — видео-инструмент для генерации ролико
     const tg = getTelegramId();
     if (!tg) { toast('Telegram ID ещё загружается. Откройте магазин через Telegram и попробуйте снова.'); return; }
     toast('Создаём счёт…');
+    sendUserEvent && sendUserEvent('payment_invoice_created', 'payment_invoice_requested', { pack_id: packId, method });
     try {
       let path = '';
       if (method === 'stars')  path = '/api/public/payments/stars/invoice';
@@ -1512,6 +1515,7 @@ Kling — видео-инструмент для генерации ролико
         tgApp.openInvoice(j.invoice_url, async (status) => {
           if (status === 'paid') {
             toast('Оплачено ✓');
+            sendUserEvent && sendUserEvent('payment_success', 'stars_payment_success', { pack_id: packId, method, charge_id: j.charge_id });
             try {
               const confirmRes = await fetch('/api/public/payments/stars/confirm', {
                 method: 'POST',
@@ -1534,7 +1538,10 @@ Kling — видео-инструмент для генерации ролико
                 refreshShopAfterUserChange(syncedUser || S.user);
               }
             }
-          } else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
+          } else if (status === 'failed' || status === 'cancelled') {
+            sendUserEvent && sendUserEvent('payment_cancelled', 'payment_cancelled', { pack_id: packId, method, status });
+            toast('Оплата отменена');
+          }
         });
       } else if (j.url) {
         openPaymentUrl(j.url, method);
@@ -1543,6 +1550,7 @@ Kling — видео-инструмент для генерации ролико
           tgApp.openInvoice(j.invoice_url, async (status) => {
             if (status === 'paid') {
               toast('Оплачено ✓');
+              sendUserEvent && sendUserEvent('payment_success', 'stars_payment_success', { pack_id: packId, method, charge_id: j.charge_id });
               try {
                 const confirmRes = await fetch('/api/public/payments/stars/confirm', {
                   method: 'POST',
@@ -1566,7 +1574,10 @@ Kling — видео-инструмент для генерации ролико
                 }
               }
             }
-            else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
+            else if (status === 'failed' || status === 'cancelled') {
+              sendUserEvent && sendUserEvent('payment_cancelled', 'payment_cancelled', { pack_id: packId, method, status });
+              toast('Оплата отменена');
+            }
           });
         } else {
           openPaymentUrl(j.invoice_url, method);
