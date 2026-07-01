@@ -41,29 +41,9 @@
     if (dot) el.appendChild(dot);
   }
 
-  async function sendUserEvent(eventType, eventName, payload) {
-    const u = S.user || S.currentUser || window.currentUser || {};
-    const telegram_id = Number(u.telegram_id || 0);
-    if (!telegram_id) return;
-    try {
-      await fetch('/api/public/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telegram_id,
-          event_type: eventType,
-          event_name: eventName,
-          payload: payload || {},
-        }),
-      });
-    } catch (err) {
-      console.warn('Send user event failed', err);
-    }
-  }
-
   function statusLabel(status) {
     const s = (status || 'free').toLowerCase();
-    if (s === 'active' || s === 'pro' || s === 'premium') return 'PRO';
+    if (s === 'premium') return 'PREMIUM';
     if (s === 'vip') return 'VIP';
     return 'FREE';
   }
@@ -71,16 +51,17 @@
   function renderUser(u) {
     if (!u) return;
     S.user = u;
-    S.currentUser = u;
-    window.currentUser = u;
-    const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
+    const fullName = (u.display_name && u.display_name.trim())
+      || [u.first_name, u.last_name].filter(Boolean).join(' ')
+      || u.username || 'Guest';
     const handle = u.username ? '@' + u.username : '@user';
     const idStr = u.telegram_id ? String(u.telegram_id) : '—';
     const ini = initials(u.first_name, u.last_name, u.username);
-    const badge = statusLabel(u.status);
+    const badge = u.subscription_status === 'active' ? 'PRO' : statusLabel(u.status);
     const bal = fmtNum(u.balance) + ' ⚡️';
     const balNum = Number(u.balance || 0);
     const usd = '≈ $' + (balNum / 100).toFixed(2);
+    const avatarUrl = u.custom_avatar_url || u.photo_url;
 
     setText('homeUserName', fullName);
     setText('homeUserHandle', handle);
@@ -88,31 +69,34 @@
     setText('homeBalance', bal);
     setText('homeBalanceUsd', usd);
     const hb = document.getElementById('homeUserBadge'); if (hb) { hb.textContent = badge; hb.removeAttribute('data-i18n'); }
-    setAvatar('homeAvatar', u.photo_url, ini);
+    setAvatar('homeAvatar', avatarUrl, ini);
 
     setText('profileUserName', fullName);
     setText('profileUserHandle', handle);
     setText('profileUserId', idStr);
     setText('profileBalance', bal);
     setText('profileBalanceUsd', usd);
-    setText('profilePlan', badge.charAt(0) + badge.slice(1).toLowerCase());
+    setText('profilePlan', u.subscription_status === 'active'
+      ? (u.subscription_plan === 'year' ? 'Pro · 1 год' : 'Pro · 1 месяц')
+      : 'Free');
+    setText('profileReferrals', Number(u.referrals_count || 0).toLocaleString());
+    setText('profileGens', Number(u.generations_count || 0).toLocaleString());
+    setText('profileSpent', Number(u.tokens_spent || 0).toLocaleString() + ' ⚡️');
     if (u.created_at) {
       try {
         const d = new Date(u.created_at);
         setText('profileSince', d.toLocaleString(undefined, { month: 'short', year: 'numeric' }));
+        const days = Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+        setText('profileUptime', days + ' дн.');
       } catch {}
     }
     const pb = document.getElementById('profileUserBadge'); if (pb) { pb.textContent = badge; pb.removeAttribute('data-i18n'); }
-    setAvatar('profileAvatar', u.photo_url, ini);
+    setAvatar('profileAvatar', avatarUrl, ini);
 
     setText('shopBalance', balNum.toLocaleString());
     setText('shopBalanceUsd', usd);
 
-    if (typeof S.renderDynamic === 'function' && document.getElementById('shopGrid')) {
-      S.renderDynamic();
-    } else if (typeof S.renderSubscriptionCards === 'function') {
-      S.renderSubscriptionCards();
-    }
+    if (S.renderSubscription) S.renderSubscription();
   }
 
   async function syncUser() {
@@ -131,10 +115,8 @@
         language_code: u.language_code,
         photo_url: u.photo_url,
         is_premium: !!u.is_premium,
-        status: S.user && S.user.status ? S.user.status : (u.is_premium ? 'premium' : 'free'),
+        status: u.is_premium ? 'premium' : 'free',
         balance: 0,
-        subscription_plan: null,
-        subscription_expires_at: null,
       });
       // Apply Telegram language code if we support it.
       if (u.language_code && S.setLang) {
@@ -154,42 +136,12 @@
       });
       if (!res.ok) throw new Error('sync ' + res.status);
       const json = await res.json();
-      if (json && json.user) {
-        console.log('[SYLVEX user sync]', {
-          status: json.user.status,
-          subscription_plan: json.user.subscription_plan || json.user.sub_plan || json.user.plan,
-          subscription_expires_at: json.user.subscription_expires_at || json.user.subscription_until || json.user.sub_expires_at || json.user.pro_until,
-        });
-        renderUser(json.user);
-        sendUserEvent('sync', 'user_sync', {
-          subscription_plan: json.user.subscription_plan,
-          subscription_expires_at: json.user.subscription_expires_at,
-          status: json.user.status,
-          balance: json.user.balance,
-        });
-        return json.user;
-      }
+      if (json && json.user) renderUser(json.user);
     } catch (err) {
       console.warn('[SYLVEX] user sync failed', err);
     }
-
-    return S.user || null;
   }
 
   S.syncUser = syncUser;
-  S.sendUserEvent = sendUserEvent;
-  S.userReady = syncUser();
   S.renderUser = renderUser;
-
-  // Auto-refresh user state when the Mini App becomes visible again
-  let __lastSyncTs = 0;
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      const now = Date.now();
-      if (now - __lastSyncTs > 5000) {
-        __lastSyncTs = now;
-        try { S.syncUser(); } catch (e) { /* ignore */ }
-      }
-    }
-  });
 })();

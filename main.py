@@ -268,7 +268,7 @@ def _has_subscription_purchase(telegram_id: int) -> bool:
             SELECT 1
             FROM purchases
             WHERE telegram_id = %s
-              AND payload LIKE 'sylvex_%sub:%'
+              AND payload LIKE 'sylvex_%%sub:%%'
             LIMIT 1
         """, (telegram_id,))
         return cursor.fetchone() is not None
@@ -289,7 +289,7 @@ def _restore_active_subscription(telegram_id: int) -> bool:
             SELECT provider, payload, amount, currency, charge_id, created_at
             FROM purchases
             WHERE telegram_id = %s
-              AND payload LIKE 'sylvex_%sub:%'
+              AND payload LIKE 'sylvex_%%sub:%%'
             ORDER BY created_at DESC
             LIMIT 1
         """, (telegram_id,))
@@ -573,6 +573,176 @@ def _to_iso(v):
             return None
 
 
+def ensure_user_profiles_table():
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            telegram_id BIGINT PRIMARY KEY,
+            display_name TEXT,
+            custom_avatar_url TEXT,
+            theme_preference JSONB DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_user_profile(telegram_id: int) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {}
+
+    ensure_user_profiles_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT display_name, custom_avatar_url, theme_preference
+            FROM user_profiles
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not row:
+        return {}
+
+    theme = row[2] or {}
+    if isinstance(theme, str):
+        try:
+            theme = json.loads(theme)
+        except Exception:
+            theme = {}
+
+    return {
+        "display_name": row[0],
+        "custom_avatar_url": row[1],
+        "theme_preference": theme,
+    }
+
+
+def save_user_profile(telegram_id: int, display_name=None, custom_avatar_url=None, theme_preference=None) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {}
+
+    ensure_user_exists(telegram_id)
+    ensure_user_profiles_table()
+
+    theme_json = None
+    if theme_preference is not None:
+        theme_json = json.dumps(theme_preference if isinstance(theme_preference, dict) else {}, ensure_ascii=False)
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO user_profiles (telegram_id, display_name, custom_avatar_url, theme_preference, updated_at)
+            VALUES (
+                %s,
+                %s,
+                %s,
+                COALESCE(%s::jsonb, '{}'::jsonb),
+                NOW()
+            )
+            ON CONFLICT (telegram_id) DO UPDATE
+            SET display_name = COALESCE(EXCLUDED.display_name, user_profiles.display_name),
+                custom_avatar_url = COALESCE(EXCLUDED.custom_avatar_url, user_profiles.custom_avatar_url),
+                theme_preference = COALESCE(EXCLUDED.theme_preference, user_profiles.theme_preference),
+                updated_at = NOW()
+        """, (telegram_id, display_name, custom_avatar_url, theme_json))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+    return get_user_profile(telegram_id)
+
+
+def ensure_user_referrals_table():
+    if not DATABASE_URL:
+        return
+
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_referrals (
+            telegram_id BIGINT PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            activated_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def referral_code_for(telegram_id: int) -> str:
+    digest = hashlib.sha1(f"sylvex:{telegram_id}".encode("utf-8")).hexdigest()[:10]
+    return f"sylvex_{digest}"
+
+
+def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
+    if not telegram_id:
+        return {}
+
+    code = referral_code_for(telegram_id)
+    link = f"https://t.me/sylvexai_bot?start={code}"
+
+    if not DATABASE_URL:
+        return {
+            "ok": True,
+            "telegram_id": telegram_id,
+            "code": code,
+            "link": link,
+            "referrals_count": 0,
+            "tokens_earned": 0,
+            "activated_at": None,
+        }
+
+    ensure_user_exists(telegram_id)
+    ensure_user_referrals_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO user_referrals (telegram_id, code, activated_at)
+            VALUES (%s, %s, CASE WHEN %s THEN NOW() ELSE NULL END)
+            ON CONFLICT (telegram_id) DO UPDATE
+            SET activated_at = CASE
+                WHEN %s AND user_referrals.activated_at IS NULL THEN NOW()
+                ELSE user_referrals.activated_at
+            END
+            RETURNING activated_at
+        """, (telegram_id, code, activate, activate))
+        row = cursor.fetchone()
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+    return {
+        "ok": True,
+        "telegram_id": telegram_id,
+        "code": code,
+        "link": link,
+        "referrals_count": 0,
+        "tokens_earned": 0,
+        "activated_at": _to_iso(row[0]) if row and row[0] else None,
+    }
+
+
 def get_user_state(telegram_id: int, username: str = None, first_name: str = None) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
@@ -651,6 +821,18 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         """, (telegram_id,))
         total_generations = cursor.fetchone()[0] or 0
 
+        try:
+            cursor.execute("""
+                SELECT COALESCE(SUM(credits), 0)
+                FROM purchases
+                WHERE telegram_id = %s
+                  AND status = 'completed'
+                  AND COALESCE(credits, 0) < 0
+            """, (telegram_id,))
+            tokens_spent = abs(cursor.fetchone()[0] or 0)
+        except Exception:
+            tokens_spent = 0
+
         cursor.execute("""
             SELECT event_type, event_name, source, payload, created_at
             FROM user_events
@@ -682,16 +864,25 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         cursor.close()
         conn.close()
 
+    profile = get_user_profile(telegram_id)
+    subscription_status = "active" if active_sub else "free"
     result = {
         "telegram_id": user_row[0],
         "username": user_row[1],
         "first_name": user_row[2],
         "balance": user_row[3] or 0,
         "status": "active" if active_sub else (user_row[4] or "free"),
+        "subscription_status": subscription_status,
         "subscription_plan": active_sub[0] if active_sub else None,
         "subscription_expires_at": _to_iso(active_sub[1]) if active_sub and active_sub[1] else None,
+        "display_name": profile.get("display_name"),
+        "custom_avatar_url": profile.get("custom_avatar_url"),
+        "theme_preference": profile.get("theme_preference") or {},
         "created_at": user_row[5],
         "total_generations": total_generations,
+        "generations_count": total_generations,
+        "tokens_spent": tokens_spent,
+        "referrals_count": 0,
         "last_actions": [
             {
                 "event_type": row[0],
@@ -2332,6 +2523,81 @@ async def public_telegram_sync(request: Request):
         user = user_data
 
     return {"ok": True, "user": user}
+
+
+@app.post("/api/public/telegram/profile")
+async def public_telegram_profile(request: Request):
+    payload = await request.json()
+    init_data = payload.get("initData") or ""
+    telegram_id = int(payload.get("telegram_id") or 0)
+
+    if not telegram_id:
+        user_data = fallback_public_user(payload)
+        telegram_id = int(user_data.get("telegram_id") or 0)
+
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
+        return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+
+    profile = save_user_profile(
+        telegram_id=telegram_id,
+        display_name=payload.get("display_name"),
+        custom_avatar_url=payload.get("custom_avatar_url"),
+        theme_preference=payload.get("theme_preference"),
+    )
+    user = sync_user_to_db({"telegram_id": telegram_id})
+    user.update(profile)
+
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="profile",
+        event_name="profile_update",
+        payload={
+            "has_display_name": bool(payload.get("display_name")),
+            "has_custom_avatar": bool(payload.get("custom_avatar_url")),
+            "theme_preference": payload.get("theme_preference") or {},
+        },
+    )
+
+    return {"ok": True, "profile": profile, "user": user}
+
+
+@app.get("/api/public/telegram/referrals")
+async def public_telegram_referrals(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    return get_referral_state(int(telegram_id), activate=False)
+
+
+@app.post("/api/public/telegram/referrals")
+async def public_activate_referrals(request: Request):
+    payload = await request.json()
+    init_data = payload.get("initData") or ""
+    telegram_id = int(payload.get("telegram_id") or 0)
+
+    if not telegram_id:
+        user_data = fallback_public_user(payload)
+        telegram_id = int(user_data.get("telegram_id") or 0)
+
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
+        return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+
+    state = get_referral_state(int(telegram_id), activate=bool(payload.get("activate", True)))
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="referral",
+        event_name="referral_link_activated",
+        payload={"code": state.get("code")},
+    )
+    return state
+
 
 @app.post("/api/public/events")
 async def public_log_event(request: Request):

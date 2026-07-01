@@ -182,38 +182,37 @@
       </div>
 
       <div class="sub-grid">
-        <div class="sub-card" data-sub-plan="month">
-          <div class="sub-badge">−50%</div>
+        <div class="sub-card" id="subMonthCard">
+          <div class="sub-badge" data-sub-el="badge">−50%</div>
           <div class="sub-title">SYLVEX Pro</div>
           <div class="sub-period">1 месяц</div>
-          <div class="sub-prices" data-sub-price>
+          <div class="sub-prices" data-sub-el="prices">
             <div class="sub-price-now">$5 <span class="sep">·</span> 230 ⭐</div>
             <div class="sub-price-old">$10 / 460 ⭐</div>
           </div>
-          <div class="sub-active" data-sub-active hidden>
-            <div class="sub-active-label">✓ Вы подписаны</div>
-            <div class="sub-countdown" data-sub-countdown>Осталось: —</div>
+          <div class="sub-countdown" data-sub-el="countdown" hidden>
+            <div class="sub-cd-label">Осталось</div>
+            <div class="sub-cd-val" data-sub-cd>—</div>
           </div>
           <ul class="sub-perks">
             <li>Все функции генерации: видео, изображения, музыка, озвучка, текст</li>
             <li>Доступ ко всем AI-моделям: Kling, Veo, Seedance и др.</li>
             <li>100 ⚡️ SYLVEX BT в подарок</li>
           </ul>
-          <button class="sub-cta" data-sub-buy onclick="SYLVEX.openBuy('sub_month')">Подписаться</button>
-          <button class="sub-cta sub-cta-active" data-sub-subscribed hidden>✓ Вы подписаны</button>
+          <button class="sub-cta" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_month')">Подписаться</button>
         </div>
 
-        <div class="sub-card sub-card-gold" data-sub-plan="year">
-          <div class="sub-badge">−50%</div>
+        <div class="sub-card sub-card-gold" id="subYearCard">
+          <div class="sub-badge" data-sub-el="badge">−50%</div>
           <div class="sub-title">SYLVEX Pro</div>
           <div class="sub-period">1 год · выгоднее</div>
-          <div class="sub-prices" data-sub-price>
+          <div class="sub-prices" data-sub-el="prices">
             <div class="sub-price-now">$59 <span class="sep">·</span> 2751 ⭐</div>
             <div class="sub-price-old">$118 / 5502 ⭐</div>
           </div>
-          <div class="sub-active" data-sub-active hidden>
-            <div class="sub-active-label">✓ Вы подписаны</div>
-            <div class="sub-countdown" data-sub-countdown>Осталось: —</div>
+          <div class="sub-countdown" data-sub-el="countdown" hidden>
+            <div class="sub-cd-label">Осталось</div>
+            <div class="sub-cd-val" data-sub-cd>—</div>
           </div>
           <ul class="sub-perks">
             <li>Полный доступ ко всем функциям генерации</li>
@@ -221,18 +220,8 @@
             <li>500 ⚡️ SYLVEX BT сразу после покупки</li>
             <li>+100 ⚡️ автоматически каждый месяц</li>
           </ul>
-          <button class="sub-cta" data-sub-buy onclick="SYLVEX.openBuy('sub_year')">Подписаться</button>
-          <button class="sub-cta sub-cta-active" data-sub-subscribed hidden>✓ Вы подписаны</button>
+          <button class="sub-cta" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_year')">Подписаться</button>
         </div>
-      </div>
-
-      <div id="devSubTools" hidden style="margin:10px 0 18px;padding:12px;border-radius:16px;background:rgba(34,197,94,.08);border:1px dashed rgba(34,197,94,.35)">
-        <div style="font-size:12px;font-weight:700;color:#4ade80;margin-bottom:8px">DEV · Проверка подписки без оплаты</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button class="sub-cta" type="button" onclick="SYLVEX.devSetSubscription('month')">Тест: 1 месяц</button>
-          <button class="sub-cta" type="button" onclick="SYLVEX.devSetSubscription('year')">Тест: 1 год</button>
-        </div>
-        <button class="sub-cta" type="button" style="margin-top:8px;background:#1f2937;color:#fff" onclick="SYLVEX.devClearSubscription()">Сбросить тест</button>
       </div>
 
       <div class="section-title"><h3>Купить токены ⚡️</h3></div>
@@ -328,14 +317,6 @@
           </div>
           <div class="pm-arr">→</div>
         </button>
-        <button class="pm-card" id="devPaymentCard" hidden onclick="SYLVEX.payWith('developer')">
-          <div class="pm-ico">🛠</div>
-          <div class="pm-body">
-            <div class="pm-title">Режим разработчика</div>
-            <div class="pm-sub">Тестовая оплата без списания средств</div>
-          </div>
-          <div class="pm-arr">→</div>
-        </button>
       </div>
     </section>
 
@@ -344,7 +325,7 @@
         <div class="user-row">
           <div class="avatar" id="profileAvatar">··<span class="dot"></span></div>
           <div class="user-meta">
-            <div class="user-name"><span id="profileUserName">—</span> <span class="badge" id="profileUserBadge" data-i18n="pro">PRO</span></div>
+            <div class="user-name"><span id="profileUserName">—</span> <span class="badge pro-badge" id="profileUserBadge" data-i18n="pro" onclick="SYLVEX.openProInfo()">PRO</span></div>
             <div class="user-sub"><span id="profileUserHandle">@—</span> · <span data-i18n="online">Online</span></div>
             <div class="id-pill"><span data-i18n="id">ID</span> · <span id="profileUserId">—</span></div>
           </div>
@@ -361,14 +342,17 @@
       <div class="profile-grid">
         <div class="mini"><div class="k" data-i18n="plan">Plan</div><div class="v" id="profilePlan">—</div></div>
         <div class="mini"><div class="k" data-i18n="member_since">Member since</div><div class="v" id="profileSince">—</div></div>
-        <div class="mini"><div class="k" data-i18n="total_spent">Total spent</div><div class="v" id="profileSpent">0 ⚡️</div></div>
+        <div class="mini"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
         <div class="mini"><div class="k" data-i18n="referrals">Referrals</div><div class="v" id="profileReferrals">0</div></div>
+        <div class="mini"><div class="k">Генераций</div><div class="v" id="profileGens">0</div></div>
+        <div class="mini"><div class="k">В SYLVEX</div><div class="v" id="profileUptime">—</div></div>
       </div>
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
       <div class="list">
-        <div class="row" onclick="toast(t('edit_profile'))"><div class="ico">👤</div><div class="label"><span data-i18n="edit_profile">Edit profile</span><small data-i18n="edit_profile_d">Name, username, avatar</small></div><div class="chev">›</div></div>
-        <div class="row" onclick="toast(t('subscription'))"><div class="ico">⭐</div><div class="label"><span data-i18n="manage_sub">Manage subscription</span><small data-i18n="manage_sub_d">Pro · renews May 12</small></div><div class="chev">›</div></div>
-        <div class="row" onclick="toast(t('invite_copied'))"><div class="ico">🎁</div><div class="label"><span data-i18n="invite">Invite friends</span><small data-i18n="invite_d">Earn 50 ⚡️ per friend</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="SYLVEX.openEditProfile()"><div class="ico">👤</div><div class="label"><span>Редактировать профиль</span><small>Имя и аватарка</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="SYLVEX.openThemePicker()"><div class="ico">🎨</div><div class="label"><span>Оформление</span><small>Тема и цвет фона</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="SYLVEX.openManageSub()"><div class="ico">⭐</div><div class="label"><span>Управление подпиской</span><small id="manageSubSub">Статус и продление</small></div><div class="chev">›</div></div>
+        <div class="row" onclick="SYLVEX.openReferrals()"><div class="ico">🎁</div><div class="label"><span>Пригласить друзей</span><small>10 ⚡️ за друга + 0.5% за активность</small></div><div class="chev">›</div></div>
       </div>
     </section>
 
@@ -412,7 +396,7 @@
         <div class="row" onclick="toast(t('privacy_open'))"><div class="ico">🔒</div><div class="label"><span data-i18n="privacy">Privacy Policy</span><small data-i18n="privacy_d">How we handle your data</small></div><div class="chev">›</div></div>
         <div class="row" onclick="toast(t('terms_open'))"><div class="ico">📜</div><div class="label"><span data-i18n="terms">Terms of Service</span><small data-i18n="terms_d">Rules & responsibilities</small></div><div class="chev">›</div></div>
         <div class="row" onclick="toast('SYLVEX v1.1.0 · build 132')"><div class="ico">ℹ️</div><div class="label"><span data-i18n="app_version">App Version</span><small>1.1.0 · build 132</small></div><div class="chev">›</div></div>
-        <div class="row" onclick="toast(t('signed_out'))"><div class="ico">🚪</div><div class="label" style="color:#f87171" data-i18n="sign_out">Sign out</div><div class="chev">›</div></div>
+        <div class="row" onclick="SYLVEX.signOut()"><div class="ico">🚪</div><div class="label" style="color:#f87171">Выйти</div><div class="chev">›</div></div>
       </div>
     </section>
   </main>
@@ -457,62 +441,81 @@
       </button>
     </div>
   </div>
- </div>
+</div>
 
-<script>
-(function () {
-  window.SYLVEX = window.SYLVEX || {};
+<!-- Active subscription modal -->
+<div class="sheet-overlay" id="subActiveModal" onclick="SYLVEX.closeModal(event,'subActiveModal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <div class="sheet-grab"></div>
+    <h3 style="margin:6px 0 4px;font-size:17px">✅ Вы подписаны</h3>
+    <div style="opacity:.7;font-size:12px;margin-bottom:14px">Активная подписка SYLVEX Pro</div>
+    <div class="sub-info-grid">
+      <div><div class="k">Тариф</div><div class="v" id="saPlan">—</div></div>
+      <div><div class="k">Статус</div><div class="v" style="color:#19c37d">Активна</div></div>
+      <div><div class="k">Окончание</div><div class="v" id="saExpires">—</div></div>
+      <div><div class="k">Осталось</div><div class="v" id="saCountdown">—</div></div>
+    </div>
+    <button class="topup" style="width:100%;margin-top:14px" onclick="SYLVEX.renewFromModal()">Продлить подписку</button>
+  </div>
+</div>
 
-  function isDevEnabled() {
-    const tgId =
-      Number(window.SYLVEX?.user?.telegram_id) ||
-      Number(window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+<!-- PRO indicator info -->
+<div class="sheet-overlay" id="proInfoModal" onclick="SYLVEX.closeModal(event,'proInfoModal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <div class="sheet-grab"></div>
+    <div id="proInfoBody">—</div>
+  </div>
+</div>
 
-    return tgId === 7932380565;
-  }
+<!-- Edit profile -->
+<div class="sheet-overlay" id="editProfileModal" onclick="SYLVEX.closeModal(event,'editProfileModal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <div class="sheet-grab"></div>
+    <h3 style="margin:6px 0 12px;font-size:17px">Редактировать профиль</h3>
+    <label class="ep-label">Имя пользователя</label>
+    <input type="text" id="epName" class="ep-input" maxlength="60" placeholder="Ваше имя" />
+    <div class="ep-label" style="margin-top:14px">Аватарка</div>
+    <div class="avatar-grid" id="avatarGrid"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn-ghost" style="flex:1" onclick="SYLVEX.closeModal(null,'editProfileModal')">Отмена</button>
+      <button class="btn-primary" style="flex:1" onclick="SYLVEX.saveEditProfile()">Сохранить</button>
+    </div>
+  </div>
+</div>
 
-  function updateDevPanel() {
-    const enabled = isDevEnabled();
+<!-- Theme picker -->
+<div class="sheet-overlay" id="themeModal" onclick="SYLVEX.closeModal(event,'themeModal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <div class="sheet-grab"></div>
+    <h3 style="margin:6px 0 12px;font-size:17px">Оформление</h3>
+    <div class="ep-label">Цветовая тема</div>
+    <div class="theme-grid" id="themeGrid"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn-primary" style="flex:1" onclick="SYLVEX.closeModal(null,'themeModal')">Готово</button>
+    </div>
+  </div>
+</div>
 
-    const panel = document.getElementById('devSubTools');
-    if (panel) panel.hidden = !enabled;
-
-    const payCard = document.getElementById('devPaymentCard');
-    if (payCard) payCard.hidden = !enabled;
-  }
-
-  window.SYLVEX.devSetSubscription = function (plan) {
-    const days = plan === 'year' ? 365 : 30;
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-
-    localStorage.setItem('sylvex-dev-sub-plan', plan);
-    localStorage.setItem('sylvex-dev-sub-expires-at', expiresAt);
-
-    if (window.SYLVEX.renderSubscriptionCards) {
-      window.SYLVEX.renderSubscriptionCards();
-    }
-
-    if (window.toast) {
-      window.toast('DEV подписка включена: ' + plan);
-    }
-  };
-
-  window.SYLVEX.devClearSubscription = function () {
-    localStorage.removeItem('sylvex-dev-sub-plan');
-    localStorage.removeItem('sylvex-dev-sub-expires-at');
-
-    if (window.SYLVEX.renderSubscriptionCards) {
-      window.SYLVEX.renderSubscriptionCards();
-    }
-
-    if (window.toast) {
-      window.toast('DEV подписка сброшена');
-    }
-  };
-
-  document.addEventListener('DOMContentLoaded', updateDevPanel);
-  setTimeout(updateDevPanel, 300);
-  setTimeout(updateDevPanel, 1000);
-  setTimeout(updateDevPanel, 3000);
-})();
-</script>
+<!-- Referrals -->
+<div class="sheet-overlay" id="refsModal" onclick="SYLVEX.closeModal(event,'refsModal')">
+  <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <div class="sheet-grab"></div>
+    <h3 style="margin:6px 0 6px;font-size:17px">🎁 Пригласить друзей</h3>
+    <p style="opacity:.75;font-size:13px;margin:0 0 12px;line-height:1.5">
+      Приглашайте друзей в SYLVEX AI и получайте вознаграждение.<br>
+      • <b>10 ⚡️</b> за каждого приглашённого, оформившего подписку.<br>
+      • <b>0.5%</b> бонусных токенов за активность приглашённых.
+    </p>
+    <div class="ep-label">Ваша реферальная ссылка</div>
+    <div class="ref-link-box"><span id="refLinkVal">—</span></div>
+    <div class="ref-stats">
+      <div><div class="k">Рефералов</div><div class="v" id="refCount">0</div></div>
+      <div><div class="k">Заработано</div><div class="v"><span id="refEarned">0</span> ⚡️</div></div>
+      <div><div class="k">Статус</div><div class="v" id="refStatus">—</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn-ghost" style="flex:1" onclick="SYLVEX.copyRefLink()">📋 Копировать</button>
+      <button class="btn-primary" style="flex:1" id="refActivateBtn" onclick="SYLVEX.activateRefLink()">🚀 Активировать</button>
+    </div>
+  </div>
+</div>

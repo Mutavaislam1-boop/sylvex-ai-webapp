@@ -17,530 +17,13 @@
   let mediaChunks = [];
   let mediaStream = null;
   let currentModelLabel = 'SYLVEX Pro';
-  let activeQuickToolIndex = 0;
-
-  // Information pages for the quick tools on the Home screen.
-  // These pages are opened when the user taps a quick tool card.
-  const QUICK_TOOL_INFO = [
-    {
-      key: 'image',
-      title: 'Изображения',
-      label: 'SYLVEX Image Tools',
-      body: `
-SYLVEX генерация изображений включает в себя несколько ИИ-инструментов для создания, редактирования, улучшения и анализа визуального контента.
-
-В этом разделе пользователь может работать не с одной моделью, а с набором инструментов для разных задач:
-• генерация изображений по тексту
-• редактирование готовых фото
-• улучшение качества
-• изменение фона
-• добавление и удаление объектов
-• создание баннеров, обложек и визуальных концептов
-• создание персонажей
-• анализ изображений
-• распознавание текста на фото
-• работа с image-to-image сценариями
-
-Откройте боковое меню, чтобы выбрать конкретный ИИ-инструмент или провайдера для изображений.
-      `.trim()
-    },
-    {
-      key: 'text',
-      title: 'Текст',
-      label: 'SYLVEX Text Tools',
-      body: `
-SYLVEX генерация текста включает в себя несколько ИИ-инструментов для написания, улучшения, перевода, анализа и структурирования текста.
-
-Инструменты:
-• Responses API
-• Conversations API
-• Chat Completions
-• Structured Outputs
-• Function Calling
-• Streaming
-• Background Mode
-• Batch API
-• Prompt Caching
-• Flex Processing
-
-Модели:
-• GPT-5.5
-• GPT-5.4
-• GPT-5.4 Mini
-• GPT-5.4 Nano
-• reasoning-модели
-• multimodal-модели
-
-Функционал:
-• генерация текста
-• обычный AI-чат
-• написание статей
-• написание описаний
-• рекламные тексты
-• сценарии
-• посты для соцсетей
-• исправление текста
-• улучшение текста
-• сокращение текста
-• расширение текста
-• перевод текста
-• генерация промптов
-• промпты для изображений
-• промпты для видео
-• промпты для музыки
-• генерация идей
-• структурированные ответы
-• JSON-ответы
-• извлечение данных
-• code generation
-• reasoning-задачи
-• обработка сложных запросов
-• потоковая генерация текста
-• фоновые текстовые задачи
-      `.trim()
-    },
-    {
-      key: 'voice',
-      title: 'Голос',
-      label: 'SYLVEX Voice Tools',
-      body: `
-SYLVEX генерация голоса включает в себя несколько ИИ-инструментов для озвучки, дикторской речи, рекламной подачи, эмоциональной речи и голосовых аудиофайлов.
-
-Инструменты:
-• Audio Speech
-• Text-to-Speech
-• Voice Instructions
-• Voice Consents
-• Custom Voice
-• Realtime Voice Agent
-
-Модели:
-• GPT-4o Mini TTS
-• TTS-1
-• TTS-1 HD
-• speech-compatible models
-
-Функционал:
-• text-to-speech
-• текст в голос
-• генерация речи
-• выбор голоса
-• управление стилем
-• управление тоном
-• управление скоростью
-• управление эмоцией
-• управление интонацией
-• whispering
-• accent
-• emotional range
-• дикторская озвучка
-• рекламная озвучка
-• спокойная озвучка
-• энергичная озвучка
-• custom voice
-• voice consent
-• voice creation
-• voice id
-• live voice agent
-
-Voice Style:
-• спокойный
-• уверенный
-• энергичный
-• рекламный
-• деловой
-• мягкий
-• эмоциональный
-• дикторский
-• кинематографичный
-      `.trim()
-    },
-    {
-      key: 'video',
-      title: 'Видео',
-      label: 'SYLVEX Video Tools',
-      body: `
-SYLVEX генерация видео включает в себя несколько ИИ-инструментов для создания, редактирования, оживления и продолжения видео.
-
-В этом разделе пользователь может работать не с одной моделью, а с набором инструментов под разные задачи: text-to-video, image-to-video, video edit, remix, extend, character workflow, face tools и cinematic video.
-
-Инструменты:
-• Sora Video Create
-• Sora Video Edit
-• Sora Video Extend
-• Sora Video Remix
-• Sora Character
-• Async Video Jobs
-• Video Polling
-• Video Download
-
-Модели:
-• Sora 2
-• Sora 2 Pro
-
-Функционал:
-• text-to-video
-• генерация видео по промпту
-• создание коротких роликов
-• создание вертикальных видео
-• создание горизонтальных видео
-• создание видео для соцсетей
-• создание рекламных роликов
-• создание cinematic-сцен
-• создание анимационных сцен
-• prompt + media video workflow
-• редактирование видео
-• продолжение видео
-• remix видео
-• character video workflow
-• создание видео с постоянным персонажем
-• получение статуса генерации
-• скачивание готового видео
-
-Video Create используется для создания видео по текстовому описанию. Пользователь описывает сцену, стиль, персонажа, движение камеры, атмосферу и действие в кадре.
-
-Video Edit используется для изменения готового видео. Можно изменить сцену, стиль, фон, атмосферу, детали или отдельные элементы ролика.
-
-Video Extend используется для продолжения уже созданного видео. Подходит для увеличения длительности сцены или продолжения движения.
-
-Video Remix используется для создания новой версии видео на основе существующего ролика. Можно сохранить идею, но изменить стиль, атмосферу или визуальное исполнение.
-
-Sora Character используется для работы с постоянными персонажами. Подходит для серийного контента, бренд-персонажей, маскотов и повторяющихся героев.
-
-Параметры:
-• model
-• prompt
-• size
-• seconds
-      `.trim()
-    },
-    {
-      key: 'music',
-      title: 'Музыка',
-      label: 'SYLVEX Music Tools',
-      body: `
-SYLVEX генерация музыки включает в себя несколько ИИ-инструментов для музыкальных идей, текстов песен, промптов, стилей, жанров и музыкального контента.
-
-Инструменты:
-• Responses API
-• Text Generation
-• Prompt Generation
-• Audio Transcription
-• Audio Translation
-
-Функционал:
-• написание текстов песен
-• генерация музыкальных идей
-• создание промптов для музыки
-• описание стиля трека
-• подбор жанра
-• подбор настроения
-• создание структуры песни
-• написание куплетов
-• написание припевов
-• написание bridge
-• улучшение текста песни
-• перевод текста песни
-• анализ лирики
-• расшифровка аудио
-• подготовка описания для музыкального AI
-
-Что не является основной функцией OpenAI:
-• полноценная генерация инструментальной музыки
-• full song generation
-• stems
-• remix музыки
-• BPM control
-• tempo control
-• image-to-music
-• beat maker
-      `.trim()
-    },
-    {
-      key: 'documents',
-      title: 'Документы',
-      label: 'SYLVEX Document Tools',
-      body: `
-SYLVEX документы включают в себя несколько ИИ-инструментов для загрузки, анализа, поиска и обработки файлов, PDF, таблиц, инструкций, договоров, отчётов и пользовательской базы знаний.
-
-Инструменты:
-• Files API
-• Uploads API
-• Vector Stores
-• Vector Store Files
-• Vector Store File Batches
-• File Search
-• Responses API with file input
-• Embeddings
-
-Функционал:
-• загрузка файлов
-• получение списка файлов
-• получение metadata файла
-• получение content файла
-• multipart uploads
-• file input
-• поиск по файлам
-• retrieval по документам
-• создание vector store
-• индексация файлов
-• document Q&A
-• анализ PDF
-• анализ документов
-• краткое содержание документа
-• поиск информации внутри файла
-• извлечение данных
-• извлечение таблиц
-• сравнение документов
-• semantic document search
-• user library
-• knowledge base
-• citations/results
-• structured extraction
-• JSON extraction из документа
-
-Document Q&A используется для вопросов по содержанию файла. Пользователь загружает документ и может спрашивать, что в нём написано, где находится нужная информация или какие выводы можно сделать.
-
-File Search используется для поиска информации внутри загруженных документов. Подходит для больших PDF, инструкций, договоров, отчётов и базы знаний.
-
-Vector Store используется для создания базы знаний из документов. Файлы индексируются, после чего по ним можно выполнять смысловой поиск.
-      `.trim()
-    }
-  ];
-
-  const QUICK_TOOL_PROVIDER_INFO = {
-    image: [
-      {
-        name: 'OpenAI Image',
-        badge: 'Генерация · Редактирование · Vision',
-        body: QUICK_TOOL_INFO[0].body
-      },
-      {
-        name: 'Image AI Providers',
-        badge: 'Дополнительные ИИ для изображений',
-        body: `
-Этот раздел предназначен для всех встроенных ИИ-инструментов, которые работают с изображениями.
-
-Сюда можно добавить:
-• генераторы изображений
-• редакторы изображений
-• инструменты улучшения фото
-• image-to-image модели
-• inpainting модели
-• background remover
-• upscale tools
-• face/photo tools
-• style transfer tools
-• OCR и анализ изображений
-
-Каждый провайдер может иметь отдельное описание, список функций, доступные модели, ограничения и будущий price.
-        `.trim()
-      }
-    ],
-    text: [
-      {
-        name: 'OpenAI Text',
-        badge: 'Чат · Промпты · Тексты · JSON',
-        body: QUICK_TOOL_INFO[1].body
-      },
-      {
-        name: 'Text AI Providers',
-        badge: 'Дополнительные ИИ для текста',
-        body: `
-Этот раздел предназначен для всех встроенных ИИ-инструментов, которые работают с текстом.
-
-Сюда можно добавить:
-• чат-модели
-• reasoning-модели
-• модели для копирайтинга
-• модели для перевода
-• модели для кода
-• модели для сценариев
-• модели для промптов
-• модели для структурированных JSON-ответов
-
-Каждый текстовый провайдер может иметь отдельное описание, доступные модели, сильные стороны, ограничения и будущий price.
-        `.trim()
-      }
-    ],
-    voice: [
-      {
-        name: 'OpenAI Voice',
-        badge: 'Text-to-Speech · Voice tools',
-        body: QUICK_TOOL_INFO[2].body
-      },
-      {
-        name: 'Voice AI Providers',
-        badge: 'Дополнительные ИИ для голоса',
-        body: `
-Этот раздел предназначен для всех встроенных ИИ-инструментов, которые работают с голосом и озвучкой.
-
-Сюда можно добавить:
-• text-to-speech провайдеры
-• дикторские голоса
-• рекламную озвучку
-• эмоциональную озвучку
-• voice style tools
-• voice cloning tools
-• voice changer tools
-• realtime voice tools
-
-Каждый голосовой провайдер может иметь отдельное описание, список голосов, языки, стили, ограничения и будущий price.
-        `.trim()
-      }
-    ],
-    video: [
-      {
-        name: 'OpenAI Sora',
-        badge: 'Video generation · Edit · Remix',
-        body: QUICK_TOOL_INFO[3].body
-      },
-      {
-        name: 'Kling',
-        badge: 'Video generation · Image-to-video',
-        body: `
-Kling — видео-инструмент для генерации роликов и работы с image-to-video сценариями.
-
-Функционал:
-• text-to-video
-• image-to-video
-• генерация коротких видео
-• вертикальные видео
-• горизонтальные видео
-• cinematic-сцены
-• анимационные сцены
-• видео по промпту
-• видео по изображению
-• выбор длительности
-• выбор формата
-• выбор качества
-
-Этот блок можно расширить точными моделями Kling, доступными режимами, длительностью, форматами, ограничениями и price.
-        `.trim()
-      },
-      {
-        name: 'Video AI Providers',
-        badge: 'Дополнительные ИИ для видео',
-        body: `
-Этот раздел предназначен для всех встроенных ИИ-инструментов, которые работают с видео.
-
-Сюда можно добавить:
-• Sora
-• Kling
-• Runway
-• Pika
-• Luma
-• video edit tools
-• video extend tools
-• video remix tools
-• face swap tools
-• image-to-video tools
-• text-to-video tools
-
-Каждый видео-провайдер может иметь отдельное описание, список моделей, режимы генерации, длительность, форматы, ограничения и будущий price.
-        `.trim()
-      }
-    ],
-    music: [
-      {
-        name: 'OpenAI Music Assistant',
-        badge: 'Lyrics · Prompts · Ideas',
-        body: QUICK_TOOL_INFO[4].body
-      },
-      {
-        name: 'Music AI Providers',
-        badge: 'Дополнительные ИИ для музыки',
-        body: `
-Этот раздел предназначен для всех встроенных ИИ-инструментов, которые работают с музыкой.
-
-Сюда можно добавить:
-• генерацию музыки
-• генерацию песен
-• instrumental generation
-• lyrics-to-song
-• text-to-music
-• remix tools
-• stems tools
-• voice + music tools
-• BPM/tempo tools
-• жанры и стили
-
-Каждый музыкальный провайдер может иметь отдельное описание, доступные режимы, жанры, длительность, ограничения и будущий price.
-        `.trim()
-      }
-    ],
-    documents: [
-      {
-        name: 'OpenAI Documents',
-        badge: 'PDF · Files · Search · Knowledge base',
-        body: QUICK_TOOL_INFO[5].body
-      },
-      {
-        name: 'Document AI Providers',
-        badge: 'Дополнительные ИИ для документов',
-        body: `
-Этот раздел предназначен для всех встроенных ИИ-инструментов, которые работают с файлами и документами.
-
-Сюда можно добавить:
-• PDF анализаторы
-• OCR tools
-• table extraction tools
-• document Q&A
-• knowledge base tools
-• file search tools
-• semantic search
-• document comparison
-• spreadsheet analysis
-• contract/document analysis
-
-Каждый документный провайдер может иметь отдельное описание, поддерживаемые форматы, ограничения, возможности поиска и будущий price.
-        `.trim()
-      }
-    ]
-  };
-
-  function extraQuickToolCard(t) {
-    if (typeof S.toolCard === 'function') {
-      return S.toolCard(t);
-    }
-
-    return '' +
-      '<div class="tool-card quick-tool-extra-card" role="button" tabindex="0">' +
-        '<div class="tool-ico">' + t.icon + '</div>' +
-        '<div class="tool-title">' + t.title + '</div>' +
-        '<div class="tool-desc">' + t.desc + '</div>' +
-      '</div>';
-  }
 
   function getTelegramId() {
     try {
       const tg = S.tg;
       const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-      if (u && u.id) return Number(u.id);
-      if (S.user && S.user.telegram_id) return Number(S.user.telegram_id);
-      return 0;
+      return u && u.id ? Number(u.id) : Number(S.user && S.user.telegram_id ? S.user.telegram_id : 0);
     } catch { return 0; }
-  }
-
-  async function ensureTelegramUser() {
-    if (getTelegramId()) return S.user || null;
-
-    try {
-      if (S.userReady && typeof S.userReady.then === 'function') {
-        await S.userReady;
-      }
-    } catch {}
-
-    if (getTelegramId()) return S.user || null;
-
-    if (S.syncUser) {
-      try {
-        S.userReady = S.syncUser();
-        await S.userReady;
-      } catch {}
-    }
-
-    return S.user || null;
   }
 
   function pickOpenAIModel() {
@@ -600,361 +83,15 @@ Kling — видео-инструмент для генерации ролико
     el.scrollTop = el.scrollHeight;
   }
 
-  function ensureQuickToolInfoPage() {
-    let page = document.getElementById('quickToolInfoPage');
-    if (page) return page;
-
-    page = document.createElement('div');
-    page.id = 'quickToolInfoPage';
-    page.className = 'quick-tool-info-page';
-    page.innerHTML = '' +
-      '<div class="quick-tool-info-card quick-tool-info-main-card">' +
-        '<div class="quick-tool-info-head">' +
-          '<button class="quick-tool-menu-open" onclick="SYLVEX.openQuickToolProviderDrawer(event)" aria-label="Open menu">☰</button>' +
-          '<div class="quick-tool-info-heading">' +
-            '<div class="quick-tool-info-kicker">AI Tools</div>' +
-            '<div class="quick-tool-info-title" id="quickToolInfoTitle">Инструмент</div>' +
-          '</div>' +
-          '<button class="quick-tool-home-btn" onclick="SYLVEX.closeQuickToolInfo()" aria-label="Home">⌂</button>' +
-        '</div>' +
-        '<div class="quick-tool-info-label" id="quickToolInfoLabel">SYLVEX Tools</div>' +
-        '<div class="quick-tool-info-provider-badge" id="quickToolInfoProviderBadge"></div>' +
-        '<div class="quick-tool-info-body" id="quickToolInfoBody"></div>' +
-      '</div>' +
-      '<div class="quick-tool-provider-backdrop" id="quickToolProviderBackdrop" onclick="SYLVEX.closeQuickToolProviderDrawer()"></div>' +
-      '<div class="quick-tool-provider-drawer" id="quickToolProviderDrawer">' +
-        '<div class="quick-tool-provider-head">' +
-          '<div class="quick-tool-provider-kicker">Инструменты</div>' +
-          '<button class="quick-tool-provider-close" onclick="SYLVEX.closeQuickToolProviderDrawer()">×</button>' +
-        '</div>' +
-        '<div class="quick-tool-provider-list" id="quickToolProviderList"></div>' +
-      '</div>';
-
-    document.body.appendChild(page);
-    return page;
-  }
-
-  function ensureQuickToolInfoStyles() {
-    if (document.getElementById('quickToolInfoStyles')) return;
-    const st = document.createElement('style');
-    st.id = 'quickToolInfoStyles';
-    st.textContent = `
-      .quick-tool-info-page {
-        position: fixed;
-        inset: 0;
-        z-index: 80;
-        display: none;
-        overflow-y: auto;
-        padding: calc(env(safe-area-inset-top, 0px) + 18px) 16px calc(92px + env(safe-area-inset-bottom, 0px));
-        background: radial-gradient(circle at top, rgba(255,255,255,.08), transparent 34%), var(--bg, #08090d);
-        color: var(--text, #fff);
-      }
-      .quick-tool-info-page.show {
-        display: block;
-      }
-      .quick-tool-info-head {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-      .quick-tool-info-heading {
-        flex: 1;
-        min-width: 0;
-      }
-      .quick-tool-menu-open,
-      .quick-tool-home-btn {
-        height: 42px;
-        border: 0;
-        background: transparent;
-        color: #fff;
-      }
-      .quick-tool-menu-open {
-        width: 42px;
-        font-size: 25px;
-        line-height: 1;
-      }
-      .quick-tool-home-btn {
-        width: 42px;
-        min-width: 42px;
-        padding: 0;
-        font-size: 23px;
-        font-weight: 800;
-        line-height: 1;
-      }
-      .quick-tool-info-kicker {
-        opacity: .55;
-        font-size: 12px;
-        letter-spacing: .08em;
-        text-transform: uppercase;
-        color: #fff;
-      }
-      .quick-tool-info-title {
-        margin-top: 2px;
-        font-size: 24px;
-        font-weight: 800;
-        color: #fff;
-      }
-      .quick-tool-info-card {
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 24px;
-        padding: 18px;
-        background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
-        box-shadow: 0 18px 60px rgba(0,0,0,.28);
-        backdrop-filter: blur(18px);
-      }
-      .quick-tool-info-main-card {
-        min-height: calc(100vh - 130px);
-      }
-      .quick-tool-info-label {
-        display: inline-flex;
-        align-items: center;
-        min-height: 28px;
-        padding: 0 10px;
-        margin-bottom: 14px;
-        border-radius: 999px;
-        background: rgba(255,255,255,.08);
-        color: #fff;
-        font-size: 12px;
-        font-weight: 700;
-      }
-      .quick-tool-info-provider-badge {
-        margin-bottom: 14px;
-        color: rgba(255,255,255,.62);
-        font-size: 12px;
-        line-height: 1.35;
-      }
-      .quick-tool-info-body {
-        white-space: pre-line;
-        color: rgba(255,255,255,.9);
-        font-size: 14px;
-        line-height: 1.62;
-      }
-      body.light .quick-tool-info-page {
-        background: radial-gradient(circle at top, rgba(0,0,0,.05), transparent 34%), var(--bg, #f5f6fb);
-      }
-      body.light .quick-tool-info-card,
-      body.light .quick-tool-info-label {
-        border-color: rgba(0,0,0,.08);
-        background: rgba(255,255,255,.72);
-      }
-      body.light .quick-tool-info-kicker,
-      body.light .quick-tool-info-title,
-      body.light .quick-tool-info-label,
-      body.light .quick-tool-menu-open,
-      body.light .quick-tool-home-btn,
-      body.light .quick-tool-info-body {
-        color: #fff;
-      }
-      .quick-tool-provider-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 90;
-        display: none;
-        background: rgba(0,0,0,.42);
-      }
-      .quick-tool-provider-backdrop.show {
-        display: block;
-      }
-      .quick-tool-provider-drawer {
-        position: fixed;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        z-index: 91;
-        width: 50vw;
-        max-width: 260px;
-        min-width: 190px;
-        padding: calc(env(safe-area-inset-top, 0px) + 18px) 14px calc(env(safe-area-inset-bottom, 0px) + 18px);
-        transform: translateX(-110%);
-        transition: transform .22s ease;
-        background: rgba(10,11,16,.82);
-        border-right: 1px solid rgba(255,255,255,.12);
-        box-shadow: 18px 0 60px rgba(0,0,0,.38);
-        backdrop-filter: blur(20px);
-      }
-      .quick-tool-provider-drawer.show {
-        transform: translateX(0);
-      }
-      .quick-tool-provider-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-      .quick-tool-provider-kicker {
-        color: rgba(255,255,255,.55);
-        font-size: 12px;
-        letter-spacing: .08em;
-        text-transform: uppercase;
-      }
-      .quick-tool-provider-title {
-        display: none;
-      }
-      .quick-tool-provider-close {
-        width: 38px;
-        height: 38px;
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 14px;
-        background: rgba(255,255,255,.07);
-        color: #fff;
-        font-size: 24px;
-        line-height: 1;
-      }
-      .quick-tool-provider-list {
-        display: grid;
-        gap: 4px;
-      }
-      .quick-tool-provider-item {
-        width: 100%;
-        border: 0;
-        border-radius: 0;
-        padding: 9px 0;
-        background: transparent;
-        color: rgba(255,255,255,.72);
-        text-align: left;
-      }
-      .quick-tool-provider-item.active {
-        color: #fff;
-        background: transparent;
-      }
-      .quick-tool-provider-item-name {
-        font-size: 13px;
-        font-weight: 750;
-      }
-      .quick-tool-provider-item-badge {
-        margin-top: 3px;
-        color: rgba(255,255,255,.42);
-        font-size: 10px;
-        line-height: 1.3;
-      }
-    `;
-    document.head.appendChild(st);
-  }
-
-  function openQuickToolInfo(index) {
-    const data = QUICK_TOOL_INFO[index];
-    if (!data) return;
-    activeQuickToolIndex = index;
-
-    ensureQuickToolInfoStyles();
-    const page = ensureQuickToolInfoPage();
-
-    const title = document.getElementById('quickToolInfoTitle');
-    if (title) title.textContent = data.title;
-
-    renderQuickToolProviderList(-1);
-
-    const label = document.getElementById('quickToolInfoLabel');
-    const badge = document.getElementById('quickToolInfoProviderBadge');
-    const body = document.getElementById('quickToolInfoBody');
-
-    if (label) label.textContent = data.label || 'SYLVEX Tools';
-    if (badge) badge.textContent = 'Общая информация';
-    if (body) body.textContent = data.body || '';
-
-    page.classList.add('show');
-    document.body.classList.add('quick-tool-info-open');
-    S.haptic && S.haptic.impact && S.haptic.impact('light');
-  }
-
-  function closeQuickToolInfo() {
-    const page = document.getElementById('quickToolInfoPage');
-    if (page) page.classList.remove('show');
-    closeQuickToolProviderDrawer();
-    document.body.classList.remove('quick-tool-info-open');
-    S.haptic && S.haptic.impact && S.haptic.impact('light');
-  }
-
-  function getQuickToolProviders(index) {
-    const info = QUICK_TOOL_INFO[index];
-    if (!info) return [];
-    return QUICK_TOOL_PROVIDER_INFO[info.key] || [{ name: info.label, badge: '', body: info.body }];
-  }
-
-  function renderQuickToolProviderList(activeProviderIndex) {
-    const list = document.getElementById('quickToolProviderList');
-    if (!list) return;
-
-    const providers = getQuickToolProviders(activeQuickToolIndex);
-    list.innerHTML = providers.map((p, i) => '' +
-      '<button class="quick-tool-provider-item ' + (i === activeProviderIndex ? 'active' : '') + '" onclick="SYLVEX.selectQuickToolProvider(' + i + ')">' +
-        '<div class="quick-tool-provider-item-name">' + S.escapeHtml(p.name || 'AI Provider') + '</div>' +
-        (p.badge ? '<div class="quick-tool-provider-item-badge">' + S.escapeHtml(p.badge) + '</div>' : '') +
-      '</button>'
-    ).join('');
-  }
-
-  function selectQuickToolProvider(providerIndex) {
-    const providers = getQuickToolProviders(activeQuickToolIndex);
-    const provider = providers[providerIndex] || providers[0];
-    if (!provider) return;
-
-    const label = document.getElementById('quickToolInfoLabel');
-    const badge = document.getElementById('quickToolInfoProviderBadge');
-    const body = document.getElementById('quickToolInfoBody');
-
-    if (label) label.textContent = provider.name || 'AI Provider';
-    if (badge) badge.textContent = provider.badge || '';
-    if (body) body.textContent = provider.body || '';
-
-    renderQuickToolProviderList(providerIndex || 0);
-    closeQuickToolProviderDrawer();
-    S.haptic && S.haptic.impact && S.haptic.impact('light');
-  }
-
-  function openQuickToolProviderDrawer(e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    const drawer = document.getElementById('quickToolProviderDrawer');
-    const backdrop = document.getElementById('quickToolProviderBackdrop');
-    if (drawer) drawer.classList.add('show');
-    if (backdrop) backdrop.classList.add('show');
-  }
-
-  function closeQuickToolProviderDrawer() {
-    const drawer = document.getElementById('quickToolProviderDrawer');
-    const backdrop = document.getElementById('quickToolProviderBackdrop');
-    if (drawer) drawer.classList.remove('show');
-    if (backdrop) backdrop.classList.remove('show');
-  }
-
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
     const hh = document.getElementById('homeHist');
     const fh = document.getElementById('fullHist');
     const sg = document.getElementById('shopGrid');
-    if (ht) {
-      const extraTools = [
-        {
-          icon: '🎵',
-          title: 'Музыка',
-          desc: 'Тексты песен, промпты, идеи и анализ лирики',
-          sub: 'Тексты песен, промпты, идеи и анализ лирики',
-          text: 'Тексты песен, промпты, идеи и анализ лирики'
-        },
-        {
-          icon: '📄',
-          title: 'Документы',
-          desc: 'PDF, файлы, поиск, анализ и база знаний',
-          sub: 'PDF, файлы, поиск, анализ и база знаний',
-          text: 'PDF, файлы, поиск, анализ и база знаний'
-        },
-      ];
-
-      ht.innerHTML =
-        S.toolsData.slice(0, 4).map(S.toolCard).join('') +
-        extraTools.map(extraQuickToolCard).join('');
-    }
-    if (hh) hh.innerHTML = S.histData.slice(0, 2).map(S.histCard).join('');
+    if (ht) ht.innerHTML = S.toolsData.slice(0, 4).map(S.toolCard).join('');
+    if (hh) hh.innerHTML = S.histData.slice(0, 3).map(S.histCard).join('');
     if (fh) fh.innerHTML = S.histData.map(S.histCard).join('');
-    if (sg) {
-      sg.innerHTML = S.shopData.map(S.shopCard).join('');
-      renderSubscriptionCards();
-    }
+    if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
     renderModeStrip();
     renderModelPop();
     const mv = document.getElementById('modelVal');
@@ -1291,7 +428,6 @@ Kling — видео-инструмент для генерации ролико
   }
   function openShopFromPaywall() {
     closePaywall();
-    sendUserEvent && sendUserEvent('button_click', 'open_shop', { view: 'shop' });
     switchView('shop');
   }
 
@@ -1307,11 +443,17 @@ Kling — видео-инструмент для генерации ролико
   };
   let pendingPack = null;
   function openBuy(packId) {
+    // If already subscribed and clicking same-tier subscription card, open info modal instead.
+    const u = S.user || {};
+    if ((packId === 'sub_month' || packId === 'sub_year')
+        && u.subscription_status === 'active') {
+      openSubActive(packId);
+      return;
+    }
     pendingPack = packId;
     const m = PACK_META[packId] || { title: packId, price: '—' };
     const tEl = document.getElementById('payPackTitle'); if (tEl) tEl.textContent = m.title;
     const pEl = document.getElementById('payPackPrice'); if (pEl) pEl.textContent = m.price;
-    const u = S.user || {};
     const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Guest';
     const handle   = u.username ? '@' + u.username : '@user';
     const nm = document.getElementById('payUserName');   if (nm) nm.textContent = fullName;
@@ -1330,97 +472,265 @@ Kling — видео-инструмент для генерации ролико
     const bal = Number(u.balance || 0);
     const bEl = document.getElementById('payBalance');    if (bEl) bEl.textContent = bal.toLocaleString();
     const bU  = document.getElementById('payBalanceUsd'); if (bU)  bU.textContent  = '≈ $' + (bal/100).toFixed(2);
-    S.sendUserEvent && S.sendUserEvent('button_click', 'open_buy', { pack_id: packId, price: m.price });
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
-  function setCurrentUser(user) {
-    if (!user) return;
-    S.user = user;
-    S.currentUser = user;
-    window.currentUser = user;
-  }
-
-  function parseSubscriptionDate(value) {
-    if (!value) return null;
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  function getUserSubscriptionInfo() {
-    const u = S.currentUser || S.user || window.currentUser || {};
-
-    const plan = (
-      u.subscription_plan ||
-      u.sub_plan ||
-      u.plan ||
-      u.subscription_type ||
-      localStorage.getItem('sylvex-dev-sub-plan') ||
-      ''
-    ).toString().toLowerCase();
-
-    const expiresAt = (
-      u.subscription_expires_at ||
-      u.subscription_until ||
-      u.sub_expires_at ||
-      u.pro_until ||
-      localStorage.getItem('sylvex-dev-sub-expires-at') ||
-      ''
-    );
-
-    const end = parseSubscriptionDate(expiresAt);
-    const active = (u.status === 'active' || u.subscription === 'active') && !!end && end.getTime() > Date.now();
-
-    return { active, plan, expiresAt };
-  }
-
-  function formatSubscriptionCountdown(expiresAt) {
-    const end = parseSubscriptionDate(expiresAt);
-    if (!end) return 'Осталось: —';
-
-    const diff = end.getTime() - Date.now();
-    if (diff <= 0) return 'Подписка закончилась';
-
-    const totalMinutes = Math.floor(diff / 60000);
-    const days = Math.floor(totalMinutes / 1440);
-    const hours = Math.floor((totalMinutes % 1440) / 60);
-    const minutes = totalMinutes % 60;
-
-    if (days > 0) return 'Осталось: ' + days + 'д ' + hours + 'ч';
-    if (hours > 0) return 'Осталось: ' + hours + 'ч ' + minutes + 'м';
-    return 'Осталось: ' + minutes + 'м';
-  }
-
-  function renderSubscriptionCards() {
-    const info = getUserSubscriptionInfo();
-
-    document.querySelectorAll('[data-subscription-countdown]').forEach((el) => {
-      const expiresAt = el.getAttribute('data-subscription-countdown') || info.expiresAt;
-      el.textContent = formatSubscriptionCountdown(expiresAt);
-    });
-
-    document.querySelectorAll('.pack.active-subscription').forEach((card) => {
-      const packId = card.getAttribute('data-pack-id') || '';
-      const expectedPlan = packId === 'sub_year' ? 'year' : packId === 'sub_month' ? 'month' : '';
-      const isStillActive = info.active && expectedPlan && info.plan === expectedPlan;
-      if (!isStillActive) renderDynamic();
-    });
-  }
-
-  let subscriptionTimerId = null;
-  function startSubscriptionTimer() {
-    renderSubscriptionCards();
-    if (subscriptionTimerId) clearInterval(subscriptionTimerId);
-    subscriptionTimerId = setInterval(renderSubscriptionCards, 60000);
-  }
-
-  function refreshShopAfterUserChange(user) {
-    if (user) setCurrentUser(user);
-    renderDynamic();
-    startSubscriptionTimer();
-  }
-
   function closeBuy() { switchView('shop'); }
+
+  /* ===== Subscription state rendering ===== */
+  let _cdTimer = null;
+  function fmtCountdown(ms) {
+    if (ms <= 0) return '0 д 0 ч';
+    const d = Math.floor(ms / 86400000);
+    const h = Math.floor((ms % 86400000) / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    if (d > 0) return d + ' д ' + h + ' ч';
+    if (h > 0) return h + ' ч ' + m + ' м';
+    const s = Math.floor((ms % 60000) / 1000);
+    return m + ' м ' + s + ' с';
+  }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleDateString('ru-RU', { day:'2-digit', month:'long', year:'numeric' }); }
+    catch { return '—'; }
+  }
+  function renderSubscription() {
+    const u = S.user || {};
+    const active = u.subscription_status === 'active';
+    const plan = u.subscription_plan; // 'month' | 'year' | null
+    const expIso = u.subscription_expires_at;
+    ['subMonthCard','subYearCard'].forEach((cid) => {
+      const card = document.getElementById(cid); if (!card) return;
+      const key = cid === 'subMonthCard' ? 'month' : 'year';
+      const badge = card.querySelector('[data-sub-el="badge"]');
+      const prices = card.querySelector('[data-sub-el="prices"]');
+      const cd = card.querySelector('[data-sub-el="countdown"]');
+      const cta = card.querySelector('[data-sub-el="cta"]');
+      const isThis = active && plan === key;
+      if (isThis) {
+        if (badge) badge.hidden = true;
+        if (prices) prices.hidden = true;
+        if (cd) { cd.hidden = false; const v = cd.querySelector('[data-sub-cd]'); if (v && expIso) v.textContent = fmtCountdown(new Date(expIso).getTime() - Date.now()); }
+        if (cta) { cta.textContent = '✅ Вы подписаны'; cta.classList.add('sub-cta-active'); }
+      } else {
+        if (badge) badge.hidden = false;
+        if (prices) prices.hidden = false;
+        if (cd) cd.hidden = true;
+        if (cta) { cta.textContent = 'Подписаться'; cta.classList.remove('sub-cta-active'); }
+      }
+    });
+    // Manage-subscription row subtitle
+    const ms = document.getElementById('manageSubSub');
+    if (ms) ms.textContent = active
+      ? (plan === 'year' ? '1 год · до ' : '1 месяц · до ') + fmtDate(expIso)
+      : 'Нет активной подписки';
+    // Start ticking countdown every 30s while a card is showing it.
+    if (_cdTimer) clearInterval(_cdTimer);
+    if (active && expIso) {
+      _cdTimer = setInterval(() => {
+        const ms = new Date(expIso).getTime() - Date.now();
+        document.querySelectorAll('[data-sub-cd]').forEach((el) => { el.textContent = fmtCountdown(ms); });
+        const sa = document.getElementById('saCountdown'); if (sa) sa.textContent = fmtCountdown(ms);
+        if (ms <= 0 && S.syncUser) S.syncUser();
+      }, 30000);
+    }
+  }
+
+  function openSubActive(packId) {
+    const u = S.user || {};
+    const plan = u.subscription_plan || (packId === 'sub_year' ? 'year' : 'month');
+    const exp = u.subscription_expires_at;
+    document.getElementById('saPlan').textContent = plan === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
+    document.getElementById('saExpires').textContent = fmtDate(exp);
+    document.getElementById('saCountdown').textContent = exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—';
+    document.getElementById('subActiveModal').classList.add('show');
+    pendingPack = 'sub_' + plan;
+  }
+  function renewFromModal() {
+    closeModal(null, 'subActiveModal');
+    // Force purchase flow (bypass "already subscribed" branch).
+    const pack = pendingPack || 'sub_month';
+    const savedUser = S.user; S.user = Object.assign({}, savedUser, { subscription_status: 'free' });
+    openBuy(pack);
+    S.user = savedUser;
+  }
+  function openManageSub() {
+    const u = S.user || {};
+    if (u.subscription_status === 'active') openSubActive('sub_' + (u.subscription_plan || 'month'));
+    else switchView('shop');
+  }
+
+  /* ===== Modal helpers ===== */
+  function closeModal(e, id) {
+    if (e && e.target && e.target.id !== id) return;
+    const el = document.getElementById(id); if (el) el.classList.remove('show');
+  }
+  function openProInfo() {
+    const u = S.user || {};
+    const body = document.getElementById('proInfoBody');
+    if (!body) return;
+    if (u.subscription_status === 'active') {
+      const plan = u.subscription_plan === 'year' ? '1 год' : '1 месяц';
+      const exp = u.subscription_expires_at;
+      body.innerHTML = '<h3 style="margin:6px 0 4px;font-size:17px">✅ Вы подписаны</h3>'
+        + '<div class="sub-info-grid" style="margin-top:12px">'
+        + '<div><div class="k">Тариф</div><div class="v">SYLVEX Pro · ' + plan + '</div></div>'
+        + '<div><div class="k">Осталось</div><div class="v">' + (exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—') + '</div></div>'
+        + '<div><div class="k">Окончание</div><div class="v">' + fmtDate(exp) + '</div></div>'
+        + '</div>';
+    } else {
+      body.innerHTML = '<h3 style="margin:6px 0 8px;font-size:17px">Нет активной подписки</h3>'
+        + '<p style="opacity:.75;font-size:13px;margin:0 0 14px">Оформите подписку, чтобы получить полный доступ.</p>'
+        + '<button class="topup" style="width:100%" onclick="SYLVEX.closeModal(null,\'proInfoModal\');switchView(\'shop\')">Открыть магазин</button>';
+    }
+    document.getElementById('proInfoModal').classList.add('show');
+  }
+
+  /* ===== Edit profile ===== */
+  const AVATAR_PRESETS = [
+    'assets/avatars/a1.png','assets/avatars/a2.png','assets/avatars/a3.png',
+    'assets/avatars/a4.png','assets/avatars/a5.png',
+  ];
+  let epSelectedAvatar = null;
+  function openEditProfile() {
+    const u = S.user || {};
+    document.getElementById('epName').value = u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '';
+    epSelectedAvatar = u.custom_avatar_url || null;
+    const grid = document.getElementById('avatarGrid');
+    if (grid) {
+      const items = [{ url: null, label: 'TG' }].concat(AVATAR_PRESETS.map((p) => ({ url: p })));
+      grid.innerHTML = items.map((it, i) => {
+        const sel = (epSelectedAvatar || '') === (it.url || '') ? 'sel' : '';
+        const inner = it.url ? '<img src="' + it.url + '" alt="" />' : '<span>TG</span>';
+        return '<button class="av-opt ' + sel + '" data-url="' + (it.url || '') + '" onclick="SYLVEX.pickAvatar(this)">' + inner + '</button>';
+      }).join('');
+    }
+    document.getElementById('editProfileModal').classList.add('show');
+  }
+  function pickAvatar(btn) {
+    epSelectedAvatar = btn.dataset.url || null;
+    document.querySelectorAll('#avatarGrid .av-opt').forEach((el) => el.classList.remove('sel'));
+    btn.classList.add('sel');
+  }
+  async function saveEditProfile() {
+    const name = (document.getElementById('epName').value || '').trim().slice(0, 60);
+    const body = {
+      initData: S.tg && S.tg.initData ? S.tg.initData : '',
+      initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
+      telegram_id: getTelegramId(),
+      display_name: name,
+      custom_avatar_url: epSelectedAvatar,
+    };
+    try {
+      const r = await fetch('/api/public/telegram/profile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) { toast('Ошибка: ' + (j.error || r.status)); return; }
+      toast('Сохранено ✓');
+      closeModal(null, 'editProfileModal');
+      S.syncUser && S.syncUser();
+    } catch { toast('Сетевая ошибка'); }
+  }
+
+  /* ===== Theme picker ===== */
+  const THEMES = [
+    { id: 'dark',  label: 'Тёмная',    css: { '--bg-0':'#212121','--bg-1':'#171717','--bg-2':'#2f2f2f','--surface':'#2f2f2f','--surface-2':'#3a3a3a','--text':'#ececec' }, mode:'dark' },
+    { id: 'black', label: 'Чёрная',    css: { '--bg-0':'#000000','--bg-1':'#0a0a0a','--bg-2':'#141414','--surface':'#161616','--surface-2':'#222222','--text':'#f5f5f5' }, mode:'dark' },
+    { id: 'blue',  label: 'Синяя ночь', css: { '--bg-0':'#0b1220','--bg-1':'#0a0f1c','--bg-2':'#111a2e','--surface':'#12203a','--surface-2':'#1a2c4d','--text':'#eaf1ff' }, mode:'dark' },
+    { id: 'plum',  label: 'Слива',     css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
+    { id: 'light', label: 'Светлая',   css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
+  ];
+  function applyTheme(themeId) {
+    const t = THEMES.find((x) => x.id === themeId) || THEMES[0];
+    document.documentElement.setAttribute('data-theme', t.mode);
+    const r = document.documentElement.style;
+    Object.keys(t.css).forEach((k) => r.setProperty(k, t.css[k]));
+    localStorage.setItem('sylvex-theme-id', themeId);
+    // Persist to backend.
+    const body = {
+      initData: S.tg && S.tg.initData ? S.tg.initData : '',
+      initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
+      telegram_id: getTelegramId(),
+      theme_preference: { id: themeId },
+    };
+    fetch('/api/public/telegram/profile', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).catch(() => {});
+    renderThemeGrid();
+  }
+  function renderThemeGrid() {
+    const g = document.getElementById('themeGrid'); if (!g) return;
+    const cur = localStorage.getItem('sylvex-theme-id')
+      || (S.user && S.user.theme_preference && S.user.theme_preference.id)
+      || 'dark';
+    g.innerHTML = THEMES.map((t) => {
+      const sel = cur === t.id ? 'sel' : '';
+      const sw = 'background:' + t.css['--bg-0'];
+      const swInner = 'background:' + t.css['--surface-2'];
+      return '<button class="th-opt ' + sel + '" onclick="SYLVEX.applyTheme(\'' + t.id + '\')">'
+        + '<div class="th-sw" style="' + sw + '"><div class="th-sw-inner" style="' + swInner + '"></div></div>'
+        + '<div class="th-lbl">' + t.label + '</div></button>';
+    }).join('');
+  }
+  function openThemePicker() {
+    renderThemeGrid();
+    document.getElementById('themeModal').classList.add('show');
+  }
+  function applyStoredTheme() {
+    const id = localStorage.getItem('sylvex-theme-id')
+      || (S.user && S.user.theme_preference && S.user.theme_preference.id);
+    if (id) applyTheme(id);
+  }
+
+  /* ===== Referrals ===== */
+  let _refData = null;
+  async function openReferrals() {
+    document.getElementById('refsModal').classList.add('show');
+    document.getElementById('refLinkVal').textContent = 'Загрузка…';
+    const tg = getTelegramId(); if (!tg) return;
+    try {
+      const r = await fetch('/api/public/telegram/referrals?telegram_id=' + tg);
+      const j = await r.json();
+      _refData = j;
+      document.getElementById('refLinkVal').textContent = j.link || j.code || '—';
+      document.getElementById('refCount').textContent = j.referrals_count || 0;
+      document.getElementById('refEarned').textContent = (j.tokens_earned || 0).toLocaleString();
+      document.getElementById('refStatus').textContent = j.activated_at ? 'Активна' : 'Не активна';
+      const btn = document.getElementById('refActivateBtn');
+      if (btn) { btn.textContent = j.activated_at ? '✅ Активирована' : '🚀 Активировать'; btn.disabled = !!j.activated_at; }
+    } catch { document.getElementById('refLinkVal').textContent = '—'; }
+  }
+  function copyRefLink() {
+    const v = (_refData && (_refData.link || _refData.code)) || document.getElementById('refLinkVal').textContent;
+    if (!v || v === '—') return;
+    if (navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {});
+    toast('Ссылка скопирована');
+    S.haptic && S.haptic.notify && S.haptic.notify('success');
+  }
+  async function activateRefLink() {
+    const body = {
+      initData: S.tg && S.tg.initData ? S.tg.initData : '',
+      initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
+      telegram_id: getTelegramId(),
+      activate: true,
+    };
+    try {
+      const r = await fetch('/api/public/telegram/referrals', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) { toast('Ошибка: ' + (j.error || r.status)); return; }
+      toast('Ссылка активирована ✓');
+      openReferrals();
+    } catch { toast('Сетевая ошибка'); }
+  }
+
+  /* ===== Sign out ===== */
+  function signOut() {
+    try { localStorage.removeItem('sylvex-theme-id'); } catch {}
+    if (S.tg && S.tg.close) S.tg.close();
+  }
   function contactAdmin() {
     const url = 'https://t.me/sylvex_admin';
     const tgApp = S.tg;
@@ -1433,66 +743,19 @@ Kling — видео-инструмент для генерации ролико
   }
   function openPaymentUrl(url, method) {
     const tgApp = S.tg;
-
     if (method === 'crypto' && isTelegramLink(url) && tgApp && tgApp.openTelegramLink) {
       tgApp.openTelegramLink(url);
       return;
     }
-
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
     else window.open(url, '_blank');
   }
   async function payWith(method) {
     const packId = pendingPack;
     if (!packId) return;
-
-    const tgId = getTelegramId();
-
-    if (method === 'developer' && tgId === 7932380565) {
-      toast('Тестовая оплата...');
-
-      try {
-        const r = await fetch('/api/public/payments/dev/success', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            telegram_id: tgId,
-            pack_id: packId,
-          }),
-        });
-
-        const j = await r.json();
-
-        if (!r.ok || j.error) {
-          toast('Ошибка тестовой оплаты');
-          return;
-        }
-
-        toast('Тестовая оплата выполнена ✓');
-
-        if (j.user) {
-          refreshShopAfterUserChange(j.user);
-        } else if (S.syncUser) {
-          S.userReady = S.syncUser();
-          const syncedUser = await Promise.resolve(S.userReady);
-          refreshShopAfterUserChange(syncedUser || S.user);
-        } else {
-          renderDynamic();
-        }
-
-        closeBuy();
-        return;
-      } catch (e) {
-        toast('Ошибка тестовой оплаты');
-        return;
-      }
-    }
-
-    await ensureTelegramUser();
     const tg = getTelegramId();
-    if (!tg) { toast('Telegram ID ещё загружается. Откройте магазин через Telegram и попробуйте снова.'); return; }
+    if (!tg) { toast('Telegram ID не найден'); return; }
     toast('Создаём счёт…');
-    S.sendUserEvent && S.sendUserEvent('payment_invoice_created', 'payment_invoice_requested', { pack_id: packId, method });
     try {
       let path = '';
       if (method === 'stars')  path = '/api/public/payments/stars/invoice';
@@ -1515,7 +778,6 @@ Kling — видео-инструмент для генерации ролико
         tgApp.openInvoice(j.invoice_url, async (status) => {
           if (status === 'paid') {
             toast('Оплачено ✓');
-            S.sendUserEvent && S.sendUserEvent('payment_success', 'stars_payment_success', { pack_id: packId, method, charge_id: j.charge_id });
             try {
               const confirmRes = await fetch('/api/public/payments/stars/confirm', {
                 method: 'POST',
@@ -1524,64 +786,21 @@ Kling — видео-инструмент для генерации ролико
               });
               const confirmJson = await confirmRes.json();
               if (confirmRes.ok && confirmJson.user) {
-                refreshShopAfterUserChange(confirmJson.user);
+                S.renderUser && S.renderUser(confirmJson.user);
               } else if (S.syncUser) {
-                S.userReady = S.syncUser();
-                const syncedUser = await Promise.resolve(S.userReady);
-                refreshShopAfterUserChange(syncedUser || S.user);
+                S.syncUser();
               }
-            } catch (err) {
-              console.warn('Stars confirm failed', err);
-              if (S.syncUser) {
-                S.userReady = S.syncUser();
-                const syncedUser = await Promise.resolve(S.userReady);
-                refreshShopAfterUserChange(syncedUser || S.user);
-              }
+            } catch {
+              if (S.syncUser) S.syncUser();
             }
           } else if (status === 'failed' || status === 'cancelled') {
-            S.sendUserEvent && S.sendUserEvent('payment_cancelled', 'payment_cancelled', { pack_id: packId, method, status });
             toast('Оплата отменена');
           }
         });
       } else if (j.url) {
         openPaymentUrl(j.url, method);
       } else if (j.invoice_url) {
-        if (method === 'stars' && tgApp && tgApp.openInvoice) {
-          tgApp.openInvoice(j.invoice_url, async (status) => {
-            if (status === 'paid') {
-              toast('Оплачено ✓');
-              S.sendUserEvent && S.sendUserEvent('payment_success', 'stars_payment_success', { pack_id: packId, method, charge_id: j.charge_id });
-              try {
-                const confirmRes = await fetch('/api/public/payments/stars/confirm', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ telegram_id: tg, pack_id: packId, charge_id: j.charge_id }),
-                });
-                const confirmJson = await confirmRes.json();
-                if (confirmRes.ok && confirmJson.user) {
-                  refreshShopAfterUserChange(confirmJson.user);
-                } else if (S.syncUser) {
-                  S.userReady = S.syncUser();
-                  const syncedUser = await Promise.resolve(S.userReady);
-                  refreshShopAfterUserChange(syncedUser || S.user);
-                }
-              } catch (err) {
-                console.warn('Stars confirm failed', err);
-                if (S.syncUser) {
-                  S.userReady = S.syncUser();
-                  const syncedUser = await Promise.resolve(S.userReady);
-                  refreshShopAfterUserChange(syncedUser || S.user);
-                }
-              }
-            }
-            else if (status === 'failed' || status === 'cancelled') {
-              S.sendUserEvent && S.sendUserEvent('payment_cancelled', 'payment_cancelled', { pack_id: packId, method, status });
-              toast('Оплата отменена');
-            }
-          });
-        } else {
-          openPaymentUrl(j.invoice_url, method);
-        }
+        openPaymentUrl(j.invoice_url, method);
       }
     } catch (err) {
       toast('Сетевая ошибка');
@@ -1713,19 +932,6 @@ Kling — видео-инструмент для генерации ролико
       btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
 
-    // Home quick tools: open a separate information page for each quick tool card.
-    const homeTools = document.getElementById('homeTools');
-    if (homeTools) {
-      homeTools.addEventListener('click', function (e) {
-        const card = e.target.closest('#homeTools > *');
-        if (!card || !homeTools.contains(card)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const index = Array.prototype.indexOf.call(homeTools.children, card);
-        openQuickToolInfo(index);
-      });
-    }
-
     // Theme
     const themeBtn = document.getElementById('themeBtn');
     const themeSwitch = document.getElementById('themeSwitch');
@@ -1781,24 +987,7 @@ Kling — видео-инструмент для генерации ролико
 
   function applyInitialViewFromUrl() {
     const view = initialViewFromUrl();
-    console.log('[SYLVEX initial view]', {
-      href: window.location.href,
-      search: window.location.search,
-      hash: window.location.hash,
-      view: view
-    });
-
-    if (view && view !== 'home') {
-      if (typeof switchView === 'function') {
-        switchView(view);
-        console.log('[SYLVEX initial view applied]', view);
-      } else if (S.switchView && typeof S.switchView === 'function') {
-        S.switchView(view);
-        console.log('[SYLVEX initial view applied via S.switchView]', view);
-      } else {
-        console.log('[SYLVEX initial view error] switchView is not available');
-      }
-    }
+    if (view && view !== 'home') switchView(view);
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
@@ -1814,19 +1003,16 @@ Kling — видео-инструмент для генерации ролико
     if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
     updateSendButton();
-    startSubscriptionTimer();
     if (S.syncUser) {
-      S.userReady = S.syncUser();
-      Promise.resolve(S.userReady).finally(() => {
+      Promise.resolve(S.syncUser()).finally(() => {
         applyInitialViewFromUrl();
-        setTimeout(applyInitialViewFromUrl, 150);
+        applyStoredTheme();
       });
     }
     loadConversations();
+    applyStoredTheme();
     applyInitialViewFromUrl();
     setTimeout(applyInitialViewFromUrl, 150);
-    setTimeout(applyInitialViewFromUrl, 600);
-    setTimeout(applyInitialViewFromUrl, 1200);
   }
 
   // Expose to global scope.
@@ -1838,10 +1024,12 @@ Kling — видео-инструмент для генерации ролико
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
-    openQuickToolInfo, closeQuickToolInfo,
-    openQuickToolProviderDrawer, closeQuickToolProviderDrawer, selectQuickToolProvider,
     computePrice, updatePrice, generateNow,
-    setCurrentUser, renderSubscriptionCards, startSubscriptionTimer, refreshShopAfterUserChange,
+    renderSubscription, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
+    openEditProfile, pickAvatar, saveEditProfile,
+    openThemePicker, applyTheme,
+    openReferrals, copyRefLink, activateRefLink,
+    signOut,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
@@ -1856,11 +1044,4 @@ Kling — видео-инструмент для генерации ролико
   window.closeSupport   = closeSupport;
   window.sendSupport    = sendSupport;
   window.generateNow    = generateNow;
-  window.closeQuickToolInfo = closeQuickToolInfo;
-  window.openQuickToolProviderDrawer = openQuickToolProviderDrawer;
-  window.closeQuickToolProviderDrawer = closeQuickToolProviderDrawer;
-  window.selectQuickToolProvider = selectQuickToolProvider;
-  window.renderSubscriptionCards = renderSubscriptionCards;
-  window.startSubscriptionTimer = startSubscriptionTimer;
-  window.refreshShopAfterUserChange = refreshShopAfterUserChange;
 })();
