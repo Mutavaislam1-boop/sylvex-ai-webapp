@@ -921,6 +921,17 @@ async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
                 payload=invoice.get("payload") or "",
                 charge_id=f"crypto_invoice_{invoice_id}",
             )
+            # Sync user state after successful crypto payment so frontend/bot read updated state
+            try:
+                sync_user_to_db({
+                    "telegram_id": telegram_id,
+                    "username": None,
+                    "first_name": None,
+                    "status": "free",
+                    "balance": 0,
+                })
+            except Exception as exc:
+                print("CRYPTO POLL: sync failed", exc)
             return
         if status == "expired":
             return
@@ -2028,6 +2039,18 @@ async def public_card_webhook(request: Request):
         payload=payload,
         charge_id=f"lemon_{order_id}",
     )
+    # Ensure backend user state is up-to-date after payment finalization
+    try:
+        user = sync_user_to_db({
+            "telegram_id": telegram_id,
+            "username": None,
+            "first_name": None,
+            "status": "free",
+            "balance": 0,
+        })
+        print("CARD WEBHOOK: user synced", telegram_id)
+    except Exception as exc:
+        print("CARD WEBHOOK: sync failed", exc)
 
     return {"ok": True}
 

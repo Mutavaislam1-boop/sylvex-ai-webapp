@@ -180,4 +180,16 @@
   S.sendUserEvent = sendUserEvent;
   S.userReady = syncUser();
   S.renderUser = renderUser;
+
+  // Auto-refresh user state when the Mini App becomes visible again
+  let __lastSyncTs = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const now = Date.now();
+      if (now - __lastSyncTs > 5000) {
+        __lastSyncTs = now;
+        try { S.syncUser(); } catch (e) { /* ignore */ }
+      }
+    }
+  });
 })();
