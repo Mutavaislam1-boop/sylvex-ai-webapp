@@ -648,15 +648,12 @@ Kling — видео-инструмент для генерации ролико
     page.className = 'quick-tool-info-page';
     page.innerHTML = '' +
       '<div class="quick-tool-info-head">' +
-        '<button class="quick-tool-info-back" onclick="SYLVEX.closeQuickToolInfo()">‹</button>' +
-        '<div>' +
+        '<button class="quick-tool-menu-open" onclick="SYLVEX.openQuickToolProviderDrawer(event)" aria-label="Open menu">☰</button>' +
+        '<div class="quick-tool-info-heading">' +
           '<div class="quick-tool-info-kicker">AI Tools</div>' +
           '<div class="quick-tool-info-title" id="quickToolInfoTitle">Инструмент</div>' +
         '</div>' +
-      '</div>' +
-      '<div class="quick-tool-info-card">' +
-        '</div>' +
-        '<button class="quick-tool-provider-open" onclick="SYLVEX.openQuickToolProviderDrawer(event)">ИИ</button>' +
+        '<button class="quick-tool-home-btn" onclick="SYLVEX.closeQuickToolInfo()">Домой</button>' +
       '</div>' +
       '<div class="quick-tool-info-card">' +
         '<div class="quick-tool-info-label" id="quickToolInfoLabel">AI Provider</div>' +
@@ -667,7 +664,7 @@ Kling — видео-инструмент для генерации ролико
       '<div class="quick-tool-provider-drawer" id="quickToolProviderDrawer">' +
         '<div class="quick-tool-provider-head">' +
           '<div>' +
-            '<div class="quick-tool-provider-kicker">Провайдеры</div>' +
+            '<div class="quick-tool-provider-kicker">Разделы</div>' +
             '<div class="quick-tool-provider-title" id="quickToolProviderTitle">ИИ-инструменты</div>' +
           '</div>' +
           '<button class="quick-tool-provider-close" onclick="SYLVEX.closeQuickToolProviderDrawer()">×</button>' +
@@ -703,26 +700,27 @@ Kling — видео-инструмент для генерации ролико
         gap: 12px;
         margin-bottom: 16px;
       }
-      .quick-tool-provider-open {
-        min-width: 48px;
-        height: 42px;
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 16px;
-        background: rgba(255,255,255,.08);
-        color: #fff;
-        font-size: 13px;
-        font-weight: 800;
-        letter-spacing: .04em;
+      .quick-tool-info-heading {
+        flex: 1;
+        min-width: 0;
       }
-      .quick-tool-info-back {
-        width: 42px;
+      .quick-tool-menu-open,
+      .quick-tool-home-btn {
         height: 42px;
-        border: 1px solid rgba(255,255,255,.12);
-        border-radius: 16px;
-        background: rgba(255,255,255,.06);
+        border: 0;
+        background: transparent;
         color: #fff;
-        font-size: 30px;
+      }
+      .quick-tool-menu-open {
+        width: 42px;
+        font-size: 25px;
         line-height: 1;
+      }
+      .quick-tool-home-btn {
+        min-width: 58px;
+        padding: 0;
+        font-size: 14px;
+        font-weight: 800;
       }
       .quick-tool-info-kicker {
         opacity: .55;
@@ -773,7 +771,6 @@ Kling — видео-инструмент для генерации ролико
         background: radial-gradient(circle at top, rgba(0,0,0,.05), transparent 34%), var(--bg, #f5f6fb);
       }
       body.light .quick-tool-info-card,
-      body.light .quick-tool-info-back,
       body.light .quick-tool-info-label {
         border-color: rgba(0,0,0,.08);
         background: rgba(255,255,255,.72);
@@ -781,7 +778,8 @@ Kling — видео-инструмент для генерации ролико
       body.light .quick-tool-info-kicker,
       body.light .quick-tool-info-title,
       body.light .quick-tool-info-label,
-      body.light .quick-tool-info-back,
+      body.light .quick-tool-menu-open,
+      body.light .quick-tool-home-btn,
       body.light .quick-tool-info-body {
         color: #fff;
       }
@@ -798,16 +796,16 @@ Kling — видео-инструмент для генерации ролико
       .quick-tool-provider-drawer {
         position: fixed;
         top: 0;
-        right: 0;
+        left: 0;
         bottom: 0;
         z-index: 91;
         width: min(82vw, 340px);
         padding: calc(env(safe-area-inset-top, 0px) + 18px) 14px calc(env(safe-area-inset-bottom, 0px) + 18px);
-        transform: translateX(110%);
+        transform: translateX(-110%);
         transition: transform .22s ease;
         background: rgba(10,11,16,.96);
-        border-left: 1px solid rgba(255,255,255,.12);
-        box-shadow: -18px 0 60px rgba(0,0,0,.38);
+        border-right: 1px solid rgba(255,255,255,.12);
+        box-shadow: 18px 0 60px rgba(0,0,0,.38);
         backdrop-filter: blur(20px);
       }
       .quick-tool-provider-drawer.show {
@@ -848,24 +846,24 @@ Kling — видео-инструмент для генерации ролико
       }
       .quick-tool-provider-item {
         width: 100%;
-        border: 1px solid rgba(255,255,255,.1);
-        border-radius: 18px;
-        padding: 13px;
-        background: rgba(255,255,255,.055);
-        color: #fff;
+        border: 0;
+        border-radius: 0;
+        padding: 12px 0;
+        background: transparent;
+        color: rgba(255,255,255,.72);
         text-align: left;
       }
       .quick-tool-provider-item.active {
-        border-color: rgba(255,255,255,.28);
-        background: rgba(255,255,255,.12);
+        color: #fff;
+        background: transparent;
       }
       .quick-tool-provider-item-name {
-        font-size: 14px;
+        font-size: 16px;
         font-weight: 800;
       }
       .quick-tool-provider-item-badge {
-        margin-top: 5px;
-        color: rgba(255,255,255,.58);
+        margin-top: 4px;
+        color: rgba(255,255,255,.46);
         font-size: 12px;
         line-height: 1.35;
       }
@@ -918,7 +916,7 @@ Kling — видео-инструмент для генерации ролико
     list.innerHTML = providers.map((p, i) => '' +
       '<button class="quick-tool-provider-item ' + (i === activeProviderIndex ? 'active' : '') + '" onclick="SYLVEX.selectQuickToolProvider(' + i + ')">' +
         '<div class="quick-tool-provider-item-name">' + S.escapeHtml(p.name || 'AI Provider') + '</div>' +
-        '<div class="quick-tool-provider-item-badge">' + S.escapeHtml(p.badge || '') + '</div>' +
+        (p.badge ? '<div class="quick-tool-provider-item-badge">' + S.escapeHtml(p.badge) + '</div>' : '') +
       '</button>'
     ).join('');
   }
