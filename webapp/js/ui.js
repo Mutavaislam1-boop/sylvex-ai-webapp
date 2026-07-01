@@ -54,23 +54,48 @@
   }
 
   function getSubscriptionPlan(user) {
-    return user && (user.subscription_plan || user.plan || user.subscriptionType || user.subscription_type || null);
+    if (!user) return null;
+    return (
+      user.subscription_plan ||
+      user.plan ||
+      user.subscriptionType ||
+      user.subscription_type ||
+      user.active_plan ||
+      user.pro_plan ||
+      null
+    );
   }
 
   function getSubscriptionExpiresAt(user) {
-    return user && (user.subscription_expires_at || user.expires_at || user.subscriptionExpiresAt || null);
+    if (!user) return null;
+    return (
+      user.subscription_expires_at ||
+      user.expires_at ||
+      user.subscriptionExpiresAt ||
+      user.subscription_until ||
+      user.pro_until ||
+      null
+    );
+  }
+
+  function hasActiveSubscription(user) {
+    if (!user) return false;
+    const status = String(user.status || user.subscription || '').toLowerCase();
+    const expiresAt = getSubscriptionExpiresAt(user);
+    const end = expiresAt ? new Date(expiresAt).getTime() : 0;
+    return ['active', 'pro', 'premium', 'vip'].includes(status) && Number.isFinite(end) && end > Date.now();
   }
 
   function isActiveSubscriptionCard(s) {
     const user = getCurrentUser();
-    if (!user || user.status !== 'active') return false;
+    if (!hasActiveSubscription(user)) return false;
     const itemKind = s.kind || (s.id && String(s.id).startsWith('sub_') ? 'subscription' : 'credits');
     if (itemKind !== 'subscription') return false;
 
     const activePlan = getSubscriptionPlan(user);
     const cardPlan = s.plan_key || s.plan || (s.id === 'sub_month' ? 'month' : s.id === 'sub_year' ? 'year' : null);
 
-    return Boolean(activePlan && cardPlan && activePlan === cardPlan);
+    return Boolean(activePlan && cardPlan && String(activePlan).toLowerCase() === String(cardPlan).toLowerCase());
   }
 
   function formatSubscriptionCountdown(expiresAt) {
@@ -108,6 +133,7 @@
 
   function shopCard(s) {
     const packId = s.id || ('pack_' + s.tokens);
+    const debugUser = getCurrentUser();
     const itemKind = s.kind || (String(packId).startsWith('sub_') ? 'subscription' : 'credits');
     const user = getCurrentUser();
     const isSub = itemKind === 'subscription';
@@ -118,6 +144,16 @@
     const subtitle = isSub ? 'Подписка' : t('tokens');
     const priceText = s.price || '';
     const activeClass = isActive ? ' active-subscription' : '';
+
+    if (isSub) {
+      console.log('SYLVEX SHOP CARD:', {
+        packId,
+        userStatus: debugUser && (debugUser.status || debugUser.subscription),
+        activePlan: debugUser && getSubscriptionPlan(debugUser),
+        expiresAt: debugUser && getSubscriptionExpiresAt(debugUser),
+        isActive,
+      });
+    }
 
     return '<div class="pack ' + (s.pop && !isActive ? 'pop ' : '') + activeClass + '" data-pack-id="' + escapeHtml(packId) + '">'
       + (s.pop && !isActive ? '<div class="pop-tag">' + t('popular') + '</div>' : '')
@@ -144,6 +180,7 @@
   Object.assign(window.SYLVEX, {
     toast, setTheme, toggleTheme, switchView, escapeHtml,
     toolCard, histCard, shopCard,
-    formatSubscriptionCountdown
+    formatSubscriptionCountdown,
+    hasActiveSubscription
   });
 })();
