@@ -951,7 +951,10 @@ Kling — видео-инструмент для генерации ролико
     }
     if (hh) hh.innerHTML = S.histData.slice(0, 2).map(S.histCard).join('');
     if (fh) fh.innerHTML = S.histData.map(S.histCard).join('');
-    if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
+    if (sg) {
+      sg.innerHTML = S.shopData.map(S.shopCard).join('');
+      renderSubscriptionCards();
+    }
     renderModeStrip();
     renderModelPop();
     const mv = document.getElementById('modelVal');
@@ -1329,10 +1332,44 @@ Kling — видео-инструмент для генерации ролико
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
+  function setCurrentUser(user) {
+    if (!user) return;
+    S.user = user;
+    S.currentUser = user;
+    window.currentUser = user;
+  }
+
   function parseSubscriptionDate(value) {
     if (!value) return null;
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function getUserSubscriptionInfo() {
+    const u = S.currentUser || S.user || window.currentUser || {};
+
+    const plan = (
+      u.subscription_plan ||
+      u.sub_plan ||
+      u.plan ||
+      u.subscription_type ||
+      localStorage.getItem('sylvex-dev-sub-plan') ||
+      ''
+    ).toString().toLowerCase();
+
+    const expiresAt = (
+      u.subscription_expires_at ||
+      u.subscription_until ||
+      u.sub_expires_at ||
+      u.pro_until ||
+      localStorage.getItem('sylvex-dev-sub-expires-at') ||
+      ''
+    );
+
+    const end = parseSubscriptionDate(expiresAt);
+    const active = (u.status === 'active' || u.subscription === 'active') && !!end && end.getTime() > Date.now();
+
+    return { active, plan, expiresAt };
   }
 
   function formatSubscriptionCountdown(expiresAt) {
@@ -1352,83 +1389,33 @@ Kling — видео-инструмент для генерации ролико
     return 'Осталось: ' + minutes + 'м';
   }
 
-  function getUserSubscriptionInfo() {
-    const u = S.user || {};
-
-    const plan = (
-      u.subscription_plan ||
-      u.sub_plan ||
-      u.plan ||
-      localStorage.getItem('sylvex-dev-sub-plan') ||
-      ''
-    ).toString().toLowerCase();
-
-    const expiresAt = (
-      u.subscription_expires_at ||
-      u.subscription_until ||
-      u.sub_expires_at ||
-      u.pro_until ||
-      localStorage.getItem('sylvex-dev-sub-expires-at') ||
-      ''
-    );
-
-    const end = parseSubscriptionDate(expiresAt);
-    const active = !!end && end.getTime() > Date.now();
-
-    return { active, plan, expiresAt };
-  }
-
   function renderSubscriptionCards() {
     const info = getUserSubscriptionInfo();
-    document.querySelectorAll('[data-sub-plan]').forEach((card) => {
-      const plan = (card.dataset.subPlan || '').toLowerCase();
-      const isActive = info.active && (info.plan === plan || info.plan === 'sub_' + plan || !info.plan);
-      card.classList.toggle('is-subscribed', !!isActive);
 
-      // Find relevant elements inside the card if they exist
-      const countdownEl = card.querySelector('[data-sub-countdown]');
-      const activeBlock = card.querySelector('[data-sub-active]');
-      const priceBlock = card.querySelector('[data-sub-price]');
-      const buyBtn = card.querySelector('[data-sub-buy]');
-      const subscribedBtn = card.querySelector('[data-sub-subscribed]');
-      const discountBadge = card.querySelector('.discount-badge');
+    document.querySelectorAll('[data-subscription-countdown]').forEach((el) => {
+      const expiresAt = el.getAttribute('data-subscription-countdown') || info.expiresAt;
+      el.textContent = formatSubscriptionCountdown(expiresAt);
+    });
 
-      if (isActive) {
-        // Set the countdown text
-        if (countdownEl) countdownEl.textContent = formatSubscriptionCountdown(info.expiresAt);
-        // Show active block
-        if (activeBlock) activeBlock.hidden = false;
-        // Hide price block
-        if (priceBlock) priceBlock.hidden = true;
-        // Hide buy button
-        if (buyBtn) buyBtn.hidden = true;
-        // Show subscribed button
-        if (subscribedBtn) {
-          subscribedBtn.hidden = false;
-          subscribedBtn.textContent = '✅ Вы подписаны';
-        }
-        // Hide discount badge if exists
-        if (discountBadge) discountBadge.hidden = true;
-      } else {
-        // Reset countdown text
-        if (countdownEl) countdownEl.textContent = 'Осталось: —';
-        // Hide active block
-        if (activeBlock) activeBlock.hidden = true;
-        // Show price block
-        if (priceBlock) priceBlock.hidden = false;
-        // Show buy button
-        if (buyBtn) buyBtn.hidden = false;
-        // Hide subscribed button
-        if (subscribedBtn) subscribedBtn.hidden = true;
-        // Show discount badge if exists
-        if (discountBadge) discountBadge.hidden = false;
-      }
+    document.querySelectorAll('.pack.active-subscription').forEach((card) => {
+      const packId = card.getAttribute('data-pack-id') || '';
+      const expectedPlan = packId === 'sub_year' ? 'year' : packId === 'sub_month' ? 'month' : '';
+      const isStillActive = info.active && expectedPlan && info.plan === expectedPlan;
+      if (!isStillActive) renderDynamic();
     });
   }
 
+  let subscriptionTimerId = null;
   function startSubscriptionTimer() {
     renderSubscriptionCards();
-    setInterval(renderSubscriptionCards, 60000);
+    if (subscriptionTimerId) clearInterval(subscriptionTimerId);
+    subscriptionTimerId = setInterval(renderSubscriptionCards, 60000);
+  }
+
+  function refreshShopAfterUserChange(user) {
+    if (user) setCurrentUser(user);
+    renderDynamic();
+    startSubscriptionTimer();
   }
 
   function closeBuy() { switchView('shop'); }
@@ -1481,13 +1468,14 @@ Kling — видео-инструмент для генерации ролико
 
         toast('Тестовая оплата выполнена ✓');
 
-        if (S.syncUser) {
+        if (j.user) {
+          refreshShopAfterUserChange(j.user);
+        } else if (S.syncUser) {
           S.userReady = S.syncUser();
-          await Promise.resolve(S.userReady);
-        }
-
-        if (S.renderSubscriptionCards) {
-          S.renderSubscriptionCards();
+          const syncedUser = await Promise.resolve(S.userReady);
+          refreshShopAfterUserChange(syncedUser || S.user);
+        } else {
+          renderDynamic();
         }
 
         closeBuy();
@@ -1521,16 +1509,30 @@ Kling — видео-инструмент для генерации ролико
       }
       const tgApp = S.tg;
       if (method === 'stars' && j.invoice_url && tgApp && tgApp.openInvoice) {
-        tgApp.openInvoice(j.invoice_url, (status) => {
-          if (status === 'paid') { toast('Оплачено ✓'); S.syncUser && S.syncUser(); }
+        tgApp.openInvoice(j.invoice_url, async (status) => {
+          if (status === 'paid') {
+            toast('Оплачено ✓');
+            if (S.syncUser) {
+              S.userReady = S.syncUser();
+              const syncedUser = await Promise.resolve(S.userReady);
+              refreshShopAfterUserChange(syncedUser || S.user);
+            }
+          }
           else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
         });
       } else if (j.url) {
         openPaymentUrl(j.url, method);
       } else if (j.invoice_url) {
         if (method === 'stars' && tgApp && tgApp.openInvoice) {
-          tgApp.openInvoice(j.invoice_url, (status) => {
-            if (status === 'paid') { toast('Оплачено ✓'); S.syncUser && S.syncUser(); }
+          tgApp.openInvoice(j.invoice_url, async (status) => {
+            if (status === 'paid') {
+              toast('Оплачено ✓');
+              if (S.syncUser) {
+                S.userReady = S.syncUser();
+                const syncedUser = await Promise.resolve(S.userReady);
+                refreshShopAfterUserChange(syncedUser || S.user);
+              }
+            }
             else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
           });
         } else {
@@ -1768,6 +1770,7 @@ Kling — видео-инструмент для генерации ролико
     if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
     updateSendButton();
+    startSubscriptionTimer();
     if (S.syncUser) {
       S.userReady = S.syncUser();
       Promise.resolve(S.userReady).finally(() => {
@@ -1794,6 +1797,7 @@ Kling — видео-инструмент для генерации ролико
     openQuickToolInfo, closeQuickToolInfo,
     openQuickToolProviderDrawer, closeQuickToolProviderDrawer, selectQuickToolProvider,
     computePrice, updatePrice, generateNow,
+    setCurrentUser, renderSubscriptionCards, startSubscriptionTimer, refreshShopAfterUserChange,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
@@ -1812,4 +1816,7 @@ Kling — видео-инструмент для генерации ролико
   window.openQuickToolProviderDrawer = openQuickToolProviderDrawer;
   window.closeQuickToolProviderDrawer = closeQuickToolProviderDrawer;
   window.selectQuickToolProvider = selectQuickToolProvider;
+  window.renderSubscriptionCards = renderSubscriptionCards;
+  window.startSubscriptionTimer = startSubscriptionTimer;
+  window.refreshShopAfterUserChange = refreshShopAfterUserChange;
 })();
