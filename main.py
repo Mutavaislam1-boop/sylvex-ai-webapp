@@ -1347,21 +1347,21 @@ def sync_user_to_db(user_data: dict) -> dict:
         row = cursor.fetchone()
         # Query for active subscription before closing connection
         cursor.execute("""
-SELECT subscription_type, expires_at
-FROM subscriptions
-WHERE telegram_id = %s
-  AND status = 'active'
-  AND expires_at > NOW()
-ORDER BY expires_at DESC
-LIMIT 1
-""", (int(user_data["telegram_id"]),))
+        SELECT subscription_type, expires_at::timestamp
+        FROM subscriptions
+        WHERE telegram_id = %s
+            AND status = 'active'
+            AND expires_at::timestamp > NOW()
+        ORDER BY expires_at::timestamp DESC
+        LIMIT 1
+        """, (int(user_data["telegram_id"]),))
         sub = cursor.fetchone()
         conn.commit()
     finally:
         cursor.close()
         conn.close()
 
-    subscription = row[4] or user_data.get("status") or "free"
+    subscription = "active" if sub else "free"
     user_dict = {
         **user_data,
         "telegram_id": row[0],
@@ -1658,8 +1658,6 @@ async def public_stars_invoice(request: Request):
     }
 
 # Developer payment endpoint for simulating successful payments (dev only)
-DEV_TELEGRAM_ID = int(os.getenv("DEV_TELEGRAM_ID", "7932380565"))
-
 @app.post("/api/public/payments/dev/success")
 async def public_dev_payment(request: Request):
     data = await request.json()
