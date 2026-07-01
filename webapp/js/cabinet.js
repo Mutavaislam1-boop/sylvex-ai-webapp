@@ -18,6 +18,242 @@
   let mediaStream = null;
   let currentModelLabel = 'SYLVEX Pro';
 
+  // Information pages for the four quick tools on the Home screen.
+  // These pages are opened when the user taps a quick tool card.
+  const QUICK_TOOL_INFO = [
+    {
+      key: 'image',
+      title: 'Изображения',
+      label: 'OpenAI Image',
+      body: `
+OpenAI Image — это инструменты для генерации, редактирования, анализа и понимания изображений. Они позволяют создавать новые изображения по текстовому описанию, изменять готовые фото, делать вариации, распознавать текст и анализировать визуальный контент.
+
+Инструменты:
+• Images API
+• Image Generation
+• Image Edits
+• Image Variations
+• Responses API with image input
+• Image Generation Tool through Responses API
+• Vision
+
+Модели:
+• GPT-Image-2
+• GPT-Image-1.5
+• GPT-Image-1
+• GPT-Image-1 Mini
+• GPT vision-capable models
+
+Функционал генерации:
+• text-to-image
+• генерация изображений по промпту
+• создание иллюстраций
+• создание баннеров
+• создание обложек
+• создание визуальных концептов
+• создание персонажей
+• создание рекламных изображений
+• создание изображений для соцсетей
+• генерация изображений внутри agent workflow
+
+Функционал редактирования:
+• image edit
+• редактирование изображения
+• замена фона
+• удаление объектов
+• добавление объектов
+• изменение стиля
+• inpainting
+• редактирование по маске
+• reference images
+• image-to-image
+• создание вариантов изображения
+• работа с несколькими изображениями
+
+Анализ изображений:
+• анализ фото
+• описание изображения
+• OCR
+• распознавание текста на фото
+• распознавание текста на скриншоте
+• извлечение данных из чеков
+• извлечение данных из таблиц на изображении
+• визуальная классификация
+• сравнение нескольких изображений
+• structured output из изображения
+• JSON extraction из изображения
+      `.trim()
+    },
+    {
+      key: 'text',
+      title: 'Текст',
+      label: 'OpenAI Text',
+      body: `
+OpenAI Text — это набор инструментов для работы с текстом, промптами, структурированными ответами, переводами, сценариями, статьями, описаниями и логикой запросов.
+
+Инструменты:
+• Responses API
+• Conversations API
+• Chat Completions
+• Structured Outputs
+• Function Calling
+• Streaming
+• Background Mode
+• Batch API
+• Prompt Caching
+• Flex Processing
+
+Модели:
+• GPT-5.5
+• GPT-5.4
+• GPT-5.4 Mini
+• GPT-5.4 Nano
+• reasoning-модели
+• multimodal-модели
+
+Функционал:
+• генерация текста
+• обычный AI-чат
+• написание статей
+• написание описаний
+• рекламные тексты
+• сценарии
+• посты для соцсетей
+• исправление текста
+• улучшение текста
+• сокращение текста
+• расширение текста
+• перевод текста
+• генерация промптов
+• промпты для изображений
+• промпты для видео
+• промпты для музыки
+• генерация идей
+• структурированные ответы
+• JSON-ответы
+• извлечение данных
+• code generation
+• reasoning-задачи
+• обработка сложных запросов
+• потоковая генерация текста
+• фоновые текстовые задачи
+      `.trim()
+    },
+    {
+      key: 'voice',
+      title: 'Голос',
+      label: 'OpenAI Voice / Text-to-Speech',
+      body: `
+OpenAI Voice — это инструменты для превращения текста в голос. Они позволяют создавать озвучку, дикторскую речь, рекламную подачу, эмоциональную речь и голосовые аудиофайлы.
+
+Инструменты:
+• Audio Speech
+• Text-to-Speech
+• Voice Instructions
+• Voice Consents
+• Custom Voice
+• Realtime Voice Agent
+
+Модели:
+• GPT-4o Mini TTS
+• TTS-1
+• TTS-1 HD
+• speech-compatible models
+
+Функционал:
+• text-to-speech
+• текст в голос
+• генерация речи
+• выбор голоса
+• управление стилем
+• управление тоном
+• управление скоростью
+• управление эмоцией
+• управление интонацией
+• whispering
+• accent
+• emotional range
+• дикторская озвучка
+• рекламная озвучка
+• спокойная озвучка
+• энергичная озвучка
+• custom voice
+• voice consent
+• voice creation
+• voice id
+• live voice agent
+
+Voice Style:
+• спокойный
+• уверенный
+• энергичный
+• рекламный
+• деловой
+• мягкий
+• эмоциональный
+• дикторский
+• кинематографичный
+      `.trim()
+    },
+    {
+      key: 'video',
+      title: 'Видео',
+      label: 'OpenAI Video / Sora',
+      body: `
+OpenAI Video — это инструменты для генерации и редактирования видео через Sora. Они позволяют создавать видео по текстовому описанию, редактировать готовые ролики, продолжать видео, делать remix и работать с персонажами.
+
+Инструменты:
+• Sora Video Create
+• Sora Video Edit
+• Sora Video Extend
+• Sora Video Remix
+• Sora Character
+• Async Video Jobs
+• Video Polling
+• Video Download
+
+Модели:
+• Sora 2
+• Sora 2 Pro
+
+Функционал:
+• text-to-video
+• генерация видео по промпту
+• создание коротких роликов
+• создание вертикальных видео
+• создание горизонтальных видео
+• создание видео для соцсетей
+• создание рекламных роликов
+• создание cinematic-сцен
+• создание анимационных сцен
+• prompt + media video workflow
+• редактирование видео
+• продолжение видео
+• remix видео
+• character video workflow
+• создание видео с постоянным персонажем
+• получение статуса генерации
+• скачивание готового видео
+
+Video Create используется для создания видео по текстовому описанию. Пользователь описывает сцену, стиль, персонажа, движение камеры, атмосферу и действие в кадре.
+
+Video Edit используется для изменения готового видео. Можно изменить сцену, стиль, фон, атмосферу, детали или отдельные элементы ролика.
+
+Video Extend используется для продолжения уже созданного видео. Подходит для увеличения длительности сцены или продолжения движения.
+
+Video Remix используется для создания новой версии видео на основе существующего ролика. Можно сохранить идею, но изменить стиль, атмосферу или визуальное исполнение.
+
+Sora Character используется для работы с постоянными персонажами. Подходит для серийного контента, бренд-персонажей, маскотов и повторяющихся героев.
+
+Параметры:
+• model
+• prompt
+• size
+• seconds
+      `.trim()
+    }
+  ];
+
   function getTelegramId() {
     try {
       const tg = S.tg;
@@ -104,6 +340,144 @@
         + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
     }).join('');
     el.scrollTop = el.scrollHeight;
+  }
+
+  function ensureQuickToolInfoPage() {
+    let page = document.getElementById('quickToolInfoPage');
+    if (page) return page;
+
+    page = document.createElement('div');
+    page.id = 'quickToolInfoPage';
+    page.className = 'quick-tool-info-page';
+    page.innerHTML = '' +
+      '<div class="quick-tool-info-head">' +
+        '<button class="quick-tool-info-back" onclick="SYLVEX.closeQuickToolInfo()">‹</button>' +
+        '<div>' +
+          '<div class="quick-tool-info-kicker">OpenAI Tools</div>' +
+          '<div class="quick-tool-info-title" id="quickToolInfoTitle">Инструмент</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="quick-tool-info-card">' +
+        '<div class="quick-tool-info-label" id="quickToolInfoLabel">OpenAI</div>' +
+        '<div class="quick-tool-info-body" id="quickToolInfoBody"></div>' +
+      '</div>';
+
+    document.body.appendChild(page);
+    return page;
+  }
+
+  function ensureQuickToolInfoStyles() {
+    if (document.getElementById('quickToolInfoStyles')) return;
+    const st = document.createElement('style');
+    st.id = 'quickToolInfoStyles';
+    st.textContent = `
+      .quick-tool-info-page {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: none;
+        overflow-y: auto;
+        padding: calc(env(safe-area-inset-top, 0px) + 18px) 16px calc(92px + env(safe-area-inset-bottom, 0px));
+        background: radial-gradient(circle at top, rgba(255,255,255,.08), transparent 34%), var(--bg, #08090d);
+        color: var(--text, #fff);
+      }
+      .quick-tool-info-page.show {
+        display: block;
+      }
+      .quick-tool-info-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .quick-tool-info-back {
+        width: 42px;
+        height: 42px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 16px;
+        background: rgba(255,255,255,.06);
+        color: inherit;
+        font-size: 30px;
+        line-height: 1;
+      }
+      .quick-tool-info-kicker {
+        opacity: .55;
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      .quick-tool-info-title {
+        margin-top: 2px;
+        font-size: 24px;
+        font-weight: 800;
+      }
+      .quick-tool-info-card {
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 24px;
+        padding: 18px;
+        background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035));
+        box-shadow: 0 18px 60px rgba(0,0,0,.28);
+        backdrop-filter: blur(18px);
+      }
+      .quick-tool-info-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        margin-bottom: 14px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.08);
+        color: inherit;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .quick-tool-info-body {
+        white-space: pre-line;
+        color: rgba(255,255,255,.82);
+        font-size: 14px;
+        line-height: 1.62;
+      }
+      body.light .quick-tool-info-page {
+        background: radial-gradient(circle at top, rgba(0,0,0,.05), transparent 34%), var(--bg, #f5f6fb);
+      }
+      body.light .quick-tool-info-card,
+      body.light .quick-tool-info-back,
+      body.light .quick-tool-info-label {
+        border-color: rgba(0,0,0,.08);
+        background: rgba(255,255,255,.72);
+      }
+      body.light .quick-tool-info-body {
+        color: rgba(0,0,0,.72);
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function openQuickToolInfo(index) {
+    const data = QUICK_TOOL_INFO[index];
+    if (!data) return;
+
+    ensureQuickToolInfoStyles();
+    const page = ensureQuickToolInfoPage();
+
+    const title = document.getElementById('quickToolInfoTitle');
+    const label = document.getElementById('quickToolInfoLabel');
+    const body = document.getElementById('quickToolInfoBody');
+
+    if (title) title.textContent = data.title;
+    if (label) label.textContent = data.label;
+    if (body) body.textContent = data.body;
+
+    page.classList.add('show');
+    document.body.classList.add('quick-tool-info-open');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
+  }
+
+  function closeQuickToolInfo() {
+    const page = document.getElementById('quickToolInfoPage');
+    if (page) page.classList.remove('show');
+    document.body.classList.remove('quick-tool-info-open');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
 
   function renderDynamic() {
@@ -830,6 +1204,19 @@
       btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
 
+    // Home quick tools: open a separate information page for each of the first four cards.
+    const homeTools = document.getElementById('homeTools');
+    if (homeTools) {
+      homeTools.addEventListener('click', function (e) {
+        const card = e.target.closest('#homeTools > *');
+        if (!card || !homeTools.contains(card)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const index = Array.prototype.indexOf.call(homeTools.children, card);
+        openQuickToolInfo(index);
+      });
+    }
+
     // Theme
     const themeBtn = document.getElementById('themeBtn');
     const themeSwitch = document.getElementById('themeSwitch');
@@ -941,6 +1328,7 @@
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
+    openQuickToolInfo, closeQuickToolInfo,
     computePrice, updatePrice, generateNow,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
@@ -956,4 +1344,5 @@
   window.closeSupport   = closeSupport;
   window.sendSupport    = sendSupport;
   window.generateNow    = generateNow;
+  window.closeQuickToolInfo = closeQuickToolInfo;
 })();
