@@ -5,9 +5,11 @@ import hmac
 import hashlib
 import urllib.parse
 import asyncio
+from typing import Optional
 from uuid import uuid4
 import requests
 import psycopg2
+from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
 
@@ -15,6 +17,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -528,7 +532,7 @@ def log_user_event(
     source: str,
     event_type: str,
     event_name: str = "",
-    payload: dict | None = None,
+    payload: Optional[dict] = None,
 ):
     if not DATABASE_URL or not telegram_id or not source or not event_type:
         return
@@ -612,7 +616,14 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         """, (telegram_id,))
         active_sub = cursor.fetchone()
 
-        if not active_sub and (str(user_row[4] or '').lower() == 'active' or _has_subscription_purchase(telegram_id)):
+        if active_sub:
+            cursor.execute("""
+                UPDATE users
+                SET subscription = COALESCE(%s, 'active')
+                WHERE telegram_id = %s
+            """, (active_sub[0], telegram_id))
+            conn.commit()
+        elif (str(user_row[4] or '').lower() == 'active' or _has_subscription_purchase(telegram_id)):
             restored = _restore_active_subscription(telegram_id)
             if restored:
                 cursor.execute("""
@@ -625,6 +636,13 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                     LIMIT 1
                 """, (telegram_id,))
                 active_sub = cursor.fetchone()
+                if active_sub:
+                    cursor.execute("""
+                        UPDATE users
+                        SET subscription = COALESCE(%s, 'active')
+                        WHERE telegram_id = %s
+                    """, (active_sub[0], telegram_id))
+                    conn.commit()
 
         cursor.execute("""
             SELECT COUNT(*)
@@ -756,7 +774,7 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
             ON CONFLICT (charge_id) DO NOTHING
         """, (telegram_id, item["plan_key"], provider, amount, currency, item["days"], charge_id))
         inserted = cursor.rowcount > 0
-        cursor.execute("UPDATE users SET subscription = 'active' WHERE telegram_id = %s", (telegram_id,))
+        cursor.execute("UPDATE users SET subscription = %s WHERE telegram_id = %s", (item.get("plan_key") or "active", telegram_id))
         conn.commit()
         return inserted
     finally:
