@@ -195,13 +195,146 @@ def shop_payload(provider: str, telegram_id: int, pack_id: str, item: dict) -> s
     return f"sylvex_{provider}_credits:{telegram_id}:{item['credits']}:{item['usd']:.2f}"
 
 
-def bot_stars_payload(telegram_id: int, item: dict) -> str:
+def bot_stars_payload(telegram_id: int, item: dict, charge_id: str = None) -> str:
     if item["kind"] == "subscription":
-        return f"sylvex_sub:{telegram_id}:{item['plan_key']}:{item['stars']}"
-    return f"sylvex_stars:{telegram_id}:{item['credits']}:{item['stars']}"
+        payload = f"sylvex_sub:{telegram_id}:{item['plan_key']}:{item['stars']}"
+    else:
+        payload = f"sylvex_stars:{telegram_id}:{item['credits']}:{item['stars']}"
+    if charge_id:
+        payload = f"{payload}:{charge_id}"
+    return payload
 
 
-def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dict) -> str:
+def parse_shop_payload(payload: str) -> dict:
+    if not payload or not isinstance(payload, str):
+        return {}
+
+    parts = payload.split(":")
+    if not parts:
+        return {}
+
+    result = {
+        "kind": None,
+        "provider": None,
+        "plan_key": None,
+        "credits": 0,
+        "charge_id": None,
+    }
+
+    key = parts[0] or ""
+    if key.startswith("sylvex_") and key.endswith("_sub"):
+        result["kind"] = "subscription"
+        result["provider"] = key[len("sylvex_"):-len("_sub")]
+    elif key.startswith("sylvex_") and key.endswith("_credits"):
+        result["kind"] = "credits"
+        result["provider"] = key[len("sylvex_"):-len("_credits")]
+    elif key == "sylvex_sub":
+        result["kind"] = "subscription"
+    elif key == "sylvex_stars":
+        result["kind"] = "credits"
+    else:
+        return {}
+
+    if result["kind"] == "subscription":
+        if len(parts) >= 3:
+            result["plan_key"] = parts[2]
+        if len(parts) >= 5:
+            result["charge_id"] = parts[4]
+    else:
+        if len(parts) >= 3:
+            try:
+                result["credits"] = int(parts[2] or 0)
+            except Exception:
+                result["credits"] = 0
+        if len(parts) >= 5:
+            result["charge_id"] = parts[4]
+
+    return result
+
+
+def _has_subscription_purchase(telegram_id: int) -> bool:
+    if not DATABASE_URL or not telegram_id:
+        return False
+
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT 1
+            FROM purchases
+            WHERE telegram_id = %s
+              AND payload LIKE 'sylvex_%sub:%'
+            LIMIT 1
+        """, (telegram_id,))
+        return cursor.fetchone() is not None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _restore_active_subscription(telegram_id: int) -> bool:
+    if not DATABASE_URL or not telegram_id:
+        return False
+
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT provider, payload, amount, currency, charge_id, created_at
+            FROM purchases
+            WHERE telegram_id = %s
+              AND payload LIKE 'sylvex_%sub:%'
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (telegram_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    item = SHOP_ITEMS.get("sub_month")
+    charge_id = None
+    provider = "recovery"
+    amount = 0
+    currency = "REC"
+    payload = None
+
+    if row:
+        payload_str = row[1] or ""
+        parsed = parse_shop_payload(payload_str)
+        plan_key = parsed.get("plan_key") or "month"
+        item = SHOP_ITEMS.get(f"sub_{plan_key}") or SHOP_ITEMS.get("sub_month")
+        charge_id = row[4] or f"recovery_sub_{telegram_id}_{int(row[5].timestamp()) if row[5] else 0}"
+        provider = row[0] or "telegram_stars"
+        amount = row[2] or 0
+        currency = row[3] or "USD"
+        payload = payload_str
+    else:
+        item = SHOP_ITEMS.get("sub_month")
+        charge_id = f"recovery_sub_month_{telegram_id}"
+        payload = bot_stars_payload(telegram_id, item, charge_id)
+
+    if not item or not charge_id:
+        return False
+
+    inserted = activate_subscription(
+        telegram_id=telegram_id,
+        item=item,
+        provider=provider,
+        amount=amount,
+        currency=currency,
+        payload=payload,
+        charge_id=charge_id,
+    )
+
+    if inserted and item.get("bonus_credits"):
+        add_user_balance(telegram_id, int(item["bonus_credits"]))
+    return inserted
+
+
+def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dict, charge_id: str) -> str:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured")
 
@@ -210,7 +343,7 @@ def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dic
         json={
             "title": item["title"],
             "description": f"Оплата {item['title']} в SYLVEX.",
-            "payload": bot_stars_payload(telegram_id, item),
+            "payload": bot_stars_payload(telegram_id, item, charge_id),
             "provider_token": "",
             "currency": "XTR",
             "prices": [
@@ -348,9 +481,9 @@ def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: 
         conn.close()
 
 
-def activate_subscription(telegram_id: int, item: dict, provider: str, amount: int, currency: str, payload: str, charge_id: str):
+def activate_subscription(telegram_id: int, item: dict, provider: str, amount: int, currency: str, payload: str, charge_id: str) -> bool:
     if not DATABASE_URL:
-        return
+        return False
 
     ensure_user_exists(telegram_id)
     ensure_payment_tables()
@@ -372,8 +505,10 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
             )
             ON CONFLICT (charge_id) DO NOTHING
         """, (telegram_id, item["plan_key"], provider, amount, currency, item["days"], charge_id))
+        inserted = cursor.rowcount > 0
         cursor.execute("UPDATE users SET subscription = 'active' WHERE telegram_id = %s", (telegram_id,))
         conn.commit()
+        return inserted
     finally:
         cursor.close()
         conn.close()
@@ -1367,6 +1502,28 @@ def sync_user_to_db(user_data: dict) -> dict:
         cursor.close()
         conn.close()
 
+    if not sub:
+        has_active_flag = (row[4] or "").lower() in ("active", "pro", "premium", "vip")
+        if has_active_flag or _has_subscription_purchase(int(user_data["telegram_id"])):
+            _restore_active_subscription(int(user_data["telegram_id"]))
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                SELECT subscription_type, expires_at::timestamp
+                FROM subscriptions
+                WHERE telegram_id = %s
+                    AND status = 'active'
+                    AND expires_at::timestamp > NOW()
+                ORDER BY expires_at::timestamp DESC
+                LIMIT 1
+                """, (int(user_data["telegram_id"]),))
+                sub = cursor.fetchone()
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+
     subscription = "active" if sub else "free"
     user_dict = {
         **user_data,
@@ -1651,8 +1808,9 @@ async def public_stars_invoice(request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
 
+    charge_id = f"stars_{uuid4().hex}"
     try:
-        invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item)
+        invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item, charge_id)
     except Exception as exc:
         print("STARS INVOICE ERROR:", exc)
         return JSONResponse({"ok": False, "error": "stars_invoice_failed", "detail": str(exc)}, status_code=502)
@@ -1661,6 +1819,49 @@ async def public_stars_invoice(request: Request):
         "ok": True,
         "invoice_url": invoice_url,
         "pack_id": pack_id,
+        "charge_id": charge_id,
+    }
+
+@app.post("/api/public/payments/stars/confirm")
+async def public_stars_confirm(request: Request):
+    data = await request.json()
+    pack_id = data.get("pack_id") or ""
+    charge_id = data.get("charge_id") or ""
+    telegram_id = int(data.get("telegram_id") or 0)
+
+    item = shop_item(pack_id)
+    if not item:
+        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not charge_id:
+        return JSONResponse({"ok": False, "error": "charge_id_required"}, status_code=400)
+
+    payload = bot_stars_payload(telegram_id, item, charge_id)
+    created = finalize_shop_payment(
+        telegram_id=telegram_id,
+        provider="telegram_stars",
+        item=item,
+        amount=int(item.get("stars") or 0),
+        currency="XTR",
+        payload=payload,
+        charge_id=charge_id,
+    )
+
+    user = sync_user_to_db({
+        "telegram_id": telegram_id,
+        "username": data.get("username") or None,
+        "first_name": data.get("first_name") or "Telegram User",
+        "status": "free",
+        "balance": 0,
+    })
+
+    return {
+        "ok": True,
+        "created": created,
+        "user": user,
+        "pack_id": pack_id,
+        "charge_id": charge_id,
     }
 
 # Developer payment endpoint for simulating successful payments (dev only)

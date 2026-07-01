@@ -1512,13 +1512,29 @@ Kling — видео-инструмент для генерации ролико
         tgApp.openInvoice(j.invoice_url, async (status) => {
           if (status === 'paid') {
             toast('Оплачено ✓');
-            if (S.syncUser) {
-              S.userReady = S.syncUser();
-              const syncedUser = await Promise.resolve(S.userReady);
-              refreshShopAfterUserChange(syncedUser || S.user);
+            try {
+              const confirmRes = await fetch('/api/public/payments/stars/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ telegram_id: tg, pack_id: packId, charge_id: j.charge_id }),
+              });
+              const confirmJson = await confirmRes.json();
+              if (confirmRes.ok && confirmJson.user) {
+                refreshShopAfterUserChange(confirmJson.user);
+              } else if (S.syncUser) {
+                S.userReady = S.syncUser();
+                const syncedUser = await Promise.resolve(S.userReady);
+                refreshShopAfterUserChange(syncedUser || S.user);
+              }
+            } catch (err) {
+              console.warn('Stars confirm failed', err);
+              if (S.syncUser) {
+                S.userReady = S.syncUser();
+                const syncedUser = await Promise.resolve(S.userReady);
+                refreshShopAfterUserChange(syncedUser || S.user);
+              }
             }
-          }
-          else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
+          } else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
         });
       } else if (j.url) {
         openPaymentUrl(j.url, method);
@@ -1527,10 +1543,27 @@ Kling — видео-инструмент для генерации ролико
           tgApp.openInvoice(j.invoice_url, async (status) => {
             if (status === 'paid') {
               toast('Оплачено ✓');
-              if (S.syncUser) {
-                S.userReady = S.syncUser();
-                const syncedUser = await Promise.resolve(S.userReady);
-                refreshShopAfterUserChange(syncedUser || S.user);
+              try {
+                const confirmRes = await fetch('/api/public/payments/stars/confirm', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ telegram_id: tg, pack_id: packId, charge_id: j.charge_id }),
+                });
+                const confirmJson = await confirmRes.json();
+                if (confirmRes.ok && confirmJson.user) {
+                  refreshShopAfterUserChange(confirmJson.user);
+                } else if (S.syncUser) {
+                  S.userReady = S.syncUser();
+                  const syncedUser = await Promise.resolve(S.userReady);
+                  refreshShopAfterUserChange(syncedUser || S.user);
+                }
+              } catch (err) {
+                console.warn('Stars confirm failed', err);
+                if (S.syncUser) {
+                  S.userReady = S.syncUser();
+                  const syncedUser = await Promise.resolve(S.userReady);
+                  refreshShopAfterUserChange(syncedUser || S.user);
+                }
               }
             }
             else if (status === 'failed' || status === 'cancelled') toast('Оплата отменена');
