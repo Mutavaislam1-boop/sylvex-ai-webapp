@@ -762,3 +762,38 @@ body.kb-open .nav{
 .btn-primary,.btn-ghost{border:none;cursor:pointer;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600}
 .btn-primary{background:var(--primary);color:#fff}
 .btn-ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+
+/* ===== Shop image safety fix ===== */
+.view[data-view="shop"] img,
+.view[data-view="pay"] img{
+  display:block;
+  max-width:100%;
+  height:auto;
+  object-fit:cover;
+}
+
+.view[data-view="shop"] .avatar,
+.view[data-view="pay"] .avatar{
+  overflow:hidden;
+  flex:0 0 auto;
+}
+
+.view[data-view="shop"] .avatar img,
+.view[data-view="pay"] .avatar img{
+  width:100%;
+  height:100%;
+  max-width:100%;
+  max-height:100%;
+  object-fit:cover;
+  border-radius:inherit;
+}
+
+.view[data-view="shop"] .user-card img,
+.view[data-view="shop"] .shop-balance img,
+.view[data-view="shop"] .sub-card img,
+.view[data-view="shop"] .tok-card img,
+.view[data-view="pay"] .pay-user img{
+  max-height:120px;
+  object-fit:cover;
+  border-radius:inherit;
+}
