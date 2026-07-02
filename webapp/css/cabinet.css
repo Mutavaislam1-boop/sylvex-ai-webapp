@@ -825,3 +825,18 @@ body.kb-open .nav{
   object-fit:cover;
   border-radius:inherit;
 }
+
+/* ===== Align subscription buttons at bottom ===== */
+.view[data-view="shop"] .sub-grid{
+  align-items:stretch;
+}
+
+.view[data-view="shop"] .sub-card{
+  height:100%;
+  display:flex;
+  flex-direction:column;
+}
+
+.view[data-view="shop"] .sub-cta{
+  margin-top:auto;
+}
