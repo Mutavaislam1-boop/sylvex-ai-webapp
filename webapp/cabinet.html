@@ -221,7 +221,8 @@
             <li>500 ⚡️ SYLVEX BT сразу после покупки</li>
             <li>+100 ⚡️ автоматически каждый месяц</li>
           </ul>
-          <button class="sub-cta" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_year')">Подписаться</button>
+          <div class="paypal-subscribe-wrap" id="paypalSubscribeYear"></div>
+          <button class="sub-cta sub-cta-fallback" data-sub-el="cta" hidden>Подписаться</button>
         </div>
       </div>
 
@@ -251,6 +252,16 @@
           <div class="tok-amount">3 000</div>
           <div class="tok-unit">⚡️</div>
           <div class="tok-price">$30</div>
+        </div>
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_4000')">
+          <div class="tok-amount">4 000</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$40</div>
+        </div>
+        <div class="tok-card" onclick="SYLVEX.openBuy('pack_5000')">
+          <div class="tok-amount">5 000</div>
+          <div class="tok-unit">⚡️</div>
+          <div class="tok-price">$50</div>
         </div>
       </div>
 

@@ -3,6 +3,11 @@
   const tg = S.tg || (window.Telegram && window.Telegram.WebApp);
   const PAYPAL_PAYMENT_LINKS = {
     pack_500: "https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L",
+    pack_1000: "https://www.paypal.com/ncp/payment/YRWTDN4D585SL",
+    pack_2000: "https://www.paypal.com/ncp/payment/YGGSLURF7ZC8N",
+    pack_3000: "https://www.paypal.com/ncp/payment/5MV8DDWFZK5KC",
+    pack_4000: "https://www.paypal.com/ncp/payment/Z5R9QMJKY2A2Y",
+    pack_5000: "https://www.paypal.com/ncp/payment/LTF8NMXED9ZCW",
   };
 
   function toast(message) {

@@ -54,6 +54,7 @@ PAYPAL_MODE = (os.getenv("PAYPAL_MODE") or "sandbox").strip().lower()
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
 PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
 PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "P-2JN99488MP781262CNJDGCZI")
+PAYPAL_PRO_YEARLY_PLAN_ID = os.getenv("PAYPAL_PRO_YEARLY_PLAN_ID", "P-0YT1496917791881BNJDGRMY")
 CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
 CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
@@ -90,6 +91,8 @@ SHOP_ITEMS = {
     "pack_1000": {"kind": "credits", "title": "1000 ⚡", "credits": 1000, "usd": 10.0, "stars": 460},
     "pack_2000": {"kind": "credits", "title": "2000 ⚡", "credits": 2000, "usd": 20.0, "stars": 920},
     "pack_3000": {"kind": "credits", "title": "3000 ⚡", "credits": 3000, "usd": 30.0, "stars": 1380},
+    "pack_4000": {"kind": "credits", "title": "4000 ⚡", "credits": 4000, "usd": 40.0, "stars": 1840},
+    "pack_5000": {"kind": "credits", "title": "5000 ⚡", "credits": 5000, "usd": 50.0, "stars": 2300},
 }
 
 
@@ -1365,12 +1368,22 @@ def finalize_paypal_capture(event: dict) -> bool:
         conn.close()
 
 
-def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: str) -> bool:
+def paypal_subscription_pack_for_plan(plan_id: str, plan_type: str = "") -> str:
+    normalized_type = (plan_type or "").strip().lower()
+    if plan_id == PAYPAL_PRO_MONTHLY_PLAN_ID or normalized_type in {"month", "monthly"}:
+        return "sub_month"
+    if plan_id == PAYPAL_PRO_YEARLY_PLAN_ID or normalized_type in {"year", "yearly", "annual"}:
+        return "sub_year"
+    return ""
+
+
+def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: str, plan_type: str = "") -> bool:
     if not DATABASE_URL:
         return False
 
-    item = shop_item("sub_month")
-    if not item or plan_id != PAYPAL_PRO_MONTHLY_PLAN_ID:
+    pack_id = paypal_subscription_pack_for_plan(plan_id, plan_type)
+    item = shop_item(pack_id)
+    if not item or not pack_id:
         return False
 
     ensure_payment_tables()
@@ -1382,9 +1395,10 @@ def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: st
             INSERT INTO paypal_subscriptions (
                 telegram_id, pack_id, plan_id, paypal_subscription_id, amount, currency, status, payload
             )
-            VALUES (%s, 'sub_month', %s, %s, %s, 'USD', 'pending', %s)
+            VALUES (%s, %s, %s, %s, %s, 'USD', 'pending', %s)
             ON CONFLICT (paypal_subscription_id) DO UPDATE
             SET telegram_id = EXCLUDED.telegram_id,
+                pack_id = EXCLUDED.pack_id,
                 plan_id = EXCLUDED.plan_id,
                 status = CASE
                     WHEN paypal_subscriptions.status = 'active' THEN paypal_subscriptions.status
@@ -1393,10 +1407,11 @@ def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: st
                 updated_at = CURRENT_TIMESTAMP
         """, (
             telegram_id,
+            pack_id,
             plan_id,
             subscription_id,
             int(round(float(item["usd"]) * 100)),
-            shop_payload("paypal_subscription", telegram_id, "sub_month", item),
+            shop_payload("paypal_subscription", telegram_id, pack_id, item),
         ))
         conn.commit()
         return True
@@ -2519,16 +2534,18 @@ async def public_paypal_subscription_created(request: Request):
     data = await request.json()
     subscription_id = (data.get("subscription_id") or data.get("subscriptionID") or "").strip()
     plan_id = (data.get("plan_id") or "").strip()
+    plan_type = (data.get("plan_type") or "").strip().lower()
     telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
+    pack_id = paypal_subscription_pack_for_plan(plan_id, plan_type)
 
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
     if not subscription_id:
         return JSONResponse({"ok": False, "error": "subscription_id_required"}, status_code=400)
-    if plan_id != PAYPAL_PRO_MONTHLY_PLAN_ID:
+    if not pack_id:
         return JSONResponse({"ok": False, "error": "unknown_plan"}, status_code=400)
 
-    saved = save_paypal_subscription(telegram_id, subscription_id, plan_id)
+    saved = save_paypal_subscription(telegram_id, subscription_id, plan_id, plan_type)
     if not saved:
         return JSONResponse({"ok": False, "error": "subscription_save_failed"}, status_code=500)
 
@@ -2540,10 +2557,11 @@ async def public_paypal_subscription_created(request: Request):
         payload={
             "subscription_id": subscription_id,
             "plan_id": plan_id,
-            "pack_id": "sub_month",
+            "plan_type": plan_type,
+            "pack_id": pack_id,
         },
     )
-    return {"ok": True, "status": "pending", "subscription_id": subscription_id}
+    return {"ok": True, "status": "pending", "subscription_id": subscription_id, "pack_id": pack_id}
 
 
 @app.post("/api/public/payments/paypal/webhook")
