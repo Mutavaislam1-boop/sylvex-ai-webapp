@@ -737,9 +737,26 @@ body.kb-open .nav{
   background:linear-gradient(135deg,#f0d78c,#c9a84c) !important;
   color:#1a1407 !important;
 }
-.sub-countdown{margin:10px 0 6px;padding:12px 14px;border-radius:14px;background:rgba(25,195,125,.10);border:1px solid rgba(25,195,125,.25)}
-.sub-cd-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px}
-.sub-cd-val{font-size:20px;font-weight:800;color:#19c37d;margin-top:2px}
+.sub-countdown{
+  margin:8px 0 4px;
+  padding:0;
+  border-radius:0;
+  background:transparent;
+  border:none;
+}
+.sub-cd-label{
+  display:none;
+}
+.sub-cd-val{
+  font-size:13px;
+  font-weight:600;
+  color:#fff;
+  margin-top:0;
+  line-height:1.35;
+}
+.sub-card-gold .sub-cd-val{
+  color:#fff;
+}
 .pro-badge{cursor:pointer;user-select:none}
 .pro-badge:active{transform:scale(.94)}
 .sub-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
