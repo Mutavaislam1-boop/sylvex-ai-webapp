@@ -29,8 +29,7 @@
       return;
     }
 
-    if (tg && tg.openLink) tg.openLink(url, { try_instant_view: false });
-    else window.location.href = url;
+    window.location.href = url;
   }
 
   async function createPayPalOrder(packId, purchaseType) {
@@ -61,7 +60,13 @@
       return;
     }
 
-    openCheckout(data.url || data.approval_url);
+    const checkoutUrl = data.url || data.approval_url || data.checkout_url;
+    if (!checkoutUrl) {
+      toast("Ссылка PayPal не найдена");
+      return;
+    }
+    console.log("PAYPAL CHECKOUT URL:", checkoutUrl);
+    openCheckout(checkoutUrl);
   }
 
   function renderProducts(products) {

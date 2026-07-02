@@ -742,9 +742,17 @@
     return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
   }
   function openPaymentUrl(url, method) {
+    if (!url) {
+      toast('Ссылка оплаты не найдена');
+      return;
+    }
     const tgApp = S.tg;
     if (method === 'crypto' && isTelegramLink(url) && tgApp && tgApp.openTelegramLink) {
       tgApp.openTelegramLink(url);
+      return;
+    }
+    if (method === 'paypal') {
+      window.location.href = url;
       return;
     }
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
@@ -803,8 +811,13 @@
             toast('Оплата отменена');
           }
         });
+      } else if (method === 'paypal') {
+        const paypalUrl = j.url || j.approval_url || j.checkout_url;
+        if (!paypalUrl) { toast('Ссылка PayPal не найдена'); return; }
+        toast('Открываем PayPal…');
+        console.log('PAYPAL CHECKOUT URL:', paypalUrl);
+        openPaymentUrl(paypalUrl, method);
       } else if (j.url) {
-        if (method === 'paypal') toast('Открываем PayPal…');
         openPaymentUrl(j.url, method);
       } else if (j.invoice_url) {
         openPaymentUrl(j.invoice_url, method);
