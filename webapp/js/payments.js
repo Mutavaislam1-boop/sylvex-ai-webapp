@@ -1,6 +1,9 @@
 (function () {
   const S = window.SYLVEX || {};
   const tg = S.tg || (window.Telegram && window.Telegram.WebApp);
+  const PAYPAL_PAYMENT_LINKS = {
+    pack_500: "https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L",
+  };
 
   function toast(message) {
     if (window.toast) {
@@ -33,6 +36,11 @@
   }
 
   async function createPayPalOrder(packId, purchaseType) {
+    if (PAYPAL_PAYMENT_LINKS[packId]) {
+      window.location.href = PAYPAL_PAYMENT_LINKS[packId];
+      return;
+    }
+
     const telegramId = getTelegramId();
     if (!telegramId) {
       toast("Telegram ID не найден");
