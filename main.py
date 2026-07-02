@@ -53,6 +53,7 @@ PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 PAYPAL_MODE = (os.getenv("PAYPAL_MODE") or "sandbox").strip().lower()
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
 PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
+PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "P-2JN99488MP781262CNJDGCZI")
 CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
 CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
@@ -432,6 +433,22 @@ def ensure_payment_tables():
             currency TEXT DEFAULT 'USD',
             status TEXT DEFAULT 'created',
             checkout_url TEXT,
+            payload TEXT,
+            raw_event JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS paypal_subscriptions (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            pack_id TEXT NOT NULL DEFAULT 'sub_month',
+            plan_id TEXT NOT NULL,
+            paypal_subscription_id TEXT UNIQUE NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 500,
+            currency TEXT DEFAULT 'USD',
+            status TEXT DEFAULT 'pending',
             payload TEXT,
             raw_event JSONB DEFAULT '{}'::jsonb,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1098,12 +1115,13 @@ def paypal_configured() -> bool:
     return bool(PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET)
 
 
-def paypal_access_token() -> str:
+def paypal_access_token(api_base: str = None) -> str:
     if not paypal_configured():
         raise RuntimeError("PayPal credentials are not configured")
 
+    base = api_base or PAYPAL_API_BASE
     response = requests.post(
-        f"{PAYPAL_API_BASE}/v1/oauth2/token",
+        f"{base}/v1/oauth2/token",
         auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET),
         data={"grant_type": "client_credentials"},
         headers={"Accept": "application/json", "Accept-Language": "en_US"},
@@ -1119,9 +1137,9 @@ def paypal_access_token() -> str:
     return token
 
 
-def paypal_headers() -> dict:
+def paypal_headers(api_base: str = None) -> dict:
     return {
-        "Authorization": f"Bearer {paypal_access_token()}",
+        "Authorization": f"Bearer {paypal_access_token(api_base)}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -1244,16 +1262,26 @@ def verify_paypal_webhook(headers, event: dict) -> bool:
         "webhook_id": PAYPAL_WEBHOOK_ID,
         "webhook_event": event,
     }
-    response = requests.post(
-        f"{PAYPAL_API_BASE}/v1/notifications/verify-webhook-signature",
-        headers=paypal_headers(),
-        json=body,
-        timeout=30,
-    )
-    if response.status_code >= 400:
-        print("PAYPAL WEBHOOK VERIFY ERROR:", response.status_code, response.text[:1000])
-        return False
-    return response.json().get("verification_status") == "SUCCESS"
+    bases = [PAYPAL_API_BASE]
+    alternate = "https://api-m.paypal.com" if PAYPAL_API_BASE != "https://api-m.paypal.com" else "https://api-m.sandbox.paypal.com"
+    bases.append(alternate)
+    for base in bases:
+        try:
+            response = requests.post(
+                f"{base}/v1/notifications/verify-webhook-signature",
+                headers=paypal_headers(base),
+                json=body,
+                timeout=30,
+            )
+        except Exception as exc:
+            print("PAYPAL WEBHOOK VERIFY ERROR:", base, exc)
+            continue
+        if response.status_code >= 400:
+            print("PAYPAL WEBHOOK VERIFY ERROR:", base, response.status_code, response.text[:1000])
+            continue
+        if response.json().get("verification_status") == "SUCCESS":
+            return True
+    return False
 
 
 def paypal_capture_details(resource: dict) -> dict:
@@ -1331,6 +1359,155 @@ def finalize_paypal_capture(event: dict) -> bool:
                 })
             except Exception as exc:
                 print("PAYPAL WEBHOOK: sync failed", exc)
+        return created
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: str) -> bool:
+    if not DATABASE_URL:
+        return False
+
+    item = shop_item("sub_month")
+    if not item or plan_id != PAYPAL_PRO_MONTHLY_PLAN_ID:
+        return False
+
+    ensure_payment_tables()
+    ensure_user_exists(telegram_id)
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO paypal_subscriptions (
+                telegram_id, pack_id, plan_id, paypal_subscription_id, amount, currency, status, payload
+            )
+            VALUES (%s, 'sub_month', %s, %s, %s, 'USD', 'pending', %s)
+            ON CONFLICT (paypal_subscription_id) DO UPDATE
+            SET telegram_id = EXCLUDED.telegram_id,
+                plan_id = EXCLUDED.plan_id,
+                status = CASE
+                    WHEN paypal_subscriptions.status = 'active' THEN paypal_subscriptions.status
+                    ELSE 'pending'
+                END,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            telegram_id,
+            plan_id,
+            subscription_id,
+            int(round(float(item["usd"]) * 100)),
+            shop_payload("paypal_subscription", telegram_id, "sub_month", item),
+        ))
+        conn.commit()
+        return True
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def paypal_subscription_id_from_event(event: dict) -> str:
+    resource = event.get("resource") or {}
+    event_type = event.get("event_type") or ""
+    if event_type.startswith("BILLING.SUBSCRIPTION."):
+        return resource.get("id") or ""
+    return (
+        resource.get("billing_agreement_id")
+        or resource.get("billing_subscription_id")
+        or resource.get("subscription_id")
+        or resource.get("supplementary_data", {}).get("related_ids", {}).get("billing_agreement_id")
+        or ""
+    )
+
+
+def paypal_subscription_payment_details(event: dict) -> dict:
+    resource = event.get("resource") or {}
+    amount = resource.get("amount") or {}
+    if "total" in amount:
+        value = amount.get("total")
+        currency = amount.get("currency") or "USD"
+    else:
+        value = amount.get("value")
+        currency = amount.get("currency_code") or "USD"
+    charge_id = resource.get("id") or paypal_subscription_id_from_event(event)
+    try:
+        cents = int(round(float(value or 5.0) * 100))
+    except Exception:
+        cents = 500
+    return {"amount": cents, "currency": currency, "charge_id": charge_id}
+
+
+def activate_paypal_subscription_from_event(event: dict) -> bool:
+    subscription_id = paypal_subscription_id_from_event(event)
+    if not subscription_id or not DATABASE_URL:
+        return False
+
+    details = paypal_subscription_payment_details(event)
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT telegram_id, pack_id, amount, currency, status, payload
+            FROM paypal_subscriptions
+            WHERE paypal_subscription_id = %s
+        """, (subscription_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        telegram_id, pack_id, stored_amount, stored_currency, status, payload = row
+        item = shop_item(pack_id or "sub_month")
+        if not item:
+            return False
+
+        event_type = event.get("event_type") or ""
+        if status == "active":
+            cursor.execute("""
+                SELECT expires_at
+                FROM subscriptions
+                WHERE telegram_id = %s
+                  AND status = 'active'
+                ORDER BY expires_at DESC
+                LIMIT 1
+            """, (telegram_id,))
+            active_row = cursor.fetchone()
+            if active_row and active_row[0]:
+                cursor.execute("SELECT CURRENT_TIMESTAMP + INTERVAL '7 days'")
+                renewal_window = cursor.fetchone()[0]
+                if active_row[0] > renewal_window:
+                    return False
+
+        charge_prefix = "paypal_sale" if event_type == "PAYMENT.SALE.COMPLETED" else "paypal_subscription"
+        charge_source = details["charge_id"] or subscription_id
+        charge_id = f"{charge_prefix}_{charge_source}"
+        created = finalize_shop_payment(
+            telegram_id=int(telegram_id),
+            provider="paypal_subscription",
+            item=item,
+            amount=details["amount"] or stored_amount,
+            currency=details["currency"] or stored_currency or "USD",
+            payload=payload or shop_payload("paypal_subscription", int(telegram_id), pack_id, item),
+            charge_id=charge_id,
+        )
+        cursor.execute("""
+            UPDATE paypal_subscriptions
+            SET status = CASE WHEN %s THEN 'active' ELSE status END,
+                raw_event = %s::jsonb,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE paypal_subscription_id = %s
+        """, (created, json.dumps(event), subscription_id))
+        conn.commit()
+        if created:
+            try:
+                sync_user_to_db({
+                    "telegram_id": int(telegram_id),
+                    "username": None,
+                    "first_name": None,
+                    "status": "free",
+                    "balance": 0,
+                })
+            except Exception as exc:
+                print("PAYPAL SUBSCRIPTION WEBHOOK: sync failed", exc)
         return created
     finally:
         cursor.close()
@@ -2337,6 +2514,38 @@ async def public_paypal_create_order(request: Request):
     }
 
 
+@app.post("/api/public/payments/paypal/subscription-created")
+async def public_paypal_subscription_created(request: Request):
+    data = await request.json()
+    subscription_id = (data.get("subscription_id") or data.get("subscriptionID") or "").strip()
+    plan_id = (data.get("plan_id") or "").strip()
+    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
+
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
+    if not subscription_id:
+        return JSONResponse({"ok": False, "error": "subscription_id_required"}, status_code=400)
+    if plan_id != PAYPAL_PRO_MONTHLY_PLAN_ID:
+        return JSONResponse({"ok": False, "error": "unknown_plan"}, status_code=400)
+
+    saved = save_paypal_subscription(telegram_id, subscription_id, plan_id)
+    if not saved:
+        return JSONResponse({"ok": False, "error": "subscription_save_failed"}, status_code=500)
+
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="paypal_subscription_created",
+        event_name="paypal_subscription_created",
+        payload={
+            "subscription_id": subscription_id,
+            "plan_id": plan_id,
+            "pack_id": "sub_month",
+        },
+    )
+    return {"ok": True, "status": "pending", "subscription_id": subscription_id}
+
+
 @app.post("/api/public/payments/paypal/webhook")
 async def public_paypal_webhook(request: Request):
     raw_body = await request.body()
@@ -2349,10 +2558,16 @@ async def public_paypal_webhook(request: Request):
         return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=401)
 
     event_type = event.get("event_type") or ""
+    if event_type in {"BILLING.SUBSCRIPTION.ACTIVATED", "PAYMENT.SALE.COMPLETED"}:
+        created = activate_paypal_subscription_from_event(event)
+        return {"ok": True, "created": created}
+
     if event_type != "PAYMENT.CAPTURE.COMPLETED":
         return {"ok": True, "ignored": event_type}
 
     created = finalize_paypal_capture(event)
+    if not created:
+        created = activate_paypal_subscription_from_event(event)
     return {"ok": True, "created": created}
 
 @app.post("/api/public/payments/stars/invoice")

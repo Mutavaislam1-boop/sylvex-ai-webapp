@@ -444,6 +444,9 @@
   const PAYPAL_PAYMENT_LINKS = {
     pack_500: 'https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L',
   };
+  const PAYPAL_PRO_MONTHLY_PLAN_ID = 'P-2JN99488MP781262CNJDGCZI';
+  let paypalMonthlyRendered = false;
+  let paypalMonthlyRenderAttempts = 0;
   let pendingPack = null;
   function openBuy(packId) {
     // If already subscribed and clicking same-tier subscription card, open info modal instead.
@@ -497,6 +500,81 @@
     try { return new Date(iso).toLocaleDateString('ru-RU', { day:'2-digit', month:'long', year:'numeric' }); }
     catch { return '—'; }
   }
+
+  function renderPayPalMonthlyButton() {
+    const container = document.getElementById('paypalSubscribeMonth');
+    if (!container || paypalMonthlyRendered) return;
+
+    if (!window.paypal || !window.paypal.Buttons) {
+      paypalMonthlyRenderAttempts += 1;
+      if (paypalMonthlyRenderAttempts < 30) setTimeout(renderPayPalMonthlyButton, 300);
+      return;
+    }
+
+    container.innerHTML = '';
+    window.paypal.Buttons({
+      style: {
+        shape: 'rect',
+        color: 'gold',
+        layout: 'vertical',
+        label: 'subscribe',
+        height: 45,
+      },
+      createSubscription(data, actions) {
+        const tg = getTelegramId();
+        if (!tg) {
+          toast('Telegram ID не найден');
+          return Promise.reject(new Error('telegram_id_required'));
+        }
+        return actions.subscription.create({
+          plan_id: PAYPAL_PRO_MONTHLY_PLAN_ID,
+        });
+      },
+      async onApprove(data) {
+        const subscriptionID = data && data.subscriptionID;
+        const tg = getTelegramId();
+        if (!subscriptionID || !tg) {
+          toast('Не удалось сохранить подписку PayPal');
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/public/payments/paypal/subscription-created', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              telegram_id: tg,
+              user_id: tg,
+              subscription_id: subscriptionID,
+              subscriptionID,
+              plan_id: PAYPAL_PRO_MONTHLY_PLAN_ID,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok || result.error) {
+            toast('Ошибка: ' + (result.error || response.status));
+            return;
+          }
+          toast('Подписка оформляется. После подтверждения PayPal статус обновится.');
+          if (S.syncUser) setTimeout(() => S.syncUser(), 2500);
+        } catch (e) {
+          toast('Сетевая ошибка');
+        }
+      },
+      onError(err) {
+        console.warn('PAYPAL SUBSCRIPTION ERROR:', err);
+        toast('PayPal подписка не открылась');
+      },
+      onCancel() {
+        toast('Подписка PayPal отменена');
+      },
+    }).render('#paypalSubscribeMonth').then(() => {
+      paypalMonthlyRendered = true;
+    }).catch((err) => {
+      console.warn('PAYPAL SUBSCRIPTION RENDER FAILED:', err);
+    });
+  }
+
   function renderSubscription() {
     const u = S.user || {};
     const active = u.subscription_status === 'active';
@@ -509,17 +587,27 @@
       const prices = card.querySelector('[data-sub-el="prices"]');
       const cd = card.querySelector('[data-sub-el="countdown"]');
       const cta = card.querySelector('[data-sub-el="cta"]');
+      const paypalWrap = card.querySelector('#paypalSubscribeMonth');
       const isThis = active && plan === key;
       if (isThis) {
         if (badge) badge.hidden = true;
         if (prices) prices.hidden = true;
         if (cd) { cd.hidden = false; const v = cd.querySelector('[data-sub-cd]'); if (v && expIso) v.textContent = fmtCountdown(new Date(expIso).getTime() - Date.now()); }
-        if (cta) { cta.textContent = '✅ Вы подписаны'; cta.classList.add('sub-cta-active'); }
+        if (paypalWrap) paypalWrap.hidden = true;
+        if (cta) { cta.hidden = false; cta.textContent = '✅ Вы подписаны'; cta.classList.add('sub-cta-active'); }
       } else {
         if (badge) badge.hidden = false;
         if (prices) prices.hidden = false;
         if (cd) cd.hidden = true;
-        if (cta) { cta.textContent = 'Подписаться'; cta.classList.remove('sub-cta-active'); }
+        if (key === 'month') {
+          if (cta) cta.hidden = true;
+          if (paypalWrap) paypalWrap.hidden = false;
+          renderPayPalMonthlyButton();
+        } else if (cta) {
+          cta.hidden = false;
+          cta.textContent = 'Подписаться';
+          cta.classList.remove('sub-cta-active');
+        }
       }
     });
     // Manage-subscription row subtitle
