@@ -199,8 +199,7 @@
             <li>Доступ ко всем AI-моделям: Kling, Veo, Seedance и др.</li>
             <li>100 ⚡️ SYLVEX BT в подарок</li>
           </ul>
-          <div class="paypal-subscribe-wrap" id="paypalSubscribeMonth"></div>
-          <button class="sub-cta sub-cta-fallback" data-sub-el="cta" hidden>Подписаться</button>
+          <button class="sub-cta sub-cta-fallback" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_month')">Выбрать оплату</button>
         </div>
 
         <div class="sub-card sub-card-gold" id="subYearCard">
@@ -221,8 +220,7 @@
             <li>500 ⚡️ SYLVEX BT сразу после покупки</li>
             <li>+100 ⚡️ автоматически каждый месяц</li>
           </ul>
-          <div class="paypal-subscribe-wrap" id="paypalSubscribeYear"></div>
-          <button class="sub-cta sub-cta-fallback" data-sub-el="cta" hidden>Подписаться</button>
+          <button class="sub-cta sub-cta-fallback" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_year')">Выбрать оплату</button>
         </div>
       </div>
 
@@ -329,6 +327,13 @@
           </div>
           <div class="pm-arr">→</div>
         </button>
+      </div>
+
+      <div class="paypal-subscribe-panel" id="paypalSubscriptionPanel" hidden>
+        <div class="paypal-subscribe-title">PayPal</div>
+        <div class="paypal-subscribe-note">Подтвердите подписку в защищённом окне PayPal.</div>
+        <div class="paypal-subscribe-wrap" id="paypalSubscribePayMonth"></div>
+        <div class="paypal-subscribe-wrap" id="paypalSubscribePayYear"></div>
       </div>
     </section>
 
