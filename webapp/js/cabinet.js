@@ -456,6 +456,43 @@
   const paypalSubscriptionRendered = {};
   const paypalSubscriptionRenderAttempts = {};
   let pendingPack = null;
+  function getPayPalSubscriptionConfig(packId) {
+    if (packId === 'sub_month') {
+      return {
+        containerId: 'paypalSubscribePayMonth',
+        planId: PAYPAL_PRO_MONTHLY_PLAN_ID,
+        planType: 'monthly',
+      };
+    }
+    if (packId === 'sub_year') {
+      return {
+        containerId: 'paypalSubscribePayYear',
+        planId: PAYPAL_PRO_YEARLY_PLAN_ID,
+        planType: 'yearly',
+      };
+    }
+    return null;
+  }
+  function resetPayPalSubscriptionPanel() {
+    const panel = document.getElementById('paypalSubscriptionPanel');
+    if (panel) panel.hidden = true;
+    ['paypalSubscribePayMonth', 'paypalSubscribePayYear'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.hidden = true;
+    });
+  }
+  function showPayPalSubscriptionPanel(packId) {
+    const config = getPayPalSubscriptionConfig(packId);
+    const panel = document.getElementById('paypalSubscriptionPanel');
+    if (!config || !panel) return false;
+    resetPayPalSubscriptionPanel();
+    const container = document.getElementById(config.containerId);
+    if (!container) return false;
+    panel.hidden = false;
+    container.hidden = false;
+    renderPayPalSubscriptionButton(config);
+    return true;
+  }
   function openBuy(packId) {
     // If already subscribed and clicking same-tier subscription card, open info modal instead.
     const u = S.user || {};
@@ -486,6 +523,7 @@
     const bal = Number(u.balance || 0);
     const bEl = document.getElementById('payBalance');    if (bEl) bEl.textContent = bal.toLocaleString();
     const bU  = document.getElementById('payBalanceUsd'); if (bU)  bU.textContent  = '≈ $' + (bal/100).toFixed(2);
+    resetPayPalSubscriptionPanel();
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
@@ -567,6 +605,7 @@
             return;
           }
           toast('Подписка оформляется. После подтверждения PayPal статус обновится.');
+          resetPayPalSubscriptionPanel();
           if (S.syncUser) setTimeout(() => S.syncUser(), 2500);
         } catch (e) {
           toast('Сетевая ошибка');
@@ -598,26 +637,22 @@
       const prices = card.querySelector('[data-sub-el="prices"]');
       const cd = card.querySelector('[data-sub-el="countdown"]');
       const cta = card.querySelector('[data-sub-el="cta"]');
-      const paypalWrap = card.querySelector(key === 'month' ? '#paypalSubscribeMonth' : '#paypalSubscribeYear');
       const isThis = active && plan === key;
       if (isThis) {
         if (badge) badge.hidden = true;
         if (prices) prices.hidden = true;
         if (cd) { cd.hidden = false; const v = cd.querySelector('[data-sub-cd]'); if (v && expIso) v.textContent = fmtCountdown(new Date(expIso).getTime() - Date.now()); }
-        if (paypalWrap) paypalWrap.hidden = true;
         if (cta) { cta.hidden = false; cta.textContent = '✅ Вы подписаны'; cta.classList.add('sub-cta-active'); }
       } else {
         if (badge) badge.hidden = false;
         if (prices) prices.hidden = false;
         if (cd) cd.hidden = true;
         if (key === 'month' || key === 'year') {
-          if (cta) cta.hidden = true;
-          if (paypalWrap) paypalWrap.hidden = false;
-          renderPayPalSubscriptionButton({
-            containerId: key === 'month' ? 'paypalSubscribeMonth' : 'paypalSubscribeYear',
-            planId: key === 'month' ? PAYPAL_PRO_MONTHLY_PLAN_ID : PAYPAL_PRO_YEARLY_PLAN_ID,
-            planType: key === 'month' ? 'monthly' : 'yearly',
-          });
+          if (cta) {
+            cta.hidden = false;
+            cta.textContent = 'Выбрать оплату';
+            cta.classList.remove('sub-cta-active');
+          }
         }
       }
     });
@@ -868,6 +903,15 @@
 
     if (method === 'paypal' && PAYPAL_PAYMENT_LINKS[packId]) {
       window.location.href = PAYPAL_PAYMENT_LINKS[packId];
+      return;
+    }
+
+    if (method === 'paypal' && getPayPalSubscriptionConfig(packId)) {
+      if (showPayPalSubscriptionPanel(packId)) {
+        toast('Выберите PayPal ниже');
+      } else {
+        toast('PayPal подписка недоступна');
+      }
       return;
     }
 
