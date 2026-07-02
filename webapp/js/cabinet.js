@@ -645,14 +645,17 @@
       const cd = card.querySelector('[data-sub-el="countdown"]');
       const cta = card.querySelector('[data-sub-el="cta"]');
       const isThis = active && plan === key;
+      const priceEls = card.querySelectorAll('[data-sub-el="prices"], .sub-price, .sub-old, .sub-old-price, .sub-stars, .sub-discount, .sub-save, .sub-percent');
       if (isThis) {
         if (badge) badge.hidden = true;
         if (prices) prices.hidden = true;
+        priceEls.forEach((el) => { el.hidden = true; el.style.display = 'none'; });
         if (cd) { cd.hidden = false; const v = cd.querySelector('[data-sub-cd]'); if (v && expIso) v.textContent = fmtCountdown(new Date(expIso).getTime() - Date.now()); }
         if (cta) { cta.hidden = false; cta.textContent = '✅ Вы подписаны'; cta.classList.add('sub-cta-active'); }
       } else {
         if (badge) badge.hidden = false;
         if (prices) prices.hidden = false;
+        priceEls.forEach((el) => { el.hidden = false; el.style.display = ''; });
         if (cd) cd.hidden = true;
         if (key === 'month' || key === 'year') {
           if (cta) {
