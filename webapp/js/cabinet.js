@@ -651,7 +651,7 @@
         if (prices) prices.hidden = true;
         priceEls.forEach((el) => { el.hidden = true; el.style.display = 'none'; });
         if (cd) { cd.hidden = false; const v = cd.querySelector('[data-sub-cd]'); if (v && expIso) v.textContent = fmtCountdown(new Date(expIso).getTime() - Date.now()); }
-        if (cta) { cta.hidden = false; cta.textContent = '✅ Вы подписаны'; cta.classList.add('sub-cta-active'); }
+        if (cta) { cta.hidden = false; cta.textContent = 'Вы подписаны ✓'; cta.classList.add('sub-cta-active'); }
       } else {
         if (badge) badge.hidden = false;
         if (prices) prices.hidden = false;
