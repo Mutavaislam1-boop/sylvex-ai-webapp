@@ -825,3 +825,83 @@ body.kb-open .nav{
   object-fit:cover;
   border-radius:inherit;
 }
+
+/* ===== Mobile subscription cards: always 2 columns ===== */
+.view[data-view="shop"] .sub-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin:8px 0 18px;
+}
+
+.view[data-view="shop"] .sub-card{
+  min-width:0;
+  padding:14px 10px 12px;
+  border-radius:18px;
+  gap:8px;
+}
+
+.view[data-view="shop"] .sub-title{
+  font-size:14px;
+  line-height:1.15;
+}
+
+.view[data-view="shop"] .sub-period{
+  font-size:11px;
+  line-height:1.2;
+}
+
+.view[data-view="shop"] .sub-badge{
+  top:10px;
+  right:10px;
+  font-size:9px;
+  padding:3px 7px;
+}
+
+.view[data-view="shop"] .sub-price-now{
+  font-size:17px;
+  line-height:1.15;
+}
+
+.view[data-view="shop"] .sub-price-old{
+  font-size:10.5px;
+}
+
+.view[data-view="shop"] .sub-perks{
+  gap:5px;
+  margin:4px 0 2px;
+}
+
+.view[data-view="shop"] .sub-perks li{
+  font-size:10.5px;
+  line-height:1.25;
+  padding-left:14px;
+}
+
+.view[data-view="shop"] .sub-cta{
+  padding:10px 6px;
+  font-size:12px;
+  border-radius:11px;
+}
+
+@media(max-width:380px){
+  .view[data-view="shop"] .sub-grid{
+    gap:8px;
+  }
+
+  .view[data-view="shop"] .sub-card{
+    padding:12px 8px 10px;
+  }
+
+  .view[data-view="shop"] .sub-title{
+    font-size:13px;
+  }
+
+  .view[data-view="shop"] .sub-price-now{
+    font-size:15px;
+  }
+
+  .view[data-view="shop"] .sub-perks li{
+    font-size:10px;
+  }
+}
