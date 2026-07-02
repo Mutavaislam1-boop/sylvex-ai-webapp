@@ -48,11 +48,11 @@ ELEVENLABS_DEFAULT_VOICE_NAME = "Rachel"
 ELEVENLABS_DEFAULT_MODEL_ID = "eleven_multilingual_v2"
 ELEVENLABS_DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
 HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY")
-LEMONSQUEEZY_API_KEY = (
-    os.getenv("LEMONSQUEEZY_API_KEY")
-    or os.getenv("LEMONSQUEEYY_API_KEY")
-)
-LEMONSQUEEZY_BASE_URL = "https://api.lemonsqueezy.com/v1"
+PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
+PAYPAL_MODE = (os.getenv("PAYPAL_MODE") or "sandbox").strip().lower()
+PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
+PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
 CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
 CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
@@ -106,88 +106,6 @@ def design(title: str, body: str) -> str:
 </pre>
 <a href="https://t.me/sylvexai_bot">Official Bot</a>
 """
-
-def lemonsqueezy_headers():
-    if not LEMONSQUEEZY_API_KEY:
-        return None
-
-    return {
-        "Authorization": f"Bearer {LEMONSQUEEZY_API_KEY}",
-        "Accept": "application/vnd.api+json",
-        "Content-Type": "application/vnd.api+json",
-    }
-
-
-def normalize_lemon_product(item: dict) -> dict:
-    attributes = item.get("attributes") or {}
-    description = attributes.get("description") or ""
-    product_name = attributes.get("name") or "Lemon Squeezy product"
-    price_formatted = attributes.get("price_formatted") or attributes.get("from_price_formatted") or ""
-
-    return {
-        "id": item.get("id"),
-        "name": product_name,
-        "slug": attributes.get("slug"),
-        "description": description,
-        "status": attributes.get("status"),
-        "status_formatted": attributes.get("status_formatted"),
-        "price": attributes.get("price"),
-        "price_formatted": price_formatted,
-        "checkout_url": attributes.get("buy_now_url"),
-        "test_mode": bool(attributes.get("test_mode")),
-        "thumb_url": attributes.get("thumb_url") or attributes.get("large_thumb_url"),
-        "is_subscription": "/month" in price_formatted or "/year" in price_formatted,
-    }
-
-
-def fetch_lemon_products() -> list:
-    headers = lemonsqueezy_headers()
-
-    if not headers:
-        return []
-
-    response = requests.get(
-        f"{LEMONSQUEEZY_BASE_URL}/products",
-        headers=headers,
-        timeout=30,
-    )
-
-    print("LEMON PRODUCTS STATUS:", response.status_code)
-
-    if response.status_code >= 400:
-        print("LEMON PRODUCTS ERROR:", response.text[:1000])
-        raise RuntimeError(response.text)
-
-    data = response.json()
-    products = [normalize_lemon_product(item) for item in data.get("data", [])]
-
-    return [
-        product
-        for product in products
-        if product.get("status") == "published" and product.get("checkout_url")
-    ]
-
-
-def legacy_lemon_packages(products: list) -> dict:
-    packages = {}
-
-    for product in products:
-        name = (product.get("name") or "").lower()
-        price = int(product.get("price") or 0)
-        url = product.get("checkout_url") or ""
-
-        if "token" not in name:
-            continue
-
-        if price <= 52000:
-            packages.setdefault("100", url)
-        elif price <= 260000:
-            packages.setdefault("500", url)
-        else:
-            packages.setdefault("1000", url)
-
-    return packages
-
 
 def shop_item(pack_id: str):
     return SHOP_ITEMS.get((pack_id or "").strip())
@@ -500,6 +418,24 @@ def ensure_payment_tables():
             status TEXT DEFAULT 'active',
             charge_id TEXT UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS paypal_orders (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            pack_id TEXT NOT NULL,
+            purchase_type TEXT NOT NULL,
+            paypal_order_id TEXT UNIQUE NOT NULL,
+            paypal_capture_id TEXT UNIQUE,
+            amount INTEGER NOT NULL,
+            currency TEXT DEFAULT 'USD',
+            status TEXT DEFAULT 'created',
+            checkout_url TEXT,
+            payload TEXT,
+            raw_event JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
         conn.commit()
@@ -1158,60 +1094,247 @@ async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
             return
 
 
-def lemon_checkout_url(pack_id: str, item: dict) -> str:
-    env_map = {
-        "sub_month": os.getenv("LEMON_SUB_MONTH_URL", ""),
-        "sub_year": os.getenv("LEMON_SUB_YEAR_URL", ""),
-        "pack_100": os.getenv("LEMON_100_CREDITS_URL", ""),
-        "pack_500": os.getenv("LEMON_500_CREDITS_URL", ""),
-        "pack_1000": os.getenv("LEMON_1000_CREDITS_URL", ""),
-        "pack_2000": os.getenv("LEMON_2000_CREDITS_URL", ""),
-        "pack_3000": os.getenv("LEMON_3000_CREDITS_URL", ""),
+def paypal_configured() -> bool:
+    return bool(PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET)
+
+
+def paypal_access_token() -> str:
+    if not paypal_configured():
+        raise RuntimeError("PayPal credentials are not configured")
+
+    response = requests.post(
+        f"{PAYPAL_API_BASE}/v1/oauth2/token",
+        auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET),
+        data={"grant_type": "client_credentials"},
+        headers={"Accept": "application/json", "Accept-Language": "en_US"},
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("PAYPAL TOKEN ERROR:", response.status_code, response.text[:1000])
+        raise RuntimeError("PayPal token request failed")
+
+    token = response.json().get("access_token")
+    if not token:
+        raise RuntimeError("PayPal token response did not include access_token")
+    return token
+
+
+def paypal_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {paypal_access_token()}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
     }
-    if env_map.get(pack_id):
-        return env_map[pack_id]
 
-    products = fetch_lemon_products()
-    target_price_cents = int(round(float(item["usd"]) * 100))
-    words = [str(item.get("credits") or ""), item.get("plan_key") or "", item["title"].lower()]
 
-    for product in products:
-        name = (product.get("name") or "").lower()
-        price = int(product.get("price") or 0)
-        if price != target_price_cents:
-            continue
-        if item["kind"] == "subscription" and ("sub" in name or "pro" in name or item["plan_key"] in name):
-            return product.get("checkout_url") or ""
-        if item["kind"] == "credits" and str(item["credits"]) in name:
-            return product.get("checkout_url") or ""
+def paypal_return_url(telegram_id: int, pack_id: str, status: str) -> str:
+    params = urllib.parse.urlencode({
+        "view": "shop",
+        "payment": status,
+        "provider": "paypal",
+        "pack_id": pack_id or "",
+        "telegram_id": str(telegram_id or ""),
+    })
+    return SHOP_WEBAPP_URL + ("&" if "?" in SHOP_WEBAPP_URL else "?") + params
 
-    for product in products:
-        if int(product.get("price") or 0) == target_price_cents:
-            return product.get("checkout_url") or ""
 
+def paypal_purchase_type(item: dict) -> str:
+    return "subscription" if item.get("kind") == "subscription" else "tokens"
+
+
+def create_paypal_order(telegram_id: int, pack_id: str, item: dict) -> dict:
+    amount_value = f"{float(item['usd']):.2f}"
+    payload = shop_payload("paypal", telegram_id, pack_id, item)
+    body = {
+        "intent": "CAPTURE",
+        "purchase_units": [
+            {
+                "reference_id": pack_id,
+                "custom_id": payload,
+                "description": item.get("title") or "SYLVEX purchase",
+                "amount": {
+                    "currency_code": "USD",
+                    "value": amount_value,
+                },
+            }
+        ],
+        "payment_source": {
+            "paypal": {
+                "experience_context": {
+                    "brand_name": "SYLVEX",
+                    "shipping_preference": "NO_SHIPPING",
+                    "user_action": "PAY_NOW",
+                    "return_url": paypal_return_url(telegram_id, pack_id, "success"),
+                    "cancel_url": paypal_return_url(telegram_id, pack_id, "cancel"),
+                }
+            }
+        },
+    }
+    response = requests.post(
+        f"{PAYPAL_API_BASE}/v2/checkout/orders",
+        headers={**paypal_headers(), "PayPal-Request-Id": f"sylvex-{telegram_id}-{pack_id}-{uuid4().hex}"},
+        json=body,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("PAYPAL ORDER ERROR:", response.status_code, response.text[:1000])
+        raise RuntimeError("PayPal order request failed")
+    return response.json()
+
+
+def paypal_approve_url(order: dict) -> str:
+    for link in order.get("links") or []:
+        if link.get("rel") in {"approve", "payer-action"} and link.get("href"):
+            return link["href"]
     return ""
 
 
-def with_lemon_custom_data(url: str, telegram_id: int, pack_id: str) -> str:
-    if not url:
-        return ""
+def save_paypal_order(telegram_id: int, pack_id: str, item: dict, order: dict, checkout_url: str):
+    if not DATABASE_URL:
+        return
 
-    params = {
-        "checkout[custom][telegram_id]": str(telegram_id),
-        "checkout[custom][pack_id]": pack_id,
-    }
-    separator = "&" if "?" in url else "?"
-    return url + separator + urllib.parse.urlencode(params)
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO paypal_orders (
+                telegram_id, pack_id, purchase_type, paypal_order_id, amount, currency, status, checkout_url, payload, raw_event
+            )
+            VALUES (%s, %s, %s, %s, %s, 'USD', %s, %s, %s, %s::jsonb)
+            ON CONFLICT (paypal_order_id) DO UPDATE
+            SET checkout_url = EXCLUDED.checkout_url,
+                status = EXCLUDED.status,
+                raw_event = EXCLUDED.raw_event,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            telegram_id,
+            pack_id,
+            paypal_purchase_type(item),
+            order.get("id"),
+            int(round(float(item["usd"]) * 100)),
+            (order.get("status") or "created").lower(),
+            checkout_url,
+            shop_payload("paypal", telegram_id, pack_id, item),
+            json.dumps(order),
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 
-def verify_lemon_signature(raw_body: bytes, signature=None) -> bool:
-    secret = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET") or os.getenv("LEMON_WEBHOOK_SECRET")
-    if not secret:
-        return True
-    if not signature:
+def verify_paypal_webhook(headers, event: dict) -> bool:
+    if not PAYPAL_WEBHOOK_ID:
+        print("PAYPAL WEBHOOK: PAYPAL_WEBHOOK_ID is not configured")
         return False
-    digest = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(digest, signature)
+
+    required = {
+        "auth_algo": headers.get("paypal-auth-algo"),
+        "cert_url": headers.get("paypal-cert-url"),
+        "transmission_id": headers.get("paypal-transmission-id"),
+        "transmission_sig": headers.get("paypal-transmission-sig"),
+        "transmission_time": headers.get("paypal-transmission-time"),
+    }
+    if not all(required.values()):
+        return False
+
+    body = {
+        **required,
+        "webhook_id": PAYPAL_WEBHOOK_ID,
+        "webhook_event": event,
+    }
+    response = requests.post(
+        f"{PAYPAL_API_BASE}/v1/notifications/verify-webhook-signature",
+        headers=paypal_headers(),
+        json=body,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("PAYPAL WEBHOOK VERIFY ERROR:", response.status_code, response.text[:1000])
+        return False
+    return response.json().get("verification_status") == "SUCCESS"
+
+
+def paypal_capture_details(resource: dict) -> dict:
+    order_id = resource.get("supplementary_data", {}).get("related_ids", {}).get("order_id")
+    capture_id = resource.get("id")
+    amount = resource.get("amount") or {}
+    return {
+        "order_id": order_id,
+        "capture_id": capture_id,
+        "status": resource.get("status") or "",
+        "amount": int(round(float(amount.get("value") or 0) * 100)),
+        "currency": amount.get("currency_code") or "USD",
+    }
+
+
+def finalize_paypal_capture(event: dict) -> bool:
+    resource = event.get("resource") or {}
+    details = paypal_capture_details(resource)
+    order_id = details["order_id"]
+    capture_id = details["capture_id"]
+    if not order_id or not capture_id:
+        return False
+    if (details["status"] or "").upper() != "COMPLETED":
+        return False
+    if not DATABASE_URL:
+        return False
+
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT telegram_id, pack_id, amount, currency, status, payload
+            FROM paypal_orders
+            WHERE paypal_order_id = %s
+        """, (order_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        telegram_id, pack_id, stored_amount, stored_currency, status, payload = row
+        if status == "completed":
+            return False
+        item = shop_item(pack_id)
+        if not item:
+            return False
+
+        charge_id = f"paypal_capture_{capture_id}"
+        created = finalize_shop_payment(
+            telegram_id=int(telegram_id),
+            provider="paypal",
+            item=item,
+            amount=details["amount"] or stored_amount,
+            currency=details["currency"] or stored_currency or "USD",
+            payload=payload or shop_payload("paypal", int(telegram_id), pack_id, item),
+            charge_id=charge_id,
+        )
+        cursor.execute("""
+            UPDATE paypal_orders
+            SET paypal_capture_id = COALESCE(paypal_capture_id, %s),
+                status = CASE WHEN %s THEN 'completed' ELSE status END,
+                raw_event = %s::jsonb,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE paypal_order_id = %s
+        """, (capture_id, created, json.dumps(event), order_id))
+        conn.commit()
+        if created:
+            try:
+                sync_user_to_db({
+                    "telegram_id": int(telegram_id),
+                    "username": None,
+                    "first_name": None,
+                    "status": "free",
+                    "balance": 0,
+                })
+            except Exception as exc:
+                print("PAYPAL WEBHOOK: sync failed", exc)
+        return created
+    finally:
+        cursor.close()
+        conn.close()
 
 def save_kling_settings_to_db(data):
     print("SAVE_KLING_FUNCTION_STARTED")
@@ -1892,35 +2015,25 @@ async def public_config():
 
 @app.get("/api/payment-links")
 async def payment_links():
-    try:
-        products = fetch_lemon_products()
-        packages = legacy_lemon_packages(products)
+    products = []
+    for pack_id, item in SHOP_ITEMS.items():
+        products.append({
+            "id": pack_id,
+            "pack_id": pack_id,
+            "name": item["title"],
+            "description": "Подписка SYLVEX Pro" if item["kind"] == "subscription" else f"{item['credits']} токенов SYLVEX",
+            "price": int(round(float(item["usd"]) * 100)),
+            "price_formatted": f"${float(item['usd']):.2f}",
+            "is_subscription": item["kind"] == "subscription",
+            "purchase_type": paypal_purchase_type(item),
+        })
 
-        return {
-            "success": True,
-            "source": "lemonsqueezy_api" if LEMONSQUEEZY_API_KEY else "env_links",
-            "products": products,
-            "packages": packages or {
-                "100": os.getenv("LEMON_100_CREDITS_URL", ""),
-                "500": os.getenv("LEMON_500_CREDITS_URL", ""),
-                "1000": os.getenv("LEMON_1000_CREDITS_URL", "")
-            }
-        }
-    except Exception as exc:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "success": False,
-                "source": "lemonsqueezy_api",
-                "error": str(exc),
-                "products": [],
-                "packages": {
-                    "100": os.getenv("LEMON_100_CREDITS_URL", ""),
-                    "500": os.getenv("LEMON_500_CREDITS_URL", ""),
-                    "1000": os.getenv("LEMON_1000_CREDITS_URL", "")
-                }
-            }
-        )
+    return {
+        "success": True,
+        "source": "paypal",
+        "products": products,
+        "packages": {},
+    }
 
 @app.post("/save-settings")
 async def save_settings(request: Request):
@@ -2072,10 +2185,10 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
 
     return conversation_id
 
-def payment_url(pack_id: str, method: str = "card") -> str:
+def payment_url(pack_id: str, method: str = "paypal") -> str:
     params = urllib.parse.urlencode({
         "pack_id": pack_id or "",
-        "method": method or "card",
+        "method": method or "paypal",
     })
     return PAYMENT_WEBAPP_URL + ("&" if "?" in PAYMENT_WEBAPP_URL else "?") + params
 
@@ -2173,35 +2286,43 @@ async def delete_public_prostudio_conversation(
 
     return {"ok": True}
 
-@app.post("/api/public/payments/card/checkout")
-async def public_card_checkout(request: Request):
+@app.post("/api/public/payments/paypal/create-order")
+async def public_paypal_create_order(request: Request):
     data = await request.json()
-    pack_id = data.get("pack_id") or ""
+    pack_id = data.get("pack_id") or data.get("package") or data.get("plan") or ""
+    purchase_type = data.get("type") or data.get("purchase_type") or ""
     item = shop_item(pack_id)
-    telegram_id = int(data.get("telegram_id") or 0)
+    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
 
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+    expected_type = paypal_purchase_type(item)
+    if purchase_type and purchase_type not in {expected_type, item.get("kind")}:
+        return JSONResponse({"ok": False, "error": "purchase_type_mismatch"}, status_code=400)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
+    if not paypal_configured():
+        return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
 
     try:
-        url = lemon_checkout_url(pack_id, item)
+        order = create_paypal_order(telegram_id, pack_id, item)
     except Exception as exc:
-        print("LEMON CHECKOUT ERROR:", exc)
-        return JSONResponse({"ok": False, "error": "card_not_configured"}, status_code=502)
+        print("PAYPAL CREATE ORDER ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
 
-    if not url:
-        return JSONResponse({"ok": False, "error": "card_not_configured"}, status_code=404)
+    checkout_url = paypal_approve_url(order)
+    if not order.get("id") or not checkout_url:
+        return JSONResponse({"ok": False, "error": "paypal_checkout_url_missing"}, status_code=502)
 
-    checkout_url = with_lemon_custom_data(url, telegram_id, pack_id)
+    save_paypal_order(telegram_id, pack_id, item, order, checkout_url)
     log_user_event(
         telegram_id=telegram_id,
         source="mini_app",
         event_type="payment_invoice_created",
-        event_name="card_invoice_created",
+        event_name="paypal_order_created",
         payload={
             "pack_id": pack_id,
+            "paypal_order_id": order.get("id"),
             "url": checkout_url,
         },
     )
@@ -2209,71 +2330,30 @@ async def public_card_checkout(request: Request):
     return {
         "ok": True,
         "url": checkout_url,
+        "approval_url": checkout_url,
+        "paypal_order_id": order.get("id"),
         "pack_id": pack_id,
+        "type": expected_type,
     }
 
 
-@app.post("/api/public/payments/card/webhook")
-async def public_card_webhook(request: Request):
+@app.post("/api/public/payments/paypal/webhook")
+async def public_paypal_webhook(request: Request):
     raw_body = await request.body()
-    signature = request.headers.get("X-Signature") or request.headers.get("x-signature")
-
-    if not verify_lemon_signature(raw_body, signature):
-        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=401)
-
     try:
         event = json.loads(raw_body.decode("utf-8"))
     except Exception:
         return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
 
-    meta = event.get("meta") or {}
-    event_name = meta.get("event_name") or ""
-    custom_data = meta.get("custom_data") or {}
-    data = event.get("data") or {}
-    attributes = data.get("attributes") or {}
+    if not verify_paypal_webhook(request.headers, event):
+        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=401)
 
-    if event_name not in {"order_created", "subscription_created", "subscription_payment_success"}:
-        return {"ok": True, "ignored": event_name}
+    event_type = event.get("event_type") or ""
+    if event_type != "PAYMENT.CAPTURE.COMPLETED":
+        return {"ok": True, "ignored": event_type}
 
-    try:
-        telegram_id = int(custom_data.get("telegram_id") or 0)
-    except Exception:
-        telegram_id = 0
-
-    pack_id = custom_data.get("pack_id") or ""
-    item = shop_item(pack_id)
-
-    if not telegram_id or not item:
-        return JSONResponse({"ok": False, "error": "missing_custom_data"}, status_code=400)
-
-    amount = int(attributes.get("total") or attributes.get("subtotal") or round(item["usd"] * 100))
-    currency = attributes.get("currency") or "USD"
-    order_id = data.get("id") or attributes.get("identifier") or uuid4().hex
-    payload = shop_payload("card", telegram_id, pack_id, item)
-
-    finalize_shop_payment(
-        telegram_id=telegram_id,
-        provider="lemonsqueezy",
-        item=item,
-        amount=amount,
-        currency=currency,
-        payload=payload,
-        charge_id=f"lemon_{order_id}",
-    )
-    # Ensure backend user state is up-to-date after payment finalization
-    try:
-        user = sync_user_to_db({
-            "telegram_id": telegram_id,
-            "username": None,
-            "first_name": None,
-            "status": "free",
-            "balance": 0,
-        })
-        print("CARD WEBHOOK: user synced", telegram_id)
-    except Exception as exc:
-        print("CARD WEBHOOK: sync failed", exc)
-
-    return {"ok": True}
+    created = finalize_paypal_capture(event)
+    return {"ok": True, "created": created}
 
 @app.post("/api/public/payments/stars/invoice")
 async def public_stars_invoice(request: Request):
