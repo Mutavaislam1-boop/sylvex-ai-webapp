@@ -790,22 +790,24 @@
     { id: 'plum',  label: 'Слива',     css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
     { id: 'light', label: 'Светлая',   css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
   ];
-  function applyTheme(themeId) {
+  function applyTheme(themeId, persist = true) {
     const t = THEMES.find((x) => x.id === themeId) || THEMES[0];
     document.documentElement.setAttribute('data-theme', t.mode);
     const r = document.documentElement.style;
     Object.keys(t.css).forEach((k) => r.setProperty(k, t.css[k]));
     localStorage.setItem('sylvex-theme-id', themeId);
-    // Persist to backend.
-    const body = {
-      initData: S.tg && S.tg.initData ? S.tg.initData : '',
-      initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
-      telegram_id: getTelegramId(),
-      theme_preference: { id: themeId },
-    };
-    fetch('/api/public/telegram/profile', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    }).catch(() => {});
+    // Persist to backend only when user manually changes theme.
+    if (persist) {
+      const body = {
+        initData: S.tg && S.tg.initData ? S.tg.initData : '',
+        initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
+        telegram_id: getTelegramId(),
+        theme_preference: { id: themeId },
+      };
+      fetch('/api/public/telegram/profile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }).catch(() => {});
+    }
     renderThemeGrid();
   }
   function renderThemeGrid() {
@@ -829,7 +831,7 @@
   function applyStoredTheme() {
     const id = localStorage.getItem('sylvex-theme-id')
       || (S.user && S.user.theme_preference && S.user.theme_preference.id);
-    if (id) applyTheme(id);
+    if (id) applyTheme(id, false);
   }
 
   /* ===== Referrals ===== */
@@ -1201,16 +1203,16 @@
     renderChat();
     updateSendButton();
     handlePaymentReturnFromUrl();
-    if (S.syncUser) {
-      Promise.resolve(S.syncUser()).finally(() => {
-        applyInitialViewFromUrl();
-        applyStoredTheme();
-      });
-    }
-    loadConversations();
     applyStoredTheme();
     applyInitialViewFromUrl();
     setTimeout(applyInitialViewFromUrl, 150);
+
+    if (S.syncUser) {
+      Promise.resolve(S.syncUser()).finally(() => {
+        renderSubscription();
+      });
+    }
+    loadConversations();
   }
 
   // Expose to global scope.
