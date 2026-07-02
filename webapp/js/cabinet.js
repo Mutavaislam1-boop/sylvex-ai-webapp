@@ -440,13 +440,21 @@
     pack_1000: { title: '1000 ⚡️ токенов',       price: '$10 · 460 ⭐' },
     pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 920 ⭐' },
     pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 1380 ⭐' },
+    pack_4000: { title: '4000 ⚡️ токенов',       price: '$40 · 1840 ⭐' },
+    pack_5000: { title: '5000 ⚡️ токенов',       price: '$50 · 2300 ⭐' },
   };
   const PAYPAL_PAYMENT_LINKS = {
     pack_500: 'https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L',
+    pack_1000: 'https://www.paypal.com/ncp/payment/YRWTDN4D585SL',
+    pack_2000: 'https://www.paypal.com/ncp/payment/YGGSLURF7ZC8N',
+    pack_3000: 'https://www.paypal.com/ncp/payment/5MV8DDWFZK5KC',
+    pack_4000: 'https://www.paypal.com/ncp/payment/Z5R9QMJKY2A2Y',
+    pack_5000: 'https://www.paypal.com/ncp/payment/LTF8NMXED9ZCW',
   };
   const PAYPAL_PRO_MONTHLY_PLAN_ID = 'P-2JN99488MP781262CNJDGCZI';
-  let paypalMonthlyRendered = false;
-  let paypalMonthlyRenderAttempts = 0;
+  const PAYPAL_PRO_YEARLY_PLAN_ID = 'P-0YT1496917791881BNJDGRMY';
+  const paypalSubscriptionRendered = {};
+  const paypalSubscriptionRenderAttempts = {};
   let pendingPack = null;
   function openBuy(packId) {
     // If already subscribed and clicking same-tier subscription card, open info modal instead.
@@ -501,13 +509,15 @@
     catch { return '—'; }
   }
 
-  function renderPayPalMonthlyButton() {
-    const container = document.getElementById('paypalSubscribeMonth');
-    if (!container || paypalMonthlyRendered) return;
+  function renderPayPalSubscriptionButton(config) {
+    const container = document.getElementById(config.containerId);
+    if (!container || paypalSubscriptionRendered[config.containerId]) return;
 
     if (!window.paypal || !window.paypal.Buttons) {
-      paypalMonthlyRenderAttempts += 1;
-      if (paypalMonthlyRenderAttempts < 30) setTimeout(renderPayPalMonthlyButton, 300);
+      paypalSubscriptionRenderAttempts[config.containerId] = (paypalSubscriptionRenderAttempts[config.containerId] || 0) + 1;
+      if (paypalSubscriptionRenderAttempts[config.containerId] < 30) {
+        setTimeout(() => renderPayPalSubscriptionButton(config), 300);
+      }
       return;
     }
 
@@ -527,7 +537,7 @@
           return Promise.reject(new Error('telegram_id_required'));
         }
         return actions.subscription.create({
-          plan_id: PAYPAL_PRO_MONTHLY_PLAN_ID,
+          plan_id: config.planId,
         });
       },
       async onApprove(data) {
@@ -547,7 +557,8 @@
               user_id: tg,
               subscription_id: subscriptionID,
               subscriptionID,
-              plan_id: PAYPAL_PRO_MONTHLY_PLAN_ID,
+              plan_id: config.planId,
+              plan_type: config.planType,
             }),
           });
           const result = await response.json();
@@ -568,8 +579,8 @@
       onCancel() {
         toast('Подписка PayPal отменена');
       },
-    }).render('#paypalSubscribeMonth').then(() => {
-      paypalMonthlyRendered = true;
+    }).render('#' + config.containerId).then(() => {
+      paypalSubscriptionRendered[config.containerId] = true;
     }).catch((err) => {
       console.warn('PAYPAL SUBSCRIPTION RENDER FAILED:', err);
     });
@@ -587,7 +598,7 @@
       const prices = card.querySelector('[data-sub-el="prices"]');
       const cd = card.querySelector('[data-sub-el="countdown"]');
       const cta = card.querySelector('[data-sub-el="cta"]');
-      const paypalWrap = card.querySelector('#paypalSubscribeMonth');
+      const paypalWrap = card.querySelector(key === 'month' ? '#paypalSubscribeMonth' : '#paypalSubscribeYear');
       const isThis = active && plan === key;
       if (isThis) {
         if (badge) badge.hidden = true;
@@ -599,14 +610,14 @@
         if (badge) badge.hidden = false;
         if (prices) prices.hidden = false;
         if (cd) cd.hidden = true;
-        if (key === 'month') {
+        if (key === 'month' || key === 'year') {
           if (cta) cta.hidden = true;
           if (paypalWrap) paypalWrap.hidden = false;
-          renderPayPalMonthlyButton();
-        } else if (cta) {
-          cta.hidden = false;
-          cta.textContent = 'Подписаться';
-          cta.classList.remove('sub-cta-active');
+          renderPayPalSubscriptionButton({
+            containerId: key === 'month' ? 'paypalSubscribeMonth' : 'paypalSubscribeYear',
+            planId: key === 'month' ? PAYPAL_PRO_MONTHLY_PLAN_ID : PAYPAL_PRO_YEARLY_PLAN_ID,
+            planType: key === 'month' ? 'monthly' : 'yearly',
+          });
         }
       }
     });
