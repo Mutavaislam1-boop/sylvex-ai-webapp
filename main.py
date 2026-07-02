@@ -875,6 +875,60 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
     return result
 
 
+def get_fast_user_state(telegram_id: int) -> dict:
+    if not telegram_id:
+        return {
+            "balance": 0,
+            "subscription": None,
+            "subscription_until": None,
+            "status": "free",
+        }
+    if not DATABASE_URL:
+        return {
+            "balance": 0,
+            "subscription": None,
+            "subscription_until": None,
+            "status": "free",
+        }
+
+    ensure_user_exists(telegram_id)
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT COALESCE(balance, 0)
+            FROM users
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        user_row = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT subscription_type, expires_at::timestamp
+            FROM subscriptions
+            WHERE telegram_id = %s
+              AND status = 'active'
+              AND expires_at::timestamp > NOW()
+            ORDER BY expires_at::timestamp DESC
+            LIMIT 1
+        """, (telegram_id,))
+        active_sub = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    balance = user_row[0] if user_row else 0
+    subscription = active_sub[0] if active_sub else None
+    subscription_until = _to_iso(active_sub[1]) if active_sub and active_sub[1] else None
+    status = "pro" if active_sub else "free"
+
+    return {
+        "balance": balance or 0,
+        "subscription": subscription,
+        "subscription_until": subscription_until,
+        "status": status,
+    }
+
+
 def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: int, currency: str, payload: str, charge_id: str) -> bool:
     if not DATABASE_URL:
         return False
@@ -2836,6 +2890,17 @@ async def public_telegram_sync(request: Request):
         user = user_data
 
     return {"ok": True, "user": user}
+
+
+@app.get("/api/public/telegram/user-state")
+async def public_telegram_user_state(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    try:
+        return get_fast_user_state(int(telegram_id))
+    except Exception as exc:
+        print("USER STATE FAILED:", exc)
+        return JSONResponse({"ok": False, "error": "user_state_failed"}, status_code=500)
 
 
 @app.post("/api/public/telegram/profile")
