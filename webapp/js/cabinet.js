@@ -759,16 +759,22 @@
     try {
       let path = '';
       if (method === 'stars')  path = '/api/public/payments/stars/invoice';
-      if (method === 'card')   path = '/api/public/payments/card/checkout';
+      if (method === 'paypal') path = '/api/public/payments/paypal/create-order';
       if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
+      if (!path) { toast('Способ оплаты недоступен'); return; }
       const r = await fetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pack_id: packId, telegram_id: tg }),
+        body: JSON.stringify({
+          pack_id: packId,
+          telegram_id: tg,
+          user_id: tg,
+          type: packId.indexOf('sub_') === 0 ? 'subscription' : 'tokens',
+        }),
       });
       const j = await r.json();
       if (!r.ok || j.error) {
-        if (j.error === 'card_not_configured')   { toast('Оплата картой ещё не настроена'); return; }
+        if (j.error === 'paypal_not_configured') { toast('PayPal ещё не настроен'); return; }
         if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
         toast('Ошибка: ' + (j.error || r.status));
         return;
@@ -798,6 +804,7 @@
           }
         });
       } else if (j.url) {
+        if (method === 'paypal') toast('Открываем PayPal…');
         openPaymentUrl(j.url, method);
       } else if (j.invoice_url) {
         openPaymentUrl(j.invoice_url, method);
@@ -990,6 +997,19 @@
     if (view && view !== 'home') switchView(view);
   }
 
+  function handlePaymentReturnFromUrl() {
+    const params = new URLSearchParams(window.location.search || '');
+    if ((params.get('provider') || '').toLowerCase() !== 'paypal') return;
+
+    const status = (params.get('payment') || '').toLowerCase();
+    if (status === 'success') {
+      toast('Оплата принята. Обновляем баланс…');
+      if (S.syncUser) setTimeout(() => S.syncUser(), 1200);
+    } else if (status === 'cancel') {
+      toast('Оплата PayPal отменена');
+    }
+  }
+
   /* ===== Init (called after cabinet.html is injected) ===== */
   function init() {
     // Restore saved theme.
@@ -1003,6 +1023,7 @@
     if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
     updateSendButton();
+    handlePaymentReturnFromUrl();
     if (S.syncUser) {
       Promise.resolve(S.syncUser()).finally(() => {
         applyInitialViewFromUrl();

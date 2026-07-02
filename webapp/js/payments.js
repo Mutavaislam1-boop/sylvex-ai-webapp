@@ -17,19 +17,52 @@
     return (div.textContent || div.innerText || "").trim();
   }
 
+  function getTelegramId() {
+    const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+    const params = new URLSearchParams(window.location.search || "");
+    return Number((user && user.id) || params.get("telegram_id") || params.get("user_id") || 0);
+  }
+
   function openCheckout(url) {
-  if (!url) {
-    toast("Ссылка оплаты не найдена");
-    return;
+    if (!url) {
+      toast("Ссылка оплаты не найдена");
+      return;
+    }
+
+    if (tg && tg.openLink) tg.openLink(url, { try_instant_view: false });
+    else window.location.href = url;
   }
 
-  if (window.LemonSqueezy && window.LemonSqueezy.Url) {
-    window.LemonSqueezy.Url.Open(url);
-    return;
-  }
+  async function createPayPalOrder(packId, purchaseType) {
+    const telegramId = getTelegramId();
+    if (!telegramId) {
+      toast("Telegram ID не найден");
+      return;
+    }
 
-  window.location.href = url;
-}
+    toast("Создаём заказ PayPal…");
+    const response = await fetch("/api/public/payments/paypal/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pack_id: packId,
+        telegram_id: telegramId,
+        user_id: telegramId,
+        type: purchaseType,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      if (data.error === "paypal_not_configured") {
+        toast("PayPal ещё не настроен");
+        return;
+      }
+      toast("Ошибка: " + (data.error || response.status));
+      return;
+    }
+
+    openCheckout(data.url || data.approval_url);
+  }
 
   function renderProducts(products) {
     const grid = document.getElementById("paymentGrid");
@@ -39,17 +72,15 @@
       grid.innerHTML = `
         <article class="payment-pack">
           <div class="payment-label">Нет доступных товаров</div>
-          <p class="payment-desc">Товары Lemon Squeezy не найдены.</p>
+          <p class="payment-desc">Товары PayPal не найдены.</p>
         </article>
       `;
       return;
     }
 
     grid.innerHTML = products.map((product, index) => {
-      const url = product.checkout_url || "";
       const description = stripHtml(product.description);
       const tag = product.is_subscription ? "Подписка" : "Кредиты";
-      const disabled = url ? "" : "disabled";
 
       return `
         <article class="payment-pack ${index === 1 ? "is-popular" : ""}">
@@ -65,8 +96,8 @@
 
           ${description ? `<p class="payment-desc">${description}</p>` : ""}
 
-          <button class="payment-button" ${disabled} data-url="${url}">
-            Оплатить банковской картой
+          <button class="payment-button" data-pack-id="${product.pack_id || product.id}" data-type="${product.purchase_type || tag.toLowerCase()}">
+            PayPal
           </button>
         </article>
       `;
@@ -74,7 +105,7 @@
 
     grid.querySelectorAll(".payment-button").forEach((button) => {
       button.addEventListener("click", () => {
-        openCheckout(button.dataset.url);
+        createPayPalOrder(button.dataset.packId, button.dataset.type);
       });
     });
   }
@@ -88,6 +119,14 @@
     }
 
     const grid = document.getElementById("paymentGrid");
+    const params = new URLSearchParams(window.location.search || "");
+    if ((params.get("provider") || "").toLowerCase() === "paypal") {
+      if ((params.get("payment") || "").toLowerCase() === "success") {
+        toast("Оплата принята. Баланс обновится после подтверждения PayPal.");
+      } else if ((params.get("payment") || "").toLowerCase() === "cancel") {
+        toast("Оплата PayPal отменена");
+      }
+    }
 
     try {
       const response = await fetch("/api/payment-links", {
