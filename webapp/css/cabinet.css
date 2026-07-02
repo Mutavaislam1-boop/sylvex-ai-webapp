@@ -725,7 +725,18 @@ body.kb-open .nav{
 .pm-arr{color:var(--text-mute);font-size:18px}
 
 /* ===== Subscription state & modals ===== */
-.sub-cta-active{background:#19c37d !important;color:#fff !important}
+.sub-cta-active{
+  background:#fff !important;
+  color:#0a0a0a !important;
+  font-weight:700;
+  cursor:default;
+  box-shadow:none;
+}
+
+.sub-card-gold .sub-cta-active{
+  background:linear-gradient(135deg,#f0d78c,#c9a84c) !important;
+  color:#1a1407 !important;
+}
 .sub-countdown{margin:10px 0 6px;padding:12px 14px;border-radius:14px;background:rgba(25,195,125,.10);border:1px solid rgba(25,195,125,.25)}
 .sub-cd-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.2px}
 .sub-cd-val{font-size:20px;font-weight:800;color:#19c37d;margin-top:2px}
