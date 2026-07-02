@@ -532,14 +532,21 @@
   /* ===== Subscription state rendering ===== */
   let _cdTimer = null;
   function fmtCountdown(ms) {
-    if (ms <= 0) return '0 д 0 ч';
-    const d = Math.floor(ms / 86400000);
-    const h = Math.floor((ms % 86400000) / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    if (d > 0) return d + ' д ' + h + ' ч';
-    if (h > 0) return h + ' ч ' + m + ' м';
-    const s = Math.floor((ms % 60000) / 1000);
-    return m + ' м ' + s + ' с';
+    if (ms <= 0) return '0 д 0 ч 0 м 0 с';
+
+    const totalSeconds = Math.floor(ms / 1000);
+    const totalDays = Math.floor(totalSeconds / 86400);
+    const months = Math.floor(totalDays / 30);
+    const days = totalDays % 30;
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (months > 0) {
+      return months + ' мес ' + days + ' д ' + hours + ' ч ' + minutes + ' м ' + seconds + ' с';
+    }
+
+    return totalDays + ' д ' + hours + ' ч ' + minutes + ' м ' + seconds + ' с';
   }
   function fmtDate(iso) {
     if (!iso) return '—';
@@ -661,15 +668,17 @@
     if (ms) ms.textContent = active
       ? (plan === 'year' ? '1 год · до ' : '1 месяц · до ') + fmtDate(expIso)
       : 'Нет активной подписки';
-    // Start ticking countdown every 30s while a card is showing it.
+    // Live countdown every second while subscription is active.
     if (_cdTimer) clearInterval(_cdTimer);
     if (active && expIso) {
-      _cdTimer = setInterval(() => {
+      const tickCountdown = () => {
         const ms = new Date(expIso).getTime() - Date.now();
         document.querySelectorAll('[data-sub-cd]').forEach((el) => { el.textContent = fmtCountdown(ms); });
         const sa = document.getElementById('saCountdown'); if (sa) sa.textContent = fmtCountdown(ms);
         if (ms <= 0 && S.syncUser) S.syncUser();
-      }, 30000);
+      };
+      tickCountdown();
+      _cdTimer = setInterval(tickCountdown, 1000);
     }
   }
 
