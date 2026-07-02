@@ -441,6 +441,9 @@
     pack_2000: { title: '2000 ⚡️ токенов',       price: '$20 · 920 ⭐' },
     pack_3000: { title: '3000 ⚡️ токенов',       price: '$30 · 1380 ⭐' },
   };
+  const PAYPAL_PAYMENT_LINKS = {
+    pack_500: 'https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L',
+  };
   let pendingPack = null;
   function openBuy(packId) {
     // If already subscribed and clicking same-tier subscription card, open info modal instead.
@@ -763,6 +766,12 @@
     if (!packId) return;
     const tg = getTelegramId();
     if (!tg) { toast('Telegram ID не найден'); return; }
+
+    if (method === 'paypal' && PAYPAL_PAYMENT_LINKS[packId]) {
+      window.location.href = PAYPAL_PAYMENT_LINKS[packId];
+      return;
+    }
+
     toast('Создаём счёт…');
     try {
       let path = '';
