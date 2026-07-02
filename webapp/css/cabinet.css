@@ -663,6 +663,8 @@ body.kb-open .nav{
 .sub-cta:hover{box-shadow:0 8px 22px -8px rgba(255,255,255,.4)}
 .sub-cta:active{transform:scale(.98)}
 .sub-card-gold .sub-cta{background:linear-gradient(135deg,#f0d78c,#c9a84c);color:#1a1407}
+.paypal-subscribe-wrap{position:relative;z-index:1;min-height:45px;margin-top:6px}
+.paypal-subscribe-wrap:empty{display:none}
 @keyframes subFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
 .tok-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:6px 0 14px}
