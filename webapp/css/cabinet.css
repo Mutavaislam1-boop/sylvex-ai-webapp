@@ -837,25 +837,24 @@ body.kb-open .nav{
   flex-direction:column;
 }
 
+
 .view[data-view="shop"] .sub-cta{
   margin-top:auto;
 }
 
-/* ===== Force subscription info sheet to open as center modal ===== */
-.modal-overlay.show:has(#saCountdown),
-.modal-overlay.show:has(#saPlan),
-.modal-overlay.show:has(#saStatus),
-.modal-overlay.show:has(#saEnd){
-  display:flex !important;
+/* ===== Active subscription modal: centered block ===== */
+.sub-active-overlay{
   align-items:center !important;
   justify-content:center !important;
   padding:18px !important;
 }
 
-.modal-overlay.show:has(#saCountdown) .modal,
-.modal-overlay.show:has(#saPlan) .modal,
-.modal-overlay.show:has(#saStatus) .modal,
-.modal-overlay.show:has(#saEnd) .modal{
+.sub-active-overlay.show{
+  display:flex !important;
+  opacity:1;
+}
+
+.sub-active-overlay .sub-active-modal{
   position:relative !important;
   width:min(390px,calc(100% - 28px)) !important;
   max-height:calc(100vh - 72px) !important;
@@ -867,13 +866,20 @@ body.kb-open .nav{
   box-shadow:0 24px 80px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.08) !important;
   backdrop-filter:blur(26px) saturate(150%) !important;
   -webkit-backdrop-filter:blur(26px) saturate(150%) !important;
+  transform:scale(.96) !important;
+  transition:transform .25s ease, opacity .25s ease !important;
+}
+
+.sub-active-overlay.show .sub-active-modal{
   transform:scale(1) !important;
 }
 
-.modal-overlay.show:has(#saCountdown) .modal-close,
-.modal-overlay.show:has(#saPlan) .modal-close,
-.modal-overlay.show:has(#saStatus) .modal-close,
-.modal-overlay.show:has(#saEnd) .modal-close{
+.sub-active-overlay .modal-head{
+  padding-right:42px;
+  margin-bottom:14px;
+}
+
+.sub-active-overlay .sub-active-close{
   position:absolute !important;
   top:14px !important;
   right:14px !important;
@@ -886,4 +892,27 @@ body.kb-open .nav{
   display:grid !important;
   place-items:center !important;
   z-index:5 !important;
+}
+
+.sub-active-overlay .sub-info-grid > div{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+}
+
+.sub-active-overlay .btn-primary{
+  background:#fff;
+  color:#0a0a0a;
+  font-weight:800;
+}
+
+[data-theme="light"] .sub-active-overlay .sub-active-modal{
+  background:rgba(255,255,255,.78) !important;
+  border:1px solid rgba(0,0,0,.10) !important;
+  box-shadow:0 24px 70px -28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.7) !important;
+}
+
+[data-theme="light"] .sub-active-overlay .sub-active-close{
+  background:rgba(0,0,0,.06) !important;
+  border:1px solid rgba(0,0,0,.10) !important;
+  color:#111 !important;
 }

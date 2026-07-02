@@ -461,18 +461,29 @@
 </div>
 
 <!-- Active subscription modal -->
-<div class="sheet-overlay" id="subActiveModal" onclick="SYLVEX.closeModal(event,'subActiveModal')">
-  <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
-    <div class="sheet-grab"></div>
-    <h3 style="margin:6px 0 4px;font-size:17px">✅ Вы подписаны</h3>
-    <div style="opacity:.7;font-size:12px;margin-bottom:14px">Активная подписка SYLVEX Pro</div>
+<div class="modal-overlay sub-active-overlay" id="subActiveModal" onclick="SYLVEX.closeModal(event,'subActiveModal')">
+  <div class="modal sub-active-modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div class="mt">
+        <div class="mi">✓</div>
+        <div>
+          <h3>Вы подписаны ✓</h3>
+          <div class="ms">Активная подписка SYLVEX Pro</div>
+        </div>
+      </div>
+      <button class="modal-close sub-active-close" onclick="SYLVEX.closeModal(null,'subActiveModal')" aria-label="Close">×</button>
+    </div>
+
     <div class="sub-info-grid">
       <div><div class="k">Тариф</div><div class="v" id="saPlan">—</div></div>
       <div><div class="k">Статус</div><div class="v" style="color:#19c37d">Активна</div></div>
       <div><div class="k">Окончание</div><div class="v" id="saExpires">—</div></div>
       <div><div class="k">Осталось</div><div class="v" id="saCountdown">—</div></div>
     </div>
-    <button class="topup" style="width:100%;margin-top:14px" onclick="SYLVEX.renewFromModal()">Продлить подписку</button>
+
+    <div class="modal-actions">
+      <button class="btn-primary" style="width:100%" onclick="SYLVEX.renewFromModal()">Продлить подписку</button>
+    </div>
   </div>
 </div>
 
