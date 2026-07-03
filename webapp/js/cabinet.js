@@ -525,9 +525,12 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
           <div class="upload-panel-half upload-panel-generated">
             <div id="uploadGeneratedGrid" class="upload-generated-grid"></div>
           </div>
-          <div class="upload-panel-half upload-panel-actions">
-            <div id="uploadPhotoGrid" class="upload-photo-grid"></div>
-          </div>
+        <div class="upload-panel-half upload-panel-actions">
+        <div id="uploadPhotoGrid" class="upload-photo-grid"></div>
+        <button id="uploadChoosePhotosBtn" class="upload-choose-photos-btn" type="button" onclick="SYLVEX.confirmUploadedPhotos(event)" hidden>
+            Выбрать фото
+        </button>
+        </div>
         </div>
         <div id="uploadImagePreview" class="upload-image-preview" onclick="SYLVEX.closeUploadImagePreview(event)">
           <div class="upload-preview-card" onclick="event.stopPropagation()">
