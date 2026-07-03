@@ -553,7 +553,7 @@ function closeUploadPanel(e) {
   const panel = document.getElementById('uploadPanel');
   if (panel) panel.classList.remove('show');
 }
-  function attach(kind) {
+  function openNativeFilePicker(kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
     const inp = document.getElementById('attachInput');
@@ -562,6 +562,14 @@ function closeUploadPanel(e) {
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
     inp.value = '';
     inp.click();
+  }
+
+  function attach(kind, e) {
+    // Old upload button used to open the system file picker immediately.
+    // Now it opens the large upload panel. File picker will be called from buttons inside that panel later.
+    const sheet = document.getElementById('plusSheet');
+    if (sheet) sheet.classList.remove('show');
+    openUploadPanel(e);
   }
   function onAttachFile(e) {
     const f = e.target.files && e.target.files[0];
@@ -1680,7 +1688,7 @@ function closeUploadPanel(e) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption,
-    attach, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -1701,6 +1709,7 @@ function closeUploadPanel(e) {
   window.showImageModelPicker = showImageModelPicker;
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
+  window.openNativeFilePicker = openNativeFilePicker;
   window.autoGrow       = autoGrow;
   window.sendChat       = sendChat;
   window.openSupport    = openSupport;
