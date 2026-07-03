@@ -1197,11 +1197,20 @@ function closeUploadPanel(e) {
       const j = await r.json();
       if (!j.ok) return;
       currentConvId = id;
-      chatMessages = (j.messages || []).map(m => ({
-        role: m.role === 'assistant' ? 'ai' : 'user',
-        text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
-        imageUrl: m.image_url || undefined,
-      }));
+      chatMessages = (j.messages || []).map(m => {
+        const images = Array.isArray(m.images)
+          ? m.images
+          : Array.isArray(m.image_urls)
+            ? m.image_urls
+            : (m.image_url ? [m.image_url] : []);
+
+        return {
+          role: m.role === 'assistant' ? 'ai' : 'user',
+          text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
+          imageUrl: images[0] || undefined,
+          images: images.length ? images : null,
+        };
+      });
       if (!chatMessages.length) chatMessages = [];
       renderChat();
       renderConvList();
