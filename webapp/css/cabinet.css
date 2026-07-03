@@ -1435,3 +1435,16 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     margin-top:6px !important;
   }
 }
+/* ===== Hide model button stripe icon ===== */
+.view[data-view="tools"].active .studio-control-row .studio-select-pill.wide .pill-meter,
+.view[data-view="tools"].active .studio-control-row .studio-select-pill.wide > svg,
+.view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide .pill-meter,
+.view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide > svg{
+  display:none !important;
+}
+
+.view[data-view="tools"].active .studio-control-row .studio-select-pill.wide,
+.view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide{
+  padding-left:12px !important;
+  gap:0 !important;
+}
