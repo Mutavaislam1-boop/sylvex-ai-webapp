@@ -680,7 +680,8 @@ body.kb-open .nav{
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
   .studio-control-row{flex-wrap:wrap;overflow-x:visible;gap:8px}
-  .studio-control-row .studio-select-pill.wide{order:-1;width:100%;min-width:0;justify-content:center}
+  .studio-control-row .studio-select-pill.wide{order:-1;width:auto;min-width:0;min-height:34px;padding:0 12px;font-size:11px;gap:5px;justify-content:center;margin-right:100%}
+  .studio-control-row .studio-select-pill.wide svg{width:16px;height:16px}
   .studio-control-row .studio-select-pill:not(.wide){min-height:34px;padding:0 9px;font-size:11px;gap:5px}
   .studio-control-row .studio-select-pill:not(.wide) svg{width:16px;height:16px}
   .studio-control-row .image-count-pill{min-width:76px}
