@@ -677,17 +677,19 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     if (img) img.src = '';
   }
 
-  function selectGeneratedImage(e, url) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    imageState.referenceImageUrl = url;
-    renderUploadPanelImages();
-    closeUploadImagePreview(e);
-    toast('Фото выбрано для генерации');
-    S.haptic && S.haptic.notify && S.haptic.notify('success');
+function selectGeneratedImage(e, url) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
   }
+
+  addUploadedPhoto(url);
+  renderUploadPanelImages();
+  closeUploadImagePreview(e);
+
+  toast('Фото добавлено в черновик');
+  S.haptic && S.haptic.notify && S.haptic.notify('success');
+}
 
 function openUploadPanel(e) {
   if (e) {
