@@ -1810,3 +1810,42 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     height:14px !important;
   }
 }
+/* ===== SAFE Pro Studio dots: only background, no layout layers ===== */
+
+/* Отключаем старые опасные слои точек */
+.view[data-view="tools"].active .studio::before,
+.view[data-view="tools"].active .studio::after,
+.view[data-view="tools"].active .chat-area::before{
+  content:none !important;
+  display:none !important;
+  animation:none !important;
+}
+
+/* Точки ставим прямо на чёрный фон чата */
+.view[data-view="tools"].active .chat-area{
+  background-color:#000 !important;
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.45) 0 1px,transparent 1.7px),
+    radial-gradient(circle,rgba(255,255,255,.25) 0 1px,transparent 1.8px) !important;
+  background-size:22px 22px,38px 38px !important;
+  background-position:0 0,11px 17px !important;
+  animation:none !important;
+}
+
+/* При генерации только фон двигается, блоки не трогаем */
+body.ai-generating .view[data-view="tools"].active .chat-area,
+.view[data-view="tools"].active .chat-area:has(.typing){
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.85) 0 1px,transparent 1.8px),
+    radial-gradient(circle,rgba(255,255,255,.45) 0 1px,transparent 1.9px) !important;
+  animation:safeStudioDotsMove 8s linear infinite !important;
+}
+
+@keyframes safeStudioDotsMove{
+  from{
+    background-position:0 0,11px 17px;
+  }
+  to{
+    background-position:22px 22px,49px 55px;
+  }
+}
