@@ -3251,22 +3251,91 @@ def is_seedream_request(payload: dict) -> bool:
     return provider in ("bytedance", "byteplus") or bool(re.search(r"seedream", f"{model} {option_model}", re.I))
 
 def build_image_prompt(payload: dict) -> str:
-    prompt = (payload.get("prompt") or "").strip()
     opts = payload.get("image_options") or {}
-    style = opts.get("style")
-    character = opts.get("character")
-    attachment = payload.get("attachment") or {}
-    reference_urls = opts.get("referenceImageUrls") or []
 
-    if style and style != "auto":
-        prompt += f"\nStyle: {style}"
-    if character and character != "auto":
-        prompt += f"\nCharacter / mood: {character}"
-    if attachment:
-        prompt += f"\nReference image uploaded: {attachment.get('name') or 'image'} ({attachment.get('mime') or 'image'})"
-    if reference_urls:
-        prompt += f"\nReference images selected: {len(reference_urls)}"
-    return prompt.strip()
+    base_prompt = (
+        payload.get("prompt")
+        or payload.get("text")
+        or payload.get("input")
+        or ""
+    ).strip()
+
+    parts = [base_prompt] if base_prompt else []
+
+    size = str(
+        opts.get("size")
+        or opts.get("ratio")
+        or opts.get("aspect_ratio")
+        or opts.get("aspectRatio")
+        or ""
+    ).strip()
+
+    ratio_map = {
+        "1:1": "Generate a square 1:1 image composition.",
+        "16:9": "Generate a horizontal widescreen 16:9 image composition.",
+        "9:16": "Generate a vertical portrait 9:16 image composition, suitable for phone screen.",
+        "3:4": "Generate a vertical 3:4 image composition.",
+        "4:5": "Generate a vertical 4:5 social media image composition.",
+        "5:4": "Generate a horizontal 5:4 image composition.",
+        "4:3": "Generate a horizontal 4:3 image composition.",
+        "21:9": "Generate an ultra-wide cinematic 21:9 image composition.",
+    }
+
+    if size and size.lower() != "auto":
+        parts.append(ratio_map.get(size, f"Generate the image with {size} aspect ratio."))
+
+    style = str(opts.get("style") or "").strip()
+    style_map = {
+        "cinematic": "Cinematic style, dramatic lighting, movie still composition, high detail, professional color grading.",
+        "photoreal": "Photorealistic style, natural textures, realistic lighting, real camera lens look.",
+        "anime": "Anime illustration style, clean line art, expressive lighting, polished character design.",
+        "3d": "High quality 3D render style, realistic materials, depth, soft studio lighting.",
+        "black_white": "Black and white style, strong contrast, film grain, monochrome photography.",
+        "broken_glass": "Broken glass visual style, fractured reflections, sharp glass shards, dramatic refractions.",
+        "hand_drawn": "Hand-drawn sketch style, pen drawing texture, visible strokes, artistic illustration.",
+        "fog": "Foggy atmospheric style, soft haze, muted contrast, cinematic mist.",
+    }
+
+    if style and style.lower() not in {"auto", "none"}:
+        parts.append(style_map.get(style, f"Apply this visual style: {style}."))
+
+    character = str(opts.get("character") or opts.get("mood") or "").strip()
+    character_map = {
+        "calm": "Mood/character: calm, soft, balanced, peaceful.",
+        "dark": "Mood/character: dark, mysterious, dramatic, intense.",
+        "aggressive": "Mood/character: aggressive, powerful, energetic, sharp.",
+        "romantic": "Mood/character: romantic, emotional, soft light, warm atmosphere.",
+        "futuristic": "Mood/character: futuristic, advanced technology, sleek sci-fi feeling.",
+        "business": "Mood/character: professional, clean, premium, business style.",
+    }
+
+    if character and character.lower() not in {"auto", "none"}:
+        parts.append(character_map.get(character, f"Mood/character direction: {character}."))
+
+    objects = str(opts.get("objects") or opts.get("object") or "").strip()
+    if objects:
+        parts.append(f"Important objects/elements to include or preserve: {objects}.")
+
+    refs = (
+        opts.get("referenceImageUrls")
+        or opts.get("reference_image_urls")
+        or opts.get("referenceImages")
+        or opts.get("images")
+        or []
+    )
+
+    if isinstance(refs, str):
+        refs = [refs]
+
+    refs = [u for u in refs if isinstance(u, str) and u.strip()]
+
+    if refs:
+        parts.append(
+            "Use the uploaded reference images as visual references. "
+            "If the user asks to merge/combine photos, combine the important visual elements from all uploaded reference images."
+        )
+
+    return "\n".join(parts).strip()
 
 def normalize_image_response(data: dict) -> list:
     images = []
@@ -3284,8 +3353,8 @@ def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
         count = default
     return max(1, min(count, max_count))
 
-def byteplus_seedream_body(model: str, prompt: str) -> dict:
-    return {
+def byteplus_seedream_body(model: str, prompt: str, reference_images=None) -> dict:
+    body = {
         "model": model,
         "prompt": prompt,
         "sequential_image_generation": "disabled",
@@ -3295,19 +3364,43 @@ def byteplus_seedream_body(model: str, prompt: str) -> dict:
         "watermark": False,
     }
 
-def request_byteplus_seedream_image(model: str, prompt: str) -> tuple:
-    try:
-        response = requests.post(
+    refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
+
+    if refs:
+        body["image_urls"] = refs[:4]
+        body["reference_images"] = refs[:4]
+
+    return body
+
+def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None) -> tuple:
+    refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
+
+    def _send(include_refs: bool):
+        return requests.post(
             f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
             headers={
                 "Authorization": f"Bearer {BYTEPLUS_ARK_API_KEY}",
                 "Content-Type": "application/json",
             },
-            data=json.dumps(byteplus_seedream_body(model, prompt)),
+            data=json.dumps(byteplus_seedream_body(model, prompt, refs if include_refs else [])),
             timeout=120,
         )
+
+    try:
+        response = _send(bool(refs))
     except Exception as exc:
         return [], type(exc).__name__
+
+    if response.status_code >= 400 and refs:
+        print(
+            "BYTEPLUS IMAGE REFERENCE REQUEST FAILED, RETRY WITHOUT REFERENCES:",
+            response.status_code,
+            response.text[:500],
+        )
+        try:
+            response = _send(False)
+        except Exception as exc:
+            return [], type(exc).__name__
 
     if response.status_code >= 400:
         return [], f"HTTP {response.status_code}: {response.text[:500]}"
@@ -3319,6 +3412,7 @@ def request_byteplus_seedream_image(model: str, prompt: str) -> tuple:
 
     if not images:
         return [], "no image returned"
+
     return images, ""
 
 
@@ -3377,13 +3471,29 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     prompt = build_image_prompt(payload)
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
 
+reference_images = (
+    opts.get("referenceImageUrls")
+    or opts.get("reference_image_urls")
+    or opts.get("referenceImages")
+    or opts.get("images")
+    or []
+)
+
+if isinstance(reference_images, str):
+    reference_images = [reference_images]
+
+reference_images = [u for u in reference_images if isinstance(u, str) and u.strip()]
+
+if reference_images:
+    print("BYTEPLUS IMAGE REFERENCES:", len(reference_images))
+
     images = []
     # The public /images/generations examples use a single-output request body.
     # Until BytePlus confirms a count field for this endpoint, multiple images are
     # generated by repeated safe calls and normalized into the frontend format.
     for index in range(1, count + 1):
         print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
-        request_images, error = request_byteplus_seedream_image(model, prompt)
+        request_images, error = request_byteplus_seedream_image(model, prompt, reference_images)
         if request_images:
             for url in request_images:
                 if url and url not in images:
