@@ -2325,3 +2325,41 @@ body.ai-generating .view[data-view="tools"].active .studio,
   object-fit:cover !important;
   border-radius:16px !important;
 }
+
+/* ===== Upload panel generated history: same size as lower uploaded photos ===== */
+.upload-generated-grid{
+  display:flex !important;
+  flex-wrap:wrap !important;
+  align-content:flex-start !important;
+  justify-content:flex-start !important;
+  gap:8px !important;
+  padding:12px !important;
+  overflow-y:auto !important;
+}
+
+.upload-generated-thumb{
+  position:relative !important;
+  width:58px !important;
+  height:58px !important;
+  min-width:58px !important;
+  max-width:58px !important;
+  flex:0 0 58px !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  border-radius:14px !important;
+  overflow:hidden !important;
+  background:rgba(255,255,255,.06) !important;
+  padding:0 !important;
+}
+
+.upload-generated-thumb img{
+  width:100% !important;
+  height:100% !important;
+  object-fit:cover !important;
+  display:block !important;
+}
+
+.upload-generated-thumb .upload-thumb-check{
+  position:absolute !important;
+  right:4px !important;
+  bottom:4px !important;
+}
