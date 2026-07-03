@@ -961,7 +961,7 @@ function closeUploadPanel(e) {
     chatMessages.push({
         role: 'user',
         text: v,
-        attachmentName: attachment ? attachment.name : null,
+        attachmentName: null,
         referenceImages: referenceImages.length ? referenceImages : null,
     });
     ta.value = ''; autoGrow(ta); updateSendButton();
