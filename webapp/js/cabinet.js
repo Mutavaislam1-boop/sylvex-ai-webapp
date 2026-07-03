@@ -30,12 +30,13 @@ let imageState = {
   };
 
   const IMAGE_MODEL_CATALOG = [
+{ id:'seedream-5-0-260128', label:'Seedream 5.0', icon:'▥', description:'BytePlus Seedream 5.0 — фото-генерация высокого качества через ModelArk.' },
+{ id:'seedream-4-5-251128', label:'Seedream 4.5', icon:'▥', description:'BytePlus Seedream 4.5 — улучшенная эстетика, детализация и точность изображения.' },
+{ id:'seedream-4-0-250828', label:'Seedream 4.0', icon:'▥', description:'BytePlus Seedream 4.0 — генерация изображений и визуальных сцен через ModelArk.' },
 { id:'nano-banana-pro', label:'Nano Banana Pro', icon:'🍌', description:'Фотореалистичные изображения, идеально подходящие для рекламы и текста.' },
 { id:'nano-banana-2', label:'Nano Banana 2', icon:'🍌', description:'Современная генерация изображений с расширенным редактированием и композицией.' },
 { id:'nano-banana', label:'Nano Banana', icon:'🍌', description:'Потрясающие фотореалистичные изображения для любой идеи.' },
 { id:'gpt-image-2', label:'GPT Image 2', icon:'◎', description:'Современная генерация изображений с реализмом, типографикой и контролем.' },
-{ id:'seedream-5', label:'Seedream 5.0', icon:'▥', description:'Быстрая и лёгкая генерация с высоким визуальным качеством.' },
-{ id:'seedream-4-5', label:'Seedream 4.5', icon:'▥', description:'Улучшенная эстетика и повышенная точность воспроизведения изображения.' },
 { id:'grok-pro', label:'Grok Pro', icon:'◒', description:'xAI Grok — генерация высококачественных изображений.' },
 { id:'davinci-ultra', label:'DaVinci Ultra', icon:'◩', description:'Модель DaVinci, оптимизированная для получения высококачественных результатов.' },
 { id:'grok', label:'Grok', icon:'◒', description:'Генерация изображений через модель Grok.' },
@@ -46,7 +47,6 @@ let imageState = {
 { id:'recraft-v4-1', label:'Recraft V4.1', icon:'R', description:'Дизайн, иллюстрации, графика и брендовые изображения.' },
 { id:'recraft-v3', label:'Recraft V3', icon:'R', description:'Генерация графики, иллюстраций и рекламных визуалов.' },
 { id:'recraft-v4-1-pro', label:'Recraft V4.1 Pro', icon:'R', description:'Профессиональная версия Recraft для точной визуальной генерации.' },
-{ id:'seedream-4', label:'Seedream 4.0', icon:'▥', description:'Качественная генерация изображений и визуальных сцен.' },
 { id:'gpt-image-1', label:'GPT Image 1', icon:'◎', description:'Генерация и редактирование изображений через OpenAI.' },
 { id:'flux-pro-kontext', label:'Flux Pro Kontext', icon:'△', description:'Модель Flux для точной работы с контекстом изображения.' },
 { id:'qwen-image', label:'Qwen Image', icon:'Q', description:'Генерация изображений через Qwen Image.' },
@@ -117,7 +117,9 @@ const MODEL_ICON_SVG = {
       // Если пользователь сам выбрал модель — отправляем именно её.
       // OpenAI/GPT Image не является основной моделью по умолчанию, но остаётся доступной в списке.
       if (imageState.modelId) return imageState.modelId;
-      return (imageCapabilities[0] && imageCapabilities[0].id) || 'nano-banana-pro';
+      const firstImageModel = imageCapabilities[0] && imageCapabilities[0].id;
+      const seedreamFallback = imageCapabilities.find((model) => /seedream/i.test(model.id || ''));
+      return firstImageModel || (seedreamFallback && seedreamFallback.id) || 'seedream-5-0-260128';
     }
     if (studioMode === 'video') return 'seedance-2-fast';
     if (studioMode === 'music') return 'musicgen-pro';
@@ -126,6 +128,7 @@ const MODEL_ICON_SVG = {
 
   function pickProviderHint() {
     const model = pickStudioModel();
+    if (/seedream|seedance/i.test(model)) return 'bytedance';
     if (/^gpt-image|openai/i.test(model)) return 'sylvex-router';
     if (/grok/i.test(model)) return 'xai';
     if (/flux/i.test(model)) return 'flux';
@@ -134,7 +137,6 @@ const MODEL_ICON_SVG = {
     if (/qwen/i.test(model)) return 'qwen';
     if (/microsoft|mai/i.test(model)) return 'microsoft';
     if (/krea/i.test(model)) return 'krea';
-    if (/seedream|seedance/i.test(model)) return 'bytedance';
     if (/musicgen/i.test(model)) return 'music';
     return 'sylvex-router';
   }
@@ -269,17 +271,11 @@ function imageModelButton(model) {
     if (!model) return;
     const modelEl = document.getElementById('modelValComposer');
     if (modelEl && studioMode === 'image') modelEl.textContent = model.label || model.id;
-    const sizeOptions = [
-  { id:'1:1', label:'1:1', ratio:'1:1' },
-  { id:'16:9', label:'16:9', ratio:'16:9' },
-  { id:'9:16', label:'9:16', ratio:'9:16' },
-  { id:'3:4', label:'3:4', ratio:'3:4' },
-  { id:'4:5', label:'4:5', ratio:'4:5' },
-  { id:'5:4', label:'5:4', ratio:'5:4' },
-  { id:'4:3', label:'4:3', ratio:'4:3' },
-  { id:'21:9', label:'21:9', ratio:'21:9' },
-  { id:'auto', label:'Auto', ratio:'auto' }
-];
+    const sizeOptions = model.sizes && model.sizes.length ? model.sizes : [
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ];
 const selectedSizeId = imageState.size || '1:1';
 const size = sizeOptions.find((item) => item.id === selectedSizeId) || sizeOptions[0];
 const sizeVal = document.getElementById('imageSizeVal');
@@ -317,7 +313,9 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
 
     if (kind === 'count') {
       const currentCount = Number(imageState.count || 1);
-      const nextCount = currentCount >= 4 ? 1 : currentCount + 1;
+      const counts = (currentImageModel() && currentImageModel().counts) || [1];
+      const currentIndex = counts.findIndex((item) => Number(item) === currentCount);
+      const nextCount = Number(counts[(currentIndex + 1) % counts.length] || 1);
       imageState.count = nextCount;
       renderImageControls();
       S.haptic && S.haptic.impact && S.haptic.impact('light');
@@ -332,7 +330,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     el.classList.remove('image-size-floating-pop');
 
     if (kind === 'size') {
-      const fallbackSizes = [
+      const fallbackSizes = (model && model.sizes && model.sizes.length ? model.sizes : [
         { id:'1:1', label:'1:1', ratio:'1:1' },
         { id:'16:9', label:'16:9', ratio:'16:9' },
         { id:'9:16', label:'9:16', ratio:'9:16' },
@@ -342,7 +340,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
         { id:'4:3', label:'4:3', ratio:'4:3' },
         { id:'21:9', label:'21:9', ratio:'21:9' },
         { id:'auto', label:'Auto', ratio:'auto' }
-      ];
+      ]);
       const selectedSize = imageState.size || imageState.ratio || '1:1';
 
       if (el.parentElement !== document.body) document.body.appendChild(el);

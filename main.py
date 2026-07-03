@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import urllib.parse
 import asyncio
+import re
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -3047,11 +3048,11 @@ def openai_headers():
 def image_size(label: str) -> dict:
     ratio = label
     if "x" in label:
-      try:
-          w, h = [int(part) for part in label.lower().split("x", 1)]
-          ratio = f"{w // math_gcd(w, h)}:{h // math_gcd(w, h)}"
-      except Exception:
-          ratio = label
+        try:
+            w, h = [int(part) for part in label.lower().split("x", 1)]
+            ratio = f"{w // math_gcd(w, h)}:{h // math_gcd(w, h)}"
+        except Exception:
+            ratio = label
     return {"id": label, "label": ratio, "ratio": ratio, "icon": ratio}
 
 def math_gcd(a: int, b: int) -> int:
@@ -3061,6 +3062,57 @@ def math_gcd(a: int, b: int) -> int:
 
 def default_image_capabilities() -> list:
     models = []
+    if BYTEPLUS_ARK_API_KEY:
+        seedream_common = {
+            "provider": "bytedance",
+            "sizes": [
+                image_size("1:1"),
+                image_size("16:9"),
+                image_size("9:16"),
+                image_size("4:3"),
+                image_size("3:4"),
+            ],
+            "counts": [1],
+            "styles": [
+                {"id": "auto", "label": "Авто"},
+                {"id": "photoreal", "label": "Фотореализм"},
+                {"id": "cinematic", "label": "Кино"},
+                {"id": "poster", "label": "Постер"},
+                {"id": "3d", "label": "3D"},
+            ],
+            "characters": [
+                {"id": "auto", "label": "Авто"},
+                {"id": "portrait", "label": "Портрет"},
+                {"id": "product", "label": "Продукт"},
+                {"id": "soft", "label": "Soft"},
+                {"id": "bold", "label": "Bold"},
+            ],
+            "supports_upload": True,
+            "objects_ready": False,
+        }
+        models.extend([
+            {
+                **seedream_common,
+                "id": "seedream-5-0-260128",
+                "api_model": "seedream-5-0-260128",
+                "label": "Seedream 5.0",
+                "description": "BytePlus Seedream 5.0 — фото-генерация высокого качества через ModelArk.",
+            },
+            {
+                **seedream_common,
+                "id": "seedream-4-5-251128",
+                "api_model": "seedream-4-5-251128",
+                "label": "Seedream 4.5",
+                "description": "BytePlus Seedream 4.5 — улучшенная эстетика, детализация и точность изображения.",
+            },
+            {
+                **seedream_common,
+                "id": "seedream-4-0-250828",
+                "api_model": "seedream-4-0-250828",
+                "label": "Seedream 4.0",
+                "description": "BytePlus Seedream 4.0 — генерация изображений и визуальных сцен через ModelArk.",
+            },
+        ])
     if OPENAI_API_KEY:
         models.append({
             "id": "openai:gpt-image-1",
@@ -3087,38 +3139,6 @@ def default_image_capabilities() -> list:
             "supports_upload": True,
             "objects_ready": False,
         })
-    if BYTEPLUS_ARK_API_KEY:
-        models.append({
-            "id": "byteplus:seedream",
-            "provider": "byteplus",
-            "api_model": os.getenv("BYTEPLUS_SEEDREAM_MODEL", "doubao-seedream-3-0-t2i-250415"),
-            "label": os.getenv("BYTEPLUS_SEEDREAM_LABEL", "Seedream 5.0"),
-            "description": "BytePlus Ark image generation",
-            "sizes": [
-                image_size("1024x1024"),
-                image_size("768x1344"),
-                image_size("1344x768"),
-                image_size("1024x768"),
-                image_size("768x1024"),
-            ],
-            "counts": [1, 2, 3, 4],
-            "styles": [
-                {"id": "auto", "label": "Авто"},
-                {"id": "photoreal", "label": "Фотореализм"},
-                {"id": "anime", "label": "Anime"},
-                {"id": "poster", "label": "Постер"},
-                {"id": "3d", "label": "3D"},
-            ],
-            "characters": [
-                {"id": "auto", "label": "Авто"},
-                {"id": "hero", "label": "Герой"},
-                {"id": "soft", "label": "Soft"},
-                {"id": "bold", "label": "Bold"},
-                {"id": "cinematic", "label": "Cinematic"},
-            ],
-            "supports_upload": True,
-            "objects_ready": False,
-        })
     return models
 
 def get_image_capabilities() -> dict:
@@ -3139,6 +3159,91 @@ def find_image_model(model_id: str) -> dict:
             if model.get("id") == model_id or model.get("api_model") == model_id:
                 return model
     return models[0] if models else {}
+
+def is_seedream_request(payload: dict) -> bool:
+    model = str(payload.get("model") or "")
+    provider = str(payload.get("provider") or "").lower()
+    opts = payload.get("image_options") or {}
+    option_model = str(opts.get("modelId") or opts.get("model_id") or "")
+    return provider in ("bytedance", "byteplus") or bool(re.search(r"seedream", f"{model} {option_model}", re.I))
+
+def build_image_prompt(payload: dict) -> str:
+    prompt = (payload.get("prompt") or "").strip()
+    opts = payload.get("image_options") or {}
+    style = opts.get("style")
+    character = opts.get("character")
+    attachment = payload.get("attachment") or {}
+    reference_urls = opts.get("referenceImageUrls") or []
+
+    if style and style != "auto":
+        prompt += f"\nStyle: {style}"
+    if character and character != "auto":
+        prompt += f"\nCharacter / mood: {character}"
+    if attachment:
+        prompt += f"\nReference image uploaded: {attachment.get('name') or 'image'} ({attachment.get('mime') or 'image'})"
+    if reference_urls:
+        prompt += f"\nReference images selected: {len(reference_urls)}"
+    return prompt.strip()
+
+def normalize_image_response(data: dict) -> list:
+    images = []
+    for item in data.get("data", []) if isinstance(data, dict) else []:
+        if item.get("url"):
+            images.append(item["url"])
+        elif item.get("b64_json"):
+            images.append("data:image/png;base64," + item["b64_json"])
+    return images
+
+def generateBytePlusSeedreamImage(payload: dict) -> dict:
+    if not BYTEPLUS_ARK_API_KEY:
+        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+
+    opts = payload.get("image_options") or {}
+    requested_model = (
+        opts.get("modelId")
+        or opts.get("model_id")
+        or payload.get("model")
+        or "seedream-5-0-260128"
+    )
+    model_cfg = find_image_model(requested_model) if requested_model else {}
+    model = model_cfg.get("api_model") or requested_model or "seedream-5-0-260128"
+    prompt = build_image_prompt(payload)
+
+    try:
+        response = requests.post(
+            f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
+            headers={
+                "Authorization": f"Bearer {BYTEPLUS_ARK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps({
+                "model": model,
+                "prompt": prompt,
+                "sequential_image_generation": "disabled",
+                "response_format": "url",
+                "size": "2K",
+                "stream": False,
+                "watermark": False,
+            }),
+            timeout=120,
+        )
+    except Exception as exc:
+        print("BYTEPLUS SEEDREAM REQUEST FAILED:", type(exc).__name__)
+        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+
+    if response.status_code >= 400:
+        print("BYTEPLUS SEEDREAM FAILED:", response.status_code)
+        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+
+    try:
+        data = response.json()
+    except Exception:
+        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+
+    images = normalize_image_response(data)
+    if images:
+        return {"ok": True, "type": "image", "image_url": images[0], "images": images}
+    return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
 def text_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
@@ -3189,9 +3294,9 @@ def text_generation(payload: dict) -> dict:
     }
 
 def image_generation(payload: dict) -> dict:
-    prompt = (payload.get("prompt") or "").strip()
     opts = payload.get("image_options") or {}
-    model_cfg = find_image_model(opts.get("model_id") or payload.get("model"))
+    prompt = build_image_prompt(payload)
+    model_cfg = find_image_model(opts.get("modelId") or opts.get("model_id") or payload.get("model"))
     if not model_cfg:
         return {
             "ok": True,
@@ -3202,19 +3307,9 @@ def image_generation(payload: dict) -> dict:
     api_model = model_cfg.get("api_model") or "gpt-image-1"
     size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
     count = int(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1)
-    style = opts.get("style")
-    character = opts.get("character")
-    attachment = payload.get("attachment") or {}
-    if style and style != "auto":
-        prompt += f"\nStyle: {style}"
-    if character and character != "auto":
-        prompt += f"\nCharacter / mood: {character}"
-    if attachment:
-        prompt += f"\nReference image uploaded: {attachment.get('name') or 'image'} ({attachment.get('mime') or 'image'})"
-
-    if provider == "byteplus":
+    if provider in ("byteplus", "bytedance") or re.search(r"seedream", api_model, re.I):
         if not BYTEPLUS_ARK_API_KEY:
-            return {"ok": False, "error": "BytePlus Ark image API is not configured"}
+            return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
         response = requests.post(
             f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
             headers={
@@ -3239,17 +3334,17 @@ def image_generation(payload: dict) -> dict:
         )
 
     if response.status_code >= 400:
-        return {"ok": False, "error": response.text}
+        print("IMAGE GENERATION FAILED:", provider, response.status_code)
+        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
     images = []
-    for item in response.json().get("data", []):
-        if item.get("url"):
-            images.append(item["url"])
-        elif item.get("b64_json"):
-            images.append("data:image/png;base64," + item["b64_json"])
+    try:
+        images = normalize_image_response(response.json())
+    except Exception:
+        images = []
     if images:
         return {"ok": True, "type": "image", "image_url": images[0], "images": images}
-    return {"ok": False, "error": "No image returned"}
+    return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
 @app.get("/api/public/prostudio/image-capabilities")
 async def public_prostudio_image_capabilities():
@@ -3262,6 +3357,8 @@ async def public_prostudio_generate(request: Request):
     prompt = (payload.get("prompt") or "").strip()
     selected_model = (payload.get("model") or "sylvex-pro").strip()
     selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
+    image_options = payload.get("image_options") or {}
+    reference_images = image_options.get("referenceImageUrls") or []
 
     print("PRO STUDIO ROUTER:", {
         "mode": mode,
@@ -3269,14 +3366,16 @@ async def public_prostudio_generate(request: Request):
         "model": selected_model,
     })
 
-    if not prompt and not payload.get("attachment"):
+    if not prompt and not payload.get("attachment") and not reference_images:
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
 
     # Pro Studio must not be locked to OpenAI only.
     # OpenAI and BytePlus are live here now. Other providers are routed through SYLVEX router
     # and should be connected in their own provider functions instead of silently falling back to OpenAI.
     live_providers = {"openai", "byteplus", "bytedance", "sylvex-router"}
-    if selected_provider not in live_providers:
+    if mode == "image" and is_seedream_request(payload):
+        result = generateBytePlusSeedreamImage(payload)
+    elif selected_provider not in live_providers:
         result = {
             "ok": True,
             "type": "text",
