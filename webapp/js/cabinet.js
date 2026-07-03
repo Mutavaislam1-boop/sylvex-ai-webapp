@@ -17,6 +17,15 @@
   let mediaChunks = [];
   let mediaStream = null;
   let currentModelLabel = 'SYLVEX Pro';
+  let imageCapabilities = [];
+  let imageState = {
+    modelId: '',
+    size: '',
+    count: 1,
+    style: 'auto',
+    character: 'auto',
+    objects: '',
+  };
 
   function getTelegramId() {
     try {
@@ -27,7 +36,7 @@
   }
 
   function pickOpenAIModel() {
-    if (studioMode === 'image') return 'gpt-image-1';
+    if (studioMode === 'image') return imageState.modelId || 'gpt-image-1';
     return /lite/i.test(currentModelLabel || '') ? 'gpt-4o-mini' : 'gpt-4o';
   }
 
@@ -51,6 +60,14 @@
 
   function renderModelPop() {
     const el = document.getElementById('modelPop'); if (!el) return;
+    if (studioMode === 'image' && imageCapabilities.length) {
+      el.innerHTML = imageCapabilities.map((model) =>
+        '<button class="' + (imageState.modelId === model.id ? 'sel' : '') +
+        '" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(model.id) + '\')">' +
+        S.escapeHtml(model.label || model.id) + '</button>'
+      ).join('');
+      return;
+    }
     const items = [
       { k:'pro',  label:'SYLVEX Pro'  },
       { k:'lite', label:'SYLVEX Lite' },
@@ -59,6 +76,93 @@
       '<button class="' + (currentModelLabel === it.label ? 'sel' : '') +
       '" onclick="SYLVEX.pickModelKey(event,\'' + it.k + '\',\'' + it.label + '\')">' + it.label + '</button>'
     ).join('');
+  }
+
+  function currentImageModel() {
+    return imageCapabilities.find((model) => model.id === imageState.modelId) || imageCapabilities[0] || null;
+  }
+
+  function optionLabel(options, id, fallback) {
+    const opt = (options || []).find((item) => String(item.id) === String(id));
+    return opt ? (opt.label || opt.id) : fallback;
+  }
+
+  function applyImageDefaults(model) {
+    if (!model) return;
+    imageState.modelId = model.id;
+    imageState.size = (model.sizes && model.sizes[0] && model.sizes[0].id) || '';
+    imageState.count = (model.counts && model.counts[0]) || 1;
+    imageState.style = (model.styles && model.styles[0] && model.styles[0].id) || 'auto';
+    imageState.character = (model.characters && model.characters[0] && model.characters[0].id) || 'auto';
+  }
+
+  function renderImageControls() {
+    const model = currentImageModel();
+    if (!model) return;
+    const modelEl = document.getElementById('modelValComposer');
+    if (modelEl && studioMode === 'image') modelEl.textContent = model.label || model.id;
+    const size = (model.sizes || []).find((item) => item.id === imageState.size) || (model.sizes || [])[0];
+    const sizeVal = document.getElementById('imageSizeVal');
+    if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
+    const sizeIcon = document.getElementById('imageSizeIcon');
+    if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.icon || size.ratio || size.label || '1:1');
+    const countVal = document.getElementById('imageCountVal');
+    if (countVal) countVal.textContent = String(imageState.count || 1);
+    const styleVal = document.getElementById('imageStyleVal');
+    if (styleVal) styleVal.textContent = optionLabel(model.styles, imageState.style, 'Стиль');
+    const characterVal = document.getElementById('imageCharacterVal');
+    if (characterVal) characterVal.textContent = optionLabel(model.characters, imageState.character, 'Характер');
+  }
+
+  async function loadImageCapabilities() {
+    try {
+      const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
+      const data = await res.json();
+      imageCapabilities = (data && data.models) || [];
+      if (imageCapabilities.length && !imageState.modelId) applyImageDefaults(imageCapabilities[0]);
+      renderImageControls();
+      renderModelPop();
+    } catch (err) {
+      console.warn('[SYLVEX] image capabilities failed', err);
+    }
+  }
+
+  function openImageOptionMenu(e, kind) {
+    if (e) e.stopPropagation();
+    const model = currentImageModel();
+    const el = document.getElementById('modelPop');
+    if (!model || !el) return;
+    let items = [];
+    if (kind === 'model') items = imageCapabilities.map((model) => ({ id: model.id, label: model.label || model.id }));
+    if (kind === 'size') items = (model.sizes || []).map((item) => ({ id: item.id, label: (item.icon || item.label || item.ratio || item.id) }));
+    if (kind === 'count') items = (model.counts || [1]).map((count) => ({ id: String(count), label: String(count) }));
+    if (kind === 'style') items = model.styles || [];
+    if (kind === 'character') items = model.characters || [];
+    if (kind === 'objects') items = [{ id: 'soon', label: 'Скоро' }];
+    el.innerHTML = items.map((item) =>
+      '<button onclick="SYLVEX.pickImageOption(event,\'' + kind + '\',\'' + S.escapeHtml(String(item.id)) + '\')">' +
+      S.escapeHtml(item.label || item.id) + '</button>'
+    ).join('');
+    el.classList.add('show');
+  }
+
+  function pickImageOption(e, kind, value) {
+    if (e) e.stopPropagation();
+    if (kind === 'model') {
+      const model = imageCapabilities.find((item) => item.id === value);
+      if (model) applyImageDefaults(model);
+    } else if (kind === 'count') {
+      imageState.count = Number(value || 1);
+    } else if (kind === 'size') {
+      imageState.size = value;
+    } else if (kind === 'style') {
+      imageState.style = value;
+    } else if (kind === 'character') {
+      imageState.character = value;
+    }
+    renderImageControls();
+    renderModelPop();
+    const el = document.getElementById('modelPop'); if (el) el.classList.remove('show');
   }
 
   function renderChat() {
@@ -74,7 +178,12 @@
         + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
-      if (m.imageUrl) inner += '<img class="gen-img" src="' + m.imageUrl + '" alt="generated" />';
+      if (m.images && m.images.length) {
+        inner += '<div class="gen-img-grid">' + m.images.map((url) =>
+          '<img class="gen-img" src="' + url + '" alt="generated" />'
+        ).join('') + '</div>';
+      }
+      if (m.imageUrl && !(m.images && m.images.length)) inner += '<img class="gen-img" src="' + m.imageUrl + '" alt="generated" />';
       if (m.attachmentName) inner = '<div style="opacity:.7;font-size:12px;margin-bottom:4px">📎 ' + S.escapeHtml(m.attachmentName) + '</div>' + inner;
       return '<div class="msg ' + m.role + '" data-i="' + i + '">'
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
@@ -213,7 +322,13 @@
     const ta = document.getElementById('chatInput');
     if (ta) ta.placeholder = isImage ? 'Describe your image' : isMusic ? 'Describe your music' : 'Describe your video';
     const mvc = document.getElementById('modelValComposer');
-    if (mvc) mvc.textContent = isImage ? 'Seedream 5.0' : isMusic ? 'MusicGen Pro' : 'Seedance 2.0 Fast';
+    if (isImage) {
+      if (imageCapabilities.length && !imageState.modelId) applyImageDefaults(imageCapabilities[0]);
+      renderImageControls();
+      renderModelPop();
+    } else if (mvc) {
+      mvc.textContent = isMusic ? 'MusicGen Pro' : 'Seedance 2.0 Fast';
+    }
   }
   function genAction(kind, tabKey) {
     const sheet = document.getElementById('plusSheet');
@@ -249,6 +364,7 @@
       prompt: promptText,
       mode: studioMode,
       model: pickOpenAIModel(),
+      image_options: studioMode === 'image' ? Object.assign({}, imageState) : null,
       history,
       attachment: attachment || null,
       conversation_id: currentConvId,
@@ -289,7 +405,7 @@
       const j = await callGenerate(v, attachment);
       chatMessages.pop();
       if (j.type === 'image') {
-        chatMessages.push({ role: 'ai', text: '', imageUrl: j.image_url });
+        chatMessages.push({ role: 'ai', text: '', imageUrl: j.image_url, images: j.images || null });
       } else {
         chatMessages.push({ role: 'ai', text: j.text || '' });
       }
@@ -317,7 +433,7 @@
     callGenerate(prev.text, null)
       .then((j) => {
         chatMessages[i] = j.type === 'image'
-          ? { role: 'ai', text: '', imageUrl: j.image_url }
+          ? { role: 'ai', text: '', imageUrl: j.image_url, images: j.images || null }
           : { role: 'ai', text: j.text || '' };
         renderChat();
       })
@@ -1230,6 +1346,7 @@
     if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
     renderChat();
     updateSendButton();
+    loadImageCapabilities();
     handlePaymentReturnFromUrl();
     applyStoredTheme();
     applyInitialViewFromUrl();
@@ -1247,6 +1364,7 @@
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
+    openImageOptionMenu, pickImageOption,
     attach, onAttachFile, clearAttachment, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,

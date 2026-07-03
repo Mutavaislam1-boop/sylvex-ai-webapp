@@ -35,12 +35,15 @@ app.mount("/css", StaticFiles(directory="webapp/css"), name="css")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
-print("MINIAPP DATABASE:", DATABASE_URL)
+print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
 SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=shop")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+BYTEPLUS_ARK_API_KEY = os.getenv("BYTEPLUS_ARK_API_KEY")
+BYTEPLUS_ARK_ENDPOINT = os.getenv("BYTEPLUS_ARK_ENDPOINT", "https://ark.ap-southeast.bytepluses.com/api/v3").rstrip("/")
+IMAGE_MODELS_JSON = os.getenv("IMAGE_MODELS_JSON")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
 ELEVENLABS_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
@@ -3041,6 +3044,102 @@ def openai_headers():
         "Content-Type": "application/json",
     }
 
+def image_size(label: str) -> dict:
+    ratio = label
+    if "x" in label:
+      try:
+          w, h = [int(part) for part in label.lower().split("x", 1)]
+          ratio = f"{w // math_gcd(w, h)}:{h // math_gcd(w, h)}"
+      except Exception:
+          ratio = label
+    return {"id": label, "label": ratio, "ratio": ratio, "icon": ratio}
+
+def math_gcd(a: int, b: int) -> int:
+    while b:
+        a, b = b, a % b
+    return max(a, 1)
+
+def default_image_capabilities() -> list:
+    models = []
+    if OPENAI_API_KEY:
+        models.append({
+            "id": "openai:gpt-image-1",
+            "provider": "openai",
+            "api_model": "gpt-image-1",
+            "label": "GPT Image 1",
+            "description": "OpenAI image generation",
+            "sizes": [image_size("1024x1024"), image_size("1024x1536"), image_size("1536x1024")],
+            "counts": [1],
+            "styles": [
+                {"id": "auto", "label": "Авто"},
+                {"id": "photo", "label": "Фото"},
+                {"id": "cinematic", "label": "Кино"},
+                {"id": "illustration", "label": "Иллюстрация"},
+                {"id": "minimal", "label": "Минимализм"},
+            ],
+            "characters": [
+                {"id": "auto", "label": "Авто"},
+                {"id": "portrait", "label": "Портрет"},
+                {"id": "fashion", "label": "Fashion"},
+                {"id": "product", "label": "Продукт"},
+                {"id": "mood_dark", "label": "Dark mood"},
+            ],
+            "supports_upload": True,
+            "objects_ready": False,
+        })
+    if BYTEPLUS_ARK_API_KEY:
+        models.append({
+            "id": "byteplus:seedream",
+            "provider": "byteplus",
+            "api_model": os.getenv("BYTEPLUS_SEEDREAM_MODEL", "doubao-seedream-3-0-t2i-250415"),
+            "label": os.getenv("BYTEPLUS_SEEDREAM_LABEL", "Seedream 5.0"),
+            "description": "BytePlus Ark image generation",
+            "sizes": [
+                image_size("1024x1024"),
+                image_size("768x1344"),
+                image_size("1344x768"),
+                image_size("1024x768"),
+                image_size("768x1024"),
+            ],
+            "counts": [1, 2, 3, 4],
+            "styles": [
+                {"id": "auto", "label": "Авто"},
+                {"id": "photoreal", "label": "Фотореализм"},
+                {"id": "anime", "label": "Anime"},
+                {"id": "poster", "label": "Постер"},
+                {"id": "3d", "label": "3D"},
+            ],
+            "characters": [
+                {"id": "auto", "label": "Авто"},
+                {"id": "hero", "label": "Герой"},
+                {"id": "soft", "label": "Soft"},
+                {"id": "bold", "label": "Bold"},
+                {"id": "cinematic", "label": "Cinematic"},
+            ],
+            "supports_upload": True,
+            "objects_ready": False,
+        })
+    return models
+
+def get_image_capabilities() -> dict:
+    if IMAGE_MODELS_JSON:
+        try:
+            raw = json.loads(IMAGE_MODELS_JSON)
+            models = raw.get("models", raw) if isinstance(raw, dict) else raw
+            if isinstance(models, list):
+                return {"ok": True, "models": models}
+        except Exception as exc:
+            print("IMAGE_MODELS_JSON FAILED:", exc)
+    return {"ok": True, "models": default_image_capabilities()}
+
+def find_image_model(model_id: str) -> dict:
+    models = get_image_capabilities().get("models") or []
+    if model_id:
+        for model in models:
+            if model.get("id") == model_id or model.get("api_model") == model_id:
+                return model
+    return models[0] if models else {}
+
 def text_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     history = payload.get("history") or []
@@ -3091,28 +3190,70 @@ def text_generation(payload: dict) -> dict:
 
 def image_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
-    if not OPENAI_API_KEY:
+    opts = payload.get("image_options") or {}
+    model_cfg = find_image_model(opts.get("model_id") or payload.get("model"))
+    if not model_cfg:
         return {
             "ok": True,
             "type": "text",
-            "text": "Image generation is ready. Add OPENAI_API_KEY to generate images.\n\nPrompt: " + prompt
+            "text": "No image models are configured.\n\nPrompt: " + prompt
         }
+    provider = model_cfg.get("provider") or "openai"
+    api_model = model_cfg.get("api_model") or "gpt-image-1"
+    size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
+    count = int(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1)
+    style = opts.get("style")
+    character = opts.get("character")
+    attachment = payload.get("attachment") or {}
+    if style and style != "auto":
+        prompt += f"\nStyle: {style}"
+    if character and character != "auto":
+        prompt += f"\nCharacter / mood: {character}"
+    if attachment:
+        prompt += f"\nReference image uploaded: {attachment.get('name') or 'image'} ({attachment.get('mime') or 'image'})"
 
-    response = requests.post(
-        f"{OPENAI_API_BASE}/images/generations",
-        headers=openai_headers(),
-        data=json.dumps({"model": "gpt-image-1", "prompt": prompt, "size": "1024x1024"}),
-        timeout=120,
-    )
+    if provider == "byteplus":
+        if not BYTEPLUS_ARK_API_KEY:
+            return {"ok": False, "error": "BytePlus Ark image API is not configured"}
+        response = requests.post(
+            f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
+            headers={
+                "Authorization": f"Bearer {BYTEPLUS_ARK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps({"model": api_model, "prompt": prompt, "size": size, "n": count}),
+            timeout=120,
+        )
+    else:
+        if not OPENAI_API_KEY:
+            return {
+                "ok": True,
+                "type": "text",
+                "text": "Image generation is ready. Add OPENAI_API_KEY to generate images.\n\nPrompt: " + prompt
+            }
+        response = requests.post(
+            f"{OPENAI_API_BASE}/images/generations",
+            headers=openai_headers(),
+            data=json.dumps({"model": api_model, "prompt": prompt, "size": size, "n": count}),
+            timeout=120,
+        )
+
     if response.status_code >= 400:
         return {"ok": False, "error": response.text}
 
-    data = response.json().get("data", [{}])[0]
-    if data.get("url"):
-        return {"ok": True, "type": "image", "image_url": data["url"]}
-    if data.get("b64_json"):
-        return {"ok": True, "type": "image", "image_url": "data:image/png;base64," + data["b64_json"]}
+    images = []
+    for item in response.json().get("data", []):
+        if item.get("url"):
+            images.append(item["url"])
+        elif item.get("b64_json"):
+            images.append("data:image/png;base64," + item["b64_json"])
+    if images:
+        return {"ok": True, "type": "image", "image_url": images[0], "images": images}
     return {"ok": False, "error": "No image returned"}
+
+@app.get("/api/public/prostudio/image-capabilities")
+async def public_prostudio_image_capabilities():
+    return get_image_capabilities()
 
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
