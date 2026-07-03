@@ -2151,3 +2151,24 @@ body.ai-generating .view[data-view="tools"].active .studio,
   line-height:1 !important;
   font-weight:900 !important;
 }
+/* ===== Upload empty state: big upload button exactly centered ===== */
+.upload-panel-actions:has(.upload-photo-grid.empty){
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:14px !important;
+}
+
+.upload-photo-grid.empty{
+  width:100% !important;
+  height:100% !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  align-content:center !important;
+  text-align:center !important;
+}
+
+.upload-photo-grid.empty .upload-photo-center-btn{
+  margin:auto !important;
+}
