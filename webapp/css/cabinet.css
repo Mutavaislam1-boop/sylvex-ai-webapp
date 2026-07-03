@@ -1682,3 +1682,74 @@ body.kb-open .nav{
     fill:#bdbdc2 !important;
   }
 }
+/* ===== Pro Studio AI particle background ===== */
+.view[data-view="tools"].active .studio{
+  position:relative !important;
+  overflow:hidden !important;
+  background:#000 !important;
+}
+
+.view[data-view="tools"].active .studio::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index:0;
+  opacity:.42;
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.62) 0 1px,transparent 1.6px),
+    radial-gradient(circle,rgba(255,255,255,.30) 0 1px,transparent 1.7px),
+    linear-gradient(115deg,transparent 0 40%,rgba(255,255,255,.08) 48%,transparent 56%);
+  background-size:34px 34px,58px 58px,260px 260px;
+  background-position:0 0,18px 26px,-120px -120px;
+  animation:aiParticlesMove 14s linear infinite, aiParticlesGlow 2.8s ease-in-out infinite;
+}
+
+.view[data-view="tools"].active .studio::after{
+  content:"";
+  position:absolute;
+  inset:-20%;
+  pointer-events:none;
+  z-index:0;
+  opacity:.22;
+  background:
+    linear-gradient(90deg,transparent 0 48%,rgba(255,255,255,.10) 49%,transparent 51%),
+    linear-gradient(0deg,transparent 0 48%,rgba(255,255,255,.08) 49%,transparent 51%);
+  background-size:74px 74px;
+  transform:rotate(12deg);
+  animation:aiNetworkDrift 18s linear infinite;
+}
+
+.view[data-view="tools"].active .studio-bar,
+.view[data-view="tools"].active .chat-area,
+.view[data-view="tools"].active .studio-input,
+.view[data-view="tools"].active .studio-video-composer{
+  position:relative !important;
+  z-index:1 !important;
+}
+
+.view[data-view="tools"].active .chat-area,
+.view[data-view="tools"].active .studio-video-composer{
+  background:transparent !important;
+}
+
+.view[data-view="tools"].active .studio-input,
+.view[data-view="tools"].active .studio-video-composer{
+  background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.84) 28%,#000 100%) !important;
+}
+
+@keyframes aiParticlesMove{
+  0%{background-position:0 0,18px 26px,-120px -120px}
+  100%{background-position:34px 34px,76px 84px,140px 140px}
+}
+
+@keyframes aiParticlesGlow{
+  0%,100%{opacity:.28;filter:brightness(.9)}
+  50%{opacity:.54;filter:brightness(1.45)}
+}
+
+@keyframes aiNetworkDrift{
+  0%{transform:rotate(12deg) translate3d(0,0,0);opacity:.12}
+  50%{opacity:.26}
+  100%{transform:rotate(12deg) translate3d(74px,74px,0);opacity:.12}
+}
