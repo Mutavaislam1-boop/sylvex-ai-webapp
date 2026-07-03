@@ -2036,3 +2036,43 @@ body.ai-generating .view[data-view="tools"].active .studio,
   line-height:1.2 !important;
   color:rgba(255,255,255,.52) !important;
 }
+
+/* ===== Upload draft page: split exactly in half ===== */
+.upload-panel-body{
+  display:flex !important;
+  flex-direction:column !important;
+  height:calc(100% - 52px) !important;
+  padding:0 !important;
+  gap:0 !important;
+}
+
+.upload-panel-half{
+  height:50% !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+  padding:14px !important;
+}
+
+/* Горизонтальная линия-разделитель пополам */
+.upload-panel-generated{
+  border-bottom:1px solid rgba(255,255,255,.16) !important;
+}
+
+/* Верхняя часть — история генерации фото */
+.upload-generated-grid{
+  height:calc(100% - 42px) !important;
+  overflow-y:auto !important;
+  display:grid !important;
+  grid-template-columns:repeat(4,1fr) !important;
+  gap:8px !important;
+  align-content:start !important;
+  padding-right:2px !important;
+}
+
+/* Нижняя часть — загрузка фото */
+.upload-panel-actions{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center !important;
+}
