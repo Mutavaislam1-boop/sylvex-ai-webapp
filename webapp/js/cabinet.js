@@ -218,10 +218,10 @@
   function genAction(kind, tabKey) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
-    studioMode = kind === 'voice' ? 'voice' : kind;
+    studioMode = kind;
     activeCat = studioMode;
     updateComposerMode(tabKey || studioMode);
-    const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Voiceover' };
+    const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music' };
     toast(labels[kind] || kind);
     const ta = document.getElementById('chatInput');
     if (ta) ta.focus();
