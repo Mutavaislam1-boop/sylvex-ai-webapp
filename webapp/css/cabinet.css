@@ -1572,3 +1572,79 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     opacity:1 !important;
   }
 }
+/* ===== Aspect ratio picker: narrower centered + smaller icons ===== */
+@media(max-width:560px){
+  body > #modelPop.image-size-floating-pop{
+    left:50% !important;
+    right:auto !important;
+    transform:translateX(-50%) !important;
+    width:58vw !important;
+    max-width:280px !important;
+    min-width:220px !important;
+    padding:10px 8px 10px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop button.image-size-row{
+    min-height:58px !important;
+    grid-template-columns:34px 1fr 20px !important;
+    gap:10px !important;
+    padding:0 12px !important;
+    border-radius:13px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon{
+    width:22px !important;
+    height:22px !important;
+    border-width:2px !important;
+    border-radius:6px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:3"]{
+    width:24px !important;
+    height:18px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="3:4"]{
+    width:18px !important;
+    height:24px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]{
+    width:18px !important;
+    height:24px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="5:4"]{
+    width:24px !important;
+    height:18px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="9:16"]{
+    width:17px !important;
+    height:25px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="16:9"]{
+    width:26px !important;
+    height:16px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="21:9"]{
+    width:28px !important;
+    height:13px !important;
+    border-radius:5px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="auto"]{
+    width:22px !important;
+    height:22px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-label{
+    font-size:19px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-check{
+    font-size:18px !important;
+  }
+}
