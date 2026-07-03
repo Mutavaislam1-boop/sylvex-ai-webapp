@@ -1167,38 +1167,53 @@ function closeUploadPanel(e) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }
-  async function callGenerate(promptText, attachment) {
-    const history = chatMessages
-      .filter((m) => !m.typing && m.text && (m.role === 'user' || m.role === 'ai'))
-      .slice(-10)
-      .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
-    const payload = {
-      telegram_id: getTelegramId(),
-      prompt: promptText,
-      mode: studioMode,
-      model: pickStudioModel(),
-      provider: pickProviderHint(),
-      image_options: studioMode === 'image' ? Object.assign({}, imageState) : null,
-      history,
-      attachment: attachment || null,
-      conversation_id: currentConvId,
-      language: uiLang(),
-    };
-    const res = await fetch('/api/public/prostudio/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const j = await res.json().catch(() => ({}));
-    if (res.status === 402 && j && j.paywall) {
-      const err = new Error('paywall');
-      err.paywall = true;
-      throw err;
-    }
-    if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
-    if (j.conversation_id) currentConvId = j.conversation_id;
-    return j;
+async function callGenerate(prompt, attachment, referenceImagesOverride) {
+  const promptText = (prompt || '').trim();
+  const referenceImages = Array.isArray(referenceImagesOverride)
+    ? referenceImagesOverride.slice()
+    : (imageState.referenceImageUrls || []).slice();
+
+  const history = chatMessages
+    .filter((m) => !m.typing && m.text && (m.role === 'user' || m.role === 'ai'))
+    .slice(-10)
+    .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
+
+  const imageOptions = studioMode === 'image'
+    ? Object.assign({}, imageState, {
+        referenceImageUrls: referenceImages,
+        referenceImages: referenceImages,
+      })
+    : null;
+
+  const payload = {
+    telegram_id: getTelegramId(),
+    prompt: promptText,
+    mode: studioMode,
+    model: pickStudioModel(),
+    provider: pickProviderHint(),
+    image_options: imageOptions,
+    history,
+    attachment: attachment || null,
+    conversation_id: currentConvId,
+    language: uiLang(),
+  };
+
+  const res = await fetch('/api/public/prostudio/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const j = await res.json().catch(() => ({}));
+  if (res.status === 402 && j && j.paywall) {
+    const err = new Error('paywall');
+    err.paywall = true;
+    throw err;
   }
+  if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+  if (j.conversation_id) currentConvId = j.conversation_id;
+  return j;
+}
 
    async function sendChat() {
     const ta = document.getElementById('chatInput');
@@ -1216,12 +1231,17 @@ function closeUploadPanel(e) {
     });
     ta.value = ''; autoGrow(ta); updateSendButton();
     clearAttachment();
+    imageState.referenceImageUrls = [];
+    imageState.referenceImageUrl = '';
+    uploadedImageLibrary = [];
+    renderComposerImageDraft();
+    renderUploadedPhotoGrid();
     chatMessages.push({ typing: true, role: 'ai' });
     renderChat();
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     try {
-      const j = await callGenerate(v, attachment);
+      const j = await callGenerate(v, attachment, referenceImages);
       chatMessages.pop();
       const generatedUrls = generatedUrlsFromResponse(j, 'image');
       if (generatedUrls.length) addGeneratedImages(generatedUrls, generatedThumbsFromResponse(j));
@@ -1234,12 +1254,10 @@ function closeUploadPanel(e) {
         openPaywall();
         return;
       }
-    chatMessages.push({
-    role: 'ai',
-    text: j.sent_to_telegram ? 'Готово ✅\nФото отправлены в Telegram-чат.' : '',
-    imageUrl: j.image_url,
-    images: j.images || null
-    });
+      chatMessages.push({
+        role: 'ai',
+        text: '⚠️ ' + (err && err.message ? err.message : 'Генерация не прошла')
+      });
     } finally {
       document.body.classList.remove('ai-generating');
     }
@@ -1254,7 +1272,7 @@ function closeUploadPanel(e) {
     const prev = chatMessages[i - 1];
     if (!prev || prev.role !== 'user') return;
     chatMessages[i] = { typing: true, role: 'ai' }; renderChat();
-    callGenerate(prev.text, null)
+    callGenerate(prev.text, null, prev.referenceImages || [])
       .then((j) => {
         const generatedUrls = generatedUrlsFromResponse(j, 'image');
         if (generatedUrls.length) addGeneratedImages(generatedUrls, generatedThumbsFromResponse(j));
@@ -1984,7 +2002,7 @@ function closeUploadPanel(e) {
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
-    const has = (ta.value || '').trim().length > 0 || !!pendingAttachment;
+    const has = (ta.value || '').trim().length > 0 || !!pendingAttachment || !!(imageState.referenceImageUrls && imageState.referenceImageUrls.length);
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
       send.disabled = !has;
