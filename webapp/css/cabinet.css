@@ -2284,3 +2284,44 @@ body.ai-generating .view[data-view="tools"].active .studio,
   font-weight:900 !important;
   z-index:2 !important;
 }
+/* ===== User sent reference photos in chat: medium preview, not full size ===== */
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-img-row{
+  display:flex !important;
+  flex-wrap:wrap !important;
+  justify-content:flex-end !important;
+  gap:8px !important;
+  margin-top:8px !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-img{
+  width:150px !important;
+  height:150px !important;
+  max-width:42vw !important;
+  max-height:180px !important;
+  flex:0 0 auto !important;
+  border-radius:16px !important;
+  overflow:hidden !important;
+  background:rgba(255,255,255,.08) !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  display:block !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-img img{
+  width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  max-height:none !important;
+  object-fit:cover !important;
+  display:block !important;
+  margin:0 !important;
+  border-radius:0 !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble > img,
+.view[data-view="tools"].active .msg.user .bubble img.gen-img{
+  width:auto !important;
+  max-width:170px !important;
+  max-height:210px !important;
+  object-fit:cover !important;
+  border-radius:16px !important;
+}
