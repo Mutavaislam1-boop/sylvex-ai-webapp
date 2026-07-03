@@ -778,9 +778,9 @@ function ensureImageViewer() {
     <div class="image-viewer-card" onclick="event.stopPropagation()">
       <button class="image-viewer-close" type="button" onclick="SYLVEX.closeImageViewer(event)">×</button>
       <img id="imageViewerImg" class="image-viewer-img" src="" alt="generated image" />
-      <a id="imageViewerDownload" class="image-viewer-download" href="#" download="sylvex-image.jpg" target="_blank" rel="noopener">
-        Скачать
-      </a>
+    <button id="imageViewerDownload" class="image-viewer-download" type="button" onclick="SYLVEX.downloadImage(event)">
+    Скачать
+    </button>
     </div>
   `;
 
@@ -806,10 +806,9 @@ function openImageViewer(e, url) {
 
   if (img) img.src = imageUrl;
 
-  if (download) {
-    download.href = imageUrl;
-    download.setAttribute('download', 'sylvex-image.jpg');
-  }
+if (download) {
+  download.dataset.imageUrl = imageUrl;
+}
 
   viewer.classList.add('show');
 }
@@ -825,6 +824,41 @@ function closeImageViewer(e) {
 
   if (viewer) viewer.classList.remove('show');
   if (img) img.src = '';
+}
+
+async function downloadImage(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const btn = document.getElementById('imageViewerDownload');
+  const url = btn && btn.dataset ? btn.dataset.imageUrl : '';
+
+  if (!url) return;
+
+  try {
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok) throw new Error('download_failed');
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = 'sylvex-image-' + Date.now() + '.jpg';
+    a.style.display = 'none';
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+
+    toast('Скачивание началось');
+  } catch (err) {
+    toast('Не удалось скачать напрямую. Открой фото и сохрани через меню устройства.');
+  }
 }
 
   function closeUploadImagePreview(e) {
@@ -2036,7 +2070,7 @@ function closeUploadPanel(e) {
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer,
+    signOut, openImageViewer, closeImageViewer, downloadImage,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
