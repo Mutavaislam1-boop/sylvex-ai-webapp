@@ -18,6 +18,7 @@
   let mediaStream = null;
   let currentModelLabel = 'SYLVEX Pro';
   let imageCapabilities = [];
+  let generatedImageLibrary = [];
   let imageState = {
     modelId: '',
     size: '',
@@ -509,24 +510,113 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     if (sheet) sheet.classList.remove('show');
   }
   function ensureUploadPanel() {
-  let panel = document.getElementById('uploadPanel');
-  if (panel) return panel;
+    let panel = document.getElementById('uploadPanel');
+    if (panel) return panel;
 
-  panel = document.createElement('div');
-  panel.id = 'uploadPanel';
-  panel.className = 'upload-panel-backdrop';
-  panel.innerHTML = `
-    <div class="upload-panel-card" onclick="event.stopPropagation()">
-      <button class="upload-panel-close" type="button" onclick="SYLVEX.closeUploadPanel(event)">×</button>
-      <div class="upload-panel-title">Загрузка</div>
-      <div class="upload-panel-body"></div>
-    </div>
-  `;
+    panel = document.createElement('div');
+    panel.id = 'uploadPanel';
+    panel.className = 'upload-panel-backdrop';
+    panel.innerHTML = `
+      <div class="upload-panel-card" onclick="event.stopPropagation()">
+        <button class="upload-panel-close" type="button" onclick="SYLVEX.closeUploadPanel(event)">×</button>
+        <div class="upload-panel-title">Загрузка</div>
+        <div class="upload-panel-body">
+          <div class="upload-panel-half upload-panel-generated">
+            <div class="upload-half-head">
+              <div>
+                <div class="upload-half-title">Сгенерированные фото</div>
+                <div class="upload-half-sub">Нажми на фото, чтобы открыть и выбрать его</div>
+              </div>
+            </div>
+            <div id="uploadGeneratedGrid" class="upload-generated-grid"></div>
+          </div>
+          <div class="upload-panel-half upload-panel-actions">
+            <div class="upload-half-title">Загрузка</div>
+            <div class="upload-empty-actions">Здесь позже будут кнопки загрузки.</div>
+          </div>
+        </div>
+        <div id="uploadImagePreview" class="upload-image-preview" onclick="SYLVEX.closeUploadImagePreview(event)">
+          <div class="upload-preview-card" onclick="event.stopPropagation()">
+            <button class="upload-preview-close" type="button" onclick="SYLVEX.closeUploadImagePreview(event)">×</button>
+            <img id="uploadPreviewImg" src="" alt="generated image" />
+            <button id="uploadPreviewSelect" class="upload-preview-select" type="button">Выбрать для генерации</button>
+          </div>
+        </div>
+      </div>
+    `;
 
-  panel.addEventListener('click', closeUploadPanel);
-  document.body.appendChild(panel);
-  return panel;
-}
+    panel.addEventListener('click', closeUploadPanel);
+    document.body.appendChild(panel);
+    renderUploadPanelImages();
+    return panel;
+  }
+
+  function addGeneratedImages(urls) {
+    const list = (urls || []).filter(Boolean);
+    if (!list.length) return;
+    list.forEach((url) => {
+      if (!generatedImageLibrary.includes(url)) generatedImageLibrary.unshift(url);
+    });
+    generatedImageLibrary = generatedImageLibrary.slice(0, 40);
+    renderUploadPanelImages();
+  }
+
+  function renderUploadPanelImages() {
+    const grid = document.getElementById('uploadGeneratedGrid');
+    if (!grid) return;
+
+    if (!generatedImageLibrary.length) {
+      grid.innerHTML = '<div class="upload-generated-empty">Пока нет сгенерированных фото.</div>';
+      return;
+    }
+
+    const selectedUrl = imageState.referenceImageUrl || '';
+    grid.innerHTML = generatedImageLibrary.map((url) => {
+      const safeUrl = S.escapeHtml(url);
+      const selected = selectedUrl === url;
+      return '<button class="upload-generated-thumb ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.openUploadImagePreview(event,\'' + safeUrl + '\')">'
+        + '<img src="' + safeUrl + '" alt="generated image" />'
+        + '<span class="upload-thumb-check">✓</span>'
+        + '</button>';
+    }).join('');
+  }
+
+  function openUploadImagePreview(e, url) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const preview = document.getElementById('uploadImagePreview');
+    const img = document.getElementById('uploadPreviewImg');
+    const selectBtn = document.getElementById('uploadPreviewSelect');
+    if (!preview || !img || !selectBtn) return;
+    img.src = url;
+    selectBtn.onclick = (ev) => selectGeneratedImage(ev, url);
+    preview.classList.add('show');
+  }
+
+  function closeUploadImagePreview(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const preview = document.getElementById('uploadImagePreview');
+    const img = document.getElementById('uploadPreviewImg');
+    if (preview) preview.classList.remove('show');
+    if (img) img.src = '';
+  }
+
+  function selectGeneratedImage(e, url) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    imageState.referenceImageUrl = url;
+    renderUploadPanelImages();
+    closeUploadImagePreview(e);
+    toast('Фото выбрано для генерации');
+    S.haptic && S.haptic.notify && S.haptic.notify('success');
+  }
 
 function openUploadPanel(e) {
   if (e) {
@@ -535,6 +625,7 @@ function openUploadPanel(e) {
   }
 
   const panel = ensureUploadPanel();
+  renderUploadPanelImages();
   panel.classList.add('show');
 
   if (document.activeElement && typeof document.activeElement.blur === 'function') {
@@ -699,6 +790,8 @@ function closeUploadPanel(e) {
       const j = await callGenerate(v, attachment);
       chatMessages.pop();
       if (j.type === 'image') {
+        const generatedUrls = (j.images && j.images.length) ? j.images : (j.image_url ? [j.image_url] : []);
+        addGeneratedImages(generatedUrls);
         chatMessages.push({ role: 'ai', text: '', imageUrl: j.image_url, images: j.images || null });
       } else {
         chatMessages.push({ role: 'ai', text: j.text || '' });
@@ -1688,7 +1781,7 @@ function closeUploadPanel(e) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption,
-    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
