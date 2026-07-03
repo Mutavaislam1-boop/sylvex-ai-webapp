@@ -1609,3 +1609,25 @@ body.kb-open .nav{
     border-bottom:1px solid rgba(255,255,255,.08) !important;
   }
 }
+/* ===== Show full image model descriptions ===== */
+@media(max-width:560px){
+  body > #modelPop.image-model-floating-pop button.image-model-row,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row{
+    min-height:auto !important;
+    height:auto !important;
+    align-items:flex-start !important;
+    padding-top:8px !important;
+    padding-bottom:8px !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-desc,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-desc{
+    display:block !important;
+    overflow:visible !important;
+    -webkit-line-clamp:unset !important;
+    -webkit-box-orient:unset !important;
+    white-space:normal !important;
+    height:auto !important;
+    max-height:none !important;
+  }
+}
