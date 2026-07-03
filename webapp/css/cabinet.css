@@ -2363,3 +2363,79 @@ body.ai-generating .view[data-view="tools"].active .studio,
   right:4px !important;
   bottom:4px !important;
 }
+
+/* ===== Full image viewer with download ===== */
+.gen-img-open{
+  border:0 !important;
+  background:transparent !important;
+  padding:0 !important;
+  margin:0 !important;
+  display:block !important;
+  cursor:pointer !important;
+}
+
+.image-viewer-backdrop{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:9999999 !important;
+  display:none !important;
+  align-items:center !important;
+  justify-content:center !important;
+  background:rgba(0,0,0,.88) !important;
+  padding:18px !important;
+}
+
+.image-viewer-backdrop.show{
+  display:flex !important;
+}
+
+.image-viewer-card{
+  position:relative !important;
+  width:100% !important;
+  height:100% !important;
+  max-width:980px !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+}
+
+.image-viewer-img{
+  max-width:100% !important;
+  max-height:82vh !important;
+  object-fit:contain !important;
+  border-radius:18px !important;
+  display:block !important;
+}
+
+.image-viewer-close{
+  position:absolute !important;
+  top:12px !important;
+  right:12px !important;
+  width:38px !important;
+  height:38px !important;
+  border:0 !important;
+  border-radius:999px !important;
+  background:rgba(255,255,255,.14) !important;
+  color:#fff !important;
+  font-size:26px !important;
+  line-height:1 !important;
+  z-index:2 !important;
+}
+
+.image-viewer-download{
+  position:absolute !important;
+  left:50% !important;
+  bottom:18px !important;
+  transform:translateX(-50%) !important;
+  height:44px !important;
+  padding:0 26px !important;
+  border-radius:999px !important;
+  background:#2f6fbd !important;
+  color:#fff !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-decoration:none !important;
+  font-size:15px !important;
+  font-weight:700 !important;
+}

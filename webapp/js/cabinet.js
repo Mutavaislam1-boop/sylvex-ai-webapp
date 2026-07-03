@@ -428,12 +428,21 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
             '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
         ).join('') + '</div>';
         }
-      if (m.images && m.images.length) {
-        inner += '<div class="gen-img-grid">' + m.images.map((url) =>
-          '<img class="gen-img" src="' + url + '" alt="generated" />'
-        ).join('') + '</div>';
-      }
-      if (m.imageUrl && !(m.images && m.images.length)) inner += '<img class="gen-img" src="' + m.imageUrl + '" alt="generated" />';
+    if (m.images && m.images.length) {
+    inner += '<div class="gen-img-grid">' + m.images.map((url) => {
+        const safeUrl = S.escapeHtml(url);
+        return '<button class="gen-img-open" type="button" onclick="SYLVEX.openImageViewer(event,\\'' + safeUrl + '\\')">'
+        + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
+        + '</button>';
+    }).join('') + '</div>';
+    }
+
+    if (m.imageUrl && !(m.images && m.images.length)) {
+    const safeUrl = S.escapeHtml(m.imageUrl);
+    inner += '<button class="gen-img-open" type="button" onclick="SYLVEX.openImageViewer(event,\\'' + safeUrl + '\\')">'
+        + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
+        + '</button>';
+    }
       if (m.attachmentName) inner = '<div style="opacity:.7;font-size:12px;margin-bottom:4px">📎 ' + S.escapeHtml(m.attachmentName) + '</div>' + inner;
       return '<div class="msg ' + m.role + '" data-i="' + i + '">'
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
@@ -755,6 +764,60 @@ function removeComposerImageDraft(e, index) {
     selectBtn.onclick = (ev) => selectGeneratedImage(ev, url);
     preview.classList.add('show');
   }
+
+function ensureImageViewer() {
+  let viewer = document.getElementById('imageViewer');
+  if (viewer) return viewer;
+
+  viewer = document.createElement('div');
+  viewer.id = 'imageViewer';
+  viewer.className = 'image-viewer-backdrop';
+  viewer.innerHTML = `
+    <div class="image-viewer-card" onclick="event.stopPropagation()">
+      <button class="image-viewer-close" type="button" onclick="SYLVEX.closeImageViewer(event)">×</button>
+      <img id="imageViewerImg" class="image-viewer-img" src="" alt="generated image" />
+      <a id="imageViewerDownload" class="image-viewer-download" href="#" download="sylvex-image.jpg" target="_blank" rel="noopener">
+        Скачать
+      </a>
+    </div>
+  `;
+
+  viewer.onclick = closeImageViewer;
+  document.body.appendChild(viewer);
+  return viewer;
+}
+
+function openImageViewer(e, url) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const viewer = ensureImageViewer();
+  const img = document.getElementById('imageViewerImg');
+  const download = document.getElementById('imageViewerDownload');
+
+  if (img) img.src = url;
+  if (download) {
+    download.href = url;
+    download.setAttribute('download', 'sylvex-image.jpg');
+  }
+
+  viewer.classList.add('show');
+}
+
+function closeImageViewer(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const viewer = document.getElementById('imageViewer');
+  const img = document.getElementById('imageViewerImg');
+
+  if (viewer) viewer.classList.remove('show');
+  if (img) img.src = '';
+}
 
   function closeUploadImagePreview(e) {
     if (e) {
@@ -1965,7 +2028,7 @@ function closeUploadPanel(e) {
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut,
+    signOut, openImageViewer, closeImageViewer,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
