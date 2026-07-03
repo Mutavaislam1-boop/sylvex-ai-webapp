@@ -2229,3 +2229,58 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .upload-choose-photos-btn:active{
   transform:translateX(-50%) scale(.98) !important;
 }
+
+/* ===== Composer selected images: small thumbnails with delete cross ===== */
+.composer-image-draft{
+  width:100% !important;
+  display:flex !important;
+  flex-wrap:wrap !important;
+  gap:6px !important;
+  padding:0 2px 7px !important;
+  align-items:center !important;
+}
+
+.composer-image-draft[hidden]{
+  display:none !important;
+}
+
+.composer-image-thumb{
+  position:relative !important;
+  width:42px !important;
+  height:42px !important;
+  min-width:42px !important;
+  max-width:42px !important;
+  flex:0 0 42px !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  border-radius:11px !important;
+  overflow:hidden !important;
+  background:rgba(255,255,255,.06) !important;
+  padding:0 !important;
+  display:block !important;
+}
+
+.composer-image-thumb img{
+  width:42px !important;
+  height:42px !important;
+  max-width:42px !important;
+  max-height:42px !important;
+  object-fit:cover !important;
+  display:block !important;
+}
+
+.composer-image-remove{
+  position:absolute !important;
+  top:2px !important;
+  right:2px !important;
+  width:14px !important;
+  height:14px !important;
+  border-radius:999px !important;
+  display:grid !important;
+  place-items:center !important;
+  background:rgba(0,0,0,.72) !important;
+  color:#fff !important;
+  font-size:11px !important;
+  line-height:1 !important;
+  font-weight:900 !important;
+  z-index:2 !important;
+}
