@@ -2172,3 +2172,19 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .upload-photo-grid.empty .upload-photo-center-btn{
   margin:auto !important;
 }
+/* ===== Upload choose button: slightly higher and centered in lower block ===== */
+.upload-panel-actions{
+  position:relative !important;
+}
+
+.upload-choose-photos-btn{
+  position:absolute !important;
+  left:50% !important;
+  bottom:28px !important;
+  transform:translateX(-50%) !important;
+  margin:0 !important;
+}
+
+.upload-choose-photos-btn:active{
+  transform:translateX(-50%) scale(.985) !important;
+}
