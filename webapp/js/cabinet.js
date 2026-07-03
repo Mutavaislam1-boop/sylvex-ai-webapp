@@ -61,12 +61,11 @@
   function renderModelPop() {
     const el = document.getElementById('modelPop'); if (!el) return;
     if (studioMode === 'image' && imageCapabilities.length) {
-      el.innerHTML = imageCapabilities.map((model) =>
-        '<button class="' + (imageState.modelId === model.id ? 'sel' : '') +
-        '" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(model.id) + '\')">' +
-        S.escapeHtml(model.label || model.id) + '</button>'
-      ).join('');
-      return;
+    el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
+        + '<div class="image-model-sheet-list">'
+        + imageCapabilities.map(imageModelButton).join('')
+        + '</div>';
+    return;
     }
     const items = [
       { k:'pro',  label:'SYLVEX Pro'  },
@@ -86,6 +85,27 @@
     const opt = (options || []).find((item) => String(item.id) === String(id));
     return opt ? (opt.label || opt.id) : fallback;
   }
+
+function imageModelIcon(model) {
+  return model && model.icon ? model.icon : '✦';
+}
+
+function imageModelDescription(model) {
+  if (!model) return 'AI-модель для генерации изображений.';
+  return model.description || model.desc || model.subtitle || model.note || 'AI-модель для генерации изображений.';
+}
+
+function imageModelButton(model) {
+  const active = imageState.modelId === model.id;
+  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(model.id) + '\')">'
+    + '<span class="image-model-icon">' + S.escapeHtml(imageModelIcon(model)) + '</span>'
+    + '<span class="image-model-text">'
+    + '<span class="image-model-name">' + S.escapeHtml(model.label || model.id) + '</span>'
+    + '<span class="image-model-desc">' + S.escapeHtml(imageModelDescription(model)) + '</span>'
+    + '</span>'
+    + '<span class="image-model-check">✓</span>'
+    + '</button>';
+}
 
   function applyImageDefaults(model) {
     if (!model) return;
@@ -109,9 +129,9 @@
     const countVal = document.getElementById('imageCountVal');
     if (countVal) countVal.textContent = String(imageState.count || 1);
     const styleVal = document.getElementById('imageStyleVal');
-    if (styleVal) styleVal.textContent = optionLabel(model.styles, imageState.style, 'Стиль');
+    if (styleVal) styleVal.textContent = imageState.style === 'auto' ? 'Стили' : optionLabel(model.styles, imageState.style, 'Стили');
     const characterVal = document.getElementById('imageCharacterVal');
-    if (characterVal) characterVal.textContent = optionLabel(model.characters, imageState.character, 'Характер');
+    if (characterVal) characterVal.textContent = imageState.character === 'auto' ? 'Характер' : optionLabel(model.characters, imageState.character, 'Характер');
   }
 
   async function loadImageCapabilities() {
@@ -133,7 +153,14 @@
     const el = document.getElementById('modelPop');
     if (!model || !el) return;
     let items = [];
-    if (kind === 'model') items = imageCapabilities.map((model) => ({ id: model.id, label: model.label || model.id }));
+    if (kind === 'model') {
+    el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
+        + '<div class="image-model-sheet-list">'
+        + imageCapabilities.map(imageModelButton).join('')
+        + '</div>';
+    el.classList.add('show');
+    return;
+    }
     if (kind === 'size') items = (model.sizes || []).map((item) => ({ id: item.id, label: (item.icon || item.label || item.ratio || item.id) }));
     if (kind === 'count') items = (model.counts || [1]).map((count) => ({ id: String(count), label: String(count) }));
     if (kind === 'style') items = model.styles || [];
