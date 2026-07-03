@@ -78,21 +78,40 @@ const MODEL_ICON_SVG = {
   microsoft: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="8" height="8" fill="currentColor"/><rect x="13" y="3" width="8" height="8" fill="currentColor"/><rect x="3" y="13" width="8" height="8" fill="currentColor"/><rect x="13" y="13" width="8" height="8" fill="currentColor"/></svg>'
 };
 
-  function withImageDefaults(model) {
-    return Object.assign({
-      sizes: [
-        { id:'1:1', label:'1:1', ratio:'1:1', icon:'1:1' },
-        { id:'9:16', label:'9:16', ratio:'9:16', icon:'9:16' },
-        { id:'16:9', label:'16:9', ratio:'16:9', icon:'16:9' }
-      ],
-      counts: [1, 2, 3, 4],
-      styles: [
-        { id:'auto', label:'Авто' },
-        { id:'aegean_luxury', label:'Aegean' }
-      ],
-      characters: [{ id:'auto', label:'Авто' }]
-    }, model);
-  }
+ function withImageDefaults(model) {
+  const base = Object.assign({
+    sizes: [
+      { id:'1:1', label:'1:1', ratio:'1:1', icon:'1:1' },
+      { id:'9:16', label:'9:16', ratio:'9:16', icon:'9:16' },
+      { id:'16:9', label:'16:9', ratio:'16:9', icon:'16:9' }
+    ],
+    counts: [1, 2, 3, 4],
+    styles: [{ id:'auto', label:'Авто' }],
+    characters: [{ id:'auto', label:'Авто' }]
+  }, model);
+
+  const requiredStyles = [
+    { id:'auto', label:'Авто' },
+    { id:'aegean_luxury', label:'Aegean' }
+  ];
+
+  const styleMap = new Map();
+
+  (base.styles || []).forEach((item) => {
+    styleMap.set(String(item.id), item);
+  });
+
+  requiredStyles.forEach((item) => {
+    styleMap.set(
+      String(item.id),
+      Object.assign({}, styleMap.get(String(item.id)) || {}, item)
+    );
+  });
+
+  base.styles = Array.from(styleMap.values());
+
+  return base;
+}
 
   function mergeImageModels(apiModels) {
     const map = new Map();
