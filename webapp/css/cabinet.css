@@ -679,6 +679,12 @@ body.kb-open .nav{
 @media(max-width:560px){
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
+  .studio-control-row{flex-wrap:wrap;overflow-x:visible;gap:8px}
+  .studio-control-row .studio-select-pill.wide{order:-1;width:100%;min-width:0;justify-content:center}
+  .studio-control-row .studio-select-pill:not(.wide){min-height:40px;padding:0 12px;font-size:13px}
+  .studio-control-row .image-count-pill{min-width:92px}
+  .studio-control-row .image-settings-pill{width:40px;min-width:40px;height:40px}
+  .studio-control-row .studio-generate{min-height:40px;padding:0 16px;font-size:13px;margin-left:auto}
   .studio-video-panel{grid-template-columns:1fr;padding:14px;border-radius:22px;gap:12px}
   .studio-video-composer[data-composer-mode="music"] .studio-video-panel{padding:18px 14px}
   .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
