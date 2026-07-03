@@ -1981,3 +1981,58 @@ body.ai-generating .view[data-view="tools"].active .studio,
   display:grid !important;
   place-items:center !important;
 }
+
+/* ===== Upload panel lower half: centered photo upload button ===== */
+.upload-panel-actions{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center !important;
+}
+
+.upload-photo-center-btn{
+  width:min(72%,260px) !important;
+  min-height:138px !important;
+  border:1px dashed rgba(255,255,255,.20) !important;
+  border-radius:24px !important;
+  background:rgba(255,255,255,.045) !important;
+  color:#f3f3f3 !important;
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:7px !important;
+  padding:18px !important;
+}
+
+.upload-photo-center-btn:active{
+  transform:scale(.985) !important;
+}
+
+.upload-photo-center-icon{
+  width:54px !important;
+  height:54px !important;
+  border-radius:18px !important;
+  display:grid !important;
+  place-items:center !important;
+  background:rgba(255,255,255,.08) !important;
+  color:#fff !important;
+}
+
+.upload-photo-center-icon svg{
+  width:30px !important;
+  height:30px !important;
+  display:block !important;
+}
+
+.upload-photo-center-title{
+  font-size:13px !important;
+  font-weight:800 !important;
+  line-height:1 !important;
+}
+
+.upload-photo-center-sub{
+  font-size:11px !important;
+  line-height:1.2 !important;
+  color:rgba(255,255,255,.52) !important;
+}
