@@ -163,6 +163,8 @@ const MODEL_ICON_SVG = {
     if (e) e.stopPropagation();
     const el = document.getElementById('modelPop');
     if (!el) return;
+    el.classList.remove('image-size-floating-pop');
+    el.style.cssText = '';
     if (!imageCapabilities.length) {
       loadImageCapabilities().then(() => showImageModelPicker(e)).catch(() => {});
       return;
@@ -261,11 +263,23 @@ function imageModelButton(model) {
     if (!model) return;
     const modelEl = document.getElementById('modelValComposer');
     if (modelEl && studioMode === 'image') modelEl.textContent = model.label || model.id;
-    const size = (model.sizes || []).find((item) => item.id === imageState.size) || (model.sizes || [])[0];
-    const sizeVal = document.getElementById('imageSizeVal');
-    if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
-    const sizeIcon = document.getElementById('imageSizeIcon');
-    if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.icon || size.ratio || size.label || '1:1');
+    const sizeOptions = [
+  { id:'1:1', label:'1:1', ratio:'1:1' },
+  { id:'16:9', label:'16:9', ratio:'16:9' },
+  { id:'9:16', label:'9:16', ratio:'9:16' },
+  { id:'3:4', label:'3:4', ratio:'3:4' },
+  { id:'4:5', label:'4:5', ratio:'4:5' },
+  { id:'5:4', label:'5:4', ratio:'5:4' },
+  { id:'4:3', label:'4:3', ratio:'4:3' },
+  { id:'21:9', label:'21:9', ratio:'21:9' },
+  { id:'auto', label:'Auto', ratio:'auto' }
+];
+const selectedSizeId = imageState.size || '1:1';
+const size = sizeOptions.find((item) => item.id === selectedSizeId) || sizeOptions[0];
+const sizeVal = document.getElementById('imageSizeVal');
+if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
+const sizeIcon = document.getElementById('imageSizeIcon');
+if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id || '1:1');
     const countVal = document.getElementById('imageCountVal');
     if (countVal) countVal.textContent = String(imageState.count || 1);
     const styleVal = document.getElementById('imageStyleVal');
@@ -318,6 +332,8 @@ function imageModelButton(model) {
       const selectedSize = imageState.size || imageState.ratio || '1:1';
 
       if (el.parentElement !== document.body) document.body.appendChild(el);
+      el.classList.remove('image-model-floating-pop');
+      el.style.cssText = '';
       el.classList.add('image-size-floating-pop');
       el.style.position = 'fixed';
       el.style.left = '8px';
@@ -380,7 +396,7 @@ function imageModelButton(model) {
     }
     renderImageControls();
     renderModelPop();
-    const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); el.classList.remove('image-size-floating-pop'); }
+   const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); el.classList.remove('image-size-floating-pop'); el.style.cssText = ''; }
   }
 
   function renderChat() {
@@ -1455,7 +1471,7 @@ function imageModelButton(model) {
     // Close popovers on outside click
     document.addEventListener('click', () => {
       if (langPop) langPop.classList.remove('show');
-      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); }
+      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); mp.style.cssText = ''; }
       const pp = document.getElementById('plusPop');  if (pp) pp.classList.remove('show');
       const bp = document.getElementById('brandPop'); if (bp) bp.classList.remove('show');
       const bb = document.getElementById('brandBtn'); if (bb) bb.setAttribute('aria-expanded','false');
