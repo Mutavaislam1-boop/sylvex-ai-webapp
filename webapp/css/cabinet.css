@@ -1849,3 +1849,49 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
     background-position:22px 22px,49px 55px;
   }
 }
+/* ===== Pro Studio top mode buttons: same compact size as inner controls ===== */
+@media(max-width:560px){
+  .view[data-view="tools"].active .studio-mode-tabs{
+    gap:6px !important;
+    margin:0 0 6px !important;
+    padding:0 0 2px !important;
+  }
+
+  .view[data-view="tools"].active .studio-mini-tabs{
+    height:34px !important;
+    min-height:34px !important;
+    padding:3px !important;
+    gap:3px !important;
+    border-radius:999px !important;
+  }
+
+  .view[data-view="tools"].active .studio-mini-tab{
+    width:34px !important;
+    height:28px !important;
+    min-width:34px !important;
+    min-height:28px !important;
+    border-radius:999px !important;
+    padding:0 !important;
+  }
+
+  .view[data-view="tools"].active .studio-mini-tab svg{
+    width:14px !important;
+    height:14px !important;
+  }
+
+  .view[data-view="tools"].active .studio-mode-tab{
+    height:34px !important;
+    min-height:34px !important;
+    padding:0 10px !important;
+    gap:5px !important;
+    border-radius:999px !important;
+    font-size:11px !important;
+    line-height:1 !important;
+    font-weight:700 !important;
+  }
+
+  .view[data-view="tools"].active .studio-mode-tab svg{
+    width:15px !important;
+    height:15px !important;
+  }
+}
