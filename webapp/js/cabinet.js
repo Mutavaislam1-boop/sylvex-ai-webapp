@@ -295,9 +295,61 @@ function imageModelButton(model) {
     if (e) e.stopPropagation();
     const model = currentImageModel();
     const el = document.getElementById('modelPop');
-    if (!model || !el) return;
+    if (!el) return;
+
+    el.classList.remove('image-model-floating-pop');
+    el.classList.remove('image-size-floating-pop');
+
+    if (kind === 'size') {
+      const fallbackSizes = [
+        { id:'1:1', label:'1:1', ratio:'1:1' },
+        { id:'4:3', label:'4:3', ratio:'4:3' },
+        { id:'9:16', label:'9:16', ratio:'9:16' },
+        { id:'3:4', label:'3:4', ratio:'3:4' },
+        { id:'16:9', label:'16:9', ratio:'16:9' },
+        { id:'auto', label:'Авто', ratio:'auto' }
+      ];
+      const modelSizes = model && model.sizes && model.sizes.length ? model.sizes : [];
+      const sizeIds = new Set(modelSizes.map((item) => String(item.id || item.ratio || item.label || '')));
+      const mergedSizes = modelSizes.concat(fallbackSizes.filter((item) => !sizeIds.has(item.id)));
+      const selectedSize = imageState.size || imageState.ratio || '1:1';
+
+      if (el.parentElement !== document.body) document.body.appendChild(el);
+      el.classList.add('image-size-floating-pop');
+      el.style.position = 'fixed';
+      el.style.left = '8px';
+      el.style.right = 'auto';
+      el.style.top = 'auto';
+      el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+      el.style.width = '64vw';
+      el.style.maxWidth = '315px';
+      el.style.minWidth = '245px';
+      el.style.maxHeight = '64vh';
+      el.style.overflowY = 'auto';
+      el.style.zIndex = '999999';
+
+      el.innerHTML = '<div class="image-size-sheet-title">Соотношение сторон</div>'
+        + '<div class="image-size-sheet-list">'
+        + mergedSizes.map((item) => {
+          const id = String(item.id || item.ratio || item.label || '');
+          const label = item.label || item.ratio || item.id;
+          const active = String(selectedSize) === id;
+          return '<button class="image-size-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'size\',\'' + S.escapeHtml(id) + '\')">'
+            + '<span class="image-size-icon" data-ratio="' + S.escapeHtml(id) + '"></span>'
+            + '<span class="image-size-label">' + S.escapeHtml(label) + '</span>'
+            + '<span class="image-size-check">✓</span>'
+            + '</button>';
+        }).join('')
+        + '</div>';
+      el.classList.add('show');
+      const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+      const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+      return;
+    }
+
+    if (!model) return;
     let items = [];
-    if (kind === 'size') items = (model.sizes || []).map((item) => ({ id: item.id, label: (item.icon || item.label || item.ratio || item.id) }));
     if (kind === 'count') items = (model.counts || [1]).map((count) => ({ id: String(count), label: String(count) }));
     if (kind === 'style') items = model.styles || [];
     if (kind === 'character') items = model.characters || [];
@@ -325,7 +377,7 @@ function imageModelButton(model) {
     }
     renderImageControls();
     renderModelPop();
-    const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); }
+    const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); el.classList.remove('image-size-floating-pop'); }
   }
 
   function renderChat() {
@@ -1400,7 +1452,7 @@ function imageModelButton(model) {
     // Close popovers on outside click
     document.addEventListener('click', () => {
       if (langPop) langPop.classList.remove('show');
-      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); }
+      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); }
       const pp = document.getElementById('plusPop');  if (pp) pp.classList.remove('show');
       const bp = document.getElementById('brandPop'); if (bp) bp.classList.remove('show');
       const bb = document.getElementById('brandBtn'); if (bb) bb.setAttribute('aria-expanded','false');

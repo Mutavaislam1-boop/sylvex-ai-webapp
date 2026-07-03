@@ -1448,3 +1448,127 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
   padding-left:12px !important;
   gap:0 !important;
 }
+/* ===== Floating aspect ratio picker like reference ===== */
+@media(max-width:560px){
+  body > #modelPop.image-size-floating-pop{
+    position:fixed !important;
+    left:8px !important;
+    right:auto !important;
+    top:auto !important;
+    bottom:calc(58px + env(safe-area-inset-bottom)) !important;
+    width:64vw !important;
+    max-width:315px !important;
+    min-width:245px !important;
+    max-height:64vh !important;
+    overflow-y:auto !important;
+    padding:12px 10px 12px !important;
+    border-radius:22px !important;
+    background:rgba(20,21,24,.60) !important;
+    border:1px solid rgba(255,255,255,.12) !important;
+    box-shadow:0 24px 70px -18px rgba(0,0,0,.92) !important;
+    backdrop-filter:blur(18px) saturate(140%) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(140%) !important;
+    z-index:999999 !important;
+  }
+
+  body > #modelPop.image-size-floating-pop::before{
+    display:none !important;
+    content:none !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-sheet-title{
+    position:sticky !important;
+    top:0 !important;
+    z-index:5 !important;
+    padding:2px 4px 14px !important;
+    margin:0 0 10px !important;
+    font-size:20px !important;
+    line-height:1.15 !important;
+    font-weight:800 !important;
+    color:#cfcfd4 !important;
+    background:rgba(20,21,24,.62) !important;
+    border-bottom:1px solid rgba(255,255,255,.10) !important;
+    backdrop-filter:blur(14px) saturate(140%) !important;
+    -webkit-backdrop-filter:blur(14px) saturate(140%) !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-sheet-list{
+    display:flex !important;
+    flex-direction:column !important;
+    gap:8px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop button.image-size-row{
+    width:100% !important;
+    min-height:72px !important;
+    display:grid !important;
+    grid-template-columns:46px 1fr 24px !important;
+    align-items:center !important;
+    gap:12px !important;
+    padding:0 16px !important;
+    border:0 !important;
+    border-radius:14px !important;
+    background:transparent !important;
+    color:#f3f3f3 !important;
+    text-align:left !important;
+    font-family:inherit !important;
+  }
+
+  body > #modelPop.image-size-floating-pop button.image-size-row.active,
+  body > #modelPop.image-size-floating-pop button.image-size-row.sel{
+    background:rgba(255,255,255,.12) !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon{
+    width:30px !important;
+    height:30px !important;
+    display:block !important;
+    border:3px solid #cfcfd4 !important;
+    border-radius:8px !important;
+    opacity:.92 !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:3"]{
+    width:32px !important;
+    height:25px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="3:4"]{
+    width:25px !important;
+    height:32px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="9:16"]{
+    width:24px !important;
+    height:34px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="16:9"]{
+    width:36px !important;
+    height:22px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="auto"]{
+    width:32px !important;
+    height:32px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-label{
+    font-size:22px !important;
+    line-height:1 !important;
+    font-weight:700 !important;
+    color:#f4f4f4 !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-check{
+    font-size:22px !important;
+    line-height:1 !important;
+    color:#f4f4f4 !important;
+    opacity:0 !important;
+  }
+
+  body > #modelPop.image-size-floating-pop button.image-size-row.active .image-size-check,
+  body > #modelPop.image-size-floating-pop button.image-size-row.sel .image-size-check{
+    opacity:1 !important;
+  }
+}
