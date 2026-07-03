@@ -539,9 +539,9 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
       </div>
     `;
 
-    panel.addEventListener('click', closeUploadPanel);
     document.body.appendChild(panel);
     renderUploadPanelImages();
+    renderUploadedPhotoGrid();
     return panel;
   }
 
@@ -603,6 +603,38 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     grid.innerHTML = items.join('');
   }
 
+  function addUploadedPhoto(url) {
+    if (!url) return;
+    uploadedImageLibrary = uploadedImageLibrary.filter((item) => item !== url);
+    uploadedImageLibrary.push(url);
+    uploadedImageLibrary = uploadedImageLibrary.slice(0, 4);
+    imageState.referenceImageUrl = url;
+    imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    renderUploadedPhotoGrid();
+  }
+
+  function selectUploadedPhoto(e, url) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    imageState.referenceImageUrl = url;
+    imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    renderUploadedPhotoGrid();
+    toast('Фото выбрано');
+  }
+
+  function removeUploadedPhoto(e, index) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    uploadedImageLibrary.splice(index, 1);
+    imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+    renderUploadedPhotoGrid();
+  }
+
   function openUploadImagePreview(e, url) {
     if (e) {
       e.preventDefault();
@@ -646,9 +678,10 @@ function openUploadPanel(e) {
     e.stopPropagation();
   }
 
-  const panel = ensureUploadPanel();
-  renderUploadPanelImages();
-  panel.classList.add('show');
+const panel = ensureUploadPanel();
+renderUploadPanelImages();
+renderUploadedPhotoGrid();
+panel.classList.add('show');
 
   if (document.activeElement && typeof document.activeElement.blur === 'function') {
     document.activeElement.blur();
@@ -701,9 +734,7 @@ function closeUploadPanel(e) {
       };
 
       if ((pendingAttachAccept || '') === 'image' && result) {
-        imageState.referenceImageUrl = result;
-        addGeneratedImages([result]);
-        renderUploadPanelImages();
+        addUploadedPhoto(result);
         toast('Фото загружено');
       }
 
@@ -1811,7 +1842,7 @@ function closeUploadPanel(e) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption,
-    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
