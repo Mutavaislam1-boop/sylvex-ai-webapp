@@ -1256,6 +1256,22 @@ body.kb-open .nav{
 
 /* ===== AI particles: static<truncated__content/>
 
+/* ===== Pro Studio dots: dim static light by 30% ===== */
+.view[data-view="tools"].active .chat-area::before{
+  opacity:.43 !important;
+  filter:brightness(1.02) contrast(1.05) !important;
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.64) 0 1.15px,transparent 1.9px),
+    radial-gradient(circle,rgba(255,255,255,.35) 0 1px,transparent 1.8px),
+    linear-gradient(115deg,transparent 0 42%,rgba(255,255,255,.07) 48%,transparent 56%) !important;
+}
+
+body.ai-generating .view[data-view="tools"].active .chat-area::before,
+.view[data-view="tools"].active .chat-area:has(.typing)::before{
+  opacity:.86 !important;
+  filter:brightness(1.9) contrast(1.18) !important;
+}
+
 /* ===== Force visible static AI dots above black Pro Studio backgrounds ===== */
 .view[data-view="tools"].active .studio{
   position:relative !important;
