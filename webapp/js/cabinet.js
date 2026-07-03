@@ -82,6 +82,21 @@
       studioMode = 'image';
       activeCat = 'image';
     }
+    // Move model picker to body so it appears above all Pro Studio blocks.
+    if (el.parentElement !== document.body) {
+      document.body.appendChild(el);
+    }
+    el.classList.add('image-model-floating-pop');
+    el.style.position = 'fixed';
+    el.style.left = '0';
+    el.style.right = '0';
+    el.style.top = 'auto';
+    el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+    el.style.width = '100%';
+    el.style.maxHeight = '64vh';
+    el.style.overflowY = 'auto';
+    el.style.zIndex = '999999';
+
     el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
       + '<div class="image-model-sheet-list">'
       + imageCapabilities.map(imageModelButton).join('')
@@ -200,7 +215,7 @@ function imageModelButton(model) {
     }
     renderImageControls();
     renderModelPop();
-    const el = document.getElementById('modelPop'); if (el) el.classList.remove('show');
+    const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); }
   }
 
   function renderChat() {
@@ -1274,7 +1289,7 @@ function imageModelButton(model) {
     // Close popovers on outside click
     document.addEventListener('click', () => {
       if (langPop) langPop.classList.remove('show');
-      const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
+      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); }
       const pp = document.getElementById('plusPop');  if (pp) pp.classList.remove('show');
       const bp = document.getElementById('brandPop'); if (bp) bp.classList.remove('show');
       const bb = document.getElementById('brandBtn'); if (bb) bb.setAttribute('aria-expanded','false');
