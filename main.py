@@ -3353,6 +3353,7 @@ def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
         count = default
     return max(1, min(count, max_count))
 
+
 def byteplus_seedream_body(model: str, prompt: str, reference_images=None) -> dict:
     body = {
         "model": model,
@@ -3360,6 +3361,7 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None) -> di
         "sequential_image_generation": "disabled",
         "response_format": "url",
         "size": "2K",
+        "output_format": "png",
         "stream": False,
         "watermark": False,
     }
@@ -3367,8 +3369,7 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None) -> di
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
 
     if refs:
-        body["image_urls"] = refs[:4]
-        body["reference_images"] = refs[:4]
+        body["image"] = refs[0]
 
     return body
 
