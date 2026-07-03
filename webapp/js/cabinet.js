@@ -96,6 +96,8 @@
     renderModelPop();
     const mv = document.getElementById('modelVal');
     if (mv) mv.textContent = currentModelLabel;
+    const mvc = document.getElementById('modelValComposer');
+    if (mvc && currentModelLabel) mvc.textContent = currentModelLabel === 'SYLVEX Pro' ? 'Seedance 2.0 Fast' : currentModelLabel;
     updatePrice();
   }
 
@@ -143,6 +145,8 @@
     activeCat = studioMode;
     const mv = document.getElementById('modelVal');
     if (mv) mv.textContent = label;
+    const mvc = document.getElementById('modelValComposer');
+    if (mvc) mvc.textContent = label;
     renderModelPop();
     const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
     const bb = document.getElementById('modelBtn'); if (bb) bb.setAttribute('aria-expanded','false');
@@ -193,11 +197,22 @@
     pendingAttachment = null;
     try { updateSendButton(); } catch {}
   }
-  function genAction(kind) {
+  function updateComposerMode(kind) {
+    document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
+      const isActive = btn.dataset.studioModeBtn === kind || (kind === 'video' && btn.dataset.studioModeBtn === 'video');
+      btn.classList.toggle('active', isActive);
+    });
+    document.querySelectorAll('.studio-mini-tab').forEach((btn) => btn.classList.remove('active'));
+    const miniIndex = kind === 'image' ? 0 : kind === 'voice' ? 2 : 1;
+    const minis = document.querySelectorAll('.studio-mini-tab');
+    if (minis[miniIndex]) minis[miniIndex].classList.add('active');
+  }
+  function genAction(kind, tabKey) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
     studioMode = kind === 'voice' ? 'voice' : kind;
     activeCat = studioMode;
+    updateComposerMode(tabKey || studioMode);
     const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Voiceover' };
     toast(labels[kind] || kind);
     const ta = document.getElementById('chatInput');
@@ -998,10 +1013,15 @@
     const ta = document.getElementById('chatInput');
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');
-    if (!ta || !mic || !send) return;
+    if (!ta || !send) return;
     const has = (ta.value || '').trim().length > 0 || !!pendingAttachment;
-    mic.hidden = has;
-    send.hidden = !has;
+    if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
+    if (send.classList.contains('studio-generate')) {
+      send.disabled = !has;
+      send.hidden = false;
+    } else {
+      send.hidden = !has;
+    }
   }
 
   /* ===== Support modal ===== */
