@@ -1232,3 +1232,29 @@ body.kb-open .nav{
 .image-model-row.sel .image-model-check{
   opacity:1;
 }
+
+/* ===== Pro Studio top title: not a model picker ===== */
+.view[data-view="tools"].active .sb-brand{
+  pointer-events:none !important;
+  cursor:default !important;
+  background:transparent !important;
+  border:0 !important;
+  box-shadow:none !important;
+  padding:0 !important;
+}
+
+.view[data-view="tools"].active .sb-brand:hover,
+.view[data-view="tools"].active .sb-brand:active{
+  background:transparent !important;
+  transform:none !important;
+}
+
+.view[data-view="tools"].active .sb-brand-chv{
+  display:none !important;
+}
+
+.view[data-view="tools"].active .sb-brand-name{
+  font-size:14px !important;
+  font-weight:700 !important;
+  letter-spacing:.2px !important;
+}
