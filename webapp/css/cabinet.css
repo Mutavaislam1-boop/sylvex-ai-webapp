@@ -802,6 +802,52 @@ body.kb-open .nav{
 .msg .bubble img.gen-img{display:block;max-width:100%;border-radius:12px;margin-top:4px}
 .gen-img-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .gen-img-grid .gen-img{width:100%;height:auto;margin:0}
+.gen-media-list{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.gen-media-card{
+  position:relative;
+  overflow:hidden;
+  border-radius:12px;
+  background:rgba(255,255,255,.04);
+}
+.gen-media-card .gen-img-open{width:100%}
+.gen-download-btn{
+  position:absolute;
+  right:8px;
+  bottom:8px;
+  z-index:3;
+  height:34px;
+  padding:0 12px;
+  border:0;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  background:rgba(47,111,189,.96);
+  color:#fff;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  box-shadow:0 8px 22px rgba(0,0,0,.28);
+}
+.gen-download-btn:active{transform:scale(.98)}
+.gen-video,
+.gen-audio{
+  display:block;
+  width:100%;
+}
+.gen-video{max-height:360px;background:#000;border-radius:12px}
+.gen-audio{padding:10px}
+.gen-file-card{
+  min-height:64px;
+  padding:14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.gen-file-card .gen-download-btn{position:static;flex-shrink:0}
+.gen-file-label{font-size:14px;color:#f3f3f3}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.55)}50%{box-shadow:0 0 0 10px rgba(239,68,68,0)}}
 
 /* ===== Compact model pill & history rows (TZ rev) ===== */

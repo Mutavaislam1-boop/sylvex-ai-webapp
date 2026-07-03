@@ -410,6 +410,94 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
    const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); el.classList.remove('image-size-floating-pop'); el.style.cssText = ''; }
   }
 
+  function generatedUrlsFromMessage(m, kind) {
+    if (!m) return [];
+    if (kind === 'image') {
+      return Array.isArray(m.images) && m.images.length ? m.images : (m.imageUrl ? [m.imageUrl] : []);
+    }
+    if (kind === 'video') {
+      return Array.isArray(m.videos) && m.videos.length ? m.videos : (m.videoUrl ? [m.videoUrl] : []);
+    }
+    if (kind === 'audio') {
+      return Array.isArray(m.audios) && m.audios.length ? m.audios : (m.audioUrl ? [m.audioUrl] : []);
+    }
+    return Array.isArray(m.files) && m.files.length ? m.files : (m.fileUrl ? [m.fileUrl] : []);
+  }
+
+  function generatedUrlsFromResponse(j, kind) {
+    if (!j) return [];
+    if (kind === 'image') {
+      return Array.isArray(j.images) && j.images.length ? j.images : (j.image_url ? [j.image_url] : []);
+    }
+    if (kind === 'video') {
+      return Array.isArray(j.videos) && j.videos.length ? j.videos : (j.video_url ? [j.video_url] : []);
+    }
+    if (kind === 'audio') {
+      return Array.isArray(j.audios) && j.audios.length ? j.audios : (j.audio_url ? [j.audio_url] : []);
+    }
+    return Array.isArray(j.files) && j.files.length ? j.files : (j.file_url ? [j.file_url] : []);
+  }
+
+  function aiMessageFromGenerateResponse(j) {
+    const images = generatedUrlsFromResponse(j, 'image');
+    const videos = generatedUrlsFromResponse(j, 'video');
+    const audios = generatedUrlsFromResponse(j, 'audio');
+    const files = generatedUrlsFromResponse(j, 'file');
+    return {
+      role: 'ai',
+      text: j.text || '',
+      imageUrl: images[0] || undefined,
+      images: images.length ? images : null,
+      videoUrl: videos[0] || undefined,
+      videos: videos.length ? videos : null,
+      audioUrl: audios[0] || undefined,
+      audios: audios.length ? audios : null,
+      fileUrl: files[0] || undefined,
+      files: files.length ? files : null,
+    };
+  }
+
+  function renderGeneratedDownloadButton(url, kind) {
+    const safeUrl = S.escapeHtml(url);
+    const safeKind = S.escapeHtml(kind || 'file');
+    return '<button class="gen-download-btn" type="button" data-download-url="' + safeUrl + '" data-download-kind="' + safeKind + '" onclick="SYLVEX.downloadGeneratedContent(event)">'
+      + '<span aria-hidden="true">↓</span><span>Скачать</span>'
+      + '</button>';
+  }
+
+  function renderGeneratedImage(url) {
+    const safeUrl = S.escapeHtml(url);
+    return '<div class="gen-media-card gen-image-card">'
+      + '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
+      + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
+      + '</button>'
+      + renderGeneratedDownloadButton(url, 'image')
+      + '</div>';
+  }
+
+  function renderGeneratedVideo(url) {
+    const safeUrl = S.escapeHtml(url);
+    return '<div class="gen-media-card gen-video-card">'
+      + '<video class="gen-video" src="' + safeUrl + '" controls playsinline preload="metadata"></video>'
+      + renderGeneratedDownloadButton(url, 'video')
+      + '</div>';
+  }
+
+  function renderGeneratedAudio(url) {
+    const safeUrl = S.escapeHtml(url);
+    return '<div class="gen-media-card gen-audio-card">'
+      + '<audio class="gen-audio" src="' + safeUrl + '" controls preload="metadata"></audio>'
+      + renderGeneratedDownloadButton(url, 'audio')
+      + '</div>';
+  }
+
+  function renderGeneratedFile(url) {
+    return '<div class="gen-media-card gen-file-card">'
+      + '<span class="gen-file-label">Generated file</span>'
+      + renderGeneratedDownloadButton(url, 'file')
+      + '</div>';
+  }
+
   function renderChat() {
     const el = document.getElementById('chatArea'); if (!el) return;
     el.innerHTML = chatMessages.map((m, i) => {
@@ -428,23 +516,14 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
             '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
         ).join('') + '</div>';
         }
-  if (m.images && m.images.length) {
-  inner += '<div class="gen-img-grid">' + m.images.map((url) => {
-    const safeUrl = S.escapeHtml(url);
-
-    return '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
-      + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
-      + '</button>';
-  }).join('') + '</div>';
-}
-
-    if (m.imageUrl && !(m.images && m.images.length)) {
-    const safeUrl = S.escapeHtml(m.imageUrl);
-
-    inner += '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
-        + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
-        + '</button>';
-    }
+      const imageUrls = generatedUrlsFromMessage(m, 'image');
+      const videoUrls = generatedUrlsFromMessage(m, 'video');
+      const audioUrls = generatedUrlsFromMessage(m, 'audio');
+      const fileUrls = generatedUrlsFromMessage(m, 'file');
+      if (imageUrls.length) inner += '<div class="gen-img-grid">' + imageUrls.map(renderGeneratedImage).join('') + '</div>';
+      if (videoUrls.length) inner += '<div class="gen-media-list">' + videoUrls.map(renderGeneratedVideo).join('') + '</div>';
+      if (audioUrls.length) inner += '<div class="gen-media-list">' + audioUrls.map(renderGeneratedAudio).join('') + '</div>';
+      if (fileUrls.length) inner += '<div class="gen-media-list">' + fileUrls.map(renderGeneratedFile).join('') + '</div>';
       if (m.attachmentName) inner = '<div style="opacity:.7;font-size:12px;margin-bottom:4px">📎 ' + S.escapeHtml(m.attachmentName) + '</div>' + inner;
       return '<div class="msg ' + m.role + '" data-i="' + i + '">'
         + (m.role === 'ai' ? '<div class="ai-avatar">S</div>' : '')
@@ -834,15 +913,43 @@ async function downloadImage(e) {
   const btn = document.getElementById('imageViewerDownload');
   const url = btn && btn.dataset ? btn.dataset.imageUrl : '';
   if (!url) return;
+  return downloadUrlThroughBackend(url, 'image');
+}
+
+function extensionFromBlobType(type, kind) {
+  const mime = String(type || '').split(';')[0].trim().toLowerCase();
+  const map = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'audio/mpeg': '.mp3',
+    'audio/mp3': '.mp3',
+    'audio/mp4': '.m4a',
+    'audio/webm': '.webm',
+    'application/pdf': '.pdf',
+  };
+  if (map[mime]) return map[mime];
+  if (kind === 'image') return '.jpg';
+  if (kind === 'video') return '.mp4';
+  if (kind === 'audio') return '.mp3';
+  return '.bin';
+}
+
+async function downloadUrlThroughBackend(url, kind) {
+  if (!url) return;
   try {
-    const proxyUrl = '/api/public/prostudio/download-image?url=' + encodeURIComponent(url);
-    const response = await fetch(proxyUrl, { method: 'GET', cache: 'no-store' });
+    const isDataUrl = /^data:/i.test(url);
+    const proxyUrl = '/api/public/prostudio/download-content?kind=' + encodeURIComponent(kind || 'file') + '&url=' + encodeURIComponent(url);
+    const response = await fetch(isDataUrl ? url : proxyUrl, { method: 'GET', cache: 'no-store' });
     if (!response.ok) throw new Error('download_failed');
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = objectUrl;
-    a.download = 'sylvex-image-' + Date.now() + '.jpg';
+    a.download = 'sylvex-' + (kind || 'file') + '-' + Date.now() + extensionFromBlobType(blob.type, kind || 'file');
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
@@ -852,6 +959,17 @@ async function downloadImage(e) {
   } catch (err) {
     toast('Не удалось скачать файл');
   }
+}
+
+async function downloadGeneratedContent(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const url = btn && btn.dataset ? btn.dataset.downloadUrl : '';
+  const kind = btn && btn.dataset ? btn.dataset.downloadKind : 'file';
+  return downloadUrlThroughBackend(url, kind);
 }
 
   function closeUploadImagePreview(e) {
@@ -1061,13 +1179,9 @@ function closeUploadPanel(e) {
     try {
       const j = await callGenerate(v, attachment);
       chatMessages.pop();
-      if (j.type === 'image') {
-        const generatedUrls = (j.images && j.images.length) ? j.images : (j.image_url ? [j.image_url] : []);
-        addGeneratedImages(generatedUrls);
-        chatMessages.push({ role: 'ai', text: '', imageUrl: j.image_url, images: j.images || null });
-      } else {
-        chatMessages.push({ role: 'ai', text: j.text || '' });
-      }
+      const generatedUrls = generatedUrlsFromResponse(j, 'image');
+      if (generatedUrls.length) addGeneratedImages(generatedUrls);
+      chatMessages.push(aiMessageFromGenerateResponse(j));
       loadConversations(); // refresh sidebar order
     } catch (err) {
       chatMessages.pop();
@@ -1093,9 +1207,9 @@ function closeUploadPanel(e) {
     chatMessages[i] = { typing: true, role: 'ai' }; renderChat();
     callGenerate(prev.text, null)
       .then((j) => {
-        chatMessages[i] = j.type === 'image'
-          ? { role: 'ai', text: '', imageUrl: j.image_url, images: j.images || null }
-          : { role: 'ai', text: j.text || '' };
+        const generatedUrls = generatedUrlsFromResponse(j, 'image');
+        if (generatedUrls.length) addGeneratedImages(generatedUrls);
+        chatMessages[i] = aiMessageFromGenerateResponse(j);
         renderChat();
       })
       .catch((err) => {
@@ -1209,6 +1323,12 @@ function closeUploadPanel(e) {
           text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
           imageUrl: images[0] || undefined,
           images: images.length ? images : null,
+          videoUrl: m.video_url || undefined,
+          videos: Array.isArray(m.videos) ? m.videos : (m.video_url ? [m.video_url] : null),
+          audioUrl: m.audio_url || undefined,
+          audios: Array.isArray(m.audios) ? m.audios : (m.audio_url ? [m.audio_url] : null),
+          fileUrl: m.file_url || undefined,
+          files: Array.isArray(m.files) ? m.files : (m.file_url ? [m.file_url] : null),
         };
       });
       if (!chatMessages.length) chatMessages = [];
@@ -2072,7 +2192,7 @@ function closeUploadPanel(e) {
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, downloadImage,
+    signOut, openImageViewer, closeImageViewer, downloadImage, downloadGeneratedContent,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });

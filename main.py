@@ -3382,6 +3382,10 @@ async def public_prostudio_image_capabilities():
 
 @app.get("/api/public/prostudio/download-image")
 async def download_prostudio_image(url: str):
+    return await download_prostudio_content(url=url, kind="image")
+
+@app.get("/api/public/prostudio/download-content")
+async def download_prostudio_content(url: str, kind: str = "file"):
     import mimetypes
     from urllib.parse import urlparse
     import httpx
@@ -3396,14 +3400,25 @@ async def download_prostudio_image(url: str):
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             r = await client.get(url)
     except Exception:
-        raise HTTPException(status_code=502, detail="image_download_failed")
+        raise HTTPException(status_code=502, detail="content_download_failed")
 
     if r.status_code >= 400 or not r.content:
-        raise HTTPException(status_code=502, detail="image_download_failed")
+        raise HTTPException(status_code=502, detail="content_download_failed")
 
-    content_type = r.headers.get("content-type") or mimetypes.guess_type(parsed.path)[0] or "image/jpeg"
-    ext = mimetypes.guess_extension(content_type.split(";")[0].strip()) or ".jpg"
-    filename = "sylvex-image" + ext
+    safe_kind = (kind or "file").lower()
+    if safe_kind not in ("image", "video", "audio", "file"):
+        safe_kind = "file"
+    fallback_types = {
+        "image": "image/jpeg",
+        "video": "video/mp4",
+        "audio": "audio/mpeg",
+        "file": "application/octet-stream",
+    }
+    content_type = r.headers.get("content-type") or mimetypes.guess_type(parsed.path)[0] or fallback_types[safe_kind]
+    ext = mimetypes.guess_extension(content_type.split(";")[0].strip())
+    if not ext:
+        ext = { "image": ".jpg", "video": ".mp4", "audio": ".mp3", "file": ".bin" }[safe_kind]
+    filename = f"sylvex-{safe_kind}{ext}"
     return Response(
         content=r.content,
         media_type=content_type,
