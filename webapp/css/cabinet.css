@@ -1895,3 +1895,26 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
     height:15px !important;
   }
 }
+/* ===== SAFE Pro Studio dots on the whole black page background ===== */
+.view[data-view="tools"].active .studio{
+  background-color:#000 !important;
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
+    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
+  background-size:22px 22px,38px 38px !important;
+  background-position:0 0,11px 17px !important;
+  animation:none !important;
+}
+
+.view[data-view="tools"].active .chat-area{
+  background-color:transparent !important;
+  background-image:none !important;
+}
+
+body.ai-generating .view[data-view="tools"].active .studio,
+.view[data-view="tools"].active .studio:has(.typing){
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.85) 0 .7px,transparent 1.35px),
+    radial-gradient(circle,rgba(255,255,255,.45) 0 .6px,transparent 1.25px) !important;
+  animation:safeStudioDotsMove 8s linear infinite !important;
+}
