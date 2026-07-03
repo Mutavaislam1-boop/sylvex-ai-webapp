@@ -3310,17 +3310,58 @@ def request_byteplus_seedream_image(model: str, prompt: str) -> tuple:
         return [], type(exc).__name__
 
     if response.status_code >= 400:
-        return [], f"HTTP {response.status_code}"
+        return [], f"HTTP {response.status_code}: {response.text[:500]}"
 
     try:
         images = normalize_image_response(response.json())
     except Exception as exc:
         return [], type(exc).__name__
+
     if not images:
         return [], "no image returned"
     return images, ""
 
-def generateBytePlusSeedreamImage(payload: dict) -> dict:
+
+async def send_generated_images_to_telegram(telegram_id: int, images: list[str], caption: str = ""):
+    import os
+    import httpx
+
+    bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        print("TELEGRAM SEND SKIPPED: bot token missing")
+        return False
+
+    if not telegram_id or not images:
+        print("TELEGRAM SEND SKIPPED: telegram_id or images missing")
+        return False
+
+    sent_any = False
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for index, image_url in enumerate(images):
+            try:
+                payload = {
+                    "chat_id": telegram_id,
+                    "photo": image_url,
+                    "caption": caption if index == 0 else "",
+                }
+
+                r = await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                    json=payload,
+                )
+
+                if r.status_code >= 400:
+                    print("TELEGRAM SEND PHOTO FAILED:", r.status_code, r.text[:500])
+                else:
+                    sent_any = True
+                    print(f"TELEGRAM SEND PHOTO SUCCESS {index + 1}/{len(images)}")
+            except Exception as exc:
+                print("TELEGRAM SEND PHOTO ERROR:", str(exc))
+
+    return sent_any
+
+
+async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     if not BYTEPLUS_ARK_API_KEY:
         return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
@@ -3350,13 +3391,35 @@ def generateBytePlusSeedreamImage(payload: dict) -> dict:
             print(f"BYTEPLUS IMAGE SUCCESS {index}/{count}")
         else:
             print(f"BYTEPLUS IMAGE FAILED {index}/{count} {error or 'unknown error'}")
+
         if len(images) >= count:
             break
 
-    if images:
-        images = images[:count]
-        return attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
-    return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+    if not images:
+        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+
+    images = images[:count]
+    result = attach_image_thumbnails({
+        "ok": True,
+        "type": "image",
+        "image_url": images[0],
+        "images": images,
+    })
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id:
+        try:
+            sent_to_telegram = await send_generated_images_to_telegram(
+                telegram_id=telegram_id,
+                images=images,
+                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
 
 def text_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
@@ -3535,7 +3598,7 @@ async def public_prostudio_generate(request: Request):
     # and should be connected in their own provider functions instead of silently falling back to OpenAI.
     live_providers = {"openai", "byteplus", "bytedance", "sylvex-router"}
     if mode == "image" and is_seedream_request(payload):
-        result = generateBytePlusSeedreamImage(payload)
+        result = await generateBytePlusSeedreamImage(payload)
     elif selected_provider not in live_providers:
         result = {
             "ok": True,
