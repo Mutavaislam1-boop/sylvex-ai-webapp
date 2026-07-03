@@ -3471,21 +3471,18 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     prompt = build_image_prompt(payload)
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
 
-reference_images = (
-    opts.get("referenceImageUrls")
-    or opts.get("reference_image_urls")
-    or opts.get("referenceImages")
-    or opts.get("images")
-    or []
-)
-
-if isinstance(reference_images, str):
-    reference_images = [reference_images]
-
-reference_images = [u for u in reference_images if isinstance(u, str) and u.strip()]
-
-if reference_images:
-    print("BYTEPLUS IMAGE REFERENCES:", len(reference_images))
+    reference_images = (
+        opts.get("referenceImageUrls")
+        or opts.get("reference_image_urls")
+        or opts.get("referenceImages")
+        or opts.get("images")
+        or []
+    )
+    if isinstance(reference_images, str):
+        reference_images = [reference_images]
+    reference_images = [u for u in reference_images if isinstance(u, str) and u.strip()]
+    if reference_images:
+        print("BYTEPLUS IMAGE REFERENCES:", len(reference_images))
 
     images = []
     # The public /images/generations examples use a single-output request body.
