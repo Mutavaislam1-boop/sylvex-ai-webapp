@@ -107,9 +107,26 @@ const MODEL_ICON_SVG = {
     } catch { return 0; }
   }
 
-  function pickOpenAIModel() {
+  function pickStudioModel() {
     if (studioMode === 'image') return imageState.modelId || 'gpt-image-1';
-    return /lite/i.test(currentModelLabel || '') ? 'gpt-4o-mini' : 'gpt-4o';
+    if (studioMode === 'video') return 'seedance-2-fast';
+    if (studioMode === 'music') return 'musicgen-pro';
+    return /lite/i.test(currentModelLabel || '') ? 'sylvex-lite' : 'sylvex-pro';
+  }
+
+  function pickProviderHint() {
+    const model = pickStudioModel();
+    if (/^gpt-image|openai/i.test(model)) return 'openai';
+    if (/grok/i.test(model)) return 'xai';
+    if (/flux/i.test(model)) return 'flux';
+    if (/ideogram/i.test(model)) return 'ideogram';
+    if (/recraft/i.test(model)) return 'recraft';
+    if (/qwen/i.test(model)) return 'qwen';
+    if (/microsoft|mai/i.test(model)) return 'microsoft';
+    if (/krea/i.test(model)) return 'krea';
+    if (/seedream|seedance/i.test(model)) return 'bytedance';
+    if (/musicgen/i.test(model)) return 'music';
+    return 'sylvex-router';
   }
 
   function uiLang() {
@@ -507,7 +524,8 @@ function imageModelButton(model) {
       telegram_id: getTelegramId(),
       prompt: promptText,
       mode: studioMode,
-      model: pickOpenAIModel(),
+      model: pickStudioModel(),
+      provider: pickProviderHint(),
       image_options: studioMode === 'image' ? Object.assign({}, imageState) : null,
       history,
       attachment: attachment || null,
