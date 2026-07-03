@@ -98,7 +98,12 @@ const MODEL_ICON_SVG = {
       const old = map.get(model.id) || {};
       map.set(model.id, Object.assign({}, old, model));
     });
-    return Array.from(map.values());
+
+    // OpenAI отключён в Pro Studio: не показываем GPT/OpenAI модели как основные модели генерации.
+    return Array.from(map.values()).filter((model) => {
+      const id = String(model && model.id ? model.id : '').toLowerCase();
+      return !id.includes('gpt-image') && !id.includes('openai');
+    });
   }
 
   function getTelegramId() {
@@ -110,7 +115,18 @@ const MODEL_ICON_SVG = {
   }
 
   function pickStudioModel() {
-    if (studioMode === 'image') return imageState.modelId || 'gpt-image-1';
+    if (studioMode === 'image') {
+      const current = String(imageState.modelId || '');
+      const currentIsOpenAI = current.toLowerCase().includes('gpt-image') || current.toLowerCase().includes('openai');
+      if (current && !currentIsOpenAI) return current;
+
+      const fallback = (imageCapabilities || []).find((model) => {
+        const id = String(model && model.id ? model.id : '').toLowerCase();
+        return !id.includes('gpt-image') && !id.includes('openai');
+      });
+
+      return fallback ? fallback.id : 'seedream-4-0';
+    }
     if (studioMode === 'video') return 'seedance-2-fast';
     if (studioMode === 'music') return 'musicgen-pro';
     return /lite/i.test(currentModelLabel || '') ? 'sylvex-lite' : 'sylvex-pro';
@@ -118,7 +134,7 @@ const MODEL_ICON_SVG = {
 
   function pickProviderHint() {
     const model = pickStudioModel();
-    if (/^gpt-image|openai/i.test(model)) return 'openai';
+    if (/^gpt-image|openai/i.test(model)) return 'sylvex-router';
     if (/grok/i.test(model)) return 'xai';
     if (/flux/i.test(model)) return 'flux';
     if (/ideogram/i.test(model)) return 'ideogram';
@@ -417,6 +433,11 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
         + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
+      if (m.referenceImages && m.referenceImages.length) {
+        inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
+            '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
+        ).join('') + '</div>';
+        }
       if (m.images && m.images.length) {
         inner += '<div class="gen-img-grid">' + m.images.map((url) =>
           '<img class="gen-img" src="' + url + '" alt="generated" />'
@@ -929,15 +950,19 @@ function closeUploadPanel(e) {
     return j;
   }
 
-  async function sendChat() {
+   async function sendChat() {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
     const attachment = pendingAttachment;
-    if (!v && !attachment) return;
+    const referenceImages = (imageState.referenceImageUrls || []).slice();
+
+    if (!v && !attachment && !referenceImages.length) return;
+
     chatMessages.push({
-      role: 'user',
-      text: v,
-      attachmentName: attachment ? attachment.name : null,
+        role: 'user',
+        text: v,
+        attachmentName: attachment ? attachment.name : null,
+        referenceImages: referenceImages.length ? referenceImages : null,
     });
     ta.value = ''; autoGrow(ta); updateSendButton();
     clearAttachment();
@@ -963,7 +988,7 @@ function closeUploadPanel(e) {
         openPaywall();
         return;
       }
-      chatMessages.push({ role: 'ai', text: '⚠️ ' + (err && err.message ? err.message : 'Generation failed') });
+      chatMessages.push({ role: 'ai', text: '⚠️ Генерация не прошла. Проверь выбранную модель и backend-провайдер.' });
     } finally {
       document.body.classList.remove('ai-generating');
     }
@@ -986,7 +1011,7 @@ function closeUploadPanel(e) {
         renderChat();
       })
       .catch((err) => {
-        chatMessages[i] = { role: 'ai', text: '⚠️ ' + (err && err.message ? err.message : 'Regeneration failed') };
+        chatMessages[i] = { role: 'ai', text: '⚠️ Генерация не прошла. Проверь выбранную модель и backend-провайдер.' };
         renderChat();
       });
   }
