@@ -795,13 +795,19 @@ function openImageViewer(e, url) {
     e.stopPropagation();
   }
 
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const imageUrl = url || (btn && btn.dataset ? btn.dataset.imageUrl : '');
+
+  if (!imageUrl) return;
+
   const viewer = ensureImageViewer();
   const img = document.getElementById('imageViewerImg');
   const download = document.getElementById('imageViewerDownload');
 
-  if (img) img.src = url;
+  if (img) img.src = imageUrl;
+
   if (download) {
-    download.href = url;
+    download.href = imageUrl;
     download.setAttribute('download', 'sylvex-image.jpg');
   }
 
