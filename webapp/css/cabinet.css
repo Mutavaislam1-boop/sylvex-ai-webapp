@@ -1825,8 +1825,8 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
 .view[data-view="tools"].active .chat-area{
   background-color:#000 !important;
   background-image:
-    radial-gradient(circle,rgba(255,255,255,.45) 0 1px,transparent 1.7px),
-    radial-gradient(circle,rgba(255,255,255,.25) 0 1px,transparent 1.8px) !important;
+    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
+    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
   background-size:22px 22px,38px 38px !important;
   background-position:0 0,11px 17px !important;
   animation:none !important;
@@ -1836,8 +1836,8 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
 body.ai-generating .view[data-view="tools"].active .chat-area,
 .view[data-view="tools"].active .chat-area:has(.typing){
   background-image:
-    radial-gradient(circle,rgba(255,255,255,.85) 0 1px,transparent 1.8px),
-    radial-gradient(circle,rgba(255,255,255,.45) 0 1px,transparent 1.9px) !important;
+    radial-gradient(circle,rgba(255,255,255,.85) 0 .65px,transparent 1.25px),
+    radial-gradient(circle,rgba(255,255,255,.45) 0 .55px,transparent 1.15px) !important;
   animation:safeStudioDotsMove 8s linear infinite !important;
 }
 
