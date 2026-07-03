@@ -413,7 +413,8 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
   function generatedUrlsFromMessage(m, kind) {
     if (!m) return [];
     if (kind === 'image') {
-      return Array.isArray(m.images) && m.images.length ? m.images : (m.imageUrl ? [m.imageUrl] : []);
+      const items = Array.isArray(m.images) && m.images.length ? m.images : (m.imageUrl ? [m.imageUrl] : []);
+      return items.map((item) => typeof item === 'object' ? (item.url || item.original_url || item.image_url || '') : item).filter(Boolean);
     }
     if (kind === 'video') {
       return Array.isArray(m.videos) && m.videos.length ? m.videos : (m.videoUrl ? [m.videoUrl] : []);
@@ -427,7 +428,8 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
   function generatedUrlsFromResponse(j, kind) {
     if (!j) return [];
     if (kind === 'image') {
-      return Array.isArray(j.images) && j.images.length ? j.images : (j.image_url ? [j.image_url] : []);
+      const items = Array.isArray(j.images) && j.images.length ? j.images : (j.image_url ? [j.image_url] : []);
+      return items.map((item) => typeof item === 'object' ? (item.url || item.original_url || item.image_url || '') : item).filter(Boolean);
     }
     if (kind === 'video') {
       return Array.isArray(j.videos) && j.videos.length ? j.videos : (j.video_url ? [j.video_url] : []);
@@ -438,8 +440,27 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     return Array.isArray(j.files) && j.files.length ? j.files : (j.file_url ? [j.file_url] : []);
   }
 
+  function generatedThumbsFromResponse(j) {
+    if (!j) return [];
+    if (Array.isArray(j.thumbnails) && j.thumbnails.length) return j.thumbnails;
+    if (Array.isArray(j.images) && j.images.length) {
+      return j.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
+    }
+    return j.thumb_url ? [j.thumb_url] : [];
+  }
+
+  function generatedThumbsFromMessage(m) {
+    if (!m) return [];
+    if (Array.isArray(m.thumbnails) && m.thumbnails.length) return m.thumbnails;
+    if (Array.isArray(m.images) && m.images.length) {
+      return m.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
+    }
+    return m.thumbUrl ? [m.thumbUrl] : [];
+  }
+
   function aiMessageFromGenerateResponse(j) {
     const images = generatedUrlsFromResponse(j, 'image');
+    const thumbs = generatedThumbsFromResponse(j);
     const videos = generatedUrlsFromResponse(j, 'video');
     const audios = generatedUrlsFromResponse(j, 'audio');
     const files = generatedUrlsFromResponse(j, 'file');
@@ -448,6 +469,8 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
       text: j.text || '',
       imageUrl: images[0] || undefined,
       images: images.length ? images : null,
+      thumbUrl: thumbs[0] || undefined,
+      thumbnails: thumbs.length ? thumbs : null,
       videoUrl: videos[0] || undefined,
       videos: videos.length ? videos : null,
       audioUrl: audios[0] || undefined,
@@ -465,11 +488,14 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
       + '</button>';
   }
 
-  function renderGeneratedImage(url) {
+  function renderGeneratedImage(item, index) {
+    const url = typeof item === 'string' ? item : item.url;
+    const thumb = typeof item === 'string' ? item : (item.thumb || item.url);
     const safeUrl = S.escapeHtml(url);
+    const safeThumb = S.escapeHtml(thumb || url);
     return '<div class="gen-media-card gen-image-card">'
       + '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
-      + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
+      + '<img class="gen-img" src="' + safeThumb + '" alt="generated" loading="lazy" decoding="async" />'
       + '</button>'
       + renderGeneratedDownloadButton(url, 'image')
       + '</div>';
@@ -517,10 +543,14 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
         ).join('') + '</div>';
         }
       const imageUrls = generatedUrlsFromMessage(m, 'image');
+      const imageThumbs = generatedThumbsFromMessage(m);
       const videoUrls = generatedUrlsFromMessage(m, 'video');
       const audioUrls = generatedUrlsFromMessage(m, 'audio');
       const fileUrls = generatedUrlsFromMessage(m, 'file');
-      if (imageUrls.length) inner += '<div class="gen-img-grid">' + imageUrls.map(renderGeneratedImage).join('') + '</div>';
+      if (imageUrls.length) {
+        const imageItems = imageUrls.map((url, idx) => ({ url, thumb: imageThumbs[idx] || url }));
+        inner += '<div class="gen-img-grid">' + imageItems.map(renderGeneratedImage).join('') + '</div>';
+      }
       if (videoUrls.length) inner += '<div class="gen-media-list">' + videoUrls.map(renderGeneratedVideo).join('') + '</div>';
       if (audioUrls.length) inner += '<div class="gen-media-list">' + audioUrls.map(renderGeneratedAudio).join('') + '</div>';
       if (fileUrls.length) inner += '<div class="gen-media-list">' + fileUrls.map(renderGeneratedFile).join('') + '</div>';
@@ -649,13 +679,24 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     return panel;
   }
 
-  function addGeneratedImages(urls) {
-    const list = (urls || []).filter(Boolean);
+  function normalizeGeneratedImageItem(item, thumb) {
+    if (!item) return null;
+    if (typeof item === 'object') {
+      const url = item.url || item.original_url || item.image_url || '';
+      if (!url) return null;
+      return { url, thumb: item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || url };
+    }
+    return { url: item, thumb: thumb || item };
+  }
+
+  function addGeneratedImages(urls, thumbs) {
+    const list = (urls || []).map((url, index) => normalizeGeneratedImageItem(url, thumbs && thumbs[index])).filter(Boolean);
     if (!list.length) return;
-    list.forEach((url) => {
-      if (!generatedImageLibrary.includes(url)) generatedImageLibrary.unshift(url);
+    list.forEach((item) => {
+      generatedImageLibrary = generatedImageLibrary.filter((old) => normalizeGeneratedImageItem(old).url !== item.url);
+      generatedImageLibrary.unshift(item);
     });
-    generatedImageLibrary = generatedImageLibrary.slice(0, 40);
+    generatedImageLibrary = generatedImageLibrary.slice(0, 20);
     renderUploadPanelImages();
   }
 
@@ -669,11 +710,14 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     }
 
     const selectedUrl = imageState.referenceImageUrl || '';
-    grid.innerHTML = generatedImageLibrary.map((url) => {
-      const safeUrl = S.escapeHtml(url);
-      const selected = selectedUrl === url;
+    grid.innerHTML = generatedImageLibrary.map((entry) => {
+      const item = normalizeGeneratedImageItem(entry);
+      if (!item) return '';
+      const safeUrl = S.escapeHtml(item.url);
+      const safeThumb = S.escapeHtml(item.thumb || item.url);
+      const selected = selectedUrl === item.url;
       return '<button class="upload-generated-thumb ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.openUploadImagePreview(event,\'' + safeUrl + '\')">'
-        + '<img src="' + safeUrl + '" alt="generated image" />'
+        + '<img src="' + safeThumb + '" alt="generated image" loading="lazy" decoding="async" />'
         + '<span class="upload-thumb-check">✓</span>'
         + '</button>';
     }).join('');
@@ -1180,7 +1224,7 @@ function closeUploadPanel(e) {
       const j = await callGenerate(v, attachment);
       chatMessages.pop();
       const generatedUrls = generatedUrlsFromResponse(j, 'image');
-      if (generatedUrls.length) addGeneratedImages(generatedUrls);
+      if (generatedUrls.length) addGeneratedImages(generatedUrls, generatedThumbsFromResponse(j));
       chatMessages.push(aiMessageFromGenerateResponse(j));
       loadConversations(); // refresh sidebar order
     } catch (err) {
@@ -1208,7 +1252,7 @@ function closeUploadPanel(e) {
     callGenerate(prev.text, null)
       .then((j) => {
         const generatedUrls = generatedUrlsFromResponse(j, 'image');
-        if (generatedUrls.length) addGeneratedImages(generatedUrls);
+        if (generatedUrls.length) addGeneratedImages(generatedUrls, generatedThumbsFromResponse(j));
         chatMessages[i] = aiMessageFromGenerateResponse(j);
         renderChat();
       })
@@ -1283,7 +1327,7 @@ function closeUploadPanel(e) {
     const tg = getTelegramId();
     if (!tg) return;
     try {
-      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg);
+      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&limit=30&offset=0');
       const j = await r.json();
       conversationsCache = (j && j.conversations) || [];
       renderConvList();
@@ -1307,7 +1351,7 @@ function closeUploadPanel(e) {
   async function openConv(id) {
     const tg = getTelegramId(); if (!tg) return;
     try {
-      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id);
+      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id + '&limit=50&offset=0');
       const j = await r.json();
       if (!j.ok) return;
       currentConvId = id;
@@ -1317,12 +1361,19 @@ function closeUploadPanel(e) {
           : Array.isArray(m.image_urls)
             ? m.image_urls
             : (m.image_url ? [m.image_url] : []);
+        const thumbnails = Array.isArray(m.thumbnails)
+          ? m.thumbnails
+          : Array.isArray(m.thumb_urls)
+            ? m.thumb_urls
+            : (m.thumb_url ? [m.thumb_url] : []);
 
         return {
           role: m.role === 'assistant' ? 'ai' : 'user',
           text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
           imageUrl: images[0] || undefined,
           images: images.length ? images : null,
+          thumbUrl: thumbnails[0] || undefined,
+          thumbnails: thumbnails.length ? thumbnails : null,
           videoUrl: m.video_url || undefined,
           videos: Array.isArray(m.videos) ? m.videos : (m.video_url ? [m.video_url] : null),
           audioUrl: m.audio_url || undefined,
