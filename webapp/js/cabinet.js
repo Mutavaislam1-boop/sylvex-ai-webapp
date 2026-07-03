@@ -61,20 +61,35 @@
   function renderModelPop() {
     const el = document.getElementById('modelPop'); if (!el) return;
     if (studioMode === 'image' && imageCapabilities.length) {
-    el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
+      el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
         + '<div class="image-model-sheet-list">'
         + imageCapabilities.map(imageModelButton).join('')
         + '</div>';
-    return;
+      return;
     }
-    const items = [
-      { k:'pro',  label:'SYLVEX Pro'  },
-      { k:'lite', label:'SYLVEX Lite' },
-    ];
-    el.innerHTML = items.map(it =>
-      '<button class="' + (currentModelLabel === it.label ? 'sel' : '') +
-      '" onclick="SYLVEX.pickModelKey(event,\'' + it.k + '\',\'' + it.label + '\')">' + it.label + '</button>'
-    ).join('');
+    el.innerHTML = '';
+  }
+
+  function showImageModelPicker(e) {
+    if (e) e.stopPropagation();
+    const el = document.getElementById('modelPop');
+    if (!el) return;
+    if (!imageCapabilities.length) {
+      loadImageCapabilities().then(() => showImageModelPicker(e)).catch(() => {});
+      return;
+    }
+    if (studioMode !== 'image') {
+      studioMode = 'image';
+      activeCat = 'image';
+    }
+    el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
+      + '<div class="image-model-sheet-list">'
+      + imageCapabilities.map(imageModelButton).join('')
+      + '</div>';
+    el.classList.add('show');
+    const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+    const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
 
   function currentImageModel() {
@@ -148,19 +163,15 @@ function imageModelButton(model) {
   }
 
   function openImageOptionMenu(e, kind) {
+    if (kind === 'model') {
+      showImageModelPicker(e);
+      return;
+    }
     if (e) e.stopPropagation();
     const model = currentImageModel();
     const el = document.getElementById('modelPop');
     if (!model || !el) return;
     let items = [];
-    if (kind === 'model') {
-    el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
-        + '<div class="image-model-sheet-list">'
-        + imageCapabilities.map(imageModelButton).join('')
-        + '</div>';
-    el.classList.add('show');
-    return;
-    }
     if (kind === 'size') items = (model.sizes || []).map((item) => ({ id: item.id, label: (item.icon || item.label || item.ratio || item.id) }));
     if (kind === 'count') items = (model.counts || [1]).map((count) => ({ id: String(count), label: String(count) }));
     if (kind === 'style') items = model.styles || [];
@@ -262,9 +273,7 @@ function imageModelButton(model) {
     S.haptic.select();
   }
   function toggleModelPop(e) {
-    e.stopPropagation();
-    document.getElementById('modelPop').classList.toggle('show');
-    const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+    showImageModelPicker(e);
   }
   function pickModel(e, i) {
     e.stopPropagation();
@@ -1233,6 +1242,21 @@ function imageModelButton(model) {
 
   /* ===== Wire up DOM ===== */
   function bindEvents() {
+    // Force bottom composer model button to open the image model picker.
+    const composerModelVal = document.getElementById('modelValComposer');
+    const composerRoot = document.getElementById('studioComposer');
+    const composerModelBtn = composerModelVal
+      ? composerModelVal.closest('button')
+      : (composerRoot ? composerRoot.querySelector('.studio-control-row .studio-select-pill.wide') : null);
+    if (composerModelBtn) {
+      composerModelBtn.type = 'button';
+      composerModelBtn.style.pointerEvents = 'auto';
+      composerModelBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showImageModelPicker(e);
+      });
+    }
     // Language popover
     const langBtn = document.getElementById('langBtn');
     const langPop = document.getElementById('langPop');
@@ -1391,7 +1415,7 @@ function imageModelButton(model) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, pickImageOption,
+    openImageOptionMenu, showImageModelPicker, pickImageOption,
     attach, onAttachFile, clearAttachment, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
@@ -1409,6 +1433,8 @@ function imageModelButton(model) {
 
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
+  window.openImageOptionMenu = openImageOptionMenu;
+  window.showImageModelPicker = showImageModelPicker;
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
   window.autoGrow       = autoGrow;
