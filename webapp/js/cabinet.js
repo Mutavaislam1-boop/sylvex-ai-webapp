@@ -47,9 +47,9 @@
     { id:'seedream-4', label:'Seedream 4.0', icon:'▥', description:'Качественная генерация изображений и визуальных сцен.' },
     { id:'gpt-image-1', label:'Изображение GPT 1', icon:'◎', description:'Генерация и редактирование изображений через OpenAI.' },
     { id:'flux-pro-kontext', label:'Flux Pro Kontext', icon:'△', description:'Модель Flux для точной работы с контекстом изображения.' },
-    { id:'qwen-image', label:'Изображение Квен', icon:'✡', description:'Генерация изображений через Qwen Image.' },
-    { id:'qwen-image-2-pro', label:'Qwen Image 2 Pro', icon:'✡', description:'Профессиональная версия Qwen Image для качественной генерации.' },
-    { id:'qwen-image-2', label:'Изображение Qwen 2', icon:'✡', description:'Новая версия Qwen Image для генерации изображений.' },
+    { id:'qwen-image', label:'Изображение Квен', icon:'Q', description:'Генерация изображений через Qwen Image.' },
+    { id:'qwen-image-2-pro', label:'Qwen Image 2 Pro', icon:'Q', description:'Профессиональная версия Qwen Image для качественной генерации.' },
+    { id:'qwen-image-2', label:'Изображение Qwen 2', icon:'Q', description:'Новая версия Qwen Image для генерации изображений.' },
     { id:'microsoft-mai-2-5', label:'Образ Microsoft MAI 2.5', icon:'▦', description:'Модель Microsoft MAI для создания изображений.' },
     { id:'krea-2', label:'Креа 2', icon:'✤', description:'Генерация креативных визуалов и изображений.' }
   ];
