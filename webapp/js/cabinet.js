@@ -1234,7 +1234,12 @@ function closeUploadPanel(e) {
         openPaywall();
         return;
       }
-      chatMessages.push({ role: 'ai', text: '⚠️ Генерация не прошла. Проверь выбранную модель и backend-провайдер.' });
+    chatMessages.push({
+    role: 'ai',
+    text: j.sent_to_telegram ? 'Готово ✅\nФото отправлены в Telegram-чат.' : '',
+    imageUrl: j.image_url,
+    images: j.images || null
+    });
     } finally {
       document.body.classList.remove('ai-generating');
     }
