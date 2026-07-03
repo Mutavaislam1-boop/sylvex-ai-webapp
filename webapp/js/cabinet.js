@@ -542,6 +542,9 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     try { updateSendButton(); } catch {}
   }
   function updateComposerMode(kind) {
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
     const isImage = kind === 'image';
     const isMusic = kind === 'music';
     const composer = document.getElementById('studioComposer');
@@ -566,6 +569,9 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     }
   }
   function genAction(kind, tabKey) {
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
     studioMode = kind;
@@ -573,8 +579,6 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     updateComposerMode(tabKey || studioMode);
     const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music' };
     toast(labels[kind] || kind);
-    const ta = document.getElementById('chatInput');
-    if (ta) ta.focus();
   }
   function toggleHistory(e) {
     if (e) e.stopPropagation();
