@@ -2204,3 +2204,28 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .upload-choose-photos-btn:active{
   transform:translateX(-50%) scale(.985) !important;
 }
+/* ===== Upload choose button: same style as Generate button ===== */
+.upload-choose-photos-btn{
+  min-height:48px !important;
+  height:48px !important;
+  min-width:auto !important;
+  padding:0 22px !important;
+  border:0 !important;
+  border-radius:999px !important;
+  background:#2f6fbd !important;
+  color:#fff !important;
+  font-family:inherit !important;
+  font-size:15px !important;
+  font-weight:700 !important;
+  cursor:pointer !important;
+  white-space:nowrap !important;
+  box-shadow:none !important;
+}
+
+.upload-choose-photos-btn[hidden]{
+  display:none !important;
+}
+
+.upload-choose-photos-btn:active{
+  transform:translateX(-50%) scale(.98) !important;
+}
