@@ -519,15 +519,9 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     panel.innerHTML = `
       <div class="upload-panel-card" onclick="event.stopPropagation()">
         <button class="upload-panel-close" type="button" onclick="SYLVEX.closeUploadPanel(event)">×</button>
-        <div class="upload-panel-title">Загрузка</div>
+        <div class="upload-panel-title">История</div>
         <div class="upload-panel-body">
           <div class="upload-panel-half upload-panel-generated">
-            <div class="upload-half-head">
-              <div>
-                <div class="upload-half-title">Сгенерированные фото</div>
-                <div class="upload-half-sub">Нажми на фото, чтобы открыть и выбрать его</div>
-              </div>
-            </div>
             <div id="uploadGeneratedGrid" class="upload-generated-grid"></div>
           </div>
           <div class="upload-panel-half upload-panel-actions">
@@ -575,7 +569,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     if (!grid) return;
 
     if (!generatedImageLibrary.length) {
-      grid.innerHTML = '<div class="upload-generated-empty">Пока нет сгенерированных фото.</div>';
+      grid.innerHTML = '';
       return;
     }
 
