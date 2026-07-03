@@ -602,9 +602,10 @@ body.kb-open .nav{
   align-self:center;font-size:13px;line-height:1.15;font-weight:500;
 }
 .studio-frame-ico{color:#cfcfcf;display:flex;align-items:center;justify-content:center}
-.studio-image-tools{grid-template-columns:1fr 1fr;gap:8px}
-.studio-image-tool{min-height:100px;text-align:left}
-.studio-image-tool span:last-child{align-self:flex-start;font-size:15px}
+.studio-image-tools{grid-template-columns:1fr 1fr;gap:6px}
+.studio-image-tool{min-height:64px;text-align:left;padding:9px 10px 10px;border-radius:13px;gap:6px}
+.studio-image-tool span:last-child{align-self:flex-start;font-size:12px;line-height:1.15}
+.studio-image-tool svg{width:18px;height:18px}
 .studio-links-btn{
   min-height:92px;border:0;border-radius:16px;background:#2c2c2c;color:#f0f0f0;
   display:flex;align-items:center;justify-content:space-between;gap:8px;
@@ -683,7 +684,9 @@ body.kb-open .nav{
   .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
   .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-top:0;padding-top:0}
   .view[data-view="tools"].active .studio-video-composer textarea{min-height:86px;font-size:15px}
-  .studio-frame-card,.studio-image-tool{min-height:74px}
+  .studio-frame-card{min-height:74px}
+  .studio-image-tool{min-height:54px;padding:8px 9px;border-radius:12px}
+  .studio-image-tool span:last-child{font-size:11px}
   .studio-links-btn{min-height:58px}
   .studio-audio-player{gap:10px;padding:12px;overflow-x:auto;border-radius:22px}
   .studio-track-title{min-width:90px;font-size:15px}
