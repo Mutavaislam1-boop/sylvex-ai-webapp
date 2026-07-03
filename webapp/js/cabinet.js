@@ -298,11 +298,22 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
   }
 
   function openImageOptionMenu(e, kind) {
+    if (e) e.stopPropagation();
+
     if (kind === 'model') {
       showImageModelPicker(e);
       return;
     }
-    if (e) e.stopPropagation();
+
+    if (kind === 'count') {
+      const currentCount = Number(imageState.count || 1);
+      const nextCount = currentCount >= 4 ? 1 : currentCount + 1;
+      imageState.count = nextCount;
+      renderImageControls();
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+      return;
+    }
+
     const model = currentImageModel();
     const el = document.getElementById('modelPop');
     if (!el) return;
@@ -311,20 +322,17 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     el.classList.remove('image-size-floating-pop');
 
     if (kind === 'size') {
-    const fallbackSizes = [
-    { id:'1:1', label:'1:1', ratio:'1:1' },
-    { id:'16:9', label:'16:9', ratio:'16:9' },
-    { id:'9:16', label:'9:16', ratio:'9:16' },
-    { id:'3:4', label:'3:4', ratio:'3:4' },
-    { id:'4:5', label:'4:5', ratio:'4:5' },
-    { id:'5:4', label:'5:4', ratio:'5:4' },
-    { id:'4:3', label:'4:3', ratio:'4:3' },
-    { id:'21:9', label:'21:9', ratio:'21:9' },
-    { id:'auto', label:'Auto', ratio:'auto' }
-    ];
-      const modelSizes = [];
-      const sizeIds = new Set(modelSizes.map((item) => String(item.id || item.ratio || item.label || '')));
-      const mergedSizes = modelSizes.concat(fallbackSizes.filter((item) => !sizeIds.has(item.id)));
+      const fallbackSizes = [
+        { id:'1:1', label:'1:1', ratio:'1:1' },
+        { id:'16:9', label:'16:9', ratio:'16:9' },
+        { id:'9:16', label:'9:16', ratio:'9:16' },
+        { id:'3:4', label:'3:4', ratio:'3:4' },
+        { id:'4:5', label:'4:5', ratio:'4:5' },
+        { id:'5:4', label:'5:4', ratio:'5:4' },
+        { id:'4:3', label:'4:3', ratio:'4:3' },
+        { id:'21:9', label:'21:9', ratio:'21:9' },
+        { id:'auto', label:'Auto', ratio:'auto' }
+      ];
       const selectedSize = imageState.size || imageState.ratio || '1:1';
 
       if (el.parentElement !== document.body) document.body.appendChild(el);
@@ -345,7 +353,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
 
       el.innerHTML = '<div class="image-size-sheet-title">Соотношение сторон</div>'
         + '<div class="image-size-sheet-list">'
-        + mergedSizes.map((item) => {
+        + fallbackSizes.map((item) => {
           const id = String(item.id || item.ratio || item.label || '');
           const label = item.label || item.ratio || item.id;
           const active = String(selectedSize) === id;
@@ -365,7 +373,6 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
 
     if (!model) return;
     let items = [];
-    if (kind === 'count') items = (model.counts || [1]).map((count) => ({ id: String(count), label: String(count) }));
     if (kind === 'style') items = model.styles || [];
     if (kind === 'character') items = model.characters || [];
     if (kind === 'objects') items = [{ id: 'soon', label: 'Скоро' }];
