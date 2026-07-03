@@ -428,18 +428,20 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
             '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
         ).join('') + '</div>';
         }
-    if (m.images && m.images.length) {
-    inner += '<div class="gen-img-grid">' + m.images.map((url) => {
-        const safeUrl = S.escapeHtml(url);
-        return '<button class="gen-img-open" type="button" onclick="SYLVEX.openImageViewer(event,\\'' + safeUrl + '\\')">'
-        + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
-        + '</button>';
-    }).join('') + '</div>';
-    }
+  if (m.images && m.images.length) {
+  inner += '<div class="gen-img-grid">' + m.images.map((url) => {
+    const safeUrl = S.escapeHtml(url);
+
+    return '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
+      + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
+      + '</button>';
+  }).join('') + '</div>';
+}
 
     if (m.imageUrl && !(m.images && m.images.length)) {
     const safeUrl = S.escapeHtml(m.imageUrl);
-    inner += '<button class="gen-img-open" type="button" onclick="SYLVEX.openImageViewer(event,\\'' + safeUrl + '\\')">'
+
+    inner += '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
         + '<img class="gen-img" src="' + safeUrl + '" alt="generated" />'
         + '</button>';
     }
