@@ -508,6 +508,51 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
   }
+  function ensureUploadPanel() {
+  let panel = document.getElementById('uploadPanel');
+  if (panel) return panel;
+
+  panel = document.createElement('div');
+  panel.id = 'uploadPanel';
+  panel.className = 'upload-panel-backdrop';
+  panel.innerHTML = `
+    <div class="upload-panel-card" onclick="event.stopPropagation()">
+      <button class="upload-panel-close" type="button" onclick="SYLVEX.closeUploadPanel(event)">×</button>
+      <div class="upload-panel-title">Загрузка</div>
+      <div class="upload-panel-body"></div>
+    </div>
+  `;
+
+  panel.addEventListener('click', closeUploadPanel);
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function openUploadPanel(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const panel = ensureUploadPanel();
+  panel.classList.add('show');
+
+  if (document.activeElement && typeof document.activeElement.blur === 'function') {
+    document.activeElement.blur();
+  }
+
+  S.haptic && S.haptic.impact && S.haptic.impact('light');
+}
+
+function closeUploadPanel(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const panel = document.getElementById('uploadPanel');
+  if (panel) panel.classList.remove('show');
+}
   function attach(kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
@@ -1464,6 +1509,18 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
         showImageModelPicker(e);
       });
     }
+    // Upload button opens the large center upload panel.
+    document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!btn) return;
+
+    const text = (btn.textContent || '').trim().toLowerCase();
+
+    if (text === 'загрузка' || text === 'upload') {
+        openUploadPanel(e);
+    }
+    });
+
     // Language popover
     const langBtn = document.getElementById('langBtn');
     const langPop = document.getElementById('langPop');
@@ -1623,7 +1680,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption,
-    attach, onAttachFile, clearAttachment, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
