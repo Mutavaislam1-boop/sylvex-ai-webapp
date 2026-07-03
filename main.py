@@ -3380,6 +3380,39 @@ def image_generation(payload: dict) -> dict:
 async def public_prostudio_image_capabilities():
     return get_image_capabilities()
 
+@app.get("/api/public/prostudio/download-image")
+async def download_prostudio_image(url: str):
+    import mimetypes
+    from urllib.parse import urlparse
+    import httpx
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+
+    parsed = urlparse(url or "")
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="invalid_url")
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            r = await client.get(url)
+    except Exception:
+        raise HTTPException(status_code=502, detail="image_download_failed")
+
+    if r.status_code >= 400 or not r.content:
+        raise HTTPException(status_code=502, detail="image_download_failed")
+
+    content_type = r.headers.get("content-type") or mimetypes.guess_type(parsed.path)[0] or "image/jpeg"
+    ext = mimetypes.guess_extension(content_type.split(";")[0].strip()) or ".jpg"
+    filename = "sylvex-image" + ext
+    return Response(
+        content=r.content,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
     payload = await request.json()

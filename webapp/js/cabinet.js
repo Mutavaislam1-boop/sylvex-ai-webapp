@@ -831,33 +831,26 @@ async function downloadImage(e) {
     e.preventDefault();
     e.stopPropagation();
   }
-
   const btn = document.getElementById('imageViewerDownload');
   const url = btn && btn.dataset ? btn.dataset.imageUrl : '';
-
   if (!url) return;
-
   try {
-    const response = await fetch(url, { mode: 'cors' });
+    const proxyUrl = '/api/public/prostudio/download-image?url=' + encodeURIComponent(url);
+    const response = await fetch(proxyUrl, { method: 'GET', cache: 'no-store' });
     if (!response.ok) throw new Error('download_failed');
-
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
-
     const a = document.createElement('a');
     a.href = objectUrl;
     a.download = 'sylvex-image-' + Date.now() + '.jpg';
     a.style.display = 'none';
-
     document.body.appendChild(a);
     a.click();
     a.remove();
-
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
-
     toast('Скачивание началось');
   } catch (err) {
-    toast('Не удалось скачать напрямую. Открой фото и сохрани через меню устройства.');
+    toast('Не удалось скачать файл');
   }
 }
 
