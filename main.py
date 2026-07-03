@@ -3285,16 +3285,20 @@ def build_image_prompt(payload: dict) -> str:
         parts.append(ratio_map.get(size, f"Generate the image with {size} aspect ratio."))
 
     style = str(opts.get("style") or "").strip()
+    
     style_map = {
         "cinematic": "Cinematic style, dramatic lighting, movie still composition, high detail, professional color grading.",
-        "photoreal": "Photorealistic style, natural textures, realistic lighting, real camera lens look.",
-        "anime": "Anime illustration style, clean line art, expressive lighting, polished character design.",
-        "3d": "High quality 3D render style, realistic materials, depth, soft studio lighting.",
-        "black_white": "Black and white style, strong contrast, film grain, monochrome photography.",
-        "broken_glass": "Broken glass visual style, fractured reflections, sharp glass shards, dramatic refractions.",
-        "hand_drawn": "Hand-drawn sketch style, pen drawing texture, visible strokes, artistic illustration.",
-        "fog": "Foggy atmospheric style, soft haze, muted contrast, cinematic mist.",
-    }
+            "photoreal": "Photorealistic style, natural textures, realistic lighting, real camera lens look.",
+            "anime": "Anime illustration style, clean line art, expressive lighting, polished character design.",
+            "3d": "High quality 3D render style, realistic materials, depth, soft studio lighting.",
+            "black_white": "Black and white style, strong contrast, film grain, monochrome photography.",
+            "broken_glass": "Broken glass visual style, fractured reflections, sharp glass shards, dramatic refractions.",
+            "hand_drawn": "Hand-drawn sketch style, pen drawing texture, visible strokes, artistic illustration.",
+            "fog": "Foggy atmospheric style, soft haze, muted contrast, cinematic mist.",
+
+            "aegean_luxury": "Transform the uploaded image into a clean Aegean Mediterranean luxury style. Preserve the main subject, pose, identity, facial features, body shape, composition, and important details of the original image. Do not change the person into someone else. Apply an elegant Greek island / Aegean coastal aesthetic: whitewashed architecture, smooth white marble surfaces, clean minimal geometry, soft limestone walls, arched shapes, calm sea atmosphere, subtle luxury villa mood, and a refined editorial fashion look. Use a soft cinematic daylight or muted evening light, with cool blue-gray shadows, white and ivory tones, deep navy accents, and a calm Mediterranean color palette. The background may include elements such as white walls, arches, marble floor, sea horizon, coastal villa, stone terrace, or elegant minimal outdoor space. Make the image feel clean, expensive, airy, calm, and minimal. Add gentle contrast, soft shadows, slight filmic depth, realistic texture, and high-end editorial composition. Avoid bright saturated colors, neon, clutter, heavy decorations, cartoon style, fantasy elements, over-sharpening, plastic skin, distorted anatomy, extra limbs, changed face, messy background, and low-quality details. Final result should look like a premium Aegean luxury editorial photo: white architecture, blue sea mood, minimal composition, calm cinematic atmosphere, and elegant clean styling.",
+        }
+    
 
     if style and style.lower() not in {"auto", "none"}:
         parts.append(style_map.get(style, f"Apply this visual style: {style}."))
