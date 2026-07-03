@@ -133,14 +133,6 @@ const MODEL_ICON_SVG = {
     return (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
   }
 
-  function localizedGreeting() {
-    const l = uiLang();
-    if (l === 'ru') return 'Здравствуйте! Чем могу помочь?';
-    if (l === 'ar') return 'مرحباً! كيف يمكنني مساعدتك؟';
-    if (l === 'tr') return 'Merhaba! Size nasıl yardımcı olabilirim?';
-    return 'Hi! How can I help you today?';
-  }
-
   /* ===== Rendering ===== */
   function renderModeStrip() {
     const el = document.getElementById('modeStrip'); if (!el) return;
