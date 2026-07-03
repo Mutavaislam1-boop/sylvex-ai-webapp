@@ -1723,3 +1723,90 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     height:18px !important;
   }
 }
+/* ===== Aspect ratio picker: half-width narrow sheet ===== */
+@media(max-width:560px){
+  body > #modelPop.image-size-floating-pop{
+    left:50% !important;
+    right:auto !important;
+    transform:translateX(-50%) !important;
+    width:29vw !important;
+    max-width:140px !important;
+    min-width:118px !important;
+    padding:8px 5px 8px !important;
+    border-radius:16px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-sheet-title{
+    font-size:9px !important;
+    line-height:1.05 !important;
+    padding:2px 3px 7px !important;
+    margin:0 0 4px !important;
+    white-space:normal !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-sheet-list{
+    gap:4px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop button.image-size-row{
+    min-height:34px !important;
+    grid-template-columns:20px 1fr 10px !important;
+    gap:4px !important;
+    padding:0 6px !important;
+    border-radius:9px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-label{
+    font-size:10px !important;
+    line-height:1 !important;
+    font-weight:700 !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-check{
+    font-size:9px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon{
+    width:14px !important;
+    height:14px !important;
+    border-width:1.5px !important;
+    border-radius:4px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:3"]{
+    width:16px !important;
+    height:12px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="3:4"],
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]{
+    width:12px !important;
+    height:16px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="5:4"]{
+    width:16px !important;
+    height:12px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="9:16"]{
+    width:11px !important;
+    height:17px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="16:9"]{
+    width:18px !important;
+    height:11px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="21:9"]{
+    width:19px !important;
+    height:8px !important;
+    border-radius:3px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="auto"]{
+    width:14px !important;
+    height:14px !important;
+  }
+}
