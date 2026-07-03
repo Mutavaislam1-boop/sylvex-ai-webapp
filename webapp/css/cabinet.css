@@ -1631,3 +1631,54 @@ body.kb-open .nav{
     max-height:none !important;
   }
 }
+/* ===== SVG model icons inside picker ===== */
+@media(max-width:560px){
+  body > #modelPop.image-model-floating-pop .image-model-icon,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon{
+    background:transparent !important;
+    border-radius:8px !important;
+    overflow:hidden !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg{
+    width:28px !important;
+    height:28px !important;
+    display:block !important;
+    flex:0 0 auto !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg rect:first-child,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg rect:first-child{
+    fill:#111214 !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [fill="#60A5FA"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [fill="#60A5FA"]{
+    fill:#f3f3f3 !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [stroke="#60A5FA"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [stroke="#60A5FA"]{
+    stroke:#f3f3f3 !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [fill="#E5E7EB"],
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [fill="#F8FAFC"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [fill="#E5E7EB"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [fill="#F8FAFC"]{
+    fill:#ffffff !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [stroke="#E5E7EB"],
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [stroke="#94A3B8"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [stroke="#E5E7EB"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [stroke="#94A3B8"]{
+    stroke:#ffffff !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg [fill="#94A3B8"],
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg [fill="#94A3B8"]{
+    fill:#bdbdc2 !important;
+  }
+}

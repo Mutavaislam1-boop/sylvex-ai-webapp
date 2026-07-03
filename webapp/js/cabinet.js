@@ -54,6 +54,28 @@
 { id:'krea-2', label:'Krea 2', icon:'✤', description:'Генерация креативных визуалов и изображений.' }
   ];
 
+const MODEL_ICON_SVG = {
+  nn: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><circle cx="20" cy="22" r="4" fill="#60A5FA"/><circle cx="44" cy="22" r="4" fill="#E5E7EB"/><circle cx="20" cy="42" r="4" fill="#E5E7EB"/><circle cx="44" cy="42" r="4" fill="#60A5FA"/><path d="M24 22H40M24 42H40M22.8 25.2L41.2 38.8M41.2 25.2L22.8 38.8" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/><text x="32" y="34" text-anchor="middle" fill="#F8FAFC" font-size="12" font-family="Arial" font-weight="700">NN</text></svg>',
+
+  chatgptImage: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><rect x="15" y="16" width="34" height="28" rx="6" stroke="#E5E7EB" stroke-width="3"/><path d="M20 39L28 31L34 37L38 33L46 41" stroke="#60A5FA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="40" cy="24" r="4" fill="#60A5FA"/><path d="M23 50H41" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/></svg>',
+
+  cdrm: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><path d="M20 19H44C47.3137 19 50 21.6863 50 25V39C50 42.3137 47.3137 45 44 45H20C16.6863 45 14 42.3137 14 39V25C14 21.6863 16.6863 19 20 19Z" stroke="#E5E7EB" stroke-width="3"/><path d="M22 27H42M22 33H36M22 39H30" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/><text x="32" y="57" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Arial" font-weight="700">CDRM</text></svg>',
+
+  grokPro: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><path d="M20 20L44 44M44 20L20 44" stroke="#E5E7EB" stroke-width="4" stroke-linecap="round"/><circle cx="32" cy="32" r="8" fill="#0B0F17" stroke="#60A5FA" stroke-width="3"/><path d="M47 15H52V20" stroke="#60A5FA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><text x="32" y="55" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Arial" font-weight="700">PRO</text></svg>',
+
+  davinci: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><path d="M22 46V18H32C40 18 46 23.5 46 32C46 40.5 40 46 32 46H22Z" stroke="#E5E7EB" stroke-width="3.5" stroke-linejoin="round"/><path d="M29 25V39H32C36 39 39 36.5 39 32C39 27.5 36 25 32 25H29Z" fill="#60A5FA"/><path d="M18 50H46" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/></svg>',
+
+  grokFlux: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><path d="M16 34C22 22 31 22 38 32C43 39 48 40 52 31" stroke="#60A5FA" stroke-width="4" stroke-linecap="round"/><path d="M16 44C22 32 31 32 38 42C43 49 48 50 52 41" stroke="#E5E7EB" stroke-width="3" stroke-linecap="round" opacity="0.9"/><path d="M20 20L44 44M44 20L20 44" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/></svg>',
+
+  idrm: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><rect x="18" y="14" width="28" height="36" rx="7" stroke="#E5E7EB" stroke-width="3"/><circle cx="32" cy="28" r="7" stroke="#60A5FA" stroke-width="3"/><path d="M25 41C27 37.5 29.5 36 32 36C34.5 36 37 37.5 39 41" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/><text x="32" y="58" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="Arial" font-weight="700">IDRM</text></svg>',
+
+  craft: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><path d="M19 43L39 23L45 29L25 49H19V43Z" stroke="#E5E7EB" stroke-width="3" stroke-linejoin="round"/><path d="M36 26L42 32" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/><path d="M18 21H30M18 28H25" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/><circle cx="48" cy="18" r="3" fill="#60A5FA"/></svg>',
+
+  queen: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><path d="M18 45L21 24L29 34L32 19L35 34L43 24L46 45H18Z" stroke="#E5E7EB" stroke-width="3" stroke-linejoin="round"/><circle cx="21" cy="22" r="3" fill="#60A5FA"/><circle cx="32" cy="17" r="3" fill="#60A5FA"/><circle cx="43" cy="22" r="3" fill="#60A5FA"/><path d="M20 50H44" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/></svg>',
+
+  microsoft: '<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="16" fill="#0B0F17"/><rect x="17" y="17" width="13" height="13" rx="3" fill="#E5E7EB"/><rect x="34" y="17" width="13" height="13" rx="3" fill="#60A5FA"/><rect x="17" y="34" width="13" height="13" rx="3" fill="#60A5FA"/><rect x="34" y="34" width="13" height="13" rx="3" fill="#E5E7EB"/></svg>'
+};
+
   function withImageDefaults(model) {
     return Object.assign({
       sizes: [
@@ -166,8 +188,29 @@
     return opt ? (opt.label || opt.id) : fallback;
   }
 
-function imageModelIcon(model) {
-  return model && model.icon ? model.icon : '✦';
+
+function imageModelIconKey(model) {
+  const id = String(model && model.id ? model.id : '');
+
+  if (id.includes('nano-banana')) return 'nn';
+  if (id.includes('gpt-image')) return 'chatgptImage';
+  if (id.includes('seedream')) return 'cdrm';
+  if (id.includes('grok-pro')) return 'grokPro';
+  if (id === 'grok') return 'grokPro';
+  if (id.includes('davinci')) return 'davinci';
+  if (id.includes('flux')) return 'grokFlux';
+  if (id.includes('ideogram')) return 'idrm';
+  if (id.includes('recraft')) return 'craft';
+  if (id.includes('qwen')) return 'queen';
+  if (id.includes('microsoft')) return 'microsoft';
+  if (id.includes('krea')) return 'craft';
+
+  return 'nn';
+}
+
+function imageModelIconHtml(model) {
+  const key = imageModelIconKey(model);
+  return MODEL_ICON_SVG[key] || MODEL_ICON_SVG.nn;
 }
 
 function imageModelDescription(model) {
@@ -178,7 +221,7 @@ function imageModelDescription(model) {
 function imageModelButton(model) {
   const active = imageState.modelId === model.id;
   return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(model.id) + '\')">'
-    + '<span class="image-model-icon">' + S.escapeHtml(imageModelIcon(model)) + '</span>'
+    + '<span class="image-model-icon">' + imageModelIconHtml(model) + '</span>'
     + '<span class="image-model-text">'
     + '<span class="image-model-name">' + S.escapeHtml(model.label || model.id) + '</span>'
     + '<span class="image-model-desc">' + S.escapeHtml(imageModelDescription(model)) + '</span>'
