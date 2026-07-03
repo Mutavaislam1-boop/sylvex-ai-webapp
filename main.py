@@ -3260,10 +3260,36 @@ async def public_prostudio_generate(request: Request):
     payload = await request.json()
     mode = (payload.get("mode") or "text").lower()
     prompt = (payload.get("prompt") or "").strip()
+    selected_model = (payload.get("model") or "sylvex-pro").strip()
+    selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
+
+    print("PRO STUDIO ROUTER:", {
+        "mode": mode,
+        "provider": selected_provider,
+        "model": selected_model,
+    })
+
     if not prompt and not payload.get("attachment"):
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
 
-    result = image_generation(payload) if mode == "image" else text_generation(payload)
+    # Pro Studio must not be locked to OpenAI only.
+    # OpenAI and BytePlus are live here now. Other providers are routed through SYLVEX router
+    # and should be connected in their own provider functions instead of silently falling back to OpenAI.
+    live_providers = {"openai", "byteplus", "bytedance", "sylvex-router"}
+    if selected_provider not in live_providers:
+        result = {
+            "ok": True,
+            "type": "text",
+            "provider": selected_provider,
+            "model": selected_model,
+            "text": (
+                f"Модель {selected_model} выбрана. Провайдер {selected_provider} будет подключён через SYLVEX router. "
+                "Сейчас backend ещё не отправляет запросы в этот внешний API."
+            ),
+        }
+    else:
+        result = image_generation(payload) if mode == "image" else text_generation(payload)
+
     if not result.get("ok"):
         return JSONResponse(result, status_code=502)
 
