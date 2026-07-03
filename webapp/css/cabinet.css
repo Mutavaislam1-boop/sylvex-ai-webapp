@@ -2188,3 +2188,19 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .upload-choose-photos-btn:active{
   transform:translateX(-50%) scale(.985) !important;
 }
+/* ===== Upload choose button: bigger blue button ===== */
+.upload-choose-photos-btn{
+  height:44px !important;
+  min-width:172px !important;
+  padding:0 24px !important;
+  border-radius:999px !important;
+  background:#1677ff !important;
+  color:#fff !important;
+  font-size:14px !important;
+  font-weight:800 !important;
+  box-shadow:0 14px 34px rgba(22,119,255,.38) !important;
+}
+
+.upload-choose-photos-btn:active{
+  transform:translateX(-50%) scale(.985) !important;
+}
