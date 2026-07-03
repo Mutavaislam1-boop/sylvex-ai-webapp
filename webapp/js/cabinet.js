@@ -27,6 +27,56 @@
     objects: '',
   };
 
+  const IMAGE_MODEL_CATALOG = [
+    { id:'nano-banana-pro', label:'Нано Банан Про', icon:'🍌', description:'Фотореалистичные изображения, идеально подходящие для рекламы и текста.' },
+    { id:'nano-banana-2', label:'Нано Банан 2', icon:'🍌', description:'Современная генерация изображений с расширенным редактированием и композицией.' },
+    { id:'nano-banana', label:'Нано-банан', icon:'🍌', description:'Потрясающие фотореалистичные изображения для любой идеи.' },
+    { id:'gpt-image-2', label:'Изображение GPT 2', icon:'◎', description:'Современная генерация изображений с реализмом, типографикой и контролем.' },
+    { id:'seedream-5', label:'Seedream 5.0', icon:'▥', description:'Быстрая и лёгкая генерация с высоким визуальным качеством.' },
+    { id:'seedream-4-5', label:'Seedream 4.5', icon:'▥', description:'Улучшенная эстетика и повышенная точность воспроизведения изображения.' },
+    { id:'grok-pro', label:'Грок Про', icon:'◒', description:'xAI Grok — генерация высококачественных изображений.' },
+    { id:'davinci-ultra', label:'DaVinci Ultra', icon:'◩', description:'Модель DaVinci, оптимизированная для получения высококачественных результатов.' },
+    { id:'grok', label:'Грок', icon:'◒', description:'Генерация изображений через модель Grok.' },
+    { id:'flux-2', label:'Поток 2', icon:'△', description:'Быстрая генерация изображений в стиле Flux.' },
+    { id:'flux-2-turbo', label:'Flux 2 Turbo', icon:'△', description:'Быстрая бюджетная генерация изображений.' },
+    { id:'ideogram-3', label:'Идеограмма 3.0', icon:'♨', description:'Генерация изображений с хорошей работой с текстом и постерами.' },
+    { id:'ideogram-4', label:'Идеограмма 4.0', icon:'♨', description:'Новая версия Ideogram для точного текста и визуальных композиций.' },
+    { id:'recraft-v4-1', label:'Recraft V4.1', icon:'R', description:'Дизайн, иллюстрации, графика и брендовые изображения.' },
+    { id:'recraft-v3', label:'Рекрафт V3', icon:'R', description:'Генерация графики, иллюстраций и рекламных визуалов.' },
+    { id:'recraft-v4-1-pro', label:'Recraft V4.1 Pro', icon:'R', description:'Профессиональная версия Recraft для точной визуальной генерации.' },
+    { id:'seedream-4', label:'Seedream 4.0', icon:'▥', description:'Качественная генерация изображений и визуальных сцен.' },
+    { id:'gpt-image-1', label:'Изображение GPT 1', icon:'◎', description:'Генерация и редактирование изображений через OpenAI.' },
+    { id:'flux-pro-kontext', label:'Flux Pro Kontext', icon:'△', description:'Модель Flux для точной работы с контекстом изображения.' },
+    { id:'qwen-image', label:'Изображение Квен', icon:'✡', description:'Генерация изображений через Qwen Image.' },
+    { id:'qwen-image-2-pro', label:'Qwen Image 2 Pro', icon:'✡', description:'Профессиональная версия Qwen Image для качественной генерации.' },
+    { id:'qwen-image-2', label:'Изображение Qwen 2', icon:'✡', description:'Новая версия Qwen Image для генерации изображений.' },
+    { id:'microsoft-mai-2-5', label:'Образ Microsoft MAI 2.5', icon:'▦', description:'Модель Microsoft MAI для создания изображений.' },
+    { id:'krea-2', label:'Креа 2', icon:'✤', description:'Генерация креативных визуалов и изображений.' }
+  ];
+
+  function withImageDefaults(model) {
+    return Object.assign({
+      sizes: [
+        { id:'1:1', label:'1:1', ratio:'1:1', icon:'1:1' },
+        { id:'9:16', label:'9:16', ratio:'9:16', icon:'9:16' },
+        { id:'16:9', label:'16:9', ratio:'16:9', icon:'16:9' }
+      ],
+      counts: [1, 2, 3, 4],
+      styles: [{ id:'auto', label:'Авто' }],
+      characters: [{ id:'auto', label:'Авто' }]
+    }, model);
+  }
+
+  function mergeImageModels(apiModels) {
+    const map = new Map();
+    IMAGE_MODEL_CATALOG.map(withImageDefaults).forEach((model) => map.set(model.id, model));
+    (apiModels || []).map(withImageDefaults).forEach((model) => {
+      const old = map.get(model.id) || {};
+      map.set(model.id, Object.assign({}, old, model));
+    });
+    return Array.from(map.values());
+  }
+
   function getTelegramId() {
     try {
       const tg = S.tg;
@@ -168,7 +218,7 @@ function imageModelButton(model) {
     try {
       const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
       const data = await res.json();
-      imageCapabilities = (data && data.models) || [];
+      imageCapabilities = mergeImageModels((data && data.models) || []);
       if (imageCapabilities.length && !imageState.modelId) applyImageDefaults(imageCapabilities[0]);
       renderImageControls();
       renderModelPop();
