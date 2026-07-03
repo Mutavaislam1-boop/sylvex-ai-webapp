@@ -607,6 +607,9 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
 
     grid.classList.toggle('empty', uploadedImageLibrary.length === 0);
 
+    const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
+    if (chooseBtn) chooseBtn.hidden = uploadedImageLibrary.length === 0;
+
     const selectedUrl = imageState.referenceImageUrl || '';
     const items = uploadedImageLibrary.map((url, index) => {
       const safeUrl = S.escapeHtml(url);
@@ -653,6 +656,21 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     imageState.referenceImageUrls = uploadedImageLibrary.slice();
     imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
     renderUploadedPhotoGrid();
+  }
+
+  function confirmUploadedPhotos(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  imageState.referenceImageUrls = uploadedImageLibrary.slice();
+  imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+
+  closeUploadPanel(e);
+  toast('Фото выбраны');
+
+  S.haptic && S.haptic.notify && S.haptic.notify('success');
   }
 
   function openUploadImagePreview(e, url) {
@@ -1864,7 +1882,7 @@ function closeUploadPanel(e) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption,
-    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
