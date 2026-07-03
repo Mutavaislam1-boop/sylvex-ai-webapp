@@ -1648,3 +1648,78 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     font-size:18px !important;
   }
 }
+/* ===== Aspect ratio picker: text same size as bottom buttons ===== */
+@media(max-width:560px){
+  body > #modelPop.image-size-floating-pop .image-size-sheet-title{
+    font-size:11px !important;
+    line-height:1 !important;
+    font-weight:700 !important;
+    letter-spacing:.2px !important;
+    padding:2px 4px 10px !important;
+    margin:0 0 6px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop button.image-size-row{
+    min-height:42px !important;
+    grid-template-columns:28px 1fr 16px !important;
+    gap:7px !important;
+    padding:0 10px !important;
+    border-radius:11px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-label{
+    font-size:11px !important;
+    line-height:1 !important;
+    font-weight:700 !important;
+    letter-spacing:.1px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-check{
+    font-size:12px !important;
+    line-height:1 !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon{
+    width:18px !important;
+    height:18px !important;
+    border-width:2px !important;
+    border-radius:5px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:3"]{
+    width:20px !important;
+    height:15px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="3:4"],
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]{
+    width:15px !important;
+    height:20px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="5:4"]{
+    width:20px !important;
+    height:15px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="9:16"]{
+    width:14px !important;
+    height:21px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="16:9"]{
+    width:22px !important;
+    height:14px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="21:9"]{
+    width:24px !important;
+    height:11px !important;
+    border-radius:4px !important;
+  }
+
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="auto"]{
+    width:18px !important;
+    height:18px !important;
+  }
+}
