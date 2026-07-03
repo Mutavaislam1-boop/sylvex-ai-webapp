@@ -1545,3 +1545,30 @@ body.kb-open .nav{
     font-size:11px !important;
   }
 }
+/* ===== Narrow image model picker width ===== */
+@media(max-width:560px){
+  body > #modelPop.image-model-floating-pop,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop{
+    left:8px !important;
+    right:auto !important;
+    width:68vw !important;
+    max-width:330px !important;
+    min-width:250px !important;
+    transform:none !important;
+    border-radius:18px !important;
+  }
+
+  body > #modelPop.image-model-floating-pop button.image-model-row,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row{
+    padding-left:10px !important;
+    padding-right:10px !important;
+  }
+
+  body > #modelPop.image-model-floating-pop button.image-model-row.active,
+  body > #modelPop.image-model-floating-pop button.image-model-row.sel,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.active,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.sel{
+    margin:0 4px !important;
+    width:calc(100% - 8px) !important;
+  }
+}
