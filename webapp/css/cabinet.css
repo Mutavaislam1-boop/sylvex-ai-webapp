@@ -1469,3 +1469,79 @@ body.kb-open .nav{
     opacity:1 !important;
   }
 }
+/* ===== Final compact image model picker typography ===== */
+@media(max-width:560px){
+  .image-model-floating-pop .image-model-sheet-title,
+  body > #modelPop.image-model-floating-pop .image-model-sheet-title{
+    padding:0 14px 8px !important;
+    font-size:11px !important;
+    line-height:1.1 !important;
+    font-weight:700 !important;
+    color:#bdbdc2 !important;
+  }
+
+  .image-model-floating-pop .image-model-sheet-list,
+  body > #modelPop.image-model-floating-pop .image-model-sheet-list{
+    gap:0 !important;
+  }
+
+  .image-model-floating-pop button.image-model-row,
+  body > #modelPop.image-model-floating-pop button.image-model-row{
+    min-height:48px !important;
+    padding:7px 14px !important;
+    gap:10px !important;
+    border-radius:0 !important;
+  }
+
+  .image-model-floating-pop button.image-model-row.active,
+  .image-model-floating-pop button.image-model-row.sel,
+  body > #modelPop.image-model-floating-pop button.image-model-row.active,
+  body > #modelPop.image-model-floating-pop button.image-model-row.sel{
+    min-height:48px !important;
+    margin:0 6px !important;
+    width:calc(100% - 12px) !important;
+    border-radius:11px !important;
+    background:#303030 !important;
+  }
+
+  .image-model-floating-pop .image-model-icon,
+  body > #modelPop.image-model-floating-pop .image-model-icon{
+    width:32px !important;
+    height:32px !important;
+    flex:0 0 32px !important;
+    border-radius:9px !important;
+    font-size:13px !important;
+    font-weight:800 !important;
+    background:#2d2d2f !important;
+  }
+
+  .image-model-floating-pop .image-model-text,
+  body > #modelPop.image-model-floating-pop .image-model-text{
+    gap:2px !important;
+  }
+
+  .image-model-floating-pop .image-model-name,
+  body > #modelPop.image-model-floating-pop .image-model-name{
+    font-size:11px !important;
+    line-height:1.1 !important;
+    font-weight:800 !important;
+    letter-spacing:0 !important;
+  }
+
+  .image-model-floating-pop .image-model-desc,
+  body > #modelPop.image-model-floating-pop .image-model-desc{
+    font-size:9px !important;
+    line-height:1.15 !important;
+    font-weight:400 !important;
+    color:#9b9ba0 !important;
+    -webkit-line-clamp:1 !important;
+  }
+
+  .image-model-floating-pop .image-model-check,
+  body > #modelPop.image-model-floating-pop .image-model-check{
+    width:18px !important;
+    height:18px !important;
+    flex:0 0 18px !important;
+    font-size:11px !important;
+  }
+}
