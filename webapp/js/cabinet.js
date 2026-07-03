@@ -133,6 +133,10 @@ const MODEL_ICON_SVG = {
     return (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
   }
 
+function localizedGreeting() {
+  return '';
+}
+
   /* ===== Rendering ===== */
   function renderModeStrip() {
     const el = document.getElementById('modeStrip'); if (!el) return;
@@ -723,7 +727,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
   }
   function newChat() {
     currentConvId = null;
-    chatMessages = [{ role: 'ai', text: localizedGreeting() }];
+    chatMessages = [];
     renderChat();
     S.haptic.impact('light');
   }
@@ -766,7 +770,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
         text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
         imageUrl: m.image_url || undefined,
       }));
-      if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
+      if (!chatMessages.length) chatMessages = [];
       renderChat();
       renderConvList();
       toggleHistory();
@@ -1583,7 +1587,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     bindEvents();
     applyLang();       // triggers renderDynamic
     initHero();
-    if (!chatMessages.length) chatMessages = [{ role: 'ai', text: localizedGreeting() }];
+    if (!chatMessages.length) chatMessages = [];
     renderChat();
     updateSendButton();
     loadImageCapabilities();
