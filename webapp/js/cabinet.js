@@ -629,6 +629,7 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     clearAttachment();
     chatMessages.push({ typing: true, role: 'ai' });
     renderChat();
+    document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     try {
       const j = await callGenerate(v, attachment);
@@ -647,6 +648,8 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
         return;
       }
       chatMessages.push({ role: 'ai', text: '⚠️ ' + (err && err.message ? err.message : 'Generation failed') });
+    } finally {
+      document.body.classList.remove('ai-generating');
     }
     renderChat();
   }
