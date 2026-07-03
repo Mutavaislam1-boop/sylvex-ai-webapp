@@ -301,15 +301,18 @@ function imageModelButton(model) {
     el.classList.remove('image-size-floating-pop');
 
     if (kind === 'size') {
-      const fallbackSizes = [
-        { id:'1:1', label:'1:1', ratio:'1:1' },
-        { id:'4:3', label:'4:3', ratio:'4:3' },
-        { id:'9:16', label:'9:16', ratio:'9:16' },
-        { id:'3:4', label:'3:4', ratio:'3:4' },
-        { id:'16:9', label:'16:9', ratio:'16:9' },
-        { id:'auto', label:'Авто', ratio:'auto' }
-      ];
-      const modelSizes = model && model.sizes && model.sizes.length ? model.sizes : [];
+    const fallbackSizes = [
+    { id:'1:1', label:'1:1', ratio:'1:1' },
+    { id:'16:9', label:'16:9', ratio:'16:9' },
+    { id:'9:16', label:'9:16', ratio:'9:16' },
+    { id:'3:4', label:'3:4', ratio:'3:4' },
+    { id:'4:5', label:'4:5', ratio:'4:5' },
+    { id:'5:4', label:'5:4', ratio:'5:4' },
+    { id:'4:3', label:'4:3', ratio:'4:3' },
+    { id:'21:9', label:'21:9', ratio:'21:9' },
+    { id:'auto', label:'Auto', ratio:'auto' }
+    ];
+      const modelSizes = [];
       const sizeIds = new Set(modelSizes.map((item) => String(item.id || item.ratio || item.label || '')));
       const mergedSizes = modelSizes.concat(fallbackSizes.filter((item) => !sizeIds.has(item.id)));
       const selectedSize = imageState.size || imageState.ratio || '1:1';
