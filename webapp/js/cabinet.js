@@ -658,20 +658,78 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
     renderUploadedPhotoGrid();
   }
 
-  function confirmUploadedPhotos(e) {
+    function confirmUploadedPhotos(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+
+    renderComposerImageDraft();
+    closeUploadPanel(e);
+    toast('Фото добавлены в сообщение');
+
+    S.haptic && S.haptic.notify && S.haptic.notify('success');
+    }
+
+    function ensureComposerImageDraft() {
+  const ta = document.getElementById('chatInput');
+  if (!ta) return null;
+
+  let box = document.getElementById('composerImageDraft');
+  if (box) return box;
+
+  box = document.createElement('div');
+  box.id = 'composerImageDraft';
+  box.className = 'composer-image-draft';
+
+  ta.parentElement.insertBefore(box, ta);
+  return box;
+}
+
+function renderComposerImageDraft() {
+  const box = ensureComposerImageDraft();
+  if (!box) return;
+
+  const urls = imageState.referenceImageUrls || [];
+
+  if (!urls.length) {
+    box.innerHTML = '';
+    box.hidden = true;
+    return;
+  }
+
+  box.hidden = false;
+
+  box.innerHTML = urls.map((url, index) => {
+    const safeUrl = S.escapeHtml(url);
+
+    return '<button class="composer-image-thumb" type="button">'
+      + '<img src="' + safeUrl + '" alt="selected image" />'
+      + '<span class="composer-image-remove" onclick="SYLVEX.removeComposerImageDraft(event,' + index + ')">×</span>'
+      + '</button>';
+  }).join('');
+}
+
+function removeComposerImageDraft(e, index) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
 
-  imageState.referenceImageUrls = uploadedImageLibrary.slice();
-  imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+  const urls = (imageState.referenceImageUrls || []).slice();
+  urls.splice(index, 1);
 
-  closeUploadPanel(e);
-  toast('Фото выбраны');
+  imageState.referenceImageUrls = urls.slice();
+  imageState.referenceImageUrl = urls[urls.length - 1] || '';
 
-  S.haptic && S.haptic.notify && S.haptic.notify('success');
-  }
+  uploadedImageLibrary = urls.slice();
+
+  renderUploadedPhotoGrid();
+  renderComposerImageDraft();
+}
 
   function openUploadImagePreview(e, url) {
     if (e) {
@@ -1882,7 +1940,7 @@ function closeUploadPanel(e) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption,
-    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
