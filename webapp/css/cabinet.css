@@ -1810,3 +1810,39 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     height:14px !important;
   }
 }
+/* ===== Pro Studio dots: stronger visible static background ===== */
+.view[data-view="tools"].active .studio::before{
+  opacity:.52 !important;
+  filter:brightness(1.35) contrast(1.08) !important;
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.95) 0 1.15px,transparent 1.9px),
+    radial-gradient(circle,rgba(255,255,255,.58) 0 1px,transparent 1.8px),
+    linear-gradient(115deg,transparent 0 42%,rgba(255,255,255,.13) 48%,transparent 56%) !important;
+  background-size:22px 22px,38px 38px,230px 230px !important;
+  background-position:0 0,11px 17px,-120px -120px !important;
+  animation:none !important;
+}
+
+.view[data-view="tools"].active .studio::after{
+  opacity:.16 !important;
+  filter:brightness(1.2) !important;
+  animation:none !important;
+}
+
+body.ai-generating .view[data-view="tools"].active .studio::before,
+.view[data-view="tools"].active .studio.is-generating::before,
+.view[data-view="tools"].active .studio.generating::before,
+.view[data-view="tools"].active .studio:has(.typing)::before{
+  opacity:.82 !important;
+  filter:brightness(1.85) contrast(1.12) !important;
+  animation:aiParticlesMove 8s linear infinite, aiParticlesGlow 1.8s ease-in-out infinite !important;
+}
+
+body.ai-generating .view[data-view="tools"].active .studio::after,
+.view[data-view="tools"].active .studio.is-generating::after,
+.view[data-view="tools"].active .studio.generating::after,
+.view[data-view="tools"].active .studio:has(.typing)::after{
+  opacity:.32 !important;
+  filter:brightness(1.55) !important;
+  animation:aiNetworkDrift 12s linear infinite !important;
+}
