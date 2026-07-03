@@ -1285,3 +1285,153 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
   opacity:.22 !important;
   animation:aiNetworkDrift 14s linear infinite !important;
 }
+/* ===== Restore compact transparent image model picker after router changes ===== */
+@media(max-width:560px){
+  body > #modelPop.image-model-floating-pop,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list){
+    position:fixed !important;
+    left:8px !important;
+    right:auto !important;
+    top:auto !important;
+    bottom:calc(58px + env(safe-area-inset-bottom)) !important;
+    width:64vw !important;
+    max-width:315px !important;
+    min-width:245px !important;
+    max-height:64vh !important;
+    overflow-y:auto !important;
+    transform:none !important;
+    padding:8px 0 10px !important;
+    border-radius:18px !important;
+    background:rgba(20,21,24,.40) !important;
+    border:1px solid rgba(255,255,255,.10) !important;
+    box-shadow:0 24px 70px -18px rgba(0,0,0,.92) !important;
+    backdrop-filter:blur(18px) saturate(140%) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(140%) !important;
+    z-index:999999 !important;
+  }
+
+  body > #modelPop.image-model-floating-pop::before,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop::before,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)::before{
+    display:none !important;
+    content:none !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-sheet-title,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-sheet-title,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-sheet-title{
+    position:sticky !important;
+    top:0 !important;
+    z-index:6 !important;
+    padding:0 12px 8px !important;
+    margin:0 0 6px !important;
+    font-size:11px !important;
+    line-height:1.1 !important;
+    font-weight:700 !important;
+    color:#cfcfd4 !important;
+    background:rgba(20,21,24,.64) !important;
+    border-bottom:1px solid rgba(255,255,255,.08) !important;
+    backdrop-filter:blur(14px) saturate(140%) !important;
+    -webkit-backdrop-filter:blur(14px) saturate(140%) !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-sheet-list,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-sheet-list,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-sheet-list{
+    display:flex !important;
+    flex-direction:column !important;
+    gap:0 !important;
+  }
+
+  body > #modelPop.image-model-floating-pop button.image-model-row,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row{
+    width:100% !important;
+    min-height:auto !important;
+    height:auto !important;
+    display:flex !important;
+    align-items:flex-start !important;
+    gap:9px !important;
+    padding:8px 10px !important;
+    border-radius:0 !important;
+    background:transparent !important;
+  }
+
+  body > #modelPop.image-model-floating-pop button.image-model-row.active,
+  body > #modelPop.image-model-floating-pop button.image-model-row.sel,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.active,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.sel,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row.active,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row.sel{
+    margin:0 4px !important;
+    width:calc(100% - 8px) !important;
+    border-radius:11px !important;
+    background:rgba(48,48,48,.40) !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-icon{
+    width:32px !important;
+    height:32px !important;
+    flex:0 0 32px !important;
+    border-radius:9px !important;
+    background:transparent !important;
+    overflow:hidden !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon svg,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-icon svg{
+    width:28px !important;
+    height:28px !important;
+    display:block !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-text,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-text,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-text{
+    flex:1 !important;
+    min-width:0 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    gap:3px !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-name,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-name,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-name{
+    font-size:11px !important;
+    line-height:1.15 !important;
+    font-weight:800 !important;
+    letter-spacing:0 !important;
+    color:#f3f3f3 !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-desc,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-desc,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-desc{
+    display:block !important;
+    overflow:visible !important;
+    white-space:normal !important;
+    height:auto !important;
+    max-height:none !important;
+    -webkit-line-clamp:unset !important;
+    -webkit-box-orient:unset !important;
+    font-size:9px !important;
+    line-height:1.2 !important;
+    font-weight:400 !important;
+    color:#a7a7ad !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-check,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-check,
+  .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-check{
+    width:18px !important;
+    height:18px !important;
+    flex:0 0 18px !important;
+    font-size:11px !important;
+    margin-top:6px !important;
+  }
+}
