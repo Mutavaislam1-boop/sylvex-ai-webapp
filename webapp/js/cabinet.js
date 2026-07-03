@@ -530,19 +530,19 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
             </div>
             <div id="uploadGeneratedGrid" class="upload-generated-grid"></div>
           </div>
-        <div class="upload-panel-half upload-panel-actions">
-        <button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker('image')">
-            <span class="upload-photo-center-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M7 16L10.2 12.8C10.8 12.2 11.7 12.2 12.3 12.8L14 14.5L15.2 13.3C15.8 12.7 16.7 12.7 17.3 13.3L20 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="8.7" cy="9.3" r="1.3" fill="currentColor"/>
-            </svg>
-            </span>
-            <span class="upload-photo-center-title">Загрузить фото</span>
-            <span class="upload-photo-center-sub">из файлов или галереи</span>
-        </button>
-        </div>
+          <div class="upload-panel-half upload-panel-actions">
+            <button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker('image')">
+              <span class="upload-photo-center-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M7 16L10.2 12.8C10.8 12.2 11.7 12.2 12.3 12.8L14 14.5L15.2 13.3C15.8 12.7 16.7 12.7 17.3 13.3L20 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="8.7" cy="9.3" r="1.3" fill="currentColor"/>
+                </svg>
+              </span>
+              <span class="upload-photo-center-title">Загрузить фото</span>
+              <span class="upload-photo-center-sub">из файлов или галереи</span>
+            </button>
+          </div>
         </div>
         <div id="uploadImagePreview" class="upload-image-preview" onclick="SYLVEX.closeUploadImagePreview(event)">
           <div class="upload-preview-card" onclick="event.stopPropagation()">
@@ -686,6 +686,14 @@ function closeUploadPanel(e) {
         name: f.name,
         dataBase64: b64,
       };
+
+      if ((pendingAttachAccept || '') === 'image' && result) {
+        imageState.referenceImageUrl = result;
+        addGeneratedImages([result]);
+        renderUploadPanelImages();
+        toast('Фото загружено');
+      }
+
       try { updateSendButton(); } catch {}
     };
     reader.readAsDataURL(f);
