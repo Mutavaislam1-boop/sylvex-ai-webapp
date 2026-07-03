@@ -2395,10 +2395,74 @@ def ensure_prostudio_table():
         CREATE INDEX IF NOT EXISTS idx_prostudio_messages_user_conv
         ON prostudio_messages (telegram_id, conversation_id, created_at DESC)
         """)
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS images_json TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumbnails_json TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumb_url TEXT")
         conn.commit()
     finally:
         cursor.close()
         conn.close()
+
+def _json_list(value) -> list:
+    if isinstance(value, list):
+        return [item for item in value if item]
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+        return [item for item in data if item] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def create_image_thumbnails(image_urls: list, size: int = 300) -> list:
+    thumbs = []
+    if not image_urls:
+        return thumbs
+
+    thumb_dir = WEBAPP_DIR / "generated" / "thumbs"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+
+    for url in image_urls:
+        thumb_url = ""
+        try:
+            from PIL import Image
+            import base64
+            import io
+
+            if str(url).startswith("data:"):
+                raw = str(url).split(",", 1)[1] if "," in str(url) else ""
+                content = base64.b64decode(raw)
+            else:
+                r = requests.get(url, timeout=45)
+                if r.status_code >= 400 or not r.content:
+                    raise ValueError("source_download_failed")
+                content = r.content
+
+            with Image.open(io.BytesIO(content)) as img:
+                img = img.convert("RGB")
+                img.thumbnail((size, size))
+                filename = f"{uuid4().hex}.jpg"
+                path = thumb_dir / filename
+                img.save(path, format="JPEG", quality=78, optimize=True)
+                thumb_url = f"/webapp/generated/thumbs/{filename}"
+        except Exception as exc:
+            print("THUMBNAIL CREATE FAILED:", type(exc).__name__)
+            thumb_url = url
+        thumbs.append(thumb_url)
+    return thumbs
+
+def attach_image_thumbnails(result: dict) -> dict:
+    images = _json_list(result.get("images")) or ([result.get("image_url")] if result.get("image_url") else [])
+    if not images:
+        return result
+    thumbs = _json_list(result.get("thumbnails"))
+    if len(thumbs) != len(images):
+        thumbs = create_image_thumbnails(images)
+    result["image_url"] = images[0]
+    result["images"] = images
+    result["thumb_url"] = thumbs[0] if thumbs else images[0]
+    result["thumbnails"] = thumbs or images
+    return result
 
 def save_prostudio_message(payload: dict, result: dict) -> str:
     conversation_id = payload.get("conversation_id") or str(uuid4())
@@ -2417,8 +2481,11 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 mode,
                 prompt,
                 response_text,
-                image_url
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                image_url,
+                images_json,
+                thumbnails_json,
+                thumb_url
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             conversation_id,
             telegram_id,
@@ -2426,6 +2493,9 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             payload.get("prompt") or "",
             result.get("text") or "",
             result.get("image_url") or "",
+            json.dumps(_json_list(result.get("images")), ensure_ascii=False),
+            json.dumps(_json_list(result.get("thumbnails")), ensure_ascii=False),
+            result.get("thumb_url") or "",
         ))
         conn.commit()
         cursor.close()
@@ -2446,6 +2516,8 @@ def payment_url(pack_id: str, method: str = "paypal") -> str:
 async def public_prostudio_conversations(
     telegram_id: int = 0,
     conversation_id: str = "",
+    limit: int = 30,
+    offset: int = 0,
 ):
     if not DATABASE_URL or not telegram_id:
         return {"ok": True, "conversations": [], "messages": []}
@@ -2455,19 +2527,27 @@ async def public_prostudio_conversations(
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
 
+        limit = max(1, min(int(limit or 30), 100))
+        offset = max(0, int(offset or 0))
+
         if conversation_id:
             cursor.execute("""
-                SELECT prompt, response_text, image_url, created_at
+                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, created_at
                 FROM prostudio_messages
                 WHERE telegram_id = %s
                   AND conversation_id = %s
                 ORDER BY created_at ASC, id ASC
-            """, (telegram_id, conversation_id))
+                LIMIT %s OFFSET %s
+            """, (telegram_id, conversation_id, limit, offset))
             rows = cursor.fetchall()
             cursor.close()
             conn.close()
             messages = []
-            for prompt, response_text, image_url, created_at in rows:
+            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, created_at in rows:
+                images = _json_list(images_json) or ([image_url] if image_url else [])
+                thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
+                if len(thumbs) != len(images):
+                    thumbs = images[:]
                 if prompt:
                     messages.append({
                         "role": "user",
@@ -2477,10 +2557,13 @@ async def public_prostudio_conversations(
                 messages.append({
                     "role": "assistant",
                     "response_text": response_text or "",
-                    "image_url": image_url or "",
+                    "image_url": images[0] if images else "",
+                    "images": images,
+                    "thumb_url": thumbs[0] if thumbs else "",
+                    "thumbnails": thumbs,
                     "created_at": created_at,
                 })
-            return {"ok": True, "messages": messages}
+            return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
 
         cursor.execute("""
             SELECT
@@ -2491,8 +2574,8 @@ async def public_prostudio_conversations(
             WHERE telegram_id = %s
             GROUP BY conversation_id
             ORDER BY updated_at DESC
-            LIMIT 30
-        """, (telegram_id,))
+            LIMIT %s OFFSET %s
+        """, (telegram_id, min(limit, 50), offset))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -3272,7 +3355,7 @@ def generateBytePlusSeedreamImage(payload: dict) -> dict:
 
     if images:
         images = images[:count]
-        return {"ok": True, "type": "image", "image_url": images[0], "images": images}
+        return attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
     return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
 def text_generation(payload: dict) -> dict:
@@ -3373,7 +3456,7 @@ def image_generation(payload: dict) -> dict:
     except Exception:
         images = []
     if images:
-        return {"ok": True, "type": "image", "image_url": images[0], "images": images}
+        return attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
     return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
 @app.get("/api/public/prostudio/image-capabilities")
