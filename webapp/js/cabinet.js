@@ -86,7 +86,10 @@ const MODEL_ICON_SVG = {
         { id:'16:9', label:'16:9', ratio:'16:9', icon:'16:9' }
       ],
       counts: [1, 2, 3, 4],
-      styles: [{ id:'auto', label:'Авто' }],
+      styles: [
+        { id:'auto', label:'Авто' },
+        { id:'aegean_luxury', label:'Aegean' }
+      ],
       characters: [{ id:'auto', label:'Авто' }]
     }, model);
   }
