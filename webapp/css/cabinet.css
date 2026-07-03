@@ -1572,3 +1572,25 @@ body.kb-open .nav{
     width:calc(100% - 8px) !important;
   }
 }
+/* ===== Image model picker 50% transparent ===== */
+@media(max-width:560px){
+  body > #modelPop.image-model-floating-pop,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop{
+    background:rgba(20,21,24,.50) !important;
+    backdrop-filter:blur(18px) saturate(140%) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(140%) !important;
+    border:1px solid rgba(255,255,255,.10) !important;
+  }
+
+  body > #modelPop.image-model-floating-pop button.image-model-row.active,
+  body > #modelPop.image-model-floating-pop button.image-model-row.sel,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.active,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.sel{
+    background:rgba(48,48,48,.50) !important;
+  }
+
+  body > #modelPop.image-model-floating-pop .image-model-icon,
+  .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon{
+    background:rgba(45,45,47,.50) !important;
+  }
+}
