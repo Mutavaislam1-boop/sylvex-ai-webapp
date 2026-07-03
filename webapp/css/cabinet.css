@@ -571,10 +571,20 @@ body.kb-open .nav{
 .studio-mode-tab.active{background:#4a4a4a;color:#f4f4f4}
 .studio-mode-tab svg{flex:0 0 auto;color:currentColor}
 .studio-video-composer[data-composer-mode="video"] .image-only{display:none !important}
+.studio-video-composer[data-composer-mode="video"] .music-only{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .video-only{display:none !important}
+.studio-video-composer[data-composer-mode="image"] .music-only{display:none !important}
+.studio-video-composer[data-composer-mode="music"] .video-only,
+.studio-video-composer[data-composer-mode="music"] .image-only,
+.studio-video-composer[data-composer-mode="music"] .image-video-only{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="image"] .studio-image-tools{display:grid}
+.studio-video-composer[data-composer-mode="music"] .music-only.studio-mode-tab{display:flex}
+.studio-video-composer[data-composer-mode="music"] .music-only.studio-select-pill{display:flex}
+.studio-video-composer[data-composer-mode="music"] .studio-audio-player{display:flex}
+.studio-video-composer[data-composer-mode="music"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
+.studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-left:0;padding-left:0}
 
 .studio-video-panel{
   display:grid;grid-template-columns:clamp(220px,28vw,430px) minmax(0,1fr);gap:24px;
@@ -606,6 +616,7 @@ body.kb-open .nav{
   background:#444;border:3px solid #3a3a3a;color:#e6e6e6;margin-left:-8px;
 }
 .studio-link-icons span:first-child{margin-left:0}
+.studio-music-tools{display:none}
 .studio-prompt-column{
   min-width:0;display:flex;flex-direction:column;border-left:1px solid rgba(255,255,255,.10);
   padding-left:24px;
@@ -633,6 +644,28 @@ body.kb-open .nav{
 .image-count-pill b{font-size:15px}
 .image-count-pill span{color:#9a9a9a;font-size:18px;line-height:1}
 .image-settings-pill{width:48px;min-width:48px;justify-content:center;padding:0;border-radius:50%}
+.studio-audio-player{
+  display:none;align-items:center;gap:18px;margin-top:12px;padding:14px 20px;
+  min-height:76px;border-radius:28px;background:#181818;border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 14px 42px -24px rgba(0,0,0,.9);color:#f4f4f4;
+}
+.studio-track-art{
+  width:48px;height:48px;border-radius:50%;background:
+    radial-gradient(circle at 65% 35%,rgba(200,20,30,.9),transparent 35%),
+    linear-gradient(135deg,#231019,#9b1018 48%,#150c12 49%);
+  flex:0 0 auto;
+}
+.studio-track-title{font-size:17px;font-weight:500;min-width:180px}
+.studio-player-controls{display:flex;align-items:center;gap:18px}
+.studio-player-controls button,.studio-player-icon{
+  width:32px;height:32px;border:0;background:transparent;color:#f4f4f4;
+  display:grid;place-items:center;cursor:pointer;padding:0;
+}
+.studio-time,.studio-duration{font-size:16px;font-weight:700;color:#eeeeee;white-space:nowrap}
+.studio-duration{color:#9a9a9a}
+.studio-progress{height:5px;border-radius:999px;background:#5a5a5a;flex:1 1 auto;min-width:160px;overflow:hidden}
+.studio-progress span{display:block;width:0;height:100%;background:#efefef}
+.studio-player-icon:last-child{font-size:30px;color:#bdbdbd;line-height:1}
 .studio-generate{
   flex:0 0 auto;min-height:48px;border:0;border-radius:999px;padding:0 22px;
   background:#244f86;color:#a7a7a7;font-family:inherit;font-size:15px;font-weight:700;
@@ -645,10 +678,15 @@ body.kb-open .nav{
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
   .studio-video-panel{grid-template-columns:1fr;padding:14px;border-radius:22px;gap:12px}
+  .studio-video-composer[data-composer-mode="music"] .studio-video-panel{padding:18px 14px}
   .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
+  .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-top:0;padding-top:0}
   .view[data-view="tools"].active .studio-video-composer textarea{min-height:86px;font-size:15px}
   .studio-frame-card,.studio-image-tool{min-height:74px}
   .studio-links-btn{min-height:58px}
+  .studio-audio-player{gap:10px;padding:12px;overflow-x:auto;border-radius:22px}
+  .studio-track-title{min-width:90px;font-size:15px}
+  .studio-progress{min-width:110px}
 }
 
 /* Hide bottom nav while in Pro Studio? Keep it but lighten background */
