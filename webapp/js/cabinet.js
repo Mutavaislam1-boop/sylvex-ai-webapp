@@ -198,14 +198,21 @@
     try { updateSendButton(); } catch {}
   }
   function updateComposerMode(kind) {
+    const isImage = kind === 'image';
+    const composer = document.getElementById('studioComposer');
+    if (composer) composer.dataset.composerMode = isImage ? 'image' : 'video';
     document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
-      const isActive = btn.dataset.studioModeBtn === kind || (kind === 'video' && btn.dataset.studioModeBtn === 'video');
+      const isActive = btn.dataset.studioModeBtn === kind || (!isImage && kind === 'video' && btn.dataset.studioModeBtn === 'video');
       btn.classList.toggle('active', isActive);
     });
     document.querySelectorAll('.studio-mini-tab').forEach((btn) => btn.classList.remove('active'));
     const miniIndex = kind === 'image' ? 0 : kind === 'voice' ? 2 : 1;
     const minis = document.querySelectorAll('.studio-mini-tab');
     if (minis[miniIndex]) minis[miniIndex].classList.add('active');
+    const ta = document.getElementById('chatInput');
+    if (ta) ta.placeholder = isImage ? 'Describe your image' : 'Describe your video';
+    const mvc = document.getElementById('modelValComposer');
+    if (mvc) mvc.textContent = isImage ? 'Seedream 5.0' : 'Seedance 2.0 Fast';
   }
   function genAction(kind, tabKey) {
     const sheet = document.getElementById('plusSheet');
