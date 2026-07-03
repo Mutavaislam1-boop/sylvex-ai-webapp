@@ -99,11 +99,9 @@ const MODEL_ICON_SVG = {
       map.set(model.id, Object.assign({}, old, model));
     });
 
-    // OpenAI отключён в Pro Studio: не показываем GPT/OpenAI модели как основные модели генерации.
-    return Array.from(map.values()).filter((model) => {
-      const id = String(model && model.id ? model.id : '').toLowerCase();
-      return !id.includes('gpt-image') && !id.includes('openai');
-    });
+    // Список моделей не фильтруем: GPT Image остаётся в выборе как отдельная модель.
+    // Отключение старого OpenAI делается не удалением моделей, а через router/backend.
+    return Array.from(map.values());
   }
 
   function getTelegramId() {
@@ -116,16 +114,10 @@ const MODEL_ICON_SVG = {
 
   function pickStudioModel() {
     if (studioMode === 'image') {
-      const current = String(imageState.modelId || '');
-      const currentIsOpenAI = current.toLowerCase().includes('gpt-image') || current.toLowerCase().includes('openai');
-      if (current && !currentIsOpenAI) return current;
-
-      const fallback = (imageCapabilities || []).find((model) => {
-        const id = String(model && model.id ? model.id : '').toLowerCase();
-        return !id.includes('gpt-image') && !id.includes('openai');
-      });
-
-      return fallback ? fallback.id : 'seedream-4-0';
+      // Если пользователь сам выбрал модель — отправляем именно её.
+      // OpenAI/GPT Image не является основной моделью по умолчанию, но остаётся доступной в списке.
+      if (imageState.modelId) return imageState.modelId;
+      return (imageCapabilities[0] && imageCapabilities[0].id) || 'nano-banana-pro';
     }
     if (studioMode === 'video') return 'seedance-2-fast';
     if (studioMode === 'music') return 'musicgen-pro';
