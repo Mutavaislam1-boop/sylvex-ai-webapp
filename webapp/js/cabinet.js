@@ -34,7 +34,6 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'photorealism', label:'Фотореализм', image:'assets/styles/photorealism.png' },
   { id:'cinematic', label:'Кино', image:'assets/styles/cinematic.png' },
   { id:'poster_3d', label:'3D постер', image:'assets/styles/poster_3d.png' },
-  { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.jpg' },
   { id:'anime', label:'Anime', image:'assets/styles/anime.png' },
   { id:'cyberpunk', label:'Cyberpunk', image:'assets/styles/cyberpunk.png' },
   { id:'dark_fantasy', label:'Dark fantasy', image:'assets/styles/dark_fantasy.png' },
@@ -44,8 +43,11 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'futuristic', label:'Futuristic', image:'assets/styles/futuristic.png' },
   { id:'fantasy', label:'Fantasy', image:'assets/styles/fantasy.png' },
   { id:'product_shot', label:'Product shot', image:'assets/styles/product_shot.png' },
-  { id:'luxury', label:'Luxury', image:'assets/styles/luxury.png' },
-  { id:'editorial', label:'Editorial', image:'assets/styles/editorial.png' },
+
+  
+  { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.jpg' },
+  { id:'pastel_hologram', label:'Pastel Hologram', image:'assets/styles/pastel_hologram.jpg' },
+  { id:'urban_ink', label:'Urban Ink', image:'assets/styles/urban_ink.jpg' },
   { id:'quiet_sepia', label:'Quiet Sepia', image:'assets/styles/quiet_sepia.jpg' },
   { id:'silent_cyan', label:'Silent Cyan', image:'assets/styles/silent_cyan.jpg' },
 ];
