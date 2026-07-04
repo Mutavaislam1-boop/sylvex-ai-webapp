@@ -588,10 +588,29 @@ function closeImageStylePanel(e) {
     e.preventDefault();
     e.stopPropagation();
   }
-  const tooltip = document.getElementById('imageStyleInfoTooltip');
-  if (tooltip) tooltip.classList.remove('show');
+
+  hideImageStyleInfo();
+
   const panel = document.getElementById('imageStylePanel');
   if (panel) panel.classList.remove('show');
+}
+
+function hideImageStyleInfo() {
+  const tooltip = document.getElementById('imageStyleInfoTooltip');
+  if (tooltip) tooltip.classList.remove('show');
+}
+
+function handleImageStyleInfoOutsideTouch(e) {
+  const tooltip = document.getElementById('imageStyleInfoTooltip');
+  if (!tooltip || !tooltip.classList.contains('show')) return;
+
+  const target = e && e.target ? e.target : null;
+
+  // Сам восклицательный знак не закрывает подсказку через общий обработчик,
+  // потому что он сам открывает/закрывает её через toggleImageStyleInfo.
+  if (target && target.closest && target.closest('.image-style-info-mark')) return;
+
+  hideImageStyleInfo();
 }
 
 function toggleImageStyleInfo(e) {
@@ -611,8 +630,8 @@ function pickImageStyleFromPanel(e, value) {
     e.preventDefault();
     e.stopPropagation();
   }
-  const tooltip = document.getElementById('imageStyleInfoTooltip');
-  if (tooltip) tooltip.classList.remove('show');
+  hideImageStyleInfo();
+
   imageState.style = value || 'auto';
 
   renderImageControls();
@@ -2704,5 +2723,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   S.closeImageStylePanel = closeImageStylePanel;
   S.pickImageStyleFromPanel = pickImageStyleFromPanel;
   S.toggleImageStyleInfo = toggleImageStyleInfo;
+  
+  document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
+  document.addEventListener('touchmove', hideImageStyleInfo, true);
+  document.addEventListener('wheel', hideImageStyleInfo, true);
+  document.addEventListener('scroll', hideImageStyleInfo, true);
 
   })();
