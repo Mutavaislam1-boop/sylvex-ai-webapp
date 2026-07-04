@@ -3435,25 +3435,42 @@ async def send_generated_images_to_telegram(telegram_id: int, images: list[str],
         return False
 
     sent_any = False
-    async with httpx.AsyncClient(timeout=60.0) as client:
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
         for index, image_url in enumerate(images):
             try:
-                payload = {
-                    "chat_id": telegram_id,
-                    "photo": image_url,
+                # 1) Сначала backend сам скачивает готовое фото
+                image_response = await client.get(image_url)
+                if image_response.status_code >= 400 or not image_response.content:
+                    print("TELEGRAM IMAGE DOWNLOAD FAILED:", image_response.status_code, image_response.text[:300])
+                    continue
+
+                content_type = image_response.headers.get("content-type") or "image/png"
+                ext = ".png" if "png" in content_type else ".jpg"
+                filename = f"sylvex-image-{index + 1}{ext}"
+
+                # 2) Потом backend отправляет фото в Telegram как файл
+                data = {
+                    "chat_id": str(telegram_id),
                     "caption": caption if index == 0 else "",
                 }
 
-                r = await client.post(
+                files = {
+                    "photo": (filename, image_response.content, content_type)
+                }
+
+                tg_response = await client.post(
                     f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                    json=payload,
+                    data=data,
+                    files=files,
                 )
 
-                if r.status_code >= 400:
-                    print("TELEGRAM SEND PHOTO FAILED:", r.status_code, r.text[:500])
+                if tg_response.status_code >= 400:
+                    print("TELEGRAM SEND PHOTO FAILED:", tg_response.status_code, tg_response.text[:500])
                 else:
                     sent_any = True
                     print(f"TELEGRAM SEND PHOTO SUCCESS {index + 1}/{len(images)}")
+
             except Exception as exc:
                 print("TELEGRAM SEND PHOTO ERROR:", str(exc))
 
