@@ -42,9 +42,9 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'pixel_art', label:'Pixel art', image:'assets/styles/pixel_art.png' },
   { id:'futuristic', label:'Futuristic', image:'assets/styles/futuristic.png' },
   { id:'fantasy', label:'Fantasy', image:'assets/styles/fantasy.png' },
-  { id:'product_shot', label:'Product shot', image:'assets/styles/product_shot.png' },
-
   
+
+  { id:'built_bricks', label:'Built Bricks', image:'assets/styles/built_bricks.jpg' },
   { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.jpg' },
   { id:'pastel_hologram', label:'Pastel Hologram', image:'assets/styles/pastel_hologram.jpg' },
   { id:'urban_ink', label:'Urban Ink', image:'assets/styles/urban_ink.jpg' },
