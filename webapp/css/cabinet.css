@@ -2630,3 +2630,9 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .image-model-row .model-row-badge {
   display: none !important;
 }
+
+/* ===== Final override: custom SVG model logos ===== */
+.model-brand-logo.svg-current {
+  color: #f3f3f3 !important;
+  filter: none !important;
+}

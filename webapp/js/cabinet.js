@@ -69,8 +69,43 @@ const AI_LOGOS = {
   seedance: LOBE_ICON_BASE + '/bytedance.svg',
   wan: LOBE_ICON_BASE + '/qwen.svg',
   veo: LOBE_ICON_BASE + '/gemini.svg',
-  heygen: LOBE_ICON_BASE + '/runway.svg'
+  heygen: LOBE_ICON_BASE + '/runway.svg',
+  nanoBanana: 'custom-banana',
+  davinci: 'custom-davinci'
 };
+
+const IMAGE_MODEL_LIST = [
+  { id:'ideogram_3_0', label:'Ideogram 3.0', desc:'Ideogram image model', icon:'ideogram' },
+  { id:'ideogram_4_0', label:'Ideogram 4.0', desc:'Ideogram image model', icon:'ideogram' },
+
+  { id:'recraft_v4_1', label:'Recraft V4.1', desc:'Recraft image model', icon:'recraft' },
+  { id:'recraft_v3', label:'Recraft V3', desc:'Recraft image model', icon:'recraft' },
+  { id:'recraft_v4_1_pro', label:'Recraft V4.1 Pro', desc:'Recraft image model', icon:'recraft' },
+
+  { id:'seedream_4_0', label:'Seedream 4.0', desc:'ByteDance Seedream image model', icon:'seedream' },
+  { id:'seedream_5_0', label:'Seedream 5.0', desc:'ByteDance Seedream image model', icon:'seedream' },
+  { id:'seedream_4_5', label:'Seedream 4.5', desc:'ByteDance Seedream image model', icon:'seedream', badge:'TRENDING' },
+
+  { id:'gpt_image_1', label:'GPT Image 1', desc:'OpenAI image generation', icon:'gptImage' },
+  { id:'gpt_image_2', label:'GPT Image 2', desc:'OpenAI image generation', icon:'gptImage', badge:'FEATURED' },
+
+  { id:'flux_pro_kontext', label:'Flux Pro Kontext', desc:'Black Forest Labs Flux image model', icon:'flux' },
+  { id:'flux_2', label:'Flux 2', desc:'Black Forest Labs Flux image model', icon:'flux' },
+  { id:'flux_2_turbo', label:'Flux 2 Turbo', desc:'Black Forest Labs Flux fast image model', icon:'flux', badges:['FAST','LOW COST'] },
+
+  { id:'qwen_image', label:'Qwen Image', desc:'Qwen image model', icon:'qwen' },
+  { id:'qwen_image_2_pro', label:'Qwen Image 2 Pro', desc:'Qwen image generation', icon:'qwen' },
+  { id:'qwen_image_2', label:'Qwen Image 2', desc:'Qwen image generation', icon:'qwen' },
+
+  { id:'nano_banana_pro', label:'Nano Banana Pro', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'DISCOUNT' },
+  { id:'nano_banana_2', label:'Nano Banana 2', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'FAST' },
+  { id:'nano_banana', label:'Nano Banana', desc:'Google/Gemini image model', icon:'nanoBanana' },
+
+  { id:'grok_pro', label:'Grok Pro', desc:'xAI Grok image model', icon:'grok', badge:'HOT' },
+  { id:'grok', label:'Grok', desc:'xAI Grok image model', icon:'grok' },
+
+  { id:'davinci_ultra', label:'DaVinci Ultra', desc:'DaVinci image model', icon:'davinci' }
+];
 
 const VIDEO_MODELS = [
   { id:'heygen_v3_video_agent', label:'HeyGen V3 Video Agent', desc:'HeyGen video model', icon:'heygen' },
@@ -109,7 +144,7 @@ function currentVideoModel() {
 }
 
 function currentComposerModelList() {
-  if (studioMode === 'image') return imageCapabilities || [];
+  if (studioMode === 'image') return IMAGE_MODEL_LIST;
   if (studioMode === 'video') return VIDEO_MODELS;
   return VIDEO_MODELS;
 }
@@ -247,20 +282,12 @@ const MODEL_ICON_SVG = {
 
   function pickStudioModel() {
     if (studioMode === 'image') {
-      // Если пользователь сам выбрал модель — отправляем именно её.
-      // OpenAI/GPT Image не является основной моделью по умолчанию, но остаётся доступной в списке.
-      if (imageState.modelId) return imageState.modelId;
-      const firstImageModel = imageCapabilities[0] && imageCapabilities[0].id;
-      const seedreamFallback = imageCapabilities.find((model) => /seedream/i.test(model.id || ''));
-      return firstImageModel || (seedreamFallback && seedreamFallback.id) || 'seedream-5-0-260128';
+      return imageState.modelId || (IMAGE_MODEL_LIST[0] && IMAGE_MODEL_LIST[0].id) || 'ideogram_3_0';
     }
-
     if (studioMode === 'video') {
       return videoState.modelId || 'seedance_2_fast';
     }
-
     if (studioMode === 'music') return 'musicgen-pro';
-
     return /lite/i.test(currentModelLabel || '') ? 'sylvex-lite' : 'sylvex-pro';
   }
 
@@ -318,11 +345,6 @@ function localizedGreeting() {
     el.classList.remove('image-size-floating-pop');
     el.style.cssText = '';
 
-    if (studioMode === 'image' && !imageCapabilities.length) {
-      loadImageCapabilities().then(() => showImageModelPicker(e)).catch(() => {});
-      return;
-    }
-
     const models = currentComposerModelList();
     if (!models.length) return;
 
@@ -354,7 +376,7 @@ function localizedGreeting() {
   }
 
   function currentImageModel() {
-    return imageCapabilities.find((model) => model.id === imageState.modelId) || imageCapabilities[0] || null;
+    return IMAGE_MODEL_LIST.find((item) => item.id === imageState.modelId) || IMAGE_MODEL_LIST[0];
   }
 
   function optionLabel(options, id, fallback) {
@@ -1006,9 +1028,24 @@ function imageModelIconHtml(model) {
     ? String(model.icon || model.iconKey)
     : imageModelIconKey(model);
 
-  const src = AI_LOGOS[key] || AI_LOGOS.openai;
+  const iconValue = AI_LOGOS[key] || AI_LOGOS.openai;
 
-  return '<img class="model-brand-logo" src="' + S.escapeHtml(src) + '" alt="" loading="lazy" decoding="async" />';
+  if (iconValue === 'custom-davinci') {
+    return '<svg class="model-brand-logo svg-current" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+      + '<path d="M3.6 18.9C4.4 11.6 10.2 5.1 20.4 3.6C18.9 13.8 12.4 19.6 5.1 20.4C4.2 20.5 3.5 19.8 3.6 18.9Z" fill="currentColor" />'
+      + '<path d="M5.8 18.2C9.5 14.4 13.1 11.3 18.2 8.4" stroke="#141518" stroke-width="1.4" stroke-linecap="round" />'
+      + '</svg>';
+  }
+
+  if (iconValue === 'custom-banana') {
+    return '<svg class="model-brand-logo svg-current" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+      + '<path d="M4.4 15.5C8.6 15.9 13.2 13.9 15.7 10.1C16.8 8.4 17.3 6.6 17.4 4.9C17.5 3.8 19.1 3.6 19.5 4.7C21.5 11.2 16.7 18.8 9.8 19.7C7.6 20 5.5 19.6 3.8 18.7C2.5 18 3 15.3 4.4 15.5Z" fill="currentColor" />'
+      + '<path d="M4.6 15.8C7.2 15.2 9.4 13.9 11.1 11.8" stroke="#141518" stroke-width="1.4" stroke-linecap="round" />'
+      + '<path d="M17.3 5.2L15.7 3.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />'
+      + '</svg>';
+  }
+
+  return '<img class="model-brand-logo" src="' + S.escapeHtml(iconValue) + '" alt="" loading="lazy" decoding="async" />';
 }
 
 function imageModelDescription(model) {
@@ -1079,7 +1116,9 @@ function imageModelButton(model) {
       const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
       const data = await res.json();
       imageCapabilities = mergeImageModels((data && data.models) || []);
-      if (imageCapabilities.length && !imageState.modelId) applyImageDefaults(imageCapabilities[0]);
+      if (!imageState.modelId && IMAGE_MODEL_LIST.length) {
+        imageState.modelId = IMAGE_MODEL_LIST[0].id;
+      }
       renderImageControls();
       renderModelPop();
     } catch (err) {
@@ -1179,26 +1218,42 @@ function imageModelButton(model) {
   }
 
   function pickImageOption(e, kind, value) {
-    if (e) e.stopPropagation();
-    if (kind === 'model') {
-  if (studioMode === 'image') {
-    const model = imageCapabilities.find((item) => item.id === value);
-    if (model) applyImageDefaults(model);
-  } else if (studioMode === 'video') {
-    const model = VIDEO_MODELS.find((item) => item.id === value);
-    if (model) {
-      videoState.modelId = model.id;
-
-      const mvc = document.getElementById('modelValComposer');
-      if (mvc) mvc.textContent = model.label || model.name || model.id;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
-  }
-}
-    
+    if (kind === 'model') {
+      if (studioMode === 'image') {
+        const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
+        if (model) {
+          imageState.modelId = model.id;
+          const mvc = document.getElementById('modelValComposer');
+          if (mvc) mvc.textContent = model.label || model.name || model.id;
+        }
+      } else if (studioMode === 'video') {
+        const model = VIDEO_MODELS.find((item) => item.id === value);
+        if (model) {
+          videoState.modelId = model.id;
+          const mvc = document.getElementById('modelValComposer');
+          if (mvc) mvc.textContent = model.label || model.name || model.id;
+        }
+      }
+    }
+    if (kind === 'size') {
+      imageState.size = value;
+    }
+    if (kind === 'style') {
+      imageState.style = value || 'auto';
+    }
+    if (kind === 'character') {
+      imageState.character = value || 'auto';
+    }
+    if (kind === 'objects') {
+      imageState.objects = value || '';
+    }
     if (studioMode === 'image') {
       renderImageControls();
     }
-    renderModelPop();
     const el = document.getElementById('modelPop');
     if (el) {
       el.classList.remove('show');
@@ -1928,7 +1983,7 @@ function closeUploadPanel(e) {
     if (ta) ta.placeholder = isImage ? 'Describe your image' : isMusic ? 'Describe your music' : 'Describe your video';
     const mvc = document.getElementById('modelValComposer');
     if (isImage) {
-      if (imageCapabilities.length && !imageState.modelId) applyImageDefaults(imageCapabilities[0]);
+      if (!imageState.modelId && IMAGE_MODEL_LIST.length) imageState.modelId = IMAGE_MODEL_LIST[0].id;
       renderImageControls();
       updateImageUploadButtonPreview();
       renderModelPop();
