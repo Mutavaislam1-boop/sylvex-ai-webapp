@@ -1265,9 +1265,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     try {
       const j = await callGenerate(v, attachment, referenceImages);
       chatMessages.pop();
-      const generatedUrls = generatedUrlsFromResponse(j, 'image');
-      if (generatedUrls.length) addGeneratedImages(generatedUrls, generatedThumbsFromResponse(j));
-      chatMessages.push(aiMessageFromGenerateResponse(j));
+     chatMessages.push({
+    role: 'ai',
+    text: j.sent_to_telegram
+      ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
+      : 'Готово ✅\nГенерация завершена.'
+  });
       loadConversations(); // refresh sidebar order
     } catch (err) {
       chatMessages.pop();
@@ -1296,9 +1299,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     chatMessages[i] = { typing: true, role: 'ai' }; renderChat();
     callGenerate(prev.text, null, prev.referenceImages || [])
       .then((j) => {
-        const generatedUrls = generatedUrlsFromResponse(j, 'image');
-        if (generatedUrls.length) addGeneratedImages(generatedUrls, generatedThumbsFromResponse(j));
-        chatMessages[i] = aiMessageFromGenerateResponse(j);
+    chatMessages[i] = {
+      role: 'ai',
+      text: j.sent_to_telegram
+        ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
+        : 'Готово ✅\nГенерация завершена.'
+    };
         renderChat();
       })
       .catch((err) => {
