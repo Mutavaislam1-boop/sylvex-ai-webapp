@@ -1459,24 +1459,14 @@ function renderComposerImageDraft() {
   const box = ensureComposerImageDraft();
   if (!box) return;
 
-  const urls = imageState.referenceImageUrls || [];
+  // Uploaded images are kept in imageState.referenceImageUrls and sent to generation,
+  // but their visual preview is shown only inside the “Загрузка” button background.
+  box.innerHTML = '';
+  box.hidden = true;
+  box.classList.remove('show');
+  box.style.display = 'none';
 
-  if (!urls.length) {
-    box.innerHTML = '';
-    box.hidden = true;
-    return;
-  }
-
-  box.hidden = false;
-
-  box.innerHTML = urls.map((url, index) => {
-    const safeUrl = S.escapeHtml(url);
-
-    return '<button class="composer-image-thumb" type="button">'
-      + '<img src="' + safeUrl + '" alt="selected image" />'
-      + '<span class="composer-image-remove" onclick="SYLVEX.removeComposerImageDraft(event,' + index + ')">×</span>'
-      + '</button>';
-  }).join('');
+  updateImageUploadButtonPreview();
 }
 
 function removeComposerImageDraft(e, index) {
