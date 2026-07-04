@@ -29,6 +29,28 @@ let imageState = {
     objects: '',
   };
 
+const IMAGE_STYLE_SHEET_ITEMS = [
+  { id:'auto', label:'Авто', image:'assets/styles/auto.png' },
+  { id:'photorealism', label:'Фотореализм', image:'assets/styles/photorealism.png' },
+  { id:'cinematic', label:'Кино', image:'assets/styles/cinematic.png' },
+  { id:'poster_3d', label:'3D постер', image:'assets/styles/poster_3d.png' },
+  { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.png' },
+  { id:'anime', label:'Anime', image:'assets/styles/anime.png' },
+  { id:'cyberpunk', label:'Cyberpunk', image:'assets/styles/cyberpunk.png' },
+  { id:'dark_fantasy', label:'Dark fantasy', image:'assets/styles/dark_fantasy.png' },
+  { id:'minimal', label:'Minimal', image:'assets/styles/minimal.png' },
+  { id:'oil_painting', label:'Oil painting', image:'assets/styles/oil_painting.png' },
+  { id:'pixel_art', label:'Pixel art', image:'assets/styles/pixel_art.png' },
+  { id:'futuristic', label:'Futuristic', image:'assets/styles/futuristic.png' },
+  { id:'fantasy', label:'Fantasy', image:'assets/styles/fantasy.png' },
+  { id:'product_shot', label:'Product shot', image:'assets/styles/product_shot.png' },
+  { id:'luxury', label:'Luxury', image:'assets/styles/luxury.png' },
+  { id:'editorial', label:'Editorial', image:'assets/styles/editorial.png' },
+  { id:'black_white', label:'B/W', image:'assets/styles/black_white.png' }
+];
+
+let styleSheetCssInjected = false;
+
   const IMAGE_MODEL_CATALOG = [
 { id:'seedream-5-0-260128', label:'Seedream 5.0', icon:'▥', description:'BytePlus Seedream 5.0 — фото-генерация высокого качества через ModelArk.' },
 { id:'seedream-4-5-251128', label:'Seedream 4.5', icon:'▥', description:'BytePlus Seedream 4.5 — улучшенная эстетика, детализация и точность изображения.' },
@@ -237,6 +259,250 @@ function localizedGreeting() {
     return opt ? (opt.label || opt.id) : fallback;
   }
 
+  function injectImageStyleSheetCss() {
+  if (styleSheetCssInjected) return;
+  styleSheetCssInjected = true;
+
+  const style = document.createElement('style');
+  style.id = 'sylvexImageStyleSheetCss';
+  style.textContent = `
+    .image-style-panel-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      background: rgba(0, 0, 0, .62);
+      z-index: 999999;
+    }
+
+    .image-style-panel-backdrop.show {
+      display: flex;
+    }
+
+    .image-style-panel-card {
+      width: 100%;
+      max-height: 74vh;
+      overflow: hidden;
+      background: #111;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 24px 24px 0 0;
+      box-shadow: 0 -20px 60px rgba(0,0,0,.55);
+      padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
+      animation: imageStylePanelUp .22s ease both;
+    }
+
+    @keyframes imageStylePanelUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    .image-style-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 2px 14px;
+    }
+
+    .image-style-panel-title {
+      color: #fff;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .image-style-panel-close {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      color: #fff;
+      font-size: 24px;
+      line-height: 34px;
+      cursor: pointer;
+    }
+
+    .image-style-panel-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      max-height: calc(74vh - 70px);
+      overflow-y: auto;
+      padding: 0 2px 4px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .image-style-card {
+      position: relative;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      background: rgba(255,255,255,.045);
+      color: #fff;
+      padding: 6px;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .image-style-card.selected {
+      border-color: rgba(255,255,255,.9);
+      background: rgba(255,255,255,.12);
+    }
+
+    .image-style-thumb {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 12px;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.03));
+    }
+
+    .image-style-thumb img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .image-style-label {
+      display: block;
+      padding: 7px 2px 1px;
+      color: rgba(255,255,255,.82);
+      font-size: 11px;
+      line-height: 1.15;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .image-style-check {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 22px;
+      height: 22px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: #fff;
+      color: #111;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .image-style-card.selected .image-style-check {
+      display: flex;
+    }
+
+    @media (max-width: 370px) {
+      .image-style-panel-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
+function ensureImageStylePanel() {
+  injectImageStyleSheetCss();
+
+  let panel = document.getElementById('imageStylePanel');
+  if (panel) return panel;
+
+  panel = document.createElement('div');
+  panel.id = 'imageStylePanel';
+  panel.className = 'image-style-panel-backdrop';
+  panel.onclick = closeImageStylePanel;
+
+  panel.innerHTML = `
+    <div class="image-style-panel-card" onclick="event.stopPropagation()">
+      <div class="image-style-panel-head">
+        <div class="image-style-panel-title">Выбери стиль</div>
+        <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeImageStylePanel(event)">×</button>
+      </div>
+      <div id="imageStylePanelGrid" class="image-style-panel-grid"></div>
+    </div>
+  `;
+
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function renderImageStylePanel() {
+  const grid = document.getElementById('imageStylePanelGrid');
+  if (!grid) return;
+
+  const selectedStyle = String(imageState.style || 'auto');
+
+  grid.innerHTML = IMAGE_STYLE_SHEET_ITEMS.map((item) => {
+    const id = String(item.id || '');
+    const label = item.label || id;
+    const image = item.image || '';
+    const selected = selectedStyle === id;
+
+    return `
+      <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickImageStyleFromPanel(event, '${S.escapeHtml(id)}')">
+        <span class="image-style-thumb">
+          <img src="${S.escapeHtml(image)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />
+        </span>
+        <span class="image-style-label">${S.escapeHtml(label)}</span>
+        <span class="image-style-check">✓</span>
+      </button>
+    `;
+  }).join('');
+}
+
+function openImageStylePanel(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const panel = ensureImageStylePanel();
+  renderImageStylePanel();
+  panel.classList.add('show');
+
+  const mp = document.getElementById('modelPop');
+  if (mp) mp.classList.remove('show');
+
+  const sheet = document.getElementById('plusSheet');
+  if (sheet) sheet.classList.remove('show');
+
+  if (document.activeElement && typeof document.activeElement.blur === 'function') {
+    document.activeElement.blur();
+  }
+
+  S.haptic && S.haptic.impact && S.haptic.impact('light');
+}
+
+function closeImageStylePanel(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const panel = document.getElementById('imageStylePanel');
+  if (panel) panel.classList.remove('show');
+}
+
+function pickImageStyleFromPanel(e, value) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  imageState.style = value || 'auto';
+
+  renderImageControls();
+  renderImageStylePanel();
+  closeImageStylePanel(e);
+
+  S.haptic && S.haptic.notify && S.haptic.notify('success');
+}
 
 function imageModelIconKey(model) {
   const id = String(model && model.id ? model.id : '');
@@ -343,7 +609,10 @@ if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id 
       S.haptic && S.haptic.impact && S.haptic.impact('light');
       return;
     }
-
+    if (kind === 'style') {
+      openImageStylePanel(e);
+      return;
+    }
     const model = currentImageModel();
     const el = document.getElementById('modelPop');
     if (!el) return;
@@ -2312,4 +2581,9 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   window.closeSupport   = closeSupport;
   window.sendSupport    = sendSupport;
   window.generateNow    = generateNow;
-})();
+
+  S.openImageStylePanel = openImageStylePanel;
+  S.closeImageStylePanel = closeImageStylePanel;
+  S.pickImageStyleFromPanel = pickImageStyleFromPanel;
+
+  })();
