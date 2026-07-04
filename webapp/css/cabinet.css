@@ -2485,3 +2485,10 @@ body.ai-generating .view[data-view="tools"].active .studio,
   font-size:15px !important;
   font-weight:700 !important;
 }
+
+/* Uploaded image previews are displayed only inside the Upload button background */
+#composerImageDraft,
+.composer-image-draft,
+.composer-image-draft.show {
+  display: none !important;
+}
