@@ -3381,6 +3381,13 @@ def build_image_prompt(payload: dict) -> str:
             The scene should feel cheerful, clean, handcrafted, toy-like, colorful, architectural, and miniature. The background may use a clean turquoise or cyan studio backdrop, but the main focus must remain on the brick-built subjects and objects.
             The image must be fully transformed into a Built Bricks style physically, materially, geometrically, and visually.""",
 
+            "neon_cutout": """Recreate the uploaded image as a full Neon Cutout screen-print poster. Do not apply only a neon color filter. Do not simply increase saturation. The entire photo must be rebuilt as a graphic cutout artwork made of flat neon ink layers, stencil silhouettes, acid outlines, and posterized color blocks.
+            Keep only the main subject identity, pose, face direction, body position, important silhouettes, and overall framing. Everything else must be transformed: natural colors, lighting, shadows, materials, background, clothing, objects, architecture, plants, and atmosphere.
+            Replace all realistic colors with extreme neon inks: hot pink, magenta, acid lime, toxic yellow, cyan green, deep violet, and dark burgundy. Turn skin into unnatural cyan-green and lime tones. Turn shadows into purple and magenta blocks. Turn backgrounds into hot pink neon fields. Turn object edges into bright yellow-lime glowing outlines.
+            Every object must look like a cutout shape or screen-printed stencil. Add rough ink texture, poster grain, sharp graphic edges, color misregistration, bold silhouette separation, and high-contrast pop-art energy. The image should look printed on a poster, not photographed.
+            Important subjects must remain clear and readable, but all fine realistic detail must be simplified into bold neon shapes. The final result must be aggressive, electric, artificial, urban, psychedelic, and instantly recognizable as Neon Cutout.
+            This must be a complete graphic, color, and material transformation into the Neon Cutout style.""",
+
             # Add the next style prompt below this line, before the closing brace.
         }
     
