@@ -1021,16 +1021,17 @@ function imageModelButton(model) {
     ? imageState.modelId
     : videoState.modelId;
 
-  const active = activeId === model.id;
+  const id = String(model && model.id ? model.id : '');
+  const active = activeId === id;
   const desc = model.desc || model.description || '';
   const badge = model.badge
     ? '<span class="model-row-badge ' + S.escapeHtml(model.badgeClass || '') + '">' + S.escapeHtml(model.badge) + '</span>'
     : '';
 
-  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\\'model\\',\\'' + S.escapeHtml(model.id) + '\\')">'
+  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(id) + '\')">'
     + '<span class="image-model-icon">' + imageModelIconHtml(model) + '</span>'
     + '<span class="image-model-text">'
-    + '<span class="image-model-name">' + S.escapeHtml(model.label || model.name || model.id) + badge + '</span>'
+    + '<span class="image-model-name">' + S.escapeHtml(model.label || model.name || id) + badge + '</span>'
     + (desc ? '<span class="image-model-desc">' + S.escapeHtml(desc) + '</span>' : '')
     + '</span>'
     + '<span class="image-model-check">✓</span>'
