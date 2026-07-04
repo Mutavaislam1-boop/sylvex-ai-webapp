@@ -40,7 +40,6 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'ballpoint_blue', label:'Ballpoint Blue', image:'assets/styles/ballpoint_blue.jpg' },
   { id:'acid_swamp_cyan', label:'Acid Swamp Cyan', image:'assets/styles/acid_swamp_cyan.jpg' },
   { id:'rose_mint', label:'Rose Mint', image:'assets/styles/rose_mint.jpg' },
-  { id:'rose_mint', label:'Rose Mint', image:'assets/styles/rose_mint.jpg' },
   { id:'retro_pop_graphic', label:'Retro Pop Graphic', image:'assets/styles/retro_pop_graphic.jpg' },
   { id:'retro_american_cartoon', label:'Retro American Cartoon', image:'assets/styles/retro_american_cartoon.jpg' },
   { id:'orange_dominion', label:'Orange Dominion', image:'assets/styles/orange_dominion.jpg' },
