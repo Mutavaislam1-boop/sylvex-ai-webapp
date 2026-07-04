@@ -273,6 +273,36 @@ function localizedGreeting() {
     return opt ? (opt.label || opt.id) : fallback;
   }
 
+  function imageStyleSheetItem(id) {
+    const value = String(id || '');
+    return IMAGE_STYLE_SHEET_ITEMS.find((item) => String(item.id) === value) || null;
+  }
+
+  function updateImageStyleButtonPreview(styleItem) {
+    const styleVal = document.getElementById('imageStyleVal');
+    if (!styleVal) return;
+
+    const button = styleVal.closest('button') || styleVal.parentElement;
+    if (!button) return;
+
+    let avatar = button.querySelector('.image-style-control-avatar');
+
+    if (!styleItem || String(styleItem.id) === 'auto' || !styleItem.image) {
+      if (avatar) avatar.remove();
+      button.classList.remove('has-style-preview');
+      return;
+    }
+
+    if (!avatar) {
+      avatar = document.createElement('span');
+      avatar.className = 'image-style-control-avatar';
+      button.insertBefore(avatar, styleVal);
+    }
+
+    avatar.innerHTML = '<img src="' + S.escapeHtml(styleItem.image) + '" alt="" loading="lazy" decoding="async" />';
+    button.classList.add('has-style-preview');
+  }
+
   function injectImageStyleSheetCss() {
   if (styleSheetCssInjected) return;
   styleSheetCssInjected = true;
@@ -280,6 +310,32 @@ function localizedGreeting() {
   const style = document.createElement('style');
   style.id = 'sylvexImageStyleSheetCss';
   style.textContent = `
+    .image-style-control-avatar {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 28px;
+      border-radius: 9px;
+      overflow: hidden;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 8px 18px rgba(0,0,0,.22);
+      margin-right: 7px;
+      vertical-align: middle;
+    }
+
+    .image-style-control-avatar img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .has-style-preview {
+      align-items: center;
+    }
     .image-style-panel-backdrop {
       position: fixed;
       inset: 0;
@@ -701,16 +757,20 @@ function imageModelButton(model) {
       { id:'16:9', label:'16:9', ratio:'16:9' },
       { id:'9:16', label:'9:16', ratio:'9:16' }
     ];
-const selectedSizeId = imageState.size || '1:1';
-const size = sizeOptions.find((item) => item.id === selectedSizeId) || sizeOptions[0];
-const sizeVal = document.getElementById('imageSizeVal');
-if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
-const sizeIcon = document.getElementById('imageSizeIcon');
-if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id || '1:1');
+    const selectedSizeId = imageState.size || '1:1';
+    const size = sizeOptions.find((item) => item.id === selectedSizeId) || sizeOptions[0];
+    const sizeVal = document.getElementById('imageSizeVal');
+    if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
+    const sizeIcon = document.getElementById('imageSizeIcon');
+    if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id || '1:1');
     const countVal = document.getElementById('imageCountVal');
     if (countVal) countVal.textContent = String(imageState.count || 1);
     const styleVal = document.getElementById('imageStyleVal');
-    if (styleVal) styleVal.textContent = imageState.style === 'auto' ? 'Стили' : optionLabel(model.styles, imageState.style, 'Стили');
+    if (styleVal) {
+      const selectedStyleItem = imageStyleSheetItem(imageState.style);
+      styleVal.textContent = imageState.style === 'auto' ? 'Стили' : optionLabel(model.styles, imageState.style, 'Стили');
+      updateImageStyleButtonPreview(selectedStyleItem);
+    }
     const characterVal = document.getElementById('imageCharacterVal');
     if (characterVal) characterVal.textContent = imageState.character === 'auto' ? 'Характер' : optionLabel(model.characters, imageState.character, 'Характер');
   }
