@@ -3458,6 +3458,18 @@ def build_image_prompt(payload: dict) -> str:
             This must be a complete historical, material, architectural, color, and atmospheric transformation into the Retro Futurism style.
             Strict negative style block: no simple vintage filter, no basic sci-fi filter, no modern futuristic city, no cyberpunk, no neon purple, no neon blue, no dark dystopian sci-fi, no black armor, no modern spacesuit, no realistic NASA suit, no modern smartphones, no modern cars, no modern buildings, no contemporary minimalism, no brutalist architecture, no harsh HDR, no sharp digital look, no glossy modern commercial photo, no realistic normal clothing, no realistic normal architecture, no grunge, no horror mood, no post-apocalyptic style, no orange monochrome, no cyan fog, no rose mint, no pastel hologram, no toy bricks, no urban ink collage, no retro comic pop-art, no anime, no manga, no cartoon, no 3D render, no watercolor, no oil painting, no excessive blur, no unreadable subject, no distorted anatomy, no text, no watermark, no logo.""",
 
+            "ballpoint_blue": """Recreate the uploaded image as a full Ballpoint Blue pen drawing. Do not apply only a blue tint. Do not create a generic pencil sketch. Do not use digital comic outlines. The entire scene must be rebuilt as a hand-drawn blue ballpoint pen illustration on warm cream paper.
+            Keep only the main subject identity, pose, face direction, body position, important silhouettes, and overall framing. Everything else must be transformed: color, lighting, texture, shadows, materials, background, objects, clothing, architecture, and atmosphere.
+            Force the whole image into a blue ink and cream paper world. All real colors must disappear. Every person, object, house, chess piece, tree, field, wall, fabric, and surface must be expressed through blue pen lines, cross-hatching, contour drawing, soft sketch strokes, and negative paper space.
+            Use fine blue linework, layered ballpoint ink, cross-hatching, scribbled shading, subtle pressure marks, imperfect handmade contours, visible paper fibers, slight ink pooling, and soft scanned-paper texture. Shadows must be built only from blue pen strokes. Highlights must remain as untouched cream paper.
+            Do not make the image too dark, too realistic, too smooth, or too digital. The style must remain airy, minimal, handmade, delicate, and quiet. Important faces, bodies, objects, and silhouettes must stay readable, but they must look drawn, not photographed.
+            The final result must look like an original sketchbook page drawn with a blue ballpoint pen: elegant, minimal, textured, analog, calm, and poetic.
+            This must be a complete color, material, texture, and drawing-style transformation into the Ballpoint Blue style.
+            Strict negative style block: no simple blue filter, no blue photo tint, no generic pencil sketch, no graphite drawing, no charcoal drawing, no black ink, no colorful image, no realistic photo texture, no realistic skin tones, no digital painting, no comic style, no anime, no manga, no cartoon, no 3D render, no watercolor, no oil painting, no marker art, no neon colors, no pastel hologram, no rose mint, no cyan fog, no sepia photo, no urban collage, no retro cartoon, no toy bricks, no orange monochrome, no heavy black shadows, no glossy digital look, no smooth gradients, no airbrush shading, no high saturation, no harsh contrast, no over-detailed background, no cluttered composition, no text, no watermark, no logo.""",
+
+
+
+
             # Add the next style prompt below this line, before the closing brace.
         }
     
