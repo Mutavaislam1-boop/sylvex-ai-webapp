@@ -46,7 +46,7 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'product_shot', label:'Product shot', image:'assets/styles/product_shot.png' },
   { id:'luxury', label:'Luxury', image:'assets/styles/luxury.png' },
   { id:'editorial', label:'Editorial', image:'assets/styles/editorial.png' },
-  { id:'black_white', label:'B/W', image:'assets/styles/black_white.png' }
+  { id:'quiet_sepia', label:'Quiet Sepia', image:'assets/styles/quiet_sepia.jpg' },
 ];
 
 let styleSheetCssInjected = false;
