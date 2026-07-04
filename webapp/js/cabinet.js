@@ -31,6 +31,90 @@ let imageState = {
     referenceImageUrls: [],
   };
 
+let videoState = {
+  modelId: 'seedance_2_fast',
+  ratio: '16:9',
+  duration: 5,
+  mode: 'text_to_video',
+  referenceImageUrl: '',
+  referenceImageUrls: [],
+};
+
+const LOBE_ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons';
+
+const AI_LOGOS = {
+  openai: LOBE_ICON_BASE + '/openai.svg',
+  gptImage: LOBE_ICON_BASE + '/openai.svg',
+  flux: LOBE_ICON_BASE + '/flux.svg',
+  bfl: LOBE_ICON_BASE + '/bfl.svg',
+  qwen: LOBE_ICON_BASE + '/qwen.svg',
+  microsoft: LOBE_ICON_BASE + '/microsoft.svg',
+  krea: LOBE_ICON_BASE + '/krea.svg',
+  ideogram: LOBE_ICON_BASE + '/ideogram.svg',
+  recraft: LOBE_ICON_BASE + '/recraft.svg',
+  luma: LOBE_ICON_BASE + '/luma.svg',
+  dreamMachine: LOBE_ICON_BASE + '/luma.svg',
+  minimax: LOBE_ICON_BASE + '/minimax.svg',
+  hailuo: LOBE_ICON_BASE + '/minimax.svg',
+  pixverse: LOBE_ICON_BASE + '/pixverse.svg',
+  sora: LOBE_ICON_BASE + '/sora.svg',
+  runway: LOBE_ICON_BASE + '/runway.svg',
+  runwayVideo: LOBE_ICON_BASE + '/runway.svg',
+  grok: LOBE_ICON_BASE + '/grok.svg',
+  gemini: LOBE_ICON_BASE + '/gemini.svg',
+  google: LOBE_ICON_BASE + '/google.svg',
+  kling: LOBE_ICON_BASE + '/kling.svg',
+  bytedance: LOBE_ICON_BASE + '/bytedance.svg',
+  seedream: LOBE_ICON_BASE + '/bytedance.svg',
+  seedance: LOBE_ICON_BASE + '/bytedance.svg',
+  wan: LOBE_ICON_BASE + '/qwen.svg',
+  veo: LOBE_ICON_BASE + '/gemini.svg',
+  heygen: LOBE_ICON_BASE + '/runway.svg'
+};
+
+const VIDEO_MODELS = [
+  { id:'heygen_v3_video_agent', label:'HeyGen V3 Video Agent', desc:'HeyGen video model', icon:'heygen' },
+  { id:'luma_ray_v3_2', label:'Luma Ray v3.2', desc:'Luma AI video model', icon:'luma' },
+  { id:'luma_dream_machine', label:'Luma Dream Machine', desc:'Luma Dream Machine', icon:'dreamMachine' },
+  { id:'minimax_hailuo_2_3', label:'Минимакс Хайлуо 2.3', desc:'MiniMax Hailuo video', icon:'hailuo' },
+  { id:'pixverse_v6', label:'PixVerse v6', desc:'PixVerse video model', icon:'pixverse' },
+
+  { id:'sora_2_pro', label:'Sora 2 Про', desc:'OpenAI Sora video', icon:'sora' },
+  { id:'wan_2_7', label:'Ван 2.7', desc:'Alibaba Wan video model', icon:'wan' },
+  { id:'veo_3_1', label:'Veo 3.1', desc:'Google Veo video model', icon:'veo', badge:'РЕКОМЕНДУЕМЫЙ', badgeClass:'pink' },
+  { id:'grok_video_edit', label:'Видеомонтаж Grok', desc:'xAI Grok video editing', icon:'grok' },
+  { id:'wan_2_7_edit', label:'WAN 2.7 Редактировать', desc:'Wan video editing model', icon:'wan' },
+
+  { id:'runway_aleph', label:'Взлетно-посадочная полоса Aleph', desc:'Runway video model', icon:'runway' },
+  { id:'kling_motion_2_6', label:'Kling Motion 2.6', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_motion_3_0', label:'Kling Motion 3.0', desc:'Kling AI video model', icon:'kling' },
+  { id:'seedance_1_5_pro', label:'Seedance 1.5 Pro', desc:'ByteDance Seedance video', icon:'seedance' },
+  { id:'wan_2_6', label:'Ван 2.6', desc:'Alibaba Wan video model', icon:'wan' },
+
+  { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
+  { id:'seedance_2_0', label:'Seedance 2.0', desc:'ByteDance Seedance video', icon:'seedance', badge:'В ТРЕНДЕ', badgeClass:'pink' },
+  { id:'kling_o3_omni', label:'Клинг O3 Омни', desc:'Kling Omni video model', icon:'kling', badge:'ГОРЯЧИЙ', badgeClass:'red' },
+  { id:'gemini_omni_flash', label:'Gemini Omni Flash', desc:'Google Gemini video model', icon:'gemini' },
+  { id:'sora_2', label:'Sora 2', desc:'OpenAI Sora video', icon:'sora' },
+
+  { id:'grok_video', label:'Грок', desc:'xAI Grok video model', icon:'grok', badge:'БЮДЖЕТНЫЙ', badgeClass:'green' },
+  { id:'veo_3_1_fast', label:'Veo 3.1 Fast', desc:'Google Veo fast video', icon:'veo', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
+  { id:'runway_gen', label:'Взлетно-посадочная полоса Gen', desc:'Runway generation model', icon:'runway' },
+  { id:'kling_o3_edit', label:'Клинг O3 Редактировать', desc:'Kling video editing model', icon:'kling' },
+  { id:'kling_3_0', label:'Клинг 3.0', desc:'Kling video model', icon:'kling', badge:'СКИДКА', badgeClass:'green' }
+];
+
+function currentVideoModel() {
+  return VIDEO_MODELS.find((item) => item.id === videoState.modelId) || VIDEO_MODELS[0];
+}
+
+function currentComposerModelList() {
+  if (studioMode === 'image') return imageCapabilities || [];
+  if (studioMode === 'video') return VIDEO_MODELS;
+  return VIDEO_MODELS;
+}
+
+
 const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'auto', label:'Авто', image:'assets/styles/auto.png' },
   { id:'minimal_rainbow_gradient', label:'Minimal Rainbow Gradient', image:'assets/styles/minimal_rainbow_gradient.jpg' },
@@ -170,8 +254,13 @@ const MODEL_ICON_SVG = {
       const seedreamFallback = imageCapabilities.find((model) => /seedream/i.test(model.id || ''));
       return firstImageModel || (seedreamFallback && seedreamFallback.id) || 'seedream-5-0-260128';
     }
-    if (studioMode === 'video') return 'seedance-2-fast';
+
+    if (studioMode === 'video') {
+      return videoState.modelId || 'seedance_2_fast';
+    }
+
     if (studioMode === 'music') return 'musicgen-pro';
+
     return /lite/i.test(currentModelLabel || '') ? 'sylvex-lite' : 'sylvex-pro';
   }
 
@@ -205,14 +294,19 @@ function localizedGreeting() {
   }
 
   function renderModelPop() {
-    const el = document.getElementById('modelPop'); if (!el) return;
-    if (studioMode === 'image' && imageCapabilities.length) {
+    const el = document.getElementById('modelPop');
+    if (!el) return;
+
+    const models = currentComposerModelList();
+
+    if ((studioMode === 'image' || studioMode === 'video') && models.length) {
       el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
         + '<div class="image-model-sheet-list">'
-        + imageCapabilities.map(imageModelButton).join('')
+        + models.map(imageModelButton).join('')
         + '</div>';
       return;
     }
+
     el.innerHTML = '';
   }
 
@@ -220,20 +314,23 @@ function localizedGreeting() {
     if (e) e.stopPropagation();
     const el = document.getElementById('modelPop');
     if (!el) return;
+
     el.classList.remove('image-size-floating-pop');
     el.style.cssText = '';
-    if (!imageCapabilities.length) {
+
+    if (studioMode === 'image' && !imageCapabilities.length) {
       loadImageCapabilities().then(() => showImageModelPicker(e)).catch(() => {});
       return;
     }
-    if (studioMode !== 'image') {
-      studioMode = 'image';
-      activeCat = 'image';
-    }
+
+    const models = currentComposerModelList();
+    if (!models.length) return;
+
     // Move model picker to body so it appears above all Pro Studio blocks.
     if (el.parentElement !== document.body) {
       document.body.appendChild(el);
     }
+
     el.classList.add('image-model-floating-pop');
     el.style.position = 'fixed';
     el.style.left = '0';
@@ -247,8 +344,9 @@ function localizedGreeting() {
 
     el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
       + '<div class="image-model-sheet-list">'
-      + imageCapabilities.map(imageModelButton).join('')
+      + models.map(imageModelButton).join('')
       + '</div>';
+
     el.classList.add('show');
     const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
     const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
@@ -398,6 +496,64 @@ function updateImageUploadButtonPreview() {
       color: #fff;
       text-shadow: 0 1px 8px rgba(0,0,0,.85);
       font-weight: 800;
+    }
+
+    .model-brand-logo {
+      width: 22px;
+      height: 22px;
+      display: block;
+      object-fit: contain;
+      filter: brightness(0) invert(1);
+      opacity: .96;
+    }
+
+    .image-model-icon {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      color: #f3f3f3;
+    }
+
+    .image-model-icon img {
+      width: 22px;
+      height: 22px;
+    }
+
+    .model-row-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 10px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    .model-row-badge.pink {
+      background: rgba(255, 120, 210, .2);
+      color: #ff9bdd;
+    }
+
+    .model-row-badge.yellow {
+      background: rgba(255, 220, 90, .18);
+      color: #ffe05e;
+    }
+
+    .model-row-badge.red {
+      background: rgba(255, 100, 80, .18);
+      color: #ff826d;
+    }
+
+    .model-row-badge.green {
+      background: rgba(70, 220, 150, .18);
+      color: #61e6ad;
     }
 
     .has-upload-preview {
@@ -846,8 +1002,13 @@ function imageModelIconKey(model) {
 }
 
 function imageModelIconHtml(model) {
-  const key = imageModelIconKey(model);
-  return MODEL_ICON_SVG[key] || MODEL_ICON_SVG.nn;
+  const key = model && (model.icon || model.iconKey)
+    ? String(model.icon || model.iconKey)
+    : imageModelIconKey(model);
+
+  const src = AI_LOGOS[key] || AI_LOGOS.openai;
+
+  return '<img class="model-brand-logo" src="' + S.escapeHtml(src) + '" alt="" loading="lazy" decoding="async" />';
 }
 
 function imageModelDescription(model) {
@@ -856,12 +1017,21 @@ function imageModelDescription(model) {
 }
 
 function imageModelButton(model) {
-  const active = imageState.modelId === model.id;
-  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(model.id) + '\')">'
+  const activeId = studioMode === 'image'
+    ? imageState.modelId
+    : videoState.modelId;
+
+  const active = activeId === model.id;
+  const desc = model.desc || model.description || '';
+  const badge = model.badge
+    ? '<span class="model-row-badge ' + S.escapeHtml(model.badgeClass || '') + '">' + S.escapeHtml(model.badge) + '</span>'
+    : '';
+
+  return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\\'model\\',\\'' + S.escapeHtml(model.id) + '\\')">'
     + '<span class="image-model-icon">' + imageModelIconHtml(model) + '</span>'
     + '<span class="image-model-text">'
-    + '<span class="image-model-name">' + S.escapeHtml(model.label || model.id) + '</span>'
-    + '<span class="image-model-desc">' + S.escapeHtml(imageModelDescription(model)) + '</span>'
+    + '<span class="image-model-name">' + S.escapeHtml(model.label || model.name || model.id) + badge + '</span>'
+    + (desc ? '<span class="image-model-desc">' + S.escapeHtml(desc) + '</span>' : '')
     + '</span>'
     + '<span class="image-model-check">✓</span>'
     + '</button>';
@@ -1011,20 +1181,31 @@ function imageModelButton(model) {
   function pickImageOption(e, kind, value) {
     if (e) e.stopPropagation();
     if (kind === 'model') {
-      const model = imageCapabilities.find((item) => item.id === value);
-      if (model) applyImageDefaults(model);
-    } else if (kind === 'count') {
-      imageState.count = Number(value || 1);
-    } else if (kind === 'size') {
-      imageState.size = value;
-    } else if (kind === 'style') {
-      imageState.style = value;
-    } else if (kind === 'character') {
-      imageState.character = value;
+  if (studioMode === 'image') {
+    const model = imageCapabilities.find((item) => item.id === value);
+    if (model) applyImageDefaults(model);
+  } else if (studioMode === 'video') {
+    const model = VIDEO_MODELS.find((item) => item.id === value);
+    if (model) {
+      videoState.modelId = model.id;
+
+      const mvc = document.getElementById('modelValComposer');
+      if (mvc) mvc.textContent = model.label || model.name || model.id;
     }
-    renderImageControls();
+  }
+}
+    
+    if (studioMode === 'image') {
+      renderImageControls();
+    }
     renderModelPop();
-   const el = document.getElementById('modelPop'); if (el) { el.classList.remove('show'); el.classList.remove('image-model-floating-pop'); el.classList.remove('image-size-floating-pop'); el.style.cssText = ''; }
+    const el = document.getElementById('modelPop');
+    if (el) {
+      el.classList.remove('show');
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.style.cssText = '';
+    }
   }
 
   function generatedUrlsFromMessage(m, kind) {
@@ -1752,8 +1933,13 @@ function closeUploadPanel(e) {
       updateImageUploadButtonPreview();
       renderModelPop();
     } else if (mvc) {
-      mvc.textContent = isMusic ? 'MusicGen Pro' : 'Seedance 2.0 Fast';
-    }
+  if (isMusic) {
+    mvc.textContent = 'MusicGen Pro';
+  } else {
+    const model = currentVideoModel();
+    mvc.textContent = model.label || model.name || model.id;
+  }
+}
   }
   function genAction(kind, tabKey) {
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
