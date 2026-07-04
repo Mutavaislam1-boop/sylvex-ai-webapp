@@ -285,21 +285,16 @@ function localizedGreeting() {
     const button = styleVal.closest('button') || styleVal.parentElement;
     if (!button) return;
 
-    let avatar = button.querySelector('.image-style-control-avatar');
+    const avatar = button.querySelector('.image-style-control-avatar');
+    if (avatar) avatar.remove();
 
     if (!styleItem || String(styleItem.id) === 'auto' || !styleItem.image) {
-      if (avatar) avatar.remove();
       button.classList.remove('has-style-preview');
+      button.style.removeProperty('--image-style-bg');
       return;
     }
 
-    if (!avatar) {
-      avatar = document.createElement('span');
-      avatar.className = 'image-style-control-avatar';
-      button.insertBefore(avatar, styleVal);
-    }
-
-    avatar.innerHTML = '<img src="' + S.escapeHtml(styleItem.image) + '" alt="" loading="lazy" decoding="async" />';
+    button.style.setProperty('--image-style-bg', 'url("' + String(styleItem.image).replace(/"/g, '\\"') + '")');
     button.classList.add('has-style-preview');
   }
 
@@ -310,31 +305,37 @@ function localizedGreeting() {
   const style = document.createElement('style');
   style.id = 'sylvexImageStyleSheetCss';
   style.textContent = `
-    .image-style-control-avatar {
-      width: 28px;
-      height: 28px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex: 0 0 28px;
-      border-radius: 9px;
-      overflow: hidden;
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.12);
-      box-shadow: 0 8px 18px rgba(0,0,0,.22);
-      margin-right: 7px;
-      vertical-align: middle;
-    }
-
-    .image-style-control-avatar img {
-      width: 100%;
-      height: 100%;
-      display: block;
-      object-fit: cover;
-    }
-
     .has-style-preview {
-      align-items: center;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      background-image:
+        linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.58)),
+        var(--image-style-bg) !important;
+      background-size: cover !important;
+      background-position: center !important;
+      background-repeat: no-repeat !important;
+      border-color: rgba(255,255,255,.22) !important;
+    }
+
+    .has-style-preview::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: radial-gradient(circle at 50% 15%, rgba(255,255,255,.22), rgba(0,0,0,0) 45%);
+      pointer-events: none;
+    }
+
+    .has-style-preview > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .has-style-preview #imageStyleVal {
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,.85);
+      font-weight: 800;
     }
     .image-style-panel-backdrop {
       position: fixed;
