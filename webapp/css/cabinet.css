@@ -2492,3 +2492,122 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .composer-image-draft.show {
   display: none !important;
 }
+
+.model-brand-logo {
+  width: 22px;
+  height: 22px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: .96;
+}
+
+.image-model-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #f3f3f3;
+}
+
+.image-model-icon img {
+  width: 22px;
+  height: 22px;
+}
+
+.model-row-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 10px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.model-row-badge.pink {
+  background: rgba(255, 120, 210, .2);
+  color: #ff9bdd;
+}
+
+.model-row-badge.yellow {
+  background: rgba(255, 220, 90, .18);
+  color: #ffe05e;
+}
+
+.model-row-badge.red {
+  background: rgba(255, 100, 80, .18);
+  color: #ff826d;
+}
+
+.model-row-badge.green {
+  background: rgba(70, 220, 150, .18);
+  color: #61e6ad;
+}
+.model-brand-logo{
+  width:22px !important;
+  height:22px !important;
+  display:block !important;
+  object-fit:contain !important;
+  filter:brightness(0) invert(1) !important;
+  opacity:.96 !important;
+}
+
+.image-model-icon{
+  width:32px !important;
+  height:32px !important;
+  flex:0 0 32px !important;
+  display:grid !important;
+  place-items:center !important;
+  background:transparent !important;
+  border-radius:0 !important;
+  color:#f3f3f3 !important;
+  font-size:17px !important;
+  font-weight:700 !important;
+}
+
+.image-model-icon img{
+  width:22px !important;
+  height:22px !important;
+  display:block !important;
+  object-fit:contain !important;
+}
+
+.model-row-badge{
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  margin-left:10px !important;
+  padding:4px 12px !important;
+  border-radius:999px !important;
+  font-size:11px !important;
+  font-weight:800 !important;
+  letter-spacing:.04em !important;
+  white-space:nowrap !important;
+  vertical-align:middle !important;
+}
+
+.model-row-badge.pink{
+  background:rgba(255,120,210,.2) !important;
+  color:#ff9bdd !important;
+}
+
+.model-row-badge.yellow{
+  background:rgba(255,220,90,.18) !important;
+  color:#ffe05e !important;
+}
+
+.model-row-badge.red{
+  background:rgba(255,100,80,.18) !important;
+  color:#ff826d !important;
+}
+
+.model-row-badge.green{
+  background:rgba(70,220,150,.18) !important;
+  color:#61e6ad !important;
+}
