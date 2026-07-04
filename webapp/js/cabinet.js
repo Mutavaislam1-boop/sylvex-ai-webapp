@@ -144,6 +144,14 @@ function currentVideoModel() {
   return VIDEO_MODELS.find((item) => item.id === videoState.modelId) || VIDEO_MODELS[0];
 }
 
+function isImageMode() {
+  return studioMode === 'image' || activeCat === 'image';
+}
+
+function isVideoMode() {
+  return studioMode === 'video' || activeCat === 'video';
+}
+
 function videoOptionLabel(kind, value) {
   const str = String(value || '');
 
@@ -174,7 +182,7 @@ function renderVideoControls() {
   const model = currentVideoModel();
 
   const modelEl = document.getElementById('modelValComposer');
-  if (modelEl && studioMode === 'video' && model) {
+  if (modelEl && isVideoMode() && model) {
     modelEl.textContent = model.label || model.name || model.id;
   }
 
@@ -222,8 +230,8 @@ function pickVideoOption(kind, value) {
 }
 
 function currentComposerModelList() {
-  if (studioMode === 'image') return IMAGE_MODEL_LIST;
-  if (studioMode === 'video') return VIDEO_MODELS;
+  if (isImageMode()) return IMAGE_MODEL_LIST;
+  if (isVideoMode()) return VIDEO_MODELS;
   return VIDEO_MODELS;
 }
 
@@ -404,7 +412,7 @@ function localizedGreeting() {
 
     const models = currentComposerModelList();
 
-    if ((studioMode === 'image' || studioMode === 'video') && models.length) {
+    if ((isImageMode() || isVideoMode()) && models.length) {
       el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
         + '<div class="image-model-sheet-list">'
         + models.map(imageModelButton).join('')
@@ -1155,7 +1163,7 @@ function imageModelDescription(model) {
 }
 
 function imageModelButton(model) {
-  const activeId = studioMode === 'image'
+  const activeId = isImageMode()
     ? imageState.modelId
     : videoState.modelId;
 
@@ -1188,7 +1196,7 @@ function imageModelButton(model) {
     const model = currentImageModel();
     if (!model) return;
     const modelEl = document.getElementById('modelValComposer');
-    if (modelEl && studioMode === 'image') modelEl.textContent = model.label || model.id;
+    if (modelEl && isImageMode()) modelEl.textContent = model.label || model.id;
     const sizeOptions = model.sizes && model.sizes.length ? model.sizes : [
       { id:'1:1', label:'1:1', ratio:'1:1' },
       { id:'16:9', label:'16:9', ratio:'16:9' },
@@ -1235,7 +1243,7 @@ function imageModelButton(model) {
       return;
     }
 
-    if (studioMode === 'video') {
+    if (isVideoMode()) {
       const el = document.getElementById('modelPop');
       if (!el) return;
 
@@ -1411,14 +1419,14 @@ function imageModelButton(model) {
       e.stopPropagation();
     }
     if (kind === 'model') {
-      if (studioMode === 'image') {
+      if (isImageMode()) {
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           imageState.modelId = model.id;
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
-      } else if (studioMode === 'video') {
+      } else if (isVideoMode()) {
         const model = VIDEO_MODELS.find((item) => item.id === value);
         if (model) {
           videoState.modelId = model.id;
@@ -1428,7 +1436,7 @@ function imageModelButton(model) {
       }
     }
 
-    if (studioMode === 'video') {
+    if (isVideoMode()) {
       pickVideoOption(kind, value);
       renderModelPop();
 
@@ -1443,7 +1451,7 @@ function imageModelButton(model) {
     }
     // Эти настройки относятся только к генерации фото.
     // Видео не должно менять imageState через общие кнопки.
-    if (studioMode === 'image') {
+    if (isImageMode()) {
       if (kind === 'size') {
         imageState.size = value;
       }
@@ -1457,7 +1465,7 @@ function imageModelButton(model) {
         imageState.objects = value || '';
       }
     }
-    if (studioMode === 'image') {
+    if (isImageMode()) {
       renderImageControls();
     }
     const el = document.getElementById('modelPop');
@@ -3324,7 +3332,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, updateComposerMode, renderVideoControls,
     attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
@@ -3358,6 +3366,11 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   S.closeImageStylePanel = closeImageStylePanel;
   S.pickImageStyleFromPanel = pickImageStyleFromPanel;
   S.toggleImageStyleInfo = toggleImageStyleInfo;
+  S.openImageOptionMenu = openImageOptionMenu;
+  S.pickImageOption = pickImageOption;
+  S.showImageModelPicker = showImageModelPicker;
+  S.updateComposerMode = updateComposerMode;
+  S.renderVideoControls = renderVideoControls;
   
   document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
   document.addEventListener('touchmove', hideImageStyleInfo, true);
