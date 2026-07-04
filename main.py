@@ -13,7 +13,7 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
-
+from services.video_router import video_generation
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
@@ -3950,6 +3950,8 @@ async def public_prostudio_generate(request: Request):
     live_providers = {"openai", "byteplus", "bytedance", "sylvex-router"}
     if mode == "image" and is_seedream_request(payload):
         result = await generateBytePlusSeedreamImage(payload)
+    elif mode == "video":
+        result = await video_generation(payload)
     elif selected_provider not in live_providers:
         result = {
             "ok": True,
