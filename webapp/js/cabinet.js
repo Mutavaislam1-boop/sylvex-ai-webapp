@@ -36,6 +36,7 @@ let videoState = {
   ratio: '16:9',
   duration: 5,
   mode: 'text_to_video',
+  quality: 'standard',
   referenceImageUrl: '',
   referenceImageUrls: [],
 };
@@ -141,6 +142,83 @@ const VIDEO_MODELS = [
 
 function currentVideoModel() {
   return VIDEO_MODELS.find((item) => item.id === videoState.modelId) || VIDEO_MODELS[0];
+}
+
+function videoOptionLabel(kind, value) {
+  const str = String(value || '');
+
+  if (kind === 'ratio') {
+    return str || '16:9';
+  }
+
+  if (kind === 'duration') {
+    return String(value || 5) + ' сек';
+  }
+
+  if (kind === 'mode') {
+    if (str === 'image_to_video') return 'Image to Video';
+    if (str === 'video_to_video') return 'Video to Video';
+    return 'Text to Video';
+  }
+
+  if (kind === 'quality') {
+    if (str === 'pro') return 'Pro';
+    if (str === 'high') return 'High';
+    return 'Standard';
+  }
+
+  return str;
+}
+
+function renderVideoControls() {
+  const model = currentVideoModel();
+
+  const modelEl = document.getElementById('modelValComposer');
+  if (modelEl && studioMode === 'video' && model) {
+    modelEl.textContent = model.label || model.name || model.id;
+  }
+
+  const sizeVal = document.getElementById('imageSizeVal');
+  if (sizeVal) sizeVal.textContent = videoOptionLabel('ratio', videoState.ratio);
+
+  const sizeIcon = document.getElementById('imageSizeIcon');
+  if (sizeIcon) sizeIcon.setAttribute('data-ratio', videoState.ratio || '16:9');
+
+  const countVal = document.getElementById('imageCountVal');
+  if (countVal) countVal.textContent = videoOptionLabel('duration', videoState.duration);
+
+  const styleVal = document.getElementById('imageStyleVal');
+  if (styleVal) {
+    styleVal.textContent = videoOptionLabel('mode', videoState.mode);
+    const btn = styleVal.closest('button') || styleVal.parentElement;
+    if (btn) {
+      btn.classList.remove('has-style-preview');
+      btn.style.removeProperty('--image-style-bg');
+    }
+  }
+
+  const characterVal = document.getElementById('imageCharacterVal');
+  if (characterVal) characterVal.textContent = videoOptionLabel('quality', videoState.quality);
+}
+
+function pickVideoOption(kind, value) {
+  if (kind === 'size' || kind === 'ratio') {
+    videoState.ratio = value || '16:9';
+  }
+
+  if (kind === 'count' || kind === 'duration') {
+    videoState.duration = Number(value || 5);
+  }
+
+  if (kind === 'style' || kind === 'mode') {
+    videoState.mode = value || 'text_to_video';
+  }
+
+  if (kind === 'character' || kind === 'quality') {
+    videoState.quality = value || 'standard';
+  }
+
+  renderVideoControls();
 }
 
 function currentComposerModelList() {
@@ -338,7 +416,10 @@ function localizedGreeting() {
   }
 
   function showImageModelPicker(e) {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const el = document.getElementById('modelPop');
     if (!el) return;
 
@@ -1154,6 +1235,93 @@ function imageModelButton(model) {
       return;
     }
 
+    if (studioMode === 'video') {
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.style.cssText = '';
+
+      const closeOtherSheets = () => {
+        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+      };
+
+      const openVideoSheet = (title, items, optionKind) => {
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+        el.classList.add('image-size-floating-pop');
+        el.style.position = 'fixed';
+        el.style.left = '8px';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+        el.style.width = '64vw';
+        el.style.maxWidth = '315px';
+        el.style.minWidth = '245px';
+        el.style.maxHeight = '64vh';
+        el.style.overflowY = 'auto';
+        el.style.zIndex = '999999';
+
+        el.innerHTML = '<div class="image-size-sheet-title">' + S.escapeHtml(title) + '</div>'
+          + '<div class="image-size-sheet-list">'
+          + items.map((item) => {
+            const id = String(item.id || '');
+            const label = item.label || id;
+            const active = String(item.active || '') === id;
+            return '<button class="image-size-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+              + '<span class="image-size-label">' + S.escapeHtml(label) + '</span>'
+              + '<span class="image-size-check">✓</span>'
+              + '</button>';
+          }).join('')
+          + '</div>';
+
+        el.classList.add('show');
+        closeOtherSheets();
+        S.haptic && S.haptic.impact && S.haptic.impact('light');
+      };
+
+      if (kind === 'size') {
+        const active = videoState.ratio || '16:9';
+        openVideoSheet('Формат видео', [
+          { id:'16:9', label:'16:9', active },
+          { id:'9:16', label:'9:16', active },
+          { id:'1:1', label:'1:1', active }
+        ], 'ratio');
+        return;
+      }
+
+      if (kind === 'count') {
+        const active = String(videoState.duration || 5);
+        openVideoSheet('Длительность', [
+          { id:'5', label:'5 сек', active },
+          { id:'10', label:'10 сек', active }
+        ], 'duration');
+        return;
+      }
+
+      if (kind === 'style') {
+        const active = videoState.mode || 'text_to_video';
+        openVideoSheet('Режим видео', [
+          { id:'text_to_video', label:'Text to Video', active },
+          { id:'image_to_video', label:'Image to Video', active }
+        ], 'mode');
+        return;
+      }
+
+      if (kind === 'character') {
+        const active = videoState.quality || 'standard';
+        openVideoSheet('Качество', [
+          { id:'standard', label:'Standard', active },
+          { id:'high', label:'High', active },
+          { id:'pro', label:'Pro', active }
+        ], 'quality');
+        return;
+      }
+
+      return;
+    }
+
     if (kind === 'count') {
       // Количество фото — отдельная настройка только генерации изображений.
       // Не зависит от видео, музыки, текущей модели и общих списков моделей.
@@ -1258,6 +1426,20 @@ function imageModelButton(model) {
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
       }
+    }
+
+    if (studioMode === 'video') {
+      pickVideoOption(kind, value);
+      renderModelPop();
+
+      const el = document.getElementById('modelPop');
+      if (el) {
+        el.classList.remove('show');
+        el.classList.remove('image-model-floating-pop');
+        el.classList.remove('image-size-floating-pop');
+        el.style.cssText = '';
+      }
+      return;
     }
     // Эти настройки относятся только к генерации фото.
     // Видео не должно менять imageState через общие кнопки.
@@ -1988,6 +2170,8 @@ function closeUploadPanel(e) {
     try { updateSendButton(); } catch {}
   }
   function updateComposerMode(kind) {
+    studioMode = kind;
+    activeCat = kind;
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
       document.activeElement.blur();
     }
@@ -2012,13 +2196,13 @@ function closeUploadPanel(e) {
       updateImageUploadButtonPreview();
       renderModelPop();
     } else if (mvc) {
-  if (isMusic) {
-    mvc.textContent = 'MusicGen Pro';
-  } else {
-    const model = currentVideoModel();
-    mvc.textContent = model.label || model.name || model.id;
-  }
-}
+      if (isMusic) {
+        mvc.textContent = 'MusicGen Pro';
+      } else {
+        renderVideoControls();
+        renderModelPop();
+      }
+    }
   }
   function genAction(kind, tabKey) {
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
