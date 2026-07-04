@@ -35,9 +35,9 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'cinematic', label:'Кино', image:'assets/styles/cinematic.png' },
   { id:'poster_3d', label:'3D постер', image:'assets/styles/poster_3d.png' },
   { id:'anime', label:'Anime', image:'assets/styles/anime.png' },
-  { id:'cyberpunk', label:'Cyberpunk', image:'assets/styles/cyberpunk.png' },
 
-  
+
+  { id:'acid_swamp_cyan', label:'Acid Swamp Cyan', image:'assets/styles/acid_swamp_cyan.jpg' },
   { id:'rose_mint', label:'Rose Mint', image:'assets/styles/rose_mint.jpg' },
   { id:'rose_mint', label:'Rose Mint', image:'assets/styles/rose_mint.jpg' },
   { id:'retro_pop_graphic', label:'Retro Pop Graphic', image:'assets/styles/retro_pop_graphic.jpg' },
