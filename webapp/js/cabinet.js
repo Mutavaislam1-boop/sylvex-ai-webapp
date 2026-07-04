@@ -323,6 +323,42 @@ function localizedGreeting() {
       color: #fff;
       font-size: 17px;
       font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .image-style-info-mark {
+      width: 21px;
+      height: 21px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(255,255,255,.24);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1;
+      box-shadow: 0 0 18px rgba(255,255,255,.12);
+      animation: styleInfoWiggle 1.45s ease-in-out infinite;
+      transform-origin: 50% 80%;
+    }
+
+    @keyframes styleInfoWiggle {
+      0%, 100% { transform: rotate(0deg) translateY(0); }
+      10% { transform: rotate(-10deg) translateY(-1px); }
+      20% { transform: rotate(9deg) translateY(0); }
+      30% { transform: rotate(-7deg) translateY(-1px); }
+      40% { transform: rotate(6deg) translateY(0); }
+      50% { transform: rotate(0deg) translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .image-style-info-mark {
+        animation: none;
+      }
     }
 
     .image-style-panel-close {
@@ -435,7 +471,7 @@ function ensureImageStylePanel() {
   panel.innerHTML = `
     <div class="image-style-panel-card" onclick="event.stopPropagation()">
       <div class="image-style-panel-head">
-        <div class="image-style-panel-title">Выбери стиль</div>
+        <div class="image-style-panel-title">Выбери стиль <span class="image-style-info-mark" aria-hidden="true">!</span></div>
         <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeImageStylePanel(event)">×</button>
       </div>
       <div id="imageStylePanelGrid" class="image-style-panel-grid"></div>
