@@ -27,6 +27,8 @@ let imageState = {
     style: 'auto',
     character: 'auto',
     objects: '',
+    referenceImageUrl: '',
+    referenceImageUrls: [],
   };
 
 const IMAGE_STYLE_SHEET_ITEMS = [
@@ -298,33 +300,45 @@ function localizedGreeting() {
     button.classList.add('has-style-preview');
   }
 
-  function findImageUploadControlButton() {
+function findImageUploadControlButton() {
   const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
 
-  return candidates.find((btn) => {
+  const scored = candidates.map((btn) => {
+    if (!btn || !btn.isConnected) return null;
+    if (btn.closest('#uploadPanel')) return null;
+    if (btn.closest('#imageStylePanel')) return null;
+    if (btn.closest('#modelPop')) return null;
+    if (btn.closest('#plusSheet')) return null;
+
     const id = String(btn.id || '');
     const cls = String(btn.className || '');
     const onclick = String(btn.getAttribute('onclick') || '');
     const text = String(btn.textContent || '').trim().toLowerCase();
 
-    return id === 'imageUploadBtn'
-      || id === 'imageUploadControl'
-      || cls.includes('image-upload')
-      || onclick.includes('openUploadPanel')
-      || onclick.includes("attach('image'")
-      || onclick.includes('attach("image"')
-      || text === 'загрузка'
-      || text.includes('загруз');
-  }) || null;
+    let score = 0;
+    if (id === 'imageUploadBtn' || id === 'imageUploadControl') score += 100;
+    if (onclick.includes('openUploadPanel')) score += 80;
+    if (onclick.includes("attach('image'") || onclick.includes('attach("image"')) score += 80;
+    if (text === 'загрузка') score += 70;
+    if (text.includes('загрузка')) score += 40;
+    if (cls.includes('upload')) score += 15;
+    if (cls.includes('image')) score += 10;
+
+    return score > 0 ? { btn, score } : null;
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+
+  return scored[0] ? scored[0].btn : null;
 }
 
 function updateImageUploadButtonPreview() {
+  injectImageStyleSheetCss();
+
   const button = findImageUploadControlButton();
   if (!button) return;
 
   const urls = (imageState.referenceImageUrls || []).filter(Boolean).slice(0, 4);
 
-  let bg = button.querySelector('.image-upload-control-bg');
+  let bg = button.querySelector(':scope > .image-upload-control-bg');
 
   if (!urls.length) {
     if (bg) bg.remove();
@@ -340,7 +354,7 @@ function updateImageUploadButtonPreview() {
 
   bg.dataset.count = String(urls.length);
   bg.innerHTML = urls.map((url) => (
-    '<span class="image-upload-control-bg-cell"><img src="' + S.escapeHtml(url) + '" alt="" loading="lazy" decoding="async" /></span>'
+    '<span class="image-upload-control-bg-cell"><img src="' + S.escapeHtml(url) + '" alt="" decoding="async" /></span>'
   )).join('');
 
   button.classList.add('has-upload-preview');
@@ -399,11 +413,12 @@ function updateImageUploadButtonPreview() {
     .image-upload-control-bg {
       position: absolute;
       inset: 0;
-      z-index: -2;
+      z-index: 0;
       display: grid;
       gap: 0;
       overflow: hidden;
       pointer-events: none;
+      border-radius: inherit;
     }
 
     .image-upload-control-bg[data-count="1"] {
@@ -440,14 +455,14 @@ function updateImageUploadButtonPreview() {
       content: '';
       position: absolute;
       inset: 0;
-      z-index: -1;
+      z-index: 1;
       background: linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.62));
       pointer-events: none;
     }
 
     .has-upload-preview > *:not(.image-upload-control-bg) {
       position: relative;
-      z-index: 1;
+      z-index: 2;
     }
 
     .image-style-panel-backdrop {
@@ -1381,6 +1396,7 @@ function imageModelButton(model) {
     imageState.referenceImageUrl = url;
     imageState.referenceImageUrls = uploadedImageLibrary.slice();
     renderUploadedPhotoGrid();
+    updateImageUploadButtonPreview();
   }
 
   function selectUploadedPhoto(e, url) {
@@ -1391,6 +1407,7 @@ function imageModelButton(model) {
     imageState.referenceImageUrl = url;
     imageState.referenceImageUrls = uploadedImageLibrary.slice();
     renderUploadedPhotoGrid();
+    updateImageUploadButtonPreview();
     toast('Фото выбрано');
   }
 
@@ -1403,6 +1420,7 @@ function imageModelButton(model) {
     imageState.referenceImageUrls = uploadedImageLibrary.slice();
     imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
     renderUploadedPhotoGrid();
+    updateImageUploadButtonPreview();
   }
 
     function confirmUploadedPhotos(e) {
@@ -1741,6 +1759,7 @@ function closeUploadPanel(e) {
     if (isImage) {
       if (imageCapabilities.length && !imageState.modelId) applyImageDefaults(imageCapabilities[0]);
       renderImageControls();
+      updateImageUploadButtonPreview();
       renderModelPop();
     } else if (mvc) {
       mvc.textContent = isMusic ? 'MusicGen Pro' : 'Seedance 2.0 Fast';
