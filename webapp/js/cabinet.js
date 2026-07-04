@@ -33,8 +33,8 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'auto', label:'Авто', image:'assets/styles/auto.png' },
   { id:'photorealism', label:'Фотореализм', image:'assets/styles/photorealism.png' },
   { id:'cinematic', label:'Кино', image:'assets/styles/cinematic.png' },
-  { id:'poster_3d', label:'3D постер', image:'assets/styles/poster_3d.png' },
-
+  
+  { id:'radical_red', label:'Radical Red', image:'assets/styles/radical_red.jpg' },
   { id:'retro_futurism', label:'Retro Futurism', image:'assets/styles/retro_futurism.jpg' },
   { id:'ballpoint_blue', label:'Ballpoint Blue', image:'assets/styles/ballpoint_blue.jpg' },
   { id:'acid_swamp_cyan', label:'Acid Swamp Cyan', image:'assets/styles/acid_swamp_cyan.jpg' },
