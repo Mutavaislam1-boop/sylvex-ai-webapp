@@ -298,6 +298,54 @@ function localizedGreeting() {
     button.classList.add('has-style-preview');
   }
 
+  function findImageUploadControlButton() {
+  const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+
+  return candidates.find((btn) => {
+    const id = String(btn.id || '');
+    const cls = String(btn.className || '');
+    const onclick = String(btn.getAttribute('onclick') || '');
+    const text = String(btn.textContent || '').trim().toLowerCase();
+
+    return id === 'imageUploadBtn'
+      || id === 'imageUploadControl'
+      || cls.includes('image-upload')
+      || onclick.includes('openUploadPanel')
+      || onclick.includes("attach('image'")
+      || onclick.includes('attach("image"')
+      || text === 'загрузка'
+      || text.includes('загруз');
+  }) || null;
+}
+
+function updateImageUploadButtonPreview() {
+  const button = findImageUploadControlButton();
+  if (!button) return;
+
+  const urls = (imageState.referenceImageUrls || []).filter(Boolean).slice(0, 4);
+
+  let bg = button.querySelector('.image-upload-control-bg');
+
+  if (!urls.length) {
+    if (bg) bg.remove();
+    button.classList.remove('has-upload-preview');
+    return;
+  }
+
+  if (!bg) {
+    bg = document.createElement('span');
+    bg.className = 'image-upload-control-bg';
+    button.insertBefore(bg, button.firstChild);
+  }
+
+  bg.dataset.count = String(urls.length);
+  bg.innerHTML = urls.map((url) => (
+    '<span class="image-upload-control-bg-cell"><img src="' + S.escapeHtml(url) + '" alt="" loading="lazy" decoding="async" /></span>'
+  )).join('');
+
+  button.classList.add('has-upload-preview');
+}
+
   function injectImageStyleSheetCss() {
   if (styleSheetCssInjected) return;
   styleSheetCssInjected = true;
@@ -337,6 +385,71 @@ function localizedGreeting() {
       text-shadow: 0 1px 8px rgba(0,0,0,.85);
       font-weight: 800;
     }
+
+    .has-upload-preview {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      border-color: rgba(255,255,255,.22) !important;
+      color: #fff !important;
+      text-shadow: 0 1px 8px rgba(0,0,0,.88);
+      font-weight: 800;
+    }
+
+    .image-upload-control-bg {
+      position: absolute;
+      inset: 0;
+      z-index: -2;
+      display: grid;
+      gap: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .image-upload-control-bg[data-count="1"] {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+
+    .image-upload-control-bg[data-count="2"] {
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: 1fr;
+    }
+
+    .image-upload-control-bg[data-count="3"],
+    .image-upload-control-bg[data-count="4"] {
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+    }
+
+    .image-upload-control-bg-cell {
+      display: block;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .image-upload-control-bg-cell img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .has-upload-preview::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.62));
+      pointer-events: none;
+    }
+
+    .has-upload-preview > *:not(.image-upload-control-bg) {
+      position: relative;
+      z-index: 1;
+    }
+
     .image-style-panel-backdrop {
       position: fixed;
       inset: 0;
@@ -1302,6 +1415,7 @@ function imageModelButton(model) {
     imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
 
     renderComposerImageDraft();
+    updateImageUploadButtonPreview();
     closeUploadPanel(e);
     toast('Фото добавлены в сообщение');
 
@@ -1363,6 +1477,7 @@ function removeComposerImageDraft(e, index) {
 
   renderUploadedPhotoGrid();
   renderComposerImageDraft();
+  updateImageUploadButtonPreview();
 }
 
   function openUploadImagePreview(e, url) {
@@ -1725,6 +1840,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     uploadedImageLibrary = [];
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
+    updateImageUploadButtonPreview();
     chatMessages.push({ typing: true, role: 'ai' });
     renderChat();
     document.body.classList.add('ai-generating');
