@@ -40,7 +40,7 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'minimal', label:'Minimal', image:'assets/styles/minimal.png' },
   
 
-  { id:'retro_american_cartoon', label:'Retro American Cartoon', image:'assets/styles/retro_american_cartoon.jpg' },
+  { id:'retro_pop_graphic', label:'Retro Pop Graphic', image:'assets/styles/retro_pop_graphic.jpg' },
   { id:'retro_american_cartoon', label:'Retro American Cartoon', image:'assets/styles/retro_american_cartoon.jpg' },
   { id:'orange_dominion', label:'Orange Dominion', image:'assets/styles/orange_dominion.jpg' },
   { id:'neon_cutout', label:'Neon Cutout', image:'assets/styles/neon_cutout.jpg' },
