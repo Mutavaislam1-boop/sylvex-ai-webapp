@@ -2398,6 +2398,8 @@ def ensure_prostudio_table():
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS images_json TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumbnails_json TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumb_url TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS video_url TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS videos_json TEXT")
         conn.commit()
     finally:
         cursor.close()
@@ -2484,8 +2486,10 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 image_url,
                 images_json,
                 thumbnails_json,
-                thumb_url
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                thumb_url,
+                video_url,
+                videos_json
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             conversation_id,
             telegram_id,
@@ -2496,6 +2500,8 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             json.dumps(_json_list(result.get("images")), ensure_ascii=False),
             json.dumps(_json_list(result.get("thumbnails")), ensure_ascii=False),
             result.get("thumb_url") or "",
+            result.get("video_url") or "",
+            json.dumps(_json_list(result.get("videos")), ensure_ascii=False),
         ))
         conn.commit()
         cursor.close()
@@ -2532,7 +2538,7 @@ async def public_prostudio_conversations(
 
         if conversation_id:
             cursor.execute("""
-                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, created_at
+                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, created_at
                 FROM prostudio_messages
                 WHERE telegram_id = %s
                   AND conversation_id = %s
@@ -2543,9 +2549,10 @@ async def public_prostudio_conversations(
             cursor.close()
             conn.close()
             messages = []
-            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, created_at in rows:
+            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, created_at in rows:
                 images = _json_list(images_json) or ([image_url] if image_url else [])
                 thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
+                videos = _json_list(videos_json) or ([video_url] if video_url else [])
                 if len(thumbs) != len(images):
                     thumbs = images[:]
                 if prompt:
@@ -2561,6 +2568,8 @@ async def public_prostudio_conversations(
                     "images": images,
                     "thumb_url": thumbs[0] if thumbs else "",
                     "thumbnails": thumbs,
+                    "video_url": videos[0] if videos else "",
+                    "videos": videos,
                     "created_at": created_at,
                 })
             return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
@@ -3933,7 +3942,21 @@ async def public_prostudio_generate(request: Request):
     selected_model = (payload.get("model") or "sylvex-pro").strip()
     selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
     image_options = payload.get("image_options") or {}
+    video_options = payload.get("video_options") or {}
     reference_images = image_options.get("referenceImageUrls") or []
+    video_references = (
+        video_options.get("reference_images")
+        or video_options.get("referenceImageUrls")
+        or []
+    )
+    video_media = (
+        video_options.get("start_image")
+        or video_options.get("end_image")
+        or video_options.get("input_video")
+        or video_options.get("video_url")
+        or video_options.get("image_url")
+        or video_options.get("character_image")
+    )
 
     print("PRO STUDIO ROUTER:", {
         "mode": mode,
@@ -3941,7 +3964,7 @@ async def public_prostudio_generate(request: Request):
         "model": selected_model,
     })
 
-    if not prompt and not payload.get("attachment") and not reference_images:
+    if not prompt and not payload.get("attachment") and not reference_images and not video_references and not video_media:
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
 
     # Pro Studio must not be locked to OpenAI only.
