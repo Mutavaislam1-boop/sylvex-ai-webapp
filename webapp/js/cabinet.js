@@ -37,9 +37,9 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'anime', label:'Anime', image:'assets/styles/anime.png' },
   { id:'cyberpunk', label:'Cyberpunk', image:'assets/styles/cyberpunk.png' },
   { id:'dark_fantasy', label:'Dark fantasy', image:'assets/styles/dark_fantasy.png' },
-  { id:'minimal', label:'Minimal', image:'assets/styles/minimal.png' },
   
-
+  
+  { id:'rose_mint', label:'Rose Mint', image:'assets/styles/rose_mint.jpg' },
   { id:'retro_pop_graphic', label:'Retro Pop Graphic', image:'assets/styles/retro_pop_graphic.jpg' },
   { id:'retro_american_cartoon', label:'Retro American Cartoon', image:'assets/styles/retro_american_cartoon.jpg' },
   { id:'orange_dominion', label:'Orange Dominion', image:'assets/styles/orange_dominion.jpg' },
