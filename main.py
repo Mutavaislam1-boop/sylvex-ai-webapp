@@ -3397,6 +3397,14 @@ def build_image_prompt(payload: dict) -> str:
             The final result must be quiet, powerful, warm, surreal, cinematic, minimalistic, dusty, atmospheric, and elegant. It must look like a real cinematic still from an orange-red world, not a normal photo with color grading.
             This must be a complete color, material, spatial, and atmospheric transformation into the Orange Dominion style.""",
 
+            "retro_american_cartoon": """Recreate the uploaded image as a full 1930s–1950s Retro American Cartoon animation frame. Do not apply a simple cartoon filter. Do not make it anime, manga, modern Disney-like 3D, Pixar, or generic comic art. The entire image must be rebuilt as hand-drawn vintage American cel animation.
+            Keep only the main subject identity, pose, face direction, body position, important silhouettes, and overall framing. Everything else must be transformed: face style, hair, clothing, objects, architecture, plants, furniture, lighting, colors, background, texture, and mood.
+            Turn people into old American fairy-tale cartoon characters with large expressive eyes, soft rounded faces, delicate lips, clean eyelashes, smooth painted skin, elegant vintage hairstyles, graceful poses, simplified anatomy, and charming hand-drawn proportions. Do not copy any specific character, but use the general visual grammar of classic 1930s–1950s American animated heroines and storybook characters.
+            Turn modern clothing into vintage animated wardrobe: classic dresses, puff sleeves, soft collars, elegant shirts, old-fashioned shoes, simple painted folds, clean silhouettes, and theatrical fairy-tale styling. Turn buildings into storybook architecture with charming roofs, clean windows, rounded shapes, painted walls, hand-drawn outlines, and bright classic colors. Turn objects into animated props with simplified shapes, bold outlines, painted highlights, and old cartoon charm.
+            Use bright classic animation colors, not realistic photo colors: red, yellow, blue, green, cream, peach, black, and warm painted shadows. Add hand-painted cel texture, vintage ink outlines, soft background painting, slight paper/cel grain, theatrical lighting, and clean color separation.
+            The result must look like a real frame from an old American hand-drawn animated movie, not a modern photo with a filter. Every part of the scene must be converted into this world. Faces, objects, houses, landscapes, furniture, and clothing must all share the same vintage cartoon language.
+            This must be a complete historical, graphic, material, and emotional transformation into a Retro American Cartoon style.""",
+
             # Add the next style prompt below this line, before the closing brace.
         }
     

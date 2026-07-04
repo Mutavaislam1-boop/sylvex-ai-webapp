@@ -39,9 +39,9 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'dark_fantasy', label:'Dark fantasy', image:'assets/styles/dark_fantasy.png' },
   { id:'minimal', label:'Minimal', image:'assets/styles/minimal.png' },
   { id:'oil_painting', label:'Oil painting', image:'assets/styles/oil_painting.png' },
-  { id:'pixel_art', label:'Pixel art', image:'assets/styles/pixel_art.png' },
+
   
-  
+  { id:'retro_american_cartoon', label:'Retro American Cartoon', image:'assets/styles/retro_american_cartoon.jpg' },
   { id:'orange_dominion', label:'Orange Dominion', image:'assets/styles/orange_dominion.jpg' },
   { id:'neon_cutout', label:'Neon Cutout', image:'assets/styles/neon_cutout.jpg' },
   { id:'built_bricks', label:'Built Bricks', image:'assets/styles/built_bricks.jpg' },
