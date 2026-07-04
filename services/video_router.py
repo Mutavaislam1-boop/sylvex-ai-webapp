@@ -208,6 +208,91 @@ def _provider_error(provider: str, model_id: str, detail: str):
     }
 
 
+async def safe_provider_json_response(response, provider: str, endpoint: str):
+    status = getattr(response, "status_code", None) or getattr(response, "status", None)
+
+    try:
+        text = response.text
+        if callable(text):
+            text = text()
+    except Exception:
+        try:
+            text = await response.text()
+        except Exception:
+            text = ""
+
+    if not text:
+        return {
+            "ok": False,
+            "provider": provider,
+            "status_code": status,
+            "error": "Provider returned empty response",
+            "endpoint": endpoint,
+            "body_preview": "",
+        }
+
+    try:
+        return json.loads(text)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "provider": provider,
+            "status_code": status,
+            "error": "Provider returned non-JSON response",
+            "details": str(exc),
+            "endpoint": endpoint,
+            "body_preview": text[:1000],
+        }
+
+
+def _safe_provider_json_response(response, provider: str, endpoint: str):
+    status = getattr(response, "status_code", None) or getattr(response, "status", None)
+
+    try:
+        text = response.text
+        if callable(text):
+            text = text()
+    except Exception:
+        text = ""
+
+    if not text:
+        return {
+            "ok": False,
+            "provider": provider,
+            "status_code": status,
+            "error": "Provider returned empty response",
+            "endpoint": endpoint,
+            "body_preview": "",
+        }
+
+    try:
+        return json.loads(text)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "provider": provider,
+            "status_code": status,
+            "error": "Provider returned non-JSON response",
+            "details": str(exc),
+            "endpoint": endpoint,
+            "body_preview": text[:1000],
+        }
+
+
+def _provider_parse_error(provider: str, model_id: str, data: dict):
+    result = {
+        "ok": False,
+        "type": "video",
+        "provider": provider,
+        "model": model_id,
+        "error": data.get("error") or "Provider returned invalid response",
+    }
+    for key in ("status_code", "details", "endpoint", "body_preview"):
+        if key in data:
+            result[key] = data.get(key)
+    return result
+
+
 def _provider_success(provider: str, model_id: str, video_urls: list[str], status: str = "completed", task_id: str = None):
     result = {
         "ok": True,
@@ -250,14 +335,18 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = f"{os.getenv('BYTEPLUS_ARK_ENDPOINT', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')}/videos/generations"
         response = _request_json(
-            f"{os.getenv('BYTEPLUS_ARK_ENDPOINT', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')}/videos/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("seedance", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "seedance", endpoint)
+            return _provider_parse_error("seedance", model_id, data)
+        data = _safe_provider_json_response(response, "seedance", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("seedance", model_id, data)
         urls = _normalize_video_urls(data.get("data") or data.get("videos") or data.get("output") or data)
         if urls:
             return _provider_success("seedance", model_id, urls)
@@ -275,14 +364,18 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt})
     try:
+        endpoint = f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v3').rstrip('/')}/video/generate"
         response = _request_json(
-            f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v3').rstrip('/')}/video/generate",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("heygen", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "heygen", endpoint)
+            return _provider_parse_error("heygen", model_id, data)
+        data = _safe_provider_json_response(response, "heygen", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("heygen", model_id, data)
         urls = _normalize_video_urls(data.get("data") or data.get("videos") or data.get("video") or data)
         if urls:
             return _provider_success("heygen", model_id, urls)
@@ -300,14 +393,18 @@ def _call_luma(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.lumalabs.ai/dream-machine/v1/generations"
         response = _request_json(
-            "https://api.lumalabs.ai/dream-machine/v1/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("luma", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "luma", endpoint)
+            return _provider_parse_error("luma", model_id, data)
+        data = _safe_provider_json_response(response, "luma", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("luma", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("luma", model_id, urls)
@@ -325,14 +422,18 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.klingai.com/v1/videos/generations"
         response = _request_json(
-            "https://api.klingai.com/v1/videos/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("kling", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "kling", endpoint)
+            return _provider_parse_error("kling", model_id, data)
+        data = _safe_provider_json_response(response, "kling", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("kling", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("kling", model_id, urls)
@@ -350,14 +451,18 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.runwayml.com/v1/video/generations"
         response = _request_json(
-            "https://api.runwayml.com/v1/video/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("runway", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "runway", endpoint)
+            return _provider_parse_error("runway", model_id, data)
+        data = _safe_provider_json_response(response, "runway", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("runway", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("runway", model_id, urls)
@@ -375,14 +480,18 @@ def _call_minimax(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.minimax.io/v1/video/generation"
         response = _request_json(
-            "https://api.minimax.io/v1/video/generation",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("minimax", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "minimax", endpoint)
+            return _provider_parse_error("minimax", model_id, data)
+        data = _safe_provider_json_response(response, "minimax", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("minimax", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("minimax", model_id, urls)
@@ -400,14 +509,18 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.pixverse.io/v1/videos/generations"
         response = _request_json(
-            "https://api.pixverse.io/v1/videos/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("pixverse", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "pixverse", endpoint)
+            return _provider_parse_error("pixverse", model_id, data)
+        data = _safe_provider_json_response(response, "pixverse", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("pixverse", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("pixverse", model_id, urls)
@@ -425,14 +538,18 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos/generations"
         response = _request_json(
-            f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("sora", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "sora", endpoint)
+            return _provider_parse_error("sora", model_id, data)
+        data = _safe_provider_json_response(response, "sora", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("sora", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("sora", model_id, urls)
@@ -450,14 +567,18 @@ def _call_veo(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://generativelanguage.googleapis.com/v1beta/models/video:generate"
         response = _request_json(
-            "https://generativelanguage.googleapis.com/v1beta/models/video:generate",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("veo", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "veo", endpoint)
+            return _provider_parse_error("veo", model_id, data)
+        data = _safe_provider_json_response(response, "veo", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("veo", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("veo", model_id, urls)
@@ -475,14 +596,18 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation"
         response = _request_json(
-            "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("wan", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "wan", endpoint)
+            return _provider_parse_error("wan", model_id, data)
+        data = _safe_provider_json_response(response, "wan", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("wan", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("wan", model_id, urls)
@@ -500,14 +625,18 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.x.ai/v1/videos/generations"
         response = _request_json(
-            "https://api.x.ai/v1/videos/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("grok", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "grok", endpoint)
+            return _provider_parse_error("grok", model_id, data)
+        data = _safe_provider_json_response(response, "grok", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("grok", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("grok", model_id, urls)
@@ -525,14 +654,18 @@ def _call_hedra(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
+        endpoint = "https://api.hedra.com/v1/videos/generations"
         response = _request_json(
-            "https://api.hedra.com/v1/videos/generations",
+            endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
         if response.status_code >= 400:
-            return _provider_error("hedra", model_id, f"Provider request failed: HTTP {response.status_code}")
-        data = response.json()
+            data = _safe_provider_json_response(response, "hedra", endpoint)
+            return _provider_parse_error("hedra", model_id, data)
+        data = _safe_provider_json_response(response, "hedra", endpoint)
+        if data.get("ok") is False:
+            return _provider_parse_error("hedra", model_id, data)
         urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
         if urls:
             return _provider_success("hedra", model_id, urls)
