@@ -258,7 +258,18 @@ function localizedGreeting() {
   }
 
   function optionLabel(options, id, fallback) {
-    const opt = (options || []).find((item) => String(item.id) === String(id));
+    const value = String(id || '');
+
+    const styleOpt = (typeof IMAGE_STYLE_SHEET_ITEMS !== 'undefined')
+      ? IMAGE_STYLE_SHEET_ITEMS.find((item) => String(item.id) === value)
+      : null;
+
+    if (styleOpt) {
+      return styleOpt.label || styleOpt.id;
+    }
+
+    const opt = (options || []).find((item) => String(item.id) === value);
+
     return opt ? (opt.label || opt.id) : fallback;
   }
 
