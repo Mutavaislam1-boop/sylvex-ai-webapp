@@ -376,7 +376,27 @@ function localizedGreeting() {
   }
 
   function currentImageModel() {
-    return IMAGE_MODEL_LIST.find((item) => item.id === imageState.modelId) || IMAGE_MODEL_LIST[0];
+    const model = IMAGE_MODEL_LIST.find((item) => item.id === imageState.modelId) || IMAGE_MODEL_LIST[0];
+    if (!model) return null;
+
+    return Object.assign({
+      sizes: [
+        { id:'1:1', label:'1:1', ratio:'1:1' },
+        { id:'16:9', label:'16:9', ratio:'16:9' },
+        { id:'9:16', label:'9:16', ratio:'9:16' }
+      ],
+      counts: [1, 2, 3, 4],
+      styles: [{ id:'auto', label:'Авто' }],
+      characters: [{ id:'auto', label:'Авто' }]
+    }, model);
+  }
+
+  function nextImageCountValue() {
+    const counts = [1, 2, 3, 4];
+    const currentCount = Number(imageState.count || 1);
+    const currentIndex = counts.findIndex((item) => Number(item) === currentCount);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    return Number(counts[(safeIndex + 1) % counts.length] || 1);
   }
 
   function optionLabel(options, id, fallback) {
@@ -1135,11 +1155,11 @@ function imageModelButton(model) {
     }
 
     if (kind === 'count') {
-      const currentCount = Number(imageState.count || 1);
-      const counts = (currentImageModel() && currentImageModel().counts) || [1];
-      const currentIndex = counts.findIndex((item) => Number(item) === currentCount);
-      const nextCount = Number(counts[(currentIndex + 1) % counts.length] || 1);
-      imageState.count = nextCount;
+      // Количество фото — отдельная настройка только генерации изображений.
+      // Не зависит от видео, музыки, текущей модели и общих списков моделей.
+      if (studioMode !== 'image') return;
+
+      imageState.count = nextImageCountValue();
       renderImageControls();
       S.haptic && S.haptic.impact && S.haptic.impact('light');
       return;
@@ -1239,17 +1259,21 @@ function imageModelButton(model) {
         }
       }
     }
-    if (kind === 'size') {
-      imageState.size = value;
-    }
-    if (kind === 'style') {
-      imageState.style = value || 'auto';
-    }
-    if (kind === 'character') {
-      imageState.character = value || 'auto';
-    }
-    if (kind === 'objects') {
-      imageState.objects = value || '';
+    // Эти настройки относятся только к генерации фото.
+    // Видео не должно менять imageState через общие кнопки.
+    if (studioMode === 'image') {
+      if (kind === 'size') {
+        imageState.size = value;
+      }
+      if (kind === 'style') {
+        imageState.style = value || 'auto';
+      }
+      if (kind === 'character') {
+        imageState.character = value || 'auto';
+      }
+      if (kind === 'objects') {
+        imageState.objects = value || '';
+      }
     }
     if (studioMode === 'image') {
       renderImageControls();
