@@ -34,7 +34,7 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'photorealism', label:'Фотореализм', image:'assets/styles/photorealism.png' },
   { id:'cinematic', label:'Кино', image:'assets/styles/cinematic.png' },
   { id:'poster_3d', label:'3D постер', image:'assets/styles/poster_3d.png' },
-  { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.png' },
+  { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.jpg' },
   { id:'anime', label:'Anime', image:'assets/styles/anime.png' },
   { id:'cyberpunk', label:'Cyberpunk', image:'assets/styles/cyberpunk.png' },
   { id:'dark_fantasy', label:'Dark fantasy', image:'assets/styles/dark_fantasy.png' },
