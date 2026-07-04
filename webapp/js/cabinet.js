@@ -328,23 +328,69 @@ function localizedGreeting() {
       gap: 8px;
     }
 
-    .image-style-info-mark {
-      width: 21px;
-      height: 21px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 999px;
-      background: rgba(255,255,255,.1);
-      border: 1px solid rgba(255,255,255,.24);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 900;
-      line-height: 1;
-      box-shadow: 0 0 18px rgba(255,255,255,.12);
-      animation: styleInfoWiggle 1.45s ease-in-out infinite;
-      transform-origin: 50% 80%;
-    }
+   .image-style-info-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.image-style-info-mark {
+  width: 21px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.24);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 0 18px rgba(255,255,255,.12);
+  animation: styleInfoWiggle 1.45s ease-in-out infinite;
+  transform-origin: 50% 80%;
+  cursor: pointer;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.image-style-info-tooltip {
+  position: absolute;
+  left: 50%;
+  top: 32px;
+  width: min(280px, calc(100vw - 42px));
+  transform: translateX(-50%) translateY(-4px);
+  display: none;
+  z-index: 3;
+  padding: 12px 13px;
+  border-radius: 15px;
+  background: rgba(20,20,20,.96);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 16px 42px rgba(0,0,0,.45);
+  color: rgba(255,255,255,.86);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+  letter-spacing: -.01em;
+}
+
+.image-style-info-tooltip.show {
+  display: block;
+  animation: styleInfoTooltipIn .16s ease both;
+}
+
+@keyframes styleInfoTooltipIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-4px);
+  }
+}
 
     @keyframes styleInfoWiggle {
       0%, 100% { transform: rotate(0deg) translateY(0); }
@@ -471,7 +517,15 @@ function ensureImageStylePanel() {
   panel.innerHTML = `
     <div class="image-style-panel-card" onclick="event.stopPropagation()">
       <div class="image-style-panel-head">
-        <div class="image-style-panel-title">Выбери стиль <span class="image-style-info-mark" aria-hidden="true">!</span></div>
+        <div class="image-style-panel-title">
+            Выбери стиль
+            <span class="image-style-info-wrap">
+              <button class="image-style-info-mark" type="button" aria-label="Информация о стилях" onclick="SYLVEX.toggleImageStyleInfo(event)">!</button>
+              <span id="imageStyleInfoTooltip" class="image-style-info-tooltip">
+                Стили универсальны: их можно применять не только к людям, но и к предметам, животным, машинам, интерьерам, городам, пейзажам и любым другим сценам. Выберите стиль, загрузите фото или опишите идею — SYLVEX применит выбранное визуальное направление ко всей генерации.
+              </span>
+            </span>
+          </div>
         <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeImageStylePanel(event)">×</button>
       </div>
       <div id="imageStylePanelGrid" class="image-style-panel-grid"></div>
@@ -534,9 +588,22 @@ function closeImageStylePanel(e) {
     e.preventDefault();
     e.stopPropagation();
   }
-
+  const tooltip = document.getElementById('imageStyleInfoTooltip');
+  if (tooltip) tooltip.classList.remove('show');
   const panel = document.getElementById('imageStylePanel');
   if (panel) panel.classList.remove('show');
+}
+
+function toggleImageStyleInfo(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const tooltip = document.getElementById('imageStyleInfoTooltip');
+  if (!tooltip) return;
+
+  tooltip.classList.toggle('show');
 }
 
 function pickImageStyleFromPanel(e, value) {
@@ -544,7 +611,8 @@ function pickImageStyleFromPanel(e, value) {
     e.preventDefault();
     e.stopPropagation();
   }
-
+  const tooltip = document.getElementById('imageStyleInfoTooltip');
+  if (tooltip) tooltip.classList.remove('show');
   imageState.style = value || 'auto';
 
   renderImageControls();
@@ -2635,5 +2703,6 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   S.openImageStylePanel = openImageStylePanel;
   S.closeImageStylePanel = closeImageStylePanel;
   S.pickImageStyleFromPanel = pickImageStyleFromPanel;
+  S.toggleImageStyleInfo = toggleImageStyleInfo;
 
   })();
