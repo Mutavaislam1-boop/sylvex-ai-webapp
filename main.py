@@ -3250,7 +3250,32 @@ def find_image_model(model_id: str) -> dict:
         for model in models:
             if model.get("id") == model_id or model.get("api_model") == model_id:
                 return model
-    return models[0] if models else {}
+    return {}
+
+def infer_image_model(model_id: str, provider: str = "") -> dict:
+    value = (model_id or "").strip()
+    normalized = value.lower().replace("-", "_")
+    provider = (provider or "").strip().lower()
+    if normalized in ("gpt_image_1", "openai_gpt_image_1"):
+        return {"id": value, "provider": "openai", "api_model": "gpt-image-1", "sizes": [image_size("1024x1024")], "counts": [1]}
+    if normalized in ("gpt_image_2", "openai_gpt_image_2"):
+        return {"id": value, "provider": "openai", "api_model": "gpt-image-2", "sizes": [image_size("1024x1024")], "counts": [1]}
+    if re.search(r"seedream", normalized) or provider in ("bytedance", "byteplus"):
+        return {"id": value, "provider": "bytedance", "api_model": value, "sizes": [image_size("1:1")], "counts": [1, 2, 3, 4]}
+    return {}
+
+def is_internal_ui_model(model: str) -> bool:
+    return (model or "").strip().lower() in {"sylvex-pro", "sylvex-lite", "sylvex pro", "sylvex lite"}
+
+def invalid_generation_model_response(model: str) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "Invalid generation model",
+            "details": f"{model} is an internal UI label, not an API model. Frontend must send real image/video/music/voice model id.",
+        },
+        status_code=400,
+    )
 
 def is_seedream_request(payload: dict) -> bool:
     model = str(payload.get("model") or "")
@@ -3786,6 +3811,8 @@ def text_generation(payload: dict) -> dict:
     history = payload.get("history") or []
     mode = payload.get("mode") or "text"
     model = payload.get("model") or "gpt-4o-mini"
+    if is_internal_ui_model(model):
+        model = "gpt-4o-mini"
     attachment = payload.get("attachment") or {}
 
     messages = [
@@ -3832,12 +3859,15 @@ def text_generation(payload: dict) -> dict:
 def image_generation(payload: dict) -> dict:
     opts = payload.get("image_options") or {}
     prompt = build_image_prompt(payload)
-    model_cfg = find_image_model(opts.get("modelId") or opts.get("model_id") or payload.get("model"))
+    requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
+    model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, payload.get("provider"))
     if not model_cfg:
         return {
-            "ok": True,
-            "type": "text",
-            "text": "No image models are configured.\n\nPrompt: " + prompt
+            "ok": False,
+            "type": "image",
+            "provider": payload.get("provider") or "",
+            "model": requested_model or "",
+            "error": "Unsupported image provider or model",
         }
     provider = model_cfg.get("provider") or "openai"
     api_model = model_cfg.get("api_model") or "gpt-image-1"
@@ -3937,9 +3967,10 @@ async def download_prostudio_content(url: str, kind: str = "file"):
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
     payload = await request.json()
-    mode = (payload.get("mode") or "text").lower()
+    mode = (payload.get("mode") or payload.get("category") or "text").lower()
+    category = (payload.get("category") or mode).lower()
     prompt = (payload.get("prompt") or "").strip()
-    selected_model = (payload.get("model") or "sylvex-pro").strip()
+    selected_model = (payload.get("model") or "").strip()
     selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
     image_options = payload.get("image_options") or {}
     video_options = payload.get("video_options") or {}
@@ -3958,36 +3989,51 @@ async def public_prostudio_generate(request: Request):
         or video_options.get("character_image")
     )
 
-    print("PRO STUDIO ROUTER:", {
+    print("PRO STUDIO BACKEND ROUTER:", {
         "mode": mode,
+        "category": category,
         "provider": selected_provider,
         "model": selected_model,
+        "has_image_options": bool(image_options),
+        "has_video_options": bool(video_options),
     })
+
+    generation_modes = {"image", "video", "music", "voice"}
+    text_modes = {"text", "chat", "pro", "lite"}
+    if mode in generation_modes and is_internal_ui_model(selected_model):
+        return invalid_generation_model_response(selected_model)
 
     if not prompt and not payload.get("attachment") and not reference_images and not video_references and not video_media:
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
 
-    # Pro Studio must not be locked to OpenAI only.
-    # OpenAI and BytePlus are live here now. Other providers are routed through SYLVEX router
-    # and should be connected in their own provider functions instead of silently falling back to OpenAI.
-    live_providers = {"openai", "byteplus", "bytedance", "sylvex-router"}
     if mode == "image" and is_seedream_request(payload):
         result = await generateBytePlusSeedreamImage(payload)
+    elif mode == "image":
+        result = image_generation(payload)
     elif mode == "video":
         result = await video_generation(payload)
-    elif selected_provider not in live_providers:
+    elif mode == "music":
         result = {
-            "ok": True,
-            "type": "text",
-            "provider": selected_provider,
+            "ok": False,
+            "type": "music",
+            "provider": selected_provider or "music",
             "model": selected_model,
-            "text": (
-                f"Модель {selected_model} выбрана. Провайдер {selected_provider} будет подключён через SYLVEX router. "
-                "Сейчас backend ещё не отправляет запросы в этот внешний API."
-            ),
+            "error": "Music router is not connected yet",
         }
+    elif mode == "voice":
+        result = {
+            "ok": False,
+            "type": "voice",
+            "provider": selected_provider or "voice",
+            "model": selected_model,
+            "error": "Voice router is not connected yet",
+        }
+    elif mode in text_modes:
+        if not selected_model or is_internal_ui_model(selected_model):
+            payload["model"] = "gpt-4o-mini"
+        result = text_generation(payload)
     else:
-        result = image_generation(payload) if mode == "image" else text_generation(payload)
+        return JSONResponse({"ok": False, "error": "Unknown generation mode", "mode": mode}, status_code=400)
 
     if not result.get("ok"):
         return JSONResponse(result, status_code=502)

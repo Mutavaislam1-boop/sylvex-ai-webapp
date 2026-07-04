@@ -54,6 +54,18 @@ let videoState = {
 };
 let videoUploadTarget = 'reference';
 
+let musicState = {
+  modelId: 'musicgen-pro',
+};
+
+let voiceState = {
+  modelId: 'voice-default',
+};
+
+let textState = {
+  modelId: 'gpt-4o-mini',
+};
+
 const LOBE_ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons';
 
 const AI_LOGOS = {
@@ -500,20 +512,22 @@ const MODEL_ICON_SVG = {
   }
 
   function pickStudioModel() {
-    if (studioMode === 'image') {
+    if (isImageMode()) {
       return imageState.modelId || (IMAGE_MODEL_LIST[0] && IMAGE_MODEL_LIST[0].id) || 'ideogram_3_0';
     }
-    if (studioMode === 'video') {
+    if (isVideoMode()) {
       return videoState.modelId || 'seedance_2_fast';
     }
-    if (studioMode === 'music') return 'musicgen-pro';
-    return /lite/i.test(currentModelLabel || '') ? 'sylvex-lite' : 'sylvex-pro';
+    if (studioMode === 'music') return musicState.modelId || 'musicgen-pro';
+    if (studioMode === 'voice') return voiceState.modelId || 'voice-default';
+    return textState.modelId || 'gpt-4o-mini';
   }
 
   function pickProviderHint() {
     const model = pickStudioModel();
     if (/seedream|seedance/i.test(model)) return 'bytedance';
-    if (/^gpt-image|openai/i.test(model)) return 'sylvex-router';
+    if (/^gpt[_-]?image|openai/i.test(model)) return 'openai';
+    if (/sora/i.test(model)) return 'sora';
     if (/grok/i.test(model)) return 'xai';
     if (/flux/i.test(model)) return 'flux';
     if (/ideogram/i.test(model)) return 'ideogram';
@@ -522,6 +536,7 @@ const MODEL_ICON_SVG = {
     if (/microsoft|mai/i.test(model)) return 'microsoft';
     if (/krea/i.test(model)) return 'krea';
     if (/musicgen/i.test(model)) return 'music';
+    if (/^gpt-|^o[0-9]|chatgpt/i.test(model)) return 'openai';
     return 'sylvex-router';
   }
 
@@ -2530,6 +2545,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     telegram_id: getTelegramId(),
     prompt: promptText,
     mode: studioMode,
+    category: studioMode,
     model: pickStudioModel(),
     provider: isVideoMode() ? currentVideoProvider() : pickProviderHint(),
     image_options: imageOptions,
@@ -2539,6 +2555,15 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     conversation_id: currentConvId,
     language: uiLang(),
   };
+
+  console.log('PRO STUDIO FRONTEND PAYLOAD:', {
+    mode: payload.mode,
+    category: payload.category,
+    model: payload.model,
+    provider: payload.provider,
+    image_options: payload.image_options,
+    video_options: payload.video_options,
+  });
 
   const res = await fetch('/api/public/prostudio/generate', {
     method: 'POST',
