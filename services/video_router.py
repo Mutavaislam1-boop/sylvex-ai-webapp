@@ -53,21 +53,93 @@ def _normalize_video_urls(data):
             if isinstance(item, str) and item.strip():
                 urls.append(item.strip())
             elif isinstance(item, dict):
-                url = item.get("url") or item.get("video_url") or item.get("href") or item.get("src") or ""
-                if url:
-                    urls.append(url)
+                urls.extend(_normalize_video_urls(item))
         return urls
     if isinstance(data, dict):
-        candidates = [
-            data.get("video_url"),
-            data.get("url"),
-            data.get("href"),
-            data.get("src"),
-            data.get("video"),
-        ]
-        urls = [c for c in candidates if isinstance(c, str) and c.strip()]
+        candidates = []
+        for key in (
+            "video_url", "videoUrl", "url", "href", "src", "download_url",
+            "asset_url", "output_url", "result_url", "file_url",
+        ):
+            value = data.get(key)
+            if isinstance(value, str):
+                candidates.append(value)
+        for key in ("video", "output", "outputs", "result", "results", "data", "assets", "files"):
+            value = data.get(key)
+            if isinstance(value, (dict, list, str)):
+                candidates.extend(_normalize_video_urls(value))
+        urls = [c.strip() for c in candidates if isinstance(c, str) and c.strip() and re.match(r"^(https?://|data:video)", c.strip(), re.I)]
         return urls
     return []
+
+
+def _first_value(data, keys):
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        if data.get(key):
+            return data.get(key)
+    for value in data.values():
+        if isinstance(value, dict):
+            found = _first_value(value, keys)
+            if found:
+                return found
+    return None
+
+
+def _task_id_from_response(data):
+    value = _first_value(data, ("task_id", "taskId", "id", "generation_id", "generationId", "operation", "name"))
+    return str(value) if value else None
+
+
+def _provider_processing(provider: str, model_id: str, data: dict, endpoint: str):
+    task_id = _task_id_from_response(data)
+    poll_url = data.get("poll_url") or data.get("status_url") if isinstance(data, dict) else None
+    if not poll_url and task_id:
+        poll_url = endpoint.rstrip("/") + "/" + task_id
+    return _provider_success(provider, model_id, [], status="processing", task_id=task_id, poll_url=poll_url)
+
+
+def _size_for_video(ratio: str, resolution: str):
+    res = str(resolution or "720p").lower()
+    if ratio == "9:16":
+        return "1080x1920" if "1080" in res else "720x1280"
+    if ratio == "1:1":
+        return "1024x1024"
+    return "1920x1080" if "1080" in res else "1280x720"
+
+
+def _runway_ratio(ratio: str, resolution: str):
+    size = _size_for_video(ratio, resolution)
+    return size.replace("x", ":")
+
+
+def _openai_sora_model(model_id: str):
+    return "sora-2-pro" if "pro" in (model_id or "").lower() else "sora-2"
+
+
+def _openai_sora_seconds(duration):
+    try:
+        value = int(duration or 16)
+    except Exception:
+        value = 16
+    return "20" if value >= 20 else "16"
+
+
+def _veo_model(model_id: str):
+    if "fast" in (model_id or "").lower():
+        return os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview")
+    if "gemini" in (model_id or "").lower():
+        return os.getenv("GEMINI_VIDEO_MODEL", "veo-3.1-generate-preview")
+    return os.getenv("VEO_MODEL", "veo-3.1-generate-preview")
+
+
+def _request_json(url: str, headers: dict, payload: dict):
+    return requests.post(url, headers=headers, json=payload, timeout=120)
+
+
+def _request_form(url: str, headers: dict, data: dict, files=None):
+    return requests.post(url, headers=headers, data=data, files=files, timeout=120)
 
 
 def _provider_for_model(model_id: str):
@@ -293,7 +365,7 @@ def _provider_parse_error(provider: str, model_id: str, data: dict):
     return result
 
 
-def _provider_success(provider: str, model_id: str, video_urls: list[str], status: str = "completed", task_id: str = None):
+def _provider_success(provider: str, model_id: str, video_urls: list[str], status: str = "completed", task_id: str = None, poll_url: str = None):
     result = {
         "ok": True,
         "type": "video",
@@ -305,7 +377,22 @@ def _provider_success(provider: str, model_id: str, video_urls: list[str], statu
     }
     if task_id:
         result["task_id"] = task_id
+    if poll_url:
+        result["poll_url"] = poll_url
     return result
+
+
+def _provider_result_from_response(provider: str, model_id: str, response, endpoint: str):
+    data = _safe_provider_json_response(response, provider, endpoint)
+    status = getattr(response, "status_code", None) or getattr(response, "status", None) or 0
+    if status >= 400 or data.get("ok") is False:
+        return _provider_parse_error(provider, model_id, data)
+    urls = _normalize_video_urls(data)
+    if urls:
+        return _provider_success(provider, model_id, urls)
+    if _task_id_from_response(data):
+        return _provider_processing(provider, model_id, data, endpoint)
+    return _provider_error(provider, model_id, "Provider returned no video URL or task id")
 
 
 def _telegram_caption(model_id: str, provider: str, payload: dict):
@@ -324,10 +411,6 @@ def _telegram_caption(model_id: str, provider: str, payload: dict):
     )
 
 
-def _request_json(url: str, headers: dict, payload: dict):
-    return requests.post(url, headers=headers, data=json.dumps(payload), timeout=120)
-
-
 def _call_seedance(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_ARK_API_KEY")
     if not api_key:
@@ -335,24 +418,16 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = f"{os.getenv('BYTEPLUS_ARK_ENDPOINT', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')}/videos/generations"
+        endpoint = os.getenv(
+            "BYTEDANCE_VIDEO_ENDPOINT",
+            f"{os.getenv('BYTEPLUS_ARK_ENDPOINT', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')}/videos/generations",
+        )
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "seedance", endpoint)
-            return _provider_parse_error("seedance", model_id, data)
-        data = _safe_provider_json_response(response, "seedance", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("seedance", model_id, data)
-        urls = _normalize_video_urls(data.get("data") or data.get("videos") or data.get("output") or data)
-        if urls:
-            return _provider_success("seedance", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("seedance", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("seedance", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("seedance", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("seedance", model_id, f"Provider request failed: {exc}")
 
@@ -362,26 +437,23 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("heygen", model_id, "Provider API key is missing: HEYGEN_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt})
+    body.update({
+        "prompt": prompt,
+        "model": os.getenv("HEYGEN_VIDEO_MODEL", model_id),
+        "caption": False,
+    })
+    if os.getenv("HEYGEN_AVATAR_ID"):
+        body["avatar_id"] = os.getenv("HEYGEN_AVATAR_ID")
+    if os.getenv("HEYGEN_VOICE_ID"):
+        body["voice_id"] = os.getenv("HEYGEN_VOICE_ID")
     try:
-        endpoint = f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v3').rstrip('/')}/video/generate"
+        endpoint = os.getenv("HEYGEN_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v3').rstrip('/')}/video/generate")
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            {"Authorization": f"Bearer {api_key}", "x-api-key": api_key, "Content-Type": "application/json"},
             body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "heygen", endpoint)
-            return _provider_parse_error("heygen", model_id, data)
-        data = _safe_provider_json_response(response, "heygen", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("heygen", model_id, data)
-        urls = _normalize_video_urls(data.get("data") or data.get("videos") or data.get("video") or data)
-        if urls:
-            return _provider_success("heygen", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("heygen", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("heygen", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("heygen", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("heygen", model_id, f"Provider request failed: {exc}")
 
@@ -393,24 +465,22 @@ def _call_luma(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = "https://api.lumalabs.ai/dream-machine/v1/generations"
+        endpoint = os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")
+        luma_body = {
+            "prompt": prompt,
+            "aspect_ratio": body.get("ratio") or "16:9",
+            "model": os.getenv("LUMA_VIDEO_MODEL", "ray-2"),
+        }
+        if body.get("start_image"):
+            luma_body["keyframes"] = {"frame0": {"type": "image", "url": body.get("start_image")}}
+        if body.get("end_image"):
+            luma_body.setdefault("keyframes", {})["frame1"] = {"type": "image", "url": body.get("end_image")}
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            luma_body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "luma", endpoint)
-            return _provider_parse_error("luma", model_id, data)
-        data = _safe_provider_json_response(response, "luma", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("luma", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("luma", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("luma", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("luma", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("luma", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("luma", model_id, f"Provider request failed: {exc}")
 
@@ -422,24 +492,13 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = "https://api.klingai.com/v1/videos/generations"
+        endpoint = os.getenv("KLING_API_ENDPOINT", "https://api.klingai.com/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "kling", endpoint)
-            return _provider_parse_error("kling", model_id, data)
-        data = _safe_provider_json_response(response, "kling", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("kling", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("kling", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("kling", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("kling", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("kling", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("kling", model_id, f"Provider request failed: {exc}")
 
@@ -449,26 +508,28 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("runway", model_id, "Provider API key is missing: RUNWAY_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = "https://api.runwayml.com/v1/video/generations"
+        endpoint = os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")
+        runway_body = {
+            "model": os.getenv("RUNWAY_VIDEO_MODEL", "gen4_turbo" if model_id == "runway_gen" else "aleph"),
+            "promptText": prompt,
+            "ratio": _runway_ratio(body.get("ratio"), body.get("resolution")),
+            "duration": int(body.get("duration") or 5),
+        }
+        if body.get("start_image"):
+            runway_body["promptImage"] = body.get("start_image")
+        if body.get("input_video"):
+            runway_body["videoUri"] = body.get("input_video")
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Runway-Version": os.getenv("RUNWAY_API_VERSION", "2024-11-06"),
+            },
+            runway_body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "runway", endpoint)
-            return _provider_parse_error("runway", model_id, data)
-        data = _safe_provider_json_response(response, "runway", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("runway", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("runway", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("runway", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("runway", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("runway", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("runway", model_id, f"Provider request failed: {exc}")
 
@@ -478,26 +539,23 @@ def _call_minimax(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("minimax", model_id, "Provider API key is missing: MINIMAX_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
+    minimax_body = {
+        "model": os.getenv("MINIMAX_VIDEO_MODEL", model_id),
+        "prompt": prompt,
+        "duration": int(body.get("duration") or 5),
+        "resolution": body.get("resolution") or "720p",
+        "aspect_ratio": body.get("ratio") or "16:9",
+    }
+    if body.get("start_image"):
+        minimax_body["first_frame_image"] = body.get("start_image")
     try:
-        endpoint = "https://api.minimax.io/v1/video/generation"
+        endpoint = os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            minimax_body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "minimax", endpoint)
-            return _provider_parse_error("minimax", model_id, data)
-        data = _safe_provider_json_response(response, "minimax", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("minimax", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("minimax", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("minimax", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("minimax", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("minimax", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("minimax", model_id, f"Provider request failed: {exc}")
 
@@ -507,26 +565,23 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("pixverse", model_id, "Provider API key is missing: PIXVERSE_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
+    pixverse_body = {
+        "model": os.getenv("PIXVERSE_VIDEO_MODEL", model_id),
+        "prompt": prompt,
+        "aspect_ratio": body.get("ratio") or "16:9",
+        "duration": int(body.get("duration") or 5),
+        "quality": body.get("resolution") or body.get("quality") or "720p",
+    }
+    if body.get("start_image"):
+        pixverse_body["image_url"] = body.get("start_image")
     try:
-        endpoint = "https://api.pixverse.io/v1/videos/generations"
+        endpoint = os.getenv("PIXVERSE_API_ENDPOINT", "https://api.pixverse.io/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            pixverse_body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "pixverse", endpoint)
-            return _provider_parse_error("pixverse", model_id, data)
-        data = _safe_provider_json_response(response, "pixverse", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("pixverse", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("pixverse", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("pixverse", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("pixverse", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("pixverse", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("pixverse", model_id, f"Provider request failed: {exc}")
 
@@ -536,26 +591,20 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("sora", model_id, "Provider API key is missing: OPENAI_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos/generations"
-        response = _request_json(
+        endpoint = f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"
+        form = {
+            "model": _openai_sora_model(model_id),
+            "prompt": prompt,
+            "size": _size_for_video(body.get("ratio"), body.get("resolution")),
+            "seconds": _openai_sora_seconds(body.get("duration")),
+        }
+        response = _request_form(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            {"Authorization": f"Bearer {api_key}"},
+            form,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "sora", endpoint)
-            return _provider_parse_error("sora", model_id, data)
-        data = _safe_provider_json_response(response, "sora", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("sora", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("sora", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("sora", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("sora", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("sora", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("sora", model_id, f"Provider request failed: {exc}")
 
@@ -565,26 +614,28 @@ def _call_veo(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("veo", model_id, "Provider API key is missing: GOOGLE_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = "https://generativelanguage.googleapis.com/v1beta/models/video:generate"
+        google_model = _veo_model(model_id)
+        endpoint = os.getenv(
+            "GOOGLE_VEO_ENDPOINT",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{google_model}:predictLongRunning",
+        )
+        veo_body = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {
+                "aspectRatio": body.get("ratio") or "16:9",
+                "durationSeconds": int(body.get("duration") or 5),
+                "sampleCount": 1,
+            },
+        }
+        if body.get("start_image"):
+            veo_body["instances"][0]["image"] = {"url": body.get("start_image")}
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            {"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            veo_body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "veo", endpoint)
-            return _provider_parse_error("veo", model_id, data)
-        data = _safe_provider_json_response(response, "veo", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("veo", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("veo", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("veo", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("veo", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("veo", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("veo", model_id, f"Provider request failed: {exc}")
 
@@ -594,26 +645,27 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
     if not api_key:
         return _provider_error("wan", model_id, "Provider API key is missing: ALIBABA_API_KEY")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
+    wan_body = {
+        "model": os.getenv("WAN_VIDEO_MODEL", model_id),
+        "input": {"prompt": prompt},
+        "parameters": {
+            "duration": int(body.get("duration") or 5),
+            "size": _size_for_video(body.get("ratio"), body.get("resolution")),
+            "resolution": body.get("resolution") or "720p",
+        },
+    }
+    if body.get("start_image"):
+        wan_body["input"]["img_url"] = body.get("start_image")
+    if body.get("input_video"):
+        wan_body["input"]["video_url"] = body.get("input_video")
     try:
-        endpoint = "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation"
+        endpoint = os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "X-DashScope-Async": "enable"},
+            wan_body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "wan", endpoint)
-            return _provider_parse_error("wan", model_id, data)
-        data = _safe_provider_json_response(response, "wan", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("wan", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("wan", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("wan", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("wan", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("wan", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("wan", model_id, f"Provider request failed: {exc}")
 
@@ -625,24 +677,13 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = "https://api.x.ai/v1/videos/generations"
+        endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "grok", endpoint)
-            return _provider_parse_error("grok", model_id, data)
-        data = _safe_provider_json_response(response, "grok", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("grok", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("grok", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("grok", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("grok", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("grok", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("grok", model_id, f"Provider request failed: {exc}")
 
@@ -654,24 +695,13 @@ def _call_hedra(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     body.update({"prompt": prompt, "model": model_id})
     try:
-        endpoint = "https://api.hedra.com/v1/videos/generations"
+        endpoint = os.getenv("HEDRA_API_ENDPOINT", "https://api.hedra.com/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             body,
         )
-        if response.status_code >= 400:
-            data = _safe_provider_json_response(response, "hedra", endpoint)
-            return _provider_parse_error("hedra", model_id, data)
-        data = _safe_provider_json_response(response, "hedra", endpoint)
-        if data.get("ok") is False:
-            return _provider_parse_error("hedra", model_id, data)
-        urls = _normalize_video_urls(data.get("videos") or data.get("video") or data.get("data") or data)
-        if urls:
-            return _provider_success("hedra", model_id, urls)
-        if data.get("task_id") or data.get("id"):
-            return _provider_success("hedra", model_id, [], status="processing", task_id=str(data.get("task_id") or data.get("id")))
-        return _provider_error("hedra", model_id, "Provider returned no video URL")
+        return _provider_result_from_response("hedra", model_id, response, endpoint)
     except Exception as exc:
         return _provider_error("hedra", model_id, f"Provider request failed: {exc}")
 
