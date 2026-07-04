@@ -40,9 +40,9 @@ const IMAGE_STYLE_SHEET_ITEMS = [
   { id:'minimal', label:'Minimal', image:'assets/styles/minimal.png' },
   { id:'oil_painting', label:'Oil painting', image:'assets/styles/oil_painting.png' },
   { id:'pixel_art', label:'Pixel art', image:'assets/styles/pixel_art.png' },
-  { id:'futuristic', label:'Futuristic', image:'assets/styles/futuristic.png' },
   
   
+  { id:'orange_dominion', label:'Orange Dominion', image:'assets/styles/orange_dominion.jpg' },
   { id:'neon_cutout', label:'Neon Cutout', image:'assets/styles/neon_cutout.jpg' },
   { id:'built_bricks', label:'Built Bricks', image:'assets/styles/built_bricks.jpg' },
   { id:'aegean_luxury', label:'Aegean', image:'assets/styles/aegean_luxury.jpg' },

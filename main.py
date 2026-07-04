@@ -3388,6 +3388,15 @@ def build_image_prompt(payload: dict) -> str:
             Important subjects must remain clear and readable, but all fine realistic detail must be simplified into bold neon shapes. The final result must be aggressive, electric, artificial, urban, psychedelic, and instantly recognizable as Neon Cutout.
             This must be a complete graphic, color, and material transformation into the Neon Cutout style.""",
 
+            "orange_dominion": """Recreate the uploaded image as a full Orange Dominion cinematic transformation. Do not apply only an orange filter. Do not simply make the photo warm. The entire scene must be rebuilt as if it was originally photographed inside a monochrome orange-red world.
+            Keep only the main subject identity, pose, face direction, body position, important silhouettes, main objects, and general framing. Everything else must be transformed: color, lighting, background, architecture, clothing, materials, objects, atmosphere, shadows, depth, and mood.
+            Use a total orange-red palette: burnt orange, amber, copper, terracotta, rust, crimson-orange, dark sienna, and deep red shadows. Eliminate every natural color. Skin, clothing, furniture, buildings, plants, sky, ground, and objects must all become part of the same orange dominion. Nothing should look normally colored.
+            Add warm atmospheric fog, desert haze, soft dust in the air, diffused orange light, smooth red-orange shadows, low contrast highlights, cinematic depth, and a monumental quiet mood. The scene should feel spacious, minimal, and controlled, like a frame from a surreal futuristic art-house film.
+            Transform ordinary backgrounds into vast minimalist interiors, arched spaces, desert landscapes, modernist architecture, smooth walls, sculptural forms, empty plazas, or cinematic orange environments. Replace messy or ordinary details with clean, simplified, elegant, warm-toned forms.
+            Objects must not just be tinted orange; they must feel physically made for this world, with orange materials, warm shadows, amber highlights, and sculptural silhouettes. The whole image must be visually dominated by orange, with no competing colors.
+            The final result must be quiet, powerful, warm, surreal, cinematic, minimalistic, dusty, atmospheric, and elegant. It must look like a real cinematic still from an orange-red world, not a normal photo with color grading.
+            This must be a complete color, material, spatial, and atmospheric transformation into the Orange Dominion style.""",
+
             # Add the next style prompt below this line, before the closing brace.
         }
     
