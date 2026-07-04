@@ -33,13 +33,26 @@ let imageState = {
 
 let videoState = {
   modelId: 'seedance_2_fast',
+  provider: 'bytedance',
+  section: 'generate',
   ratio: '16:9',
   duration: 5,
-  mode: 'text_to_video',
+  resolution: '720p',
+  sound: false,
+  generationMode: 'text_to_video',
   quality: 'standard',
+  startImage: '',
+  endImage: '',
+  characterImage: '',
+  inputVideo: '',
+  videoUrl: '',
+  imageUrl: '',
+  motionPreset: '',
   referenceImageUrl: '',
   referenceImageUrls: [],
+  advanced: {},
 };
+let videoUploadTarget = 'reference';
 
 const LOBE_ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons';
 
@@ -140,6 +153,39 @@ const VIDEO_MODELS = [
   { id:'kling_3_0', label:'Клинг 3.0', desc:'Kling video model', icon:'kling', badge:'СКИДКА', badgeClass:'green' }
 ];
 
+const VIDEO_MODEL_CONFIG = {
+  heygen_v3_video_agent: { provider:'heygen', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
+  luma_ray_v3_2: { provider:'luma', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  luma_dream_machine: { provider:'luma', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  minimax_hailuo_2_3: { provider:'minimax', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  pixverse_v6: { provider:'pixverse', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  sora_2_pro: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  wan_2_7: { provider:'wan', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  veo_3_1: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  grok_video_edit: { provider:'grok', modes:['video_edit'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
+  wan_2_7_edit: { provider:'wan', modes:['video_edit'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:false, end_image:false, video_upload:true, video_edit:true },
+  runway_aleph: { provider:'runway', modes:['video_edit','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  kling_motion_2_6: { provider:'kling', modes:['motion_control','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_motion_3_0: { provider:'kling', modes:['motion_control','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  seedance_1_5_pro: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  wan_2_6: { provider:'wan', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  seedance_2_fast: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  seedance_2_0: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  kling_o3_omni: { provider:'kling', modes:['text_to_video','image_to_video','motion_control'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  gemini_omni_flash: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  grok_video: { provider:'grok', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
+  veo_3_1_fast: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  runway_gen: { provider:'runway', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_o3_edit: { provider:'kling', modes:['video_edit'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
+  kling_3_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false }
+};
+
+const VIDEO_MOTION_PRESETS = [
+  'Walk', 'Run', 'Turn around', 'Wave hand', 'Jump',
+  'Dance 1', 'Dance 2', 'Cinematic pose', 'Camera orbit', 'Slow motion'
+];
+
 function currentVideoModel() {
   return VIDEO_MODELS.find((item) => item.id === videoState.modelId) || VIDEO_MODELS[0];
 }
@@ -150,6 +196,66 @@ function isImageMode() {
 
 function isVideoMode() {
   return studioMode === 'video' || activeCat === 'video';
+}
+
+function currentVideoConfig() {
+  return VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
+}
+
+function currentVideoProvider() {
+  const config = currentVideoConfig();
+  return (config && config.provider) || 'sylvex-router';
+}
+
+function normalizeVideoStateForModel() {
+  const config = currentVideoConfig();
+  if (!config) return;
+  const modes = config.modes || ['text_to_video'];
+  const durations = config.durations || [5];
+  const ratios = config.ratios || ['16:9'];
+  const resolutions = config.resolutions || ['720p'];
+
+  videoState.provider = config.provider || videoState.provider || 'sylvex-router';
+  if (!modes.includes(videoState.generationMode)) videoState.generationMode = modes[0] || 'text_to_video';
+  videoState.mode = videoState.generationMode;
+  if (!durations.includes(Number(videoState.duration))) videoState.duration = durations[0] || 5;
+  if (!ratios.includes(videoState.ratio)) videoState.ratio = ratios[0] || '16:9';
+  if (!resolutions.includes(videoState.resolution)) videoState.resolution = resolutions[0] || '720p';
+  if (!config.sound) videoState.sound = false;
+}
+
+function labelItems(values, suffix) {
+  return (values || []).map((value) => {
+    const id = String(value);
+    return { id, label: suffix ? id + ' ' + suffix : id };
+  });
+}
+
+function videoOptionsPayload(referenceImagesOverride) {
+  normalizeVideoStateForModel();
+  const referenceImages = Array.isArray(referenceImagesOverride)
+    ? referenceImagesOverride.slice()
+    : (videoState.referenceImageUrls || []).slice();
+
+  return {
+    section: videoState.section || 'generate',
+    generation_mode: videoState.generationMode || videoState.mode || 'text_to_video',
+    mode: videoState.generationMode || videoState.mode || 'text_to_video',
+    ratio: videoState.ratio || '16:9',
+    resolution: videoState.resolution || '720p',
+    duration: Number(videoState.duration || 5),
+    sound: !!videoState.sound,
+    start_image: videoState.startImage || referenceImages[0] || '',
+    end_image: videoState.endImage || '',
+    reference_images: referenceImages,
+    referenceImageUrls: referenceImages,
+    input_video: videoState.inputVideo || '',
+    video_url: videoState.videoUrl || '',
+    image_url: videoState.imageUrl || '',
+    motion_preset: videoState.motionPreset || '',
+    character_image: videoState.characterImage || '',
+    advanced: Object.assign({}, videoState.advanced || {}),
+  };
 }
 
 function videoOptionLabel(kind, value) {
@@ -175,10 +281,15 @@ function videoOptionLabel(kind, value) {
     return 'Standard';
   }
 
+  if (kind === 'sound') {
+    return value ? 'Звук вкл' : 'Звук выкл';
+  }
+
   return str;
 }
 
 function renderVideoControls() {
+  normalizeVideoStateForModel();
   const model = currentVideoModel();
 
   const modelEl = document.getElementById('modelValComposer');
@@ -194,6 +305,15 @@ function renderVideoControls() {
 
   const countVal = document.getElementById('imageCountVal');
   if (countVal) countVal.textContent = videoOptionLabel('duration', videoState.duration);
+
+  const durationVal = document.getElementById('videoDurationVal');
+  if (durationVal) durationVal.textContent = videoOptionLabel('duration', videoState.duration);
+
+  const resolutionVal = document.getElementById('videoResolutionVal');
+  if (resolutionVal) resolutionVal.textContent = videoState.resolution || '720p';
+
+  const soundVal = document.getElementById('videoSoundVal');
+  if (soundVal) soundVal.textContent = videoOptionLabel('sound', videoState.sound);
 
   const styleVal = document.getElementById('imageStyleVal');
   if (styleVal) {
@@ -219,11 +339,24 @@ function pickVideoOption(kind, value) {
   }
 
   if (kind === 'style' || kind === 'mode') {
-    videoState.mode = value || 'text_to_video';
+    videoState.generationMode = value || 'text_to_video';
+    videoState.mode = videoState.generationMode;
   }
 
   if (kind === 'character' || kind === 'quality') {
     videoState.quality = value || 'standard';
+  }
+
+  if (kind === 'resolution') {
+    videoState.resolution = value || '720p';
+  }
+
+  if (kind === 'sound') {
+    videoState.sound = value === true || value === 'true' || value === 'on' || value === '1';
+  }
+
+  if (kind === 'motion_preset') {
+    videoState.motionPreset = value || '';
   }
 
   renderVideoControls();
@@ -565,7 +698,7 @@ function updateImageUploadButtonPreview() {
   const button = findImageUploadControlButton();
   if (!button) return;
 
-  const urls = (imageState.referenceImageUrls || []).filter(Boolean).slice(0, 4);
+  const urls = (isVideoMode() ? (videoState.referenceImageUrls || []) : (imageState.referenceImageUrls || [])).filter(Boolean).slice(0, 4);
 
   let bg = button.querySelector(':scope > .image-upload-control-bg');
 
@@ -587,6 +720,23 @@ function updateImageUploadButtonPreview() {
   )).join('');
 
   button.classList.add('has-upload-preview');
+}
+
+function addVideoReferenceImage(url) {
+  if (!url) return;
+  const urls = (videoState.referenceImageUrls || []).filter((item) => item !== url);
+  urls.push(url);
+  videoState.referenceImageUrls = urls.slice(0, 4);
+  videoState.referenceImageUrl = url;
+  videoState.imageUrl = url;
+
+  if (videoUploadTarget === 'end') {
+    videoState.endImage = url;
+  } else if (videoUploadTarget === 'character') {
+    videoState.characterImage = url;
+  } else {
+    videoState.startImage = url;
+  }
 }
 
   function injectImageStyleSheetCss() {
@@ -1246,6 +1396,8 @@ function imageModelButton(model) {
     if (isVideoMode()) {
       const el = document.getElementById('modelPop');
       if (!el) return;
+      normalizeVideoStateForModel();
+      const config = currentVideoConfig();
 
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
@@ -1289,31 +1441,47 @@ function imageModelButton(model) {
         S.haptic && S.haptic.impact && S.haptic.impact('light');
       };
 
-      if (kind === 'size') {
+      if (kind === 'size' || kind === 'ratio') {
         const active = videoState.ratio || '16:9';
-        openVideoSheet('Формат видео', [
-          { id:'16:9', label:'16:9', active },
-          { id:'9:16', label:'9:16', active },
-          { id:'1:1', label:'1:1', active }
-        ], 'ratio');
+        openVideoSheet('Формат видео', labelItems(config.ratios || ['16:9'], '').map((item) => Object.assign(item, { active })), 'ratio');
         return;
       }
 
-      if (kind === 'count') {
+      if (kind === 'count' || kind === 'duration') {
         const active = String(videoState.duration || 5);
-        openVideoSheet('Длительность', [
-          { id:'5', label:'5 сек', active },
-          { id:'10', label:'10 сек', active }
-        ], 'duration');
+        openVideoSheet('Длительность', labelItems(config.durations || [5], 'сек').map((item) => Object.assign(item, { active })), 'duration');
+        return;
+      }
+
+      if (kind === 'resolution') {
+        const active = videoState.resolution || '720p';
+        openVideoSheet('Разрешение', labelItems(config.resolutions || ['720p'], '').map((item) => Object.assign(item, { active })), 'resolution');
+        return;
+      }
+
+      if (kind === 'sound') {
+        if (!config.sound) {
+          toast('Эта модель не поддерживает звук');
+          return;
+        }
+        const active = String(!!videoState.sound);
+        openVideoSheet('Звук', [
+          { id:'true', label:'Звук вкл', active },
+          { id:'false', label:'Звук выкл', active }
+        ], 'sound');
         return;
       }
 
       if (kind === 'style') {
-        const active = videoState.mode || 'text_to_video';
-        openVideoSheet('Режим видео', [
-          { id:'text_to_video', label:'Text to Video', active },
-          { id:'image_to_video', label:'Image to Video', active }
-        ], 'mode');
+        const active = videoState.generationMode || videoState.mode || 'text_to_video';
+        const labels = {
+          text_to_video: 'Text to Video',
+          image_to_video: 'Image to Video',
+          video_to_video: 'Video to Video',
+          video_edit: 'Video Edit',
+          motion_control: 'Motion Control'
+        };
+        openVideoSheet('Режим видео', (config.modes || ['text_to_video']).map((id) => ({ id, label: labels[id] || id, active })), 'mode');
         return;
       }
 
@@ -1324,6 +1492,12 @@ function imageModelButton(model) {
           { id:'high', label:'High', active },
           { id:'pro', label:'Pro', active }
         ], 'quality');
+        return;
+      }
+
+      if (kind === 'objects') {
+        const active = videoState.motionPreset || '';
+        openVideoSheet('Движение', VIDEO_MOTION_PRESETS.map((id) => ({ id, label: id, active })), 'motion_preset');
         return;
       }
 
@@ -1430,6 +1604,7 @@ function imageModelButton(model) {
         const model = VIDEO_MODELS.find((item) => item.id === value);
         if (model) {
           videoState.modelId = model.id;
+          normalizeVideoStateForModel();
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
@@ -1708,6 +1883,35 @@ function imageModelButton(model) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
   }
+  function addMediaLink(kind) {
+    const sheet = document.getElementById('plusSheet');
+    if (sheet) sheet.classList.remove('show');
+
+    const raw = window.prompt(kind === 'video' ? 'Video URL' : 'Image URL');
+    const url = String(raw || '').trim();
+    if (!url) return;
+
+    if (isVideoMode()) {
+      if (kind === 'video') {
+        videoState.videoUrl = url;
+        videoState.inputVideo = url;
+        videoState.generationMode = 'video_edit';
+        videoState.mode = 'video_edit';
+      } else {
+        addVideoReferenceImage(url);
+      }
+      updateSendButton();
+      toast('Ссылка добавлена');
+      return;
+    }
+
+    if (kind === 'image' && isImageMode()) {
+      addUploadedPhoto(url);
+      renderComposerImageDraft();
+      updateSendButton();
+      toast('Ссылка добавлена');
+    }
+  }
   function ensureUploadPanel() {
     let panel = document.getElementById('uploadPanel');
     if (panel) return panel;
@@ -1776,7 +1980,7 @@ function imageModelButton(model) {
       return;
     }
 
-    const selectedUrl = imageState.referenceImageUrl || '';
+    const selectedUrl = isVideoMode() ? (videoState.referenceImageUrl || '') : (imageState.referenceImageUrl || '');
     grid.innerHTML = generatedImageLibrary.map((entry) => {
       const item = normalizeGeneratedImageItem(entry);
       if (!item) return '';
@@ -1822,7 +2026,7 @@ function imageModelButton(model) {
     const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
     if (chooseBtn) chooseBtn.hidden = uploadedImageLibrary.length === 0;
 
-    const selectedUrl = imageState.referenceImageUrl || '';
+    const selectedUrl = isVideoMode() ? (videoState.referenceImageUrl || '') : (imageState.referenceImageUrl || '');
     const items = uploadedImageLibrary.map((url, index) => {
       const safeUrl = S.escapeHtml(url);
       const selected = selectedUrl === url;
@@ -1843,8 +2047,12 @@ function imageModelButton(model) {
     uploadedImageLibrary = uploadedImageLibrary.filter((item) => item !== url);
     uploadedImageLibrary.push(url);
     uploadedImageLibrary = uploadedImageLibrary.slice(0, 4);
-    imageState.referenceImageUrl = url;
-    imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    if (isVideoMode()) {
+      addVideoReferenceImage(url);
+    } else {
+      imageState.referenceImageUrl = url;
+      imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    }
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
   }
@@ -1854,8 +2062,12 @@ function imageModelButton(model) {
       e.preventDefault();
       e.stopPropagation();
     }
-    imageState.referenceImageUrl = url;
-    imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    if (isVideoMode()) {
+      addVideoReferenceImage(url);
+    } else {
+      imageState.referenceImageUrl = url;
+      imageState.referenceImageUrls = uploadedImageLibrary.slice();
+    }
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
     toast('Фото выбрано');
@@ -1867,8 +2079,16 @@ function imageModelButton(model) {
       e.stopPropagation();
     }
     uploadedImageLibrary.splice(index, 1);
-    imageState.referenceImageUrls = uploadedImageLibrary.slice();
-    imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+    if (isVideoMode()) {
+      videoState.referenceImageUrls = uploadedImageLibrary.slice();
+      videoState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+      if (!uploadedImageLibrary.includes(videoState.startImage)) videoState.startImage = videoState.referenceImageUrl || '';
+      if (!uploadedImageLibrary.includes(videoState.endImage)) videoState.endImage = '';
+      if (!uploadedImageLibrary.includes(videoState.characterImage)) videoState.characterImage = '';
+    } else {
+      imageState.referenceImageUrls = uploadedImageLibrary.slice();
+      imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+    }
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
   }
@@ -1879,8 +2099,14 @@ function imageModelButton(model) {
         e.stopPropagation();
     }
 
-    imageState.referenceImageUrls = uploadedImageLibrary.slice();
-    imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+    if (isVideoMode()) {
+      videoState.referenceImageUrls = uploadedImageLibrary.slice();
+      videoState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+      if (!videoState.startImage && videoState.referenceImageUrl) videoState.startImage = videoState.referenceImageUrl;
+    } else {
+      imageState.referenceImageUrls = uploadedImageLibrary.slice();
+      imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+    }
 
     renderComposerImageDraft();
     updateImageUploadButtonPreview();
@@ -2136,12 +2362,24 @@ function closeUploadPanel(e) {
     const inp = document.getElementById('attachInput');
     if (!inp) return;
     if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
+    else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
     inp.value = '';
     inp.click();
   }
 
-  function attach(kind, e) {
+  function attach(kind, target, e) {
+    if (target && target.preventDefault) {
+      e = target;
+      target = '';
+    }
+    if (isVideoMode()) {
+      videoUploadTarget = target || (videoState.section === 'edit' ? 'input_video' : (videoState.section === 'motion' ? 'character' : 'start'));
+      if (videoUploadTarget === 'input_video') {
+        openNativeFilePicker('video');
+        return;
+      }
+    }
     // Old upload button used to open the system file picker immediately.
     // Now it opens the large upload panel. File picker will be called from buttons inside that panel later.
     const sheet = document.getElementById('plusSheet');
@@ -2169,6 +2407,14 @@ function closeUploadPanel(e) {
         toast('Фото загружено');
       }
 
+      if ((pendingAttachAccept || '') === 'video' && result && isVideoMode()) {
+        videoState.inputVideo = result;
+        videoState.videoUrl = result;
+        videoState.generationMode = 'video_edit';
+        videoState.mode = 'video_edit';
+        toast('Видео загружено');
+      }
+
       try { updateSendButton(); } catch {}
     };
     reader.readAsDataURL(f);
@@ -2178,17 +2424,36 @@ function closeUploadPanel(e) {
     try { updateSendButton(); } catch {}
   }
   function updateComposerMode(kind) {
-    studioMode = kind;
-    activeCat = kind;
+    const isVideoSection = kind === 'video' || kind === 'edit' || kind === 'motion';
+    studioMode = isVideoSection ? 'video' : kind;
+    activeCat = studioMode;
+    if (isVideoSection) {
+      videoState.section = kind === 'edit' ? 'edit' : (kind === 'motion' ? 'motion' : 'generate');
+      if (videoState.section === 'edit') {
+        videoState.generationMode = 'video_edit';
+        videoState.mode = 'video_edit';
+        videoUploadTarget = 'input_video';
+      } else if (videoState.section === 'motion') {
+        videoState.generationMode = 'motion_control';
+        videoState.mode = 'motion_control';
+        videoUploadTarget = 'character';
+      } else {
+        videoUploadTarget = 'start';
+      }
+      normalizeVideoStateForModel();
+    }
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
       document.activeElement.blur();
     }
-    const isImage = kind === 'image';
-    const isMusic = kind === 'music';
+    const isImage = studioMode === 'image';
+    const isMusic = studioMode === 'music';
     const composer = document.getElementById('studioComposer');
     if (composer) composer.dataset.composerMode = isImage ? 'image' : isMusic ? 'music' : 'video';
     document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
-      const isActive = btn.dataset.studioModeBtn === kind || (!isImage && !isMusic && kind === 'video' && btn.dataset.studioModeBtn === 'video');
+      const modeBtn = btn.dataset.studioModeBtn;
+      const isActive = isVideoSection
+        ? modeBtn === (videoState.section === 'generate' ? 'video' : videoState.section)
+        : modeBtn === kind;
       btn.classList.toggle('active', isActive);
     });
     document.querySelectorAll('.studio-mini-tab').forEach((btn) => btn.classList.remove('active'));
@@ -2237,22 +2502,28 @@ function closeUploadPanel(e) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }
-async function callGenerate(prompt, attachment, referenceImagesOverride) {
+async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride) {
   const promptText = (prompt || '').trim();
-  const referenceImages = Array.isArray(referenceImagesOverride)
+  const imageReferenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : (imageState.referenceImageUrls || []).slice();
+  const videoReferenceImages = isVideoMode()
+    ? (Array.isArray(referenceImagesOverride) ? referenceImagesOverride.slice() : (videoState.referenceImageUrls || []).slice())
+    : [];
 
   const history = chatMessages
     .filter((m) => !m.typing && m.text && (m.role === 'user' || m.role === 'ai'))
     .slice(-10)
     .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
 
-  const imageOptions = studioMode === 'image'
+  const imageOptions = isImageMode()
     ? Object.assign({}, imageState, {
-        referenceImageUrls: referenceImages,
-        referenceImages: referenceImages,
+        referenceImageUrls: imageReferenceImages,
+        referenceImages: imageReferenceImages,
       })
+    : null;
+  const videoOptions = isVideoMode()
+    ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
 
   const payload = {
@@ -2260,8 +2531,9 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     prompt: promptText,
     mode: studioMode,
     model: pickStudioModel(),
-    provider: pickProviderHint(),
+    provider: isVideoMode() ? currentVideoProvider() : pickProviderHint(),
     image_options: imageOptions,
+    video_options: videoOptions,
     history,
     attachment: attachment || null,
     conversation_id: currentConvId,
@@ -2289,7 +2561,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
     const attachment = pendingAttachment;
-    const referenceImages = (imageState.referenceImageUrls || []).slice();
+    const referenceImages = isVideoMode()
+      ? (videoState.referenceImageUrls || []).slice()
+      : (imageState.referenceImageUrls || []).slice();
+    const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
     if (!v && !attachment && !referenceImages.length) return;
 
@@ -2301,8 +2576,20 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     });
     ta.value = ''; autoGrow(ta); updateSendButton();
     clearAttachment();
-    imageState.referenceImageUrls = [];
-    imageState.referenceImageUrl = '';
+    if (isVideoMode()) {
+      videoState.referenceImageUrls = [];
+      videoState.referenceImageUrl = '';
+      videoState.startImage = '';
+      videoState.endImage = '';
+      videoState.characterImage = '';
+      if (videoState.section !== 'edit') {
+        videoState.inputVideo = '';
+        videoState.videoUrl = '';
+      }
+    } else {
+      imageState.referenceImageUrls = [];
+      imageState.referenceImageUrl = '';
+    }
     uploadedImageLibrary = [];
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
@@ -2312,7 +2599,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     try {
-      const j = await callGenerate(v, attachment, referenceImages);
+      const j = await callGenerate(v, attachment, referenceImages, videoOptionsSnapshot);
       chatMessages.pop();
      chatMessages.push({
     role: 'ai',
@@ -3079,7 +3366,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
-    const has = (ta.value || '').trim().length > 0 || !!pendingAttachment || !!(imageState.referenceImageUrls && imageState.referenceImageUrls.length);
+    const activeReferences = isVideoMode() ? videoState.referenceImageUrls : imageState.referenceImageUrls;
+    const has = (ta.value || '').trim().length > 0 || !!pendingAttachment || !!(activeReferences && activeReferences.length) || !!(isVideoMode() && videoState.inputVideo);
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
       send.disabled = !has;
@@ -3333,7 +3621,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, updateComposerMode, renderVideoControls,
-    attach, openNativeFilePicker, onAttachFile, clearAttachment, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -3355,6 +3643,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
   window.openNativeFilePicker = openNativeFilePicker;
+  window.addMediaLink = addMediaLink;
   window.autoGrow       = autoGrow;
   window.sendChat       = sendChat;
   window.openSupport    = openSupport;
@@ -3371,6 +3660,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride) {
   S.showImageModelPicker = showImageModelPicker;
   S.updateComposerMode = updateComposerMode;
   S.renderVideoControls = renderVideoControls;
+  S.addMediaLink = addMediaLink;
   
   document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
   document.addEventListener('touchmove', hideImageStyleInfo, true);

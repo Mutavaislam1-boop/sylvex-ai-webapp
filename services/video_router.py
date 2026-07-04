@@ -5,32 +5,32 @@ import requests
 import httpx
 
 
-VIDEO_MODEL_DEFAULTS = {
-    "seedance_2_fast": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "seedance_2_0": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "seedance_1_5_pro": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "heygen_v3_video_agent": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "luma_ray_v3_2": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "luma_dream_machine": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "kling_motion_2_6": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "kling_motion_3_0": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "kling_3_0": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "kling_o3_omni": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "kling_o3_edit": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "runway_aleph": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "runway_gen": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "minimax_hailuo_2_3": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "pixverse_v6": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "sora_2": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "sora_2_pro": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "veo_3_1": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "veo_3_1_fast": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "wan_2_7": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "wan_2_7_edit": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "wan_2_6": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "grok_video": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "grok_video_edit": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
-    "gemini_omni_flash": {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"},
+VIDEO_MODEL_CONFIG = {
+    "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "seedance_1_5_pro": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_motion_2_6": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "motion_control"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
+    "runway_aleph": {"provider": "runway", "modes": ["video_edit", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "runway_gen": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "minimax_hailuo_2_3": {"provider": "minimax", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "pixverse_v6": {"provider": "pixverse", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "sora_2": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "sora_2_pro": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "veo_3_1": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "veo_3_1_fast": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "gemini_omni_flash": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "wan_2_7": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "wan_2_7_edit": {"provider": "wan", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
+    "wan_2_6": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "grok_video": {"provider": "grok", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "grok_video_edit": {"provider": "grok", "modes": ["video_edit"], "durations": [5], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
 }
 
 
@@ -72,6 +72,8 @@ def _normalize_video_urls(data):
 
 def _provider_for_model(model_id: str):
     value = (model_id or "").strip().lower()
+    if value in VIDEO_MODEL_CONFIG:
+        return VIDEO_MODEL_CONFIG[value].get("provider") or "sylvex-router"
     if not value:
         return "sylvex-router"
     if re.search(r"seedance", value):
@@ -102,29 +104,65 @@ def _provider_for_model(model_id: str):
 
 
 def _defaults_for_model(model_id: str):
-    return VIDEO_MODEL_DEFAULTS.get((model_id or "").strip(), {"duration": 5, "ratio": "16:9", "quality": "standard", "mode": "text_to_video"})
+    config = VIDEO_MODEL_CONFIG.get((model_id or "").strip(), {})
+    return {
+        "provider": config.get("provider") or "sylvex-router",
+        "duration": (config.get("durations") or [5])[0],
+        "ratio": (config.get("ratios") or ["16:9"])[0],
+        "resolution": (config.get("resolutions") or ["720p"])[0],
+        "sound": bool(config.get("sound")),
+        "mode": (config.get("modes") or ["text_to_video"])[0],
+    }
+
+
+def _coerce_supported(value, supported, fallback):
+    return value if value in supported else fallback
 
 
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
     defaults = _defaults_for_model(model_id)
+    config = VIDEO_MODEL_CONFIG.get(model_id, {})
+    durations = config.get("durations") or [defaults.get("duration") or 5]
+    ratios = config.get("ratios") or [defaults.get("ratio") or "16:9"]
+    resolutions = config.get("resolutions") or [defaults.get("resolution") or "720p"]
+    modes = config.get("modes") or [defaults.get("mode") or "text_to_video"]
+
     duration = int(opts.get("duration") or payload.get("duration") or defaults.get("duration") or 5)
-    ratio = opts.get("ratio") or payload.get("ratio") or defaults.get("ratio") or "16:9"
+    if duration not in durations:
+        duration = durations[0]
+    ratio = _coerce_supported(opts.get("ratio") or payload.get("ratio") or defaults.get("ratio") or "16:9", ratios, ratios[0])
+    resolution = _coerce_supported(opts.get("resolution") or payload.get("resolution") or defaults.get("resolution") or "720p", resolutions, resolutions[0])
     quality = opts.get("quality") or payload.get("quality") or defaults.get("quality") or "standard"
-    mode = opts.get("mode") or payload.get("mode") or defaults.get("mode") or "text_to_video"
-    reference_images = []
-    if isinstance(payload.get("image_options"), dict):
-        reference_images = payload.get("image_options", {}).get("referenceImageUrls") or []
+    mode = _coerce_supported(
+        opts.get("generation_mode") or opts.get("mode") or payload.get("mode") or defaults.get("mode") or "text_to_video",
+        modes,
+        modes[0],
+    )
+    reference_images = opts.get("reference_images") or opts.get("referenceImageUrls") or []
     if not reference_images and isinstance(payload.get("reference_images"), list):
         reference_images = payload.get("reference_images")
+    sound = bool(opts.get("sound")) if config.get("sound") else False
     return {
         "model": model_id,
         "prompt": prompt,
         "duration": duration,
         "ratio": ratio,
+        "resolution": resolution,
         "quality": quality,
         "mode": mode,
+        "generation_mode": mode,
+        "section": opts.get("section") or "generate",
+        "sound": sound,
+        "start_image": opts.get("start_image") or (reference_images[0] if reference_images else ""),
+        "end_image": opts.get("end_image") or "",
         "reference_images": reference_images,
+        "input_video": opts.get("input_video") or "",
+        "video_url": opts.get("video_url") or "",
+        "image_url": opts.get("image_url") or "",
+        "motion_preset": opts.get("motion_preset") or "",
+        "character_image": opts.get("character_image") or "",
+        "advanced": opts.get("advanced") or {},
         "telegram_id": payload.get("telegram_id"),
     }
 
@@ -176,14 +214,29 @@ def _provider_success(provider: str, model_id: str, video_urls: list[str], statu
         "type": "video",
         "provider": provider,
         "model": model_id,
+        "status": status,
         "videos": video_urls,
         "video_url": video_urls[0] if video_urls else None,
     }
-    if status != "completed":
-        result["status"] = status
     if task_id:
         result["task_id"] = task_id
     return result
+
+
+def _telegram_caption(model_id: str, provider: str, payload: dict):
+    opts = _build_video_payload(model_id, payload.get("prompt") or "", payload)
+    sound = "вкл" if opts.get("sound") else "выкл"
+    return (
+        "SYLVEX Pro Studio\n"
+        "Видео готово\n\n"
+        f"Модель: {model_id}\n"
+        f"Провайдер: {provider}\n"
+        f"Режим: {opts.get('mode')}\n"
+        f"Формат: {opts.get('ratio')}\n"
+        f"Разрешение: {opts.get('resolution')}\n"
+        f"Длительность: {opts.get('duration')} сек\n"
+        f"Звук: {sound}"
+    )
 
 
 def _request_json(url: str, headers: dict, payload: dict):
@@ -533,7 +586,7 @@ async def video_generation(payload: dict) -> dict:
                 sent_to_telegram = await _send_generated_videos_to_telegram(
                     telegram_id=telegram_id,
                     videos=result.get("videos", []),
-                    caption="SYLVEX Pro Studio\nВидео готово",
+                    caption=_telegram_caption(model_id, result.get("provider") or provider, payload),
                 )
             except Exception as exc:
                 print("TELEGRAM SEND GENERATED VIDEOS FAILED:", str(exc))
