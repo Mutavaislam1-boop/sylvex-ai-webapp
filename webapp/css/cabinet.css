@@ -2611,3 +2611,22 @@ body.ai-generating .view[data-view="tools"].active .studio,
   background:rgba(70,220,150,.18) !important;
   color:#61e6ad !important;
 }
+
+/* ===== Model sheet compact text size: image/video unified ===== */
+.image-model-row .image-model-name {
+  font-size: 14px !important;
+  line-height: 1.2 !important;
+  font-weight: 700 !important;
+  letter-spacing: -.01em !important;
+}
+
+.image-model-row .image-model-desc {
+  font-size: 12px !important;
+  line-height: 1.25 !important;
+  font-weight: 500 !important;
+  opacity: .62 !important;
+}
+
+.image-model-row .model-row-badge {
+  display: none !important;
+}

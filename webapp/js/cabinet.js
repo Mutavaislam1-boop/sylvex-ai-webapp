@@ -1024,9 +1024,8 @@ function imageModelButton(model) {
   const id = String(model && model.id ? model.id : '');
   const active = activeId === id;
   const desc = model.desc || model.description || '';
-  const badge = model.badge
-    ? '<span class="model-row-badge ' + S.escapeHtml(model.badgeClass || '') + '">' + S.escapeHtml(model.badge) + '</span>'
-    : '';
+  // Badges are kept in model data for later, but hidden in the current UI.
+  const badge = '';
 
   return '<button class="image-model-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'model\',\'' + S.escapeHtml(id) + '\')">'
     + '<span class="image-model-icon">' + imageModelIconHtml(model) + '</span>'
