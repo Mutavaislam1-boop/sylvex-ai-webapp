@@ -6,6 +6,7 @@ import hashlib
 import urllib.parse
 import asyncio
 import re
+import base64
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -3791,61 +3792,72 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     return images, ""
 
 
-async def send_generated_images_to_telegram(telegram_id: int, images: list[str], caption: str = ""):
-    import os
-    import httpx
-
-    bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        print("TELEGRAM SEND SKIPPED: bot token missing")
+async def send_generated_images_to_telegram(telegram_id: int, images: list, caption: str = "") -> bool:
+    if not BOT_TOKEN or not telegram_id or not images:
         return False
 
-    if not telegram_id or not images:
-        print("TELEGRAM SEND SKIPPED: telegram_id or images missing")
-        return False
+    ok = False
 
-    sent_any = False
+    for index, image in enumerate(images):
+        if not image:
+            continue
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        for index, image_url in enumerate(images):
-            try:
-                # 1) Сначала backend сам скачивает готовое фото
-                image_response = await client.get(image_url)
-                if image_response.status_code >= 400 or not image_response.content:
-                    print("TELEGRAM IMAGE DOWNLOAD FAILED:", image_response.status_code, image_response.text[:300])
-                    continue
+        current_caption = caption if index == 0 else ""
 
-                content_type = image_response.headers.get("content-type") or "image/png"
-                ext = ".png" if "png" in content_type else ".jpg"
-                filename = f"sylvex-image-{index + 1}{ext}"
+        try:
+            image_value = str(image or "")
 
-                # 2) Потом backend отправляет фото в Telegram как файл
-                data = {
-                    "chat_id": str(telegram_id),
-                    "caption": caption if index == 0 else "",
-                }
+            is_base64_image = image_value.startswith("data:image") or len(image_value) > 4000
 
-                files = {
-                    "photo": (filename, image_response.content, content_type)
-                }
+            print("TELEGRAM SEND PHOTO:", {
+                "telegram_id": telegram_id,
+                "is_base64": is_base64_image,
+                "is_url": not is_base64_image,
+                "image_length": len(image_value),
+            })
 
-                tg_response = await client.post(
-                    f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                    data=data,
-                    files=files,
+            if is_base64_image:
+                raw = image_value
+
+                if "," in raw:
+                    raw = raw.split(",", 1)[1]
+
+                raw = raw.strip()
+                image_bytes = base64.b64decode(raw)
+
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    data={
+                        "chat_id": telegram_id,
+                        "caption": current_caption,
+                    },
+                    files={
+                        "photo": ("sylvex-image.png", image_bytes, "image/png"),
+                    },
+                    timeout=120,
+                )
+            else:
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    json={
+                        "chat_id": telegram_id,
+                        "photo": image_value,
+                        "caption": current_caption,
+                    },
+                    timeout=120,
                 )
 
-                if tg_response.status_code >= 400:
-                    print("TELEGRAM SEND PHOTO FAILED:", tg_response.status_code, tg_response.text[:500])
-                else:
-                    sent_any = True
-                    print(f"TELEGRAM SEND PHOTO SUCCESS {index + 1}/{len(images)}")
+            if response.status_code >= 400:
+                print("TELEGRAM SEND PHOTO ERROR:", response.text[:1000])
+            else:
+                data = response.json()
+                print("TELEGRAM SEND PHOTO RESULT:", data)
+                ok = ok or bool(data.get("ok"))
 
-            except Exception as exc:
-                print("TELEGRAM SEND PHOTO ERROR:", str(exc))
+        except Exception as exc:
+            print("TELEGRAM SEND PHOTO ERROR:", str(exc))
 
-    return sent_any
-
+    return ok
 
 async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     if not BYTEPLUS_ARK_API_KEY:
