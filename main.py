@@ -3806,17 +3806,21 @@ async def send_generated_images_to_telegram(telegram_id: int, images: list, capt
         current_caption = caption if index == 0 else ""
 
         try:
-            image_value = str(image or "")
+            image_value = str(image or "").strip()
 
-            is_base64_image = image_value.startswith("data:image") or len(image_value) > 4000
+            is_base64_image = image_value.startswith("data:image") or (
+                len(image_value) > 4000 and not image_value.startswith("http")
+            )
+            is_http_url = image_value.startswith("http://") or image_value.startswith("https://")
 
             print("TELEGRAM SEND PHOTO:", {
                 "telegram_id": telegram_id,
                 "is_base64": is_base64_image,
-                "is_url": not is_base64_image,
+                "is_url": is_http_url,
                 "image_length": len(image_value),
             })
 
+            # 1. Base64 / data:image
             if is_base64_image:
                 raw = image_value
 
@@ -3837,6 +3841,55 @@ async def send_generated_images_to_telegram(telegram_id: int, images: list, capt
                     },
                     timeout=120,
                 )
+
+            # 2. URL — сначала скачиваем сами, потом отправляем как файл
+            elif is_http_url:
+                download_response = requests.get(
+                    image_value,
+                    timeout=120,
+                    headers={
+                        "User-Agent": "Mozilla/5.0",
+                    },
+                )
+
+                print("TELEGRAM PHOTO URL DOWNLOAD:", {
+                    "status_code": download_response.status_code,
+                    "content_type": download_response.headers.get("content-type"),
+                    "bytes": len(download_response.content or b""),
+                })
+
+                if download_response.status_code >= 400 or not download_response.content:
+                    response = requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                        json={
+                            "chat_id": telegram_id,
+                            "photo": image_value,
+                            "caption": current_caption,
+                        },
+                        timeout=120,
+                    )
+                else:
+                    content_type = download_response.headers.get("content-type") or "image/png"
+                    file_name = "sylvex-image.png"
+
+                    if "jpeg" in content_type or "jpg" in content_type:
+                        file_name = "sylvex-image.jpg"
+                    elif "webp" in content_type:
+                        file_name = "sylvex-image.webp"
+
+                    response = requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                        data={
+                            "chat_id": telegram_id,
+                            "caption": current_caption,
+                        },
+                        files={
+                            "photo": (file_name, download_response.content, content_type),
+                        },
+                        timeout=120,
+                    )
+
+            # 3. Остальное — пробуем как обычное значение
             else:
                 response = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
