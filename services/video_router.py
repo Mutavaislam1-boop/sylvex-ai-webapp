@@ -46,6 +46,34 @@ if _seedance_1_5_pro_model:
 for _provider_model_id in tuple(BYTEPLUS_SEEDANCE_MODEL_MAP.values()):
     BYTEPLUS_SEEDANCE_MODEL_MAP.setdefault(_provider_model_id, _provider_model_id)
 
+VIDEO_PROVIDER_MODEL_MAP = {
+    "heygen_v3_video_agent": {"provider": "heygen", "provider_model": os.getenv("HEYGEN_VIDEO_MODEL", "avatar"), "endpoint": os.getenv("HEYGEN_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v2').rstrip('/')}/videos")},
+    "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-2")), "endpoint": os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")},
+    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-2")), "endpoint": os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")},
+    "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
+    "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://api.pixverse.io/v1/videos/generations")},
+    "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
+    "wan_2_7": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
+    "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
+    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
+    "runway_aleph": {"provider": "runway", "provider_model": os.getenv("RUNWAY_ALEPH_MODEL", "act_two"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
+    "kling_motion_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_2_6_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": _seedance_1_5_pro_model and os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
+    "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
+    "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
+    "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
+    "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_O3_OMNI_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "gemini_omni_flash": {"provider": "veo", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
+    "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
+    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
+    "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
+    "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_O3_EDIT_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+}
+
 
 def _get_env(*names):
     for name in names:
@@ -111,6 +139,28 @@ def _map_seedance_video_model_to_provider_model(frontend_model: str):
         return None
     normalized = value.lower()
     return BYTEPLUS_SEEDANCE_MODEL_MAP.get(normalized) or BYTEPLUS_SEEDANCE_MODEL_MAP.get(normalized.replace("-", "_"))
+
+
+def _video_model_mapping(frontend_model: str):
+    value = (frontend_model or "").strip()
+    normalized = value.lower()
+    return VIDEO_PROVIDER_MODEL_MAP.get(normalized) or VIDEO_PROVIDER_MODEL_MAP.get(normalized.replace("-", "_")) or {}
+
+
+def _provider_model_for_video(frontend_model: str):
+    return _video_model_mapping(frontend_model).get("provider_model")
+
+
+def _unknown_video_model_mapping_response(frontend_model: str, provider: str = ""):
+    mapping = _video_model_mapping(frontend_model)
+    return {
+        "ok": False,
+        "type": "video",
+        "error": "Unknown provider model mapping",
+        "frontend_model": frontend_model or "",
+        "provider": provider or mapping.get("provider") or "",
+        "endpoint": mapping.get("endpoint") or "",
+    }
 
 
 def _unknown_seedance_video_model_response(frontend_model: str):
@@ -179,6 +229,9 @@ def _request_form(url: str, headers: dict, data: dict, files=None):
 
 def _provider_for_model(model_id: str):
     value = (model_id or "").strip().lower()
+    mapping = _video_model_mapping(value)
+    if mapping.get("provider"):
+        return mapping.get("provider")
     if value in VIDEO_MODEL_CONFIG:
         return VIDEO_MODEL_CONFIG[value].get("provider") or "sylvex-router"
     if not value:
@@ -486,6 +539,120 @@ def _seedance_poll_until_ready(task_id: str, headers: dict, max_attempts: int = 
     )
 
 
+def _poll_attempt_settings(prefix: str, default_attempts: int = 60, default_interval: int = 5):
+    try:
+        attempts = int(os.getenv(f"{prefix}_POLL_ATTEMPTS") or default_attempts)
+    except Exception:
+        attempts = default_attempts
+    try:
+        interval = int(os.getenv(f"{prefix}_POLL_INTERVAL") or default_interval)
+    except Exception:
+        interval = default_interval
+    return max(1, min(attempts, 60)), max(1, interval)
+
+
+def _kling_base_url():
+    return os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com").rstrip("/")
+
+
+def _kling_submit_endpoint(provider_model: str, body: dict):
+    kind = "image-to-video" if body.get("start_image") else "text-to-video"
+    return f"{_kling_base_url()}/{kind}/{provider_model}"
+
+
+def _kling_task_endpoint(task_id: str):
+    return f"{_kling_base_url()}/tasks?task_ids={task_id}"
+
+
+def _kling_extract_video_url(data: dict):
+    tasks = data.get("data") if isinstance(data.get("data"), list) else []
+    task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
+    if not isinstance(task, dict):
+        return None
+    outputs = task.get("outputs") or []
+    if isinstance(outputs, list):
+        for item in outputs:
+            if isinstance(item, dict) and (item.get("type") == "video" or item.get("url")):
+                return item.get("url")
+    return task.get("video_url") or task.get("url") or (task.get("assets") or {}).get("video")
+
+
+def _kling_status(data: dict):
+    tasks = data.get("data") if isinstance(data.get("data"), list) else []
+    task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
+    if not isinstance(task, dict):
+        return ""
+    return str(task.get("status") or task.get("state") or "").lower()
+
+
+def _kling_poll_until_ready(task_id: str, headers: dict):
+    attempts, interval = _poll_attempt_settings("KLING", 60, 5)
+    last_result = None
+    for attempt in range(1, attempts + 1):
+        endpoint = _kling_task_endpoint(task_id)
+        response = _request_get(endpoint, headers)
+        data = _safe_provider_json_response(response, "kling", endpoint)
+        status_code = getattr(response, "status_code", None) or 0
+        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+            return _provider_parse_error("kling", task_id, data)
+        state = _kling_status(data)
+        video_url = _kling_extract_video_url(data)
+        print("KLING VIDEO POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": state,
+            "has_video_url": bool(video_url),
+            "video_url": video_url or "",
+        })
+        if state in {"succeeded", "completed", "success", "done"} and video_url:
+            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+        if state in {"failed", "error", "cancelled"}:
+            return _provider_parse_error("kling", task_id, data)
+        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
+        if attempt < attempts:
+            time.sleep(interval)
+    return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_task_endpoint(task_id))
+
+
+def _luma_base_url():
+    endpoint = os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")
+    return endpoint.rsplit("/generations", 1)[0].rstrip("/")
+
+
+def _luma_task_endpoint(task_id: str):
+    return f"{_luma_base_url()}/generations/{task_id}"
+
+
+def _luma_poll_until_ready(task_id: str, headers: dict):
+    attempts, interval = _poll_attempt_settings("LUMA", 60, 5)
+    last_result = None
+    for attempt in range(1, attempts + 1):
+        endpoint = _luma_task_endpoint(task_id)
+        response = _request_get(endpoint, headers)
+        data = _safe_provider_json_response(response, "luma", endpoint)
+        status_code = getattr(response, "status_code", None) or 0
+        if status_code >= 400 or data.get("ok") is False:
+            return _provider_parse_error("luma", task_id, data)
+        state = str(data.get("state") or data.get("status") or "").lower()
+        urls = _normalize_video_urls(data)
+        video_url = (data.get("assets") or {}).get("video") or (urls[0] if urls else "")
+        print("LUMA VIDEO POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": state,
+            "has_video_url": bool(video_url),
+            "video_url": video_url or "",
+        })
+        if state in {"completed", "succeeded", "success", "done"} and video_url:
+            return _provider_success("luma", task_id, [video_url], status="completed", task_id=task_id)
+        if state in {"failed", "error", "cancelled"}:
+            return _provider_parse_error("luma", task_id, data)
+        last_result = _provider_success("luma", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
+        if attempt < attempts:
+            time.sleep(interval)
+    return last_result or _provider_success("luma", task_id, [], status="processing", task_id=task_id, poll_url=_luma_task_endpoint(task_id))
+
+
 async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str], caption: str = ""):
     bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
@@ -722,10 +889,13 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("HEYGEN_API_KEY")
     if not api_key:
         return _provider_error("heygen", model_id, "Provider API key is missing: HEYGEN_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "heygen")
     body = _build_video_payload(model_id, prompt, payload)
     body.update({
         "prompt": prompt,
-        "model": os.getenv("HEYGEN_VIDEO_MODEL", model_id),
+        "model": provider_model,
         "caption": False,
     })
     if os.getenv("HEYGEN_AVATAR_ID"):
@@ -748,14 +918,16 @@ def _call_luma(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("LUMA_API_KEY")
     if not api_key:
         return _provider_error("luma", model_id, "Provider API key is missing: LUMA_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "luma")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
     try:
         endpoint = os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")
         luma_body = {
             "prompt": prompt,
             "aspect_ratio": body.get("ratio") or "16:9",
-            "model": os.getenv("LUMA_VIDEO_MODEL", "ray-2"),
+            "model": provider_model,
         }
         if body.get("start_image"):
             luma_body["keyframes"] = {"frame0": {"type": "image", "url": body.get("start_image")}}
@@ -766,7 +938,20 @@ def _call_luma(model_id: str, prompt: str, payload: dict):
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             luma_body,
         )
-        return _provider_result_from_response("luma", model_id, response, endpoint)
+        data = _safe_provider_json_response(response, "luma", endpoint)
+        status = getattr(response, "status_code", None) or 0
+        if status not in (200, 201, 202) or data.get("ok") is False:
+            return _provider_parse_error("luma", model_id, data)
+        urls = _normalize_video_urls(data)
+        if urls:
+            return _provider_success("luma", model_id, urls)
+        task_id = _task_id_from_response(data)
+        if not task_id:
+            return _provider_error("luma", model_id, "Luma task id not found")
+        result = _luma_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        result["model"] = model_id
+        result["provider_model"] = provider_model
+        return result
     except Exception as exc:
         return _provider_error("luma", model_id, f"Provider request failed: {exc}")
 
@@ -775,16 +960,38 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("KLING_API_KEY", "KLING_ACCESS_KEY")
     if not api_key:
         return _provider_error("kling", model_id, "Provider API key is missing: KLING_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "kling")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
+    kling_body = {
+        "prompt": prompt,
+        "settings": {
+            "duration": int(body.get("duration") or 5),
+            "resolution": body.get("resolution") or "720p",
+            "aspect_ratio": body.get("ratio") or "16:9",
+        },
+    }
+    if body.get("start_image"):
+        kling_body["image_url"] = body.get("start_image")
     try:
-        endpoint = os.getenv("KLING_API_ENDPOINT", "https://api.klingai.com/v1/videos/generations")
+        endpoint = _kling_submit_endpoint(provider_model, body)
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            kling_body,
         )
-        return _provider_result_from_response("kling", model_id, response, endpoint)
+        data = _safe_provider_json_response(response, "kling", endpoint)
+        status = getattr(response, "status_code", None) or 0
+        if status >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+            return _provider_parse_error("kling", model_id, data)
+        task_id = _task_id_from_response(data.get("data") if isinstance(data.get("data"), dict) else data)
+        if not task_id:
+            return _provider_error("kling", model_id, "Kling task id not found")
+        result = _kling_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        result["model"] = model_id
+        result["provider_model"] = provider_model
+        return result
     except Exception as exc:
         return _provider_error("kling", model_id, f"Provider request failed: {exc}")
 
@@ -793,11 +1000,14 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("RUNWAY_API_KEY")
     if not api_key:
         return _provider_error("runway", model_id, "Provider API key is missing: RUNWAY_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "runway")
     body = _build_video_payload(model_id, prompt, payload)
     try:
         endpoint = os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")
         runway_body = {
-            "model": os.getenv("RUNWAY_VIDEO_MODEL", "gen4_turbo" if model_id == "runway_gen" else "aleph"),
+            "model": provider_model,
             "promptText": prompt,
             "ratio": _runway_ratio(body.get("ratio"), body.get("resolution")),
             "duration": int(body.get("duration") or 5),
@@ -824,9 +1034,12 @@ def _call_minimax(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("MINIMAX_API_KEY")
     if not api_key:
         return _provider_error("minimax", model_id, "Provider API key is missing: MINIMAX_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "minimax")
     body = _build_video_payload(model_id, prompt, payload)
     minimax_body = {
-        "model": os.getenv("MINIMAX_VIDEO_MODEL", model_id),
+        "model": provider_model,
         "prompt": prompt,
         "duration": int(body.get("duration") or 5),
         "resolution": body.get("resolution") or "720p",
@@ -850,9 +1063,12 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("PIXVERSE_API_KEY")
     if not api_key:
         return _provider_error("pixverse", model_id, "Provider API key is missing: PIXVERSE_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "pixverse")
     body = _build_video_payload(model_id, prompt, payload)
     pixverse_body = {
-        "model": os.getenv("PIXVERSE_VIDEO_MODEL", model_id),
+        "model": provider_model,
         "prompt": prompt,
         "aspect_ratio": body.get("ratio") or "16:9",
         "duration": int(body.get("duration") or 5),
@@ -876,11 +1092,14 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("OPENAI_API_KEY")
     if not api_key:
         return _provider_error("sora", model_id, "Provider API key is missing: OPENAI_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "sora")
     body = _build_video_payload(model_id, prompt, payload)
     try:
         endpoint = f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"
         form = {
-            "model": _openai_sora_model(model_id),
+            "model": provider_model,
             "prompt": prompt,
             "size": _size_for_video(body.get("ratio"), body.get("resolution")),
             "seconds": _openai_sora_seconds(body.get("duration")),
@@ -899,9 +1118,12 @@ def _call_veo(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("GOOGLE_API_KEY")
     if not api_key:
         return _provider_error("veo", model_id, "Provider API key is missing: GOOGLE_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "veo")
     body = _build_video_payload(model_id, prompt, payload)
     try:
-        google_model = _veo_model(model_id)
+        google_model = provider_model
         endpoint = os.getenv(
             "GOOGLE_VEO_ENDPOINT",
             f"https://generativelanguage.googleapis.com/v1beta/models/{google_model}:predictLongRunning",
@@ -930,9 +1152,12 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("ALIBABA_API_KEY", "QWEN_API_KEY")
     if not api_key:
         return _provider_error("wan", model_id, "Provider API key is missing: ALIBABA_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "wan")
     body = _build_video_payload(model_id, prompt, payload)
     wan_body = {
-        "model": os.getenv("WAN_VIDEO_MODEL", model_id),
+        "model": provider_model,
         "input": {"prompt": prompt},
         "parameters": {
             "duration": int(body.get("duration") or 5),
@@ -960,8 +1185,11 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("XAI_API_KEY")
     if not api_key:
         return _provider_error("grok", model_id, "Provider API key is missing: XAI_API_KEY")
+    provider_model = _provider_model_for_video(model_id)
+    if not provider_model:
+        return _unknown_video_model_mapping_response(model_id, "grok")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
+    body.update({"prompt": prompt, "model": provider_model})
     try:
         endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
         response = _request_json(
