@@ -44,6 +44,14 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
 BYTEPLUS_ARK_API_KEY = os.getenv("BYTEPLUS_ARK_API_KEY")
 BYTEPLUS_ARK_ENDPOINT = os.getenv("BYTEPLUS_ARK_ENDPOINT", "https://ark.ap-southeast.bytepluses.com/api/v3").rstrip("/")
+BYTEPLUS_SEEDREAM_MODEL_MAP = {
+    "seedream_5_0": os.getenv("BYTEPLUS_SEEDREAM_5_MODEL", "seedream-5-0-260128"),
+    "seedream_4_5": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
+    "seedream_4_0": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
+    "seedream-5-0-260128": os.getenv("BYTEPLUS_SEEDREAM_5_MODEL", "seedream-5-0-260128"),
+    "seedream-4-5-251128": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
+    "seedream-4-0-250828": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
+}
 IMAGE_MODELS_JSON = os.getenv("IMAGE_MODELS_JSON")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
@@ -3244,12 +3252,33 @@ def get_image_capabilities() -> dict:
             print("IMAGE_MODELS_JSON FAILED:", exc)
     return {"ok": True, "models": default_image_capabilities()}
 
+def map_image_model_to_provider_model(frontend_model: str) -> Optional[str]:
+    value = (frontend_model or "").strip()
+    if not value:
+        return None
+    normalized = value.lower()
+    return BYTEPLUS_SEEDREAM_MODEL_MAP.get(normalized) or BYTEPLUS_SEEDREAM_MODEL_MAP.get(normalized.replace("-", "_"))
+
+def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
+    return {
+        "ok": False,
+        "error": "Unknown BytePlus image model mapping",
+        "frontend_model": frontend_model or "",
+        "provider": "bytedance",
+    }
+
 def find_image_model(model_id: str) -> dict:
     models = get_image_capabilities().get("models") or []
     if model_id:
+        byteplus_model = map_image_model_to_provider_model(model_id)
         for model in models:
             if model.get("id") == model_id or model.get("api_model") == model_id:
                 return model
+            if byteplus_model and model.get("api_model") == byteplus_model:
+                mapped = dict(model)
+                mapped["id"] = model_id
+                mapped["api_model"] = byteplus_model
+                return mapped
     return {}
 
 def infer_image_model(model_id: str, provider: str = "") -> dict:
@@ -3261,7 +3290,10 @@ def infer_image_model(model_id: str, provider: str = "") -> dict:
     if normalized in ("gpt_image_2", "openai_gpt_image_2"):
         return {"id": value, "provider": "openai", "api_model": "gpt-image-2", "sizes": [image_size("1024x1024")], "counts": [1]}
     if re.search(r"seedream", normalized) or provider in ("bytedance", "byteplus"):
-        return {"id": value, "provider": "bytedance", "api_model": value, "sizes": [image_size("1:1")], "counts": [1, 2, 3, 4]}
+        api_model = map_image_model_to_provider_model(value)
+        if not api_model:
+            return {}
+        return {"id": value, "provider": "bytedance", "api_model": api_model, "sizes": [image_size("1:1")], "counts": [1, 2, 3, 4]}
     return {}
 
 def is_internal_ui_model(model: str) -> bool:
@@ -3742,10 +3774,12 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
         opts.get("modelId")
         or opts.get("model_id")
         or payload.get("model")
-        or "seedream-5-0-260128"
+        or "seedream_5_0"
     )
     model_cfg = find_image_model(requested_model) if requested_model else {}
-    model = model_cfg.get("api_model") or requested_model or "seedream-5-0-260128"
+    model = model_cfg.get("api_model") or map_image_model_to_provider_model(requested_model)
+    if not model:
+        return unknown_byteplus_image_model_response(requested_model)
     prompt = build_image_prompt(payload)
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
 
@@ -3862,6 +3896,8 @@ def image_generation(payload: dict) -> dict:
     requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
     model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, payload.get("provider"))
     if not model_cfg:
+        if (payload.get("provider") or "").strip().lower() in ("bytedance", "byteplus") or re.search(r"seedream", str(requested_model or ""), re.I):
+            return unknown_byteplus_image_model_response(requested_model)
         return {
             "ok": False,
             "type": "image",
