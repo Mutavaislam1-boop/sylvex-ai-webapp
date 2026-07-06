@@ -3972,41 +3972,116 @@ def text_generation(payload: dict) -> dict:
         "text": data.get("choices", [{}])[0].get("message", {}).get("content", "")
     }
 
-def image_generation(payload: dict) -> dict:
+def normalize_openai_image_size(size: str) -> str:
+    raw = str(size or "").strip()
+    if raw in {"1024x1024", "1536x1024", "1024x1536", "auto"}:
+        return raw
+    if raw in {"1:1", "square"}:
+        return "1024x1024"
+    if raw in {"16:9", "landscape"}:
+        return "1536x1024"
+    if raw in {"9:16", "portrait"}:
+        return "1024x1536"
+    return "1024x1024"
+
+
+async def image_generation(payload: dict) -> dict:
     opts = payload.get("image_options") or {}
     prompt = build_image_prompt(payload)
     requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
-    model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, payload.get("provider"))
-    if not model_cfg:
-        if image_provider_mapping(requested_model):
-            return unknown_image_model_mapping_response(requested_model, payload.get("provider") or "")
-        if (payload.get("provider") or "").strip().lower() in ("bytedance", "byteplus") or re.search(r"seedream", str(requested_model or ""), re.I):
+    frontend_provider = (payload.get("provider") or "").strip().lower()
+    mapping = image_provider_mapping(requested_model) if requested_model else {}
+    model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, frontend_provider)
+
+    if not mapping and requested_model:
+        if (frontend_provider in ("bytedance", "byteplus") or re.search(r"seedream", str(requested_model or ""), re.I)):
             return unknown_byteplus_image_model_response(requested_model)
+        return unknown_image_model_mapping_response(requested_model, frontend_provider)
+
+    if not model_cfg and not mapping:
         return {
             "ok": False,
             "type": "image",
-            "provider": payload.get("provider") or "",
+            "provider": frontend_provider,
             "model": requested_model or "",
             "error": "Unsupported image provider or model",
         }
-    provider = model_cfg.get("provider") or "openai"
-    api_model = model_cfg.get("api_model") or "gpt-image-1"
-    endpoint = model_cfg.get("endpoint") or (image_provider_mapping(requested_model).get("endpoint") if requested_model else "")
+
+    provider = (mapping.get("provider") or model_cfg.get("provider") or frontend_provider or "openai").strip().lower()
+    api_model = mapping.get("provider_model") or model_cfg.get("api_model") or ""
+    endpoint = mapping.get("endpoint") or model_cfg.get("endpoint") or ""
+
+    if not api_model:
+        return unknown_image_model_mapping_response(requested_model, provider)
+
     size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
-    count = int(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1)
+    count = safe_image_count(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1, default=1, max_count=4)
+
+    response = None
+
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", api_model, re.I):
         if not BYTEPLUS_ARK_API_KEY:
-            return {"ok": False, "type": "image", "error": "Provider API key is missing", "provider": provider, "frontend_model": requested_model, "provider_model": api_model}
-        response = requests.post(
-            f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
-            headers={
-                "Authorization": f"Bearer {BYTEPLUS_ARK_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            data=json.dumps({"model": api_model, "prompt": prompt, "size": size, "n": count}),
-            timeout=120,
+            return {
+                "ok": False,
+                "type": "image",
+                "error": "Provider API key is missing",
+                "provider": provider,
+                "frontend_model": requested_model,
+                "provider_model": api_model,
+            }
+
+        # Seedream has its own working flow with retries, references and repeated calls.
+        images = []
+        reference_images = (
+            opts.get("referenceImageUrls")
+            or opts.get("reference_image_urls")
+            or opts.get("referenceImages")
+            or opts.get("images")
+            or []
         )
-        endpoint = f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"
+        if isinstance(reference_images, str):
+            reference_images = [reference_images]
+        reference_images = [u for u in reference_images if isinstance(u, str) and u.strip()]
+
+        for index in range(1, count + 1):
+            print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
+            request_images, error = request_byteplus_seedream_image(api_model, prompt, reference_images)
+            if request_images:
+                for url in request_images:
+                    if url and url not in images:
+                        images.append(url)
+                print(f"BYTEPLUS IMAGE SUCCESS {index}/{count}")
+            else:
+                print(f"BYTEPLUS IMAGE FAILED {index}/{count} {error or 'unknown error'}")
+            if len(images) >= count:
+                break
+
+        if not images:
+            return {
+                "ok": False,
+                "type": "image",
+                "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер.",
+                "provider": provider,
+                "frontend_model": requested_model or "",
+                "provider_model": api_model,
+                "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
+            }
+
+        images = images[:count]
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
+        telegram_id = int(payload.get("telegram_id") or 0)
+        result["sent_to_telegram"] = False
+        if telegram_id:
+            try:
+                result["sent_to_telegram"] = await send_generated_images_to_telegram(
+                    telegram_id=telegram_id,
+                    images=images,
+                    caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+                )
+            except Exception as exc:
+                print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+        return result
+
     elif provider == "openai":
         if not OPENAI_API_KEY:
             return {
@@ -4017,13 +4092,20 @@ def image_generation(payload: dict) -> dict:
                 "frontend_model": requested_model,
                 "provider_model": api_model,
             }
+
+        endpoint = f"{OPENAI_API_BASE}/images/generations"
+        openai_size = normalize_openai_image_size(size)
         response = requests.post(
-            f"{OPENAI_API_BASE}/images/generations",
+            endpoint,
             headers=openai_headers(),
-            data=json.dumps({"model": api_model, "prompt": prompt, "size": size, "n": count}),
+            data=json.dumps({
+                "model": api_model,
+                "prompt": prompt,
+                "size": openai_size,
+                "n": count,
+            }),
             timeout=120,
         )
-        endpoint = f"{OPENAI_API_BASE}/images/generations"
     else:
         return {
             "ok": False,
@@ -4063,10 +4145,32 @@ def image_generation(payload: dict) -> dict:
             "status_code": data.get("status_code"),
             "body_preview": data.get("body_preview"),
         }
+
     images = normalize_image_response(data)
     if images:
-        return attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
-    return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
+        telegram_id = int(payload.get("telegram_id") or 0)
+        result["sent_to_telegram"] = False
+        if telegram_id:
+            try:
+                result["sent_to_telegram"] = await send_generated_images_to_telegram(
+                    telegram_id=telegram_id,
+                    images=images,
+                    caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+                )
+            except Exception as exc:
+                print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+        return result
+
+    return {
+        "ok": False,
+        "type": "image",
+        "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер.",
+        "provider": provider,
+        "frontend_model": requested_model or "",
+        "provider_model": api_model,
+        "endpoint": endpoint,
+    }
 
 @app.get("/api/public/prostudio/image-capabilities")
 async def public_prostudio_image_capabilities():
@@ -4165,7 +4269,7 @@ async def public_prostudio_generate(request: Request):
     if mode == "image" and is_seedream_request(payload):
         result = await generateBytePlusSeedreamImage(payload)
     elif mode == "image":
-        result = image_generation(payload)
+        result = await image_generation(payload)
     elif mode == "video":
         result = await video_generation(payload)
     elif mode == "music":
