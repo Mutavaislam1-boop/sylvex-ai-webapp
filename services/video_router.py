@@ -33,6 +33,18 @@ VIDEO_MODEL_CONFIG = {
     "grok_video_edit": {"provider": "grok", "modes": ["video_edit"], "durations": [5], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
 }
 
+BYTEPLUS_SEEDANCE_MODEL_MAP = {
+    "seedance_2_fast": os.getenv("BYTEPLUS_SEEDANCE_2_FAST_MODEL", "dreamina-seedance-2-0-fast-260128"),
+    "seedance_2_0": os.getenv("BYTEPLUS_SEEDANCE_2_MODEL", "dreamina-seedance-2-0-260128"),
+}
+
+_seedance_1_5_pro_model = os.getenv("BYTEPLUS_SEEDANCE_1_5_PRO_MODEL")
+if _seedance_1_5_pro_model:
+    BYTEPLUS_SEEDANCE_MODEL_MAP["seedance_1_5_pro"] = _seedance_1_5_pro_model
+
+for _provider_model_id in tuple(BYTEPLUS_SEEDANCE_MODEL_MAP.values()):
+    BYTEPLUS_SEEDANCE_MODEL_MAP.setdefault(_provider_model_id, _provider_model_id)
+
 
 def _get_env(*names):
     for name in names:
@@ -92,6 +104,24 @@ def _task_id_from_response(data):
     return str(value) if value else None
 
 
+def _map_seedance_video_model_to_provider_model(frontend_model: str):
+    value = (frontend_model or "").strip()
+    if not value:
+        return None
+    normalized = value.lower()
+    return BYTEPLUS_SEEDANCE_MODEL_MAP.get(normalized) or BYTEPLUS_SEEDANCE_MODEL_MAP.get(normalized.replace("-", "_"))
+
+
+def _unknown_seedance_video_model_response(frontend_model: str):
+    return {
+        "ok": False,
+        "type": "video",
+        "error": "Unknown BytePlus video model mapping",
+        "frontend_model": frontend_model or "",
+        "provider": "bytedance",
+    }
+
+
 def _provider_processing(provider: str, model_id: str, data: dict, endpoint: str):
     task_id = _task_id_from_response(data)
     poll_url = data.get("poll_url") or data.get("status_url") if isinstance(data, dict) else None
@@ -136,6 +166,10 @@ def _veo_model(model_id: str):
 
 def _request_json(url: str, headers: dict, payload: dict):
     return requests.post(url, headers=headers, json=payload, timeout=120)
+
+
+def _request_get(url: str, headers: dict):
+    return requests.get(url, headers=headers, timeout=60)
 
 
 def _request_form(url: str, headers: dict, data: dict, files=None):
@@ -237,6 +271,172 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "advanced": opts.get("advanced") or {},
         "telegram_id": payload.get("telegram_id"),
     }
+
+
+def _byteplus_ark_base_url():
+    return (
+        os.getenv("BYTEPLUS_ARK_BASE_URL")
+        or os.getenv("BYTEPLUS_ARK_ENDPOINT", "https://ark.ap-southeast.bytepluses.com/api/v3")
+    ).rstrip("/")
+
+
+def _byteplus_project():
+    return os.getenv("BYTEPLUS_PROJECT", "default")
+
+
+def _seedance_headers(api_key: str):
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    project = _byteplus_project()
+    if project:
+        headers["X-Project-Name"] = project
+    return headers
+
+
+def _seedance_submit_endpoint():
+    return os.getenv("BYTEDANCE_VIDEO_ENDPOINT") or os.getenv(
+        "BYTEPLUS_SEEDANCE_TASK_ENDPOINT",
+        f"{_byteplus_ark_base_url()}/contents/generations/tasks",
+    )
+
+
+def _seedance_status_endpoint(task_id: str):
+    template = os.getenv("BYTEPLUS_SEEDANCE_STATUS_URL_TEMPLATE")
+    if template:
+        return template.format(task_id=task_id)
+    return f"{_byteplus_ark_base_url()}/contents/generations/tasks/{task_id}"
+
+
+def _seedance_resolution_for_model(provider_model: str, resolution: str):
+    value = str(resolution or "720p").strip().lower()
+    if value not in {"480p", "720p", "1080p", "4k"}:
+        value = "720p"
+    if provider_model in {
+        BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"),
+        os.getenv("BYTEPLUS_SEEDANCE_2_MINI_MODEL", "dreamina-seedance-2-0-mini-260615"),
+    } and value in {"1080p", "4k"}:
+        return None
+    return value
+
+
+def _seedance_ratio(body: dict):
+    ratio = str(body.get("ratio") or "16:9").replace("_", ":")
+    if body.get("start_image") and ratio in {"auto", "adaptive"}:
+        return "adaptive"
+    if ratio in {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}:
+        return ratio
+    return "16:9"
+
+
+def _seedance_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _seedance_reference_content(content: list, media_type: str, urls: list):
+    role_by_type = {
+        "image_url": "reference_image",
+        "video_url": "reference_video",
+        "audio_url": "reference_audio",
+    }
+    for url in dict.fromkeys([u for u in urls if isinstance(u, str) and u.strip()]):
+        content.append({
+            "type": media_type,
+            media_type: {"url": url},
+            "role": role_by_type[media_type],
+        })
+
+
+def _seedance_body(frontend_model: str, prompt: str, payload: dict):
+    provider_model = _map_seedance_video_model_to_provider_model(frontend_model)
+    if not provider_model:
+        return None
+
+    body = _build_video_payload(frontend_model, prompt, payload)
+    content = [{"type": "text", "text": prompt}]
+    image_refs = []
+    if body.get("start_image"):
+        image_refs.append(body.get("start_image"))
+    image_refs.extend(body.get("reference_images") or [])
+    if body.get("image_url"):
+        image_refs.append(body.get("image_url"))
+    if body.get("character_image"):
+        image_refs.append(body.get("character_image"))
+
+    video_refs = []
+    if body.get("input_video"):
+        video_refs.append(body.get("input_video"))
+    if body.get("video_url"):
+        video_refs.append(body.get("video_url"))
+
+    _seedance_reference_content(content, "image_url", image_refs)
+    _seedance_reference_content(content, "video_url", video_refs)
+
+    seedance_payload = {
+        "model": provider_model,
+        "content": content,
+        "duration": int(body.get("duration") or 5),
+        "ratio": _seedance_ratio(body),
+        "generate_audio": _seedance_bool((payload.get("video_options") or {}).get("sound"), default=True),
+        "watermark": False,
+        "safety_identifier": str(body.get("telegram_id") or payload.get("telegram_id") or "sylvex-prostudio"),
+    }
+    resolution = _seedance_resolution_for_model(provider_model, body.get("resolution"))
+    if resolution:
+        seedance_payload["resolution"] = resolution
+    return seedance_payload
+
+
+def _seedance_extract_video_url(data: dict):
+    result = data.get("data") if isinstance(data.get("data"), dict) else data
+    if not isinstance(result, dict):
+        return None
+    content = result.get("content") if isinstance(result.get("content"), dict) else {}
+    video = result.get("video")
+    video_url = video.get("url") if isinstance(video, dict) else video
+    return (
+        video_url
+        or content.get("video_url")
+        or result.get("video_url")
+        or result.get("url")
+        or (result.get("assets") or {}).get("video")
+    )
+
+
+def _seedance_status(data: dict):
+    result = data.get("data") if isinstance(data.get("data"), dict) else data
+    if not isinstance(result, dict):
+        return ""
+    return str(result.get("status") or result.get("state") or "").lower()
+
+
+def _seedance_poll_task(task_id: str, headers: dict):
+    endpoint = _seedance_status_endpoint(task_id)
+    response = _request_get(endpoint, headers)
+    data = _safe_provider_json_response(response, "bytedance", endpoint)
+    status = getattr(response, "status_code", None) or 0
+    if status >= 400 or data.get("ok") is False:
+        return _provider_parse_error("bytedance", task_id, data)
+    state = _seedance_status(data)
+    video_url = _seedance_extract_video_url(data)
+    if state in {"succeeded", "completed", "success", "done"} and video_url:
+        return _provider_success("bytedance", task_id, [video_url], status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled"}:
+        return _provider_parse_error("bytedance", task_id, data)
+    return _provider_success(
+        "bytedance",
+        task_id,
+        [],
+        status="processing",
+        task_id=task_id,
+        poll_url=endpoint,
+    )
 
 
 async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str], caption: str = ""):
@@ -415,21 +615,38 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_ARK_API_KEY")
     if not api_key:
         return _provider_error("seedance", model_id, "Provider API key is missing: BYTEDANCE_API_KEY")
-    body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": model_id})
+    body = _seedance_body(model_id, prompt, payload)
+    if not body:
+        return _unknown_seedance_video_model_response(model_id)
     try:
-        endpoint = os.getenv(
-            "BYTEDANCE_VIDEO_ENDPOINT",
-            f"{os.getenv('BYTEPLUS_ARK_ENDPOINT', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')}/videos/generations",
-        )
+        endpoint = _seedance_submit_endpoint()
+        headers = _seedance_headers(api_key)
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers,
             body,
         )
-        return _provider_result_from_response("seedance", model_id, response, endpoint)
+        data = _safe_provider_json_response(response, "bytedance", endpoint)
+        status = getattr(response, "status_code", None) or 0
+        if status not in (200, 201, 202) or data.get("ok") is False:
+            return _provider_parse_error("bytedance", model_id, data)
+        video_urls = _normalize_video_urls(data)
+        if video_urls:
+            return _provider_success("bytedance", model_id, video_urls)
+        task_id = _task_id_from_response(data)
+        if not task_id:
+            return _provider_error("bytedance", model_id, "Seedance task id not found")
+        poll_url = _seedance_status_endpoint(task_id)
+        if os.getenv("BYTEPLUS_SEEDANCE_POLL_ON_SUBMIT", "").strip().lower() in {"1", "true", "yes", "on"}:
+            polled = _seedance_poll_task(task_id, headers)
+            polled["model"] = model_id
+            polled["provider_model"] = body.get("model")
+            return polled
+        result = _provider_success("bytedance", model_id, [], status="processing", task_id=task_id, poll_url=poll_url)
+        result["provider_model"] = body.get("model")
+        return result
     except Exception as exc:
-        return _provider_error("seedance", model_id, f"Provider request failed: {exc}")
+        return _provider_error("bytedance", model_id, f"Provider request failed: {exc}")
 
 
 def _call_heygen(model_id: str, prompt: str, payload: dict):
