@@ -52,6 +52,30 @@ BYTEPLUS_SEEDREAM_MODEL_MAP = {
     "seedream-4-5-251128": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
     "seedream-4-0-250828": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
 }
+IMAGE_PROVIDER_MODEL_MAP = {
+    "ideogram_3_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_3_MODEL"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
+    "ideogram_4_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_4_MODEL", "ideogram-v4"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v4/generate"},
+    "recraft_v4_1": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "recraft_v3": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V3_MODEL"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "recraft_v4_1_pro": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_PRO_MODEL", os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1")), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "seedream_4_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
+    "seedream_5_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
+    "seedream_4_5": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
+    "gpt_image_1": {"provider": "openai", "provider_model": "gpt-image-1", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
+    "gpt_image_2": {"provider": "openai", "provider_model": "gpt-image-2", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
+    "flux_pro_kontext": {"provider": "flux", "provider_model": os.getenv("FLUX_PRO_KONTEXT_MODEL"), "endpoint": "https://api.bfl.ai/v1"},
+    "flux_2": {"provider": "flux", "provider_model": os.getenv("FLUX_2_MODEL", "flux-2-pro"), "endpoint": "https://api.bfl.ai/v1"},
+    "flux_2_turbo": {"provider": "flux", "provider_model": os.getenv("FLUX_2_TURBO_MODEL"), "endpoint": "https://api.bfl.ai/v1"},
+    "qwen_image": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
+    "qwen_image_2_pro": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_PRO_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
+    "qwen_image_2": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
+    "nano_banana_pro": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_PRO_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
+    "nano_banana_2": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_2_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
+    "nano_banana": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
+    "grok_pro": {"provider": "grok", "provider_model": os.getenv("GROK_IMAGE_PRO_MODEL"), "endpoint": os.getenv("XAI_IMAGE_ENDPOINT")},
+    "grok": {"provider": "grok", "provider_model": os.getenv("GROK_IMAGE_MODEL"), "endpoint": os.getenv("XAI_IMAGE_ENDPOINT")},
+    "davinci_ultra": {"provider": "davinci", "provider_model": os.getenv("DAVINCI_ULTRA_MODEL"), "endpoint": os.getenv("DAVINCI_IMAGE_ENDPOINT")},
+}
 IMAGE_MODELS_JSON = os.getenv("IMAGE_MODELS_JSON")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
@@ -3257,7 +3281,15 @@ def map_image_model_to_provider_model(frontend_model: str) -> Optional[str]:
     if not value:
         return None
     normalized = value.lower()
+    provider_cfg = IMAGE_PROVIDER_MODEL_MAP.get(normalized) or IMAGE_PROVIDER_MODEL_MAP.get(normalized.replace("-", "_"))
+    if provider_cfg:
+        return provider_cfg.get("provider_model")
     return BYTEPLUS_SEEDREAM_MODEL_MAP.get(normalized) or BYTEPLUS_SEEDREAM_MODEL_MAP.get(normalized.replace("-", "_"))
+
+def image_provider_mapping(frontend_model: str) -> dict:
+    value = (frontend_model or "").strip()
+    normalized = value.lower()
+    return IMAGE_PROVIDER_MODEL_MAP.get(normalized) or IMAGE_PROVIDER_MODEL_MAP.get(normalized.replace("-", "_")) or {}
 
 def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
     return {
@@ -3267,18 +3299,40 @@ def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
         "provider": "bytedance",
     }
 
+def unknown_image_model_mapping_response(frontend_model: str, provider: str = "") -> dict:
+    mapping = image_provider_mapping(frontend_model)
+    return {
+        "ok": False,
+        "type": "image",
+        "error": "Unknown provider model mapping",
+        "frontend_model": frontend_model or "",
+        "provider": provider or mapping.get("provider") or "",
+        "endpoint": mapping.get("endpoint") or "",
+    }
+
 def find_image_model(model_id: str) -> dict:
     models = get_image_capabilities().get("models") or []
     if model_id:
-        byteplus_model = map_image_model_to_provider_model(model_id)
+        mapping = image_provider_mapping(model_id)
+        provider_model = mapping.get("provider_model")
         for model in models:
             if model.get("id") == model_id or model.get("api_model") == model_id:
                 return model
-            if byteplus_model and model.get("api_model") == byteplus_model:
+            if provider_model and model.get("api_model") == provider_model:
                 mapped = dict(model)
                 mapped["id"] = model_id
-                mapped["api_model"] = byteplus_model
+                mapped["api_model"] = provider_model
+                mapped["provider"] = mapping.get("provider") or mapped.get("provider")
                 return mapped
+        if mapping and provider_model:
+            return {
+                "id": model_id,
+                "provider": mapping.get("provider"),
+                "api_model": provider_model,
+                "endpoint": mapping.get("endpoint"),
+                "sizes": [image_size("1024x1024")],
+                "counts": [1],
+            }
     return {}
 
 def infer_image_model(model_id: str, provider: str = "") -> dict:
@@ -3289,11 +3343,9 @@ def infer_image_model(model_id: str, provider: str = "") -> dict:
         return {"id": value, "provider": "openai", "api_model": "gpt-image-1", "sizes": [image_size("1024x1024")], "counts": [1]}
     if normalized in ("gpt_image_2", "openai_gpt_image_2"):
         return {"id": value, "provider": "openai", "api_model": "gpt-image-2", "sizes": [image_size("1024x1024")], "counts": [1]}
-    if re.search(r"seedream", normalized) or provider in ("bytedance", "byteplus"):
-        api_model = map_image_model_to_provider_model(value)
-        if not api_model:
-            return {}
-        return {"id": value, "provider": "bytedance", "api_model": api_model, "sizes": [image_size("1:1")], "counts": [1, 2, 3, 4]}
+    mapping = image_provider_mapping(value)
+    if mapping and mapping.get("provider_model"):
+        return {"id": value, "provider": mapping.get("provider"), "api_model": mapping.get("provider_model"), "sizes": [image_size("1:1")], "counts": [1, 2, 3, 4]}
     return {}
 
 def is_internal_ui_model(model: str) -> bool:
@@ -3638,6 +3690,36 @@ def normalize_image_response(data: dict) -> list:
             images.append("data:image/png;base64," + item["b64_json"])
     return images
 
+def safe_provider_json(response, provider: str, endpoint: str) -> dict:
+    status = getattr(response, "status_code", None) or getattr(response, "status", None)
+    try:
+        text = response.text
+        if callable(text):
+            text = text()
+    except Exception:
+        text = ""
+    if not text:
+        return {
+            "ok": False,
+            "provider": provider,
+            "status_code": status,
+            "error": "Provider returned empty response",
+            "endpoint": endpoint,
+            "body_preview": "",
+        }
+    try:
+        return json.loads(text)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "provider": provider,
+            "status_code": status,
+            "error": "Provider returned non-JSON response",
+            "details": str(exc),
+            "endpoint": endpoint,
+            "body_preview": text[:1000],
+        }
+
 def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
     try:
         count = int(value or default)
@@ -3698,10 +3780,10 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     if response.status_code >= 400:
         return [], f"HTTP {response.status_code}: {response.text[:500]}"
 
-    try:
-        images = normalize_image_response(response.json())
-    except Exception as exc:
-        return [], type(exc).__name__
+    data = safe_provider_json(response, "bytedance", f"{BYTEPLUS_ARK_ENDPOINT}/images/generations")
+    if data.get("ok") is False:
+        return [], data.get("error") or "invalid provider response"
+    images = normalize_image_response(data)
 
     if not images:
         return [], "no image returned"
@@ -3896,6 +3978,8 @@ def image_generation(payload: dict) -> dict:
     requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
     model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, payload.get("provider"))
     if not model_cfg:
+        if image_provider_mapping(requested_model):
+            return unknown_image_model_mapping_response(requested_model, payload.get("provider") or "")
         if (payload.get("provider") or "").strip().lower() in ("bytedance", "byteplus") or re.search(r"seedream", str(requested_model or ""), re.I):
             return unknown_byteplus_image_model_response(requested_model)
         return {
@@ -3907,11 +3991,12 @@ def image_generation(payload: dict) -> dict:
         }
     provider = model_cfg.get("provider") or "openai"
     api_model = model_cfg.get("api_model") or "gpt-image-1"
+    endpoint = model_cfg.get("endpoint") or (image_provider_mapping(requested_model).get("endpoint") if requested_model else "")
     size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
     count = int(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1)
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", api_model, re.I):
         if not BYTEPLUS_ARK_API_KEY:
-            return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+            return {"ok": False, "type": "image", "error": "Provider API key is missing", "provider": provider, "frontend_model": requested_model, "provider_model": api_model}
         response = requests.post(
             f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
             headers={
@@ -3921,12 +4006,16 @@ def image_generation(payload: dict) -> dict:
             data=json.dumps({"model": api_model, "prompt": prompt, "size": size, "n": count}),
             timeout=120,
         )
-    else:
+        endpoint = f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"
+    elif provider == "openai":
         if not OPENAI_API_KEY:
             return {
-                "ok": True,
-                "type": "text",
-                "text": "Image generation is ready. Add OPENAI_API_KEY to generate images.\n\nPrompt: " + prompt
+                "ok": False,
+                "type": "image",
+                "error": "Provider API key is missing",
+                "provider": provider,
+                "frontend_model": requested_model,
+                "provider_model": api_model,
             }
         response = requests.post(
             f"{OPENAI_API_BASE}/images/generations",
@@ -3934,16 +4023,47 @@ def image_generation(payload: dict) -> dict:
             data=json.dumps({"model": api_model, "prompt": prompt, "size": size, "n": count}),
             timeout=120,
         )
+        endpoint = f"{OPENAI_API_BASE}/images/generations"
+    else:
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Image provider adapter is not connected",
+            "frontend_model": requested_model or "",
+            "provider": provider,
+            "provider_model": api_model or "",
+            "endpoint": endpoint or "",
+        }
 
     if response.status_code >= 400:
         print("IMAGE GENERATION FAILED:", provider, response.status_code)
-        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+        data = safe_provider_json(response, provider, endpoint)
+        return {
+            "ok": False,
+            "type": "image",
+            "error": data.get("error") or data.get("message") or "Provider request failed",
+            "provider": provider,
+            "frontend_model": requested_model or "",
+            "provider_model": api_model,
+            "endpoint": endpoint,
+            "status_code": data.get("status_code") or response.status_code,
+            "body_preview": data.get("body_preview") or response.text[:1000],
+        }
 
-    images = []
-    try:
-        images = normalize_image_response(response.json())
-    except Exception:
-        images = []
+    data = safe_provider_json(response, provider, endpoint)
+    if data.get("ok") is False:
+        return {
+            "ok": False,
+            "type": "image",
+            "error": data.get("error") or "Provider returned invalid response",
+            "provider": provider,
+            "frontend_model": requested_model or "",
+            "provider_model": api_model,
+            "endpoint": endpoint,
+            "status_code": data.get("status_code"),
+            "body_preview": data.get("body_preview"),
+        }
+    images = normalize_image_response(data)
     if images:
         return attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
     return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
