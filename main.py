@@ -4102,7 +4102,7 @@ async def image_generation(payload: dict) -> dict:
                 "model": api_model,
                 "prompt": prompt,
                 "size": openai_size,
-                "n": count,
+                "n": 1,
             }),
             timeout=120,
         )
@@ -4118,7 +4118,7 @@ async def image_generation(payload: dict) -> dict:
         }
 
     if response.status_code >= 400:
-        print("IMAGE GENERATION FAILED:", provider, response.status_code)
+        print("IMAGE GENERATION FAILED:", provider, response.status_code, response.text[:2000])
         data = safe_provider_json(response, provider, endpoint)
         return {
             "ok": False,
