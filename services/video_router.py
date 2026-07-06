@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import requests
 import httpx
 
@@ -439,11 +440,59 @@ def _seedance_poll_task(task_id: str, headers: dict):
     )
 
 
+def _seedance_poll_until_ready(task_id: str, headers: dict, max_attempts: int = None, interval_seconds: int = None):
+    try:
+        attempts = int(max_attempts or os.getenv("BYTEPLUS_SEEDANCE_POLL_ATTEMPTS") or 60)
+    except Exception:
+        attempts = 60
+    try:
+        interval = int(interval_seconds or os.getenv("BYTEPLUS_SEEDANCE_POLL_INTERVAL") or 5)
+    except Exception:
+        interval = 5
+    attempts = max(1, min(attempts, 60))
+    interval = max(1, interval)
+
+    last_result = None
+    for attempt in range(1, attempts + 1):
+        result = _seedance_poll_task(task_id, headers)
+        last_result = result
+        video_url = result.get("video_url") or ""
+        print("SEEDANCE VIDEO POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": result.get("status") or ("error" if not result.get("ok") else ""),
+            "has_video_url": bool(video_url),
+            "video_url": video_url,
+        })
+        if not result.get("ok"):
+            return result
+        if result.get("status") == "completed" and video_url:
+            return result
+        if attempt < attempts:
+            time.sleep(interval)
+
+    if last_result and last_result.get("ok"):
+        last_result["status"] = "processing"
+        last_result["task_id"] = task_id
+        last_result["poll_url"] = _seedance_status_endpoint(task_id)
+        return last_result
+    return _provider_success(
+        "bytedance",
+        task_id,
+        [],
+        status="processing",
+        task_id=task_id,
+        poll_url=_seedance_status_endpoint(task_id),
+    )
+
+
 async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str], caption: str = ""):
     bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
+        print("TELEGRAM VIDEO SEND:", {"telegram_id": telegram_id, "has_video_url": bool(videos), "error": "bot token missing"})
         return False
     if not telegram_id or not videos:
+        print("TELEGRAM VIDEO SEND:", {"telegram_id": telegram_id, "has_video_url": bool(videos), "error": "telegram_id or video_url missing"})
         return False
 
     sent_any = False
@@ -452,6 +501,11 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
             try:
                 video_response = await client.get(video_url)
                 if video_response.status_code >= 400 or not video_response.content:
+                    print("TELEGRAM VIDEO SEND:", {
+                        "telegram_id": telegram_id,
+                        "has_video_url": bool(video_url),
+                        "error": f"download failed: {video_response.status_code}",
+                    })
                     continue
                 content_type = video_response.headers.get("content-type") or "video/mp4"
                 ext = ".mp4" if "mp4" in content_type else ".bin"
@@ -465,7 +519,15 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
                 )
                 if tg_response.status_code < 400:
                     sent_any = True
+                    print("TELEGRAM VIDEO SEND:", {"telegram_id": telegram_id, "has_video_url": bool(video_url), "ok": True})
+                else:
+                    print("TELEGRAM VIDEO SEND:", {
+                        "telegram_id": telegram_id,
+                        "has_video_url": bool(video_url),
+                        "error": tg_response.text[:500],
+                    })
             except Exception:
+                print("TELEGRAM VIDEO SEND:", {"telegram_id": telegram_id, "has_video_url": bool(video_url), "error": "exception"})
                 continue
     return sent_any
 
@@ -597,17 +659,24 @@ def _provider_result_from_response(provider: str, model_id: str, response, endpo
 
 def _telegram_caption(model_id: str, provider: str, payload: dict):
     opts = _build_video_payload(model_id, payload.get("prompt") or "", payload)
-    sound = "вкл" if opts.get("sound") else "выкл"
+    model_labels = {
+        "seedance_2_fast": "Seedance 2.0 Fast",
+        "seedance_2_0": "Seedance 2.0",
+        "seedance_1_5_pro": "Seedance 1.5 Pro",
+    }
+    provider_labels = {
+        "bytedance": "BytePlus",
+        "seedance": "BytePlus",
+    }
+    model_label = model_labels.get(model_id, model_id)
+    provider_label = provider_labels.get((provider or "").lower(), provider)
     return (
         "SYLVEX Pro Studio\n"
-        "Видео готово\n\n"
-        f"Модель: {model_id}\n"
-        f"Провайдер: {provider}\n"
-        f"Режим: {opts.get('mode')}\n"
+        "Видео готово ✅\n\n"
+        f"Модель: {model_label}\n"
+        f"Провайдер: {provider_label}\n"
         f"Формат: {opts.get('ratio')}\n"
-        f"Разрешение: {opts.get('resolution')}\n"
-        f"Длительность: {opts.get('duration')} сек\n"
-        f"Звук: {sound}"
+        f"Длительность: {opts.get('duration')} сек"
     )
 
 
@@ -634,15 +703,15 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
         if video_urls:
             return _provider_success("bytedance", model_id, video_urls)
         task_id = _task_id_from_response(data)
+        submit_status = _seedance_status(data) or data.get("status") or data.get("state") or "processing"
+        print("SEEDANCE VIDEO SUBMIT RESPONSE:", {
+            "task_id": task_id,
+            "status": submit_status,
+        })
         if not task_id:
             return _provider_error("bytedance", model_id, "Seedance task id not found")
-        poll_url = _seedance_status_endpoint(task_id)
-        if os.getenv("BYTEPLUS_SEEDANCE_POLL_ON_SUBMIT", "").strip().lower() in {"1", "true", "yes", "on"}:
-            polled = _seedance_poll_task(task_id, headers)
-            polled["model"] = model_id
-            polled["provider_model"] = body.get("model")
-            return polled
-        result = _provider_success("bytedance", model_id, [], status="processing", task_id=task_id, poll_url=poll_url)
+        result = _seedance_poll_until_ready(task_id, headers)
+        result["model"] = model_id
         result["provider_model"] = body.get("model")
         return result
     except Exception as exc:
