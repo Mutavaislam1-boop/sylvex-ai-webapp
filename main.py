@@ -7,6 +7,7 @@ import urllib.parse
 import asyncio
 import re
 import base64
+import time
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -54,7 +55,7 @@ BYTEPLUS_SEEDREAM_MODEL_MAP = {
     "seedream-4-0-250828": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
 }
 IMAGE_PROVIDER_MODEL_MAP = {
-    "ideogram_3_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_3_MODEL"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
+    "ideogram_3_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_3_MODEL", "ideogram-v3"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
     "ideogram_4_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_4_MODEL", "ideogram-v4"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v4/generate"},
     "recraft_v4_1": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "recraft_v3": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V3_MODEL"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
@@ -3997,6 +3998,173 @@ def normalize_openai_image_size(size: str) -> str:
     return "1024x1024"
 
 
+def image_reference_urls(payload: dict) -> list:
+    opts = payload.get("image_options") or {}
+    refs = (
+        opts.get("referenceImageUrls")
+        or opts.get("reference_image_urls")
+        or opts.get("referenceImages")
+        or opts.get("images")
+        or []
+    )
+    if isinstance(refs, str):
+        refs = [refs]
+    return [u for u in refs if isinstance(u, str) and u.strip()]
+
+
+def image_dimensions(size: str) -> tuple[int, int]:
+    raw = str(size or "").strip().lower()
+    if "x" in raw:
+        try:
+            width, height = [int(part) for part in raw.split("x", 1)]
+            return width, height
+        except Exception:
+            pass
+    if raw in {"16:9", "landscape"}:
+        return 1536, 864
+    if raw in {"9:16", "portrait"}:
+        return 864, 1536
+    return 1024, 1024
+
+
+def image_error_response(provider: str, frontend_model: str, provider_model: str, endpoint: str, error: str, response=None, data: dict = None) -> dict:
+    status_code = getattr(response, "status_code", None) if response is not None else None
+    body_preview = ""
+    if data:
+        status_code = data.get("status_code") or status_code
+        body_preview = data.get("body_preview") or ""
+    if response is not None and not body_preview:
+        try:
+            body_preview = response.text[:1000]
+        except Exception:
+            body_preview = ""
+    return {
+        "ok": False,
+        "type": "image",
+        "error": error,
+        "provider": provider,
+        "frontend_model": frontend_model or "",
+        "provider_model": provider_model or "",
+        "endpoint": endpoint or "",
+        "status_code": status_code,
+        "body_preview": body_preview,
+    }
+
+
+async def finalize_image_result(payload: dict, images: list) -> dict:
+    result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
+    telegram_id = int(payload.get("telegram_id") or 0)
+    result["sent_to_telegram"] = False
+    if telegram_id:
+        try:
+            result["sent_to_telegram"] = await send_generated_images_to_telegram(
+                telegram_id=telegram_id,
+                images=images,
+                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+    return result
+
+
+def flux_headers() -> dict:
+    api_key = os.getenv("BFL_API_KEY") or os.getenv("FLUX_API_KEY") or os.getenv("FLUX-API-KEY")
+    if not api_key:
+        return {}
+    return {"accept": "application/json", "x-key": api_key, "Content-Type": "application/json"}
+
+
+def poll_flux_image(polling_url: str, frontend_model: str, provider_model: str, max_attempts: int = 180) -> tuple[list, dict]:
+    headers = flux_headers()
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.get(polling_url, headers=headers, timeout=60)
+        except requests.RequestException as exc:
+            return [], image_error_response("flux", frontend_model, provider_model, polling_url, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+        data = safe_provider_json(response, "flux", polling_url)
+        if response.status_code >= 400 or data.get("ok") is False:
+            return [], image_error_response("flux", frontend_model, provider_model, polling_url, data.get("error") or "Provider request failed", response, data)
+        status = data.get("status")
+        print("FLUX IMAGE POLL:", {"attempt": attempt, "status": status, "has_image_url": bool((data.get("result") or {}).get("sample"))})
+        if status == "Ready":
+            image_url = (data.get("result") or {}).get("sample")
+            return ([image_url] if image_url else []), {}
+        if status in {"Error", "Failed", "Request Moderated", "Content Moderated"}:
+            return [], image_error_response("flux", frontend_model, provider_model, polling_url, "Flux generation failed", data=data)
+        time.sleep(1)
+    return [], image_error_response("flux", frontend_model, provider_model, polling_url, "Flux generation timeout")
+
+
+def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str) -> tuple[list, dict, dict]:
+    headers = flux_headers()
+    if not headers:
+        return [], image_error_response("flux", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+    width, height = image_dimensions(size)
+    refs = image_reference_urls(payload)
+    request_payload = {
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "output_format": (payload.get("image_options") or {}).get("output_format") or "jpeg",
+    }
+    if refs:
+        request_payload["input_image"] = refs[0]
+    submit_endpoint = f"{endpoint.rstrip('/')}/{provider_model}"
+    try:
+        response = requests.post(submit_endpoint, headers=headers, json=request_payload, timeout=60)
+    except requests.RequestException as exc:
+        return [], image_error_response("flux", frontend_model, provider_model, submit_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "flux", submit_endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return [], image_error_response("flux", frontend_model, provider_model, submit_endpoint, data.get("error") or "Provider request failed", response, data), request_payload
+    polling_url = data.get("polling_url")
+    if not polling_url:
+        return [], image_error_response("flux", frontend_model, provider_model, submit_endpoint, "Flux polling_url not found", data=data), request_payload
+    images, error = poll_flux_image(polling_url, frontend_model, provider_model)
+    return images, error, request_payload
+
+
+def ideogram_headers(json_content: bool = True) -> dict:
+    api_key = os.getenv("IDEOGRAM_API_KEY")
+    if not api_key:
+        return {}
+    headers = {"Api-Key": api_key}
+    if json_content:
+        headers["Content-Type"] = "application/json"
+    return headers
+
+
+def ideogram_resolution(size: str) -> str:
+    raw = str(size or "").strip()
+    if raw in {"1024x1024", "2048x2048"}:
+        return "2048x2048"
+    if raw in {"16:9", "1536x1024", "landscape"}:
+        return "2048x1152"
+    if raw in {"9:16", "1024x1536", "portrait"}:
+        return "1152x2048"
+    return "2048x2048"
+
+
+def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str) -> tuple[list, dict, dict]:
+    headers = ideogram_headers(json_content=True)
+    if not headers:
+        return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+    request_payload = {
+        "text_prompt": prompt,
+        "rendering_speed": (payload.get("image_options") or {}).get("rendering_speed") or "TURBO",
+        "resolution": ideogram_resolution(size),
+    }
+    try:
+        response = requests.post(endpoint, headers=headers, json=request_payload, timeout=120)
+    except requests.RequestException as exc:
+        return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "ideogram", endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, data.get("error") or "Provider request failed", response, data), request_payload
+    images = normalize_image_response(data)
+    return images, {}, request_payload
+
+
 async def image_generation(payload: dict) -> dict:
     opts = payload.get("image_options") or {}
     prompt = build_image_prompt(payload)
@@ -4006,7 +4174,7 @@ async def image_generation(payload: dict) -> dict:
     model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, frontend_provider)
 
     if not mapping and requested_model:
-        if (frontend_provider in ("bytedance", "byteplus") or re.search(r"seedream", str(requested_model or ""), re.I)):
+        if frontend_provider in ("bytedance", "byteplus") or re.search(r"seedream", str(requested_model or ""), re.I):
             return unknown_byteplus_image_model_response(requested_model)
         return unknown_image_model_mapping_response(requested_model, frontend_provider)
 
@@ -4029,32 +4197,12 @@ async def image_generation(payload: dict) -> dict:
     size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
     count = safe_image_count(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1, default=1, max_count=4)
 
-    response = None
-
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", api_model, re.I):
         if not BYTEPLUS_ARK_API_KEY:
-            return {
-                "ok": False,
-                "type": "image",
-                "error": "Provider API key is missing",
-                "provider": provider,
-                "frontend_model": requested_model,
-                "provider_model": api_model,
-            }
+            return image_error_response(provider, requested_model, api_model, f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "Provider API key is missing")
 
-        # Seedream has its own working flow with retries, references and repeated calls.
         images = []
-        reference_images = (
-            opts.get("referenceImageUrls")
-            or opts.get("reference_image_urls")
-            or opts.get("referenceImages")
-            or opts.get("images")
-            or []
-        )
-        if isinstance(reference_images, str):
-            reference_images = [reference_images]
-        reference_images = [u for u in reference_images if isinstance(u, str) and u.strip()]
-
+        reference_images = image_reference_urls(payload)
         for index in range(1, count + 1):
             print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
             request_images, error = request_byteplus_seedream_image(api_model, prompt, reference_images)
@@ -4067,122 +4215,62 @@ async def image_generation(payload: dict) -> dict:
                 print(f"BYTEPLUS IMAGE FAILED {index}/{count} {error or 'unknown error'}")
             if len(images) >= count:
                 break
-
         if not images:
-            return {
-                "ok": False,
-                "type": "image",
-                "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер.",
-                "provider": provider,
-                "frontend_model": requested_model or "",
-                "provider_model": api_model,
-                "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
-            }
+            return image_error_response(provider, requested_model, api_model, f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "Генерация не прошла. Проверь выбранную модель или backend-провайдер.")
+        return await finalize_image_result(payload, images[:count])
 
-        images = images[:count]
-        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
-        telegram_id = int(payload.get("telegram_id") or 0)
-        result["sent_to_telegram"] = False
-        if telegram_id:
-            try:
-                result["sent_to_telegram"] = await send_generated_images_to_telegram(
-                    telegram_id=telegram_id,
-                    images=images,
-                    caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
-                )
-            except Exception as exc:
-                print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
-        return result
-
-    elif provider == "openai":
+    if provider == "openai":
         if not OPENAI_API_KEY:
-            return {
-                "ok": False,
-                "type": "image",
-                "error": "Provider API key is missing",
-                "provider": provider,
-                "frontend_model": requested_model,
-                "provider_model": api_model,
-            }
+            return image_error_response(provider, requested_model, api_model, f"{OPENAI_API_BASE}/images/generations", "Provider API key is missing")
+        if image_reference_urls(payload):
+            return image_error_response(provider, requested_model, api_model, f"{OPENAI_API_BASE}/images/generations", "Selected model does not support image-to-image")
 
         endpoint = f"{OPENAI_API_BASE}/images/generations"
         openai_size = normalize_openai_image_size(size)
-        response = requests.post(
-            endpoint,
-            headers=openai_headers(),
-            data=json.dumps({
-                "model": api_model,
-                "prompt": prompt,
-                "size": openai_size,
-                "n": 1,
-            }),
-            timeout=120,
-        )
-    else:
-        return {
-            "ok": False,
-            "type": "image",
-            "error": "Image provider adapter is not connected",
-            "frontend_model": requested_model or "",
-            "provider": provider,
-            "provider_model": api_model or "",
-            "endpoint": endpoint or "",
-        }
-
-    if response.status_code >= 400:
-        print("IMAGE GENERATION FAILED:", provider, response.status_code, response.text[:2000])
+        try:
+            response = requests.post(
+                endpoint,
+                headers=openai_headers(),
+                data=json.dumps({
+                    "model": api_model,
+                    "prompt": prompt,
+                    "size": openai_size,
+                    "n": 1,
+                }),
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+        if response.status_code >= 400:
+            data = safe_provider_json(response, provider, endpoint)
+            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
         data = safe_provider_json(response, provider, endpoint)
-        return {
-            "ok": False,
-            "type": "image",
-            "error": data.get("error") or data.get("message") or "Provider request failed",
-            "provider": provider,
-            "frontend_model": requested_model or "",
-            "provider_model": api_model,
-            "endpoint": endpoint,
-            "status_code": data.get("status_code") or response.status_code,
-            "body_preview": data.get("body_preview") or response.text[:1000],
-        }
+        if data.get("ok") is False:
+            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
+        images = normalize_image_response(data)
+        if images:
+            return await finalize_image_result(payload, images[:count])
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
-    data = safe_provider_json(response, provider, endpoint)
-    if data.get("ok") is False:
-        return {
-            "ok": False,
-            "type": "image",
-            "error": data.get("error") or "Provider returned invalid response",
-            "provider": provider,
-            "frontend_model": requested_model or "",
-            "provider_model": api_model,
-            "endpoint": endpoint,
-            "status_code": data.get("status_code"),
-            "body_preview": data.get("body_preview"),
-        }
+    if provider == "flux":
+        images, error, request_payload = call_flux_image(requested_model, api_model, endpoint, prompt, payload, size)
+        print("FLUX IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": request_payload})
+        if error:
+            return error
+        if images:
+            return await finalize_image_result(payload, images[:count])
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
-    images = normalize_image_response(data)
-    if images:
-        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
-        telegram_id = int(payload.get("telegram_id") or 0)
-        result["sent_to_telegram"] = False
-        if telegram_id:
-            try:
-                result["sent_to_telegram"] = await send_generated_images_to_telegram(
-                    telegram_id=telegram_id,
-                    images=images,
-                    caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
-                )
-            except Exception as exc:
-                print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
-        return result
+    if provider == "ideogram":
+        images, error, request_payload = call_ideogram_image(requested_model, api_model, endpoint, prompt, payload, size)
+        print("IDEOGRAM IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": request_payload})
+        if error:
+            return error
+        if images:
+            return await finalize_image_result(payload, images[:count])
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
-    return {
-        "ok": False,
-        "type": "image",
-        "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер.",
-        "provider": provider,
-        "frontend_model": requested_model or "",
-        "provider_model": api_model,
-        "endpoint": endpoint,
-    }
+    return image_error_response(provider, requested_model, api_model, endpoint, "Image provider adapter is not connected")
 
 @app.get("/api/public/prostudio/image-capabilities")
 async def public_prostudio_image_capabilities():
