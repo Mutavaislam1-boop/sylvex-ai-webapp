@@ -2665,3 +2665,24 @@ body.ai-generating .view[data-view="tools"].active .studio,
   animation:none !important;
   pointer-events:none !important;
 }
+
+/* Remove Pro Studio decorative background dots completely. */
+.view[data-view="tools"].active .studio,
+body.ai-generating .view[data-view="tools"].active .studio,
+.view[data-view="tools"].active .studio:has(.typing),
+.view[data-view="tools"].active .chat-area,
+body.ai-generating .view[data-view="tools"].active .chat-area,
+.view[data-view="tools"].active .chat-area:has(.typing){
+  background-image:none !important;
+  animation:none !important;
+}
+
+.view[data-view="tools"].active .studio::before,
+.view[data-view="tools"].active .studio::after,
+.view[data-view="tools"].active .chat-area::before,
+.view[data-view="tools"].active .chat-area::after{
+  content:none !important;
+  display:none !important;
+  background:none !important;
+  animation:none !important;
+}
