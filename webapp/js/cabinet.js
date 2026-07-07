@@ -2504,7 +2504,7 @@ function closeUploadPanel(e) {
         toast('Видео загружено');
       }
 
-      if ((studioMode === 'music' || activeCat === 'music') && result) {
+      if ((studioMode === 'music' || activeCat === 'music') && result && (pendingAttachAccept || '') !== 'image') {
         musicState.uploads = (musicState.uploads || []).filter((item) => item.url !== result);
         musicState.uploads.push({
           kind: (pendingAttachAccept || 'file') === 'video' ? 'audio' : (pendingAttachAccept || 'file'),
