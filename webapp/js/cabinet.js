@@ -19,7 +19,6 @@
   let currentModelLabel = 'SYLVEX Pro';
 let imageCapabilities = [];
 let generatedImageLibrary = [];
-let uploadedImageLibrary = [];
 let imageState = {
     modelId: '',
     size: '',
@@ -29,6 +28,8 @@ let imageState = {
     objects: '',
     referenceImageUrl: '',
     referenceImageUrls: [],
+    uploadedImageUrls: [],
+    attachment: null,
   };
 
 let videoState = {
@@ -50,12 +51,21 @@ let videoState = {
   motionPreset: '',
   referenceImageUrl: '',
   referenceImageUrls: [],
+  uploadedImageUrls: [],
+  attachment: null,
   advanced: {},
 };
 let videoUploadTarget = 'reference';
 
 let musicState = {
   modelId: 'musicgen-pro',
+  uploads: [],
+  attachment: null,
+  genre: '',
+  duration: '',
+  style: '',
+  voice: '',
+  audioSettings: {},
 };
 
 let voiceState = {
@@ -713,7 +723,7 @@ function updateImageUploadButtonPreview() {
   const button = findImageUploadControlButton();
   if (!button) return;
 
-  const urls = (isVideoMode() ? (videoState.referenceImageUrls || []) : (imageState.referenceImageUrls || [])).filter(Boolean).slice(0, 4);
+  const urls = currentUploadImages().filter(Boolean).slice(0, 4);
 
   let bg = button.querySelector(':scope > .image-upload-control-bg');
 
@@ -752,6 +762,53 @@ function addVideoReferenceImage(url) {
   } else {
     videoState.startImage = url;
   }
+}
+
+function currentUploadImages() {
+  if (isVideoMode()) return (videoState.uploadedImageUrls || []).slice();
+  if (studioMode === 'music' || activeCat === 'music') return (musicState.uploads || []).filter((item) => item && item.kind === 'image').map((item) => item.url);
+  return (imageState.uploadedImageUrls || []).slice();
+}
+
+function setCurrentUploadImages(urls) {
+  const clean = (urls || []).filter(Boolean).slice(0, 4);
+  if (isVideoMode()) {
+    videoState.uploadedImageUrls = clean;
+    return;
+  }
+  if (studioMode === 'music' || activeCat === 'music') {
+    const existing = (musicState.uploads || []).filter((item) => item && item.kind !== 'image');
+    musicState.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
+    return;
+  }
+  imageState.uploadedImageUrls = clean;
+}
+
+function currentModeAttachment() {
+  if (isVideoMode()) return videoState.attachment || null;
+  if (studioMode === 'music' || activeCat === 'music') return musicState.attachment || null;
+  if (isImageMode()) return imageState.attachment || null;
+  return pendingAttachment;
+}
+
+function setCurrentModeAttachment(attachment) {
+  if (isVideoMode()) {
+    videoState.attachment = attachment || null;
+  } else if (studioMode === 'music' || activeCat === 'music') {
+    musicState.attachment = attachment || null;
+  } else if (isImageMode()) {
+    imageState.attachment = attachment || null;
+  } else {
+    pendingAttachment = attachment || null;
+  }
+  pendingAttachment = currentModeAttachment();
+}
+
+function currentSelectedUploadImage() {
+  if (isVideoMode()) return videoState.referenceImageUrl || '';
+  if (isImageMode()) return imageState.referenceImageUrl || '';
+  const images = currentUploadImages();
+  return images[images.length - 1] || '';
 }
 
   function injectImageStyleSheetCss() {
@@ -1920,6 +1977,15 @@ function imageModelButton(model) {
       return;
     }
 
+    if (studioMode === 'music' || activeCat === 'music') {
+      musicState.uploads = (musicState.uploads || []).filter((item) => item.url !== url);
+      musicState.uploads.push({ kind: kind === 'video' ? 'audio' : kind, url });
+      musicState.uploads = musicState.uploads.slice(0, 4);
+      updateSendButton();
+      toast('Ссылка добавлена');
+      return;
+    }
+
     if (kind === 'image' && isImageMode()) {
       addUploadedPhoto(url);
       renderComposerImageDraft();
@@ -1995,7 +2061,7 @@ function imageModelButton(model) {
       return;
     }
 
-    const selectedUrl = isVideoMode() ? (videoState.referenceImageUrl || '') : (imageState.referenceImageUrl || '');
+    const selectedUrl = currentSelectedUploadImage();
     grid.innerHTML = generatedImageLibrary.map((entry) => {
       const item = normalizeGeneratedImageItem(entry);
       if (!item) return '';
@@ -2010,9 +2076,10 @@ function imageModelButton(model) {
   }
 
   function uploadPhotoButtonHtml() {
-  if (uploadedImageLibrary.length >= 4) return '';
+  const uploadImages = currentUploadImages();
+  if (uploadImages.length >= 4) return '';
 
-  if (!uploadedImageLibrary.length) {
+  if (!uploadImages.length) {
     return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'image\')">'
       + '<span class="upload-photo-center-icon" aria-hidden="true">'
       + '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
@@ -2036,13 +2103,15 @@ function imageModelButton(model) {
     const grid = document.getElementById('uploadPhotoGrid');
     if (!grid) return;
 
-    grid.classList.toggle('empty', uploadedImageLibrary.length === 0);
+    const uploadImages = currentUploadImages();
+
+    grid.classList.toggle('empty', uploadImages.length === 0);
 
     const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
-    if (chooseBtn) chooseBtn.hidden = uploadedImageLibrary.length === 0;
+    if (chooseBtn) chooseBtn.hidden = uploadImages.length === 0;
 
-    const selectedUrl = isVideoMode() ? (videoState.referenceImageUrl || '') : (imageState.referenceImageUrl || '');
-    const items = uploadedImageLibrary.map((url, index) => {
+    const selectedUrl = currentSelectedUploadImage();
+    const items = uploadImages.map((url, index) => {
       const safeUrl = S.escapeHtml(url);
       const selected = selectedUrl === url;
       return '<button class="upload-photo-thumb ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.selectUploadedPhoto(event,\'' + safeUrl + '\')">'
@@ -2059,14 +2128,15 @@ function imageModelButton(model) {
 
   function addUploadedPhoto(url) {
     if (!url) return;
-    uploadedImageLibrary = uploadedImageLibrary.filter((item) => item !== url);
-    uploadedImageLibrary.push(url);
-    uploadedImageLibrary = uploadedImageLibrary.slice(0, 4);
+    const uploadImages = currentUploadImages().filter((item) => item !== url);
+    uploadImages.push(url);
+    setCurrentUploadImages(uploadImages);
+    const scopedUploads = currentUploadImages();
     if (isVideoMode()) {
       addVideoReferenceImage(url);
-    } else {
+    } else if (isImageMode()) {
       imageState.referenceImageUrl = url;
-      imageState.referenceImageUrls = uploadedImageLibrary.slice();
+      imageState.referenceImageUrls = scopedUploads.slice();
     }
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
@@ -2079,9 +2149,9 @@ function imageModelButton(model) {
     }
     if (isVideoMode()) {
       addVideoReferenceImage(url);
-    } else {
+    } else if (isImageMode()) {
       imageState.referenceImageUrl = url;
-      imageState.referenceImageUrls = uploadedImageLibrary.slice();
+      imageState.referenceImageUrls = currentUploadImages().slice();
     }
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
@@ -2093,16 +2163,19 @@ function imageModelButton(model) {
       e.preventDefault();
       e.stopPropagation();
     }
-    uploadedImageLibrary.splice(index, 1);
+    const uploadImages = currentUploadImages();
+    uploadImages.splice(index, 1);
+    setCurrentUploadImages(uploadImages);
+    const scopedUploads = currentUploadImages();
     if (isVideoMode()) {
-      videoState.referenceImageUrls = uploadedImageLibrary.slice();
-      videoState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
-      if (!uploadedImageLibrary.includes(videoState.startImage)) videoState.startImage = videoState.referenceImageUrl || '';
-      if (!uploadedImageLibrary.includes(videoState.endImage)) videoState.endImage = '';
-      if (!uploadedImageLibrary.includes(videoState.characterImage)) videoState.characterImage = '';
-    } else {
-      imageState.referenceImageUrls = uploadedImageLibrary.slice();
-      imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+      videoState.referenceImageUrls = scopedUploads.slice();
+      videoState.referenceImageUrl = scopedUploads[scopedUploads.length - 1] || '';
+      if (!scopedUploads.includes(videoState.startImage)) videoState.startImage = videoState.referenceImageUrl || '';
+      if (!scopedUploads.includes(videoState.endImage)) videoState.endImage = '';
+      if (!scopedUploads.includes(videoState.characterImage)) videoState.characterImage = '';
+    } else if (isImageMode()) {
+      imageState.referenceImageUrls = scopedUploads.slice();
+      imageState.referenceImageUrl = scopedUploads[scopedUploads.length - 1] || '';
     }
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
@@ -2114,13 +2187,14 @@ function imageModelButton(model) {
         e.stopPropagation();
     }
 
+    const uploadImages = currentUploadImages();
     if (isVideoMode()) {
-      videoState.referenceImageUrls = uploadedImageLibrary.slice();
-      videoState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+      videoState.referenceImageUrls = uploadImages.slice();
+      videoState.referenceImageUrl = uploadImages[uploadImages.length - 1] || '';
       if (!videoState.startImage && videoState.referenceImageUrl) videoState.startImage = videoState.referenceImageUrl;
-    } else {
-      imageState.referenceImageUrls = uploadedImageLibrary.slice();
-      imageState.referenceImageUrl = uploadedImageLibrary[uploadedImageLibrary.length - 1] || '';
+    } else if (isImageMode()) {
+      imageState.referenceImageUrls = uploadImages.slice();
+      imageState.referenceImageUrl = uploadImages[uploadImages.length - 1] || '';
     }
 
     renderComposerImageDraft();
@@ -2171,8 +2245,7 @@ function removeComposerImageDraft(e, index) {
 
   imageState.referenceImageUrls = urls.slice();
   imageState.referenceImageUrl = urls[urls.length - 1] || '';
-
-  uploadedImageLibrary = urls.slice();
+  imageState.uploadedImageUrls = urls.slice();
 
   renderUploadedPhotoGrid();
   renderComposerImageDraft();
@@ -2410,12 +2483,13 @@ function closeUploadPanel(e) {
     reader.onload = () => {
       const result = String(reader.result || '');
       const b64 = result.split(',')[1] || '';
-      pendingAttachment = {
+      const attachment = {
         kind: pendingAttachAccept || 'file',
         mime: f.type || 'application/octet-stream',
         name: f.name,
         dataBase64: b64,
       };
+      setCurrentModeAttachment(attachment);
 
       if ((pendingAttachAccept || '') === 'image' && result) {
         addUploadedPhoto(result);
@@ -2430,12 +2504,24 @@ function closeUploadPanel(e) {
         toast('Видео загружено');
       }
 
+      if ((studioMode === 'music' || activeCat === 'music') && result) {
+        musicState.uploads = (musicState.uploads || []).filter((item) => item.url !== result);
+        musicState.uploads.push({
+          kind: (pendingAttachAccept || 'file') === 'video' ? 'audio' : (pendingAttachAccept || 'file'),
+          url: result,
+          name: f.name,
+          mime: f.type || 'application/octet-stream',
+        });
+        musicState.uploads = musicState.uploads.slice(0, 4);
+        toast('Файл загружен');
+      }
+
       try { updateSendButton(); } catch {}
     };
     reader.readAsDataURL(f);
   }
   function clearAttachment() {
-    pendingAttachment = null;
+    setCurrentModeAttachment(null);
     try { updateSendButton(); } catch {}
   }
   function updateComposerMode(kind) {
@@ -2462,6 +2548,7 @@ function closeUploadPanel(e) {
     }
     const isImage = studioMode === 'image';
     const isMusic = studioMode === 'music';
+    pendingAttachment = currentModeAttachment();
     const composer = document.getElementById('studioComposer');
     if (composer) composer.dataset.composerMode = isImage ? 'image' : isMusic ? 'music' : 'video';
     document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
@@ -2481,16 +2568,22 @@ function closeUploadPanel(e) {
     if (isImage) {
       if (!imageState.modelId && IMAGE_MODEL_LIST.length) imageState.modelId = IMAGE_MODEL_LIST[0].id;
       renderImageControls();
+      renderUploadedPhotoGrid();
       updateImageUploadButtonPreview();
       renderModelPop();
     } else if (mvc) {
       if (isMusic) {
         mvc.textContent = 'MusicGen Pro';
+        renderUploadedPhotoGrid();
+        updateImageUploadButtonPreview();
       } else {
         renderVideoControls();
         renderModelPop();
+        renderUploadedPhotoGrid();
+        updateImageUploadButtonPreview();
       }
     }
+    updateSendButton();
   }
   function genAction(kind, tabKey) {
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
@@ -2519,9 +2612,9 @@ function closeUploadPanel(e) {
   }
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride) {
   const promptText = (prompt || '').trim();
-  const imageReferenceImages = Array.isArray(referenceImagesOverride)
+  const imageReferenceImages = isImageMode() && Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
-    : (imageState.referenceImageUrls || []).slice();
+    : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
   const videoReferenceImages = isVideoMode()
     ? (Array.isArray(referenceImagesOverride) ? referenceImagesOverride.slice() : (videoState.referenceImageUrls || []).slice())
     : [];
@@ -2540,6 +2633,11 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
+  const musicOptions = (studioMode === 'music' || activeCat === 'music')
+    ? Object.assign({}, musicState, {
+        uploads: (musicState.uploads || []).slice(),
+      })
+    : null;
 
   const payload = {
     telegram_id: getTelegramId(),
@@ -2550,6 +2648,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     provider: isVideoMode() ? currentVideoProvider() : pickProviderHint(),
     image_options: imageOptions,
     video_options: videoOptions,
+    music_options: musicOptions,
     history,
     attachment: attachment || null,
     conversation_id: currentConvId,
@@ -2563,6 +2662,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     provider: payload.provider,
     image_options: payload.image_options,
     video_options: payload.video_options,
+    music_options: payload.music_options,
   });
 
   const res = await fetch('/api/public/prostudio/generate', {
@@ -2585,13 +2685,14 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
    async function sendChat() {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
-    const attachment = pendingAttachment;
+    const attachment = currentModeAttachment();
     const referenceImages = isVideoMode()
       ? (videoState.referenceImageUrls || []).slice()
-      : (imageState.referenceImageUrls || []).slice();
+      : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
+    const musicUploads = (studioMode === 'music' || activeCat === 'music') ? (musicState.uploads || []).slice() : [];
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
-    if (!v && !attachment && !referenceImages.length) return;
+    if (!v && !attachment && !referenceImages.length && !musicUploads.length) return;
 
     chatMessages.push({
         role: 'user',
@@ -2604,6 +2705,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     if (isVideoMode()) {
       videoState.referenceImageUrls = [];
       videoState.referenceImageUrl = '';
+      videoState.uploadedImageUrls = [];
       videoState.startImage = '';
       videoState.endImage = '';
       videoState.characterImage = '';
@@ -2611,11 +2713,13 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
         videoState.inputVideo = '';
         videoState.videoUrl = '';
       }
-    } else {
+    } else if (isImageMode()) {
       imageState.referenceImageUrls = [];
       imageState.referenceImageUrl = '';
+      imageState.uploadedImageUrls = [];
+    } else if (studioMode === 'music' || activeCat === 'music') {
+      musicState.uploads = [];
     }
-    uploadedImageLibrary = [];
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
@@ -3391,8 +3495,16 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
-    const activeReferences = isVideoMode() ? videoState.referenceImageUrls : imageState.referenceImageUrls;
-    const has = (ta.value || '').trim().length > 0 || !!pendingAttachment || !!(activeReferences && activeReferences.length) || !!(isVideoMode() && videoState.inputVideo);
+    const activeReferences = isVideoMode()
+      ? videoState.referenceImageUrls
+      : (isImageMode() ? imageState.referenceImageUrls : []);
+    const activeAttachment = currentModeAttachment();
+    const activeMusicUploads = (studioMode === 'music' || activeCat === 'music') ? (musicState.uploads || []) : [];
+    const has = (ta.value || '').trim().length > 0
+      || !!activeAttachment
+      || !!(activeReferences && activeReferences.length)
+      || !!(isVideoMode() && videoState.inputVideo)
+      || !!(activeMusicUploads && activeMusicUploads.length);
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
       send.disabled = !has;
@@ -3614,6 +3726,14 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     }
   }
 
+  function initializeProStudioComposerMode() {
+    const composer = document.getElementById('studioComposer');
+    const initialMode = (composer && composer.dataset && composer.dataset.composerMode) || 'video';
+    if (initialMode === 'video') {
+      updateComposerMode('video');
+    }
+  }
+
   /* ===== Init (called after cabinet.html is injected) ===== */
   function init() {
     // Restore saved theme.
@@ -3622,6 +3742,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     S.setTheme(savedTheme);
 
     bindEvents();
+    initializeProStudioComposerMode();
     applyLang();       // triggers renderDynamic
     initHero();
     if (!chatMessages.length) chatMessages = [];
