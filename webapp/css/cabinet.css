@@ -497,9 +497,16 @@ body:has(.view[data-view="tools"].active) .nav{display:none}
   background:#17181C;color:#F3F3F3;border:1px solid var(--st-line-2);
   border-radius:18px;border-bottom-right-radius:6px;padding:11px 14px;
 }
+
 .view[data-view="tools"].active .msg.ai .bubble{
-  background:#141518;color:#F3F3F3;border:1px solid var(--st-line);
-  border-radius:18px;border-bottom-left-radius:6px;padding:11px 14px;
+  background:transparent !important;
+  color:#F3F3F3;
+  border:0 !important;
+  border-radius:0;
+  padding:0;
+  box-shadow:none !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
 }
 
 /* Fixed input — sits above bottom nav (nav ≈ 76px including safe area) */
@@ -806,9 +813,11 @@ body.kb-open .nav{
 .gen-media-list{display:flex;flex-direction:column;gap:10px;margin-top:8px}
 .gen-media-card{
   position:relative;
-  overflow:hidden;
-  border-radius:12px;
-  background:rgba(255,255,255,.04);
+  overflow:visible;
+  border-radius:0;
+  background:transparent !important;
+  border:0 !important;
+  box-shadow:none !important;
 }
 .gen-media-card .gen-img-open{width:100%}
 .gen-download-btn{
@@ -837,7 +846,7 @@ body.kb-open .nav{
   display:block;
   width:100%;
 }
-.gen-video{max-height:360px;background:#000;border-radius:12px}
+.gen-video{max-height:360px;background:transparent;border-radius:12px}
 .gen-audio{padding:10px}
 .gen-file-card{
   min-height:64px;
@@ -2685,4 +2694,22 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
   display:none !important;
   background:none !important;
   animation:none !important;
+}
+
+/* Pro Studio: gray chat background and transparent generated content */
+.view[data-view="tools"].active .studio,
+.view[data-view="tools"].active .chat-area{
+  background:#202020 !important;
+}
+
+.view[data-view="tools"].active .msg.ai .bubble,
+.view[data-view="tools"].active .gen-media-card,
+.view[data-view="tools"].active .gen-img-grid,
+.view[data-view="tools"].active .gen-media-list,
+.view[data-view="tools"].active .gen-file-card{
+  background:transparent !important;
+  border:0 !important;
+  box-shadow:none !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
 }
