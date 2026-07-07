@@ -292,10 +292,10 @@ body::before{content:none}
 .msg-actions button:hover{color:var(--text);background:var(--surface-2)}
 .msg-actions button:active{transform:scale(.9)}
 .ai-avatar{width:24px;height:24px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:inline-grid;place-items:center;color:var(--text-dim);font-size:11px;font-weight:700;margin-bottom:4px}
-.typing{display:inline-flex;gap:4px;padding:4px 0}
-.typing span{width:6px;height:6px;border-radius:50%;background:var(--text-mute);animation:tdot 1.2s infinite ease-in-out}
-.typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
-@keyframes tdot{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+.typing{display:none !important}
+.typing span{display:none !important;width:0;height:0;opacity:0;animation:none !important}
+.typing span:nth-child(2){animation:none !important}.typing span:nth-child(3){animation:none !important}
+@keyframes tdot{0%,80%,100%{transform:scale(.6);opacity:0}40%{transform:scale(.6);opacity:0}}
 .studio-input{flex:0 0 auto;position:relative;padding:10px 12px 10px;background:linear-gradient(180deg,rgba(6,6,14,0),rgba(6,6,14,.92) 30%);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--border);z-index:5}
 [data-theme="light"] .studio-input{background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.95) 30%)}
 .studio-input-row{display:flex;align-items:flex-end;gap:8px;padding:8px 10px 8px 8px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border-strong);position:relative}
@@ -366,7 +366,8 @@ body::before{content:none}
 .studio .msg:hover .msg-actions,.studio .msg:focus-within .msg-actions{opacity:1}
 .studio .msg-actions button{background:transparent;border:1px solid var(--st-line);color:var(--st-dim);width:26px;height:26px;border-radius:8px;display:grid;place-items:center;cursor:pointer;font-size:11px}
 .studio .msg-actions button:hover{color:var(--st-text);background:var(--st-bg-2)}
-.studio .typing span{background:var(--st-dim)}
+.studio .typing,
+.studio .typing span{display:none !important;opacity:0 !important;animation:none !important}
 
 /* Input area — dark gray, rounded, minimal */
 .studio .studio-input{flex:0 0 auto;position:relative;padding:10px 12px calc(12px + env(safe-area-inset-bottom));background:var(--st-bg);border-top:1px solid var(--st-line);backdrop-filter:none;-webkit-backdrop-filter:none}
@@ -2648,5 +2649,19 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .dot-i{
   display:none !important;
   opacity:0 !important;
+  pointer-events:none !important;
+}
+/* Hide Pro Studio generation typing dots */
+.view[data-view="tools"] .typing,
+.view[data-view="tools"] .typing span,
+.studio .typing,
+.studio .typing span,
+.msg.ai .typing,
+.msg.ai .typing span{
+  display:none !important;
+  opacity:0 !important;
+  width:0 !important;
+  height:0 !important;
+  animation:none !important;
   pointer-events:none !important;
 }
