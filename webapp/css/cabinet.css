@@ -422,7 +422,7 @@ body:has(.view[data-view="tools"].active) .nav{display:none}
   --st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);
   --st-text:#F3F3F3;--st-dim:#8D8D92;--st-mute:#6b6b75;
   --st-bubble-user:#24262B;--st-bubble-ai:transparent;
-  background:#000;
+  background:#990707;
 }
 
 /* Header — fixed 60px */
