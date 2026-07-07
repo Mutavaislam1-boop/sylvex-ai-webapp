@@ -2637,6 +2637,7 @@ body.ai-generating .view[data-view="tools"].active .studio,
   filter: none !important;
 }
 
-.dots{
+.dots,
+.dot-i{
   display:none !important;
 }
