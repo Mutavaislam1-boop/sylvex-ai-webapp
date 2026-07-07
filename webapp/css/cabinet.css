@@ -418,11 +418,11 @@ body:has(.view[data-view="tools"].active) .nav{display:none}
 
 /* Override studio surface to strict dark palette */
 .view[data-view="tools"].active .studio{
-  --st-bg:#0B0B0D;--st-bg-2:#141518;--st-bg-3:#17181C;--st-bg-4:#24262B;
+  --st-bg:#202020;--st-bg-2:#252525;--st-bg-3:#2c2c2c;--st-bg-4:#343434;
   --st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);
   --st-text:#F3F3F3;--st-dim:#8D8D92;--st-mute:#6b6b75;
   --st-bubble-user:#24262B;--st-bubble-ai:transparent;
-  background:#990707;
+  background:#202020;
 }
 
 /* Header — fixed 60px */
@@ -487,7 +487,7 @@ body:has(.view[data-view="tools"].active) .nav{display:none}
 .view[data-view="tools"].active .chat-area{
   flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
   padding:18px 16px 24px;display:flex;flex-direction:column;gap:18px;
-  background:#000;scroll-behavior:smooth;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  background:#202020;scroll-behavior:smooth;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
 }
 
 /* User/AI bubbles */
@@ -505,7 +505,7 @@ body:has(.view[data-view="tools"].active) .nav{display:none}
 /* Fixed input — sits above bottom nav (nav ≈ 76px including safe area) */
 .view[data-view="tools"].active .studio-input{
   flex:0 0 auto;padding:10px 12px calc(86px + env(safe-area-inset-bottom));
-  background:linear-gradient(180deg,rgba(0,0,0,0),#000 30%);
+  background:linear-gradient(180deg,rgba(32,32,32,0),#202020 30%);
   border-top:1px solid var(--st-line);
 }
 /* Keyboard offset: when on-screen keyboard opens, lift only the studio input
@@ -545,7 +545,7 @@ body.kb-open .nav{
 
 .view[data-view="tools"].active .studio-video-composer{
   padding:8px 8px calc(86px + env(safe-area-inset-bottom));
-  background:linear-gradient(180deg,rgba(0,0,0,0),#000 22%);
+  background:linear-gradient(180deg,rgba(32,32,32,0),#202020 22%);
   border-top:0;
 }
 .studio-mode-tabs{
