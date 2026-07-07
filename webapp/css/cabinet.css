@@ -2636,3 +2636,7 @@ body.ai-generating .view[data-view="tools"].active .studio,
   color: #f3f3f3 !important;
   filter: none !important;
 }
+
+.dots{
+  display:none !important;
+}
