@@ -85,9 +85,9 @@ body::before{content:none}
 .hero-slide p{margin:0;color:rgba(255,255,255,.9) !important;font-size:13px;position:relative;max-width:80%}
 [data-theme="light"] .hero-slide p{color:rgba(255,255,255,.9) !important}
 .hero-slide .cta{margin-top:14px;align-self:flex-start;display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:13px;background:#fff;color:#0f1228;font-weight:600;font-size:13px;border:none;cursor:pointer;position:relative}
-.dots{display:flex;gap:6px;justify-content:center;margin-top:10px}
-.dot-i{width:6px;height:6px;border-radius:999px;background:var(--border-strong);transition:.25s}
-.dot-i.act{width:18px;background:var(--primary)}
+.dots{display:none !important}
+.dot-i{display:none !important;width:0;height:0;opacity:0;pointer-events:none}
+.dot-i.act{display:none !important;width:0;background:transparent}
 
 /* Infinite AI logos strip under the carousel */
 .ai-strip{margin-top:14px;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
@@ -2640,4 +2640,13 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .dots,
 .dot-i{
   display:none !important;
+}
+/* Hide homepage carousel dots */
+.hero-carousel .dots,
+.hero-carousel .dot-i,
+.dots,
+.dot-i{
+  display:none !important;
+  opacity:0 !important;
+  pointer-events:none !important;
 }
