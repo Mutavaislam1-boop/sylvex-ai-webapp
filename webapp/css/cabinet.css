@@ -2902,6 +2902,53 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
   cursor:pointer;
 }
 
+/* Pro Studio video option sheets: horizontal per-model choices */
+body > #modelPop.video-option-horizontal-pop{
+  width:min(420px,calc(100vw - 16px)) !important;
+  max-width:420px !important;
+  min-width:245px !important;
+  overflow:hidden !important;
+}
+
+body > #modelPop.video-option-horizontal-pop .image-size-sheet-title{
+  padding:2px 4px 10px !important;
+  margin:0 0 8px !important;
+}
+
+body > #modelPop.video-option-horizontal-pop .image-size-sheet-list{
+  display:flex !important;
+  flex-direction:row !important;
+  gap:8px !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  padding:2px 2px 4px !important;
+  scrollbar-width:none !important;
+}
+
+body > #modelPop.video-option-horizontal-pop .image-size-sheet-list::-webkit-scrollbar{
+  display:none !important;
+}
+
+body > #modelPop.video-option-horizontal-pop button.image-size-row{
+  flex:0 0 auto !important;
+  min-width:74px !important;
+  width:auto !important;
+  height:42px !important;
+  justify-content:center !important;
+  padding:0 14px !important;
+  border-radius:999px !important;
+  white-space:nowrap !important;
+}
+
+body > #modelPop.video-option-horizontal-pop button.image-size-row .image-size-label{
+  font-size:13px !important;
+  font-weight:750 !important;
+}
+
+body > #modelPop.video-option-horizontal-pop button.image-size-row .image-size-check{
+  display:none !important;
+}
+
 /* Pro Studio: gray chat background and transparent generated content */
 .view[data-view="tools"].active .studio,
 .view[data-view="tools"].active .chat-area{
