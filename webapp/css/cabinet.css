@@ -570,6 +570,7 @@ body.kb-open .nav{
   width:52px;height:44px;border:0;border-radius:999px;background:transparent;
   color:#d8d8d8;display:grid;place-items:center;cursor:pointer;
 }
+.studio-emoji-icon{font-size:19px;line-height:1;display:inline-grid;place-items:center}
 .studio-mini-tab.active{background:#f4f4f4;color:#111}
 .studio-mini-tab:active,.studio-mode-tab:active,.studio-frame-card:active,.studio-select-pill:active{transform:scale(.98)}
 .studio-mode-tab{
@@ -580,11 +581,18 @@ body.kb-open .nav{
 .studio-mode-tab svg{flex:0 0 auto;color:currentColor}
 .studio-video-composer[data-composer-mode="video"] .image-only{display:none !important}
 .studio-video-composer[data-composer-mode="video"] .music-only{display:none !important}
+.studio-video-composer[data-composer-mode="video"] .voice-only{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .video-only{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .music-only{display:none !important}
+.studio-video-composer[data-composer-mode="image"] .voice-only{display:none !important}
 .studio-video-composer[data-composer-mode="music"] .video-only,
 .studio-video-composer[data-composer-mode="music"] .image-only,
 .studio-video-composer[data-composer-mode="music"] .image-video-only{display:none !important}
+.studio-video-composer[data-composer-mode="music"] .voice-only.studio-mode-tab{display:none !important}
+.studio-video-composer[data-composer-mode="voice"] .video-only,
+.studio-video-composer[data-composer-mode="voice"] .image-only,
+.studio-video-composer[data-composer-mode="voice"] .image-video-only{display:none !important}
+.studio-video-composer[data-composer-mode="voice"] .music-only.studio-mode-tab{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="image"] .studio-image-tools{display:grid}
@@ -593,6 +601,11 @@ body.kb-open .nav{
 .studio-video-composer[data-composer-mode="music"] .studio-audio-player{display:flex}
 .studio-video-composer[data-composer-mode="music"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
 .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-left:0;padding-left:0}
+.studio-video-composer[data-composer-mode="voice"] .voice-only.studio-mode-tab{display:flex}
+.studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
+.studio-video-composer[data-composer-mode="voice"] .studio-audio-player{display:flex}
+.studio-video-composer[data-composer-mode="voice"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
+.studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
 
 .studio-video-panel{
   display:grid;grid-template-columns:clamp(220px,28vw,430px) minmax(0,1fr);gap:24px;
@@ -730,9 +743,11 @@ body.kb-open .nav{
   .studio-control-row .image-settings-pill{width:34px;min-width:34px;padding:0;justify-content:center}
   .studio-control-row .studio-generate{margin-left:0;border-radius:999px}
   .studio-video-panel{grid-template-columns:1fr;padding:14px;border-radius:22px;gap:12px}
-  .studio-video-composer[data-composer-mode="music"] .studio-video-panel{padding:18px 14px}
+  .studio-video-composer[data-composer-mode="music"] .studio-video-panel,
+  .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{padding:18px 14px}
   .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
-  .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-top:0;padding-top:0}
+  .studio-video-composer[data-composer-mode="music"] .studio-prompt-column,
+  .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-top:0;padding-top:0}
   .view[data-view="tools"].active .studio-video-composer textarea{min-height:86px;font-size:15px}
   .studio-frame-card{min-height:74px}
   .studio-image-tool{min-height:54px;padding:8px 9px;border-radius:12px}
