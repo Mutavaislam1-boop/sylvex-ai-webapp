@@ -1584,6 +1584,11 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     opacity:.92 !important;
   }
 
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="1:1"]{
+    width:30px !important;
+    height:30px !important;
+  }
+
   body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:3"]{
     width:32px !important;
     height:25px !important;
@@ -2902,104 +2907,9 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
   cursor:pointer;
 }
 
-/* Pro Studio video option sheets: horizontal per-model choices */
-body > #modelPop.video-option-horizontal-pop{
-  width:min(430px,calc(100vw - 16px)) !important;
-  max-width:430px !important;
-  min-width:245px !important;
-  overflow:hidden !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-sheet-title{
-  padding:2px 4px 12px !important;
-  margin:0 0 8px !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-sheet-list{
-  display:flex !important;
-  flex-direction:row !important;
-  gap:8px !important;
-  overflow-x:auto !important;
-  overflow-y:hidden !important;
-  padding:2px 2px 4px !important;
-  scrollbar-width:none !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-sheet-list::-webkit-scrollbar{
-  display:none !important;
-}
-
-body > #modelPop.video-option-horizontal-pop button.image-size-row{
-  flex:0 0 auto !important;
-  min-width:122px !important;
-  width:auto !important;
-  min-height:58px !important;
-  height:58px !important;
-  display:grid !important;
-  grid-template-columns:34px 1fr 20px !important;
-  align-items:center !important;
-  gap:10px !important;
-  justify-content:stretch !important;
-  padding:0 12px !important;
-  border-radius:13px !important;
-  background:transparent !important;
-  border:0 !important;
-  color:#f3f3f3 !important;
-  text-align:left !important;
-  white-space:nowrap !important;
-}
-
-body > #modelPop.video-option-horizontal-pop button.image-size-row.active,
-body > #modelPop.video-option-horizontal-pop button.image-size-row.sel{
-  background:rgba(255,255,255,.12) !important;
-}
-
-body > #modelPop.video-option-horizontal-pop button.image-size-row .image-size-label{
-  font-size:15px !important;
-  line-height:1 !important;
-  font-weight:750 !important;
-  color:#f4f4f4 !important;
-}
-
-body > #modelPop.video-option-horizontal-pop button.image-size-row .image-size-check{
-  display:block !important;
-  font-size:16px !important;
-  color:#f4f4f4 !important;
-  opacity:0 !important;
-}
-
-body > #modelPop.video-option-horizontal-pop button.image-size-row.active .image-size-check,
-body > #modelPop.video-option-horizontal-pop button.image-size-row.sel .image-size-check{
-  opacity:1 !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-icon{
-  width:22px !important;
-  height:22px !important;
-  display:block !important;
-  border:2px solid #cfcfd4 !important;
-  border-radius:6px !important;
-  opacity:.92 !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-icon[data-ratio="1:1"]{
-  width:22px !important;
-  height:22px !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-icon[data-ratio="16:9"]{
-  width:28px !important;
-  height:16px !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-icon[data-ratio="9:16"]{
-  width:16px !important;
-  height:28px !important;
-}
-
-body > #modelPop.video-option-horizontal-pop .image-size-row.no-ratio-icon{
-  grid-template-columns:1fr 20px !important;
-  min-width:104px !important;
+/* Pro Studio video option rows without ratio icons */
+body > #modelPop.image-size-floating-pop button.image-size-row.no-ratio-icon{
+  grid-template-columns:1fr 24px !important;
 }
 
 .view[data-view="tools"].active .studio-select-pill.video-sound-on{
