@@ -1527,10 +1527,10 @@ function imageModelButton(model) {
         const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
       };
 
-      const openVideoSheet = (title, items, optionKind, horizontal) => {
+      const openVideoSheet = (title, items, optionKind) => {
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
-        el.classList.toggle('video-option-horizontal-pop', !!horizontal);
+        el.classList.remove('video-option-horizontal-pop');
         el.style.position = 'fixed';
         el.style.left = '8px';
         el.style.right = 'auto';
@@ -1567,19 +1567,19 @@ function imageModelButton(model) {
 
       if (kind === 'size' || kind === 'ratio') {
         const active = videoState.ratio || '16:9';
-        openVideoSheet('Формат видео', labelItems(config.ratios || ['16:9'], '').map((item) => Object.assign(item, { active })), 'ratio', true);
+        openVideoSheet('Формат видео', labelItems(config.ratios || ['16:9'], '').map((item) => Object.assign(item, { active })), 'ratio');
         return;
       }
 
       if (kind === 'count' || kind === 'duration') {
         const active = String(videoState.duration || 5);
-        openVideoSheet('Длительность', labelItems(config.durations || [5], 'сек').map((item) => Object.assign(item, { active })), 'duration', true);
+        openVideoSheet('Длительность', labelItems(config.durations || [5], 'сек').map((item) => Object.assign(item, { active })), 'duration');
         return;
       }
 
       if (kind === 'resolution') {
         const active = videoState.resolution || '720p';
-        openVideoSheet('Разрешение', labelItems(config.resolutions || ['720p'], '').map((item) => Object.assign(item, { active })), 'resolution', true);
+        openVideoSheet('Разрешение', labelItems(config.resolutions || ['720p'], '').map((item) => Object.assign(item, { active })), 'resolution');
         return;
       }
 
