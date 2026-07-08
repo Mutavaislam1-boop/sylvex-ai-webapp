@@ -121,12 +121,19 @@
                 <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="3"/><path d="M16 10l5-3v10l-5-3z"/></svg>
               </button>
               <button class="studio-mini-tab" id="musicBtn" type="button" onclick="SYLVEX.genAction('music')" aria-label="Музыка">
+                <span class="studio-emoji-icon" aria-hidden="true">🎵</span>
+              </button>
+              <button class="studio-mini-tab" id="voiceBtn" type="button" onclick="SYLVEX.genAction('voice')" aria-label="Озвучка">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2m3-6v12m3-9v6m3-10v14m3-7h2"/></svg>
               </button>
             </div>
             <button class="studio-mode-tab music-only" type="button" data-studio-mode-btn="music" onclick="SYLVEX.genAction('music')">
-              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              <span class="studio-emoji-icon" aria-hidden="true">🎵</span>
               <span>Генератор музыки</span>
+            </button>
+            <button class="studio-mode-tab voice-only" type="button" data-studio-mode-btn="voice" onclick="SYLVEX.genAction('voice')">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              <span>Генерация озвучки</span>
             </button>
             <button class="studio-mode-tab image-only" type="button" data-studio-mode-btn="image" onclick="SYLVEX.genAction('image')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.2 5.6L20 10l-5.8 2.4L12 18l-2.2-5.6L4 10l5.8-2.4L12 2z"/></svg>
@@ -203,7 +210,7 @@
                 <span>Объект</span>
               </button>
             </div>
-            <div class="studio-media-column studio-music-tools music-only" aria-hidden="true"></div>
+            <div class="studio-media-column studio-music-tools music-only voice-only" aria-hidden="true"></div>
             <div class="studio-prompt-column">
               <textarea id="chatInput" rows="3" placeholder="Describe your video" oninput="autoGrow(this)"></textarea>
               <div class="studio-control-row">
@@ -229,26 +236,26 @@
                 <button class="studio-select-pill image-settings-pill image-only" type="button" aria-label="Настройки">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                 </button>
-                <button class="studio-select-pill music-only" type="button">
+                <button class="studio-select-pill music-only voice-only" type="button">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                   <span>Автотексты песен</span>
                 </button>
-                <button class="studio-select-pill music-only" type="button">
+                <button class="studio-select-pill music-only voice-only" type="button">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h5l-2 7 9-11h-5l2-5-9 9z"/><path d="M3 6h6"/></svg>
                   <span>Авто</span>
                 </button>
-                <button class="studio-select-pill music-only" type="button">
+                <button class="studio-select-pill music-only voice-only" type="button">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                   <span>Авто</span>
                 </button>
-                <button class="studio-select-pill image-settings-pill music-only" type="button" aria-label="Настройки">
+                <button class="studio-select-pill image-settings-pill music-only voice-only" type="button" aria-label="Настройки">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                 </button>
                 <button class="studio-generate" id="sendBtn" type="button" onclick="sendChat()" disabled>Сгенерировать</button>
               </div>
             </div>
           </div>
-          <div class="studio-audio-player music-only">
+          <div class="studio-audio-player music-only voice-only">
             <div class="studio-track-art"></div>
             <div class="studio-track-title">Сомбра</div>
             <div class="studio-player-controls">

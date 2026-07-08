@@ -71,6 +71,13 @@ let musicState = {
 
 let voiceState = {
   modelId: 'voice-default',
+  uploads: [],
+  attachment: null,
+  genre: '',
+  duration: '',
+  style: '',
+  voice: '',
+  audioSettings: {},
 };
 
 let textState = {
@@ -219,6 +226,19 @@ function isImageMode() {
 
 function isVideoMode() {
   return studioMode === 'video' || activeCat === 'video';
+}
+
+function isMusicMode() {
+  return studioMode === 'music' || activeCat === 'music';
+}
+
+function isVoiceMode() {
+  return studioMode === 'voice' || activeCat === 'voice';
+}
+
+function currentAudioState() {
+  if (isVoiceMode()) return voiceState;
+  return musicState;
 }
 
 function currentVideoConfig() {
@@ -591,6 +611,7 @@ const MODEL_ICON_SVG = {
     if (/microsoft|mai/i.test(model)) return 'microsoft';
     if (/krea/i.test(model)) return 'krea';
     if (/musicgen/i.test(model)) return 'music';
+    if (/voice/i.test(model)) return 'voice';
     if (/^gpt-|^o[0-9]|chatgpt/i.test(model)) return 'openai';
     return 'sylvex-router';
   }
@@ -812,7 +833,7 @@ function addVideoReferenceImage(url) {
 
 function currentUploadImages() {
   if (isVideoMode()) return (videoState.uploadedImageUrls || []).slice();
-  if (studioMode === 'music' || activeCat === 'music') return (musicState.uploads || []).filter((item) => item && item.kind === 'image').map((item) => item.url);
+  if (isMusicMode() || isVoiceMode()) return (currentAudioState().uploads || []).filter((item) => item && item.kind === 'image').map((item) => item.url);
   return (imageState.uploadedImageUrls || []).slice();
 }
 
@@ -822,9 +843,10 @@ function setCurrentUploadImages(urls) {
     videoState.uploadedImageUrls = clean;
     return;
   }
-  if (studioMode === 'music' || activeCat === 'music') {
-    const existing = (musicState.uploads || []).filter((item) => item && item.kind !== 'image');
-    musicState.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
+  if (isMusicMode() || isVoiceMode()) {
+    const state = currentAudioState();
+    const existing = (state.uploads || []).filter((item) => item && item.kind !== 'image');
+    state.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
     return;
   }
   imageState.uploadedImageUrls = clean;
@@ -832,7 +854,7 @@ function setCurrentUploadImages(urls) {
 
 function currentModeAttachment() {
   if (isVideoMode()) return videoState.attachment || null;
-  if (studioMode === 'music' || activeCat === 'music') return musicState.attachment || null;
+  if (isMusicMode() || isVoiceMode()) return currentAudioState().attachment || null;
   if (isImageMode()) return imageState.attachment || null;
   return pendingAttachment;
 }
@@ -840,8 +862,8 @@ function currentModeAttachment() {
 function setCurrentModeAttachment(attachment) {
   if (isVideoMode()) {
     videoState.attachment = attachment || null;
-  } else if (studioMode === 'music' || activeCat === 'music') {
-    musicState.attachment = attachment || null;
+  } else if (isMusicMode() || isVoiceMode()) {
+    currentAudioState().attachment = attachment || null;
   } else if (isImageMode()) {
     imageState.attachment = attachment || null;
   } else {
@@ -2093,10 +2115,11 @@ function imageModelButton(model) {
       return;
     }
 
-    if (studioMode === 'music' || activeCat === 'music') {
-      musicState.uploads = (musicState.uploads || []).filter((item) => item.url !== url);
-      musicState.uploads.push({ kind: kind === 'video' ? 'audio' : kind, url });
-      musicState.uploads = musicState.uploads.slice(0, 4);
+    if (isMusicMode() || isVoiceMode()) {
+      const state = currentAudioState();
+      state.uploads = (state.uploads || []).filter((item) => item.url !== url);
+      state.uploads.push({ kind: kind === 'video' ? 'audio' : kind, url });
+      state.uploads = state.uploads.slice(0, 4);
       updateSendButton();
       toast('Ссылка добавлена');
       return;
@@ -2692,15 +2715,16 @@ function closeUploadPanel(e) {
         toast('Видео загружено');
       }
 
-      if ((studioMode === 'music' || activeCat === 'music') && result && (pendingAttachAccept || '') !== 'image') {
-        musicState.uploads = (musicState.uploads || []).filter((item) => item.url !== result);
-        musicState.uploads.push({
+      if ((isMusicMode() || isVoiceMode()) && result && (pendingAttachAccept || '') !== 'image') {
+        const state = currentAudioState();
+        state.uploads = (state.uploads || []).filter((item) => item.url !== result);
+        state.uploads.push({
           kind: (pendingAttachAccept || 'file') === 'video' ? 'audio' : (pendingAttachAccept || 'file'),
           url: result,
           name: f.name,
           mime: f.type || 'application/octet-stream',
         });
-        musicState.uploads = musicState.uploads.slice(0, 4);
+        state.uploads = state.uploads.slice(0, 4);
         toast('Файл загружен');
       }
 
@@ -2735,10 +2759,12 @@ function closeUploadPanel(e) {
       document.activeElement.blur();
     }
     const isImage = studioMode === 'image';
-    const isMusic = studioMode === 'music';
+    const isMusic = isMusicMode();
+    const isVoice = isVoiceMode();
+    const isAudio = isMusic || isVoice;
     pendingAttachment = currentModeAttachment();
     const composer = document.getElementById('studioComposer');
-    if (composer) composer.dataset.composerMode = isImage ? 'image' : isMusic ? 'music' : 'video';
+    if (composer) composer.dataset.composerMode = isImage ? 'image' : isVoice ? 'voice' : isMusic ? 'music' : 'video';
     document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
       const modeBtn = btn.dataset.studioModeBtn;
       const isActive = isVideoSection
@@ -2747,11 +2773,11 @@ function closeUploadPanel(e) {
       btn.classList.toggle('active', isActive);
     });
     document.querySelectorAll('.studio-mini-tab').forEach((btn) => btn.classList.remove('active'));
-    const miniIndex = kind === 'image' ? 0 : isMusic ? 2 : 1;
+    const miniIndex = kind === 'image' ? 0 : isMusic ? 2 : isVoice ? 3 : 1;
     const minis = document.querySelectorAll('.studio-mini-tab');
     if (minis[miniIndex]) minis[miniIndex].classList.add('active');
     const ta = document.getElementById('chatInput');
-    if (ta) ta.placeholder = isImage ? 'Describe your image' : isMusic ? 'Describe your music' : 'Describe your video';
+    if (ta) ta.placeholder = isImage ? 'Describe your image' : isVoice ? 'Describe your voiceover' : isMusic ? 'Describe your music' : 'Describe your video';
     const mvc = document.getElementById('modelValComposer');
     if (isImage) {
       if (!imageState.modelId && IMAGE_MODEL_LIST.length) imageState.modelId = IMAGE_MODEL_LIST[0].id;
@@ -2760,8 +2786,8 @@ function closeUploadPanel(e) {
       updateImageUploadButtonPreview();
       renderModelPop();
     } else if (mvc) {
-      if (isMusic) {
-        mvc.textContent = 'MusicGen Pro';
+      if (isAudio) {
+        mvc.textContent = isVoice ? 'Voice Generator' : 'MusicGen Pro';
         renderUploadedPhotoGrid();
         updateImageUploadButtonPreview();
       } else {
@@ -2782,7 +2808,7 @@ function closeUploadPanel(e) {
     studioMode = kind;
     activeCat = studioMode;
     updateComposerMode(tabKey || studioMode);
-    const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music' };
+    const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Generate Voiceover' };
     toast(labels[kind] || kind);
   }
   function toggleHistory(e) {
@@ -2821,9 +2847,14 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
-  const musicOptions = (studioMode === 'music' || activeCat === 'music')
+  const musicOptions = isMusicMode()
     ? Object.assign({}, musicState, {
         uploads: (musicState.uploads || []).slice(),
+      })
+    : null;
+  const voiceOptions = isVoiceMode()
+    ? Object.assign({}, voiceState, {
+        uploads: (voiceState.uploads || []).slice(),
       })
     : null;
 
@@ -2837,6 +2868,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     image_options: imageOptions,
     video_options: videoOptions,
     music_options: musicOptions,
+    voice_options: voiceOptions,
     history,
     attachment: attachment || null,
     conversation_id: currentConvId,
@@ -2851,6 +2883,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     image_options: payload.image_options,
     video_options: payload.video_options,
     music_options: payload.music_options,
+    voice_options: payload.voice_options,
   });
 
   const res = await fetch('/api/public/prostudio/generate', {
@@ -2877,10 +2910,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     const referenceImages = isVideoMode()
       ? (videoState.referenceImageUrls || []).slice()
       : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
-    const musicUploads = (studioMode === 'music' || activeCat === 'music') ? (musicState.uploads || []).slice() : [];
+    const audioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []).slice() : [];
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
-    if (!v && !attachment && !referenceImages.length && !musicUploads.length) return;
+    if (!v && !attachment && !referenceImages.length && !audioUploads.length) return;
 
     const photoMode = isImageMode();
     let loadingIndex = -1;
@@ -2914,8 +2947,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       imageState.referenceImageUrls = [];
       imageState.referenceImageUrl = '';
       imageState.uploadedImageUrls = [];
-    } else if (studioMode === 'music' || activeCat === 'music') {
-      musicState.uploads = [];
+    } else if (isMusicMode() || isVoiceMode()) {
+      currentAudioState().uploads = [];
     }
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
@@ -3709,12 +3742,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       ? videoState.referenceImageUrls
       : (isImageMode() ? imageState.referenceImageUrls : []);
     const activeAttachment = currentModeAttachment();
-    const activeMusicUploads = (studioMode === 'music' || activeCat === 'music') ? (musicState.uploads || []) : [];
+    const activeAudioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []) : [];
     const has = (ta.value || '').trim().length > 0
       || !!activeAttachment
       || !!(activeReferences && activeReferences.length)
       || !!(isVideoMode() && videoState.inputVideo)
-      || !!(activeMusicUploads && activeMusicUploads.length);
+      || !!(activeAudioUploads && activeAudioUploads.length);
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
       send.disabled = !has;
