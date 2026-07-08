@@ -56,6 +56,7 @@ let videoState = {
   advanced: {},
 };
 let videoUploadTarget = 'reference';
+let videoModelSettings = {};
 
 let musicState = {
   modelId: 'musicgen-pro',
@@ -229,6 +230,32 @@ function currentVideoProvider() {
   return (config && config.provider) || 'sylvex-router';
 }
 
+function videoModelSettingsSnapshot() {
+  return {
+    ratio: videoState.ratio,
+    duration: videoState.duration,
+    resolution: videoState.resolution,
+    sound: !!videoState.sound,
+    generationMode: videoState.generationMode || videoState.mode || 'text_to_video',
+    mode: videoState.generationMode || videoState.mode || 'text_to_video',
+    quality: videoState.quality || 'standard',
+    motionPreset: videoState.motionPreset || '',
+  };
+}
+
+function saveCurrentVideoModelSettings() {
+  if (!videoState.modelId) return;
+  videoModelSettings[videoState.modelId] = videoModelSettingsSnapshot();
+}
+
+function restoreVideoModelSettings(modelId) {
+  const saved = videoModelSettings[modelId || videoState.modelId];
+  if (saved) {
+    Object.assign(videoState, saved);
+  }
+  normalizeVideoStateForModel();
+}
+
 function normalizeVideoStateForModel() {
   const config = currentVideoConfig();
   if (!config) return;
@@ -276,6 +303,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     image_url: videoState.imageUrl || '',
     motion_preset: videoState.motionPreset || '',
     character_image: videoState.characterImage || '',
+    model: videoState.modelId || '',
     advanced: Object.assign({}, videoState.advanced || {}),
   };
 }
@@ -335,7 +363,15 @@ function renderVideoControls() {
   if (resolutionVal) resolutionVal.textContent = videoState.resolution || '720p';
 
   const soundVal = document.getElementById('videoSoundVal');
-  if (soundVal) soundVal.textContent = videoOptionLabel('sound', videoState.sound);
+  if (soundVal) {
+    soundVal.textContent = videoState.sound ? 'Звук ON' : 'Звук OFF';
+    const soundBtn = soundVal.closest('button');
+    if (soundBtn) {
+      soundBtn.classList.toggle('video-sound-on', !!videoState.sound);
+      soundBtn.classList.toggle('video-sound-off', !videoState.sound);
+      soundBtn.classList.toggle('video-sound-disabled', !currentVideoConfig().sound);
+    }
+  }
 
   const styleVal = document.getElementById('imageStyleVal');
   if (styleVal) {
@@ -352,6 +388,7 @@ function renderVideoControls() {
 }
 
 function pickVideoOption(kind, value) {
+  const config = currentVideoConfig();
   if (kind === 'size' || kind === 'ratio') {
     videoState.ratio = value || '16:9';
   }
@@ -374,13 +411,21 @@ function pickVideoOption(kind, value) {
   }
 
   if (kind === 'sound') {
-    videoState.sound = value === true || value === 'true' || value === 'on' || value === '1';
+    if (!config.sound) {
+      videoState.sound = false;
+    } else if (value === undefined || value === null || value === 'toggle') {
+      videoState.sound = !videoState.sound;
+    } else {
+      videoState.sound = value === true || value === 'true' || value === 'on' || value === '1';
+    }
   }
 
   if (kind === 'motion_preset') {
     videoState.motionPreset = value || '';
   }
 
+  normalizeVideoStateForModel();
+  saveCurrentVideoModelSettings();
   renderVideoControls();
 }
 
@@ -590,6 +635,7 @@ function localizedGreeting() {
     if (!el) return;
 
     el.classList.remove('image-size-floating-pop');
+    el.classList.remove('video-option-horizontal-pop');
     el.style.cssText = '';
 
     const models = currentComposerModelList();
@@ -1473,6 +1519,7 @@ function imageModelButton(model) {
 
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
+      el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
 
       const closeOtherSheets = () => {
@@ -1480,9 +1527,10 @@ function imageModelButton(model) {
         const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
       };
 
-      const openVideoSheet = (title, items, optionKind) => {
+      const openVideoSheet = (title, items, optionKind, horizontal) => {
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
+        el.classList.toggle('video-option-horizontal-pop', !!horizontal);
         el.style.position = 'fixed';
         el.style.left = '8px';
         el.style.right = 'auto';
@@ -1501,7 +1549,11 @@ function imageModelButton(model) {
             const id = String(item.id || '');
             const label = item.label || id;
             const active = String(item.active || '') === id;
-            return '<button class="image-size-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+            const icon = optionKind === 'ratio'
+              ? '<span class="image-size-icon" data-ratio="' + S.escapeHtml(id) + '"></span>'
+              : '';
+            return '<button class="image-size-row ' + (icon ? 'has-ratio-icon ' : 'no-ratio-icon ') + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+              + icon
               + '<span class="image-size-label">' + S.escapeHtml(label) + '</span>'
               + '<span class="image-size-check">✓</span>'
               + '</button>';
@@ -1515,19 +1567,19 @@ function imageModelButton(model) {
 
       if (kind === 'size' || kind === 'ratio') {
         const active = videoState.ratio || '16:9';
-        openVideoSheet('Формат видео', labelItems(config.ratios || ['16:9'], '').map((item) => Object.assign(item, { active })), 'ratio');
+        openVideoSheet('Формат видео', labelItems(config.ratios || ['16:9'], '').map((item) => Object.assign(item, { active })), 'ratio', true);
         return;
       }
 
       if (kind === 'count' || kind === 'duration') {
         const active = String(videoState.duration || 5);
-        openVideoSheet('Длительность', labelItems(config.durations || [5], 'сек').map((item) => Object.assign(item, { active })), 'duration');
+        openVideoSheet('Длительность', labelItems(config.durations || [5], 'сек').map((item) => Object.assign(item, { active })), 'duration', true);
         return;
       }
 
       if (kind === 'resolution') {
         const active = videoState.resolution || '720p';
-        openVideoSheet('Разрешение', labelItems(config.resolutions || ['720p'], '').map((item) => Object.assign(item, { active })), 'resolution');
+        openVideoSheet('Разрешение', labelItems(config.resolutions || ['720p'], '').map((item) => Object.assign(item, { active })), 'resolution', true);
         return;
       }
 
@@ -1536,11 +1588,9 @@ function imageModelButton(model) {
           toast('Эта модель не поддерживает звук');
           return;
         }
-        const active = String(!!videoState.sound);
-        openVideoSheet('Звук', [
-          { id:'true', label:'Звук вкл', active },
-          { id:'false', label:'Звук выкл', active }
-        ], 'sound');
+        pickVideoOption('sound', 'toggle');
+        renderModelPop();
+        S.haptic && S.haptic.impact && S.haptic.impact('light');
         return;
       }
 
@@ -1596,6 +1646,7 @@ function imageModelButton(model) {
 
     el.classList.remove('image-model-floating-pop');
     el.classList.remove('image-size-floating-pop');
+    el.classList.remove('video-option-horizontal-pop');
 
     if (kind === 'size') {
       const fallbackSizes = (model && model.sizes && model.sizes.length ? model.sizes : [
@@ -1613,6 +1664,7 @@ function imageModelButton(model) {
 
       if (el.parentElement !== document.body) document.body.appendChild(el);
       el.classList.remove('image-model-floating-pop');
+      el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
       el.classList.add('image-size-floating-pop');
       el.style.position = 'fixed';
@@ -1675,8 +1727,9 @@ function imageModelButton(model) {
       } else if (isVideoMode()) {
         const model = VIDEO_MODELS.find((item) => item.id === value);
         if (model) {
+          if (model.id !== videoState.modelId) saveCurrentVideoModelSettings();
           videoState.modelId = model.id;
-          normalizeVideoStateForModel();
+          restoreVideoModelSettings(model.id);
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
@@ -1692,6 +1745,7 @@ function imageModelButton(model) {
         el.classList.remove('show');
         el.classList.remove('image-model-floating-pop');
         el.classList.remove('image-size-floating-pop');
+        el.classList.remove('video-option-horizontal-pop');
         el.style.cssText = '';
       }
       return;
@@ -1720,6 +1774,7 @@ function imageModelButton(model) {
       el.classList.remove('show');
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
+      el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
     }
   }
@@ -1815,6 +1870,57 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  function imageGenerationMetadata(prompt, referenceImages, result) {
+    const model = currentImageModel() || {};
+    const images = result ? generatedUrlsFromResponse(result, 'image') : [];
+    const thumbs = result ? generatedThumbsFromResponse(result) : [];
+    return {
+      type: 'image',
+      model: imageState.modelId || model.id || '',
+      model_label: model.label || model.name || imageState.modelId || '',
+      provider: pickProviderHint(),
+      prompt: prompt || '',
+      style: imageState.style || '',
+      character: imageState.character || '',
+      objects: imageState.objects || '',
+      ratio: imageState.size || '',
+      size: imageState.size || '',
+      count: imageState.count || 1,
+      image_options: Object.assign({}, imageState, {
+        referenceImageUrls: (referenceImages || []).slice(),
+        referenceImages: (referenceImages || []).slice(),
+      }),
+      reference_images: (referenceImages || []).slice(),
+      result_images: images,
+      result_thumbnails: thumbs,
+      image_url: images[0] || '',
+      thumb_url: thumbs[0] || images[0] || '',
+      created_at: new Date().toISOString(),
+      sent_to_telegram: !!(result && result.sent_to_telegram),
+    };
+  }
+
+  function renderImageGenerationLoadingCard() {
+    return '<div class="generation-loading-card">'
+      + '<div class="generation-loading-border"></div>'
+      + '<div class="generation-loading-title">Создаю изображение…</div>'
+      + '</div>';
+  }
+
+  function renderImageResultMiniCard(m, index) {
+    const meta = m.metadata || {};
+    const thumb = meta.thumb_url || meta.image_url || ((meta.result_images || [])[0]) || '';
+    const safeThumb = S.escapeHtml(thumb);
+    const safeModel = S.escapeHtml(meta.model_label || meta.model || 'Image');
+    return '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
+      + '<span class="generation-result-thumb">' + (safeThumb ? '<img src="' + safeThumb + '" alt="generated image" loading="lazy" decoding="async" />' : '') + '</span>'
+      + '<span class="generation-result-meta">'
+      + '<span class="generation-result-title">Изображение готово</span>'
+      + '<span class="generation-result-sub">' + safeModel + '</span>'
+      + '</span>'
+      + '</button>';
+  }
+
   function renderGeneratedVideo(url) {
     const safeUrl = S.escapeHtml(url);
     return '<div class="gen-media-card gen-video-card">'
@@ -1841,6 +1947,16 @@ function imageModelButton(model) {
   function renderChat() {
     const el = document.getElementById('chatArea'); if (!el) return;
     el.innerHTML = chatMessages.map((m, i) => {
+      if (m.imageLoading) {
+        return '<div class="msg ai generation-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+          + renderImageGenerationLoadingCard()
+          + '</div>';
+      }
+      if (m.imageResultMini) {
+        return '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+          + renderImageResultMiniCard(m, i)
+          + '</div>';
+      }
       if (m.typing) {
         return '<div class="msg ai" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + '<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>';
@@ -2325,6 +2441,78 @@ function closeImageViewer(e) {
   if (img) img.src = '';
 }
 
+function ensureGenerationInfoDrawer() {
+  let drawer = document.getElementById('generationInfoDrawer');
+  if (drawer) return drawer;
+
+  drawer = document.createElement('div');
+  drawer.id = 'generationInfoDrawer';
+  drawer.className = 'generation-info-drawer-backdrop';
+  drawer.innerHTML = '<aside class="generation-info-drawer" onclick="event.stopPropagation()">'
+    + '<div class="generation-info-head">'
+    + '<div><div class="generation-info-kicker">Generation details</div><h3>Image</h3></div>'
+    + '<button class="generation-info-close" type="button" onclick="SYLVEX.closeGenerationInfoDrawer(event)">×</button>'
+    + '</div>'
+    + '<div id="generationInfoBody" class="generation-info-body"></div>'
+    + '</aside>';
+  drawer.onclick = closeGenerationInfoDrawer;
+  document.body.appendChild(drawer);
+  return drawer;
+}
+
+function generationInfoRow(label, value) {
+  if (value === undefined || value === null || value === '') return '';
+  return '<div class="generation-info-row"><span>' + S.escapeHtml(label) + '</span><b>' + S.escapeHtml(String(value)) + '</b></div>';
+}
+
+function openGenerationInfoDrawer(e, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const message = chatMessages[index] || {};
+  const meta = message.metadata || {};
+  const drawer = ensureGenerationInfoDrawer();
+  const body = document.getElementById('generationInfoBody');
+  if (!body) return;
+
+  const imageUrl = meta.image_url || ((meta.result_images || [])[0]) || '';
+  const refImages = meta.reference_images || [];
+  const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
+  body.innerHTML =
+    (imageUrl ? '<button class="generation-info-preview" type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" onclick="SYLVEX.openImageViewer(event)"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated image" /></button>' : '')
+    + '<div class="generation-info-section">'
+    + generationInfoRow('Тип', meta.type || 'image')
+    + generationInfoRow('Модель', meta.model_label || meta.model)
+    + generationInfoRow('Provider', meta.provider)
+    + generationInfoRow('Style', meta.style)
+    + generationInfoRow('Character', meta.character)
+    + generationInfoRow('Object', meta.objects)
+    + generationInfoRow('Ratio', meta.ratio)
+    + generationInfoRow('Size', meta.size)
+    + generationInfoRow('Count', meta.count)
+    + generationInfoRow('Created', created)
+    + generationInfoRow('Telegram', meta.sent_to_telegram ? 'sent' : '')
+    + '</div>'
+    + (meta.prompt ? '<div class="generation-info-section"><div class="generation-info-label">Prompt</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p></div>' : '')
+    + (refImages.length ? '<div class="generation-info-section"><div class="generation-info-label">Reference images</div><div class="generation-info-ref-row">' + refImages.map((url) => '<img src="' + S.escapeHtml(url) + '" alt="reference" />').join('') + '</div></div>' : '')
+    + (imageUrl ? '<div class="generation-info-actions">'
+      + '<button type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" onclick="SYLVEX.openImageViewer(event)">Открыть</button>'
+      + '<button type="button" data-download-url="' + S.escapeHtml(imageUrl) + '" data-download-kind="image" onclick="SYLVEX.downloadGeneratedContent(event)">Скачать</button>'
+      + '</div>' : '');
+
+  drawer.classList.add('show');
+}
+
+function closeGenerationInfoDrawer(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const drawer = document.getElementById('generationInfoDrawer');
+  if (drawer) drawer.classList.remove('show');
+}
+
 async function downloadImage(e) {
   if (e) {
     e.preventDefault();
@@ -2694,12 +2882,21 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
 
     if (!v && !attachment && !referenceImages.length && !musicUploads.length) return;
 
-    chatMessages.push({
+    const photoMode = isImageMode();
+    let loadingIndex = -1;
+    if (photoMode) {
+      loadingIndex = chatMessages.push({
+        role: 'ai',
+        imageLoading: true,
+      }) - 1;
+    } else {
+      chatMessages.push({
         role: 'user',
         text: v,
         attachmentName: null,
         referenceImages: referenceImages.length ? referenceImages : null,
-    });
+      });
+    }
     ta.value = ''; autoGrow(ta); updateSendButton();
     clearAttachment();
     if (isVideoMode()) {
@@ -2723,22 +2920,35 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
-    chatMessages.push({ typing: true, role: 'ai' });
+    if (!photoMode) {
+      loadingIndex = chatMessages.push({ typing: true, role: 'ai' }) - 1;
+    }
     renderChat();
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     try {
       const j = await callGenerate(v, attachment, referenceImages, videoOptionsSnapshot);
-      chatMessages.pop();
-     chatMessages.push({
-    role: 'ai',
-    text: j.sent_to_telegram
-      ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
-      : 'Готово ✅\nГенерация завершена.'
-  });
+      if (photoMode) {
+        const images = generatedUrlsFromResponse(j, 'image');
+        const thumbs = generatedThumbsFromResponse(j);
+        if (images.length) addGeneratedImages(images, thumbs);
+        chatMessages[loadingIndex] = {
+          role: 'ai',
+          imageResultMini: true,
+          metadata: imageGenerationMetadata(v, referenceImages, j),
+        };
+      } else {
+        chatMessages.splice(loadingIndex, 1);
+        chatMessages.push({
+          role: 'ai',
+          text: j.sent_to_telegram
+            ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
+            : 'Готово ✅\nГенерация завершена.'
+        });
+      }
       loadConversations(); // refresh sidebar order
     } catch (err) {
-      chatMessages.pop();
+      if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       if (err && err.paywall) {
         renderChat();
         openPaywall();
@@ -3616,7 +3826,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     // Close popovers on outside click
     document.addEventListener('click', () => {
       if (langPop) langPop.classList.remove('show');
-      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); mp.style.cssText = ''; }
+      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); mp.classList.remove('video-option-horizontal-pop'); mp.style.cssText = ''; }
       const pp = document.getElementById('plusPop');  if (pp) pp.classList.remove('show');
       const bp = document.getElementById('brandPop'); if (bp) bp.classList.remove('show');
       const bb = document.getElementById('brandBtn'); if (bb) bb.setAttribute('aria-expanded','false');
@@ -3777,7 +3987,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, downloadImage, downloadGeneratedContent,
+    signOut, openImageViewer, closeImageViewer, openGenerationInfoDrawer, closeGenerationInfoDrawer, downloadImage, downloadGeneratedContent,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
@@ -3796,6 +4006,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.closeSupport   = closeSupport;
   window.sendSupport    = sendSupport;
   window.generateNow    = generateNow;
+  window.openGenerationInfoDrawer = openGenerationInfoDrawer;
+  window.closeGenerationInfoDrawer = closeGenerationInfoDrawer;
 
   S.openImageStylePanel = openImageStylePanel;
   S.closeImageStylePanel = closeImageStylePanel;
