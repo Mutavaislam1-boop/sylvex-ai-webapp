@@ -1077,26 +1077,35 @@ function updateImageUploadButtonPreview() {
 function addVideoReferenceImage(url) {
   if (!url) return;
 
-  const referenceUrls = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
-  referenceUrls.push(url);
+  if (videoUploadTarget === 'start') {
+    videoState.startImage = url;
+    renderVideoInputPreviews();
+    updateSendButton();
+    return;
+  }
 
-  const uploadedUrls = (videoState.uploadedImageUrls || []).filter((item) => item && item !== url);
-  uploadedUrls.push(url);
+  if (videoUploadTarget === 'end') {
+    videoState.endImage = url;
+    renderVideoInputPreviews();
+    updateSendButton();
+    return;
+  }
 
-  videoState.referenceImageUrls = referenceUrls.slice(0, 4);
-  videoState.uploadedImageUrls = uploadedUrls.slice(0, 4);
+  const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
+  refs.unshift(url);
+
+  const uploads = (videoState.uploadedImageUrls || []).filter((item) => item && item !== url);
+  uploads.unshift(url);
+
+  videoState.referenceImageUrls = refs.slice(0, 4);
+  videoState.uploadedImageUrls = uploads.slice(0, 4);
   videoState.referenceImageUrl = url;
   videoState.imageUrl = url;
 
-  if (videoUploadTarget === 'start') {
-    videoState.startImage = url;
-  } else if (videoUploadTarget === 'end') {
-    videoState.endImage = url;
-  } else if (videoUploadTarget === 'character') {
-    videoState.characterImage = url;
-  }
-
+  renderUploadedPhotoGrid();
+  renderVideoInputPreviews();
   updateImageUploadButtonPreview();
+  updateSendButton();
 }
 
 function renderVideoInputPreviews() {
@@ -2740,6 +2749,9 @@ function imageModelButton(model) {
     S.haptic.select();
   }
   function togglePlusPop(e) {
+    if (isVideoMode()) {
+      videoUploadTarget = 'reference';
+    }
     if (e) e.stopPropagation();
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.add('show');
