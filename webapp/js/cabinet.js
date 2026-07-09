@@ -16,6 +16,7 @@
     music: { conversationId: null, messages: [] },
     voice: { conversationId: null, messages: [] },
   };
+  const expandedHistorySections = {};
   let restoringChatSpace = false;
   // Pending attachment for next send.
   let pendingAttachment = null; // { kind, mime, name, dataBase64 }
@@ -3189,15 +3190,16 @@ function openGenerationInfoDrawer(e, index) {
   };
   const titleEl = drawer.querySelector('.generation-info-head h3');
   if (titleEl) titleEl.textContent = titleMap[type] || 'Result';
+  const videoThumb = meta.thumb_url || meta.image_url || '';
   const previewHtml = type === 'image' && imageUrl
-    ? '<button class="generation-info-preview" type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" onclick="SYLVEX.openImageViewer(event)"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated image" /></button>'
+    ? '<div class="generation-info-preview"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated image" /></div>'
     : type === 'video' && videoUrl
-      ? '<button class="generation-info-preview generation-info-video-preview" type="button" data-result-url="' + S.escapeHtml(videoUrl) + '" onclick="SYLVEX.openGeneratedContent(event)"><video src="' + S.escapeHtml(videoUrl) + '" muted playsinline preload="metadata"></video></button>'
+      ? '<div class="generation-info-preview generation-info-video-preview">' + (videoThumb ? '<img src="' + S.escapeHtml(videoThumb) + '" alt="video thumbnail" />' : '<span>VID</span>') + '</div>'
       : (type === 'music' || type === 'voice') && imageUrl
-        ? '<button class="generation-info-preview" type="button" data-result-url="' + S.escapeHtml(audioUrl || imageUrl) + '" onclick="SYLVEX.openGeneratedContent(event)"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated cover" /></button>'
+        ? '<div class="generation-info-preview"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated cover" /></div>'
       : audioUrl
-        ? '<button class="generation-info-preview generation-info-audio-preview" type="button" data-result-url="' + S.escapeHtml(audioUrl) + '" onclick="SYLVEX.openGeneratedContent(event)"><span>' + S.escapeHtml(type === 'voice' ? 'VO' : '♪') + '</span></button>'
-        : (previewUrl ? '<button class="generation-info-preview" type="button" data-result-url="' + S.escapeHtml(previewUrl) + '" onclick="SYLVEX.openGeneratedContent(event)"></button>' : '');
+        ? '<div class="generation-info-preview generation-info-audio-preview"><span>' + S.escapeHtml(type === 'voice' ? 'VO' : '♪') + '</span></div>'
+        : (previewUrl ? '<div class="generation-info-preview generation-info-audio-preview"><span>AI</span></div>' : '');
   let actionHtml = '';
   if (resultUrl) {
     actionHtml += '<button type="button" ' + (type === 'image' ? 'data-image-url' : 'data-result-url') + '="' + S.escapeHtml(resultUrl) + '" onclick="' + (type === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)') + '">Открыть</button>';
@@ -3779,20 +3781,32 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     };
     el.innerHTML = CHAT_SPACE_TYPES.map((type) => {
       const items = conversationsCache.filter((c) => chatTypeForMode(c.type || c.mode || 'image') === type);
+      const expanded = !!expandedHistorySections[type];
+      const visibleItems = expanded ? items : items.slice(0, 5);
       return '<div class="hd-type-section">'
         + '<div class="hd-label">' + S.escapeHtml(labels[type]) + '</div>'
         + (items.length
-          ? items.map(c =>
+          ? visibleItems.map(c =>
             '<div class="hd-item-row">' +
               '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + S.escapeHtml(c.id) + '\',\'' + type + '\')">' +
                 S.escapeHtml(c.title || 'Chat') +
               '</button>' +
               '<button class="hd-del" onclick="SYLVEX.deleteConv(event,\'' + S.escapeHtml(c.id) + '\',\'' + type + '\')" aria-label="Delete">×</button>' +
             '</div>'
-          ).join('')
+          ).join('') + (!expanded && items.length > 5
+            ? '<button class="hd-more" type="button" onclick="SYLVEX.expandHistorySection(event,\'' + type + '\')">Открыть полный список</button>'
+            : '')
           : '<div class="hd-label" style="opacity:.35">Пока пусто</div>')
         + '</div>';
     }).join('');
+  }
+  function expandHistorySection(e, type) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    expandedHistorySections[chatTypeForMode(type)] = true;
+    renderConvList();
   }
   async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
@@ -4741,7 +4755,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
     attach, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
-    openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
+    openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
@@ -4774,6 +4788,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.editGeneratedVideo = editGeneratedVideo;
   window.openGenerationInfoDrawer = openGenerationInfoDrawer;
   window.closeGenerationInfoDrawer = closeGenerationInfoDrawer;
+  window.expandHistorySection = expandHistorySection;
 
   S.openImageStylePanel = openImageStylePanel;
   S.closeImageStylePanel = closeImageStylePanel;
@@ -4787,6 +4802,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.openGeneratedContent = openGeneratedContent;
   S.animateGeneratedImage = animateGeneratedImage;
   S.editGeneratedVideo = editGeneratedVideo;
+  S.expandHistorySection = expandHistorySection;
   S.showImageModelPicker = showImageModelPicker;
   S.updateComposerMode = updateComposerMode;
   S.renderVideoControls = renderVideoControls;
