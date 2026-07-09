@@ -2337,22 +2337,45 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  function resultCardRow(label, value) {
+    if (value === undefined || value === null || value === '') return '';
+    return '<span class="generation-card-row"><span>' + S.escapeHtml(label) + '</span><b>' + S.escapeHtml(String(value)) + '</b></span>';
+  }
+
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const thumb = meta.thumb_url || meta.image_url || ((meta.result_images || [])[0]) || '';
     const imageUrl = meta.image_url || ((meta.result_images || [])[0]) || thumb || '';
     const safeThumb = S.escapeHtml(thumb);
     const safeModel = S.escapeHtml(meta.model_label || meta.model || 'Image');
-    return '<div class="generation-result-mini-wrap">'
-      + '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
-      + '<span class="generation-result-thumb">' + (safeThumb ? '<img src="' + safeThumb + '" alt="generated image" loading="lazy" decoding="async" />' : '') + '</span>'
-      + '<span class="generation-result-meta">'
-      + '<span class="generation-result-title">Изображение готово</span>'
-      + '<span class="generation-result-sub">' + safeModel + '</span>'
-      + '</span>'
+    const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
+    const prompt = meta.prompt || m.prompt || '';
+    const settings = [
+      resultCardRow('Модель', meta.model_label || meta.model),
+      resultCardRow('Провайдер', meta.provider),
+      resultCardRow('Формат', meta.ratio || meta.size),
+      resultCardRow('Стиль', meta.style),
+      resultCardRow('Персонаж', meta.character),
+      resultCardRow('Объекты', meta.objects),
+      resultCardRow('Количество', meta.count),
+      resultCardRow('Создано', created),
+      resultCardRow('Telegram', meta.sent_to_telegram ? 'отправлено' : 'не отправлено'),
+    ].join('');
+    return '<article class="generation-result-card" data-generation-kind="image">'
+      + '<button class="generation-card-preview" type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" onclick="SYLVEX.openImageViewer(event)">'
+      + (safeThumb ? '<img src="' + safeThumb + '" alt="generated image" loading="lazy" decoding="async" />' : '')
       + '</button>'
+      + '<div class="generation-card-body">'
+      + '<div class="generation-card-head">'
+      + '<div><div class="generation-card-kicker">SYLVEX Pro Studio</div><h3>Изображение готово</h3></div>'
+      + '<button class="generation-card-info" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">i</button>'
+      + '</div>'
+      + '<div class="generation-card-model">' + safeModel + '</div>'
+      + (prompt ? '<p class="generation-card-prompt">' + S.escapeHtml(prompt) + '</p>' : '')
+      + '<div class="generation-card-settings">' + settings + '</div>'
       + (imageUrl ? renderGeneratedActions(imageUrl, 'image') : '')
-      + '</div>';
+      + '</div>'
+      + '</article>';
   }
 
   function renderGeneratedVideo(url) {
@@ -3572,9 +3595,23 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
             ? m.thumb_urls
             : (m.thumb_url ? [m.thumb_url] : []);
 
+        const metadata = m.metadata && typeof m.metadata === 'object' ? m.metadata : {};
+        const imageMeta = images.length
+          ? Object.assign({
+              type: 'image',
+              prompt: m.prompt || '',
+              result_images: images,
+              result_thumbnails: thumbnails.length ? thumbnails : images,
+              image_url: images[0] || '',
+              thumb_url: thumbnails[0] || images[0] || '',
+              created_at: m.created_at || '',
+            }, metadata)
+          : metadata;
         return {
           role: m.role === 'assistant' ? 'ai' : 'user',
           text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
+          imageResultMini: m.role === 'assistant' && !!images.length,
+          metadata: m.role === 'assistant' && images.length ? imageMeta : metadata,
           imageUrl: images[0] || undefined,
           images: images.length ? images : null,
           thumbUrl: thumbnails[0] || undefined,
