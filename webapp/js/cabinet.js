@@ -64,6 +64,7 @@ let videoState = {
   attachment: null,
   advanced: {},
 };
+let videoUploadTarget = 'reference';
 let currentUploadTarget = 'image_upload';
 let videoModelSettings = {};
 
@@ -1002,45 +1003,43 @@ function localizedGreeting() {
 function findImageUploadControlButton() {
   const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
 
-  const scored = candidates.map((btn) => {
-    if (!btn || !btn.isConnected) return null;
-    if (btn.closest('#uploadPanel')) return null;
-    if (btn.closest('#imageStylePanel')) return null;
-    if (btn.closest('#modelPop')) return null;
-    if (btn.closest('#plusSheet')) return null;
+  const valid = candidates.filter((btn) => {
+    if (!btn || !btn.isConnected) return false;
+    if (btn.closest('#uploadPanel')) return false;
+    if (btn.closest('#imageStylePanel')) return false;
+    if (btn.closest('#modelPop')) return false;
+    if (btn.closest('#plusSheet')) return false;
+    return true;
+  });
 
-    const id = String(btn.id || '');
-    const cls = String(btn.className || '');
-    const onclick = String(btn.getAttribute('onclick') || '');
-    const text = String(btn.textContent || '').trim().toLowerCase();
-    const aria = String(btn.getAttribute('aria-label') || '').trim().toLowerCase();
+  const textOf = (btn) => String(btn && btn.textContent ? btn.textContent : '').trim().toLowerCase();
+  const ariaOf = (btn) => String(btn && btn.getAttribute ? btn.getAttribute('aria-label') || '' : '').trim().toLowerCase();
+  const idOf = (btn) => String(btn && btn.id ? btn.id : '').trim().toLowerCase();
+  const classOf = (btn) => String(btn && btn.className ? btn.className : '').trim().toLowerCase();
 
-    let score = 0;
+  const findByText = (needles) => valid.find((btn) => {
+    const text = textOf(btn);
+    const aria = ariaOf(btn);
+    return needles.some((needle) => text.includes(needle) || aria.includes(needle));
+  });
 
-    if (isVideoMode()) {
-      if (text.includes('референс') || aria.includes('референс')) score += 160;
-      if (text.includes('ссылк') || aria.includes('ссылк')) score += 140;
-      if (id.toLowerCase().includes('reference') || id.toLowerCase().includes('refs')) score += 130;
-      if (cls.toLowerCase().includes('reference') || cls.toLowerCase().includes('refs')) score += 100;
-      if (onclick.includes('openUploadPanel')) score += 70;
-      if (onclick.includes("attach('image'") || onclick.includes('attach("image"')) score += 60;
-
-      if (text.includes('начальное изображение') || aria.includes('начальное изображение')) score -= 300;
-      if (text.includes('конечный образ') || aria.includes('конечный образ')) score -= 250;
-    } else {
-      if (id === 'imageUploadBtn' || id === 'imageUploadControl') score += 100;
-      if (onclick.includes('openUploadPanel')) score += 80;
-      if (onclick.includes("attach('image'") || onclick.includes('attach("image"')) score += 80;
-      if (text === 'загрузка') score += 70;
-      if (text.includes('загрузка')) score += 40;
-      if (cls.includes('upload')) score += 15;
-      if (cls.includes('image')) score += 10;
+  if (isVideoMode()) {
+    if (currentUploadTarget === 'video_start') {
+      return findByText(['начальное изображение']) || null;
     }
 
-    return score > 0 ? { btn, score } : null;
-  }).filter(Boolean).sort((a, b) => b.score - a.score);
+    if (currentUploadTarget === 'video_end') {
+      return findByText(['конечный образ', 'конечный обзор']) || null;
+    }
 
-  return scored[0] ? scored[0].btn : null;
+    return findByText(['добавить референсы', 'референс', 'добавить ссылки'])
+      || valid.find((btn) => idOf(btn).includes('reference') || idOf(btn).includes('refs') || classOf(btn).includes('reference') || classOf(btn).includes('refs'))
+      || null;
+  }
+
+  return valid.find((btn) => idOf(btn) === 'imageuploadbtn' || idOf(btn) === 'imageuploadcontrol')
+    || findByText(['загрузить', 'загрузка'])
+    || null;
 }
 
 function updateImageUploadButtonPreview() {
@@ -1277,8 +1276,14 @@ function setCurrentModeAttachment(attachment) {
 }
 
 function currentSelectedUploadImage() {
-  if (isVideoMode()) return videoState.referenceImageUrl || '';
-  if (isImageMode()) return imageState.referenceImageUrl || '';
+  if (isVideoMode()) {
+    if (currentUploadTarget === 'video_start') return videoState.startImage || '';
+    if (currentUploadTarget === 'video_end') return videoState.endImage || '';
+    return videoState.referenceImageUrl || ((videoState.referenceImageUrls || [])[0]) || '';
+  }
+
+  if (isImageMode()) return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
+
   const images = currentUploadImages();
   return images[images.length - 1] || '';
 }
