@@ -716,8 +716,9 @@ body.kb-open .nav{
   width:48px;height:48px;border-radius:50%;background:
     radial-gradient(circle at 65% 35%,rgba(200,20,30,.9),transparent 35%),
     linear-gradient(135deg,#231019,#9b1018 48%,#150c12 49%);
-  flex:0 0 auto;
+  flex:0 0 auto;overflow:hidden;
 }
+.studio-track-art img{width:100%;height:100%;display:block;object-fit:cover}
 .studio-track-title{font-size:17px;font-weight:500;min-width:180px}
 .studio-player-controls{display:flex;align-items:center;gap:18px}
 .studio-player-controls button,.studio-player-icon{

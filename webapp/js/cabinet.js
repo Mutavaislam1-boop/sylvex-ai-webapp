@@ -2382,7 +2382,11 @@ function imageModelButton(model) {
       return Array.isArray(m.videos) && m.videos.length ? m.videos : (m.videoUrl ? [m.videoUrl] : []);
     }
     if (kind === 'audio') {
-      return Array.isArray(m.audios) && m.audios.length ? m.audios : (m.audioUrl ? [m.audioUrl] : []);
+      return Array.isArray(m.audios) && m.audios.length
+        ? m.audios
+        : (m.audioUrl || m.audio_url || m.music_url || m.song_url || m.result_url || m.output_url || m.file_url
+          ? [m.audioUrl || m.audio_url || m.music_url || m.song_url || m.result_url || m.output_url || m.file_url]
+          : []);
     }
     return Array.isArray(m.files) && m.files.length ? m.files : (m.fileUrl ? [m.fileUrl] : []);
   }
@@ -2403,7 +2407,18 @@ function imageModelButton(model) {
       return Array.isArray(j.videos) && j.videos.length ? j.videos : (j.video_url ? [j.video_url] : []);
     }
     if (kind === 'audio') {
-      return Array.isArray(j.audios) && j.audios.length ? j.audios : (j.audio_url ? [j.audio_url] : []);
+      const items = Array.isArray(j.audios) && j.audios.length
+        ? j.audios
+        : Array.isArray(j.response_data) && j.response_data.length
+          ? j.response_data
+          : Array.isArray(j.output) && j.output.length
+            ? j.output
+            : (j.audio_url || j.music_url || j.song_url || j.output_url || j.file_url || j.result_url || j.url
+              ? [j.audio_url || j.music_url || j.song_url || j.output_url || j.file_url || j.result_url || j.url]
+              : []);
+      return items.map((item) => typeof item === 'object'
+        ? (item.audio_url || item.music_url || item.song_url || item.output_url || item.file_url || item.result_url || item.url || '')
+        : item).filter(Boolean);
     }
     return Array.isArray(j.files) && j.files.length ? j.files : (j.file_url ? [j.file_url] : []);
   }
@@ -2416,6 +2431,236 @@ function imageModelButton(model) {
       return j.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
     }
     return j.thumb_url ? [j.thumb_url] : [];
+  }
+
+  function pickFirstMediaUrl() {
+    for (let i = 0; i < arguments.length; i += 1) {
+      const value = arguments[i];
+      if (!value) continue;
+      if (typeof value === 'string') return value;
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const url = pickFirstMediaUrl(item);
+          if (url) return url;
+        }
+      } else if (typeof value === 'object') {
+        const url = value.audio_url
+          || value.music_url
+          || value.song_url
+          || value.output_url
+          || value.file_url
+          || value.result_url
+          || value.url
+          || value.original_url
+          || value.image_url
+          || value.cover_url
+          || value.cover
+          || value.artwork_url
+          || value.thumbnail_url
+          || value.thumb_url
+          || value.poster_url
+          || value.result_image
+          || '';
+        if (url) return url;
+      }
+    }
+    return '';
+  }
+
+  function pickFirstCoverUrl() {
+    for (let i = 0; i < arguments.length; i += 1) {
+      const value = arguments[i];
+      if (!value) continue;
+      if (typeof value === 'string') return value;
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const url = pickFirstCoverUrl(item);
+          if (url) return url;
+        }
+      } else if (typeof value === 'object') {
+        const url = value.cover_url
+          || value.cover
+          || value.artwork_url
+          || value.image_url
+          || value.thumbnail_url
+          || value.thumb_url
+          || value.poster_url
+          || value.result_image
+          || value.image
+          || '';
+        if (url) return url;
+      }
+    }
+    return '';
+  }
+
+  function musicCoverUrl(source) {
+    const meta = source && source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    return pickFirstCoverUrl(
+      source && source.cover_url,
+      source && source.cover,
+      source && source.artwork_url,
+      source && source.image_url,
+      source && source.thumbnail_url,
+      source && source.thumb_url,
+      source && source.poster_url,
+      source && source.result_image,
+      source && source.result_images,
+      source && source.images,
+      source && source.response_data,
+      source && source.output && source.output.image,
+      meta.cover_url,
+      meta.cover,
+      meta.artwork_url,
+      meta.image_url,
+      meta.thumbnail_url,
+      meta.thumb_url,
+      meta.poster_url,
+      meta.result_image,
+      meta.result_images,
+      meta.images,
+      meta.response_data,
+      meta.output && meta.output.image
+    );
+  }
+
+  function musicAudioUrl(source) {
+    const meta = source && source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    return pickFirstMediaUrl(
+      source && source.audio_url,
+      source && source.music_url,
+      source && source.song_url,
+      source && source.url,
+      source && source.result_url,
+      source && source.output_url,
+      source && source.file_url,
+      source && source.audio,
+      source && source.audios,
+      source && source.output,
+      meta.audio_url,
+      meta.music_url,
+      meta.song_url,
+      meta.url,
+      meta.result_url,
+      meta.output_url,
+      meta.file_url,
+      meta.audio,
+      meta.audios,
+      meta.output
+    );
+  }
+
+  function normalizeMusicTrack(source, fallbackUrl) {
+    const meta = source && source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
+    const audioUrl = musicAudioUrl(source || {}) || fallbackUrl || '';
+    if (!audioUrl) return null;
+    const title = (source && (source.title || source.name)) || meta.title || meta.name || 'SYLVEX Music';
+    return {
+      id: (source && (source.id || source.task_id || source.workId)) || meta.id || meta.task_id || audioUrl,
+      type: 'music',
+      audioUrl,
+      coverUrl: musicCoverUrl(source || {}),
+      title,
+      model: (source && source.model) || meta.model || '',
+      provider: (source && source.provider) || meta.provider || 'suno',
+    };
+  }
+
+  function formatAudioTime(seconds) {
+    const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+    const min = Math.floor(total / 60);
+    const sec = String(total % 60).padStart(2, '0');
+    return min + ':' + sec;
+  }
+
+  let activeMusicTrack = null;
+
+  function setStudioPlayerIcon(isPlaying) {
+    const icon = document.getElementById('studioPlayerPlayIcon');
+    if (!icon) return;
+    icon.innerHTML = isPlaying
+      ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>'
+      : '<path d="M8 5v14l11-7z"/>';
+  }
+
+  function renderStudioPlayerTrack(track) {
+    const player = document.getElementById('studioAudioPlayer');
+    const titleEl = document.getElementById('studioTrackTitle');
+    const art = document.getElementById('studioTrackArt');
+    if (player) player.classList.toggle('has-track', !!track);
+    if (titleEl) titleEl.textContent = (track && track.title) || 'Выберите трек';
+    if (art) {
+      if (track && track.coverUrl) {
+        art.innerHTML = '<img src="' + S.escapeHtml(track.coverUrl) + '" alt="" loading="lazy" decoding="async" />';
+        art.classList.add('has-cover');
+      } else {
+        art.innerHTML = '';
+        art.classList.remove('has-cover');
+      }
+    }
+  }
+
+  function bindStudioAudioElement() {
+    const audio = document.getElementById('studioAudioElement');
+    if (!audio || audio.dataset.bound === '1') return audio;
+    audio.dataset.bound = '1';
+    audio.addEventListener('play', () => setStudioPlayerIcon(true));
+    audio.addEventListener('pause', () => setStudioPlayerIcon(false));
+    audio.addEventListener('ended', () => setStudioPlayerIcon(false));
+    audio.addEventListener('timeupdate', () => {
+      const timeEl = document.getElementById('studioPlayerTime');
+      const progress = document.getElementById('studioPlayerProgress');
+      if (timeEl) timeEl.textContent = formatAudioTime(audio.currentTime || 0);
+      if (progress) {
+        const pct = audio.duration ? Math.min(100, Math.max(0, (audio.currentTime / audio.duration) * 100)) : 0;
+        progress.style.width = pct + '%';
+      }
+    });
+    audio.addEventListener('loadedmetadata', () => {
+      const durationEl = document.getElementById('studioPlayerDuration');
+      if (durationEl) durationEl.textContent = formatAudioTime(audio.duration || 0);
+    });
+    return audio;
+  }
+
+  function openMusicInPlayer(trackLike, e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const track = normalizeMusicTrack(trackLike || {});
+    if (!track) return;
+    if (!isMusicMode()) updateComposerMode('music');
+    const audio = bindStudioAudioElement();
+    if (!audio) return;
+    activeMusicTrack = track;
+    renderStudioPlayerTrack(track);
+    if (audio.src !== track.audioUrl) {
+      audio.src = track.audioUrl;
+      audio.load();
+    }
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        setStudioPlayerIcon(false);
+        toast('Трек готов в проигрывателе');
+      });
+    }
+  }
+
+  function toggleStudioAudioPlayer(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const audio = bindStudioAudioElement();
+    if (!audio || !activeMusicTrack) return;
+    if (audio.paused) {
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(() => {});
+    } else {
+      audio.pause();
+    }
   }
 
   function generatedThumbsFromMessage(m) {
@@ -2519,6 +2764,9 @@ function imageModelButton(model) {
   function renderGeneratedOpenButton(url, kind) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
+    if (kind === 'audio' || kind === 'music') {
+      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playMusicTrack(event)">Открыть музыку</button>';
+    }
     const dataAttr = kind === 'image' ? 'data-image-url' : 'data-result-url';
     const handler = kind === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)';
     return '<button class="gen-action-btn" type="button" ' + dataAttr + '="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="' + handler + '">Открыть</button>';
@@ -2608,7 +2856,8 @@ function imageModelButton(model) {
     const options = optionsSnapshot || (type === 'video' ? videoState : (type === 'music' ? musicOptionsPayload() : voiceState));
     const modelId = (options && (options.model || options.modelId)) || pickStudioModel() || '';
     const currentModel = type === 'video' ? currentVideoModel() : null;
-    const resultUrl = type === 'video' ? (videoUrls[0] || result.video_url || '') : (audioUrls[0] || result.audio_url || '');
+    const resultUrl = type === 'video' ? (videoUrls[0] || result.video_url || '') : (audioUrls[0] || musicAudioUrl(result || {}) || '');
+    const coverUrl = type === 'music' ? musicCoverUrl(result || {}) : '';
     return {
       type,
       result_url: resultUrl,
@@ -2624,8 +2873,11 @@ function imageModelButton(model) {
       videos: type === 'video' && resultUrl ? [resultUrl] : [],
       audio_url: type !== 'video' ? resultUrl : '',
       audios: type !== 'video' && resultUrl ? [resultUrl] : [],
-      image_url: result && result.image_url ? result.image_url : '',
-      thumb_url: result && result.thumb_url ? result.thumb_url : '',
+      image_url: type === 'music' ? coverUrl : (result && result.image_url ? result.image_url : ''),
+      cover_url: coverUrl,
+      artwork_url: type === 'music' ? ((result && result.artwork_url) || coverUrl) : '',
+      thumbnail_url: type === 'music' ? (coverUrl || ((result && result.thumbnail_url) || '')) : ((result && result.thumbnail_url) || ''),
+      thumb_url: type === 'music' ? (coverUrl || ((result && result.thumb_url) || '')) : ((result && result.thumb_url) || ''),
       title: result && result.title ? result.title : '',
       created_at: new Date().toISOString(),
       sent_to_telegram: !!(result && result.sent_to_telegram),
@@ -2654,7 +2906,10 @@ function imageModelButton(model) {
     const media = thumb
       ? previewImgHtml(thumb, 'generated result')
       : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
-    return '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
+    const handler = type === 'music'
+      ? 'SYLVEX.playMusicTrackFromMessage(event,' + index + ')'
+      : 'SYLVEX.openGenerationInfoDrawer(event,' + index + ')';
+    return '<button class="generation-result-mini-card" type="button" onclick="' + handler + '">'
       + '<span class="generation-result-thumb">' + media + '</span>'
       + '<span class="generation-result-meta">'
       + '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
@@ -3349,6 +3604,15 @@ function openGeneratedContent(e) {
   const btn = e && e.currentTarget ? e.currentTarget : null;
   const url = btn && btn.dataset ? (btn.dataset.resultUrl || btn.dataset.videoUrl || btn.dataset.audioUrl || '') : '';
   if (!url) return;
+  const kind = btn && btn.dataset ? (btn.dataset.resultKind || '') : '';
+  if (kind === 'music' || kind === 'audio') {
+    openMusicInPlayer({
+      audio_url: url,
+      title: btn.dataset.title || 'SYLVEX Music',
+      cover_url: btn.dataset.coverUrl || '',
+    }, e);
+    return;
+  }
   const tgApp = S.tg || (window.Telegram && window.Telegram.WebApp);
   try {
     if (tgApp && typeof tgApp.openLink === 'function' && /^https?:\/\//i.test(url)) {
@@ -3359,6 +3623,39 @@ function openGeneratedContent(e) {
   } catch {
     window.open(url, '_blank', 'noopener');
   }
+}
+
+function playMusicTrack(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const data = btn && btn.dataset ? btn.dataset : {};
+  openMusicInPlayer({
+    id: data.trackId || data.resultUrl || data.audioUrl || '',
+    audio_url: data.audioUrl || data.resultUrl || '',
+    result_url: data.audioUrl || data.resultUrl || '',
+    cover_url: data.coverUrl || '',
+    title: data.title || 'SYLVEX Music',
+    provider: data.provider || 'suno',
+    model: data.model || '',
+  }, e);
+}
+
+function playMusicTrackFromMessage(e, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const message = chatMessages[index] || {};
+  const meta = message.metadata || {};
+  openMusicInPlayer(Object.assign({}, message, meta, {
+    metadata: meta,
+    audio_url: musicAudioUrl(meta) || musicAudioUrl(message),
+    cover_url: musicCoverUrl(meta) || musicCoverUrl(message),
+    title: meta.title || message.title || 'SYLVEX Music',
+  }), e);
 }
 
 function animateGeneratedImage(e) {
@@ -3477,7 +3774,11 @@ function openGenerationInfoDrawer(e, index) {
         : (previewUrl ? '<div class="generation-info-preview generation-info-audio-preview"><span>AI</span></div>' : '');
   let actionHtml = '';
   if (resultUrl) {
-    actionHtml += '<button type="button" ' + (type === 'image' ? 'data-image-url' : 'data-result-url') + '="' + S.escapeHtml(resultUrl) + '" onclick="' + (type === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)') + '">Открыть</button>';
+    if (type === 'music') {
+      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-cover-url="' + S.escapeHtml(previewUrl || imageUrl || meta.cover_url || '') + '" data-title="' + S.escapeHtml(meta.title || 'SYLVEX Music') + '" data-result-kind="music" onclick="SYLVEX.playMusicTrack(event)">Открыть музыку</button>';
+    } else {
+      actionHtml += '<button type="button" ' + (type === 'image' ? 'data-image-url' : 'data-result-url') + '="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="' + (type === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)') + '">Открыть</button>';
+    }
     actionHtml += '<button type="button" data-result-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openTelegramBot(event)">Перейти в Telegram</button>';
     if (type === 'image') {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">Оживить фото</button>';
@@ -5037,7 +5338,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, openGeneratedContent, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
@@ -5062,6 +5363,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.generateNow    = generateNow;
   window.openTelegramBot = openTelegramBot;
   window.openGeneratedContent = openGeneratedContent;
+  window.openMusicInPlayer = openMusicInPlayer;
+  window.playMusicTrack = playMusicTrack;
+  window.playMusicTrackFromMessage = playMusicTrackFromMessage;
+  window.toggleStudioAudioPlayer = toggleStudioAudioPlayer;
   window.animateGeneratedImage = animateGeneratedImage;
   window.editGeneratedVideo = editGeneratedVideo;
   window.openGenerationInfoDrawer = openGenerationInfoDrawer;
@@ -5084,6 +5389,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.resetMusicSettings = resetMusicSettings;
   S.openTelegramBot = openTelegramBot;
   S.openGeneratedContent = openGeneratedContent;
+  S.openMusicInPlayer = openMusicInPlayer;
+  S.playMusicTrack = playMusicTrack;
+  S.playMusicTrackFromMessage = playMusicTrackFromMessage;
+  S.toggleStudioAudioPlayer = toggleStudioAudioPlayer;
   S.animateGeneratedImage = animateGeneratedImage;
   S.editGeneratedVideo = editGeneratedVideo;
   S.expandHistorySection = expandHistorySection;
