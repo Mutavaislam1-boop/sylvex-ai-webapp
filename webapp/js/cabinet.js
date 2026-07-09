@@ -1063,10 +1063,14 @@ function updateImageUploadButtonPreview() {
 function addVideoReferenceImage(url) {
   if (!url) return;
 
-  const urls = (videoState.referenceImageUrls || []).filter((item) => item !== url);
-  urls.push(url);
+  const referenceUrls = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
+  referenceUrls.push(url);
 
-  videoState.referenceImageUrls = urls.slice(0, 4);
+  const uploadedUrls = (videoState.uploadedImageUrls || []).filter((item) => item && item !== url);
+  uploadedUrls.push(url);
+
+  videoState.referenceImageUrls = referenceUrls.slice(0, 4);
+  videoState.uploadedImageUrls = uploadedUrls.slice(0, 4);
   videoState.referenceImageUrl = url;
   videoState.imageUrl = url;
 
@@ -1077,6 +1081,8 @@ function addVideoReferenceImage(url) {
   } else if (videoUploadTarget === 'character') {
     videoState.characterImage = url;
   }
+
+  updateImageUploadButtonPreview();
 }
 
 function renderVideoInputPreviews() {
@@ -1136,7 +1142,7 @@ function renderVideoInputPreviews() {
 }
 
 function currentUploadImages() {
-  if (isVideoMode()) return (videoState.uploadedImageUrls || []).slice();
+  if (isVideoMode()) return ((videoState.uploadedImageUrls && videoState.uploadedImageUrls.length) ? videoState.uploadedImageUrls : videoState.referenceImageUrls || []).slice();
   if (isMusicMode() || isVoiceMode()) return (currentAudioState().uploads || []).filter((item) => item && item.kind === 'image').map((item) => item.url);
   return (imageState.uploadedImageUrls || []).slice();
 }
