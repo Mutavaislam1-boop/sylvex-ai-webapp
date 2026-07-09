@@ -2437,6 +2437,7 @@ def ensure_prostudio_table():
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS videos_json TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audio_url TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audios_json TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS metadata_json TEXT")
         conn.commit()
     finally:
         cursor.close()
@@ -2452,6 +2453,57 @@ def _json_list(value) -> list:
         return [item for item in data if item] if isinstance(data, list) else []
     except Exception:
         return []
+
+def _json_obj(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        data = json.loads(value)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def build_prostudio_metadata(payload: dict, result: dict) -> dict:
+    mode = payload.get("mode") or payload.get("category") or result.get("type") or "text"
+    if mode != "image":
+        return {}
+
+    image_options = payload.get("image_options") or {}
+    if not isinstance(image_options, dict):
+        image_options = {}
+
+    images = _json_list(result.get("images")) or ([result.get("image_url")] if result.get("image_url") else [])
+    thumbs = _json_list(result.get("thumbnails")) or ([result.get("thumb_url")] if result.get("thumb_url") else []) or images[:]
+    reference_images = (
+        _json_list(image_options.get("referenceImageUrls"))
+        or _json_list(image_options.get("referenceImages"))
+        or _json_list(payload.get("reference_images"))
+    )
+
+    model = payload.get("model") or image_options.get("modelId") or result.get("model") or ""
+    provider = payload.get("provider") or result.get("provider") or ""
+    return {
+        "type": "image",
+        "model": model,
+        "model_label": result.get("model_label") or image_options.get("modelLabel") or model,
+        "provider": provider,
+        "prompt": payload.get("prompt") or "",
+        "style": image_options.get("style") or "",
+        "character": image_options.get("character") or "",
+        "objects": image_options.get("objects") or "",
+        "ratio": image_options.get("ratio") or image_options.get("size") or "",
+        "size": image_options.get("size") or image_options.get("ratio") or "",
+        "count": image_options.get("count") or len(images) or 1,
+        "image_options": image_options,
+        "reference_images": reference_images,
+        "result_images": images,
+        "result_thumbnails": thumbs,
+        "image_url": images[0] if images else "",
+        "thumb_url": thumbs[0] if thumbs else (images[0] if images else ""),
+        "sent_to_telegram": bool(result.get("sent_to_telegram")),
+    }
 
 def create_image_thumbnails(image_urls: list, size: int = 300) -> list:
     thumbs = []
@@ -2508,6 +2560,7 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
     telegram_id = int(payload.get("telegram_id") or 0)
     if not DATABASE_URL or not telegram_id:
         return conversation_id
+    metadata = build_prostudio_metadata(payload, result)
 
     try:
         ensure_prostudio_table()
@@ -2527,8 +2580,9 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 video_url,
                 videos_json,
                 audio_url,
-                audios_json
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                audios_json,
+                metadata_json
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             conversation_id,
             telegram_id,
@@ -2543,6 +2597,7 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             json.dumps(_json_list(result.get("videos")), ensure_ascii=False),
             result.get("audio_url") or "",
             json.dumps(_json_list(result.get("audios")), ensure_ascii=False),
+            json.dumps(metadata, ensure_ascii=False),
         ))
         conn.commit()
         cursor.close()
@@ -2579,7 +2634,7 @@ async def public_prostudio_conversations(
 
         if conversation_id:
             cursor.execute("""
-                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, created_at
+                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, created_at
                 FROM prostudio_messages
                 WHERE telegram_id = %s
                   AND conversation_id = %s
@@ -2590,18 +2645,31 @@ async def public_prostudio_conversations(
             cursor.close()
             conn.close()
             messages = []
-            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, created_at in rows:
+            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, created_at in rows:
                 images = _json_list(images_json) or ([image_url] if image_url else [])
                 thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
                 videos = _json_list(videos_json) or ([video_url] if video_url else [])
                 audios = _json_list(audios_json) or ([audio_url] if audio_url else [])
                 if len(thumbs) != len(images):
                     thumbs = images[:]
+                created_value = created_at.isoformat() if hasattr(created_at, "isoformat") else created_at
+                metadata = _json_obj(metadata_json)
+                if images:
+                    if not metadata:
+                        metadata = {
+                            "type": "image",
+                            "prompt": prompt or "",
+                            "result_images": images,
+                            "result_thumbnails": thumbs,
+                            "image_url": images[0] if images else "",
+                            "thumb_url": thumbs[0] if thumbs else (images[0] if images else ""),
+                        }
+                    metadata["created_at"] = metadata.get("created_at") or created_value
                 if prompt:
                     messages.append({
                         "role": "user",
                         "prompt": prompt,
-                        "created_at": created_at,
+                        "created_at": created_value,
                     })
                 messages.append({
                     "role": "assistant",
@@ -2614,7 +2682,8 @@ async def public_prostudio_conversations(
                     "videos": videos,
                     "audio_url": audios[0] if audios else "",
                     "audios": audios,
-                    "created_at": created_at,
+                    "metadata": metadata,
+                    "created_at": created_value,
                 })
             return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
 
