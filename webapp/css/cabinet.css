@@ -570,6 +570,17 @@ body.kb-open .nav{
   width:52px;height:44px;border:0;border-radius:999px;background:transparent;
   color:#d8d8d8;display:grid;place-items:center;cursor:pointer;
 }
+.sr-only{
+  position:absolute !important;
+  width:1px !important;
+  height:1px !important;
+  padding:0 !important;
+  margin:-1px !important;
+  overflow:hidden !important;
+  clip:rect(0,0,0,0) !important;
+  white-space:nowrap !important;
+  border:0 !important;
+}
 .studio-emoji-icon{font-size:19px;line-height:1;display:inline-grid;place-items:center}
 .studio-mini-tab.active{background:#f4f4f4;color:#111}
 .studio-mini-tab:active,.studio-mode-tab:active,.studio-frame-card:active,.studio-select-pill:active{transform:scale(.98)}
@@ -2925,6 +2936,65 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
 /* Pro Studio video option rows without ratio icons */
 body > #modelPop.image-size-floating-pop button.image-size-row.no-ratio-icon{
   grid-template-columns:1fr 24px !important;
+}
+
+body > #modelPop.music-settings-pop .music-settings-sheet{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  padding:0 2px 4px;
+}
+
+body > #modelPop.music-settings-pop .music-settings-section{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+body > #modelPop.music-settings-pop .music-settings-section h4{
+  margin:0;
+  padding:0 4px;
+  color:#cfcfd4;
+  font-size:13px;
+  line-height:1.2;
+  font-weight:800;
+}
+
+body > #modelPop.music-settings-pop .music-settings-options{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+body > #modelPop.music-settings-pop .music-setting-chip{
+  min-height:36px;
+  border:0;
+  border-radius:999px;
+  padding:0 13px;
+  background:rgba(255,255,255,.06);
+  color:#f1f1f1;
+  font:inherit;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+}
+
+body > #modelPop.music-settings-pop .music-setting-chip.active,
+body > #modelPop.music-settings-pop .music-setting-chip.sel{
+  background:rgba(255,255,255,.16);
+  color:#fff;
+}
+
+body > #modelPop.music-settings-pop .music-settings-clear{
+  align-self:flex-start;
+  border:0;
+  background:transparent;
+  color:rgba(255,255,255,.52);
+  font:inherit;
+  font-size:14px;
+  font-weight:700;
+  padding:2px 4px 4px;
+  cursor:pointer;
 }
 
 .view[data-view="tools"].active .studio-select-pill.video-sound-on{
