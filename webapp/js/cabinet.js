@@ -1013,15 +1013,29 @@ function findImageUploadControlButton() {
     const cls = String(btn.className || '');
     const onclick = String(btn.getAttribute('onclick') || '');
     const text = String(btn.textContent || '').trim().toLowerCase();
+    const aria = String(btn.getAttribute('aria-label') || '').trim().toLowerCase();
 
     let score = 0;
-    if (id === 'imageUploadBtn' || id === 'imageUploadControl') score += 100;
-    if (onclick.includes('openUploadPanel')) score += 80;
-    if (onclick.includes("attach('image'") || onclick.includes('attach("image"')) score += 80;
-    if (text === 'загрузка') score += 70;
-    if (text.includes('загрузка')) score += 40;
-    if (cls.includes('upload')) score += 15;
-    if (cls.includes('image')) score += 10;
+
+    if (isVideoMode()) {
+      if (text.includes('референс') || aria.includes('референс')) score += 160;
+      if (text.includes('ссылк') || aria.includes('ссылк')) score += 140;
+      if (id.toLowerCase().includes('reference') || id.toLowerCase().includes('refs')) score += 130;
+      if (cls.toLowerCase().includes('reference') || cls.toLowerCase().includes('refs')) score += 100;
+      if (onclick.includes('openUploadPanel')) score += 70;
+      if (onclick.includes("attach('image'") || onclick.includes('attach("image"')) score += 60;
+
+      if (text.includes('начальное изображение') || aria.includes('начальное изображение')) score -= 300;
+      if (text.includes('конечный образ') || aria.includes('конечный образ')) score -= 250;
+    } else {
+      if (id === 'imageUploadBtn' || id === 'imageUploadControl') score += 100;
+      if (onclick.includes('openUploadPanel')) score += 80;
+      if (onclick.includes("attach('image'") || onclick.includes('attach("image"')) score += 80;
+      if (text === 'загрузка') score += 70;
+      if (text.includes('загрузка')) score += 40;
+      if (cls.includes('upload')) score += 15;
+      if (cls.includes('image')) score += 10;
+    }
 
     return score > 0 ? { btn, score } : null;
   }).filter(Boolean).sort((a, b) => b.score - a.score);
