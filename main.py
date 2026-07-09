@@ -15,6 +15,7 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from services.audio_router import audio_generation
 from services.video_router import video_generation
 
 from fastapi import FastAPI, Request
@@ -2434,6 +2435,8 @@ def ensure_prostudio_table():
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumb_url TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS video_url TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS videos_json TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audio_url TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audios_json TEXT")
         conn.commit()
     finally:
         cursor.close()
@@ -2522,8 +2525,10 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 thumbnails_json,
                 thumb_url,
                 video_url,
-                videos_json
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                videos_json,
+                audio_url,
+                audios_json
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             conversation_id,
             telegram_id,
@@ -2536,6 +2541,8 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             result.get("thumb_url") or "",
             result.get("video_url") or "",
             json.dumps(_json_list(result.get("videos")), ensure_ascii=False),
+            result.get("audio_url") or "",
+            json.dumps(_json_list(result.get("audios")), ensure_ascii=False),
         ))
         conn.commit()
         cursor.close()
@@ -2572,7 +2579,7 @@ async def public_prostudio_conversations(
 
         if conversation_id:
             cursor.execute("""
-                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, created_at
+                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, created_at
                 FROM prostudio_messages
                 WHERE telegram_id = %s
                   AND conversation_id = %s
@@ -2583,10 +2590,11 @@ async def public_prostudio_conversations(
             cursor.close()
             conn.close()
             messages = []
-            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, created_at in rows:
+            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, created_at in rows:
                 images = _json_list(images_json) or ([image_url] if image_url else [])
                 thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
                 videos = _json_list(videos_json) or ([video_url] if video_url else [])
+                audios = _json_list(audios_json) or ([audio_url] if audio_url else [])
                 if len(thumbs) != len(images):
                     thumbs = images[:]
                 if prompt:
@@ -2604,6 +2612,8 @@ async def public_prostudio_conversations(
                     "thumbnails": thumbs,
                     "video_url": videos[0] if videos else "",
                     "videos": videos,
+                    "audio_url": audios[0] if audios else "",
+                    "audios": audios,
                     "created_at": created_at,
                 })
             return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
@@ -4426,13 +4436,7 @@ async def public_prostudio_generate(request: Request):
     elif mode == "video":
         result = await video_generation(payload)
     elif mode == "music":
-        result = {
-            "ok": False,
-            "type": "music",
-            "provider": selected_provider or "music",
-            "model": selected_model,
-            "error": "Music router is not connected yet",
-        }
+        result = await audio_generation(payload)
     elif mode == "voice":
         result = {
             "ok": False,
