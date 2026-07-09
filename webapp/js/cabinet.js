@@ -1047,6 +1047,13 @@ function updateImageUploadButtonPreview() {
   injectImageStyleSheetCss();
   renderVideoInputPreviews();
 
+  const oldPreviewButtons = Array.from(document.querySelectorAll('.has-upload-preview'));
+oldPreviewButtons.forEach((btn) => {
+  const bg = btn.querySelector(':scope > .image-upload-control-bg');
+  if (bg) bg.remove();
+  btn.classList.remove('has-upload-preview');
+});
+
   const button = findImageUploadControlButton();
   if (!button) return;
 
@@ -1076,36 +1083,7 @@ function updateImageUploadButtonPreview() {
 
 function addVideoReferenceImage(url) {
   if (!url) return;
-
-  if (videoUploadTarget === 'start') {
-    videoState.startImage = url;
-    renderVideoInputPreviews();
-    updateSendButton();
-    return;
-  }
-
-  if (videoUploadTarget === 'end') {
-    videoState.endImage = url;
-    renderVideoInputPreviews();
-    updateSendButton();
-    return;
-  }
-
-  const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
-  refs.unshift(url);
-
-  const uploads = (videoState.uploadedImageUrls || []).filter((item) => item && item !== url);
-  uploads.unshift(url);
-
-  videoState.referenceImageUrls = refs.slice(0, 4);
-  videoState.uploadedImageUrls = uploads.slice(0, 4);
-  videoState.referenceImageUrl = url;
-  videoState.imageUrl = url;
-
-  renderUploadedPhotoGrid();
-  renderVideoInputPreviews();
-  updateImageUploadButtonPreview();
-  updateSendButton();
+  applyUploadedMediaToTarget(url);
 }
 
 function renderVideoInputPreviews() {
@@ -1165,24 +1143,117 @@ function renderVideoInputPreviews() {
 }
 
 function currentUploadImages() {
-  if (isVideoMode()) return ((videoState.uploadedImageUrls && videoState.uploadedImageUrls.length) ? videoState.uploadedImageUrls : videoState.referenceImageUrls || []).slice();
-  if (isMusicMode() || isVoiceMode()) return (currentAudioState().uploads || []).filter((item) => item && item.kind === 'image').map((item) => item.url);
+  if (isVideoMode()) {
+    if (currentUploadTarget === 'video_start') {
+      return videoState.startImage ? [videoState.startImage] : [];
+    }
+
+    if (currentUploadTarget === 'video_end') {
+      return videoState.endImage ? [videoState.endImage] : [];
+    }
+
+    return (videoState.referenceImageUrls || []).slice();
+  }
+
+  if (isMusicMode() || isVoiceMode()) {
+    return (currentAudioState().uploads || [])
+      .filter((item) => item && item.kind === 'image')
+      .map((item) => item.url);
+  }
+
   return (imageState.uploadedImageUrls || []).slice();
+}
+
+function applyUploadedMediaToTarget(url) {
+  if (!url) return;
+
+  if (currentUploadTarget === 'video_start') {
+    videoState.startImage = url;
+    renderVideoInputPreviews();
+    updateSendButton();
+    return;
+  }
+
+  if (currentUploadTarget === 'video_end') {
+    videoState.endImage = url;
+    renderVideoInputPreviews();
+    updateSendButton();
+    return;
+  }
+
+  if (currentUploadTarget === 'video_references') {
+    const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
+    refs.unshift(url);
+
+    videoState.referenceImageUrls = refs.slice(0, 4);
+    videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
+    videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
+    videoState.imageUrl = videoState.referenceImageUrl;
+
+    renderUploadedPhotoGrid();
+    renderVideoInputPreviews();
+    updateImageUploadButtonPreview();
+    updateSendButton();
+    return;
+  }
+
+  if (currentUploadTarget === 'image_upload') {
+    const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
+    uploads.unshift(url);
+
+    imageState.uploadedImageUrls = uploads.slice(0, 4);
+    imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
+    imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+
+    updateImageUploadButtonPreview();
+    updateSendButton();
+    return;
+  }
 }
 
 function setCurrentUploadImages(urls) {
   const clean = (urls || []).filter(Boolean).slice(0, 4);
+
   if (isVideoMode()) {
-    videoState.uploadedImageUrls = clean;
+    if (currentUploadTarget === 'video_start') {
+      videoState.startImage = clean[0] || '';
+      renderVideoInputPreviews();
+      updateSendButton();
+      return;
+    }
+
+    if (currentUploadTarget === 'video_end') {
+      videoState.endImage = clean[0] || '';
+      renderVideoInputPreviews();
+      updateSendButton();
+      return;
+    }
+
+    videoState.referenceImageUrls = clean.slice(0, 4);
+    videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
+    videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
+    videoState.imageUrl = videoState.referenceImageUrl;
+
+    renderUploadedPhotoGrid();
+    renderVideoInputPreviews();
+    updateImageUploadButtonPreview();
+    updateSendButton();
     return;
   }
+
   if (isMusicMode() || isVoiceMode()) {
     const state = currentAudioState();
     const existing = (state.uploads || []).filter((item) => item && item.kind !== 'image');
     state.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
     return;
   }
+
   imageState.uploadedImageUrls = clean;
+  imageState.referenceImageUrls = clean.slice();
+  imageState.referenceImageUrl = clean[0] || '';
+
+  updateImageUploadButtonPreview();
+  updateSendButton();
 }
 
 function currentModeAttachment() {
