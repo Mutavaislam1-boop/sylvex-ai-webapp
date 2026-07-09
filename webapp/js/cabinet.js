@@ -2583,9 +2583,10 @@ function imageModelButton(model) {
           type: resultType,
           result_url: videoUrls[0] || audioUrls[0] || imageUrls[0] || '',
           image_url: imageUrls[0] || '',
-          thumb_url: imageThumbs[0] || imageUrls[0] || '',
+          thumb_url: imageThumbs[0] || '',
+          thumbnail_url: imageThumbs[0] || '',
           result_images: imageUrls,
-          result_thumbnails: imageThumbs.length ? imageThumbs : imageUrls,
+          result_thumbnails: imageThumbs.length ? imageThumbs : [],
           video_url: videoUrls[0] || '',
           videos: videoUrls,
           audio_url: audioUrls[0] || '',
@@ -3202,7 +3203,7 @@ function openGenerationInfoDrawer(e, index) {
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
-  const previewUrl = imagePreviewUrl(meta, imageUrl || resultUrl);
+  const previewUrl = imagePreviewUrl(meta, '');
   const refImages = meta.reference_images || [];
   const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
   const settings = meta.settings || meta.image_options || meta.video_options || meta.music_options || meta.voice_options || {};
@@ -3868,12 +3869,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
               type: 'image',
               prompt: m.prompt || '',
               result_images: images,
-              result_thumbnails: thumbnails.length ? thumbnails : images,
+              result_thumbnails: thumbnails.length ? thumbnails : [],
               image_url: images[0] || '',
               result_url: images[0] || '',
               full_url: images[0] || '',
-              thumbnail_url: thumbnails[0] || images[0] || '',
-              thumb_url: thumbnails[0] || images[0] || '',
+              thumbnail_url: thumbnails[0] || '',
+              thumb_url: thumbnails[0] || '',
               created_at: m.created_at || '',
             }, metadata)
           : Object.assign({
@@ -3885,8 +3886,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
               audio_url: audios[0] || '',
               audios,
               image_url: images[0] || '',
-              thumbnail_url: thumbnails[0] || images[0] || '',
-              thumb_url: thumbnails[0] || images[0] || '',
+              thumbnail_url: thumbnails[0] || '',
+              thumb_url: thumbnails[0] || '',
               created_at: m.created_at || '',
             }, metadata);
         if (hasResultMedia && !resultMeta.created_at) resultMeta.created_at = m.created_at || '';
