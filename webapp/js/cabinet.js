@@ -2979,7 +2979,7 @@ function imageModelButton(model) {
     if (isVideoMode()) {
       videoState.referenceImageUrls = scopedUploads.slice();
       videoState.referenceImageUrl = scopedUploads[scopedUploads.length - 1] || '';
-      if (!scopedUploads.includes(videoState.startImage)) videoState.startImage = videoState.referenceImageUrl || '';
+      if (!scopedUploads.includes(videoState.startImage)) videoState.startImage = '';
       if (!scopedUploads.includes(videoState.endImage)) videoState.endImage = '';
       if (!scopedUploads.includes(videoState.characterImage)) videoState.characterImage = '';
     } else if (isImageMode()) {
@@ -3000,8 +3000,7 @@ function imageModelButton(model) {
     if (isVideoMode()) {
       videoState.referenceImageUrls = uploadImages.slice();
       videoState.referenceImageUrl = uploadImages[uploadImages.length - 1] || '';
-      if (!videoState.startImage && videoState.referenceImageUrl) videoState.startImage = videoState.referenceImageUrl;
-    } else if (isImageMode()) {
+      } else if (isImageMode()) {
       imageState.referenceImageUrls = uploadImages.slice();
       imageState.referenceImageUrl = uploadImages[uploadImages.length - 1] || '';
     }
@@ -3491,7 +3490,7 @@ function closeUploadPanel(e) {
         videoState.mode = 'motion_control';
         videoUploadTarget = 'character';
       } else {
-        videoUploadTarget = 'start';
+        videoUploadTarget = 'reference';
       }
       normalizeVideoStateForModel();
     }
