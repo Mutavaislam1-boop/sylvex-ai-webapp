@@ -1340,6 +1340,63 @@ function openVideoReferencesUpload(e) {
   openUploadPanel(e);
 }
 
+function aggressiveUploadTargetClickGuard(e) {
+  const target = e && e.target ? e.target : null;
+  if (!target || !target.closest) return;
+
+  if (target.closest('#uploadPanel')) return;
+  if (target.closest('#modelPop')) return;
+  if (target.closest('#imageStylePanel')) return;
+  if (target.closest('#plusSheet')) return;
+
+  const btn = target.closest('button, [role="button"]');
+  if (!btn) return;
+
+  const text = String(btn.textContent || '').trim().toLowerCase();
+  const aria = String(btn.getAttribute('aria-label') || '').trim().toLowerCase();
+  const full = text + ' ' + aria;
+
+  if (isVideoMode()) {
+    if (full.includes('начальное изображение')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      openVideoStartUpload(e);
+      return;
+    }
+
+    if (full.includes('конечный образ') || full.includes('конечный обзор')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      openVideoEndUpload(e);
+      return;
+    }
+
+    if (full.includes('добавить референсы') || full.includes('добавить ссылки') || full.includes('референс')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      openVideoReferencesUpload(e);
+      return;
+    }
+  }
+
+  if (isImageMode && isImageMode()) {
+    if (full.includes('загрузить') || full.includes('загрузка')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      openImageUploadTarget(e);
+    }
+  }
+}
+
+if (!window.__sylvexUploadTargetGuardInstalled) {
+  window.__sylvexUploadTargetGuardInstalled = true;
+  document.addEventListener('click', aggressiveUploadTargetClickGuard, true);
+}
+
 function currentModeAttachment() {
   if (isVideoMode()) return videoState.attachment || null;
   if (isMusicMode() || isVoiceMode()) return currentAudioState().attachment || null;
