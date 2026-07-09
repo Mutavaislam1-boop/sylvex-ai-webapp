@@ -1062,18 +1062,20 @@ function updateImageUploadButtonPreview() {
 
 function addVideoReferenceImage(url) {
   if (!url) return;
+
   const urls = (videoState.referenceImageUrls || []).filter((item) => item !== url);
   urls.push(url);
+
   videoState.referenceImageUrls = urls.slice(0, 4);
   videoState.referenceImageUrl = url;
   videoState.imageUrl = url;
 
-  if (videoUploadTarget === 'end') {
+  if (videoUploadTarget === 'start') {
+    videoState.startImage = url;
+  } else if (videoUploadTarget === 'end') {
     videoState.endImage = url;
   } else if (videoUploadTarget === 'character') {
     videoState.characterImage = url;
-  } else {
-    videoState.startImage = url;
   }
 }
 
