@@ -1046,13 +1046,6 @@ function updateImageUploadButtonPreview() {
   injectImageStyleSheetCss();
   renderVideoInputPreviews();
 
-  const oldPreviewButtons = Array.from(document.querySelectorAll('.has-upload-preview'));
-oldPreviewButtons.forEach((btn) => {
-  const bg = btn.querySelector(':scope > .image-upload-control-bg');
-  if (bg) bg.remove();
-  btn.classList.remove('has-upload-preview');
-});
-
   const button = findImageUploadControlButton();
   if (!button) return;
 
@@ -1190,63 +1183,54 @@ function applyUploadedMediaToTarget(url) {
     videoState.imageUrl = videoState.referenceImageUrl;
 
     renderUploadedPhotoGrid();
-    renderVideoInputPreviews();
     updateImageUploadButtonPreview();
     updateSendButton();
     return;
   }
 
-  if (currentUploadTarget === 'image_upload') {
-    const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
-    uploads.unshift(url);
+  currentUploadTarget = 'image_upload';
 
-    imageState.uploadedImageUrls = uploads.slice(0, 4);
-    imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
-    imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+  const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
+  uploads.unshift(url);
 
-    updateImageUploadButtonPreview();
-    updateSendButton();
-    return;
-  }
+  imageState.uploadedImageUrls = uploads.slice(0, 4);
+  imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
+  imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+
+  updateImageUploadButtonPreview();
+  updateSendButton();
 }
 
 function setCurrentUploadImages(urls) {
   const clean = (urls || []).filter(Boolean).slice(0, 4);
 
-  if (isVideoMode()) {
-    if (currentUploadTarget === 'video_start') {
-      videoState.startImage = clean[0] || '';
-      renderVideoInputPreviews();
-      updateSendButton();
-      return;
-    }
+  if (currentUploadTarget === 'video_start') {
+    videoState.startImage = clean[0] || '';
+    renderVideoInputPreviews();
+    updateSendButton();
+    return;
+  }
 
-    if (currentUploadTarget === 'video_end') {
-      videoState.endImage = clean[0] || '';
-      renderVideoInputPreviews();
-      updateSendButton();
-      return;
-    }
+  if (currentUploadTarget === 'video_end') {
+    videoState.endImage = clean[0] || '';
+    renderVideoInputPreviews();
+    updateSendButton();
+    return;
+  }
 
+  if (currentUploadTarget === 'video_references') {
     videoState.referenceImageUrls = clean.slice(0, 4);
     videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
     videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
     videoState.imageUrl = videoState.referenceImageUrl;
 
     renderUploadedPhotoGrid();
-    renderVideoInputPreviews();
     updateImageUploadButtonPreview();
     updateSendButton();
     return;
   }
 
-  if (isMusicMode() || isVoiceMode()) {
-    const state = currentAudioState();
-    const existing = (state.uploads || []).filter((item) => item && item.kind !== 'image');
-    state.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
-    return;
-  }
-
+  currentUploadTarget = 'image_upload';
   imageState.uploadedImageUrls = clean;
   imageState.referenceImageUrls = clean.slice();
   imageState.referenceImageUrl = clean[0] || '';
