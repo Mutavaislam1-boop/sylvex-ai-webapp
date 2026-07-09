@@ -1255,6 +1255,78 @@ function setCurrentUploadImages(urls) {
   updateSendButton();
 }
 
+function openImageUploadTarget(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  currentUploadTarget = 'image_upload';
+  videoUploadTarget = 'reference';
+
+  const plusPop = document.getElementById('plusPop');
+  if (plusPop) plusPop.classList.remove('show');
+
+  const plusSheet = document.getElementById('plusSheet');
+  if (plusSheet) plusSheet.classList.remove('show');
+
+  openUploadPanel(e);
+}
+
+function openVideoStartUpload(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  currentUploadTarget = 'video_start';
+  videoUploadTarget = 'start';
+
+  const plusPop = document.getElementById('plusPop');
+  if (plusPop) plusPop.classList.remove('show');
+
+  const plusSheet = document.getElementById('plusSheet');
+  if (plusSheet) plusSheet.classList.remove('show');
+
+  openUploadPanel(e);
+}
+
+function openVideoEndUpload(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  currentUploadTarget = 'video_end';
+  videoUploadTarget = 'end';
+
+  const plusPop = document.getElementById('plusPop');
+  if (plusPop) plusPop.classList.remove('show');
+
+  const plusSheet = document.getElementById('plusSheet');
+  if (plusSheet) plusSheet.classList.remove('show');
+
+  openUploadPanel(e);
+}
+
+function openVideoReferencesUpload(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  currentUploadTarget = 'video_references';
+  videoUploadTarget = 'reference';
+
+  const plusPop = document.getElementById('plusPop');
+  if (plusPop) plusPop.classList.remove('show');
+
+  const plusSheet = document.getElementById('plusSheet');
+  if (plusSheet) plusSheet.classList.remove('show');
+
+  openUploadPanel(e);
+}
+
 function currentModeAttachment() {
   if (isVideoMode()) return videoState.attachment || null;
   if (isMusicMode() || isVoiceMode()) return currentAudioState().attachment || null;
