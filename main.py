@@ -2475,8 +2475,19 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
     if not isinstance(options, dict):
         options = {}
 
-    images = _json_list(result.get("images")) or ([result.get("image_url")] if result.get("image_url") else [])
-    thumbs = _json_list(result.get("thumbnails")) or ([result.get("thumb_url")] if result.get("thumb_url") else []) or images[:]
+    images = (
+        _json_list(result.get("images"))
+        or _json_list(result.get("urls"))
+        or _json_list(result.get("output"))
+        or ([result.get("image_url")] if result.get("image_url") else [])
+        or ([result.get("result_url")] if result.get("result_url") else [])
+    )
+    thumbs = (
+        _json_list(result.get("thumbnails"))
+        or ([result.get("thumbnail_url")] if result.get("thumbnail_url") else [])
+        or ([result.get("thumb_url")] if result.get("thumb_url") else [])
+        or images[:]
+    )
     videos = _json_list(result.get("videos")) or ([result.get("video_url")] if result.get("video_url") else [])
     audios = _json_list(result.get("audios")) or ([result.get("audio_url")] if result.get("audio_url") else [])
     reference_images = (
@@ -2497,6 +2508,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
     return {
         "type": mode,
         "result_url": result_url,
+        "full_url": result_url,
         "model": model,
         "model_label": result.get("model_label") or result.get("model_name") or options.get("modelLabel") or model,
         "provider": provider,
@@ -2517,6 +2529,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "result_images": images,
         "result_thumbnails": thumbs,
         "image_url": images[0] if images else "",
+        "thumbnail_url": thumbs[0] if thumbs else (images[0] if images else ""),
         "thumb_url": thumbs[0] if thumbs else (images[0] if images else ""),
         "video_url": videos[0] if videos else "",
         "videos": videos,
@@ -2527,7 +2540,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "sent_to_telegram": bool(result.get("sent_to_telegram")),
     }
 
-def create_image_thumbnails(image_urls: list, size: int = 300) -> list:
+def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
     thumbs = []
     if not image_urls:
         return thumbs
@@ -2565,14 +2578,23 @@ def create_image_thumbnails(image_urls: list, size: int = 300) -> list:
     return thumbs
 
 def attach_image_thumbnails(result: dict) -> dict:
-    images = _json_list(result.get("images")) or ([result.get("image_url")] if result.get("image_url") else [])
+    images = (
+        _json_list(result.get("images"))
+        or _json_list(result.get("urls"))
+        or _json_list(result.get("output"))
+        or ([result.get("image_url")] if result.get("image_url") else [])
+        or ([result.get("result_url")] if result.get("result_url") else [])
+    )
     if not images:
         return result
     thumbs = _json_list(result.get("thumbnails"))
     if len(thumbs) != len(images):
         thumbs = create_image_thumbnails(images)
     result["image_url"] = images[0]
+    result["result_url"] = images[0]
+    result["full_url"] = images[0]
     result["images"] = images
+    result["thumbnail_url"] = thumbs[0] if thumbs else images[0]
     result["thumb_url"] = thumbs[0] if thumbs else images[0]
     result["thumbnails"] = thumbs or images
     return result
@@ -2685,6 +2707,9 @@ async def public_prostudio_conversations(
                             "result_images": images,
                             "result_thumbnails": thumbs,
                             "image_url": images[0] if images else "",
+                            "result_url": images[0] if images else "",
+                            "full_url": images[0] if images else "",
+                            "thumbnail_url": thumbs[0] if thumbs else (images[0] if images else ""),
                             "thumb_url": thumbs[0] if thumbs else (images[0] if images else ""),
                         }
                 if metadata:
@@ -2700,6 +2725,7 @@ async def public_prostudio_conversations(
                     "response_text": response_text or "",
                     "image_url": images[0] if images else "",
                     "images": images,
+                    "thumbnail_url": thumbs[0] if thumbs else "",
                     "thumb_url": thumbs[0] if thumbs else "",
                     "thumbnails": thumbs,
                     "video_url": videos[0] if videos else "",
