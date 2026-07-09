@@ -66,6 +66,30 @@ let videoState = {
 };
 let videoUploadTarget = 'reference';
 let currentUploadTarget = 'image_upload';
+let activeUploadTarget = 'image_upload';
+
+function setUploadTarget(target) {
+  activeUploadTarget = target || 'image_upload';
+  currentUploadTarget = activeUploadTarget;
+
+  if (activeUploadTarget === 'video_start') {
+    videoUploadTarget = 'start';
+  } else if (activeUploadTarget === 'video_end') {
+    videoUploadTarget = 'end';
+  } else if (activeUploadTarget === 'video_references') {
+    videoUploadTarget = 'reference';
+  } else {
+    videoUploadTarget = 'reference';
+  }
+
+  const panel = document.getElementById('uploadPanel');
+  if (panel) panel.dataset.uploadTarget = activeUploadTarget;
+}
+
+function getUploadTarget() {
+  const panel = document.getElementById('uploadPanel');
+  return (panel && panel.dataset && panel.dataset.uploadTarget) || activeUploadTarget || currentUploadTarget || 'image_upload';
+}
 let videoModelSettings = {};
 
 let musicState = {
@@ -1024,11 +1048,11 @@ function findImageUploadControlButton() {
   });
 
   if (isVideoMode()) {
-    if (currentUploadTarget === 'video_start') {
+    if (getUploadTarget() === 'video_start') {
       return findByText(['начальное изображение']) || null;
     }
 
-    if (currentUploadTarget === 'video_end') {
+    if (getUploadTarget() === 'video_end') {
       return findByText(['конечный образ', 'конечный обзор']) || null;
     }
 
@@ -1135,15 +1159,17 @@ function renderVideoInputPreviews() {
 }
 
 function currentUploadImages() {
-  if (isVideoMode()) {
-    if (currentUploadTarget === 'video_start') {
-      return videoState.startImage ? [videoState.startImage] : [];
-    }
+  const target = getUploadTarget();
 
-    if (currentUploadTarget === 'video_end') {
-      return videoState.endImage ? [videoState.endImage] : [];
-    }
+  if (target === 'video_start') {
+    return videoState.startImage ? [videoState.startImage] : [];
+  }
 
+  if (target === 'video_end') {
+    return videoState.endImage ? [videoState.endImage] : [];
+  }
+
+  if (target === 'video_references') {
     return (videoState.referenceImageUrls || []).slice();
   }
 
@@ -1159,21 +1185,23 @@ function currentUploadImages() {
 function applyUploadedMediaToTarget(url) {
   if (!url) return;
 
-  if (currentUploadTarget === 'video_start') {
+  const target = getUploadTarget();
+
+  if (target === 'video_start') {
     videoState.startImage = url;
     renderVideoInputPreviews();
     updateSendButton();
     return;
   }
 
-  if (currentUploadTarget === 'video_end') {
+  if (target === 'video_end') {
     videoState.endImage = url;
     renderVideoInputPreviews();
     updateSendButton();
     return;
   }
 
-  if (currentUploadTarget === 'video_references') {
+  if (target === 'video_references') {
     const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
     refs.unshift(url);
 
@@ -1188,8 +1216,6 @@ function applyUploadedMediaToTarget(url) {
     return;
   }
 
-  currentUploadTarget = 'image_upload';
-
   const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
   uploads.unshift(url);
 
@@ -1203,22 +1229,23 @@ function applyUploadedMediaToTarget(url) {
 
 function setCurrentUploadImages(urls) {
   const clean = (urls || []).filter(Boolean).slice(0, 4);
+  const target = getUploadTarget();
 
-  if (currentUploadTarget === 'video_start') {
+  if (target === 'video_start') {
     videoState.startImage = clean[0] || '';
     renderVideoInputPreviews();
     updateSendButton();
     return;
   }
 
-  if (currentUploadTarget === 'video_end') {
+  if (target === 'video_end') {
     videoState.endImage = clean[0] || '';
     renderVideoInputPreviews();
     updateSendButton();
     return;
   }
 
-  if (currentUploadTarget === 'video_references') {
+  if (target === 'video_references') {
     videoState.referenceImageUrls = clean.slice(0, 4);
     videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
     videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
@@ -1230,7 +1257,13 @@ function setCurrentUploadImages(urls) {
     return;
   }
 
-  currentUploadTarget = 'image_upload';
+  if (isMusicMode() || isVoiceMode()) {
+    const state = currentAudioState();
+    const existing = (state.uploads || []).filter((item) => item && item.kind !== 'image');
+    state.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
+    return;
+  }
+
   imageState.uploadedImageUrls = clean;
   imageState.referenceImageUrls = clean.slice();
   imageState.referenceImageUrl = clean[0] || '';
@@ -1245,8 +1278,7 @@ function openImageUploadTarget(e) {
     e.stopPropagation();
   }
 
-  currentUploadTarget = 'image_upload';
-  videoUploadTarget = 'reference';
+  setUploadTarget('image_upload');
 
   const plusPop = document.getElementById('plusPop');
   if (plusPop) plusPop.classList.remove('show');
@@ -1263,8 +1295,7 @@ function openVideoStartUpload(e) {
     e.stopPropagation();
   }
 
-  currentUploadTarget = 'video_start';
-  videoUploadTarget = 'start';
+  setUploadTarget('video_start');
 
   const plusPop = document.getElementById('plusPop');
   if (plusPop) plusPop.classList.remove('show');
@@ -1281,8 +1312,7 @@ function openVideoEndUpload(e) {
     e.stopPropagation();
   }
 
-  currentUploadTarget = 'video_end';
-  videoUploadTarget = 'end';
+  setUploadTarget('video_end');
 
   const plusPop = document.getElementById('plusPop');
   if (plusPop) plusPop.classList.remove('show');
@@ -1299,8 +1329,7 @@ function openVideoReferencesUpload(e) {
     e.stopPropagation();
   }
 
-  currentUploadTarget = 'video_references';
-  videoUploadTarget = 'reference';
+  setUploadTarget('video_references');
 
   const plusPop = document.getElementById('plusPop');
   if (plusPop) plusPop.classList.remove('show');
@@ -1332,13 +1361,12 @@ function setCurrentModeAttachment(attachment) {
 }
 
 function currentSelectedUploadImage() {
-  if (isVideoMode()) {
-    if (currentUploadTarget === 'video_start') return videoState.startImage || '';
-    if (currentUploadTarget === 'video_end') return videoState.endImage || '';
-    return videoState.referenceImageUrl || ((videoState.referenceImageUrls || [])[0]) || '';
-  }
+  const target = getUploadTarget();
 
-  if (isImageMode()) return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
+  if (target === 'video_start') return videoState.startImage || '';
+  if (target === 'video_end') return videoState.endImage || '';
+  if (target === 'video_references') return videoState.referenceImageUrl || ((videoState.referenceImageUrls || [])[0]) || '';
+  if (target === 'image_upload') return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
 
   const images = currentUploadImages();
   return images[images.length - 1] || '';
