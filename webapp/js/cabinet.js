@@ -59,14 +59,20 @@ let videoUploadTarget = 'reference';
 let videoModelSettings = {};
 
 let musicState = {
-  modelId: 'musicgen-pro',
+  modelId: 'suno_chirp_5',
   uploads: [],
   attachment: null,
-  genre: '',
+  genre: 'auto',
   duration: '',
   style: '',
   voice: '',
   audioSettings: {},
+  settings: {
+    mood: 'auto',
+    tempo: 'auto',
+    theme: 'auto',
+    vocal: 'auto',
+  },
 };
 
 let voiceState = {
@@ -114,6 +120,7 @@ const AI_LOGOS = {
   wan: LOBE_ICON_BASE + '/qwen.svg',
   veo: LOBE_ICON_BASE + '/gemini.svg',
   heygen: LOBE_ICON_BASE + '/runway.svg',
+  suno: LOBE_ICON_BASE + '/suno.svg',
   nanoBanana: 'custom-banana',
   davinci: 'custom-davinci'
 };
@@ -150,6 +157,112 @@ const IMAGE_MODEL_LIST = [
 
   { id:'davinci_ultra', label:'DaVinci Ultra', desc:'DaVinci image model', icon:'davinci' }
 ];
+
+const MUSIC_MODEL_LIST = [
+  { id:'suno_chirp_3_5', label:'Suno Chirp v3.5', providerModel:'chirp-v3-5', desc:'Suno music generation', icon:'suno' },
+  { id:'suno_chirp_4_0', label:'Suno Chirp v4.0', providerModel:'chirp-v4-0', desc:'Suno music generation', icon:'suno' },
+  { id:'suno_chirp_4_5', label:'Suno Chirp v4.5', providerModel:'chirp-v4-5', desc:'Suno music generation', icon:'suno' },
+  { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno' },
+  { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno' },
+];
+
+const MUSIC_GENRES = [
+  ['auto', 'Auto'],
+  ['pop', 'Pop'],
+  ['rock', 'Rock'],
+  ['hip_hop', 'Hip-Hop'],
+  ['rap', 'Rap'],
+  ['trap', 'Trap'],
+  ['rnb', 'R&B'],
+  ['jazz', 'Jazz'],
+  ['funk', 'Funk'],
+  ['soul', 'Soul'],
+  ['folk', 'Folk'],
+  ['electronic', 'Electronic'],
+  ['edm', 'EDM'],
+  ['house', 'House'],
+  ['techno', 'Techno'],
+  ['ambient', 'Ambient'],
+  ['lofi', 'Lo-fi'],
+  ['cinematic', 'Cinematic'],
+  ['classical', 'Classical'],
+  ['metal', 'Metal'],
+  ['reggae', 'Reggae'],
+  ['latin', 'Latin'],
+  ['arabic', 'Arabic'],
+  ['turkish', 'Turkish'],
+  ['russian_pop', 'Russian Pop'],
+  ['phonk', 'Phonk'],
+  ['drill', 'Drill'],
+  ['afrobeat', 'Afrobeat'],
+  ['country', 'Country'],
+  ['blues', 'Blues'],
+  ['punk', 'Punk'],
+  ['disco', 'Disco'],
+].map(([id, label]) => ({ id, label }));
+
+const MUSIC_SETTINGS = {
+  mood: {
+    title: 'Настроение',
+    items: [
+      ['auto', 'Авто'],
+      ['happy', 'Счастливое'],
+      ['inspiring', 'Вдохновляющее'],
+      ['sad', 'Грустное'],
+      ['dramatic', 'Драматичное'],
+      ['dark', 'Тёмное'],
+      ['dreamy', 'Мечтательное'],
+      ['aggressive', 'Агрессивное'],
+      ['funny', 'Забавное'],
+      ['cold', 'Холодное'],
+      ['epic', 'Эпическое'],
+      ['energetic', 'Энергичное'],
+    ],
+  },
+  tempo: {
+    title: 'Темп',
+    items: [
+      ['auto', 'Авто'],
+      ['slow', 'Медленный'],
+      ['slow_medium', 'Медленно-средний'],
+      ['medium', 'Средний'],
+      ['medium_fast', 'Средне-быстрый'],
+      ['fast', 'Быстрый'],
+    ],
+  },
+  theme: {
+    title: 'Тема',
+    items: [
+      ['auto', 'Авто'],
+      ['love', 'Любовь'],
+      ['party', 'Вечеринка'],
+      ['comedy', 'Комедия'],
+      ['cinema', 'Кино'],
+      ['motivation', 'Мотивация'],
+      ['sport', 'Спорт'],
+      ['ads', 'Реклама'],
+      ['game', 'Игра'],
+      ['travel', 'Путешествие'],
+      ['night', 'Ночь'],
+      ['future', 'Будущее'],
+      ['drama', 'Драма'],
+    ],
+  },
+  vocal: {
+    title: 'Вокал',
+    items: [
+      ['auto', 'Авто'],
+      ['instrumental', 'Инструментал'],
+      ['with_vocals', 'С вокалом'],
+      ['female', 'Женский вокал'],
+      ['male', 'Мужской вокал'],
+    ],
+  },
+};
+
+Object.keys(MUSIC_SETTINGS).forEach((key) => {
+  MUSIC_SETTINGS[key].items = MUSIC_SETTINGS[key].items.map(([id, label]) => ({ id, label }));
+});
 
 const VIDEO_MODELS = [
   { id:'heygen_v3_video_agent', label:'HeyGen V3 Video Agent', desc:'HeyGen video model', icon:'heygen' },
@@ -452,7 +565,60 @@ function pickVideoOption(kind, value) {
 function currentComposerModelList() {
   if (isImageMode()) return IMAGE_MODEL_LIST;
   if (isVideoMode()) return VIDEO_MODELS;
-  return VIDEO_MODELS;
+  if (isMusicMode()) return MUSIC_MODEL_LIST;
+  return [];
+}
+
+function musicOptionLabel(items, id, fallback) {
+  const value = String(id || 'auto');
+  const item = (items || []).find((entry) => String(entry.id) === value);
+  return item ? (item.label || item.id) : fallback;
+}
+
+function currentMusicModel() {
+  return MUSIC_MODEL_LIST.find((item) => item.id === musicState.modelId) || MUSIC_MODEL_LIST[0] || null;
+}
+
+function ensureMusicSettings() {
+  if (!musicState.settings || typeof musicState.settings !== 'object') musicState.settings = {};
+  Object.keys(MUSIC_SETTINGS).forEach((key) => {
+    if (!musicState.settings[key]) musicState.settings[key] = 'auto';
+  });
+  if (!musicState.genre) musicState.genre = 'auto';
+  if (!musicState.modelId && MUSIC_MODEL_LIST.length) musicState.modelId = MUSIC_MODEL_LIST[0].id;
+}
+
+function musicOptionsPayload() {
+  ensureMusicSettings();
+  return {
+    model: musicState.modelId,
+    genre: musicState.genre || 'auto',
+    mood: musicState.settings.mood || 'auto',
+    tempo: musicState.settings.tempo || 'auto',
+    theme: musicState.settings.theme || 'auto',
+    vocal: musicState.settings.vocal || 'auto',
+  };
+}
+
+function renderMusicControls() {
+  ensureMusicSettings();
+  const model = currentMusicModel();
+  const modelEl = document.getElementById('modelValComposer');
+  if (modelEl && isMusicMode() && model) modelEl.textContent = model.label || model.name || model.id;
+
+  const genreVal = document.getElementById('musicGenreVal');
+  if (genreVal) genreVal.textContent = musicOptionLabel(MUSIC_GENRES, musicState.genre, 'Auto');
+
+  const moodVal = document.getElementById('musicMoodVal');
+  if (moodVal) moodVal.textContent = musicOptionLabel(MUSIC_SETTINGS.mood.items, musicState.settings.mood, 'Авто');
+
+  const settingsVal = document.getElementById('musicSettingsVal');
+  if (settingsVal) {
+    const selected = ['mood', 'tempo', 'theme', 'vocal']
+      .map((key) => musicState.settings[key])
+      .filter((value) => value && value !== 'auto').length;
+    settingsVal.textContent = selected ? 'Настройки ' + selected : 'Настройки';
+  }
 }
 
 
@@ -593,7 +759,7 @@ const MODEL_ICON_SVG = {
     if (isVideoMode()) {
       return videoState.modelId || 'seedance_2_fast';
     }
-    if (studioMode === 'music') return musicState.modelId || 'musicgen-pro';
+    if (studioMode === 'music') return musicState.modelId || 'suno_chirp_5';
     if (studioMode === 'voice') return voiceState.modelId || 'voice-default';
     return textState.modelId || 'gpt-4o-mini';
   }
@@ -610,6 +776,7 @@ const MODEL_ICON_SVG = {
     if (/qwen/i.test(model)) return 'qwen';
     if (/microsoft|mai/i.test(model)) return 'microsoft';
     if (/krea/i.test(model)) return 'krea';
+    if (/suno|chirp/i.test(model)) return 'suno';
     if (/musicgen/i.test(model)) return 'music';
     if (/voice/i.test(model)) return 'voice';
     if (/^gpt-|^o[0-9]|chatgpt/i.test(model)) return 'openai';
@@ -636,7 +803,7 @@ function localizedGreeting() {
 
     const models = currentComposerModelList();
 
-    if ((isImageMode() || isVideoMode()) && models.length) {
+    if ((isImageMode() || isVideoMode() || isMusicMode()) && models.length) {
       el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
         + '<div class="image-model-sheet-list">'
         + models.map(imageModelButton).join('')
@@ -656,6 +823,7 @@ function localizedGreeting() {
     if (!el) return;
 
     el.classList.remove('image-size-floating-pop');
+    el.classList.remove('music-settings-pop');
     el.classList.remove('video-option-horizontal-pop');
     el.style.cssText = '';
 
@@ -1455,7 +1623,7 @@ function imageModelDescription(model) {
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
-    : videoState.modelId;
+    : (isMusicMode() ? musicState.modelId : videoState.modelId);
 
   const id = String(model && model.id ? model.id : '');
   const active = activeId === id;
@@ -1533,6 +1701,98 @@ function imageModelButton(model) {
       return;
     }
 
+    if (isMusicMode()) {
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+      ensureMusicSettings();
+
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.style.cssText = '';
+
+      const openMusicSheet = (title, items, optionKind, activeValue) => {
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+        el.classList.add('image-size-floating-pop');
+        el.style.position = 'fixed';
+        el.style.left = '8px';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+        el.style.width = '64vw';
+        el.style.maxWidth = '315px';
+        el.style.minWidth = '245px';
+        el.style.maxHeight = '64vh';
+        el.style.overflowY = 'auto';
+        el.style.zIndex = '999999';
+        el.innerHTML = '<div class="image-size-sheet-title">' + S.escapeHtml(title) + '</div>'
+          + '<div class="image-size-sheet-list">'
+          + items.map((item) => {
+            const id = String(item.id || '');
+            const active = String(activeValue || 'auto') === id;
+            return '<button class="image-size-row no-ratio-icon ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickMusicOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+              + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>'
+              + '<span class="image-size-check">✓</span>'
+              + '</button>';
+          }).join('')
+          + '</div>';
+        el.classList.add('show');
+        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+        S.haptic && S.haptic.impact && S.haptic.impact('light');
+      };
+
+      if (kind === 'genre') {
+        openMusicSheet('Жанр', MUSIC_GENRES, 'genre', musicState.genre || 'auto');
+        return;
+      }
+
+      if (kind === 'settings') {
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+        el.classList.add('image-size-floating-pop');
+        el.classList.add('music-settings-pop');
+        el.style.position = 'fixed';
+        el.style.left = '8px';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+        el.style.width = '78vw';
+        el.style.maxWidth = '380px';
+        el.style.minWidth = '275px';
+        el.style.maxHeight = '70vh';
+        el.style.overflowY = 'auto';
+        el.style.zIndex = '999999';
+        el.innerHTML = '<div class="image-size-sheet-title">Настройки музыки</div>'
+          + '<div class="music-settings-sheet">'
+          + Object.keys(MUSIC_SETTINGS).map((settingKey) => {
+            const section = MUSIC_SETTINGS[settingKey];
+            const active = musicState.settings[settingKey] || 'auto';
+            return '<section class="music-settings-section">'
+              + '<h4>' + S.escapeHtml(section.title) + '</h4>'
+              + '<div class="music-settings-options">'
+              + section.items.map((item) => {
+                const id = String(item.id || '');
+                const selected = String(active) === id;
+                return '<button class="music-setting-chip ' + (selected ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickMusicOption(event,\'' + settingKey + '\',\'' + S.escapeHtml(id) + '\')">'
+                  + S.escapeHtml(item.label || id)
+                  + '</button>';
+              }).join('')
+              + '</div>'
+              + '</section>';
+          }).join('')
+          + '<button class="music-settings-clear" type="button" onclick="SYLVEX.resetMusicSettings(event)">Очистить всё</button>'
+          + '</div>';
+        el.classList.add('show');
+        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+        S.haptic && S.haptic.impact && S.haptic.impact('light');
+        return;
+      }
+
+      return;
+    }
+
     if (isVideoMode()) {
       const el = document.getElementById('modelPop');
       if (!el) return;
@@ -1541,6 +1801,7 @@ function imageModelButton(model) {
 
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
 
@@ -1668,6 +1929,7 @@ function imageModelButton(model) {
 
     el.classList.remove('image-model-floating-pop');
     el.classList.remove('image-size-floating-pop');
+    el.classList.remove('music-settings-pop');
     el.classList.remove('video-option-horizontal-pop');
 
     if (kind === 'size') {
@@ -1686,6 +1948,7 @@ function imageModelButton(model) {
 
       if (el.parentElement !== document.body) document.body.appendChild(el);
       el.classList.remove('image-model-floating-pop');
+      el.classList.remove('music-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
       el.classList.add('image-size-floating-pop');
@@ -1733,6 +1996,52 @@ function imageModelButton(model) {
     el.classList.add('show');
   }
 
+  function pickMusicOption(e, kind, value) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    ensureMusicSettings();
+
+    if (kind === 'genre') {
+      musicState.genre = value || 'auto';
+    } else if (MUSIC_SETTINGS[kind]) {
+      musicState.settings[kind] = value || 'auto';
+      renderMusicControls();
+      openImageOptionMenu(e, 'settings');
+      S.haptic && S.haptic.select && S.haptic.select();
+      return;
+    }
+
+    renderMusicControls();
+
+    const el = document.getElementById('modelPop');
+    if (el) {
+      el.classList.remove('show');
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.style.cssText = '';
+    }
+    S.haptic && S.haptic.select && S.haptic.select();
+  }
+
+  function resetMusicSettings(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    ensureMusicSettings();
+    musicState.genre = 'auto';
+    Object.keys(MUSIC_SETTINGS).forEach((key) => {
+      musicState.settings[key] = 'auto';
+    });
+    renderMusicControls();
+    openImageOptionMenu(e, 'settings');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
+  }
+
   function pickImageOption(e, kind, value) {
     if (e) {
       e.preventDefault();
@@ -1755,7 +2064,29 @@ function imageModelButton(model) {
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
+      } else if (isMusicMode()) {
+        const model = MUSIC_MODEL_LIST.find((item) => item.id === value);
+        if (model) {
+          musicState.modelId = model.id;
+          const mvc = document.getElementById('modelValComposer');
+          if (mvc) mvc.textContent = model.label || model.name || model.id;
+        }
       }
+    }
+
+    if (isMusicMode()) {
+      renderMusicControls();
+      renderModelPop();
+      const el = document.getElementById('modelPop');
+      if (el) {
+        el.classList.remove('show');
+        el.classList.remove('image-model-floating-pop');
+        el.classList.remove('image-size-floating-pop');
+        el.classList.remove('music-settings-pop');
+        el.classList.remove('video-option-horizontal-pop');
+        el.style.cssText = '';
+      }
+      return;
     }
 
     if (isVideoMode()) {
@@ -2787,7 +3118,11 @@ function closeUploadPanel(e) {
       renderModelPop();
     } else if (mvc) {
       if (isAudio) {
-        mvc.textContent = isVoice ? 'Voice Generator' : 'MusicGen Pro';
+        if (isMusic) {
+          renderMusicControls();
+        } else {
+          mvc.textContent = 'Voice Generator';
+        }
         renderUploadedPhotoGrid();
         updateImageUploadButtonPreview();
       } else {
@@ -2847,11 +3182,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
-  const musicOptions = isMusicMode()
-    ? Object.assign({}, musicState, {
-        uploads: (musicState.uploads || []).slice(),
-      })
-    : null;
+  const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
   const voiceOptions = isVoiceMode()
     ? Object.assign({}, voiceState, {
         uploads: (voiceState.uploads || []).slice(),
@@ -3859,7 +4190,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     // Close popovers on outside click
     document.addEventListener('click', () => {
       if (langPop) langPop.classList.remove('show');
-      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); mp.classList.remove('video-option-horizontal-pop'); mp.style.cssText = ''; }
+      const mp = document.getElementById('modelPop'); if (mp) { mp.classList.remove('show'); mp.classList.remove('image-model-floating-pop'); mp.classList.remove('image-size-floating-pop'); mp.classList.remove('music-settings-pop'); mp.classList.remove('video-option-horizontal-pop'); mp.style.cssText = ''; }
       const pp = document.getElementById('plusPop');  if (pp) pp.classList.remove('show');
       const bp = document.getElementById('brandPop'); if (bp) bp.classList.remove('show');
       const bb = document.getElementById('brandBtn'); if (bb) bb.setAttribute('aria-expanded','false');
@@ -4009,7 +4340,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
     attach, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
@@ -4048,6 +4379,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.toggleImageStyleInfo = toggleImageStyleInfo;
   S.openImageOptionMenu = openImageOptionMenu;
   S.pickImageOption = pickImageOption;
+  S.pickMusicOption = pickMusicOption;
+  S.resetMusicSettings = resetMusicSettings;
   S.showImageModelPicker = showImageModelPicker;
   S.updateComposerMode = updateComposerMode;
   S.renderVideoControls = renderVideoControls;
