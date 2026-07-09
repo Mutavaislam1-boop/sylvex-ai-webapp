@@ -764,8 +764,7 @@ const MODEL_ICON_SVG = {
     return textState.modelId || 'gpt-4o-mini';
   }
 
-  function pickProviderHint() {
-    const model = pickStudioModel();
+  function providerHintForModel(model) {
     if (/seedream|seedance/i.test(model)) return 'bytedance';
     if (/^gpt[_-]?image|openai/i.test(model)) return 'openai';
     if (/sora/i.test(model)) return 'sora';
@@ -781,6 +780,10 @@ const MODEL_ICON_SVG = {
     if (/voice/i.test(model)) return 'voice';
     if (/^gpt-|^o[0-9]|chatgpt/i.test(model)) return 'openai';
     return 'sylvex-router';
+  }
+
+  function pickProviderHint() {
+    return providerHintForModel(pickStudioModel());
   }
 
   function uiLang() {
@@ -2207,7 +2210,13 @@ function imageModelButton(model) {
   function generatedUrlsFromResponse(j, kind) {
     if (!j) return [];
     if (kind === 'image') {
-      const items = Array.isArray(j.images) && j.images.length ? j.images : (j.image_url ? [j.image_url] : []);
+      const items = Array.isArray(j.images) && j.images.length
+        ? j.images
+        : Array.isArray(j.urls) && j.urls.length
+          ? j.urls
+          : Array.isArray(j.output) && j.output.length
+            ? j.output
+            : (j.image_url || j.result_url ? [j.image_url || j.result_url] : []);
       return items.map((item) => typeof item === 'object' ? (item.url || item.original_url || item.image_url || '') : item).filter(Boolean);
     }
     if (kind === 'video') {
@@ -2300,33 +2309,53 @@ function imageModelButton(model) {
       + '</div>';
   }
 
-  function imageGenerationMetadata(prompt, referenceImages, result) {
-    const model = currentImageModel() || {};
-    const images = result ? generatedUrlsFromResponse(result, 'image') : [];
-    const thumbs = result ? generatedThumbsFromResponse(result) : [];
+  function imageGenerationMetadata(prompt, referenceImages, result, optionsSnapshot) {
+    const backendMeta = result && result.metadata && typeof result.metadata === 'object' ? result.metadata : {};
+    const options = Object.assign({}, optionsSnapshot || imageState || {}, backendMeta.image_options || backendMeta.settings || {});
+    const modelId = backendMeta.model || (result && result.model) || options.modelId || imageState.modelId || '';
+    const model = IMAGE_MODEL_LIST.find((item) => item.id === modelId) || currentImageModel() || {};
+    const images = backendMeta.result_images && backendMeta.result_images.length
+      ? backendMeta.result_images.slice()
+      : (backendMeta.images && backendMeta.images.length
+        ? backendMeta.images.slice()
+        : (backendMeta.image_url || backendMeta.result_url
+          ? [backendMeta.image_url || backendMeta.result_url]
+          : (result ? generatedUrlsFromResponse(result, 'image') : [])));
+    const thumbs = backendMeta.result_thumbnails && backendMeta.result_thumbnails.length
+      ? backendMeta.result_thumbnails.slice()
+      : (backendMeta.thumbnails && backendMeta.thumbnails.length
+        ? backendMeta.thumbnails.slice()
+        : (backendMeta.thumb_url ? [backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
+    const imageUrl = backendMeta.image_url || backendMeta.result_url || images[0] || '';
+    const thumbUrl = backendMeta.thumb_url || thumbs[0] || imageUrl;
+    const refs = (backendMeta.reference_images && backendMeta.reference_images.length)
+      ? backendMeta.reference_images.slice()
+      : (referenceImages || []).slice();
     return {
       type: 'image',
-      model: imageState.modelId || model.id || '',
-      model_label: model.label || model.name || imageState.modelId || '',
-      provider: pickProviderHint(),
-      prompt: prompt || '',
-      style: imageState.style || '',
-      character: imageState.character || '',
-      objects: imageState.objects || '',
-      ratio: imageState.size || '',
-      size: imageState.size || '',
-      count: imageState.count || 1,
-      image_options: Object.assign({}, imageState, {
-        referenceImageUrls: (referenceImages || []).slice(),
-        referenceImages: (referenceImages || []).slice(),
+      result_url: imageUrl,
+      model: modelId || model.id || '',
+      model_label: backendMeta.model_label || model.label || model.name || modelId || '',
+      provider: backendMeta.provider || (result && result.provider) || providerHintForModel(modelId),
+      prompt: backendMeta.prompt || prompt || '',
+      style: backendMeta.style || options.style || '',
+      character: backendMeta.character || options.character || '',
+      objects: backendMeta.objects || options.objects || '',
+      ratio: backendMeta.ratio || options.ratio || options.size || '',
+      size: backendMeta.size || options.size || options.ratio || '',
+      count: backendMeta.count || options.count || 1,
+      settings: Object.assign({}, options),
+      image_options: Object.assign({}, options, {
+        referenceImageUrls: refs.slice(),
+        referenceImages: refs.slice(),
       }),
-      reference_images: (referenceImages || []).slice(),
+      reference_images: refs,
       result_images: images,
       result_thumbnails: thumbs,
-      image_url: images[0] || '',
-      thumb_url: thumbs[0] || images[0] || '',
-      created_at: new Date().toISOString(),
-      sent_to_telegram: !!(result && result.sent_to_telegram),
+      image_url: imageUrl,
+      thumb_url: thumbUrl,
+      created_at: backendMeta.created_at || new Date().toISOString(),
+      sent_to_telegram: !!(backendMeta.sent_to_telegram || (result && result.sent_to_telegram)),
     };
   }
 
@@ -2371,7 +2400,7 @@ function imageModelButton(model) {
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? 'music' : 'image'));
-    const thumb = meta.thumb_url || meta.image_url || ((meta.result_images || [])[0]) || '';
+    const thumb = meta.thumb_url || meta.image_url || meta.result_url || ((meta.result_images || [])[0]) || '';
     const safeThumb = S.escapeHtml(thumb);
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
     const titleMap = {
@@ -3071,7 +3100,7 @@ function openGenerationInfoDrawer(e, index) {
   if (!body) return;
 
   const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? 'music' : 'image'));
-  const imageUrl = meta.image_url || ((meta.result_images || [])[0]) || '';
+  const imageUrl = meta.image_url || (type === 'image' ? meta.result_url : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : imageUrl);
@@ -3449,6 +3478,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       ? (videoState.referenceImageUrls || []).slice()
       : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
     const audioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []).slice() : [];
+    const imageOptionsSnapshot = isImageMode()
+      ? Object.assign({}, imageState, {
+          referenceImageUrls: referenceImages.slice(),
+          referenceImages: referenceImages.slice(),
+        })
+      : null;
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
     if (!v && !attachment && !referenceImages.length && !audioUploads.length) return;
@@ -3506,7 +3541,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
         chatMessages[loadingIndex] = {
           role: 'ai',
           imageResultMini: true,
-          metadata: imageGenerationMetadata(v, referenceImages, j),
+          metadata: imageGenerationMetadata(v, referenceImages, j, imageOptionsSnapshot),
         };
       } else {
         chatMessages.splice(loadingIndex, 1);

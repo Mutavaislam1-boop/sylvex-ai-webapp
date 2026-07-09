@@ -2582,7 +2582,7 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
     telegram_id = int(payload.get("telegram_id") or 0)
     if not DATABASE_URL or not telegram_id:
         return conversation_id
-    metadata = build_prostudio_metadata(payload, result)
+    metadata = _json_obj(result.get("metadata")) or build_prostudio_metadata(payload, result)
 
     try:
         ensure_prostudio_table()
@@ -4548,6 +4548,9 @@ async def public_prostudio_generate(request: Request):
         return JSONResponse(result, status_code=502)
 
     save_generation(int(payload.get("telegram_id") or 0), mode, prompt or "[attachment]")
+    metadata = build_prostudio_metadata(payload, result)
+    if metadata:
+        result["metadata"] = metadata
     result["conversation_id"] = save_prostudio_message(payload, result)
     return result
 
