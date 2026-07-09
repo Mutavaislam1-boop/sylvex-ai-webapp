@@ -2330,6 +2330,11 @@ function imageModelButton(model) {
       || ((meta.result_thumbnails || [])[0])
       || ((meta.thumbnails || [])[0])
       || fallback
+      || meta.image_url
+      || meta.result_url
+      || meta.full_url
+      || ((meta.result_images || [])[0])
+      || ((meta.images || [])[0])
       || '';
   }
 
