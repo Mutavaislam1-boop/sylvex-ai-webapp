@@ -35,6 +35,7 @@ app.mount("/image", StaticFiles(directory="image"), name="image")
 app.mount("/assets", StaticFiles(directory="webapp/assets"), name="assets")
 app.mount("/js", StaticFiles(directory="webapp/js"), name="js")
 app.mount("/css", StaticFiles(directory="webapp/css"), name="css")
+app.mount("/generated", StaticFiles(directory=WEBAPP_DIR / "generated"), name="generated")
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
