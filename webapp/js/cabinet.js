@@ -64,7 +64,7 @@ let videoState = {
   attachment: null,
   advanced: {},
 };
-let videoUploadTarget = 'reference';
+let currentUploadTarget = 'image_upload';
 let videoModelSettings = {};
 
 let musicState = {
@@ -436,7 +436,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     resolution: videoState.resolution || '720p',
     duration: Number(videoState.duration || 5),
     sound: !!videoState.sound,
-    start_image: videoState.startImage || referenceImages[0] || '',
+    start_image: videoState.startImage || '',
     end_image: videoState.endImage || '',
     reference_images: referenceImages,
     referenceImageUrls: referenceImages,
