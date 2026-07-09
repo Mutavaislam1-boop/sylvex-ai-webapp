@@ -963,7 +963,68 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     provider_model = _provider_model_for_video(model_id)
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "kling")
+
     body = _build_video_payload(model_id, prompt, payload)
+    raw_options = payload.get("video_options") or payload.get("options") or {}
+
+    def _first_url(value):
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+                if isinstance(item, dict):
+                    for key in ("url", "image_url", "src", "full_url", "result_url", "thumbnail_url", "thumb_url"):
+                        candidate = item.get(key)
+                        if isinstance(candidate, str) and candidate.strip():
+                            return candidate.strip()
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return ""
+
+    input_image = (
+        body.get("start_image")
+        or raw_options.get("start_image")
+        or payload.get("start_image")
+        or body.get("image_url")
+        or raw_options.get("image_url")
+        or payload.get("image_url")
+        or _first_url(body.get("reference_images"))
+        or _first_url(raw_options.get("reference_images"))
+        or _first_url(raw_options.get("referenceImageUrls"))
+        or _first_url(payload.get("reference_images"))
+        or _first_url(payload.get("referenceImageUrls"))
+        or _first_url(raw_options.get("uploadedImageUrls"))
+        or _first_url(payload.get("uploadedImageUrls"))
+    )
+
+    video_mode = str(
+        body.get("mode")
+        or body.get("generation_mode")
+        or raw_options.get("generation_mode")
+        or raw_options.get("mode")
+        or raw_options.get("kling_mode")
+        or payload.get("mode")
+        or payload.get("kling_mode")
+        or ""
+    ).strip().lower()
+
+    requires_image = (
+        video_mode in {"image_to_video", "image to video", "motion_control", "motion control"}
+        or bool(input_image)
+    )
+
+    print("KLING DEBUG MODE:", video_mode)
+    print("KLING DEBUG BODY START IMAGE:", body.get("start_image"))
+    print("KLING DEBUG BODY IMAGE_URL:", body.get("image_url"))
+    print("KLING DEBUG BODY REFERENCES:", body.get("reference_images"))
+    print("KLING DEBUG RAW OPTIONS START IMAGE:", raw_options.get("start_image"))
+    print("KLING DEBUG RAW OPTIONS IMAGE_URL:", raw_options.get("image_url"))
+    print("KLING DEBUG RAW OPTIONS REFERENCES:", raw_options.get("reference_images") or raw_options.get("referenceImageUrls"))
+    print("KLING DEBUG INPUT_IMAGE:", input_image)
+
+    if requires_image and not input_image:
+        return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
+
     kling_body = {
         "prompt": prompt,
         "settings": {
@@ -972,10 +1033,23 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             "aspect_ratio": body.get("ratio") or "16:9",
         },
     }
-    if body.get("start_image"):
-        kling_body["image_url"] = body.get("start_image")
+
+    if input_image:
+        kling_body["image_url"] = input_image
+        kling_body["contents"] = [
+            {
+                "type": "image_url",
+                "image_url": input_image,
+            }
+        ]
+
     try:
-        endpoint = _kling_submit_endpoint(provider_model, body)
+        endpoint_body = dict(body)
+        if input_image:
+            endpoint_body["start_image"] = input_image
+        endpoint = _kling_submit_endpoint(provider_model, endpoint_body)
+        print("KLING DEBUG ENDPOINT:", endpoint)
+        print("KLING DEBUG PAYLOAD:", kling_body)
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
