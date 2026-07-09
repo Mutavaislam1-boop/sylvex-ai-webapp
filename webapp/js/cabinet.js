@@ -1131,7 +1131,7 @@ function renderVideoInputPreviews() {
 
   setCardLabel(startCard, 'Начальное изображение');
   setCardLabel(endCard, 'Конечный образ');
-  setImagePreview(startCard, videoState.startImage || videoState.referenceImageUrl || '', 'start image');
+  setImagePreview(startCard, videoState.startImage || '', 'start image');
   setImagePreview(endCard, videoState.endImage || '', 'end image');
 }
 
@@ -3161,18 +3161,18 @@ function animateGeneratedImage(e) {
   videoState.section = 'generate';
   videoState.generationMode = 'image_to_video';
   videoState.mode = 'image_to_video';
-  videoUploadTarget = 'start';
-  videoState.startImage = imageUrl;
+  videoUploadTarget = 'reference';
+  videoState.startImage = '';
   videoState.referenceImageUrl = imageUrl;
-  videoState.referenceImageUrls = [imageUrl];
-  videoState.uploadedImageUrls = [imageUrl];
   videoState.imageUrl = imageUrl;
+  videoState.referenceImageUrls = [imageUrl].concat((videoState.referenceImageUrls || []).filter((item) => item && item !== imageUrl)).slice(0, 4);
+  videoState.uploadedImageUrls = [imageUrl].concat((videoState.uploadedImageUrls || []).filter((item) => item && item !== imageUrl)).slice(0, 4);
   renderVideoControls();
   renderUploadedPhotoGrid();
   renderVideoInputPreviews();
   updateImageUploadButtonPreview();
   updateSendButton();
-  toast('Фото добавлено как начальное изображение');
+  toast('Фото добавлено в референсы');
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
