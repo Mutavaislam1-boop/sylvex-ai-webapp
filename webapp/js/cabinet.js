@@ -65,18 +65,24 @@ let videoState = {
   advanced: {},
 };
 let videoUploadTarget = 'reference';
-let currentUploadTarget = 'image_upload';
-let activeUploadTarget = 'image_upload';
+const UPLOAD_TARGETS = {
+  IMAGE_UPLOAD: 'image_upload',
+  VIDEO_START: 'video_start',
+  VIDEO_END: 'video_end',
+  VIDEO_REFERENCES: 'video_references',
+};
+let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
+let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 
 function setUploadTarget(target) {
-  activeUploadTarget = target || 'image_upload';
+  activeUploadTarget = Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
   currentUploadTarget = activeUploadTarget;
 
-  if (activeUploadTarget === 'video_start') {
+  if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_START) {
     videoUploadTarget = 'start';
-  } else if (activeUploadTarget === 'video_end') {
+  } else if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_END) {
     videoUploadTarget = 'end';
-  } else if (activeUploadTarget === 'video_references') {
+  } else if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_REFERENCES) {
     videoUploadTarget = 'reference';
   } else {
     videoUploadTarget = 'reference';
@@ -88,7 +94,8 @@ function setUploadTarget(target) {
 
 function getUploadTarget() {
   const panel = document.getElementById('uploadPanel');
-  return (panel && panel.dataset && panel.dataset.uploadTarget) || activeUploadTarget || currentUploadTarget || 'image_upload';
+  const target = (panel && panel.dataset && panel.dataset.uploadTarget) || activeUploadTarget || currentUploadTarget || UPLOAD_TARGETS.IMAGE_UPLOAD;
+  return Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
 }
 let videoModelSettings = {};
 
@@ -467,7 +474,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     referenceImageUrls: referenceImages,
     input_video: videoState.inputVideo || '',
     video_url: videoState.videoUrl || '',
-    image_url: videoState.imageUrl || '',
+    image_url: '',
     motion_preset: videoState.motionPreset || '',
     character_image: videoState.characterImage || '',
     model: videoState.modelId || '',
@@ -1024,372 +1031,204 @@ function localizedGreeting() {
     button.classList.add('has-style-preview');
   }
 
-function findImageUploadControlButton() {
-  const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
-
-  const valid = candidates.filter((btn) => {
-    if (!btn || !btn.isConnected) return false;
-    if (btn.closest('#uploadPanel')) return false;
-    if (btn.closest('#imageStylePanel')) return false;
-    if (btn.closest('#modelPop')) return false;
-    if (btn.closest('#plusSheet')) return false;
-    return true;
-  });
-
-  const textOf = (btn) => String(btn && btn.textContent ? btn.textContent : '').trim().toLowerCase();
-  const ariaOf = (btn) => String(btn && btn.getAttribute ? btn.getAttribute('aria-label') || '' : '').trim().toLowerCase();
-  const idOf = (btn) => String(btn && btn.id ? btn.id : '').trim().toLowerCase();
-  const classOf = (btn) => String(btn && btn.className ? btn.className : '').trim().toLowerCase();
-
-  const findByText = (needles) => valid.find((btn) => {
-    const text = textOf(btn);
-    const aria = ariaOf(btn);
-    return needles.some((needle) => text.includes(needle) || aria.includes(needle));
-  });
-
-  if (isVideoMode()) {
-    if (getUploadTarget() === 'video_start') {
-      return findByText(['начальное изображение']) || null;
-    }
-
-    if (getUploadTarget() === 'video_end') {
-      return findByText(['конечный образ', 'конечный обзор']) || null;
-    }
-
-    return findByText(['добавить референсы', 'референс', 'добавить ссылки'])
-      || valid.find((btn) => idOf(btn).includes('reference') || idOf(btn).includes('refs') || classOf(btn).includes('reference') || classOf(btn).includes('refs'))
-      || null;
-  }
-
-  return valid.find((btn) => idOf(btn) === 'imageuploadbtn' || idOf(btn) === 'imageuploadcontrol')
-    || findByText(['загрузить', 'загрузка'])
-    || null;
-}
-
-function updateImageUploadButtonPreview() {
-  injectImageStyleSheetCss();
-  renderVideoInputPreviews();
-
-  const button = findImageUploadControlButton();
+function renderUploadPreviewOnButton(button, urls) {
   if (!button) return;
-
-  const urls = currentUploadImages().filter(Boolean).slice(0, 4);
-
+  const clean = (urls || []).filter(Boolean).slice(0, 4);
   let bg = button.querySelector(':scope > .image-upload-control-bg');
-
-  if (!urls.length) {
+  if (!clean.length) {
     if (bg) bg.remove();
     button.classList.remove('has-upload-preview');
     return;
   }
-
   if (!bg) {
     bg = document.createElement('span');
     bg.className = 'image-upload-control-bg';
     button.insertBefore(bg, button.firstChild);
   }
-
-  bg.dataset.count = String(urls.length);
-  bg.innerHTML = urls.map((url) => (
-    '<span class="image-upload-control-bg-cell"><img src="' + S.escapeHtml(url) + '" alt="" decoding="async" /></span>'
-  )).join('');
-
+  bg.dataset.count = String(clean.length);
+  bg.innerHTML = clean.map((url) => '<span class="image-upload-control-bg-cell"><img src="' + S.escapeHtml(url) + '" alt="" decoding="async" /></span>').join('');
   button.classList.add('has-upload-preview');
 }
 
-function addVideoReferenceImage(url) {
-  if (!url) return;
-  applyUploadedMediaToTarget(url);
+function setFramePreview(card, url, label) {
+  if (!card) return;
+  let preview = card.querySelector(':scope > .studio-frame-preview');
+  if (!url) {
+    if (preview) preview.remove();
+    card.classList.remove('has-frame-preview');
+    return;
+  }
+  if (!preview) {
+    preview = document.createElement('span');
+    preview.className = 'studio-frame-preview';
+    card.insertBefore(preview, card.firstChild);
+  }
+  preview.innerHTML = '<img src="' + S.escapeHtml(url) + '" alt="' + S.escapeHtml(label || 'preview') + '" decoding="async" />';
+  card.classList.add('has-frame-preview');
+}
+
+function renderImageUploadPreview() {
+  renderUploadPreviewOnButton(document.getElementById('imageUploadButton'), imageState.uploadedImageUrls || []);
+}
+
+function renderVideoStartPreview() {
+  setFramePreview(document.getElementById('videoStartUploadButton'), videoState.startImage || '', 'start image');
+}
+
+function renderVideoEndPreview() {
+  setFramePreview(document.getElementById('videoEndUploadButton'), videoState.endImage || '', 'end image');
+}
+
+function renderVideoReferencesPreview() {
+  renderUploadPreviewOnButton(document.getElementById('videoReferencesUploadButton'), videoState.referenceImageUrls || []);
 }
 
 function renderVideoInputPreviews() {
-  const startCard = document.getElementById('videoStartFrameCard');
-  const endCard = document.getElementById('videoEndFrameCard');
-  const setCardLabel = (card, text) => {
-    if (!card) return;
-    const spans = card.querySelectorAll(':scope > span');
-    const label = spans[spans.length - 1];
-    if (label) label.textContent = text;
-  };
-  const setImagePreview = (card, url, label) => {
-    if (!card) return;
-    let preview = card.querySelector(':scope > .studio-frame-preview');
-    if (!url) {
-      if (preview) preview.remove();
-      card.classList.remove('has-frame-preview');
-      return;
-    }
-    if (!preview) {
-      preview = document.createElement('span');
-      preview.className = 'studio-frame-preview';
-      card.insertBefore(preview, card.firstChild);
-    }
-    preview.innerHTML = '<img src="' + S.escapeHtml(url) + '" alt="' + S.escapeHtml(label || 'preview') + '" decoding="async" />';
-    card.classList.add('has-frame-preview');
-  };
-  const setVideoPreview = (card, url) => {
-    if (!card) return;
-    let preview = card.querySelector(':scope > .studio-frame-preview');
-    if (!url) {
-      if (preview) preview.remove();
-      card.classList.remove('has-frame-preview');
-      return;
-    }
-    if (!preview) {
-      preview = document.createElement('span');
-      preview.className = 'studio-frame-preview';
-      card.insertBefore(preview, card.firstChild);
-    }
-    preview.innerHTML = '<video src="' + S.escapeHtml(url) + '" muted playsinline preload="metadata"></video>';
-    card.classList.add('has-frame-preview');
-  };
-
-  if (videoState.section === 'edit' && videoState.inputVideo) {
-    setCardLabel(startCard, 'Редактируемое видео');
-    setCardLabel(endCard, 'Конечный образ');
-    setVideoPreview(startCard, videoState.inputVideo);
-    setImagePreview(endCard, '', '');
-    return;
-  }
-
-  setCardLabel(startCard, 'Начальное изображение');
-  setCardLabel(endCard, 'Конечный образ');
-  setImagePreview(startCard, videoState.startImage || '', 'start image');
-  setImagePreview(endCard, videoState.endImage || '', 'end image');
+  renderVideoStartPreview();
+  renderVideoEndPreview();
 }
 
-function currentUploadImages() {
-  const target = getUploadTarget();
+function renderAllUploadPreviews() {
+  injectImageStyleSheetCss();
+  renderImageUploadPreview();
+  renderVideoStartPreview();
+  renderVideoEndPreview();
+  renderVideoReferencesPreview();
+}
 
-  if (target === 'video_start') {
-    return videoState.startImage ? [videoState.startImage] : [];
-  }
+function updateImageUploadButtonPreview() {
+  renderAllUploadPreviews();
+}
 
-  if (target === 'video_end') {
-    return videoState.endImage ? [videoState.endImage] : [];
-  }
-
-  if (target === 'video_references') {
-    return (videoState.referenceImageUrls || []).slice();
-  }
-
-  if (isMusicMode() || isVoiceMode()) {
-    return (currentAudioState().uploads || [])
-      .filter((item) => item && item.kind === 'image')
-      .map((item) => item.url);
-  }
-
+function currentUploadImages(targetOverride) {
+  const target = targetOverride || getUploadTarget();
+  if (target === UPLOAD_TARGETS.VIDEO_START) return videoState.startImage ? [videoState.startImage] : [];
+  if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage ? [videoState.endImage] : [];
+  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return (videoState.referenceImageUrls || []).slice();
   return (imageState.uploadedImageUrls || []).slice();
 }
 
-function applyUploadedMediaToTarget(url) {
+function applyUploadToTarget(url, targetOverride) {
   if (!url) return;
-
-  const target = getUploadTarget();
-
-  if (target === 'video_start') {
+  const target = targetOverride || getUploadTarget();
+  if (target === UPLOAD_TARGETS.VIDEO_START) {
     videoState.startImage = url;
-    renderVideoInputPreviews();
+    renderVideoStartPreview();
     updateSendButton();
     return;
   }
-
-  if (target === 'video_end') {
+  if (target === UPLOAD_TARGETS.VIDEO_END) {
     videoState.endImage = url;
-    renderVideoInputPreviews();
+    renderVideoEndPreview();
     updateSendButton();
     return;
   }
-
-  if (target === 'video_references') {
+  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
     const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
     refs.unshift(url);
-
     videoState.referenceImageUrls = refs.slice(0, 4);
     videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
     videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
     videoState.imageUrl = videoState.referenceImageUrl;
-
+    renderVideoReferencesPreview();
     renderUploadedPhotoGrid();
-    updateImageUploadButtonPreview();
     updateSendButton();
     return;
   }
-
-  const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
-  uploads.unshift(url);
-
-  imageState.uploadedImageUrls = uploads.slice(0, 4);
-  imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
-  imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
-
-  updateImageUploadButtonPreview();
-  updateSendButton();
+  if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
+    const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
+    uploads.unshift(url);
+    imageState.uploadedImageUrls = uploads.slice(0, 4);
+    imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
+    imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+    imageState.attachment = imageState.attachment || null;
+    renderImageUploadPreview();
+    renderUploadedPhotoGrid();
+    updateSendButton();
+  }
 }
 
-function setCurrentUploadImages(urls) {
+function applyUploadedMediaToTarget(url) {
+  applyUploadToTarget(url, getUploadTarget());
+}
+
+function addVideoReferenceImage(url) {
+  applyUploadToTarget(url, UPLOAD_TARGETS.VIDEO_REFERENCES);
+}
+
+function setCurrentUploadImages(urls, targetOverride) {
   const clean = (urls || []).filter(Boolean).slice(0, 4);
-  const target = getUploadTarget();
-
-  if (target === 'video_start') {
+  const target = targetOverride || getUploadTarget();
+  if (target === UPLOAD_TARGETS.VIDEO_START) {
     videoState.startImage = clean[0] || '';
-    renderVideoInputPreviews();
-    updateSendButton();
-    return;
-  }
-
-  if (target === 'video_end') {
+    renderVideoStartPreview();
+  } else if (target === UPLOAD_TARGETS.VIDEO_END) {
     videoState.endImage = clean[0] || '';
-    renderVideoInputPreviews();
-    updateSendButton();
-    return;
-  }
-
-  if (target === 'video_references') {
+    renderVideoEndPreview();
+  } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
     videoState.referenceImageUrls = clean.slice(0, 4);
     videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
     videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
     videoState.imageUrl = videoState.referenceImageUrl;
-
-    renderUploadedPhotoGrid();
-    updateImageUploadButtonPreview();
-    updateSendButton();
-    return;
+    renderVideoReferencesPreview();
+  } else if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
+    imageState.uploadedImageUrls = clean.slice(0, 4);
+    imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
+    imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+    renderImageUploadPreview();
   }
-
-  if (isMusicMode() || isVoiceMode()) {
-    const state = currentAudioState();
-    const existing = (state.uploads || []).filter((item) => item && item.kind !== 'image');
-    state.uploads = existing.concat(clean.map((url) => ({ kind: 'image', url }))).slice(0, 4);
-    return;
-  }
-
-  imageState.uploadedImageUrls = clean;
-  imageState.referenceImageUrls = clean.slice();
-  imageState.referenceImageUrl = clean[0] || '';
-
-  updateImageUploadButtonPreview();
+  renderUploadedPhotoGrid();
   updateSendButton();
 }
 
-function openImageUploadTarget(e) {
+function openUploadTarget(target, e) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
-
-  setUploadTarget('image_upload');
-
+  setUploadTarget(target);
   const plusPop = document.getElementById('plusPop');
   if (plusPop) plusPop.classList.remove('show');
-
   const plusSheet = document.getElementById('plusSheet');
   if (plusSheet) plusSheet.classList.remove('show');
-
+  const panel = ensureUploadPanel();
+  panel.dataset.uploadTarget = target;
   openUploadPanel(e);
+  panel.dataset.uploadTarget = target;
+}
+
+function openImageUpload(e) {
+  openUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD, e);
+}
+
+function openImageUploadTarget(e) {
+  openImageUpload(e);
 }
 
 function openVideoStartUpload(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  setUploadTarget('video_start');
-
-  const plusPop = document.getElementById('plusPop');
-  if (plusPop) plusPop.classList.remove('show');
-
-  const plusSheet = document.getElementById('plusSheet');
-  if (plusSheet) plusSheet.classList.remove('show');
-
-  openUploadPanel(e);
+  openUploadTarget(UPLOAD_TARGETS.VIDEO_START, e);
 }
 
 function openVideoEndUpload(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  setUploadTarget('video_end');
-
-  const plusPop = document.getElementById('plusPop');
-  if (plusPop) plusPop.classList.remove('show');
-
-  const plusSheet = document.getElementById('plusSheet');
-  if (plusSheet) plusSheet.classList.remove('show');
-
-  openUploadPanel(e);
+  openUploadTarget(UPLOAD_TARGETS.VIDEO_END, e);
 }
 
 function openVideoReferencesUpload(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  setUploadTarget('video_references');
-
-  const plusPop = document.getElementById('plusPop');
-  if (plusPop) plusPop.classList.remove('show');
-
-  const plusSheet = document.getElementById('plusSheet');
-  if (plusSheet) plusSheet.classList.remove('show');
-
-  openUploadPanel(e);
+  openUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES, e);
 }
 
 function aggressiveUploadTargetClickGuard(e) {
   const target = e && e.target ? e.target : null;
   if (!target || !target.closest) return;
-
   if (target.closest('#uploadPanel')) return;
   if (target.closest('#modelPop')) return;
   if (target.closest('#imageStylePanel')) return;
   if (target.closest('#plusSheet')) return;
-
-  const btn = target.closest('button, [role="button"]');
+  const btn = target.closest('[data-upload-target]');
   if (!btn) return;
-
-  const text = String(btn.textContent || '').trim().toLowerCase();
-  const aria = String(btn.getAttribute('aria-label') || '').trim().toLowerCase();
-  const full = text + ' ' + aria;
-
-  if (isVideoMode()) {
-    if (full.includes('начальное изображение')) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      openVideoStartUpload(e);
-      return;
-    }
-
-    if (full.includes('конечный образ') || full.includes('конечный обзор')) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      openVideoEndUpload(e);
-      return;
-    }
-
-    if (full.includes('добавить референсы') || full.includes('добавить ссылки') || full.includes('референс')) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      openVideoReferencesUpload(e);
-      return;
-    }
-  }
-
-  if (isImageMode && isImageMode()) {
-    if (full.includes('загрузить') || full.includes('загрузка')) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-      openImageUploadTarget(e);
-    }
-  }
+  const uploadTarget = btn.dataset.uploadTarget;
+  if (!Object.values(UPLOAD_TARGETS).includes(uploadTarget)) return;
+  setUploadTarget(uploadTarget);
 }
 
 if (!window.__sylvexUploadTargetGuardInstalled) {
@@ -1420,10 +1259,10 @@ function setCurrentModeAttachment(attachment) {
 function currentSelectedUploadImage() {
   const target = getUploadTarget();
 
-  if (target === 'video_start') return videoState.startImage || '';
-  if (target === 'video_end') return videoState.endImage || '';
-  if (target === 'video_references') return videoState.referenceImageUrl || ((videoState.referenceImageUrls || [])[0]) || '';
-  if (target === 'image_upload') return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
+  if (target === UPLOAD_TARGETS.VIDEO_START) return videoState.startImage || '';
+  if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage || '';
+  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return videoState.referenceImageUrl || ((videoState.referenceImageUrls || [])[0]) || '';
+  if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
 
   const images = currentUploadImages();
   return images[images.length - 1] || '';
@@ -2966,28 +2805,11 @@ function imageModelButton(model) {
     S.haptic.select();
   }
   function togglePlusPop(e) {
-    if (isVideoMode()) {
-      videoUploadTarget = 'reference';
-    }
     if (e) e.stopPropagation();
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.add('show');
     const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
     S.haptic && S.haptic.impact && S.haptic.impact('light');
-  if (isVideoMode()) {
-  currentUploadTarget = 'video_references';
-  videoUploadTarget = 'reference';
-
-  const plusPop = document.getElementById('plusPop');
-  if (plusPop) plusPop.classList.remove('show');
-
-  const plusSheet = document.getElementById('plusSheet');
-  if (plusSheet) plusSheet.classList.remove('show');
-
-  openUploadPanel(e);
-  return;
-}
-  
   }
   function closePlusSheet(e) {
     if (e && e.target && e.target.id !== 'plusSheet') return;
@@ -3009,7 +2831,7 @@ function imageModelButton(model) {
         videoState.generationMode = 'video_edit';
         videoState.mode = 'video_edit';
       } else {
-        addVideoReferenceImage(url);
+        applyUploadToTarget(url, getUploadTarget());
       }
       updateSendButton();
       toast('Ссылка добавлена');
@@ -3027,7 +2849,7 @@ function imageModelButton(model) {
     }
 
     if (kind === 'image' && isImageMode()) {
-      addUploadedPhoto(url);
+      applyUploadToTarget(url, UPLOAD_TARGETS.IMAGE_UPLOAD);
       renderComposerImageDraft();
       updateSendButton();
       toast('Ссылка добавлена');
@@ -3171,15 +2993,9 @@ function imageModelButton(model) {
     const uploadImages = currentUploadImages().filter((item) => item !== url);
     uploadImages.push(url);
     setCurrentUploadImages(uploadImages);
-    const scopedUploads = currentUploadImages();
-    if (isVideoMode()) {
-      addVideoReferenceImage(url);
-    } else if (isImageMode()) {
-      imageState.referenceImageUrl = url;
-      imageState.referenceImageUrls = scopedUploads.slice();
-    }
+    applyUploadToTarget(url, getUploadTarget());
     renderUploadedPhotoGrid();
-    updateImageUploadButtonPreview();
+    renderAllUploadPreviews();
   }
 
   function selectUploadedPhoto(e, url) {
@@ -3187,14 +3003,9 @@ function imageModelButton(model) {
       e.preventDefault();
       e.stopPropagation();
     }
-    if (isVideoMode()) {
-      addVideoReferenceImage(url);
-    } else if (isImageMode()) {
-      imageState.referenceImageUrl = url;
-      imageState.referenceImageUrls = currentUploadImages().slice();
-    }
+    applyUploadToTarget(url, getUploadTarget());
     renderUploadedPhotoGrid();
-    updateImageUploadButtonPreview();
+    renderAllUploadPreviews();
     toast('Фото выбрано');
   }
 
@@ -3206,19 +3017,8 @@ function imageModelButton(model) {
     const uploadImages = currentUploadImages();
     uploadImages.splice(index, 1);
     setCurrentUploadImages(uploadImages);
-    const scopedUploads = currentUploadImages();
-    if (isVideoMode()) {
-      videoState.referenceImageUrls = scopedUploads.slice();
-      videoState.referenceImageUrl = scopedUploads[scopedUploads.length - 1] || '';
-      if (!scopedUploads.includes(videoState.startImage)) videoState.startImage = '';
-      if (!scopedUploads.includes(videoState.endImage)) videoState.endImage = '';
-      if (!scopedUploads.includes(videoState.characterImage)) videoState.characterImage = '';
-    } else if (isImageMode()) {
-      imageState.referenceImageUrls = scopedUploads.slice();
-      imageState.referenceImageUrl = scopedUploads[scopedUploads.length - 1] || '';
-    }
     renderUploadedPhotoGrid();
-    updateImageUploadButtonPreview();
+    renderAllUploadPreviews();
   }
 
     function confirmUploadedPhotos(e) {
@@ -3227,17 +3027,8 @@ function imageModelButton(model) {
         e.stopPropagation();
     }
 
-    const uploadImages = currentUploadImages();
-    if (isVideoMode()) {
-      videoState.referenceImageUrls = uploadImages.slice();
-      videoState.referenceImageUrl = uploadImages[uploadImages.length - 1] || '';
-      } else if (isImageMode()) {
-      imageState.referenceImageUrls = uploadImages.slice();
-      imageState.referenceImageUrl = uploadImages[uploadImages.length - 1] || '';
-    }
-
     renderComposerImageDraft();
-    updateImageUploadButtonPreview();
+    renderAllUploadPreviews();
     closeUploadPanel(e);
     toast('Фото добавлены в сообщение');
 
@@ -3423,16 +3214,12 @@ function animateGeneratedImage(e) {
   videoState.section = 'generate';
   videoState.generationMode = 'image_to_video';
   videoState.mode = 'image_to_video';
-  videoUploadTarget = 'reference';
+  setUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES);
   videoState.startImage = '';
-  videoState.referenceImageUrl = imageUrl;
-  videoState.imageUrl = imageUrl;
-  videoState.referenceImageUrls = [imageUrl].concat((videoState.referenceImageUrls || []).filter((item) => item && item !== imageUrl)).slice(0, 4);
-  videoState.uploadedImageUrls = [imageUrl].concat((videoState.uploadedImageUrls || []).filter((item) => item && item !== imageUrl)).slice(0, 4);
+  applyUploadToTarget(imageUrl, UPLOAD_TARGETS.VIDEO_REFERENCES);
   renderVideoControls();
   renderUploadedPhotoGrid();
-  renderVideoInputPreviews();
-  updateImageUploadButtonPreview();
+  renderAllUploadPreviews();
   updateSendButton();
   toast('Фото добавлено в референсы');
   S.haptic && S.haptic.notify && S.haptic.notify('success');
@@ -3588,7 +3375,9 @@ function selectGeneratedImage(e, url) {
     e.stopPropagation();
   }
 
-  addUploadedPhoto(url);
+  applyUploadToTarget(url, getUploadTarget());
+  renderUploadedPhotoGrid();
+  renderAllUploadPreviews();
   renderUploadPanelImages();
   closeUploadImagePreview(e);
 
@@ -3603,6 +3392,7 @@ function openUploadPanel(e) {
   }
 
 const panel = ensureUploadPanel();
+panel.dataset.uploadTarget = getUploadTarget();
 renderUploadPanelImages();
 renderUploadedPhotoGrid();
 panel.classList.add('show');
@@ -3640,18 +3430,14 @@ function closeUploadPanel(e) {
       e = target;
       target = '';
     }
-    if (isVideoMode()) {
-      videoUploadTarget = target || (videoState.section === 'edit' ? 'input_video' : (videoState.section === 'motion' ? 'character' : 'start'));
-      if (videoUploadTarget === 'input_video') {
-        openNativeFilePicker('video');
-        return;
-      }
+    if (kind === 'video') {
+      openNativeFilePicker('video');
+      return;
     }
-    // Old upload button used to open the system file picker immediately.
-    // Now it opens the large upload panel. File picker will be called from buttons inside that panel later.
-    const sheet = document.getElementById('plusSheet');
-    if (sheet) sheet.classList.remove('show');
-    openUploadPanel(e);
+    if (target === 'start') return openVideoStartUpload(e);
+    if (target === 'end') return openVideoEndUpload(e);
+    if (target === 'reference' || target === 'references') return openVideoReferencesUpload(e);
+    return openImageUpload(e);
   }
   function onAttachFile(e) {
     const f = e.target.files && e.target.files[0];
@@ -3668,11 +3454,15 @@ function closeUploadPanel(e) {
         name: f.name,
         dataBase64: b64,
       };
-      setCurrentModeAttachment(attachment);
-
       if ((pendingAttachAccept || '') === 'image' && result) {
-        addUploadedPhoto(result);
+        const target = getUploadTarget();
+        if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
+        applyUploadToTarget(result, target);
+        renderUploadedPhotoGrid();
+        renderAllUploadPreviews();
         toast('Фото загружено');
+      } else {
+        setCurrentModeAttachment(attachment);
       }
 
       if ((pendingAttachAccept || '') === 'video' && result && isVideoMode()) {
@@ -5083,7 +4873,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
-    attach, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -5104,6 +4894,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.showImageModelPicker = showImageModelPicker;
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
+  window.openImageUpload = openImageUpload;
+  window.openVideoStartUpload = openVideoStartUpload;
+  window.openVideoEndUpload = openVideoEndUpload;
+  window.openVideoReferencesUpload = openVideoReferencesUpload;
   window.openNativeFilePicker = openNativeFilePicker;
   window.addMediaLink = addMediaLink;
   window.autoGrow       = autoGrow;
@@ -5125,6 +4919,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.pickImageStyleFromPanel = pickImageStyleFromPanel;
   S.toggleImageStyleInfo = toggleImageStyleInfo;
   S.openImageOptionMenu = openImageOptionMenu;
+  S.openImageUpload = openImageUpload;
+  S.openVideoStartUpload = openVideoStartUpload;
+  S.openVideoEndUpload = openVideoEndUpload;
+  S.openVideoReferencesUpload = openVideoReferencesUpload;
   S.pickImageOption = pickImageOption;
   S.pickMusicOption = pickMusicOption;
   S.resetMusicSettings = resetMusicSettings;
