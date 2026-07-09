@@ -314,12 +314,12 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "generation_mode": mode,
         "section": opts.get("section") or "generate",
         "sound": sound,
-        "start_image": opts.get("start_image") or (reference_images[0] if reference_images else ""),
+        "start_image": opts.get("start_image") or payload.get("start_image") or "",
         "end_image": opts.get("end_image") or "",
         "reference_images": reference_images,
         "input_video": opts.get("input_video") or "",
         "video_url": opts.get("video_url") or "",
-        "image_url": opts.get("image_url") or "",
+        "image_url": opts.get("image_url") or payload.get("image_url") or "",
         "motion_preset": opts.get("motion_preset") or "",
         "character_image": opts.get("character_image") or "",
         "advanced": opts.get("advanced") or {},
@@ -981,6 +981,17 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return value.strip()
         return ""
 
+    def _is_data_image(value):
+        return isinstance(value, str) and value.strip().lower().startswith("data:image/")
+
+    def _normalize_kling_image_input(value):
+        if not isinstance(value, str):
+            return ""
+        value = value.strip()
+        if not value:
+            return ""
+        return value
+
     input_image = (
         body.get("start_image")
         or raw_options.get("start_image")
@@ -996,6 +1007,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or _first_url(raw_options.get("uploadedImageUrls"))
         or _first_url(payload.get("uploadedImageUrls"))
     )
+    input_image = _normalize_kling_image_input(input_image)
 
     video_mode = str(
         body.get("mode")
@@ -1035,13 +1047,29 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     }
 
     if input_image:
-        kling_body["image_url"] = input_image
-        kling_body["contents"] = [
-            {
-                "type": "image_url",
-                "image_url": input_image,
-            }
-        ]
+        if _is_data_image(input_image):
+            kling_body["contents"] = [
+                {
+                    "type": "image",
+                    "image": input_image,
+                },
+                {
+                    "type": "text",
+                    "text": prompt,
+                },
+            ]
+        else:
+            kling_body["image_url"] = input_image
+            kling_body["contents"] = [
+                {
+                    "type": "image_url",
+                    "image_url": input_image,
+                },
+                {
+                    "type": "text",
+                    "text": prompt,
+                },
+            ]
 
     try:
         endpoint_body = dict(body)
