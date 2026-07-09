@@ -2640,6 +2640,7 @@ def payment_url(pack_id: str, method: str = "paypal") -> str:
 async def public_prostudio_conversations(
     telegram_id: int = 0,
     conversation_id: str = "",
+    mode: str = "",
     limit: int = 30,
     offset: int = 0,
 ):
@@ -2710,17 +2711,26 @@ async def public_prostudio_conversations(
                 })
             return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
 
-        cursor.execute("""
+        mode_filter = (mode or "").strip().lower()
+        mode_where = "AND mode = %s" if mode_filter in {"image", "video", "music", "voice"} else ""
+        params = [telegram_id]
+        if mode_where:
+            params.append(mode_filter)
+        params.extend([min(limit, 80), offset])
+        cursor.execute(f"""
             SELECT
                 conversation_id,
                 COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
-                MAX(created_at) AS updated_at
+                MAX(created_at) AS updated_at,
+                COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                MIN(created_at) AS created_at
             FROM prostudio_messages
             WHERE telegram_id = %s
+              {mode_where}
             GROUP BY conversation_id
             ORDER BY updated_at DESC
             LIMIT %s OFFSET %s
-        """, (telegram_id, min(limit, 50), offset))
+        """, tuple(params))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -2731,6 +2741,8 @@ async def public_prostudio_conversations(
                     "id": row[0],
                     "title": (row[1] or "Chat")[:64],
                     "updated_at": row[2],
+                    "type": row[3] or "image",
+                    "created_at": row[4],
                 }
                 for row in rows
             ],
