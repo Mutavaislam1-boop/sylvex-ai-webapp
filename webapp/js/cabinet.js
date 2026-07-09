@@ -2304,6 +2304,7 @@ function imageModelButton(model) {
 
   function generatedThumbsFromResponse(j) {
     if (!j) return [];
+    if (j.thumbnail_url) return [j.thumbnail_url];
     if (Array.isArray(j.thumbnails) && j.thumbnails.length) return j.thumbnails;
     if (Array.isArray(j.images) && j.images.length) {
       return j.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
@@ -2313,11 +2314,33 @@ function imageModelButton(model) {
 
   function generatedThumbsFromMessage(m) {
     if (!m) return [];
+    if (m.thumbnail_url) return [m.thumbnail_url];
     if (Array.isArray(m.thumbnails) && m.thumbnails.length) return m.thumbnails;
     if (Array.isArray(m.images) && m.images.length) {
       return m.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
     }
     return m.thumbUrl ? [m.thumbUrl] : [];
+  }
+
+  function imagePreviewUrl(meta, fallback) {
+    if (!meta) return fallback || '';
+    return meta.thumbnail_url
+      || meta.thumb_url
+      || ((meta.result_thumbnails || [])[0])
+      || ((meta.thumbnails || [])[0])
+      || fallback
+      || meta.image_url
+      || meta.result_url
+      || ((meta.result_images || [])[0])
+      || ((meta.images || [])[0])
+      || '';
+  }
+
+  function previewImgHtml(url, alt) {
+    const safeUrl = S.escapeHtml(url || '');
+    const safeAlt = S.escapeHtml(alt || 'preview');
+    if (!safeUrl) return '<span class="generation-result-fallback">IMG</span>';
+    return '<img src="' + safeUrl + '" alt="' + safeAlt + '" loading="lazy" decoding="async" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'generation-result-fallback\',textContent:\'IMG\'}))" />';
   }
 
   function aiMessageFromGenerateResponse(j) {
@@ -2399,9 +2422,9 @@ function imageModelButton(model) {
       ? backendMeta.result_thumbnails.slice()
       : (backendMeta.thumbnails && backendMeta.thumbnails.length
         ? backendMeta.thumbnails.slice()
-        : (backendMeta.thumb_url ? [backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
+        : (backendMeta.thumbnail_url || backendMeta.thumb_url ? [backendMeta.thumbnail_url || backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
     const imageUrl = backendMeta.image_url || backendMeta.result_url || images[0] || '';
-    const thumbUrl = backendMeta.thumb_url || thumbs[0] || imageUrl;
+    const thumbUrl = backendMeta.thumbnail_url || backendMeta.thumb_url || thumbs[0] || imageUrl;
     const refs = (backendMeta.reference_images && backendMeta.reference_images.length)
       ? backendMeta.reference_images.slice()
       : (referenceImages || []).slice();
@@ -2427,6 +2450,8 @@ function imageModelButton(model) {
       result_images: images,
       result_thumbnails: thumbs,
       image_url: imageUrl,
+      full_url: backendMeta.full_url || backendMeta.result_url || imageUrl,
+      thumbnail_url: thumbUrl,
       thumb_url: thumbUrl,
       created_at: backendMeta.created_at || new Date().toISOString(),
       sent_to_telegram: !!(backendMeta.sent_to_telegram || (result && result.sent_to_telegram)),
@@ -2474,8 +2499,7 @@ function imageModelButton(model) {
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? 'music' : 'image'));
-    const thumb = meta.thumb_url || meta.image_url || meta.result_url || ((meta.result_images || [])[0]) || '';
-    const safeThumb = S.escapeHtml(thumb);
+    const thumb = imagePreviewUrl(meta, '');
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
     const titleMap = {
       image: 'Изображение готово',
@@ -2484,8 +2508,8 @@ function imageModelButton(model) {
       voice: 'Озвучка готова',
     };
     const iconMap = { image: 'IMG', video: 'VID', music: '♪', voice: 'VO' };
-    const media = safeThumb
-      ? '<img src="' + safeThumb + '" alt="generated result" loading="lazy" decoding="async" />'
+    const media = thumb
+      ? previewImgHtml(thumb, 'generated result')
       : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
     return '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
       + '<span class="generation-result-thumb">' + media + '</span>'
@@ -3174,11 +3198,11 @@ function openGenerationInfoDrawer(e, index) {
   if (!body) return;
 
   const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? 'music' : 'image'));
-  const imageUrl = meta.image_url || (type === 'image' ? meta.result_url : '') || ((meta.result_images || [])[0]) || '';
+  const imageUrl = meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
-  const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : imageUrl);
-  const previewUrl = imageUrl || meta.thumb_url || resultUrl;
+  const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
+  const previewUrl = imagePreviewUrl(meta, imageUrl || resultUrl);
   const refImages = meta.reference_images || [];
   const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
   const settings = meta.settings || meta.image_options || meta.video_options || meta.music_options || meta.voice_options || {};
@@ -3190,13 +3214,13 @@ function openGenerationInfoDrawer(e, index) {
   };
   const titleEl = drawer.querySelector('.generation-info-head h3');
   if (titleEl) titleEl.textContent = titleMap[type] || 'Result';
-  const videoThumb = meta.thumb_url || meta.image_url || '';
+  const videoThumb = imagePreviewUrl(meta, '');
   const previewHtml = type === 'image' && imageUrl
-    ? '<div class="generation-info-preview"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated image" /></div>'
+    ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated image') + '</div>'
     : type === 'video' && videoUrl
-      ? '<div class="generation-info-preview generation-info-video-preview">' + (videoThumb ? '<img src="' + S.escapeHtml(videoThumb) + '" alt="video thumbnail" />' : '<span>VID</span>') + '</div>'
+      ? '<div class="generation-info-preview generation-info-video-preview">' + (videoThumb ? previewImgHtml(videoThumb, 'video thumbnail') : '<span>VID</span>') + '</div>'
       : (type === 'music' || type === 'voice') && imageUrl
-        ? '<div class="generation-info-preview"><img src="' + S.escapeHtml(meta.thumb_url || imageUrl) + '" alt="generated cover" /></div>'
+        ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated cover') + '</div>'
       : audioUrl
         ? '<div class="generation-info-preview generation-info-audio-preview"><span>' + S.escapeHtml(type === 'voice' ? 'VO' : '♪') + '</span></div>'
         : (previewUrl ? '<div class="generation-info-preview generation-info-audio-preview"><span>AI</span></div>' : '');
@@ -3832,7 +3856,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
           ? m.thumbnails
           : Array.isArray(m.thumb_urls)
             ? m.thumb_urls
-            : (m.thumb_url ? [m.thumb_url] : []);
+            : (m.thumbnail_url || m.thumb_url ? [m.thumbnail_url || m.thumb_url] : []);
 
         const videos = Array.isArray(m.videos) ? m.videos : (m.video_url ? [m.video_url] : []);
         const audios = Array.isArray(m.audios) ? m.audios : (m.audio_url ? [m.audio_url] : []);
@@ -3846,6 +3870,9 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
               result_images: images,
               result_thumbnails: thumbnails.length ? thumbnails : images,
               image_url: images[0] || '',
+              result_url: images[0] || '',
+              full_url: images[0] || '',
+              thumbnail_url: thumbnails[0] || images[0] || '',
               thumb_url: thumbnails[0] || images[0] || '',
               created_at: m.created_at || '',
             }, metadata)
@@ -3858,6 +3885,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
               audio_url: audios[0] || '',
               audios,
               image_url: images[0] || '',
+              thumbnail_url: thumbnails[0] || images[0] || '',
               thumb_url: thumbnails[0] || images[0] || '',
               created_at: m.created_at || '',
             }, metadata);
