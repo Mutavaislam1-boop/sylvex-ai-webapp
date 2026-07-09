@@ -954,6 +954,7 @@ function findImageUploadControlButton() {
 
 function updateImageUploadButtonPreview() {
   injectImageStyleSheetCss();
+  renderVideoInputPreviews();
 
   const button = findImageUploadControlButton();
   if (!button) return;
@@ -997,6 +998,62 @@ function addVideoReferenceImage(url) {
   } else {
     videoState.startImage = url;
   }
+}
+
+function renderVideoInputPreviews() {
+  const startCard = document.getElementById('videoStartFrameCard');
+  const endCard = document.getElementById('videoEndFrameCard');
+  const setCardLabel = (card, text) => {
+    if (!card) return;
+    const spans = card.querySelectorAll(':scope > span');
+    const label = spans[spans.length - 1];
+    if (label) label.textContent = text;
+  };
+  const setImagePreview = (card, url, label) => {
+    if (!card) return;
+    let preview = card.querySelector(':scope > .studio-frame-preview');
+    if (!url) {
+      if (preview) preview.remove();
+      card.classList.remove('has-frame-preview');
+      return;
+    }
+    if (!preview) {
+      preview = document.createElement('span');
+      preview.className = 'studio-frame-preview';
+      card.insertBefore(preview, card.firstChild);
+    }
+    preview.innerHTML = '<img src="' + S.escapeHtml(url) + '" alt="' + S.escapeHtml(label || 'preview') + '" decoding="async" />';
+    card.classList.add('has-frame-preview');
+  };
+  const setVideoPreview = (card, url) => {
+    if (!card) return;
+    let preview = card.querySelector(':scope > .studio-frame-preview');
+    if (!url) {
+      if (preview) preview.remove();
+      card.classList.remove('has-frame-preview');
+      return;
+    }
+    if (!preview) {
+      preview = document.createElement('span');
+      preview.className = 'studio-frame-preview';
+      card.insertBefore(preview, card.firstChild);
+    }
+    preview.innerHTML = '<video src="' + S.escapeHtml(url) + '" muted playsinline preload="metadata"></video>';
+    card.classList.add('has-frame-preview');
+  };
+
+  if (videoState.section === 'edit' && videoState.inputVideo) {
+    setCardLabel(startCard, 'Редактируемое видео');
+    setCardLabel(endCard, 'Конечный образ');
+    setVideoPreview(startCard, videoState.inputVideo);
+    setImagePreview(endCard, '', '');
+    return;
+  }
+
+  setCardLabel(startCard, 'Начальное изображение');
+  setCardLabel(endCard, 'Конечный образ');
+  setImagePreview(startCard, videoState.startImage || videoState.referenceImageUrl || '', 'start image');
+  setImagePreview(endCard, videoState.endImage || '', 'end image');
 }
 
 function currentUploadImages() {
@@ -2202,12 +2259,32 @@ function imageModelButton(model) {
     };
   }
 
-  function renderGeneratedDownloadButton(url, kind) {
+  function renderGeneratedTelegramButton(url, kind) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
-    return '<button class="gen-download-btn" type="button" data-download-url="' + safeUrl + '" data-download-kind="' + safeKind + '" onclick="SYLVEX.downloadGeneratedContent(event)">'
-      + '<span aria-hidden="true">↓</span><span>Скачать</span>'
+    return '<button class="gen-action-btn gen-telegram-btn" type="button" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.openTelegramBot(event)">'
+      + '<span>Перейти в Telegram</span>'
       + '</button>';
+  }
+
+  function renderGeneratedOpenButton(url, kind) {
+    const safeUrl = S.escapeHtml(url);
+    const safeKind = S.escapeHtml(kind || 'file');
+    const dataAttr = kind === 'image' ? 'data-image-url' : 'data-result-url';
+    const handler = kind === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)';
+    return '<button class="gen-action-btn" type="button" ' + dataAttr + '="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="' + handler + '">Открыть</button>';
+  }
+
+  function renderGeneratedActions(url, kind) {
+    const safeUrl = S.escapeHtml(url);
+    let actions = renderGeneratedOpenButton(url, kind) + renderGeneratedTelegramButton(url, kind);
+    if (kind === 'image') {
+      actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">Оживить фото</button>';
+    }
+    if (kind === 'video') {
+      actions += '<button class="gen-action-btn" type="button" data-video-url="' + safeUrl + '" onclick="SYLVEX.editGeneratedVideo(event)">Редактировать видео</button>';
+    }
+    return '<div class="gen-result-actions">' + actions + '</div>';
   }
 
   function renderGeneratedImage(item, index) {
@@ -2219,7 +2296,7 @@ function imageModelButton(model) {
       + '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
       + '<img class="gen-img" src="' + safeThumb + '" alt="generated" loading="lazy" decoding="async" />'
       + '</button>'
-      + renderGeneratedDownloadButton(url, 'image')
+      + renderGeneratedActions(url, 'image')
       + '</div>';
   }
 
@@ -2263,22 +2340,26 @@ function imageModelButton(model) {
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const thumb = meta.thumb_url || meta.image_url || ((meta.result_images || [])[0]) || '';
+    const imageUrl = meta.image_url || ((meta.result_images || [])[0]) || thumb || '';
     const safeThumb = S.escapeHtml(thumb);
     const safeModel = S.escapeHtml(meta.model_label || meta.model || 'Image');
-    return '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
+    return '<div class="generation-result-mini-wrap">'
+      + '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
       + '<span class="generation-result-thumb">' + (safeThumb ? '<img src="' + safeThumb + '" alt="generated image" loading="lazy" decoding="async" />' : '') + '</span>'
       + '<span class="generation-result-meta">'
       + '<span class="generation-result-title">Изображение готово</span>'
       + '<span class="generation-result-sub">' + safeModel + '</span>'
       + '</span>'
-      + '</button>';
+      + '</button>'
+      + (imageUrl ? renderGeneratedActions(imageUrl, 'image') : '')
+      + '</div>';
   }
 
   function renderGeneratedVideo(url) {
     const safeUrl = S.escapeHtml(url);
     return '<div class="gen-media-card gen-video-card">'
       + '<video class="gen-video" src="' + safeUrl + '" controls playsinline preload="metadata"></video>'
-      + renderGeneratedDownloadButton(url, 'video')
+      + renderGeneratedActions(url, 'video')
       + '</div>';
   }
 
@@ -2286,14 +2367,14 @@ function imageModelButton(model) {
     const safeUrl = S.escapeHtml(url);
     return '<div class="gen-media-card gen-audio-card">'
       + '<audio class="gen-audio" src="' + safeUrl + '" controls preload="metadata"></audio>'
-      + renderGeneratedDownloadButton(url, 'audio')
+      + renderGeneratedActions(url, 'audio')
       + '</div>';
   }
 
   function renderGeneratedFile(url) {
     return '<div class="gen-media-card gen-file-card">'
       + '<span class="gen-file-label">Generated file</span>'
-      + renderGeneratedDownloadButton(url, 'file')
+      + renderGeneratedActions(url, 'file')
       + '</div>';
   }
 
@@ -2747,9 +2828,6 @@ function ensureImageViewer() {
     <div class="image-viewer-card" onclick="event.stopPropagation()">
       <button class="image-viewer-close" type="button" onclick="SYLVEX.closeImageViewer(event)">×</button>
       <img id="imageViewerImg" class="image-viewer-img" src="" alt="generated image" />
-    <button id="imageViewerDownload" class="image-viewer-download" type="button" onclick="SYLVEX.downloadImage(event)">
-    Скачать
-    </button>
     </div>
   `;
 
@@ -2771,13 +2849,8 @@ function openImageViewer(e, url) {
 
   const viewer = ensureImageViewer();
   const img = document.getElementById('imageViewerImg');
-  const download = document.getElementById('imageViewerDownload');
 
   if (img) img.src = imageUrl;
-
-if (download) {
-  download.dataset.imageUrl = imageUrl;
-}
 
   viewer.classList.add('show');
 }
@@ -2793,6 +2866,114 @@ function closeImageViewer(e) {
 
   if (viewer) viewer.classList.remove('show');
   if (img) img.src = '';
+}
+
+function telegramBotLink() {
+  const explicit = S.TELEGRAM_BOT_LINK || S.BOT_LINK || '';
+  if (explicit) return explicit;
+  const botLink = Array.from(document.querySelectorAll('a[href*="t.me/"]'))
+    .map((link) => link.href || '')
+    .find((href) => /bot/i.test(href));
+  return botLink || 'https://t.me/sylvexai_bot';
+}
+
+function openTelegramBot(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const url = telegramBotLink();
+  const tgApp = S.tg || (window.Telegram && window.Telegram.WebApp);
+  try {
+    if (tgApp && typeof tgApp.openTelegramLink === 'function' && /(^https?:\/\/)?t\.me\//i.test(url)) {
+      tgApp.openTelegramLink(url);
+    } else if (tgApp && typeof tgApp.openLink === 'function') {
+      tgApp.openLink(url);
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
+  if (tgApp && typeof tgApp.close === 'function') {
+    setTimeout(() => tgApp.close(), 250);
+  }
+}
+
+function openGeneratedContent(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const url = btn && btn.dataset ? (btn.dataset.resultUrl || btn.dataset.videoUrl || btn.dataset.audioUrl || '') : '';
+  if (!url) return;
+  const tgApp = S.tg || (window.Telegram && window.Telegram.WebApp);
+  try {
+    if (tgApp && typeof tgApp.openLink === 'function' && /^https?:\/\//i.test(url)) {
+      tgApp.openLink(url);
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+function animateGeneratedImage(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const imageUrl = btn && btn.dataset ? btn.dataset.imageUrl : '';
+  if (!imageUrl) return;
+
+  closeGenerationInfoDrawer();
+  closeImageViewer();
+  updateComposerMode('video');
+  videoState.section = 'generate';
+  videoState.generationMode = 'image_to_video';
+  videoState.mode = 'image_to_video';
+  videoUploadTarget = 'start';
+  videoState.startImage = imageUrl;
+  videoState.referenceImageUrl = imageUrl;
+  videoState.referenceImageUrls = [imageUrl];
+  videoState.uploadedImageUrls = [imageUrl];
+  videoState.imageUrl = imageUrl;
+  renderVideoControls();
+  renderUploadedPhotoGrid();
+  renderVideoInputPreviews();
+  updateImageUploadButtonPreview();
+  updateSendButton();
+  toast('Фото добавлено как начальное изображение');
+  S.haptic && S.haptic.notify && S.haptic.notify('success');
+}
+
+function editGeneratedVideo(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const videoUrl = btn && btn.dataset ? btn.dataset.videoUrl : '';
+  if (!videoUrl) return;
+
+  closeGenerationInfoDrawer();
+  updateComposerMode('edit');
+  videoState.section = 'edit';
+  videoState.generationMode = 'video_edit';
+  videoState.mode = 'video_edit';
+  videoUploadTarget = 'input_video';
+  videoState.inputVideo = videoUrl;
+  videoState.videoUrl = videoUrl;
+  renderVideoControls();
+  renderUploadedPhotoGrid();
+  renderVideoInputPreviews();
+  updateImageUploadButtonPreview();
+  updateSendButton();
+  toast('Видео добавлено для редактирования');
+  S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
 function ensureGenerationInfoDrawer() {
@@ -2852,7 +3033,8 @@ function openGenerationInfoDrawer(e, index) {
     + (refImages.length ? '<div class="generation-info-section"><div class="generation-info-label">Reference images</div><div class="generation-info-ref-row">' + refImages.map((url) => '<img src="' + S.escapeHtml(url) + '" alt="reference" />').join('') + '</div></div>' : '')
     + (imageUrl ? '<div class="generation-info-actions">'
       + '<button type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" onclick="SYLVEX.openImageViewer(event)">Открыть</button>'
-      + '<button type="button" data-download-url="' + S.escapeHtml(imageUrl) + '" data-download-kind="image" onclick="SYLVEX.downloadGeneratedContent(event)">Скачать</button>'
+      + '<button type="button" data-result-url="' + S.escapeHtml(imageUrl) + '" data-result-kind="image" onclick="SYLVEX.openTelegramBot(event)">Перейти в Telegram</button>'
+      + '<button type="button" data-image-url="' + S.escapeHtml(imageUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">Оживить фото</button>'
       + '</div>' : '');
 
   drawer.classList.add('show');
@@ -2865,73 +3047,6 @@ function closeGenerationInfoDrawer(e) {
   }
   const drawer = document.getElementById('generationInfoDrawer');
   if (drawer) drawer.classList.remove('show');
-}
-
-async function downloadImage(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  const btn = document.getElementById('imageViewerDownload');
-  const url = btn && btn.dataset ? btn.dataset.imageUrl : '';
-  if (!url) return;
-  return downloadUrlThroughBackend(url, 'image');
-}
-
-function extensionFromBlobType(type, kind) {
-  const mime = String(type || '').split(';')[0].trim().toLowerCase();
-  const map = {
-    'image/jpeg': '.jpg',
-    'image/png': '.png',
-    'image/webp': '.webp',
-    'image/gif': '.gif',
-    'video/mp4': '.mp4',
-    'video/webm': '.webm',
-    'audio/mpeg': '.mp3',
-    'audio/mp3': '.mp3',
-    'audio/mp4': '.m4a',
-    'audio/webm': '.webm',
-    'application/pdf': '.pdf',
-  };
-  if (map[mime]) return map[mime];
-  if (kind === 'image') return '.jpg';
-  if (kind === 'video') return '.mp4';
-  if (kind === 'audio') return '.mp3';
-  return '.bin';
-}
-
-async function downloadUrlThroughBackend(url, kind) {
-  if (!url) return;
-  try {
-    const isDataUrl = /^data:/i.test(url);
-    const proxyUrl = '/api/public/prostudio/download-content?kind=' + encodeURIComponent(kind || 'file') + '&url=' + encodeURIComponent(url);
-    const response = await fetch(isDataUrl ? url : proxyUrl, { method: 'GET', cache: 'no-store' });
-    if (!response.ok) throw new Error('download_failed');
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = 'sylvex-' + (kind || 'file') + '-' + Date.now() + extensionFromBlobType(blob.type, kind || 'file');
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
-    toast('Скачивание началось');
-  } catch (err) {
-    toast('Не удалось скачать файл');
-  }
-}
-
-async function downloadGeneratedContent(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  const btn = e && e.currentTarget ? e.currentTarget : null;
-  const url = btn && btn.dataset ? btn.dataset.downloadUrl : '';
-  const kind = btn && btn.dataset ? btn.dataset.downloadKind : 'file';
-  return downloadUrlThroughBackend(url, kind);
 }
 
   function closeUploadImagePreview(e) {
@@ -4351,7 +4466,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, openGenerationInfoDrawer, closeGenerationInfoDrawer, downloadImage, downloadGeneratedContent,
+    signOut, openImageViewer, closeImageViewer, openGeneratedContent, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
   });
@@ -4370,6 +4485,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.closeSupport   = closeSupport;
   window.sendSupport    = sendSupport;
   window.generateNow    = generateNow;
+  window.openTelegramBot = openTelegramBot;
+  window.openGeneratedContent = openGeneratedContent;
+  window.animateGeneratedImage = animateGeneratedImage;
+  window.editGeneratedVideo = editGeneratedVideo;
   window.openGenerationInfoDrawer = openGenerationInfoDrawer;
   window.closeGenerationInfoDrawer = closeGenerationInfoDrawer;
 
@@ -4381,6 +4500,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.pickImageOption = pickImageOption;
   S.pickMusicOption = pickMusicOption;
   S.resetMusicSettings = resetMusicSettings;
+  S.openTelegramBot = openTelegramBot;
+  S.openGeneratedContent = openGeneratedContent;
+  S.animateGeneratedImage = animateGeneratedImage;
+  S.editGeneratedVideo = editGeneratedVideo;
   S.showImageModelPicker = showImageModelPicker;
   S.updateComposerMode = updateComposerMode;
   S.renderVideoControls = renderVideoControls;
