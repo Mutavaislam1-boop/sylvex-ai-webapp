@@ -2323,20 +2323,55 @@ function imageModelButton(model) {
   }
 
   function imagePreviewUrl(meta, fallback) {
-    if (!meta) return fallback || '';
+  const pickUrl = (value) => {
+    if (!value) return '';
 
-    return meta.thumbnail_url
-      || meta.thumb_url
-      || ((meta.result_thumbnails || [])[0])
-      || ((meta.thumbnails || [])[0])
-      || fallback
-      || meta.image_url
-      || meta.result_url
-      || meta.full_url
-      || ((meta.result_images || [])[0])
-      || ((meta.images || [])[0])
-      || '';
-  }
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (typeof value === 'object') {
+      return value.thumbnail_url
+        || value.thumb_url
+        || value.thumbnail
+        || value.thumb
+        || value.url
+        || value.image_url
+        || value.result_url
+        || value.full_url
+        || '';
+    }
+
+    return '';
+  };
+
+  const firstUrl = (list) => {
+    if (!Array.isArray(list)) return '';
+
+    for (const item of list) {
+      const url = pickUrl(item);
+      if (url) return url;
+    }
+
+    return '';
+  };
+
+  if (!meta) return pickUrl(fallback);
+
+  return pickUrl(meta.thumbnail_url)
+    || pickUrl(meta.thumb_url)
+    || firstUrl(meta.result_thumbnails)
+    || firstUrl(meta.thumbnails)
+    || pickUrl(fallback)
+    || pickUrl(meta.image_url)
+    || pickUrl(meta.result_url)
+    || pickUrl(meta.full_url)
+    || firstUrl(meta.result_images)
+    || firstUrl(meta.images)
+    || firstUrl(meta.urls)
+    || firstUrl(meta.output)
+    || '';
+}
 
   function previewImgHtml(url, alt) {
     const safeUrl = S.escapeHtml(url || '');
