@@ -1096,6 +1096,20 @@ function renderAllUploadPreviews() {
   renderVideoReferencesPreview();
 }
 
+function renderUploadPreviewForTarget(targetOverride) {
+  injectImageStyleSheetCss();
+  const target = targetOverride || getUploadTarget();
+  if (target === UPLOAD_TARGETS.VIDEO_START) {
+    renderVideoStartPreview();
+  } else if (target === UPLOAD_TARGETS.VIDEO_END) {
+    renderVideoEndPreview();
+  } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
+    renderVideoReferencesPreview();
+  } else {
+    renderImageUploadPreview();
+  }
+}
+
 function updateImageUploadButtonPreview() {
   renderAllUploadPreviews();
 }
@@ -1106,6 +1120,11 @@ function currentUploadImages(targetOverride) {
   if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage ? [videoState.endImage] : [];
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return (videoState.referenceImageUrls || []).slice();
   return (imageState.uploadedImageUrls || []).slice();
+}
+
+function uploadLimitForTarget(targetOverride) {
+  const target = targetOverride || getUploadTarget();
+  return target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END ? 1 : 4;
 }
 
 function applyUploadToTarget(url, targetOverride) {
@@ -1126,7 +1145,7 @@ function applyUploadToTarget(url, targetOverride) {
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
     const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
     refs.unshift(url);
-    videoState.referenceImageUrls = refs.slice(0, 4);
+    videoState.referenceImageUrls = refs.slice(0, uploadLimitForTarget(target));
     videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
     videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
     videoState.imageUrl = videoState.referenceImageUrl;
@@ -1138,7 +1157,7 @@ function applyUploadToTarget(url, targetOverride) {
   if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
     const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
     uploads.unshift(url);
-    imageState.uploadedImageUrls = uploads.slice(0, 4);
+    imageState.uploadedImageUrls = uploads.slice(0, uploadLimitForTarget(target));
     imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
     imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
     imageState.attachment = imageState.attachment || null;
@@ -1157,8 +1176,8 @@ function addVideoReferenceImage(url) {
 }
 
 function setCurrentUploadImages(urls, targetOverride) {
-  const clean = (urls || []).filter(Boolean).slice(0, 4);
   const target = targetOverride || getUploadTarget();
+  const clean = (urls || []).filter(Boolean).slice(0, uploadLimitForTarget(target));
   if (target === UPLOAD_TARGETS.VIDEO_START) {
     videoState.startImage = clean[0] || '';
     renderVideoStartPreview();
@@ -1166,13 +1185,13 @@ function setCurrentUploadImages(urls, targetOverride) {
     videoState.endImage = clean[0] || '';
     renderVideoEndPreview();
   } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
-    videoState.referenceImageUrls = clean.slice(0, 4);
+    videoState.referenceImageUrls = clean.slice(0, uploadLimitForTarget(target));
     videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
     videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
     videoState.imageUrl = videoState.referenceImageUrl;
     renderVideoReferencesPreview();
   } else if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
-    imageState.uploadedImageUrls = clean.slice(0, 4);
+    imageState.uploadedImageUrls = clean.slice(0, uploadLimitForTarget(target));
     imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
     imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
     renderImageUploadPreview();
@@ -2872,6 +2891,9 @@ function imageModelButton(model) {
           </div>
         <div class="upload-panel-half upload-panel-actions">
         <div id="uploadPhotoGrid" class="upload-photo-grid"></div>
+        <button id="uploadClearPhotosBtn" class="upload-choose-photos-btn" type="button" onclick="SYLVEX.clearCurrentUploadTarget(event)" hidden>
+            Очистить
+        </button>
         <button id="uploadChoosePhotosBtn" class="upload-choose-photos-btn" type="button" onclick="SYLVEX.confirmUploadedPhotos(event)" hidden>
             Выбрать фото
         </button>
@@ -2896,11 +2918,133 @@ function imageModelButton(model) {
   function normalizeGeneratedImageItem(item, thumb) {
     if (!item) return null;
     if (typeof item === 'object') {
-      const url = item.url || item.original_url || item.image_url || '';
+      const url = item.url || item.original_url || item.image_url || item.result_url || item.full_url || '';
       if (!url) return null;
       return { url, thumb: item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || url };
     }
     return { url: item, thumb: thumb || item };
+  }
+
+  function parseMetadataObject(value) {
+    if (!value) return {};
+    if (typeof value === 'object') return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+
+  function firstMediaUrlFrom(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const url = firstMediaUrlFrom(item);
+        if (url) return url;
+      }
+      return '';
+    }
+    if (typeof value === 'object') {
+      return value.url
+        || value.original_url
+        || value.image_url
+        || value.result_url
+        || value.full_url
+        || value.thumb_url
+        || value.thumbnail_url
+        || value.thumb
+        || value.thumbnail
+        || '';
+    }
+    return '';
+  }
+
+  function collectImageHistoryItem(source, fallback) {
+    source = source || {};
+    const meta = Object.assign({}, parseMetadataObject(source && source.metadata_json), parseMetadataObject(source && source.metadata), parseMetadataObject(source));
+    const type = String(meta.type || source.type || source.mode || source.category || '').toLowerCase();
+    const mode = String(meta.mode || source.mode || '').toLowerCase();
+    const category = String(meta.category || source.category || '').toLowerCase();
+    const hasVideo = !!(meta.video_url || source.video_url || (Array.isArray(meta.videos) && meta.videos.length) || (Array.isArray(source.videos) && source.videos.length));
+    const hasAudio = !!(meta.audio_url || source.audio_url || (Array.isArray(meta.audios) && meta.audios.length) || (Array.isArray(source.audios) && source.audios.length));
+    const imageLike = type === 'image' || mode === 'image' || category === 'image'
+      || !!(meta.image_url || meta.result_url || meta.full_url || source.image_url || source.result_url || source.full_url)
+      || !!firstMediaUrlFrom(meta.images || meta.result_images || meta.urls || meta.output || source.images || source.image_urls || source.urls || source.output);
+
+    if (!imageLike || hasVideo || hasAudio) return null;
+
+    const url = firstMediaUrlFrom(meta.full_url)
+      || firstMediaUrlFrom(meta.result_url)
+      || firstMediaUrlFrom(meta.image_url)
+      || firstMediaUrlFrom(meta.result_images)
+      || firstMediaUrlFrom(meta.images)
+      || firstMediaUrlFrom(meta.urls)
+      || firstMediaUrlFrom(meta.output)
+      || firstMediaUrlFrom(source.full_url)
+      || firstMediaUrlFrom(source.result_url)
+      || firstMediaUrlFrom(source.image_url)
+      || firstMediaUrlFrom(source.images)
+      || firstMediaUrlFrom(source.image_urls)
+      || firstMediaUrlFrom(source.urls)
+      || firstMediaUrlFrom(source.output)
+      || firstMediaUrlFrom(fallback);
+
+    if (!url) return null;
+
+    const thumb = firstMediaUrlFrom(meta.thumbnail_url)
+      || firstMediaUrlFrom(meta.thumb_url)
+      || firstMediaUrlFrom(meta.result_thumbnails)
+      || firstMediaUrlFrom(meta.thumbnails)
+      || firstMediaUrlFrom(source.thumbnail_url)
+      || firstMediaUrlFrom(source.thumb_url)
+      || firstMediaUrlFrom(source.thumbnails)
+      || firstMediaUrlFrom(source.thumb_urls)
+      || url;
+
+    return { url, thumb };
+  }
+
+  function pushGeneratedPhotoHistoryItem(items, seen, source, fallback) {
+    const item = collectImageHistoryItem(source || {}, fallback);
+    if (!item || seen.has(item.url)) return;
+    seen.add(item.url);
+    items.push(item);
+  }
+
+  function getGeneratedPhotoHistoryItems() {
+    const items = [];
+    const seen = new Set();
+
+    (generatedImageLibrary || []).forEach((entry) => {
+      pushGeneratedPhotoHistoryItem(items, seen, Object.assign({ type: 'image' }, normalizeGeneratedImageItem(entry) || {}));
+    });
+
+    const messageSources = [];
+    messageSources.push(...(chatMessages || []));
+    Object.keys(chatSpaces || {}).forEach((type) => {
+      if (type !== 'image') return;
+      messageSources.push(...((chatSpaces[type] && chatSpaces[type].messages) || []));
+    });
+
+    messageSources.forEach((message) => {
+      if (!message) return;
+      if (message.metadata) pushGeneratedPhotoHistoryItem(items, seen, message.metadata);
+      if (message.imageResultMini || message.imageUrl || message.images) pushGeneratedPhotoHistoryItem(items, seen, Object.assign({ type: 'image' }, message));
+    });
+
+    (conversationsCache || []).forEach((conversation) => {
+      const conversationType = chatTypeForMode(conversation.type || conversation.mode || conversation.category || '');
+      if (conversationType !== 'image') return;
+      pushGeneratedPhotoHistoryItem(items, seen, Object.assign({ type: 'image' }, conversation));
+      if (conversation.metadata) pushGeneratedPhotoHistoryItem(items, seen, conversation.metadata);
+    });
+
+    return items.slice(0, 80);
   }
 
   function addGeneratedImages(urls, thumbs) {
@@ -2917,20 +3061,21 @@ function imageModelButton(model) {
   function renderUploadPanelImages() {
     const grid = document.getElementById('uploadGeneratedGrid');
     if (!grid) return;
+    const items = getGeneratedPhotoHistoryItems();
 
-    if (!generatedImageLibrary.length) {
-      grid.innerHTML = '';
+    if (!items.length) {
+      grid.innerHTML = '<div class="upload-panel-empty">Пока нет сгенерированных фото</div>';
       return;
     }
 
     const selectedUrl = currentSelectedUploadImage();
-    grid.innerHTML = generatedImageLibrary.map((entry) => {
+    grid.innerHTML = items.map((entry) => {
       const item = normalizeGeneratedImageItem(entry);
       if (!item) return '';
       const safeUrl = S.escapeHtml(item.url);
       const safeThumb = S.escapeHtml(item.thumb || item.url);
       const selected = selectedUrl === item.url;
-      return '<button class="upload-generated-thumb ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.openUploadImagePreview(event,\'' + safeUrl + '\')">'
+      return '<button class="upload-generated-thumb ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.selectGeneratedImage(event,\'' + safeUrl + '\')">'
         + '<img src="' + safeThumb + '" alt="generated image" loading="lazy" decoding="async" />'
         + '<span class="upload-thumb-check">✓</span>'
         + '</button>';
@@ -2939,7 +3084,7 @@ function imageModelButton(model) {
 
   function uploadPhotoButtonHtml() {
   const uploadImages = currentUploadImages();
-  if (uploadImages.length >= 4) return '';
+  if (uploadImages.length >= uploadLimitForTarget()) return '';
 
   if (!uploadImages.length) {
     return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'image\')">'
@@ -2971,6 +3116,8 @@ function imageModelButton(model) {
 
     const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
     if (chooseBtn) chooseBtn.hidden = uploadImages.length === 0;
+    const clearBtn = document.getElementById('uploadClearPhotosBtn');
+    if (clearBtn) clearBtn.hidden = uploadImages.length === 0;
 
     const selectedUrl = currentSelectedUploadImage();
     const items = uploadImages.map((url, index) => {
@@ -2990,12 +3137,13 @@ function imageModelButton(model) {
 
   function addUploadedPhoto(url) {
     if (!url) return;
+    const target = getUploadTarget();
     const uploadImages = currentUploadImages().filter((item) => item !== url);
     uploadImages.push(url);
-    setCurrentUploadImages(uploadImages);
-    applyUploadToTarget(url, getUploadTarget());
+    setCurrentUploadImages(uploadImages, target);
+    applyUploadToTarget(url, target);
     renderUploadedPhotoGrid();
-    renderAllUploadPreviews();
+    renderUploadPreviewForTarget(target);
   }
 
   function selectUploadedPhoto(e, url) {
@@ -3003,9 +3151,10 @@ function imageModelButton(model) {
       e.preventDefault();
       e.stopPropagation();
     }
-    applyUploadToTarget(url, getUploadTarget());
+    const target = getUploadTarget();
+    applyUploadToTarget(url, target);
     renderUploadedPhotoGrid();
-    renderAllUploadPreviews();
+    renderUploadPreviewForTarget(target);
     toast('Фото выбрано');
   }
 
@@ -3015,10 +3164,23 @@ function imageModelButton(model) {
       e.stopPropagation();
     }
     const uploadImages = currentUploadImages();
+    const target = getUploadTarget();
     uploadImages.splice(index, 1);
-    setCurrentUploadImages(uploadImages);
+    setCurrentUploadImages(uploadImages, target);
     renderUploadedPhotoGrid();
-    renderAllUploadPreviews();
+    renderUploadPreviewForTarget(target);
+  }
+
+  function clearCurrentUploadTarget(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const target = getUploadTarget();
+    setCurrentUploadImages([], target);
+    renderUploadPanelImages();
+    renderUploadPreviewForTarget(target);
+    toast('Очищено');
   }
 
     function confirmUploadedPhotos(e) {
@@ -3028,7 +3190,7 @@ function imageModelButton(model) {
     }
 
     renderComposerImageDraft();
-    renderAllUploadPreviews();
+    renderUploadPreviewForTarget(getUploadTarget());
     closeUploadPanel(e);
     toast('Фото добавлены в сообщение');
 
@@ -3375,9 +3537,10 @@ function selectGeneratedImage(e, url) {
     e.stopPropagation();
   }
 
-  applyUploadToTarget(url, getUploadTarget());
+  const target = getUploadTarget();
+  applyUploadToTarget(url, target);
   renderUploadedPhotoGrid();
-  renderAllUploadPreviews();
+  renderUploadPreviewForTarget(target);
   renderUploadPanelImages();
   closeUploadImagePreview(e);
 
@@ -3459,7 +3622,7 @@ function closeUploadPanel(e) {
         if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
         applyUploadToTarget(result, target);
         renderUploadedPhotoGrid();
-        renderAllUploadPreviews();
+        renderUploadPreviewForTarget(target);
         toast('Фото загружено');
       } else {
         setCurrentModeAttachment(attachment);
@@ -3703,20 +3866,11 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     ta.value = ''; autoGrow(ta); updateSendButton();
     clearAttachment();
     if (isVideoMode()) {
-      videoState.referenceImageUrls = [];
-      videoState.referenceImageUrl = '';
-      videoState.uploadedImageUrls = [];
-      videoState.startImage = '';
-      videoState.endImage = '';
       videoState.characterImage = '';
       if (videoState.section !== 'edit') {
         videoState.inputVideo = '';
         videoState.videoUrl = '';
       }
-    } else if (isImageMode()) {
-      imageState.referenceImageUrls = [];
-      imageState.referenceImageUrl = '';
-      imageState.uploadedImageUrls = [];
     } else if (isMusicMode() || isVoiceMode()) {
       currentAudioState().uploads = [];
     }
@@ -4873,7 +5027,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -4913,6 +5067,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.openGenerationInfoDrawer = openGenerationInfoDrawer;
   window.closeGenerationInfoDrawer = closeGenerationInfoDrawer;
   window.expandHistorySection = expandHistorySection;
+  window.clearCurrentUploadTarget = clearCurrentUploadTarget;
 
   S.openImageStylePanel = openImageStylePanel;
   S.closeImageStylePanel = closeImageStylePanel;
@@ -4923,6 +5078,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.openVideoStartUpload = openVideoStartUpload;
   S.openVideoEndUpload = openVideoEndUpload;
   S.openVideoReferencesUpload = openVideoReferencesUpload;
+  S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickImageOption = pickImageOption;
   S.pickMusicOption = pickMusicOption;
   S.resetMusicSettings = resetMusicSettings;
