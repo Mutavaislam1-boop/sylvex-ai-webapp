@@ -2324,15 +2324,12 @@ function imageModelButton(model) {
 
   function imagePreviewUrl(meta, fallback) {
     if (!meta) return fallback || '';
+
     return meta.thumbnail_url
       || meta.thumb_url
       || ((meta.result_thumbnails || [])[0])
       || ((meta.thumbnails || [])[0])
       || fallback
-      || meta.image_url
-      || meta.result_url
-      || ((meta.result_images || [])[0])
-      || ((meta.images || [])[0])
       || '';
   }
 
