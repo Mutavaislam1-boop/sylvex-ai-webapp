@@ -2828,6 +2828,20 @@ function imageModelButton(model) {
     if (sheet) sheet.classList.add('show');
     const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
     S.haptic && S.haptic.impact && S.haptic.impact('light');
+  if (isVideoMode()) {
+  currentUploadTarget = 'video_references';
+  videoUploadTarget = 'reference';
+
+  const plusPop = document.getElementById('plusPop');
+  if (plusPop) plusPop.classList.remove('show');
+
+  const plusSheet = document.getElementById('plusSheet');
+  if (plusSheet) plusSheet.classList.remove('show');
+
+  openUploadPanel(e);
+  return;
+}
+  
   }
   function closePlusSheet(e) {
     if (e && e.target && e.target.id !== 'plusSheet') return;
