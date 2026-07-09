@@ -2467,41 +2467,63 @@ def _json_obj(value) -> dict:
 
 def build_prostudio_metadata(payload: dict, result: dict) -> dict:
     mode = payload.get("mode") or payload.get("category") or result.get("type") or "text"
-    if mode != "image":
+    if mode not in ("image", "video", "music", "voice"):
         return {}
 
-    image_options = payload.get("image_options") or {}
-    if not isinstance(image_options, dict):
-        image_options = {}
+    options_key = f"{mode}_options"
+    options = payload.get(options_key) or {}
+    if not isinstance(options, dict):
+        options = {}
 
     images = _json_list(result.get("images")) or ([result.get("image_url")] if result.get("image_url") else [])
     thumbs = _json_list(result.get("thumbnails")) or ([result.get("thumb_url")] if result.get("thumb_url") else []) or images[:]
+    videos = _json_list(result.get("videos")) or ([result.get("video_url")] if result.get("video_url") else [])
+    audios = _json_list(result.get("audios")) or ([result.get("audio_url")] if result.get("audio_url") else [])
     reference_images = (
-        _json_list(image_options.get("referenceImageUrls"))
-        or _json_list(image_options.get("referenceImages"))
+        _json_list(options.get("referenceImageUrls"))
+        or _json_list(options.get("referenceImages"))
         or _json_list(payload.get("reference_images"))
     )
 
-    model = payload.get("model") or image_options.get("modelId") or result.get("model") or ""
+    model = payload.get("model") or options.get("modelId") or options.get("model") or result.get("model") or ""
     provider = payload.get("provider") or result.get("provider") or ""
+    result_url = ""
+    if mode == "image":
+        result_url = images[0] if images else ""
+    elif mode == "video":
+        result_url = videos[0] if videos else ""
+    else:
+        result_url = audios[0] if audios else ""
     return {
-        "type": "image",
+        "type": mode,
+        "result_url": result_url,
         "model": model,
-        "model_label": result.get("model_label") or image_options.get("modelLabel") or model,
+        "model_label": result.get("model_label") or result.get("model_name") or options.get("modelLabel") or model,
         "provider": provider,
         "prompt": payload.get("prompt") or "",
-        "style": image_options.get("style") or "",
-        "character": image_options.get("character") or "",
-        "objects": image_options.get("objects") or "",
-        "ratio": image_options.get("ratio") or image_options.get("size") or "",
-        "size": image_options.get("size") or image_options.get("ratio") or "",
-        "count": image_options.get("count") or len(images) or 1,
-        "image_options": image_options,
+        "settings": options,
+        "style": options.get("style") or options.get("genre") or "",
+        "character": options.get("character") or "",
+        "objects": options.get("objects") or "",
+        "ratio": options.get("ratio") or options.get("size") or "",
+        "size": options.get("size") or options.get("resolution") or options.get("ratio") or "",
+        "duration": result.get("duration") or options.get("duration") or "",
+        "count": options.get("count") or len(images) or 1,
+        "image_options": options if mode == "image" else {},
+        "video_options": options if mode == "video" else {},
+        "music_options": options if mode == "music" else {},
+        "voice_options": options if mode == "voice" else {},
         "reference_images": reference_images,
         "result_images": images,
         "result_thumbnails": thumbs,
         "image_url": images[0] if images else "",
         "thumb_url": thumbs[0] if thumbs else (images[0] if images else ""),
+        "video_url": videos[0] if videos else "",
+        "videos": videos,
+        "audio_url": audios[0] if audios else "",
+        "audios": audios,
+        "image_url_cover": result.get("image_url") if mode in ("music", "voice") else "",
+        "title": result.get("title") or "",
         "sent_to_telegram": bool(result.get("sent_to_telegram")),
     }
 
@@ -2664,6 +2686,7 @@ async def public_prostudio_conversations(
                             "image_url": images[0] if images else "",
                             "thumb_url": thumbs[0] if thumbs else (images[0] if images else ""),
                         }
+                if metadata:
                     metadata["created_at"] = metadata.get("created_at") or created_value
                 if prompt:
                     messages.append({
