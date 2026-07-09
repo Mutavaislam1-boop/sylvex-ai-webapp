@@ -853,6 +853,8 @@ body.kb-open .nav{
 }
 .hd-new:hover{background:#24262B}
 .hd-section{display:flex;flex-direction:column;gap:2px;padding:0 4px}
+.hd-type-section{display:flex;flex-direction:column;gap:2px;padding:4px 0 8px;border-bottom:1px solid rgba(255,255,255,.04)}
+.hd-type-section:last-child{border-bottom:0}
 .hd-label{font-size:10.5px;letter-spacing:1.2px;color:#6b6b75;text-transform:uppercase;padding:8px 10px 4px}
 .hd-item{
   text-align:left;padding:10px 12px;border-radius:10px;

@@ -9,6 +9,14 @@
   let chatMessages = [];
   let currentConvId = null;
   let conversationsCache = [];
+  const CHAT_SPACE_TYPES = ['image', 'video', 'music', 'voice'];
+  const chatSpaces = {
+    image: { conversationId: null, messages: [] },
+    video: { conversationId: null, messages: [] },
+    music: { conversationId: null, messages: [] },
+    voice: { conversationId: null, messages: [] },
+  };
+  let restoringChatSpace = false;
   // Pending attachment for next send.
   let pendingAttachment = null; // { kind, mime, name, dataBase64 }
   let pendingAttachAccept = '';
@@ -793,6 +801,71 @@ const MODEL_ICON_SVG = {
 function localizedGreeting() {
   return '';
 }
+
+  function chatTypeForMode(mode) {
+    if (mode === 'edit' || mode === 'motion') return 'video';
+    if (CHAT_SPACE_TYPES.includes(mode)) return mode;
+    if (isImageMode()) return 'image';
+    if (isVideoMode()) return 'video';
+    if (isMusicMode()) return 'music';
+    if (isVoiceMode()) return 'voice';
+    return 'video';
+  }
+
+  function currentChatType() {
+    return chatTypeForMode(studioMode);
+  }
+
+  function chatStorageKey(type) {
+    return 'sylvex-prostudio-chat-' + (getTelegramId() || 'anon') + '-' + chatTypeForMode(type);
+  }
+
+  function lastModeStorageKey() {
+    return 'sylvex-prostudio-last-mode-' + (getTelegramId() || 'anon');
+  }
+
+  function rememberCurrentChatSpace() {
+    const type = currentChatType();
+    if (!chatSpaces[type]) return;
+    chatSpaces[type].conversationId = currentConvId || null;
+    chatSpaces[type].messages = (chatMessages || []).slice();
+    try {
+      localStorage.setItem(chatStorageKey(type), JSON.stringify(chatSpaces[type]));
+      localStorage.setItem(lastModeStorageKey(), type);
+    } catch {}
+  }
+
+  function loadStoredChatSpace(type) {
+    const normalized = chatTypeForMode(type);
+    try {
+      const raw = localStorage.getItem(chatStorageKey(normalized));
+      if (!raw) return;
+      const stored = JSON.parse(raw);
+      if (!stored || typeof stored !== 'object') return;
+      chatSpaces[normalized].conversationId = stored.conversationId || null;
+      chatSpaces[normalized].messages = Array.isArray(stored.messages) ? stored.messages : [];
+    } catch {}
+  }
+
+  function restoreChatSpace(type) {
+    const normalized = chatTypeForMode(type);
+    if (!chatSpaces[normalized]) return;
+    loadStoredChatSpace(normalized);
+    currentConvId = chatSpaces[normalized].conversationId || null;
+    chatMessages = (chatSpaces[normalized].messages || []).slice();
+    renderChat();
+    renderConvList();
+    updateSendButton();
+  }
+
+  function savedInitialStudioMode() {
+    try {
+      const saved = localStorage.getItem(lastModeStorageKey());
+      return CHAT_SPACE_TYPES.includes(saved) ? saved : '';
+    } catch {
+      return '';
+    }
+  }
 
   /* ===== Rendering ===== */
   function renderModeStrip() {
@@ -3304,9 +3377,11 @@ function closeUploadPanel(e) {
     try { updateSendButton(); } catch {}
   }
   function updateComposerMode(kind) {
+    if (!restoringChatSpace) rememberCurrentChatSpace();
     const isVideoSection = kind === 'video' || kind === 'edit' || kind === 'motion';
     studioMode = isVideoSection ? 'video' : kind;
     activeCat = studioMode;
+    try { localStorage.setItem(lastModeStorageKey(), currentChatType()); } catch {}
     if (isVideoSection) {
       videoState.section = kind === 'edit' ? 'edit' : (kind === 'motion' ? 'motion' : 'generate');
       if (videoState.section === 'edit') {
@@ -3368,6 +3443,7 @@ function closeUploadPanel(e) {
         updateImageUploadButtonPreview();
       }
     }
+    if (!restoringChatSpace) restoreChatSpace(currentChatType());
     updateSendButton();
   }
   function genAction(kind, tabKey) {
@@ -3466,7 +3542,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     throw err;
   }
   if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
-  if (j.conversation_id) currentConvId = j.conversation_id;
+  if (j.conversation_id) {
+    currentConvId = j.conversation_id;
+    rememberCurrentChatSpace();
+  }
   return j;
 }
 
@@ -3530,6 +3609,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       loadingIndex = chatMessages.push({ typing: true, role: 'ai' }) - 1;
     }
     renderChat();
+    rememberCurrentChatSpace();
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     try {
@@ -3563,6 +3643,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
         }
       }
       loadConversations(); // refresh sidebar order
+      rememberCurrentChatSpace();
     } catch (err) {
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       if (err && err.paywall) {
@@ -3574,10 +3655,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
         role: 'ai',
         text: '⚠️ ' + (err && err.message ? err.message : 'Генерация не прошла')
       });
+      rememberCurrentChatSpace();
     } finally {
       document.body.classList.remove('ai-generating');
     }
     renderChat();
+    rememberCurrentChatSpace();
   }
   function copyMsg(i) {
     const m = chatMessages[i]; if (!m) return;
@@ -3655,12 +3738,17 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   }
   function deleteMsg(i) {
     chatMessages.splice(i, 1); renderChat();
+    rememberCurrentChatSpace();
     S.haptic.impact('light');
   }
   function newChat() {
+    const type = currentChatType();
     currentConvId = null;
     chatMessages = [];
+    chatSpaces[type] = { conversationId: null, messages: [] };
+    rememberCurrentChatSpace();
     renderChat();
+    renderConvList();
     S.haptic.impact('light');
   }
 
@@ -3669,30 +3757,53 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     const tg = getTelegramId();
     if (!tg) return;
     try {
-      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&limit=30&offset=0');
+      const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&limit=80&offset=0');
       const j = await r.json();
       conversationsCache = (j && j.conversations) || [];
       renderConvList();
+      const type = currentChatType();
+      const space = chatSpaces[type] || {};
+      if (!space.conversationId && !(space.messages || []).length && !chatMessages.length) {
+        const latest = conversationsCache.find((c) => chatTypeForMode(c.type || c.mode || 'image') === type);
+        if (latest && latest.id) openConv(latest.id, type, { silent: true });
+      }
     } catch {}
   }
   function renderConvList() {
     const el = document.getElementById('hdConvList'); if (!el) return;
-    if (!conversationsCache.length) {
-      el.innerHTML = '<div class="hd-label" style="opacity:.5">No chats yet</div>';
-      return;
-    }
-    el.innerHTML = conversationsCache.map(c =>
-      '<div class="hd-item-row">' +
-        '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + c.id + '\')">' +
-          S.escapeHtml(c.title || 'Chat') +
-        '</button>' +
-        '<button class="hd-del" onclick="SYLVEX.deleteConv(event,\'' + c.id + '\')" aria-label="Delete">×</button>' +
-      '</div>'
-    ).join('');
+    const labels = {
+      image: 'Генерация фото',
+      video: 'Генерация видео',
+      music: 'Генерация музыки',
+      voice: 'Генерация озвучки',
+    };
+    el.innerHTML = CHAT_SPACE_TYPES.map((type) => {
+      const items = conversationsCache.filter((c) => chatTypeForMode(c.type || c.mode || 'image') === type);
+      return '<div class="hd-type-section">'
+        + '<div class="hd-label">' + S.escapeHtml(labels[type]) + '</div>'
+        + (items.length
+          ? items.map(c =>
+            '<div class="hd-item-row">' +
+              '<button class="hd-item ' + (c.id === currentConvId ? 'act' : '') + '" onclick="SYLVEX.openConv(\'' + S.escapeHtml(c.id) + '\',\'' + type + '\')">' +
+                S.escapeHtml(c.title || 'Chat') +
+              '</button>' +
+              '<button class="hd-del" onclick="SYLVEX.deleteConv(event,\'' + S.escapeHtml(c.id) + '\',\'' + type + '\')" aria-label="Delete">×</button>' +
+            '</div>'
+          ).join('')
+          : '<div class="hd-label" style="opacity:.35">Пока пусто</div>')
+        + '</div>';
+    }).join('');
   }
-  async function openConv(id) {
+  async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
     try {
+      const options = opts || {};
+      const nextType = chatTypeForMode(type || 'image');
+      if (nextType !== currentChatType()) {
+        restoringChatSpace = true;
+        updateComposerMode(nextType);
+        restoringChatSpace = false;
+      }
       const r = await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id + '&limit=50&offset=0');
       const j = await r.json();
       if (!j.ok) return;
@@ -3755,16 +3866,23 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
         };
       });
       if (!chatMessages.length) chatMessages = [];
+      chatSpaces[nextType] = { conversationId: currentConvId, messages: chatMessages.slice() };
+      rememberCurrentChatSpace();
       renderChat();
       renderConvList();
-      toggleHistory();
+      if (!options.silent) toggleHistory();
     } catch {}
   }
-  async function deleteConv(e, id) {
+  async function deleteConv(e, id, type) {
     e.stopPropagation();
     const tg = getTelegramId(); if (!tg) return;
     await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id, { method: 'DELETE' });
-    if (id === currentConvId) newChat();
+    const deletedType = chatTypeForMode(type || currentChatType());
+    if (id === currentConvId && deletedType === currentChatType()) newChat();
+    if (chatSpaces[deletedType] && chatSpaces[deletedType].conversationId === id) {
+      chatSpaces[deletedType] = { conversationId: null, messages: [] };
+      try { localStorage.setItem(chatStorageKey(deletedType), JSON.stringify(chatSpaces[deletedType])); } catch {}
+    }
     loadConversations();
   }
 
@@ -4584,10 +4702,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
 
   function initializeProStudioComposerMode() {
     const composer = document.getElementById('studioComposer');
-    const initialMode = (composer && composer.dataset && composer.dataset.composerMode) || 'video';
-    if (initialMode === 'video') {
-      updateComposerMode('video');
-    }
+    const initialMode = savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video';
+    updateComposerMode(chatTypeForMode(initialMode));
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
@@ -4601,7 +4717,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     initializeProStudioComposerMode();
     applyLang();       // triggers renderDynamic
     initHero();
-    if (!chatMessages.length) chatMessages = [];
+    restoreChatSpace(currentChatType());
     renderChat();
     updateSendButton();
     loadImageCapabilities();
