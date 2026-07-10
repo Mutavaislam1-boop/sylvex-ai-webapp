@@ -195,28 +195,26 @@
                 </span>
                 <span id="imageStyleVal">Стиль</span>
               </button>
-              <button class="studio-image-tool" type="button" onclick="SYLVEX.openImageOptionMenu(event,'character')">
-                <span class="studio-frame-ico">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M9 8l2 2 4-4"/></svg>
-                </span>
-                <span id="imageCharacterVal">Характер</span>
-              </button>
               <button class="studio-image-tool" id="imageUploadButton" data-upload-target="image_upload" type="button" onclick="SYLVEX.openImageUpload(event)">
                 <span class="studio-frame-ico">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
                 </span>
                 <span>Загрузить</span>
               </button>
-              <button class="studio-image-tool" type="button" onclick="SYLVEX.openImageOptionMenu(event,'objects')">
-                <span class="studio-frame-ico">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l-1 18H7L6 3z"/><path d="M9 7h6M10 11h4"/></svg>
-                </span>
-                <span>Объект</span>
-              </button>
             </div>
             <div class="studio-media-column studio-music-tools music-only voice-only" aria-hidden="true"></div>
             <div class="studio-prompt-column">
               <textarea id="chatInput" rows="3" placeholder="Describe your video" oninput="autoGrow(this)"></textarea>
+
+              <div class="image-visual-inline-row image-only">
+                <button class="studio-select-pill image-visual-pill" type="button" onclick="SYLVEX.openImageOptionMenu(event,'character')">
+                  <span id="imageCharacterVal">Персонаж</span>
+                </button>
+                <button class="studio-select-pill image-visual-pill" type="button" onclick="SYLVEX.openImageOptionMenu(event,'objects')">
+                  <span id="imageObjectVal">Объект</span>
+                </button>
+              </div>
+
               <div class="studio-control-row">
                 <button class="studio-select-pill wide" type="button" onclick="SYLVEX.toggleModelPop(event)">
                   <span class="pill-meter"></span>

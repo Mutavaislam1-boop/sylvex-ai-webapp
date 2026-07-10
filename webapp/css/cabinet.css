@@ -3143,3 +3143,29 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   backdrop-filter:none !important;
   -webkit-backdrop-filter:none !important;
 }
+
+.image-visual-inline-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  margin:10px 0 0;
+}
+
+.image-visual-pill{
+  flex:1 1 0;
+  min-width:0;
+  justify-content:center;
+  font-weight:700;
+}
+
+.image-visual-pill span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.image-visual-pill.image-setting-disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
