@@ -81,28 +81,35 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "davinci_ultra": {"provider": "davinci", "provider_model": os.getenv("DAVINCI_ULTRA_MODEL"), "endpoint": os.getenv("DAVINCI_IMAGE_ENDPOINT")},
 }
 IMAGE_MODEL_FEATURES = {
-    "nano_banana_pro": {"character": True, "objects": True, "imageUpload": True},
-    "nano_banana_2": {"character": False, "objects": False, "imageUpload": False},
-    "nano_banana": {"character": True, "objects": True, "imageUpload": True},
-    "gpt_image_2": {"character": True, "objects": True, "imageUpload": True},
-    "seedream_5_0": {"character": True, "objects": True, "imageUpload": True},
-    "seedream_4_5": {"character": True, "objects": True, "imageUpload": True},
-    "seedream_4_0": {"character": True, "objects": True, "imageUpload": True},
-    "grok_pro": {"character": False, "objects": False, "imageUpload": False},
-    "davinci_ultra": {"character": False, "objects": False, "imageUpload": False},
-    "grok": {"character": False, "objects": False, "imageUpload": False},
-    "flux_2": {"character": True, "objects": True, "imageUpload": True},
-    "flux_2_turbo": {"character": True, "objects": True, "imageUpload": True},
-    "flux_pro_kontext": {"character": True, "objects": False, "imageUpload": True},
-    "ideogram_3_0": {"character": False, "objects": False, "imageUpload": False},
-    "ideogram_4_0": {"character": False, "objects": False, "imageUpload": False},
-    "recraft_v4_1": {"character": False, "objects": False, "imageUpload": False},
-    "recraft_v3": {"character": False, "objects": False, "imageUpload": False},
-    "recraft_v4_1_pro": {"character": False, "objects": False, "imageUpload": False},
-    "gpt_image_1": {"character": False, "objects": False, "imageUpload": False},
-    "qwen_image": {"character": False, "objects": False, "imageUpload": False},
-    "qwen_image_2": {"character": False, "objects": False, "imageUpload": False},
-    "qwen_image_2_pro": {"character": False, "objects": False, "imageUpload": False},
+    "nano_banana_pro": {"character": True, "object": True},
+    "nano_banana_2": {"character": False, "object": False},
+    "nano_banana": {"character": True, "object": True},
+    "gpt_image_2": {"character": True, "object": True},
+    "seedream_5_0": {"character": True, "object": True},
+    "seedream_5": {"character": True, "object": True},
+    "seedream_5_pro": {"character": True, "object": True},
+    "seedream_4_5": {"character": True, "object": True},
+    "seedream_4_0": {"character": True, "object": True},
+    "seedream_4": {"character": True, "object": True},
+    "grok_pro": {"character": False, "object": False},
+    "davinci_ultra": {"character": False, "object": False},
+    "grok": {"character": False, "object": False},
+    "flux_2": {"character": True, "object": True},
+    "flux_2_turbo": {"character": True, "object": True},
+    "flux_pro_kontext": {"character": True, "object": False},
+    "ideogram_3_0": {"character": False, "object": False},
+    "ideogram_3": {"character": False, "object": False},
+    "ideogram_4_0": {"character": False, "object": False},
+    "ideogram_4": {"character": False, "object": False},
+    "recraft_v4_1": {"character": False, "object": False},
+    "recraft_v3": {"character": False, "object": False},
+    "recraft_v4_1_pro": {"character": False, "object": False},
+    "gpt_image_1": {"character": False, "object": False},
+    "qwen_image": {"character": False, "object": False},
+    "qwen_image_2": {"character": False, "object": False},
+    "qwen_image_2_pro": {"character": False, "object": False},
+    "krea_2": {"character": False, "object": False},
+    "microsoft_mai_image_2_5": {"character": False, "object": False},
 }
 IMAGE_MODELS_JSON = os.getenv("IMAGE_MODELS_JSON")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
@@ -3478,11 +3485,14 @@ def image_provider_mapping(frontend_model: str) -> dict:
 
 def image_model_features(frontend_model: str) -> dict:
     normalized = (frontend_model or "").strip().lower().replace("-", "_")
-    features = IMAGE_MODEL_FEATURES.get(normalized) or {"character": False, "objects": False, "imageUpload": False}
+    features = IMAGE_MODEL_FEATURES.get(normalized) or re.sub(r"_0$", "", normalized)
+    if isinstance(features, str):
+        features = IMAGE_MODEL_FEATURES.get(features)
+    if not features:
+        features = {"character": False, "object": False}
     return {
         "character": bool(features.get("character")),
-        "objects": bool(features.get("objects")),
-        "imageUpload": bool(features.get("imageUpload")),
+        "object": bool(features.get("object")),
     }
 
 def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
@@ -4277,18 +4287,10 @@ def validate_image_feature_request(payload: dict) -> Optional[dict]:
     features = image_model_features(model)
     has_character = bool(opts.get("characterId") or opts.get("characterReferences"))
     has_object = bool(opts.get("objectId") or opts.get("objectReferences"))
-    has_upload = bool(
-        opts.get("referenceImageUrls")
-        or opts.get("reference_image_urls")
-        or opts.get("referenceImages")
-        or opts.get("images")
-    )
     if has_character and not features["character"]:
         return {"ok": False, "type": "image", "error": "Selected model does not support character references", "model": model}
-    if has_object and not features["objects"]:
+    if has_object and not features["object"]:
         return {"ok": False, "type": "image", "error": "Selected model does not support object references", "model": model}
-    if has_upload and not features["imageUpload"]:
-        return {"ok": False, "type": "image", "error": "Selected model does not support image upload", "model": model}
     return None
 
 
