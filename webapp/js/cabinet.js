@@ -206,37 +206,45 @@ const IMAGE_MODEL_LIST = [
 ];
 
 const MODEL_FEATURES = {
-  nano_banana_pro: { character: true, objects: true, imageUpload: true },
-  nano_banana_2: { character: false, objects: false, imageUpload: false },
-  nano_banana: { character: true, objects: true, imageUpload: true },
-  gpt_image_2: { character: true, objects: true, imageUpload: true },
-  seedream_5_0: { character: true, objects: true, imageUpload: true },
-  seedream_4_5: { character: true, objects: true, imageUpload: true },
-  seedream_4_0: { character: true, objects: true, imageUpload: true },
-  grok_pro: { character: false, objects: false, imageUpload: false },
-  davinci_ultra: { character: false, objects: false, imageUpload: false },
-  grok: { character: false, objects: false, imageUpload: false },
-  flux_2: { character: true, objects: true, imageUpload: true },
-  flux_2_turbo: { character: true, objects: true, imageUpload: true },
-  flux_pro_kontext: { character: true, objects: false, imageUpload: true },
-  ideogram_3_0: { character: false, objects: false, imageUpload: false },
-  ideogram_4_0: { character: false, objects: false, imageUpload: false },
-  recraft_v4_1: { character: false, objects: false, imageUpload: false },
-  recraft_v3: { character: false, objects: false, imageUpload: false },
-  recraft_v4_1_pro: { character: false, objects: false, imageUpload: false },
-  gpt_image_1: { character: false, objects: false, imageUpload: false },
-  qwen_image: { character: false, objects: false, imageUpload: false },
-  qwen_image_2: { character: false, objects: false, imageUpload: false },
-  qwen_image_2_pro: { character: false, objects: false, imageUpload: false },
+  nano_banana_pro: { character: true, object: true },
+  nano_banana_2: { character: false, object: false },
+  nano_banana: { character: true, object: true },
+  gpt_image_2: { character: true, object: true },
+  seedream_5_0: { character: true, object: true },
+  seedream_5: { character: true, object: true },
+  seedream_5_pro: { character: true, object: true },
+  seedream_4_5: { character: true, object: true },
+  seedream_4_0: { character: true, object: true },
+  seedream_4: { character: true, object: true },
+  grok_pro: { character: false, object: false },
+  davinci_ultra: { character: false, object: false },
+  grok: { character: false, object: false },
+  flux_2: { character: true, object: true },
+  flux_2_turbo: { character: true, object: true },
+  flux_pro_kontext: { character: true, object: false },
+  ideogram_3_0: { character: false, object: false },
+  ideogram_3: { character: false, object: false },
+  ideogram_4_0: { character: false, object: false },
+  ideogram_4: { character: false, object: false },
+  recraft_v4_1: { character: false, object: false },
+  recraft_v3: { character: false, object: false },
+  recraft_v4_1_pro: { character: false, object: false },
+  gpt_image_1: { character: false, object: false },
+  qwen_image: { character: false, object: false },
+  qwen_image_2: { character: false, object: false },
+  qwen_image_2_pro: { character: false, object: false },
+  krea_2: { character: false, object: false },
+  microsoft_mai_image_2_5: { character: false, object: false },
 };
 
 function getModelCapabilities(modelId) {
-  const fallback = { character: false, objects: false, imageUpload: false };
-  const cfg = MODEL_FEATURES[String(modelId || '').trim()] || fallback;
+  const fallback = { character: false, object: false };
+  const raw = String(modelId || '').trim();
+  const normalized = raw.replace(/_0$/, '').replace(/-/g, '_');
+  const cfg = MODEL_FEATURES[raw] || MODEL_FEATURES[normalized] || fallback;
   return {
     character: !!cfg.character,
-    objects: !!cfg.objects,
-    imageUpload: !!cfg.imageUpload,
+    object: !!cfg.object,
   };
 }
 
@@ -253,14 +261,21 @@ function presetSvg(label, hue) {
 }
 
 const PRESET_CHARACTERS = [
-  ['character_sofia', 'Sofia', 'female'], ['character_leo', 'Leo', 'male'],
-  ['character_naomi', 'Naomi', 'female'], ['character_hiro', 'Hiro', 'male'],
-  ['character_maya', 'Maya', 'female'], ['character_adam', 'Adam', 'male'],
-  ['character_lina', 'Lina', 'female'], ['character_omar', 'Omar', 'male'],
-  ['character_emma', 'Emma', 'female'], ['character_noah', 'Noah', 'male'],
-  ['character_ava', 'Ava', 'female'], ['character_ivan', 'Ivan', 'male'],
-  ['character_zara', 'Zara', 'female'], ['character_ken', 'Ken', 'male'],
-  ['character_mira', 'Mira', 'female'],
+  ['character_liz', 'Liz', 'female'],
+  ['character_noah', 'Noah', 'male'],
+  ['character_grace', 'Grace', 'female'],
+  ['character_olivia', 'Olivia', 'female'],
+  ['character_emily', 'Emily', 'female'],
+  ['character_yasmin', 'Yasmin', 'female'],
+  ['character_kingston', 'Kingston', 'male'],
+  ['character_leo', 'Leo', 'male'],
+  ['character_naomi', 'Naomi', 'female'],
+  ['character_liam', 'Liam', 'male'],
+  ['character_zara', 'Zara', 'female'],
+  ['character_jax', 'Jax', 'male'],
+  ['character_luca', 'Luca', 'male'],
+  ['character_hiro', 'Hiro', 'male'],
+  ['character_sofia', 'Sofia', 'female'],
 ].map((item, index) => ({
   id: item[0],
   name: item[1],
@@ -272,15 +287,15 @@ const PRESET_CHARACTERS = [
 }));
 
 const PRESET_OBJECTS = [
-  ['object_bag', 'Bag', 'Beige canvas tote bag'],
-  ['object_bottle', 'Bottle', 'Minimal glass bottle'],
+  ['object_moka_pot', 'Moka Pot', 'Classic moka pot'],
+  ['object_toaster', 'Toaster', 'Chrome toaster'],
   ['object_book', 'Book', 'Hardcover book'],
   ['object_lipstick', 'Lipstick', 'Red lipstick'],
-  ['object_headphones', 'Headphones', 'Modern headphones'],
-  ['object_shoes', 'Shoes', 'Elegant shoes'],
-  ['object_coffee_maker', 'Coffee maker', 'Compact coffee maker'],
-  ['object_toaster', 'Toaster', 'Chrome toaster'],
-  ['object_matcha_set', 'Matcha set', 'Ceramic matcha set'],
+  ['object_matcha_set', 'Matcha Set', 'Ceramic matcha set'],
+  ['object_earpods', 'Earpods', 'Wireless earpods'],
+  ['object_stilettos', 'Stilettos', 'Elegant stilettos'],
+  ['object_water_bottle', 'Water Bottle', 'Minimal water bottle'],
+  ['object_bag', 'Bag', 'Beige canvas tote bag'],
 ].map((item, index) => ({
   id: item[0],
   name: item[1],
@@ -1136,83 +1151,53 @@ function localizedGreeting() {
     imageState.objects = '';
   }
 
-  function clearUploadedSourceImage() {
-    imageState.referenceImageUrl = '';
-    imageState.referenceImageUrls = [];
-    imageState.uploadedImageUrls = [];
-    imageState.attachment = null;
-    renderImageUploadPreview();
-  }
-
   function syncImageFeatureAvailability() {
     const caps = getModelCapabilities(imageState.modelId);
     if (!caps.character && imageState.characterId) clearSelectedCharacter();
-    if (!caps.objects && imageState.objectId) clearSelectedObject();
-    if (!caps.imageUpload && ((imageState.referenceImageUrls || []).length || imageState.referenceImageUrl || imageState.attachment)) {
-      clearUploadedSourceImage();
-    }
+    if (!caps.object && imageState.objectId) clearSelectedObject();
     return caps;
   }
 
   function imageFeatureUnavailableToast(feature) {
-    const label = feature === 'character' ? 'персонажей' : feature === 'objects' ? 'объекты' : 'загрузку изображений';
+    const label = feature === 'character' ? 'персонажей' : 'объекты';
     toast('Выбранная AI-модель не поддерживает ' + label + '.');
   }
 
   function ensureImageReferenceSections() {
-    const panel = document.querySelector('.studio-video-panel');
-    const promptColumn = document.querySelector('.studio-prompt-column');
-    if (!panel || !promptColumn) return null;
     let wrap = document.getElementById('imageReferenceSections');
-    if (!wrap) {
-      wrap = document.createElement('div');
-      wrap.id = 'imageReferenceSections';
-      wrap.className = 'image-reference-sections image-only';
-      panel.insertBefore(wrap, promptColumn);
-    }
-    return wrap;
-  }
-
-  function visualCardHtml(item, kind, disabled) {
-    const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
-    return '<button class="image-ref-card ' + (selected ? 'selected ' : '') + (disabled ? 'disabled' : '') + '" type="button" '
-      + (disabled ? 'disabled ' : '')
-      + 'onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
-      + '<span class="image-ref-thumb"><img src="' + S.escapeHtml(item.previewUrl) + '" alt="' + S.escapeHtml(item.name) + '" loading="lazy" decoding="async" /></span>'
-      + '<span class="image-ref-name">' + S.escapeHtml(item.name) + '</span>'
-      + '<span class="image-ref-check">✓</span>'
-      + '</button>';
-  }
-
-  function renderVisualSection(kind, items, caps) {
-    const disabled = kind === 'character' ? !caps.character : !caps.objects;
-    const selected = kind === 'character' ? selectedImageCharacter() : selectedImageObject();
-    const title = kind === 'character' ? 'Персонаж' : 'Объект';
-    const newText = kind === 'character' ? 'Новый персонаж' : 'Новый объект';
-    const unavailable = disabled ? '<div class="image-ref-unavailable">Недоступно для выбранной модели</div>' : '';
-    return '<section class="image-ref-section ' + (disabled ? 'is-disabled' : '') + '" data-ref-kind="' + kind + '">'
-      + '<div class="image-ref-head"><span>' + title + '</span><b>' + (selected ? 'Выбрано: ' + S.escapeHtml(selected.name) : 'Не выбрано') + '</b></div>'
-      + unavailable
-      + '<div class="image-ref-strip">'
-      + '<button class="image-ref-card image-ref-new ' + (disabled ? 'disabled' : '') + '" type="button" ' + (disabled ? 'disabled ' : '') + 'onclick="SYLVEX.openVisualCreateModal(event,\'' + kind + '\')">'
-      + '<span class="image-ref-plus">+</span><span class="image-ref-name">' + newText + '</span>'
-      + '</button>'
-      + items.map((item) => visualCardHtml(item, kind, disabled)).join('')
-      + '</div>'
-      + '</section>';
+    if (wrap) wrap.remove();
+    return null;
   }
 
   function renderImageReferenceSections() {
-    const wrap = ensureImageReferenceSections();
-    if (!wrap) return;
+    ensureImageReferenceSections();
     const caps = syncImageFeatureAvailability();
-    wrap.innerHTML = renderVisualSection('character', imageCharacters(), caps)
-      + renderVisualSection('object', imageObjects(), caps);
-    const uploadBtn = document.getElementById('imageUploadButton');
-    if (uploadBtn) {
-      uploadBtn.disabled = !caps.imageUpload;
-      uploadBtn.classList.toggle('image-feature-disabled', !caps.imageUpload);
-      uploadBtn.title = caps.imageUpload ? '' : 'Загрузка изображения недоступна для выбранной модели';
+    const character = selectedImageCharacter();
+    const object = selectedImageObject();
+
+    const setButtonState = (valueEl, disabled) => {
+      if (!valueEl) return;
+      const btn = valueEl.closest('button');
+      if (!btn) return;
+      btn.disabled = !!disabled;
+      btn.classList.toggle('image-setting-disabled', !!disabled);
+      btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    };
+
+    const characterVal = document.getElementById('imageCharacterVal');
+    if (characterVal) {
+      characterVal.textContent = caps.character
+        ? (character ? character.name : 'Персонаж')
+        : 'Недоступно для выбранной модели';
+      setButtonState(characterVal, !caps.character);
+    }
+
+    const objectVal = document.getElementById('imageObjectVal');
+    if (objectVal) {
+      objectVal.textContent = caps.object
+        ? (object ? object.name : 'Объект')
+        : 'Недоступно для выбранной модели';
+      setButtonState(objectVal, !caps.object);
     }
   }
 
@@ -1451,14 +1436,6 @@ function openUploadTarget(target, e) {
 }
 
 function openImageUpload(e) {
-  if (!getModelCapabilities(imageState.modelId).imageUpload) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    imageFeatureUnavailableToast('imageUpload');
-    return;
-  }
   openUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD, e);
 }
 
@@ -1474,6 +1451,55 @@ function ensureVisualCreateModal() {
   modal.className = 'visual-create-modal';
   document.body.appendChild(modal);
   return modal;
+}
+
+function ensureVisualPickerModal() {
+  let modal = document.getElementById('visualPickerModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'visualPickerModal';
+  modal.className = 'visual-create-modal visual-picker-modal';
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function closeVisualPicker(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const modal = document.getElementById('visualPickerModal');
+  if (modal) modal.classList.remove('show');
+}
+
+function visualPickerCardHtml(item, kind) {
+  const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
+  return '<button class="visual-picker-card ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
+    + '<span class="visual-picker-thumb"><img src="' + S.escapeHtml(item.previewUrl) + '" alt="' + S.escapeHtml(item.name) + '" loading="lazy" decoding="async" /></span>'
+    + '<span class="visual-picker-name">' + S.escapeHtml(item.name) + '</span>'
+    + '<span class="visual-picker-check">✓</span>'
+    + '</button>';
+}
+
+function openVisualPicker(e, kind) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const caps = getModelCapabilities(imageState.modelId);
+  if (kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
+  if (kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
+  const modal = ensureVisualPickerModal();
+  const isCharacter = kind === 'character';
+  const title = isCharacter ? 'Персонаж' : 'Объект';
+  const newText = isCharacter ? 'Новый персонаж' : 'Новый объект';
+  const items = isCharacter ? imageCharacters() : imageObjects();
+  modal.innerHTML = '<div class="visual-create-card visual-picker-card-wrap">'
+    + '<div class="visual-create-head"><button type="button" onclick="SYLVEX.closeVisualPicker(event)">← ' + title + '</button></div>'
+    + '<button class="visual-picker-new" type="button" onclick="SYLVEX.openVisualCreateModal(event,\'' + kind + '\')">+ ' + newText + '</button>'
+    + '<div class="visual-picker-grid">' + items.map((item) => visualPickerCardHtml(item, kind)).join('') + '</div>'
+    + '</div>';
+  modal.classList.add('show');
 }
 
 let visualCreateDraft = { kind: '', photos: [] };
@@ -1519,8 +1545,8 @@ function openVisualCreateModal(e, kind) {
     e.stopPropagation();
   }
   const caps = getModelCapabilities(imageState.modelId);
-  if ((kind === 'character' && !caps.character) || (kind === 'object' && !caps.objects)) {
-    imageFeatureUnavailableToast(kind === 'character' ? 'character' : 'objects');
+  if ((kind === 'character' && !caps.character) || (kind === 'object' && !caps.object)) {
+    imageFeatureUnavailableToast(kind === 'character' ? 'character' : 'object');
     return;
   }
   visualCreateDraft = { kind, name: '', gender: '', description: '', photos: [] };
@@ -1634,6 +1660,7 @@ function saveVisualCreateDraft(e) {
     imageState.objects = item.name;
   }
   closeVisualCreateModal(e);
+  closeVisualPicker(e);
   renderImageReferenceSections();
   toast(kind === 'character' ? 'Персонаж создан' : 'Объект создан');
 }
@@ -1645,7 +1672,7 @@ function pickVisualReference(e, kind, id) {
   }
   const caps = getModelCapabilities(imageState.modelId);
   if (kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
-  if (kind === 'object' && !caps.objects) return imageFeatureUnavailableToast('objects');
+  if (kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
   const list = kind === 'character' ? imageCharacters() : imageObjects();
   const item = list.find((entry) => entry.id === id);
   if (!item) return;
@@ -1668,6 +1695,7 @@ function pickVisualReference(e, kind, id) {
     }
   }
   renderImageReferenceSections();
+  closeVisualPicker(e);
   updateSendButton();
 }
 
@@ -2382,10 +2410,23 @@ function imageModelButton(model) {
   }
 
   function openImageOptionMenu(e, kind) {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
     if (kind === 'model') {
       showImageModelPicker(e);
+      return;
+    }
+
+    if (isImageMode() && kind === 'character') {
+      openVisualPicker(e, 'character');
+      return;
+    }
+
+    if (isImageMode() && kind === 'objects') {
+      openVisualPicker(e, 'object');
       return;
     }
 
@@ -3579,10 +3620,6 @@ function imageModelButton(model) {
     }
 
     if (kind === 'image' && isImageMode()) {
-      if (!getModelCapabilities(imageState.modelId).imageUpload) {
-        imageFeatureUnavailableToast('imageUpload');
-        return;
-      }
       applyUploadToTarget(url, UPLOAD_TARGETS.IMAGE_UPLOAD);
       renderComposerImageDraft();
       updateSendButton();
@@ -4380,10 +4417,6 @@ function closeUploadPanel(e) {
       };
       if ((pendingAttachAccept || '') === 'image' && result) {
         const target = getUploadTarget();
-        if (target === UPLOAD_TARGETS.IMAGE_UPLOAD && !getModelCapabilities(imageState.modelId).imageUpload) {
-          imageFeatureUnavailableToast('imageUpload');
-          return;
-        }
         if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
         applyUploadToTarget(result, target);
         renderUploadedPhotoGrid();
@@ -5792,7 +5825,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
-    pickVisualReference, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
+    pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
@@ -5839,6 +5872,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.expandHistorySection = expandHistorySection;
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
   window.pickVisualReference = pickVisualReference;
+  window.openVisualPicker = openVisualPicker;
+  window.closeVisualPicker = closeVisualPicker;
   window.openVisualCreateModal = openVisualCreateModal;
   window.closeVisualCreateModal = closeVisualCreateModal;
   window.updateVisualCreateDraft = updateVisualCreateDraft;
@@ -5857,6 +5892,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.openVideoReferencesUpload = openVideoReferencesUpload;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
+  S.openVisualPicker = openVisualPicker;
+  S.closeVisualPicker = closeVisualPicker;
   S.openVisualCreateModal = openVisualCreateModal;
   S.closeVisualCreateModal = closeVisualCreateModal;
   S.updateVisualCreateDraft = updateVisualCreateDraft;
