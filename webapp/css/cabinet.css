@@ -3169,3 +3169,37 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   opacity:.45;
   cursor:not-allowed;
 }
+
+.studio-image-tools{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  align-content:start;
+}
+
+.studio-image-tool{
+  min-height:54px;
+  padding:8px 10px;
+  border-radius:14px;
+  background:#2c2c2c;
+  color:#f0f0f0;
+  border:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  font-family:inherit;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+  text-align:center;
+  min-width:0;
+}
+
+.studio-image-tool span:last-child{
+  font-size:13px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  min-width:0;
+}
