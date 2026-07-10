@@ -3169,3 +3169,24 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   opacity:.45;
   cursor:not-allowed;
 }
+
+.image-visual-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    margin:12px 0 14px;
+}
+
+.image-visual-grid .studio-image-tool{
+    width:100%;
+    min-height:54px;
+}
+
+.image-visual-grid .studio-image-tool span:last-child,
+.image-visual-grid .studio-image-tool span{
+    text-align:center;
+}
+
+.studio-prompt-column textarea{
+    margin-top:0;
+}
