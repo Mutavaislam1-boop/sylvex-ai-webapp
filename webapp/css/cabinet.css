@@ -623,7 +623,8 @@ body.kb-open .nav{
   padding:18px 24px 24px;border-radius:28px;background:#202020;
   border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 54px -26px rgba(0,0,0,.9);
 }
-.studio-video-composer[data-composer-mode="image"] .studio-video-panel{grid-template-columns:clamp(220px,28vw,430px) minmax(0,1fr)}
+.studio-video-composer[data-composer-mode="image"] .studio-video-panel{grid-template-columns:1fr}
+.studio-video-composer[data-composer-mode="image"] .studio-prompt-column{border-left:0;padding-left:0}
 .image-setting-disabled{opacity:.48;cursor:not-allowed!important}
 .image-setting-disabled span:last-child{font-size:11px;line-height:1.15;color:#bdbdbd;white-space:normal}
 .visual-create-modal{position:fixed;inset:0;z-index:999999;background:#101010;display:none;color:#f4f4f4}
@@ -3173,18 +3174,21 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 .image-visual-grid{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:10px;
-    margin:12px 0 14px;
+    gap:8px;
+    margin:0 0 14px;
+    width:100%;
 }
 
 .image-visual-grid .studio-image-tool{
     width:100%;
-    min-height:54px;
+    min-height:64px;
+    justify-content:space-between;
+    text-align:left;
 }
 
 .image-visual-grid .studio-image-tool span:last-child,
 .image-visual-grid .studio-image-tool span{
-    text-align:center;
+    text-align:left;
 }
 
 .studio-prompt-column textarea{
