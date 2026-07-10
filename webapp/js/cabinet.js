@@ -35,6 +35,12 @@ let imageState = {
     style: 'auto',
     character: 'auto',
     objects: '',
+    characterId: null,
+    objectId: null,
+    characterReferences: [],
+    objectReferences: [],
+    characterName: '',
+    objectName: '',
     referenceImageUrl: '',
     referenceImageUrls: [],
     uploadedImageUrls: [],
@@ -198,6 +204,92 @@ const IMAGE_MODEL_LIST = [
 
   { id:'davinci_ultra', label:'DaVinci Ultra', desc:'DaVinci image model', icon:'davinci' }
 ];
+
+const MODEL_FEATURES = {
+  nano_banana_pro: { character: true, objects: true, imageUpload: true },
+  nano_banana_2: { character: false, objects: false, imageUpload: false },
+  nano_banana: { character: true, objects: true, imageUpload: true },
+  gpt_image_2: { character: true, objects: true, imageUpload: true },
+  seedream_5_0: { character: true, objects: true, imageUpload: true },
+  seedream_4_5: { character: true, objects: true, imageUpload: true },
+  seedream_4_0: { character: true, objects: true, imageUpload: true },
+  grok_pro: { character: false, objects: false, imageUpload: false },
+  davinci_ultra: { character: false, objects: false, imageUpload: false },
+  grok: { character: false, objects: false, imageUpload: false },
+  flux_2: { character: true, objects: true, imageUpload: true },
+  flux_2_turbo: { character: true, objects: true, imageUpload: true },
+  flux_pro_kontext: { character: true, objects: false, imageUpload: true },
+  ideogram_3_0: { character: false, objects: false, imageUpload: false },
+  ideogram_4_0: { character: false, objects: false, imageUpload: false },
+  recraft_v4_1: { character: false, objects: false, imageUpload: false },
+  recraft_v3: { character: false, objects: false, imageUpload: false },
+  recraft_v4_1_pro: { character: false, objects: false, imageUpload: false },
+  gpt_image_1: { character: false, objects: false, imageUpload: false },
+  qwen_image: { character: false, objects: false, imageUpload: false },
+  qwen_image_2: { character: false, objects: false, imageUpload: false },
+  qwen_image_2_pro: { character: false, objects: false, imageUpload: false },
+};
+
+function getModelCapabilities(modelId) {
+  const fallback = { character: false, objects: false, imageUpload: false };
+  const cfg = MODEL_FEATURES[String(modelId || '').trim()] || fallback;
+  return {
+    character: !!cfg.character,
+    objects: !!cfg.objects,
+    imageUpload: !!cfg.imageUpload,
+  };
+}
+
+function presetSvg(label, hue) {
+  const text = String(label || '').slice(0, 2).toUpperCase();
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">'
+    + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="hsl(' + hue + ',70%,68%)"/><stop offset="1" stop-color="hsl(' + ((hue + 64) % 360) + ',72%,38%)"/></linearGradient></defs>'
+    + '<rect width="160" height="160" rx="34" fill="url(#g)"/>'
+    + '<circle cx="80" cy="62" r="32" fill="rgba(255,255,255,.55)"/>'
+    + '<rect x="36" y="104" width="88" height="38" rx="19" fill="rgba(255,255,255,.42)"/>'
+    + '<text x="80" y="91" font-family="Arial, sans-serif" font-size="34" font-weight="800" fill="#151515" text-anchor="middle">' + text + '</text>'
+    + '</svg>';
+  return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+}
+
+const PRESET_CHARACTERS = [
+  ['character_sofia', 'Sofia', 'female'], ['character_leo', 'Leo', 'male'],
+  ['character_naomi', 'Naomi', 'female'], ['character_hiro', 'Hiro', 'male'],
+  ['character_maya', 'Maya', 'female'], ['character_adam', 'Adam', 'male'],
+  ['character_lina', 'Lina', 'female'], ['character_omar', 'Omar', 'male'],
+  ['character_emma', 'Emma', 'female'], ['character_noah', 'Noah', 'male'],
+  ['character_ava', 'Ava', 'female'], ['character_ivan', 'Ivan', 'male'],
+  ['character_zara', 'Zara', 'female'], ['character_ken', 'Ken', 'male'],
+  ['character_mira', 'Mira', 'female'],
+].map((item, index) => ({
+  id: item[0],
+  name: item[1],
+  gender: item[2],
+  previewUrl: presetSvg(item[1], 18 + index * 23),
+  referenceImages: [presetSvg(item[1] + ' F', 18 + index * 23), presetSvg(item[1] + ' L', 42 + index * 23), presetSvg(item[1] + ' R', 66 + index * 23)],
+  type: 'preset',
+  status: 'ready',
+}));
+
+const PRESET_OBJECTS = [
+  ['object_bag', 'Bag', 'Beige canvas tote bag'],
+  ['object_bottle', 'Bottle', 'Minimal glass bottle'],
+  ['object_book', 'Book', 'Hardcover book'],
+  ['object_lipstick', 'Lipstick', 'Red lipstick'],
+  ['object_headphones', 'Headphones', 'Modern headphones'],
+  ['object_shoes', 'Shoes', 'Elegant shoes'],
+  ['object_coffee_maker', 'Coffee maker', 'Compact coffee maker'],
+  ['object_toaster', 'Toaster', 'Chrome toaster'],
+  ['object_matcha_set', 'Matcha set', 'Ceramic matcha set'],
+].map((item, index) => ({
+  id: item[0],
+  name: item[1],
+  description: item[2],
+  previewUrl: presetSvg(item[1], 190 + index * 17),
+  referenceImages: [presetSvg(item[1] + ' A', 190 + index * 17), presetSvg(item[1] + ' B', 208 + index * 17), presetSvg(item[1] + ' C', 226 + index * 17)],
+  type: 'preset',
+  status: 'ready',
+}));
 
 const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_3_5', label:'Suno Chirp v3.5', providerModel:'chirp-v3-5', desc:'Suno music generation', icon:'suno' },
@@ -641,6 +733,19 @@ function musicOptionsPayload() {
   };
 }
 
+function imageVisualReferenceOptions() {
+  const character = selectedImageCharacter();
+  const object = selectedImageObject();
+  return {
+    characterId: character ? character.id : null,
+    characterName: character ? character.name : '',
+    characterReferences: character ? (character.referenceImages || []).slice() : [],
+    objectId: object ? object.id : null,
+    objectName: object ? object.name : '',
+    objectReferences: object ? (object.referenceImages || []).slice() : [],
+  };
+}
+
 function renderMusicControls() {
   ensureMusicSettings();
   const model = currentMusicModel();
@@ -982,6 +1087,135 @@ function localizedGreeting() {
     }, model);
   }
 
+  function customVisualKey(kind) {
+    return 'sylvex-prostudio-' + kind + '-' + (getTelegramId() || 'anon');
+  }
+
+  function loadCustomVisualItems(kind) {
+    try {
+      const raw = localStorage.getItem(customVisualKey(kind));
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list.filter((item) => item && item.id && item.previewUrl) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveCustomVisualItems(kind, items) {
+    try {
+      localStorage.setItem(customVisualKey(kind), JSON.stringify((items || []).slice(0, 50)));
+    } catch {}
+  }
+
+  function imageCharacters() {
+    return loadCustomVisualItems('characters').concat(PRESET_CHARACTERS);
+  }
+
+  function imageObjects() {
+    return loadCustomVisualItems('objects').concat(PRESET_OBJECTS);
+  }
+
+  function selectedImageCharacter() {
+    return imageCharacters().find((item) => item.id === imageState.characterId) || null;
+  }
+
+  function selectedImageObject() {
+    return imageObjects().find((item) => item.id === imageState.objectId) || null;
+  }
+
+  function clearSelectedCharacter() {
+    imageState.characterId = null;
+    imageState.characterName = '';
+    imageState.characterReferences = [];
+  }
+
+  function clearSelectedObject() {
+    imageState.objectId = null;
+    imageState.objectName = '';
+    imageState.objectReferences = [];
+    imageState.objects = '';
+  }
+
+  function clearUploadedSourceImage() {
+    imageState.referenceImageUrl = '';
+    imageState.referenceImageUrls = [];
+    imageState.uploadedImageUrls = [];
+    imageState.attachment = null;
+    renderImageUploadPreview();
+  }
+
+  function syncImageFeatureAvailability() {
+    const caps = getModelCapabilities(imageState.modelId);
+    if (!caps.character && imageState.characterId) clearSelectedCharacter();
+    if (!caps.objects && imageState.objectId) clearSelectedObject();
+    if (!caps.imageUpload && ((imageState.referenceImageUrls || []).length || imageState.referenceImageUrl || imageState.attachment)) {
+      clearUploadedSourceImage();
+    }
+    return caps;
+  }
+
+  function imageFeatureUnavailableToast(feature) {
+    const label = feature === 'character' ? 'персонажей' : feature === 'objects' ? 'объекты' : 'загрузку изображений';
+    toast('Выбранная AI-модель не поддерживает ' + label + '.');
+  }
+
+  function ensureImageReferenceSections() {
+    const panel = document.querySelector('.studio-video-panel');
+    const promptColumn = document.querySelector('.studio-prompt-column');
+    if (!panel || !promptColumn) return null;
+    let wrap = document.getElementById('imageReferenceSections');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'imageReferenceSections';
+      wrap.className = 'image-reference-sections image-only';
+      panel.insertBefore(wrap, promptColumn);
+    }
+    return wrap;
+  }
+
+  function visualCardHtml(item, kind, disabled) {
+    const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
+    return '<button class="image-ref-card ' + (selected ? 'selected ' : '') + (disabled ? 'disabled' : '') + '" type="button" '
+      + (disabled ? 'disabled ' : '')
+      + 'onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
+      + '<span class="image-ref-thumb"><img src="' + S.escapeHtml(item.previewUrl) + '" alt="' + S.escapeHtml(item.name) + '" loading="lazy" decoding="async" /></span>'
+      + '<span class="image-ref-name">' + S.escapeHtml(item.name) + '</span>'
+      + '<span class="image-ref-check">✓</span>'
+      + '</button>';
+  }
+
+  function renderVisualSection(kind, items, caps) {
+    const disabled = kind === 'character' ? !caps.character : !caps.objects;
+    const selected = kind === 'character' ? selectedImageCharacter() : selectedImageObject();
+    const title = kind === 'character' ? 'Персонаж' : 'Объект';
+    const newText = kind === 'character' ? 'Новый персонаж' : 'Новый объект';
+    const unavailable = disabled ? '<div class="image-ref-unavailable">Недоступно для выбранной модели</div>' : '';
+    return '<section class="image-ref-section ' + (disabled ? 'is-disabled' : '') + '" data-ref-kind="' + kind + '">'
+      + '<div class="image-ref-head"><span>' + title + '</span><b>' + (selected ? 'Выбрано: ' + S.escapeHtml(selected.name) : 'Не выбрано') + '</b></div>'
+      + unavailable
+      + '<div class="image-ref-strip">'
+      + '<button class="image-ref-card image-ref-new ' + (disabled ? 'disabled' : '') + '" type="button" ' + (disabled ? 'disabled ' : '') + 'onclick="SYLVEX.openVisualCreateModal(event,\'' + kind + '\')">'
+      + '<span class="image-ref-plus">+</span><span class="image-ref-name">' + newText + '</span>'
+      + '</button>'
+      + items.map((item) => visualCardHtml(item, kind, disabled)).join('')
+      + '</div>'
+      + '</section>';
+  }
+
+  function renderImageReferenceSections() {
+    const wrap = ensureImageReferenceSections();
+    if (!wrap) return;
+    const caps = syncImageFeatureAvailability();
+    wrap.innerHTML = renderVisualSection('character', imageCharacters(), caps)
+      + renderVisualSection('object', imageObjects(), caps);
+    const uploadBtn = document.getElementById('imageUploadButton');
+    if (uploadBtn) {
+      uploadBtn.disabled = !caps.imageUpload;
+      uploadBtn.classList.toggle('image-feature-disabled', !caps.imageUpload);
+      uploadBtn.title = caps.imageUpload ? '' : 'Загрузка изображения недоступна для выбранной модели';
+    }
+  }
+
   function nextImageCountValue() {
     const counts = [1, 2, 3, 4];
     const currentCount = Number(imageState.count || 1);
@@ -1217,11 +1451,224 @@ function openUploadTarget(target, e) {
 }
 
 function openImageUpload(e) {
+  if (!getModelCapabilities(imageState.modelId).imageUpload) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    imageFeatureUnavailableToast('imageUpload');
+    return;
+  }
   openUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD, e);
 }
 
 function openImageUploadTarget(e) {
   openImageUpload(e);
+}
+
+function ensureVisualCreateModal() {
+  let modal = document.getElementById('visualCreateModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'visualCreateModal';
+  modal.className = 'visual-create-modal';
+  document.body.appendChild(modal);
+  return modal;
+}
+
+let visualCreateDraft = { kind: '', photos: [] };
+
+function visualCreatePhotoSlot(index) {
+  const url = visualCreateDraft.photos[index] || '';
+  return '<button class="visual-photo-slot ' + (url ? 'has-photo' : '') + '" type="button" onclick="SYLVEX.pickVisualCreatePhoto(event,' + index + ')">'
+    + (url ? '<img src="' + S.escapeHtml(url) + '" alt="" />' : '<span>＋</span><b>Добавить фото</b>')
+    + (url ? '<em onclick="SYLVEX.removeVisualCreatePhoto(event,' + index + ')">×</em>' : '')
+    + '</button>';
+}
+
+function renderVisualCreateModal() {
+  const modal = ensureVisualCreateModal();
+  const kind = visualCreateDraft.kind;
+  const isCharacter = kind === 'character';
+  const title = isCharacter ? 'Создание персонажа' : 'Создание объекта';
+  const nameLabel = isCharacter ? 'Имя *' : 'Название *';
+  const namePlaceholder = isCharacter ? 'Введите имя персонажа' : 'Введите название объекта';
+  const hint = isCharacter
+    ? 'Загрузите до 3 фотографий одного человека с разных ракурсов.'
+    : 'Загрузите до 3 фотографий объекта с разных ракурсов.';
+  const name = visualCreateDraft.name || '';
+  const gender = visualCreateDraft.gender || '';
+  const description = visualCreateDraft.description || '';
+  const canSave = visualCreateCanSave();
+  modal.innerHTML = '<div class="visual-create-card">'
+    + '<div class="visual-create-head"><button type="button" onclick="SYLVEX.closeVisualCreateModal(event)">← Назад</button><h3>' + title + '</h3></div>'
+    + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" /></label>'
+    + (isCharacter ? '<label class="visual-field"><span>Пол *</span><select id="visualCreateGender" onchange="SYLVEX.updateVisualCreateDraft(event,\'gender\')"><option value="">Выберите пол</option><option value="male" ' + (gender === 'male' ? 'selected' : '') + '>Мужской</option><option value="female" ' + (gender === 'female' ? 'selected' : '') + '>Женский</option></select></label>' : '')
+    + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')">' + S.escapeHtml(description) + '</textarea></label>' : '')
+    + '<div class="visual-photo-grid">' + [0, 1, 2].map(visualCreatePhotoSlot).join('') + '</div>'
+    + '<p class="visual-create-hint">' + hint + '<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.</p>'
+    + '<button class="visual-create-save" type="button" ' + (canSave ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (isCharacter ? 'Создать персонажа' : 'Создать объект') + '</button>'
+    + '<input id="visualCreateFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />'
+    + '</div>';
+  modal.classList.add('show');
+}
+
+function openVisualCreateModal(e, kind) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const caps = getModelCapabilities(imageState.modelId);
+  if ((kind === 'character' && !caps.character) || (kind === 'object' && !caps.objects)) {
+    imageFeatureUnavailableToast(kind === 'character' ? 'character' : 'objects');
+    return;
+  }
+  visualCreateDraft = { kind, name: '', gender: '', description: '', photos: [] };
+  renderVisualCreateModal();
+}
+
+function closeVisualCreateModal(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const modal = document.getElementById('visualCreateModal');
+  if (modal) modal.classList.remove('show');
+}
+
+function updateVisualCreateDraft(e, field) {
+  const target = e && e.target;
+  visualCreateDraft[field] = target ? target.value : '';
+  if (field === 'gender') {
+    renderVisualCreateModal();
+  } else {
+    updateVisualCreateSaveState();
+  }
+}
+
+function visualCreateCanSave() {
+  const isCharacter = visualCreateDraft.kind === 'character';
+  return String(visualCreateDraft.name || '').trim().length >= 2
+    && (!isCharacter || !!visualCreateDraft.gender)
+    && (visualCreateDraft.photos || []).filter(Boolean).length > 0;
+}
+
+function updateVisualCreateSaveState() {
+  const btn = document.querySelector('#visualCreateModal .visual-create-save');
+  if (btn) btn.disabled = !visualCreateCanSave();
+}
+
+function pickVisualCreatePhoto(e, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const input = document.getElementById('visualCreateFileInput');
+  if (!input) return;
+  input.onchange = () => {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/i.test(file.type || '')) {
+      toast('Поддерживаются только JPG, PNG и WEBP');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast('Файл слишком большой');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      visualCreateDraft.photos[index] = String(reader.result || '');
+      renderVisualCreateModal();
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+
+function removeVisualCreatePhoto(e, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  visualCreateDraft.photos.splice(index, 1);
+  renderVisualCreateModal();
+}
+
+function saveVisualCreateDraft(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const kind = visualCreateDraft.kind;
+  const name = String(visualCreateDraft.name || '').trim();
+  const photos = (visualCreateDraft.photos || []).filter(Boolean).slice(0, 3);
+  if (name.length < 2) return toast(kind === 'character' ? 'Введите имя персонажа' : 'Введите название объекта');
+  if (kind === 'character' && !visualCreateDraft.gender) return toast('Выберите пол');
+  if (!photos.length) return toast('Добавьте хотя бы одну фотографию');
+  const id = (kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now();
+  const item = {
+    id,
+    name,
+    gender: visualCreateDraft.gender || '',
+    description: visualCreateDraft.description || '',
+    previewUrl: photos[0],
+    referenceImages: photos,
+    type: 'custom',
+    status: 'ready',
+    created_at: new Date().toISOString(),
+  };
+  const storageKind = kind === 'character' ? 'characters' : 'objects';
+  const items = loadCustomVisualItems(storageKind);
+  items.unshift(item);
+  saveCustomVisualItems(storageKind, items);
+  if (kind === 'character') {
+    imageState.characterId = item.id;
+    imageState.characterName = item.name;
+    imageState.characterReferences = item.referenceImages.slice();
+  } else {
+    imageState.objectId = item.id;
+    imageState.objectName = item.name;
+    imageState.objectReferences = item.referenceImages.slice();
+    imageState.objects = item.name;
+  }
+  closeVisualCreateModal(e);
+  renderImageReferenceSections();
+  toast(kind === 'character' ? 'Персонаж создан' : 'Объект создан');
+}
+
+function pickVisualReference(e, kind, id) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const caps = getModelCapabilities(imageState.modelId);
+  if (kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
+  if (kind === 'object' && !caps.objects) return imageFeatureUnavailableToast('objects');
+  const list = kind === 'character' ? imageCharacters() : imageObjects();
+  const item = list.find((entry) => entry.id === id);
+  if (!item) return;
+  if (kind === 'character') {
+    if (imageState.characterId === item.id) {
+      clearSelectedCharacter();
+    } else {
+      imageState.characterId = item.id;
+      imageState.characterName = item.name;
+      imageState.characterReferences = (item.referenceImages || []).slice();
+    }
+  } else {
+    if (imageState.objectId === item.id) {
+      clearSelectedObject();
+    } else {
+      imageState.objectId = item.id;
+      imageState.objectName = item.name;
+      imageState.objectReferences = (item.referenceImages || []).slice();
+      imageState.objects = item.name;
+    }
+  }
+  renderImageReferenceSections();
+  updateSendButton();
 }
 
 function openVideoStartUpload(e) {
@@ -1915,7 +2362,8 @@ function imageModelButton(model) {
       updateImageStyleButtonPreview(selectedStyleItem);
     }
     const characterVal = document.getElementById('imageCharacterVal');
-    if (characterVal) characterVal.textContent = imageState.character === 'auto' ? 'Характер' : optionLabel(model.characters, imageState.character, 'Характер');
+    if (characterVal) characterVal.textContent = 'Персонаж';
+    renderImageReferenceSections();
   }
 
   async function loadImageCapabilities() {
@@ -2292,6 +2740,8 @@ function imageModelButton(model) {
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           imageState.modelId = model.id;
+          syncImageFeatureAvailability();
+          renderImageReferenceSections();
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
@@ -2837,6 +3287,12 @@ function imageModelButton(model) {
         referenceImageUrls: refs.slice(),
         referenceImages: refs.slice(),
       }),
+      characterId: backendMeta.characterId || options.characterId || null,
+      characterName: backendMeta.characterName || options.characterName || '',
+      characterReferences: Array.isArray(backendMeta.characterReferences) ? backendMeta.characterReferences.slice() : (Array.isArray(options.characterReferences) ? options.characterReferences.slice() : []),
+      objectId: backendMeta.objectId || options.objectId || null,
+      objectName: backendMeta.objectName || options.objectName || '',
+      objectReferences: Array.isArray(backendMeta.objectReferences) ? backendMeta.objectReferences.slice() : (Array.isArray(options.objectReferences) ? options.objectReferences.slice() : []),
       reference_images: refs,
       result_images: images,
       result_thumbnails: thumbs,
@@ -3123,6 +3579,10 @@ function imageModelButton(model) {
     }
 
     if (kind === 'image' && isImageMode()) {
+      if (!getModelCapabilities(imageState.modelId).imageUpload) {
+        imageFeatureUnavailableToast('imageUpload');
+        return;
+      }
       applyUploadToTarget(url, UPLOAD_TARGETS.IMAGE_UPLOAD);
       renderComposerImageDraft();
       updateSendButton();
@@ -3796,8 +4256,8 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Genre', settings.genre)
     + generationInfoRow('Mood', settings.mood)
     + generationInfoRow('Tempo', settings.tempo)
-    + generationInfoRow('Character', meta.character)
-    + generationInfoRow('Object', meta.objects)
+    + generationInfoRow('Character', meta.characterName || meta.character)
+    + generationInfoRow('Object', meta.objectName || meta.objects)
     + generationInfoRow('Ratio', meta.ratio)
     + generationInfoRow('Size', meta.size || settings.resolution)
     + generationInfoRow('Duration', meta.duration || settings.duration)
@@ -3920,6 +4380,10 @@ function closeUploadPanel(e) {
       };
       if ((pendingAttachAccept || '') === 'image' && result) {
         const target = getUploadTarget();
+        if (target === UPLOAD_TARGETS.IMAGE_UPLOAD && !getModelCapabilities(imageState.modelId).imageUpload) {
+          imageFeatureUnavailableToast('imageUpload');
+          return;
+        }
         if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
         applyUploadToTarget(result, target);
         renderUploadedPhotoGrid();
@@ -4071,7 +4535,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     ? Object.assign({}, imageState, {
         referenceImageUrls: imageReferenceImages,
         referenceImages: imageReferenceImages,
-      })
+      }, imageVisualReferenceOptions())
     : null;
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
@@ -4143,7 +4607,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       ? Object.assign({}, imageState, {
           referenceImageUrls: referenceImages.slice(),
           referenceImages: referenceImages.slice(),
-        })
+        }, imageVisualReferenceOptions())
       : null;
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
@@ -5328,6 +5792,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
+    pickVisualReference, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
@@ -5373,6 +5838,13 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   window.closeGenerationInfoDrawer = closeGenerationInfoDrawer;
   window.expandHistorySection = expandHistorySection;
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
+  window.pickVisualReference = pickVisualReference;
+  window.openVisualCreateModal = openVisualCreateModal;
+  window.closeVisualCreateModal = closeVisualCreateModal;
+  window.updateVisualCreateDraft = updateVisualCreateDraft;
+  window.pickVisualCreatePhoto = pickVisualCreatePhoto;
+  window.removeVisualCreatePhoto = removeVisualCreatePhoto;
+  window.saveVisualCreateDraft = saveVisualCreateDraft;
 
   S.openImageStylePanel = openImageStylePanel;
   S.closeImageStylePanel = closeImageStylePanel;
@@ -5384,6 +5856,13 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   S.openVideoEndUpload = openVideoEndUpload;
   S.openVideoReferencesUpload = openVideoReferencesUpload;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
+  S.pickVisualReference = pickVisualReference;
+  S.openVisualCreateModal = openVisualCreateModal;
+  S.closeVisualCreateModal = closeVisualCreateModal;
+  S.updateVisualCreateDraft = updateVisualCreateDraft;
+  S.pickVisualCreatePhoto = pickVisualCreatePhoto;
+  S.removeVisualCreatePhoto = removeVisualCreatePhoto;
+  S.saveVisualCreateDraft = saveVisualCreateDraft;
   S.pickImageOption = pickImageOption;
   S.pickMusicOption = pickMusicOption;
   S.resetMusicSettings = resetMusicSettings;

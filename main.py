@@ -80,6 +80,30 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "grok": {"provider": "grok", "provider_model": os.getenv("GROK_IMAGE_MODEL"), "endpoint": os.getenv("XAI_IMAGE_ENDPOINT")},
     "davinci_ultra": {"provider": "davinci", "provider_model": os.getenv("DAVINCI_ULTRA_MODEL"), "endpoint": os.getenv("DAVINCI_IMAGE_ENDPOINT")},
 }
+IMAGE_MODEL_FEATURES = {
+    "nano_banana_pro": {"character": True, "objects": True, "imageUpload": True},
+    "nano_banana_2": {"character": False, "objects": False, "imageUpload": False},
+    "nano_banana": {"character": True, "objects": True, "imageUpload": True},
+    "gpt_image_2": {"character": True, "objects": True, "imageUpload": True},
+    "seedream_5_0": {"character": True, "objects": True, "imageUpload": True},
+    "seedream_4_5": {"character": True, "objects": True, "imageUpload": True},
+    "seedream_4_0": {"character": True, "objects": True, "imageUpload": True},
+    "grok_pro": {"character": False, "objects": False, "imageUpload": False},
+    "davinci_ultra": {"character": False, "objects": False, "imageUpload": False},
+    "grok": {"character": False, "objects": False, "imageUpload": False},
+    "flux_2": {"character": True, "objects": True, "imageUpload": True},
+    "flux_2_turbo": {"character": True, "objects": True, "imageUpload": True},
+    "flux_pro_kontext": {"character": True, "objects": False, "imageUpload": True},
+    "ideogram_3_0": {"character": False, "objects": False, "imageUpload": False},
+    "ideogram_4_0": {"character": False, "objects": False, "imageUpload": False},
+    "recraft_v4_1": {"character": False, "objects": False, "imageUpload": False},
+    "recraft_v3": {"character": False, "objects": False, "imageUpload": False},
+    "recraft_v4_1_pro": {"character": False, "objects": False, "imageUpload": False},
+    "gpt_image_1": {"character": False, "objects": False, "imageUpload": False},
+    "qwen_image": {"character": False, "objects": False, "imageUpload": False},
+    "qwen_image_2": {"character": False, "objects": False, "imageUpload": False},
+    "qwen_image_2_pro": {"character": False, "objects": False, "imageUpload": False},
+}
 IMAGE_MODELS_JSON = os.getenv("IMAGE_MODELS_JSON")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
@@ -2517,7 +2541,13 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "settings": options,
         "style": options.get("style") or options.get("genre") or "",
         "character": options.get("character") or "",
+        "characterId": options.get("characterId"),
+        "characterName": options.get("characterName") or "",
+        "characterReferences": _json_list(options.get("characterReferences")),
         "objects": options.get("objects") or "",
+        "objectId": options.get("objectId"),
+        "objectName": options.get("objectName") or options.get("objects") or "",
+        "objectReferences": _json_list(options.get("objectReferences")),
         "ratio": options.get("ratio") or options.get("size") or "",
         "size": options.get("size") or options.get("resolution") or options.get("ratio") or "",
         "duration": result.get("duration") or options.get("duration") or "",
@@ -3409,15 +3439,27 @@ def default_image_capabilities() -> list:
     return models
 
 def get_image_capabilities() -> dict:
+    def enrich(models: list) -> list:
+        out = []
+        for model in models or []:
+            if not isinstance(model, dict):
+                continue
+            item = dict(model)
+            model_id = item.get("id") or item.get("model") or item.get("api_model") or ""
+            frontend_id = str(model_id).replace("seedream-5-0-260128", "seedream_5_0").replace("seedream-4-5-251128", "seedream_4_5").replace("seedream-4-0-250828", "seedream_4_0")
+            item.update(image_model_features(frontend_id))
+            out.append(item)
+        return out
+
     if IMAGE_MODELS_JSON:
         try:
             raw = json.loads(IMAGE_MODELS_JSON)
             models = raw.get("models", raw) if isinstance(raw, dict) else raw
             if isinstance(models, list):
-                return {"ok": True, "models": models}
+                return {"ok": True, "models": enrich(models)}
         except Exception as exc:
             print("IMAGE_MODELS_JSON FAILED:", exc)
-    return {"ok": True, "models": default_image_capabilities()}
+    return {"ok": True, "models": enrich(default_image_capabilities())}
 
 def map_image_model_to_provider_model(frontend_model: str) -> Optional[str]:
     value = (frontend_model or "").strip()
@@ -3433,6 +3475,15 @@ def image_provider_mapping(frontend_model: str) -> dict:
     value = (frontend_model or "").strip()
     normalized = value.lower()
     return IMAGE_PROVIDER_MODEL_MAP.get(normalized) or IMAGE_PROVIDER_MODEL_MAP.get(normalized.replace("-", "_")) or {}
+
+def image_model_features(frontend_model: str) -> dict:
+    normalized = (frontend_model or "").strip().lower().replace("-", "_")
+    features = IMAGE_MODEL_FEATURES.get(normalized) or {"character": False, "objects": False, "imageUpload": False}
+    return {
+        "character": bool(features.get("character")),
+        "objects": bool(features.get("objects")),
+        "imageUpload": bool(features.get("imageUpload")),
+    }
 
 def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
     return {
@@ -3522,6 +3573,13 @@ def build_image_prompt(payload: dict) -> str:
     ).strip()
 
     parts = [base_prompt] if base_prompt else []
+
+    character_name = str(opts.get("characterName") or "").strip()
+    object_name = str(opts.get("objectName") or opts.get("objects") or "").strip()
+    if character_name:
+        parts.append(f"Use the selected character reference as the main person: {character_name}. Preserve identity from the provided reference images.")
+    if object_name:
+        parts.append(f"Include or naturally integrate the selected object reference: {object_name}. Preserve the object's visual identity from the provided reference images.")
 
     size = str(
         opts.get("size")
@@ -4194,16 +4252,44 @@ def normalize_openai_image_size(size: str) -> str:
 
 def image_reference_urls(payload: dict) -> list:
     opts = payload.get("image_options") or {}
-    refs = (
+    refs = []
+    for value in (
+        opts.get("referenceImageUrls"),
+        opts.get("reference_image_urls"),
+        opts.get("referenceImages"),
+        opts.get("images"),
+        opts.get("characterReferences"),
+        opts.get("objectReferences"),
+    ):
+        if isinstance(value, str):
+            refs.append(value)
+        elif isinstance(value, list):
+            refs.extend(value)
+    clean = []
+    for url in refs:
+        if isinstance(url, str) and url.strip() and url not in clean:
+            clean.append(url)
+    return clean
+
+def validate_image_feature_request(payload: dict) -> Optional[dict]:
+    opts = payload.get("image_options") or {}
+    model = opts.get("modelId") or opts.get("model") or payload.get("model") or ""
+    features = image_model_features(model)
+    has_character = bool(opts.get("characterId") or opts.get("characterReferences"))
+    has_object = bool(opts.get("objectId") or opts.get("objectReferences"))
+    has_upload = bool(
         opts.get("referenceImageUrls")
         or opts.get("reference_image_urls")
         or opts.get("referenceImages")
         or opts.get("images")
-        or []
     )
-    if isinstance(refs, str):
-        refs = [refs]
-    return [u for u in refs if isinstance(u, str) and u.strip()]
+    if has_character and not features["character"]:
+        return {"ok": False, "type": "image", "error": "Selected model does not support character references", "model": model}
+    if has_object and not features["objects"]:
+        return {"ok": False, "type": "image", "error": "Selected model does not support object references", "model": model}
+    if has_upload and not features["imageUpload"]:
+        return {"ok": False, "type": "image", "error": "Selected model does not support image upload", "model": model}
+    return None
 
 
 def image_dimensions(size: str) -> tuple[int, int]:
@@ -4559,6 +4645,11 @@ async def public_prostudio_generate(request: Request):
 
     if not prompt and not payload.get("attachment") and not reference_images and not video_references and not video_media:
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
+
+    if mode == "image":
+        feature_error = validate_image_feature_request(payload)
+        if feature_error:
+            return JSONResponse(feature_error, status_code=400)
 
     if mode == "image" and is_seedream_request(payload):
         result = await generateBytePlusSeedreamImage(payload)
