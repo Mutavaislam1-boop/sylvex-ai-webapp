@@ -23,6 +23,8 @@
     voice: [],
   };
   const expandedHistorySections = {};
+  const activeGenerationWatchers = new Set();
+  const openingConversations = new Set();
   let restoringChatSpace = false;
   // Pending attachment for next send.
   let pendingAttachment = null; // { kind, mime, name, dataBase64 }
@@ -799,7 +801,7 @@ function renderMusicControls() {
 
 
 const IMAGE_STYLE_SHEET_ITEMS = [
-  { id:'auto', label:'Авто', image:'assets/styles/auto.png' },
+  { id:'auto', label:'Авто', image:'' },
   { id:'minimal_rainbow_gradient', label:'Minimal Rainbow Gradient', image:'assets/styles/minimal_rainbow_gradient.jpg' },
   { id:'acid_ink', label:'Acid Ink', image:'assets/styles/acid_ink.jpg' },
   { id:'illustrated_retro_futurism', label:'Illustrated Retro Futurism', image:'assets/styles/illustrated_retro_futurism.jpg' },
@@ -1071,12 +1073,42 @@ function localizedGreeting() {
       serverDrafts = data.drafts || {};
       conversationsCache = Array.isArray(data.conversations) ? data.conversations : conversationsCache;
       syncChatCollections(conversationsCache);
+      restoreActiveGenerationJobs(Array.isArray(data.generation_jobs) ? data.generation_jobs : []);
       applyCurrentDraft();
       renderImageControls();
       renderConvList();
     } catch (err) {
       console.warn('[SYLVEX] prostudio sync failed', err);
     }
+  }
+
+  function isActiveGenerationStatus(status) {
+    return ['queued', 'processing', 'provider_processing'].includes(String(status || '').toLowerCase());
+  }
+
+  function restoreActiveGenerationJobs(jobs) {
+    (jobs || []).forEach((job) => {
+      if (!job || !job.id || !isActiveGenerationStatus(job.status)) return;
+      watchGenerationJob(job.id, job);
+    });
+  }
+
+  function watchGenerationJob(jobId, jobInfo) {
+    if (!jobId || activeGenerationWatchers.has(jobId)) return;
+    activeGenerationWatchers.add(jobId);
+    waitGeneration(jobId)
+      .then((result) => {
+        activeGenerationWatchers.delete(jobId);
+        const convId = (result && result.conversation_id) || (jobInfo && jobInfo.conversation_id) || '';
+        loadConversations();
+        if (convId && (!currentConvId || currentConvId === convId)) {
+          openConv(convId, chatTypeForMode((jobInfo && jobInfo.mode) || (result && result.type) || currentChatType()), { silent: true });
+        }
+      })
+      .catch((err) => {
+        activeGenerationWatchers.delete(jobId);
+        console.warn('[SYLVEX] generation watcher failed', jobId, err);
+      });
   }
 
   function applyCurrentDraft() {
@@ -2350,7 +2382,7 @@ function renderImageStylePanel() {
       return `
         <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickImageStyleFromPanel(event, '${S.escapeHtml(id)}')">
           <span class="image-style-thumb">
-            <img src="${S.escapeHtml(image)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />
+            ${image ? `<img src="${S.escapeHtml(image)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="visual-picker-placeholder">＋</span>'}
           </span>
           <span class="image-style-label">${S.escapeHtml(label)}</span>
           <span class="image-style-check">✓</span>
@@ -3114,7 +3146,7 @@ function imageModelButton(model) {
     if (j.thumbnail_url) return [j.thumbnail_url];
     if (Array.isArray(j.thumbnails) && j.thumbnails.length) return j.thumbnails;
     if (Array.isArray(j.images) && j.images.length) {
-      return j.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
+      return j.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || '') : '').filter(Boolean);
     }
     return j.thumb_url ? [j.thumb_url] : [];
   }
@@ -3354,7 +3386,7 @@ function imageModelButton(model) {
     if (m.thumbnail_url) return [m.thumbnail_url];
     if (Array.isArray(m.thumbnails) && m.thumbnails.length) return m.thumbnails;
     if (Array.isArray(m.images) && m.images.length) {
-      return m.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || item.url || '') : '').filter(Boolean);
+      return m.images.map((item) => typeof item === 'object' ? (item.thumb || item.thumb_url || item.thumbnail || item.thumbnail_url || '') : '').filter(Boolean);
     }
     return m.thumbUrl ? [m.thumbUrl] : [];
   }
@@ -3372,10 +3404,6 @@ function imageModelButton(model) {
         || value.thumb_url
         || value.thumbnail
         || value.thumb
-        || value.url
-        || value.image_url
-        || value.result_url
-        || value.full_url
         || '';
     }
 
@@ -3400,13 +3428,6 @@ function imageModelButton(model) {
     || firstUrl(meta.result_thumbnails)
     || firstUrl(meta.thumbnails)
     || pickUrl(fallback)
-    || pickUrl(meta.image_url)
-    || pickUrl(meta.result_url)
-    || pickUrl(meta.full_url)
-    || firstUrl(meta.result_images)
-    || firstUrl(meta.images)
-    || firstUrl(meta.urls)
-    || firstUrl(meta.output)
     || '';
 }
 
@@ -3501,7 +3522,7 @@ function imageModelButton(model) {
         ? backendMeta.thumbnails.slice()
         : (backendMeta.thumbnail_url || backendMeta.thumb_url ? [backendMeta.thumbnail_url || backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
     const imageUrl = backendMeta.image_url || backendMeta.result_url || images[0] || '';
-    const thumbUrl = backendMeta.thumbnail_url || backendMeta.thumb_url || thumbs[0] || imageUrl;
+    const thumbUrl = backendMeta.thumbnail_url || backendMeta.thumb_url || thumbs[0] || '';
     const refs = (backendMeta.reference_images && backendMeta.reference_images.length)
       ? backendMeta.reference_images.slice()
       : (referenceImages || []).slice();
@@ -4745,6 +4766,7 @@ function closeUploadPanel(e) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }
+
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride) {
   const promptText = (prompt || '').trim();
   const imageReferenceImages = isImageMode() && Array.isArray(referenceImagesOverride)
@@ -4805,7 +4827,11 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
 
   const res = await fetch('/api/public/prostudio/generate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+    },
+    cache: 'no-store',
     body: JSON.stringify(payload),
   });
 
@@ -4820,7 +4846,44 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     currentConvId = j.conversation_id;
     rememberCurrentChatSpace();
   }
+  if (j.job_id) {
+    j.result = await waitGeneration(j.job_id);
+  }
+
   return j;
+}
+
+async function waitGeneration(jobId) {
+  while (true) {
+    const res = await fetch(
+      `/api/public/prostudio/job/${jobId}`,
+      { cache: 'no-store' }
+    );
+
+    const job = await res.json().catch(() => ({}));
+    if (!res.ok || !job.ok) {
+      throw new Error(job.error || ('Generation status failed: HTTP ' + res.status));
+    }
+
+    if (job.status === 'completed') {
+      const result = job.result || {};
+      result.job_id = result.job_id || job.job_id || jobId;
+      result.generation_id = result.generation_id || job.generation_id || jobId;
+      result.conversation_id = result.conversation_id || job.conversation_id || '';
+      return result;
+    }
+
+    if (job.status === 'failed') {
+      const error = job.error || {};
+      throw new Error(error.error || error.message || 'Generation failed');
+    }
+
+    if (!isActiveGenerationStatus(job.status)) {
+      throw new Error('Generation ended without completed result');
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
 }
 
    async function sendChat() {
@@ -4879,25 +4942,58 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     try {
-      const j = await callGenerate(v, attachment, referenceImages, videoOptionsSnapshot);
+      const start = await callGenerate(
+        v,
+        attachment,
+        referenceImages,
+        videoOptionsSnapshot
+      );
+      renderChat();
+      rememberCurrentChatSpace();
+
+      const j = start.result || start;
+
       if (photoMode) {
         const images = generatedUrlsFromResponse(j, 'image');
         const thumbs = generatedThumbsFromResponse(j);
+
         if (images.length) addGeneratedImages(images, thumbs);
+
         chatMessages[loadingIndex] = {
           role: 'ai',
           imageResultMini: true,
-          metadata: imageGenerationMetadata(v, referenceImages, j, imageOptionsSnapshot),
+          metadata: imageGenerationMetadata(
+            v,
+            referenceImages,
+            j,
+            imageOptionsSnapshot
+          ),
         };
       } else {
         chatMessages.splice(loadingIndex, 1);
-        const resultType = isVideoMode() ? 'video' : (isMusicMode() ? 'music' : (isVoiceMode() ? 'voice' : 'file'));
-        const resultUrls = generatedUrlsFromResponse(j, resultType === 'video' ? 'video' : 'audio');
+
+        const resultType = isVideoMode()
+          ? 'video'
+          : (isMusicMode()
+              ? 'music'
+              : (isVoiceMode() ? 'voice' : 'file'));
+
+        const resultUrls = generatedUrlsFromResponse(
+          j,
+          resultType === 'video' ? 'video' : 'audio'
+        );
+
         if (resultType !== 'file' && resultUrls.length) {
           chatMessages.push({
             role: 'ai',
             imageResultMini: true,
-            metadata: generationResultMetadata(resultType, v, j, referenceImages, resultType === 'video' ? videoOptionsSnapshot : null),
+            metadata: generationResultMetadata(
+              resultType,
+              v,
+              j,
+              referenceImages,
+              resultType === 'video' ? videoOptionsSnapshot : null
+            ),
           });
         } else {
           chatMessages.push({
@@ -4933,27 +5029,49 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     if (navigator.clipboard) navigator.clipboard.writeText(m.text || '');
     toast(t('copied'));
   }
+
   function regenMsg(i) {
-    const prev = chatMessages[i - 1];
-    if (!prev || prev.role !== 'user') return;
-    chatMessages[i] = { typing: true, role: 'ai' }; renderChat();
-    callGenerate(prev.text, null, prev.referenceImages || [])
-      .then((j) => {
-    chatMessages[i] = {
-      role: 'ai',
-      text: j.sent_to_telegram
-        ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
-        : 'Готово ✅\nГенерация завершена.'
-    };
-        rememberCurrentChatSpace();
-        renderChat();
-      })
-      .catch((err) => {
-        chatMessages[i] = { role: 'ai', text: '⚠️ Генерация не прошла. Проверь выбранную модель и backend-провайдер.' };
-        rememberCurrentChatSpace();
-        renderChat();
-      });
-  }
+  const prev = chatMessages[i - 1];
+  if (!prev || prev.role !== 'user') return;
+
+  chatMessages[i] = { typing: true, role: 'ai' };
+  renderChat();
+
+  callGenerate(prev.text, null, prev.referenceImages || [])
+    .then(async (start) => {
+      const j = start.result || start;
+
+      const resultType = isVideoMode()
+        ? 'video'
+        : (isMusicMode()
+            ? 'music'
+            : (isVoiceMode() ? 'voice' : 'image'));
+
+      chatMessages[i] = {
+        role: 'ai',
+        imageResultMini: true,
+        metadata: generationResultMetadata(
+          resultType,
+          prev.text,
+          j,
+          prev.referenceImages || [],
+          null
+        ),
+      };
+
+      rememberCurrentChatSpace();
+      renderChat();
+    })
+    .catch(() => {
+      chatMessages[i] = {
+        role: 'ai',
+        text: '⚠️ Генерация не прошла. Проверь выбранную модель и backend-провайдер.'
+      };
+
+      rememberCurrentChatSpace();
+      renderChat();
+    });
+}
 
   /* ===== Voice (mic) recording → Whisper ===== */
   async function toggleMic(e) {
@@ -5076,9 +5194,15 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   }
   async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
+    if (!id) return;
+    let openKey = '';
     try {
       const options = opts || {};
       const nextType = chatTypeForMode(type || 'image');
+      openKey = nextType + ':' + id;
+      if (openingConversations.has(openKey)) return;
+      if (id === currentConvId && nextType === currentChatType() && chatMessages.length && options.silent) return;
+      openingConversations.add(openKey);
       if (nextType !== currentChatType()) {
         rememberCurrentChatSpace();
         restoringChatSpace = true;
@@ -5162,7 +5286,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       renderChat();
       renderConvList();
       if (!options.silent) toggleHistory();
-    } catch {}
+    } catch {
+    } finally {
+      if (openKey) openingConversations.delete(openKey);
+    }
   }
   async function deleteConv(e, id, type) {
     e.stopPropagation();
@@ -6011,7 +6138,6 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     initializeProStudioComposerMode();
     applyLang();       // triggers renderDynamic
     initHero();
-    restoreChatSpace(currentChatType());
     renderChat();
     updateSendButton();
     loadImageCapabilities();
