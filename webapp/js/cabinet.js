@@ -420,7 +420,7 @@
 // Pro Studio chat workspace, support modal, hero carousel, pricing logic.
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
-
+  console.log("CABINET JS NEW VERSION 11.07.2026");
   // Pro Studio state.
   let studioMode = 'pro';
   let activeCat = null;
