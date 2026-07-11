@@ -271,26 +271,31 @@
               </div>
             </div>
           <div class="studio-audio-player music-only voice-only">
-            <div class="studio-track-art"></div>
-            <div class="studio-track-title">Сомбра</div>
+            <audio id="studioAudioElement" preload="metadata"></audio>
+            <div class="studio-track-art" id="studioTrackArt">
+              <img id="studioTrackArtImage" src="" alt="Album cover" hidden />
+            </div>
+            <div class="studio-track-title" id="studioTrackTitle">—</div>
             <div class="studio-player-controls">
-              <button type="button" aria-label="Назад">
+              <button type="button" aria-label="Назад" id="studioPrevTrackBtn">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM10 12l9-6v12z"/></svg>
               </button>
-              <button type="button" aria-label="Play">
+              <button type="button" aria-label="Play" id="studioPlayPauseBtn">
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               </button>
-              <button type="button" aria-label="Вперёд">
+              <button type="button" aria-label="Вперёд" id="studioNextTrackBtn">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM5 18l9-6-9-6z"/></svg>
               </button>
             </div>
-            <div class="studio-time">00:00</div>
-            <div class="studio-progress"><span></span></div>
-            <div class="studio-duration">02:58</div>
-            <button class="studio-player-icon" type="button" aria-label="Громкость">
+            <div class="studio-time" id="studioCurrentTime">00:00</div>
+            <div class="studio-progress" id="studioProgressBar">
+              <span id="studioProgressFill"></span>
+            </div>
+            <div class="studio-duration" id="studioDuration">00:00</div>
+            <button class="studio-player-icon" type="button" aria-label="Громкость" id="studioVolumeBtn">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>
             </button>
-            <button class="studio-player-icon" type="button" aria-label="Закрыть">×</button>
+            <button class="studio-player-icon" type="button" aria-label="Закрыть" id="studioClosePlayerBtn">×</button>
           </div>
           <input type="file" id="attachInput" hidden onchange="SYLVEX.onAttachFile(event)" />
         </div>
