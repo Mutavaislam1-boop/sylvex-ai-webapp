@@ -4738,10 +4738,12 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     sent_to_telegram = False
     if telegram_id:
         try:
-            sent_to_telegram = await send_generated_images_to_telegram(
-                telegram_id=telegram_id,
-                images=images,
-                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            asyncio.create_task(
+                send_generated_images_to_telegram(
+                    telegram_id=telegram_id,
+                    images=images,
+                    caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+                )
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -4888,7 +4890,7 @@ def image_error_response(provider: str, frontend_model: str, provider_model: str
 async def finalize_image_result(payload: dict, images: list) -> dict:
     result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
     telegram_id = int(payload.get("telegram_id") or 0)
-    result["sent_to_telegram"] = False
+    result["sent_to_telegram"] = telegram_id > 0
     if telegram_id:
         try:
             result["sent_to_telegram"] = await send_generated_images_to_telegram(
