@@ -3194,3 +3194,29 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 .studio-prompt-column textarea{
     margin-top:0;
 }
+
+@media(min-width:561px){
+  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column{
+    display:grid;
+    grid-template-columns:minmax(180px,260px) minmax(0,1fr);
+    grid-template-areas:
+      "imageTools imagePrompt"
+      "imageTools imageControls";
+    gap:14px 24px;
+    align-items:stretch;
+  }
+
+  .studio-video-composer[data-composer-mode="image"] .image-visual-grid{
+    grid-area:imageTools;
+    align-self:start;
+    margin:0;
+  }
+
+  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column textarea{
+    grid-area:imagePrompt;
+  }
+
+  .studio-video-composer[data-composer-mode="image"] .studio-control-row{
+    grid-area:imageControls;
+  }
+}
