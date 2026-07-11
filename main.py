@@ -2470,6 +2470,86 @@ def ensure_prostudio_table():
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audio_url TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audios_json TEXT")
         cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS metadata_json TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed'")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS model TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS provider TEXT")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS cost INTEGER DEFAULT 0")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS request_json JSONB DEFAULT '{}'::jsonb")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS response_json JSONB DEFAULT '{}'::jsonb")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
+        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prostudio_drafts (
+            telegram_id BIGINT NOT NULL,
+            mode TEXT NOT NULL,
+            conversation_id TEXT,
+            draft_text TEXT DEFAULT '',
+            attachment_json JSONB DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (telegram_id, mode)
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prostudio_resources (
+            id TEXT PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            resource_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            gender TEXT DEFAULT '',
+            preview_url TEXT DEFAULT '',
+            photos_json JSONB DEFAULT '[]'::jsonb,
+            metadata_json JSONB DEFAULT '{}'::jsonb,
+            status TEXT DEFAULT 'ready',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_prostudio_resources_user_type
+        ON prostudio_resources (telegram_id, resource_type, updated_at DESC)
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prostudio_generation_jobs (
+            id TEXT PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            conversation_id TEXT,
+            mode TEXT NOT NULL,
+            model TEXT,
+            provider TEXT,
+            prompt TEXT DEFAULT '',
+            status TEXT DEFAULT 'queued',
+            cost INTEGER DEFAULT 0,
+            request_json JSONB DEFAULT '{}'::jsonb,
+            response_json JSONB DEFAULT '{}'::jsonb,
+            error_json JSONB DEFAULT '{}'::jsonb,
+            result_json JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            completed_at TIMESTAMP
+        )
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_user_mode
+        ON prostudio_generation_jobs (telegram_id, mode, updated_at DESC)
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prostudio_errors (
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT,
+            job_id TEXT,
+            provider TEXT,
+            model TEXT,
+            endpoint TEXT,
+            request_id TEXT,
+            status TEXT DEFAULT 'failed',
+            error_text TEXT,
+            request_json JSONB DEFAULT '{}'::jsonb,
+            response_json JSONB DEFAULT '{}'::jsonb,
+            stack_trace TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
         conn.commit()
     finally:
         cursor.close()
@@ -2496,6 +2576,264 @@ def _json_obj(value) -> dict:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+def _safe_json_dumps(value) -> str:
+    try:
+        return json.dumps(value if value is not None else {}, ensure_ascii=False)
+    except Exception:
+        return "{}"
+
+def create_prostudio_generation_job(payload: dict) -> str:
+    job_id = str(uuid4())
+    telegram_id = int(payload.get("telegram_id") or 0)
+    if not DATABASE_URL or not telegram_id:
+        return job_id
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO prostudio_generation_jobs (
+                id, telegram_id, conversation_id, mode, model, provider, prompt, status, request_json
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'queued', %s::jsonb)
+        """, (
+            job_id,
+            telegram_id,
+            payload.get("conversation_id") or None,
+            payload.get("mode") or payload.get("category") or "text",
+            payload.get("model") or "",
+            payload.get("provider") or "",
+            payload.get("prompt") or "",
+            _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("PROSTUDIO JOB CREATE FAILED:", exc)
+    return job_id
+
+def update_prostudio_generation_job(job_id: str, status: str, result: Optional[dict] = None, error: Optional[dict] = None, conversation_id: str = ""):
+    if not DATABASE_URL or not job_id:
+        return
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE prostudio_generation_jobs
+            SET status = %s,
+                conversation_id = COALESCE(NULLIF(%s, ''), conversation_id),
+                response_json = COALESCE(%s::jsonb, response_json),
+                result_json = COALESCE(%s::jsonb, result_json),
+                error_json = COALESCE(%s::jsonb, error_json),
+                updated_at = NOW(),
+                completed_at = CASE WHEN %s IN ('completed', 'failed') THEN NOW() ELSE completed_at END
+            WHERE id = %s
+        """, (
+            status,
+            conversation_id or "",
+            _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
+            _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
+            _safe_json_dumps(_sanitize_event_payload(error or {}, max_text=1200, max_items=50, depth=5)),
+            status,
+            job_id,
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("PROSTUDIO JOB UPDATE FAILED:", exc)
+
+def log_prostudio_error(payload: dict, error: dict, job_id: str = ""):
+    telegram_id = int(payload.get("telegram_id") or 0)
+    if not DATABASE_URL:
+        return
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO prostudio_errors (
+                telegram_id, job_id, provider, model, endpoint, request_id, status,
+                error_text, request_json, response_json, stack_trace
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
+        """, (
+            telegram_id or None,
+            job_id or None,
+            error.get("provider") or payload.get("provider") or "",
+            error.get("model") or payload.get("model") or "",
+            error.get("endpoint") or "",
+            error.get("request_id") or "",
+            error.get("status") or "failed",
+            error.get("error") or error.get("message") or str(error)[:1000],
+            _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
+            _safe_json_dumps(_sanitize_event_payload(error, max_text=1200, max_items=50, depth=5)),
+            error.get("stack_trace") or "",
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("PROSTUDIO ERROR LOG FAILED:", exc)
+
+def save_prostudio_draft(telegram_id: int, mode: str, draft_text: str = "", conversation_id: str = "", attachment: Optional[dict] = None) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {}
+    mode = (mode or "image").strip().lower()
+    if mode not in {"image", "video", "music", "voice"}:
+        mode = "image"
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO prostudio_drafts (telegram_id, mode, conversation_id, draft_text, attachment_json, updated_at)
+            VALUES (%s, %s, %s, %s, %s::jsonb, NOW())
+            ON CONFLICT (telegram_id, mode) DO UPDATE SET
+                conversation_id = EXCLUDED.conversation_id,
+                draft_text = EXCLUDED.draft_text,
+                attachment_json = EXCLUDED.attachment_json,
+                updated_at = NOW()
+        """, (telegram_id, mode, conversation_id or None, draft_text or "", _safe_json_dumps(attachment or {})))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return {"mode": mode, "conversation_id": conversation_id, "draft_text": draft_text or "", "attachment": attachment or {}}
+    except Exception as exc:
+        print("PROSTUDIO DRAFT SAVE FAILED:", exc)
+        return {}
+
+def load_prostudio_drafts(telegram_id: int) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {}
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT mode, conversation_id, draft_text, attachment_json, updated_at
+            FROM prostudio_drafts
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        result = {}
+        for mode, conversation_id, draft_text, attachment_json, updated_at in rows:
+            result[mode] = {
+                "mode": mode,
+                "conversation_id": conversation_id,
+                "draft_text": draft_text or "",
+                "attachment": _json_obj(attachment_json),
+                "updated_at": _to_iso(updated_at),
+            }
+        return result
+    except Exception as exc:
+        print("PROSTUDIO DRAFT LOAD FAILED:", exc)
+        return {}
+
+def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return resource or {}
+    kind = (resource.get("resource_type") or resource.get("type") or resource.get("kind") or "").strip().lower()
+    if kind in {"characters", "character"}:
+        kind = "character"
+    elif kind in {"objects", "object"}:
+        kind = "object"
+    else:
+        return {}
+    resource_id = resource.get("id") or f"custom_{kind}_{uuid4().hex}"
+    photos = _json_list(resource.get("photos")) or _json_list(resource.get("referenceImages")) or _json_list(resource.get("reference_images"))
+    preview = resource.get("previewUrl") or resource.get("preview_url") or (photos[0] if photos else "")
+    item = {
+        "id": resource_id,
+        "name": resource.get("name") or "",
+        "gender": resource.get("gender") or "",
+        "description": resource.get("description") or "",
+        "previewUrl": preview,
+        "referenceImages": photos,
+        "type": "custom",
+        "status": resource.get("status") or "ready",
+        "created_at": resource.get("created_at"),
+    }
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO prostudio_resources (
+                id, telegram_id, resource_type, name, description, gender,
+                preview_url, photos_json, metadata_json, status, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                gender = EXCLUDED.gender,
+                preview_url = EXCLUDED.preview_url,
+                photos_json = EXCLUDED.photos_json,
+                metadata_json = EXCLUDED.metadata_json,
+                status = EXCLUDED.status,
+                updated_at = NOW()
+        """, (
+            item["id"],
+            telegram_id,
+            kind,
+            item["name"],
+            item["description"],
+            item["gender"],
+            item["previewUrl"],
+            _safe_json_dumps(photos),
+            _safe_json_dumps(_sanitize_event_payload(resource, max_text=1200, max_items=50, depth=5)),
+            item["status"],
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        log_user_event(telegram_id, "miniapp", "resource", f"{kind}_saved", {"id": item["id"], "name": item["name"]})
+    except Exception as exc:
+        print("PROSTUDIO RESOURCE SAVE FAILED:", exc)
+    return item
+
+def load_prostudio_resources(telegram_id: int) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {"characters": [], "objects": []}
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, resource_type, name, description, gender, preview_url, photos_json, status, created_at, updated_at
+            FROM prostudio_resources
+            WHERE telegram_id = %s
+            ORDER BY updated_at DESC
+        """, (telegram_id,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        result = {"characters": [], "objects": []}
+        for resource_id, kind, name, description, gender, preview, photos_json, status, created_at, updated_at in rows:
+            photos = _json_list(photos_json)
+            item = {
+                "id": resource_id,
+                "name": name or "",
+                "description": description or "",
+                "gender": gender or "",
+                "previewUrl": preview or (photos[0] if photos else ""),
+                "referenceImages": photos,
+                "type": "custom",
+                "status": status or "ready",
+                "created_at": _to_iso(created_at),
+                "updated_at": _to_iso(updated_at),
+            }
+            if kind == "character":
+                result["characters"].append(item)
+            elif kind == "object":
+                result["objects"].append(item)
+        return result
+    except Exception as exc:
+        print("PROSTUDIO RESOURCE LOAD FAILED:", exc)
+        return {"characters": [], "objects": []}
 
 def build_prostudio_metadata(payload: dict, result: dict) -> dict:
     mode = payload.get("mode") or payload.get("category") or result.get("type") or "text"
@@ -2663,8 +3001,16 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
                 videos_json,
                 audio_url,
                 audios_json,
-                metadata_json
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                metadata_json,
+                status,
+                model,
+                provider,
+                cost,
+                request_json,
+                response_json,
+                updated_at,
+                completed_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW(), NOW())
         """, (
             conversation_id,
             telegram_id,
@@ -2680,6 +3026,12 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             result.get("audio_url") or "",
             json.dumps(_json_list(result.get("audios")), ensure_ascii=False),
             json.dumps(metadata, ensure_ascii=False),
+            result.get("status") or "completed",
+            payload.get("model") or "",
+            payload.get("provider") or "",
+            int(result.get("cost") or result.get("price") or 0),
+            _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
+            _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
         ))
         conn.commit()
         cursor.close()
@@ -2717,7 +3069,10 @@ async def public_prostudio_conversations(
 
         if conversation_id:
             cursor.execute("""
-                SELECT prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, created_at
+                SELECT
+                    prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
+                    video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
+                    status, model, provider, cost, response_json
                 FROM prostudio_messages
                 WHERE telegram_id = %s
                   AND conversation_id = %s
@@ -2728,7 +3083,11 @@ async def public_prostudio_conversations(
             cursor.close()
             conn.close()
             messages = []
-            for prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, created_at in rows:
+            for (
+                prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
+                video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
+                status, model, provider, cost, response_json,
+            ) in rows:
                 images = _json_list(images_json) or ([image_url] if image_url else [])
                 thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
                 videos = _json_list(videos_json) or ([video_url] if video_url else [])
@@ -2752,6 +3111,13 @@ async def public_prostudio_conversations(
                         }
                 if metadata:
                     metadata["created_at"] = metadata.get("created_at") or created_value
+                    metadata["status"] = metadata.get("status") or status or "completed"
+                    metadata["model"] = metadata.get("model") or model or ""
+                    metadata["provider"] = metadata.get("provider") or provider or ""
+                    metadata["cost"] = metadata.get("cost") or cost or 0
+                    response_data = _json_obj(response_json)
+                    if response_data.get("job_id") and not metadata.get("job_id"):
+                        metadata["job_id"] = response_data.get("job_id")
                 if prompt:
                     messages.append({
                         "role": "user",
@@ -2771,6 +3137,10 @@ async def public_prostudio_conversations(
                     "audio_url": audios[0] if audios else "",
                     "audios": audios,
                     "metadata": metadata,
+                    "status": status or "completed",
+                    "model": model or "",
+                    "provider": provider or "",
+                    "cost": cost or 0,
                     "created_at": created_value,
                 })
             return {"ok": True, "messages": messages, "limit": limit, "offset": offset}
@@ -2839,6 +3209,188 @@ async def delete_public_prostudio_conversation(
         print("PROSTUDIO CONVERSATION DELETE FAILED:", exc)
 
     return {"ok": True}
+
+@app.get("/api/public/prostudio/sync")
+async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    resources = load_prostudio_resources(telegram_id)
+    drafts = load_prostudio_drafts(telegram_id)
+    conversations = []
+    jobs = []
+
+    if DATABASE_URL:
+        try:
+            ensure_prostudio_table()
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor()
+            safe_limit = max(1, min(int(limit or 80), 200))
+            cursor.execute("""
+                SELECT
+                    conversation_id,
+                    COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                    MAX(created_at) AS updated_at,
+                    COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                    MIN(created_at) AS created_at
+                FROM prostudio_messages
+                WHERE telegram_id = %s
+                GROUP BY conversation_id
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, (telegram_id, safe_limit))
+            for row in cursor.fetchall():
+                conversations.append({
+                    "id": row[0],
+                    "title": (row[1] or "Chat")[:64],
+                    "updated_at": _to_iso(row[2]),
+                    "type": row[3] or "image",
+                    "created_at": _to_iso(row[4]),
+                })
+
+            cursor.execute("""
+                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                FROM prostudio_generation_jobs
+                WHERE telegram_id = %s
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, (telegram_id, safe_limit))
+            for row in cursor.fetchall():
+                jobs.append({
+                    "id": row[0],
+                    "conversation_id": row[1],
+                    "mode": row[2],
+                    "model": row[3],
+                    "provider": row[4],
+                    "prompt": row[5],
+                    "status": row[6],
+                    "cost": row[7] or 0,
+                    "result": _json_obj(row[8]),
+                    "error": _json_obj(row[9]),
+                    "created_at": _to_iso(row[10]),
+                    "updated_at": _to_iso(row[11]),
+                    "completed_at": _to_iso(row[12]),
+                })
+            cursor.close()
+            conn.close()
+        except Exception as exc:
+            print("PROSTUDIO SYNC FAILED:", exc)
+
+    return {
+        "ok": True,
+        "telegram_id": telegram_id,
+        "conversations": conversations,
+        "drafts": drafts,
+        "resources": resources,
+        "generation_jobs": jobs,
+    }
+
+@app.get("/api/public/prostudio/draft")
+async def public_prostudio_get_draft(telegram_id: int = 0, mode: str = ""):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    drafts = load_prostudio_drafts(telegram_id)
+    normalized = (mode or "").strip().lower()
+    if normalized:
+        return {"ok": True, "draft": drafts.get(normalized) or {}}
+    return {"ok": True, "drafts": drafts}
+
+@app.post("/api/public/prostudio/draft")
+async def public_prostudio_save_draft(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    draft = save_prostudio_draft(
+        telegram_id=telegram_id,
+        mode=data.get("mode") or data.get("category") or "image",
+        draft_text=data.get("draft_text") or data.get("text") or "",
+        conversation_id=data.get("conversation_id") or "",
+        attachment=data.get("attachment") or {},
+    )
+    log_user_event(telegram_id, "miniapp", "draft", "draft_saved", {
+        "mode": draft.get("mode"),
+        "has_text": bool(draft.get("draft_text")),
+    })
+    return {"ok": True, "draft": draft}
+
+@app.get("/api/public/prostudio/resources")
+async def public_prostudio_get_resources(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    return {"ok": True, "resources": load_prostudio_resources(telegram_id)}
+
+@app.post("/api/public/prostudio/resources")
+async def public_prostudio_save_resource(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    item = save_prostudio_resource(telegram_id, data)
+    if not item:
+        return JSONResponse({"ok": False, "error": "invalid_resource"}, status_code=400)
+    return {"ok": True, "resource": item}
+
+@app.post("/api/public/prostudio/events")
+async def public_prostudio_event(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    log_user_event(
+        telegram_id=telegram_id,
+        source=data.get("source") or "miniapp",
+        event_type=data.get("event_type") or data.get("type") or "ui",
+        event_name=data.get("event_name") or data.get("name") or "",
+        payload=data.get("payload") or {},
+    )
+    return {"ok": True}
+
+@app.get("/api/public/prostudio/generation-jobs")
+async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "", limit: int = 50):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    jobs = []
+    if DATABASE_URL:
+        try:
+            ensure_prostudio_table()
+            normalized = (mode or "").strip().lower()
+            where_mode = "AND mode = %s" if normalized in {"image", "video", "music", "voice"} else ""
+            params = [telegram_id]
+            if where_mode:
+                params.append(normalized)
+            params.append(max(1, min(int(limit or 50), 200)))
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                FROM prostudio_generation_jobs
+                WHERE telegram_id = %s
+                  {where_mode}
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, tuple(params))
+            for row in cursor.fetchall():
+                jobs.append({
+                    "id": row[0],
+                    "conversation_id": row[1],
+                    "mode": row[2],
+                    "model": row[3],
+                    "provider": row[4],
+                    "prompt": row[5],
+                    "status": row[6],
+                    "cost": row[7] or 0,
+                    "result": _json_obj(row[8]),
+                    "error": _json_obj(row[9]),
+                    "created_at": _to_iso(row[10]),
+                    "updated_at": _to_iso(row[11]),
+                    "completed_at": _to_iso(row[12]),
+                })
+            cursor.close()
+            conn.close()
+        except Exception as exc:
+            print("PROSTUDIO JOB LIST FAILED:", exc)
+    return {"ok": True, "jobs": jobs}
 
 @app.post("/api/public/payments/paypal/create-order")
 async def public_paypal_create_order(request: Request):
@@ -4653,6 +5205,17 @@ async def public_prostudio_generate(request: Request):
         if feature_error:
             return JSONResponse(feature_error, status_code=400)
 
+    job_id = create_prostudio_generation_job(payload) if mode in generation_modes else ""
+    if job_id:
+        update_prostudio_generation_job(job_id, "processing")
+        log_user_event(
+            int(payload.get("telegram_id") or 0),
+            "miniapp",
+            "generation",
+            "generation_started",
+            {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
+        )
+
     if mode == "image" and is_seedream_request(payload):
         result = await generateBytePlusSeedreamImage(payload)
     elif mode == "image":
@@ -4677,13 +5240,27 @@ async def public_prostudio_generate(request: Request):
         return JSONResponse({"ok": False, "error": "Unknown generation mode", "mode": mode}, status_code=400)
 
     if not result.get("ok"):
+        if job_id:
+            update_prostudio_generation_job(job_id, "failed", error=result)
+            log_prostudio_error(payload, result, job_id=job_id)
         return JSONResponse(result, status_code=502)
 
     save_generation(int(payload.get("telegram_id") or 0), mode, prompt or "[attachment]")
     metadata = build_prostudio_metadata(payload, result)
     if metadata:
         result["metadata"] = metadata
+    result["job_id"] = job_id
+    result["status"] = result.get("status") or "completed"
     result["conversation_id"] = save_prostudio_message(payload, result)
+    if job_id:
+        update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
+        log_user_event(
+            int(payload.get("telegram_id") or 0),
+            "backend",
+            "generation",
+            "generation_completed",
+            {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
+        )
     return result
 
 @app.post("/api/public/prostudio/transcribe")
