@@ -110,6 +110,7 @@ function getUploadTarget() {
   return Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
 }
 let videoModelSettings = {};
+let activeImageStylePanelKind = 'style';
 
 let musicState = {
   modelId: 'suno_chirp_5',
@@ -1511,24 +1512,7 @@ function visualPickerCardHtml(item, kind) {
 }
 
 function openVisualPicker(e, kind) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  const caps = getModelCapabilities(imageState.modelId);
-  if (kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
-  if (kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
-  const modal = ensureVisualPickerModal();
-  const isCharacter = kind === 'character';
-  const title = isCharacter ? 'Персонаж' : 'Объект';
-  const newText = isCharacter ? 'Новый персонаж' : 'Новый объект';
-  const items = isCharacter ? imageCharacters() : imageObjects();
-  modal.innerHTML = '<div class="visual-create-card visual-picker-card-wrap">'
-    + '<div class="visual-create-head"><button type="button" onclick="SYLVEX.closeVisualPicker(event)">← ' + title + '</button></div>'
-    + '<button class="visual-picker-new" type="button" onclick="SYLVEX.openVisualCreateModal(event,\'' + kind + '\')">+ ' + newText + '</button>'
-    + '<div class="visual-picker-grid">' + items.map((item) => visualPickerCardHtml(item, kind)).join('') + '</div>'
-    + '</div>';
-  modal.classList.add('show');
+  openImageStylePanel(e, kind === 'object' ? 'object' : 'character');
 }
 
 let visualCreateDraft = { kind: '', photos: [] };
@@ -1690,6 +1674,7 @@ function saveVisualCreateDraft(e) {
   }
   closeVisualCreateModal(e);
   closeVisualPicker(e);
+  closeImageStylePanel(e);
   renderImageReferenceSections();
   toast(kind === 'character' ? 'Персонаж создан' : 'Объект создан');
 }
@@ -1725,6 +1710,7 @@ function pickVisualReference(e, kind, id) {
   }
   renderImageReferenceSections();
   closeVisualPicker(e);
+  closeImageStylePanel(e);
   updateSendButton();
 }
 
@@ -2135,6 +2121,25 @@ function currentSelectedUploadImage() {
       object-fit: cover;
     }
 
+    .image-style-thumb.is-placeholder {
+      display: grid;
+      place-items: center;
+      color: rgba(255,255,255,.46);
+    }
+
+    .image-style-placeholder-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(255,255,255,.08);
+      color: rgba(255,255,255,.72);
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: .02em;
+    }
+
     .image-style-label {
       display: block;
       padding: 7px 2px 1px;
@@ -2192,8 +2197,8 @@ function ensureImageStylePanel() {
     <div class="image-style-panel-card" onclick="event.stopPropagation()">
       <div class="image-style-panel-head">
         <div class="image-style-panel-title">
-            Выбери стиль
-            <span class="image-style-info-wrap">
+            <span id="imageStylePanelTitle">Выбери стиль</span>
+            <span id="imageStyleInfoWrap" class="image-style-info-wrap">
               <button class="image-style-info-mark" type="button" aria-label="Информация о стилях" onclick="SYLVEX.toggleImageStyleInfo(event)">!</button>
               <span id="imageStyleInfoTooltip" class="image-style-info-tooltip">
                 Стили универсальны: их можно применять не только к людям, но и к предметам, животным, машинам, интерьерам, городам, пейзажам и любым другим сценам. Выберите стиль, загрузите фото или опишите идею — SYLVEX применит выбранное визуальное направление ко всей генерации.
@@ -2214,18 +2219,64 @@ function renderImageStylePanel() {
   const grid = document.getElementById('imageStylePanelGrid');
   if (!grid) return;
 
-  const selectedStyle = String(imageState.style || 'auto');
+  const kind = activeImageStylePanelKind || 'style';
+  const title = document.getElementById('imageStylePanelTitle');
+  const info = document.getElementById('imageStyleInfoWrap');
+  if (title) {
+    title.textContent = kind === 'character'
+      ? 'Выбери персонажа'
+      : (kind === 'object' ? 'Выбери объект' : 'Выбери стиль');
+  }
+  if (info) info.hidden = kind !== 'style';
 
-  grid.innerHTML = IMAGE_STYLE_SHEET_ITEMS.map((item) => {
+  const selectedStyle = String(imageState.style || 'auto');
+  const selectedCharacter = String(imageState.characterId || '');
+  const selectedObject = String(imageState.objectId || '');
+
+  if (kind === 'style') {
+    grid.innerHTML = IMAGE_STYLE_SHEET_ITEMS.map((item) => {
+      const id = String(item.id || '');
+      const label = item.label || id;
+      const image = item.image || '';
+      const selected = selectedStyle === id;
+
+      return `
+        <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickImageStyleFromPanel(event, '${S.escapeHtml(id)}')">
+          <span class="image-style-thumb">
+            <img src="${S.escapeHtml(image)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />
+          </span>
+          <span class="image-style-label">${S.escapeHtml(label)}</span>
+          <span class="image-style-check">✓</span>
+        </button>
+      `;
+    }).join('');
+    return;
+  }
+
+  const isCharacter = kind === 'character';
+  const items = isCharacter ? imageCharacters() : imageObjects();
+  const selectedId = isCharacter ? selectedCharacter : selectedObject;
+  const createLabel = isCharacter ? 'Новый персонаж' : 'Новый объект';
+  const createKind = isCharacter ? 'character' : 'object';
+  const createCard = `
+    <button class="image-style-card" type="button" onclick="SYLVEX.openVisualCreateModal(event, '${createKind}')">
+      <span class="image-style-thumb is-placeholder">
+        <span class="image-style-placeholder-icon">+</span>
+      </span>
+      <span class="image-style-label">${S.escapeHtml(createLabel)}</span>
+      <span class="image-style-check">✓</span>
+    </button>
+  `;
+
+  grid.innerHTML = createCard + items.map((item) => {
     const id = String(item.id || '');
-    const label = item.label || id;
-    const image = item.image || '';
-    const selected = selectedStyle === id;
+    const label = item.name || item.label || id;
+    const selected = selectedId === id;
 
     return `
-      <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickImageStyleFromPanel(event, '${S.escapeHtml(id)}')">
-        <span class="image-style-thumb">
-          <img src="${S.escapeHtml(image)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />
+      <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">
+        <span class="image-style-thumb is-placeholder" aria-hidden="true">
+          <span class="image-style-placeholder-icon"></span>
         </span>
         <span class="image-style-label">${S.escapeHtml(label)}</span>
         <span class="image-style-check">✓</span>
@@ -2234,12 +2285,20 @@ function renderImageStylePanel() {
   }).join('');
 }
 
-function openImageStylePanel(e) {
+function openImageStylePanel(e, kind) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
 
+  const nextKind = kind || 'style';
+  if (nextKind === 'character' || nextKind === 'object') {
+    const caps = getModelCapabilities(imageState.modelId);
+    if (nextKind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
+    if (nextKind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
+  }
+
+  activeImageStylePanelKind = nextKind;
   const panel = ensureImageStylePanel();
   renderImageStylePanel();
   panel.classList.add('show');
@@ -2450,12 +2509,12 @@ function imageModelButton(model) {
     }
 
     if (isImageMode() && kind === 'character') {
-      openVisualPicker(e, 'character');
+      openImageStylePanel(e, 'character');
       return;
     }
 
     if (isImageMode() && kind === 'objects') {
-      openVisualPicker(e, 'object');
+      openImageStylePanel(e, 'object');
       return;
     }
 
@@ -2678,7 +2737,7 @@ function imageModelButton(model) {
       return;
     }
     if (kind === 'style') {
-      openImageStylePanel(e);
+      openImageStylePanel(e, 'style');
       return;
     }
     const model = currentImageModel();
