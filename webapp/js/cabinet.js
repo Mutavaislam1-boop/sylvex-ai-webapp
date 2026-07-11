@@ -144,6 +144,14 @@ let textState = {
   modelId: 'gpt-4o-mini',
 };
 
+let serverVisualItems = {
+  characters: [],
+  objects: [],
+};
+let serverDrafts = {};
+let draftSaveTimer = null;
+let restoringDraft = false;
+
 const LOBE_ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-svg@latest/icons';
 
 const AI_LOGOS = {
@@ -1050,6 +1058,90 @@ function localizedGreeting() {
     }
   }
 
+  async function loadProStudioSync() {
+    const tg = getTelegramId();
+    if (!tg) return;
+    try {
+      const res = await fetch('/api/public/prostudio/sync?telegram_id=' + encodeURIComponent(tg) + '&limit=120', { cache: 'no-store' });
+      const data = await res.json();
+      if (!data || !data.ok) return;
+      const resources = data.resources || {};
+      serverVisualItems.characters = Array.isArray(resources.characters) ? resources.characters : [];
+      serverVisualItems.objects = Array.isArray(resources.objects) ? resources.objects : [];
+      serverDrafts = data.drafts || {};
+      conversationsCache = Array.isArray(data.conversations) ? data.conversations : conversationsCache;
+      syncChatCollections(conversationsCache);
+      applyCurrentDraft();
+      renderImageControls();
+      renderConvList();
+    } catch (err) {
+      console.warn('[SYLVEX] prostudio sync failed', err);
+    }
+  }
+
+  function applyCurrentDraft() {
+    const ta = document.getElementById('chatInput');
+    if (!ta) return;
+    const type = currentChatType();
+    const draft = serverDrafts && serverDrafts[type] ? serverDrafts[type] : null;
+    if (!draft || !draft.draft_text || (ta.value || '').trim()) return;
+    restoringDraft = true;
+    ta.value = draft.draft_text || '';
+    autoGrow(ta);
+    restoringDraft = false;
+    updateSendButton();
+  }
+
+  function saveCurrentDraftSoon() {
+    if (restoringDraft) return;
+    const tg = getTelegramId();
+    const ta = document.getElementById('chatInput');
+    if (!tg || !ta) return;
+    const type = currentChatType();
+    const text = ta.value || '';
+    serverDrafts[type] = Object.assign({}, serverDrafts[type] || {}, {
+      mode: type,
+      conversation_id: currentConvId || '',
+      draft_text: text,
+      updated_at: new Date().toISOString(),
+    });
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => {
+      fetch('/api/public/prostudio/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegram_id: tg,
+          mode: type,
+          conversation_id: currentConvId || '',
+          draft_text: text,
+          attachment: currentModeAttachment() || {},
+        }),
+      }).catch(() => {});
+    }, 450);
+  }
+
+  async function saveVisualItemToBackend(kind, item) {
+    const tg = getTelegramId();
+    if (!tg || !item) return item;
+    try {
+      const res = await fetch('/api/public/prostudio/resources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({}, item, {
+          telegram_id: tg,
+          resource_type: kind === 'character' ? 'character' : 'object',
+          photos: item.referenceImages || [],
+          preview_url: item.previewUrl || '',
+        })),
+      });
+      const data = await res.json();
+      return data && data.ok && data.resource ? data.resource : item;
+    } catch {
+      return item;
+    }
+  }
+
   /* ===== Rendering ===== */
   function renderModeStrip() {
     const el = document.getElementById('modeStrip'); if (!el) return;
@@ -1137,12 +1229,21 @@ function localizedGreeting() {
   }
 
   function loadCustomVisualItems(kind) {
+    const serverItems = serverVisualItems && Array.isArray(serverVisualItems[kind])
+      ? serverVisualItems[kind]
+      : [];
     try {
       const raw = localStorage.getItem(customVisualKey(kind));
       const list = raw ? JSON.parse(raw) : [];
-      return Array.isArray(list) ? list.filter((item) => item && item.id && item.previewUrl) : [];
+      const localItems = Array.isArray(list) ? list.filter((item) => item && item.id && item.previewUrl) : [];
+      const seen = new Set();
+      return serverItems.concat(localItems).filter((item) => {
+        if (!item || !item.id || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
     } catch {
-      return [];
+      return serverItems;
     }
   }
 
@@ -1635,7 +1736,7 @@ function removeVisualCreatePhoto(e, index) {
   renderVisualCreateModal();
 }
 
-function saveVisualCreateDraft(e) {
+async function saveVisualCreateDraft(e) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -1659,7 +1760,13 @@ function saveVisualCreateDraft(e) {
     created_at: new Date().toISOString(),
   };
   const storageKind = kind === 'character' ? 'characters' : 'objects';
-  const items = loadCustomVisualItems(storageKind);
+  const savedItem = await saveVisualItemToBackend(kind, item);
+  Object.assign(item, savedItem || {});
+  if (serverVisualItems[storageKind]) {
+    serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
+    serverVisualItems[storageKind].unshift(item);
+  }
+  const items = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== item.id);
   items.unshift(item);
   saveCustomVisualItems(storageKind, items);
   if (kind === 'character') {
@@ -4611,6 +4718,7 @@ function closeUploadPanel(e) {
       }
     }
     if (!restoringChatSpace) restoreChatSpace(currentChatType());
+    applyCurrentDraft();
     updateSendButton();
   }
   function genAction(kind, tabKey) {
@@ -4749,6 +4857,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       });
     }
     ta.value = ''; autoGrow(ta); updateSendButton();
+    saveCurrentDraftSoon();
     clearAttachment();
     if (isVideoMode()) {
       videoState.characterImage = '';
@@ -5024,6 +5133,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
               created_at: m.created_at || '',
             }, metadata);
         if (hasResultMedia && !resultMeta.created_at) resultMeta.created_at = m.created_at || '';
+        if (hasResultMedia) {
+          resultMeta.status = resultMeta.status || m.status || 'completed';
+          resultMeta.model = resultMeta.model || m.model || '';
+          resultMeta.provider = resultMeta.provider || m.provider || '';
+          resultMeta.cost = resultMeta.cost || m.cost || 0;
+        }
         return {
           role: m.role === 'assistant' ? 'ai' : 'user',
           text: m.role === 'assistant' ? (m.response_text || '') : (m.prompt || ''),
@@ -5830,7 +5945,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       chatInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
       });
-      chatInput.addEventListener('input', updateSendButton);
+      chatInput.addEventListener('input', () => {
+        updateSendButton();
+        saveCurrentDraftSoon();
+      });
     }
 
     // Keyboard offset: keep the Pro Studio input pinned above the on-screen
@@ -5908,6 +6026,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
       });
     }
     loadConversations();
+    loadProStudioSync();
   }
 
   // Expose to global scope.
