@@ -5218,52 +5218,93 @@ async def public_prostudio_generate(request: Request):
             {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
         )
 
-    if mode == "image" and is_seedream_request(payload):
-        result = await generateBytePlusSeedreamImage(payload)
-    elif mode == "image":
-        result = await image_generation(payload)
-    elif mode == "video":
-        result = await video_generation(payload)
-    elif mode == "music":
-        result = await audio_generation(payload)
-    elif mode == "voice":
-        result = {
-            "ok": False,
-            "type": "voice",
-            "provider": selected_provider or "voice",
-            "model": selected_model,
-            "error": "Voice router is not connected yet",
-        }
-    elif mode in text_modes:
-        if not selected_model or is_internal_ui_model(selected_model):
-            payload["model"] = "gpt-4o-mini"
-        result = text_generation(payload)
-    else:
-        return JSONResponse({"ok": False, "error": "Unknown generation mode", "mode": mode}, status_code=400)
+    # Move generation logic to background job
+    asyncio.create_task(process_prostudio_generation(job_id, payload))
 
-    if not result.get("ok"):
-        if job_id:
-            update_prostudio_generation_job(job_id, "failed", error=result)
-            log_prostudio_error(payload, result, job_id=job_id)
-        return JSONResponse(result, status_code=502)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": "processing"
+    }
 
-    save_generation(int(payload.get("telegram_id") or 0), mode, prompt or "[attachment]")
-    metadata = build_prostudio_metadata(payload, result)
-    if metadata:
-        result["metadata"] = metadata
-    result["job_id"] = job_id
-    result["status"] = result.get("status") or "completed"
-    result["conversation_id"] = save_prostudio_message(payload, result)
-    if job_id:
-        update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
-        log_user_event(
-            int(payload.get("telegram_id") or 0),
-            "backend",
-            "generation",
-            "generation_completed",
-            {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
+
+# New async function for background job processing
+async def process_prostudio_generation(job_id: str, payload: dict):
+    try:
+        mode = (payload.get("mode") or payload.get("category") or "text").lower()
+        category = (payload.get("category") or mode).lower()
+        prompt = (payload.get("prompt") or "").strip()
+        selected_model = (payload.get("model") or "").strip()
+        selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
+        image_options = payload.get("image_options") or {}
+        video_options = payload.get("video_options") or {}
+        reference_images = image_options.get("referenceImageUrls") or []
+        video_references = (
+            video_options.get("reference_images")
+            or video_options.get("referenceImageUrls")
+            or []
         )
-    return result
+        video_media = (
+            video_options.get("start_image")
+            or video_options.get("end_image")
+            or video_options.get("input_video")
+            or video_options.get("video_url")
+            or video_options.get("image_url")
+            or video_options.get("character_image")
+        )
+        generation_modes = {"image", "video", "music", "voice"}
+        text_modes = {"text", "chat", "pro", "lite"}
+        result = None
+        if mode == "image" and is_seedream_request(payload):
+            result = await generateBytePlusSeedreamImage(payload)
+        elif mode == "image":
+            result = await image_generation(payload)
+        elif mode == "video":
+            result = await video_generation(payload)
+        elif mode == "music":
+            result = await audio_generation(payload)
+        elif mode == "voice":
+            result = {
+                "ok": False,
+                "type": "voice",
+                "provider": selected_provider or "voice",
+                "model": selected_model,
+                "error": "Voice router is not connected yet",
+            }
+        elif mode in text_modes:
+            if not selected_model or is_internal_ui_model(selected_model):
+                payload["model"] = "gpt-4o-mini"
+            result = text_generation(payload)
+        else:
+            result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
+
+        if not result.get("ok"):
+            if job_id:
+                update_prostudio_generation_job(job_id, "failed", error=result)
+                log_prostudio_error(payload, result, job_id=job_id)
+            return
+
+        save_generation(int(payload.get("telegram_id") or 0), mode, prompt or "[attachment]")
+        metadata = build_prostudio_metadata(payload, result)
+        if metadata:
+            result["metadata"] = metadata
+        result["job_id"] = job_id
+        result["status"] = result.get("status") or "completed"
+        result["conversation_id"] = save_prostudio_message(payload, result)
+        if job_id:
+            update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
+            log_user_event(
+                int(payload.get("telegram_id") or 0),
+                "backend",
+                "generation",
+                "generation_completed",
+                {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
+            )
+    except Exception as exc:
+        import traceback
+        error_result = {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
+        if job_id:
+            update_prostudio_generation_job(job_id, "failed", error=error_result)
 
 @app.post("/api/public/prostudio/transcribe")
 async def public_prostudio_transcribe(request: Request):
