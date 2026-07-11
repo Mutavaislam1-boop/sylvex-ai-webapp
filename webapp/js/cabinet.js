@@ -6169,7 +6169,7 @@ async function waitGeneration(jobId) {
     });
     (conversationsCache || []).forEach((item) => {
       if (!item) return;
-      addTrack(item.metadata || item);
+      addTrack(Object.assign({}, item, parseMetadataObject(item.metadata_json), parseMetadataObject(item.metadata)));
     });
     if (activeMusicTrack) addTrack(activeMusicTrack);
     if (seedTrack) addTrack(seedTrack);
@@ -6207,8 +6207,35 @@ async function waitGeneration(jobId) {
     bound: false,
     progressDragging: false,
 
+    ensureElements() {
+      let player = document.getElementById('studioAudioPlayer');
+      if (!player) {
+        player = document.createElement('div');
+        player.className = 'studio-audio-player';
+        player.id = 'studioAudioPlayer';
+        player.setAttribute('aria-live', 'polite');
+        player.innerHTML = ''
+          + '<audio id="studioAudioElement" preload="metadata"></audio>'
+          + '<div class="studio-track-art" id="studioTrackArt"><img id="studioTrackArtImage" src="" alt="Album cover" hidden /></div>'
+          + '<div class="studio-track-title" id="studioTrackTitle">Untitled Track</div>'
+          + '<div class="studio-player-controls">'
+          + '<button type="button" aria-label="Назад" id="studioPrevTrackBtn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM10 12l9-6v12z"/></svg></button>'
+          + '<button type="button" aria-label="Play" id="studioPlayPauseBtn"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>'
+          + '<button type="button" aria-label="Вперёд" id="studioNextTrackBtn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM5 18l9-6-9-6z"/></svg></button>'
+          + '</div>'
+          + '<div class="studio-time" id="studioCurrentTime">00:00</div>'
+          + '<div class="studio-progress" id="studioProgressBar"><span id="studioProgressFill"></span></div>'
+          + '<div class="studio-duration" id="studioDuration">00:00</div>'
+          + '<button class="studio-player-icon" type="button" aria-label="Громкость" id="studioVolumeBtn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg></button>'
+          + '<div class="studio-volume-popover" id="studioVolumePopover" hidden><input id="studioVolumeSlider" type="range" min="0" max="100" value="100" aria-label="Громкость" /></div>'
+          + '<button class="studio-player-icon" type="button" aria-label="Закрыть" id="studioClosePlayerBtn">×</button>';
+      }
+      if (player.parentElement !== document.body) document.body.appendChild(player);
+      return player;
+    },
+
     init() {
-      this.playerEl = document.getElementById('studioAudioPlayer');
+      this.playerEl = this.ensureElements();
       this.audioEl = document.getElementById('studioAudioElement');
       this.artEl = document.getElementById('studioTrackArtImage');
       this.titleEl = document.getElementById('studioTrackTitle');
@@ -6224,7 +6251,6 @@ async function waitGeneration(jobId) {
       this.volumeSlider = document.getElementById('studioVolumeSlider');
       this.closeBtn = document.getElementById('studioClosePlayerBtn');
       if (!this.playerEl || !this.audioEl) return;
-      if (this.playerEl.parentElement !== document.body) document.body.appendChild(this.playerEl);
       const savedVolume = this.loadVolume();
       this.audioEl.volume = savedVolume;
       this.previousVolume = savedVolume || 1;
@@ -6378,7 +6404,8 @@ async function waitGeneration(jobId) {
         this.setVolume(this.previousVolume > 0 ? this.previousVolume : 1, true);
         this.audioEl.muted = false;
       } else {
-        this.showVolume();
+        if (this.volumePopover && !this.volumePopover.hidden) this.hideVolume();
+        else this.showVolume();
       }
     },
 
