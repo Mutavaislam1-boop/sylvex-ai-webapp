@@ -1,3 +1,421 @@
+(function () {
+  // Audio Player Module for Cabinet
+  // Requires: The following HTML element IDs must exist:
+  // cabinetAudioPlayer, audioPlayerClose, audioPlayerPrev, audioPlayerPlay, audioPlayerNext,
+  // audioPlayerProgress, audioPlayerProgressBar, audioPlayerCurrent, audioPlayerDuration,
+  // audioPlayerVolume, audioPlayerVolumeIcon, audioPlayerTitle
+  // Tracks: Array of { url, title }
+  // Usage: SYLVEX.audioPlayer.open(tracks, index)
+  const AUDIO_VOLUME_KEY = 'cabinet-audio-volume';
+  let playerState = {
+    audio: null,
+    tracks: [],
+    index: 0,
+    playing: false,
+    seeking: false,
+    volume: 1,
+    muted: false,
+    volumePopupTimeout: null,
+    volumePopup: null,
+    lastVolume: 1,
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function formatTime(secs) {
+    secs = Math.floor(secs);
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function updatePlayerUI() {
+    // Update title
+    const titleEl = $('audioPlayerTitle');
+    if (titleEl && playerState.tracks[playerState.index]) {
+      titleEl.textContent = playerState.tracks[playerState.index].title || '';
+    }
+    // Update play/pause icon
+    const playBtn = $('audioPlayerPlay');
+    if (playBtn) {
+      playBtn.innerHTML = playerState.playing
+        ? '<svg width="22" height="22" viewBox="0 0 22 22"><rect x="4" y="4" width="5" height="14" rx="1.5"/><rect x="13" y="4" width="5" height="14" rx="1.5"/></svg>'
+        : '<svg width="22" height="22" viewBox="0 0 22 22"><polygon points="5,4 19,11 5,18" /></svg>';
+    }
+    // Update prev/next disabled state
+    const prevBtn = $('audioPlayerPrev');
+    if (prevBtn) prevBtn.disabled = playerState.index === 0;
+    const nextBtn = $('audioPlayerNext');
+    if (nextBtn) nextBtn.disabled = playerState.index >= playerState.tracks.length - 1;
+    // Update times/progress
+    const audio = playerState.audio;
+    const current = $('audioPlayerCurrent');
+    const duration = $('audioPlayerDuration');
+    const progress = $('audioPlayerProgressBar');
+    if (audio && duration && current && progress) {
+      current.textContent = formatTime(audio.currentTime || 0);
+      duration.textContent = formatTime(audio.duration || 0);
+      if (!playerState.seeking) {
+        const frac = audio.duration ? audio.currentTime / audio.duration : 0;
+        progress.style.width = (frac * 100) + '%';
+      }
+    }
+    // Volume icon
+    updateVolumeIcon();
+  }
+
+  function updateVolumeIcon() {
+    const icon = $('audioPlayerVolumeIcon');
+    const muted = playerState.audio ? playerState.audio.muted : playerState.muted;
+    const vol = playerState.audio ? playerState.audio.volume : playerState.volume;
+    if (icon) {
+      if (muted || vol === 0) {
+        // Muted icon
+        icon.innerHTML = '<svg width="22" height="22" viewBox="0 0 22 22"><path d="M4 8v6h4l5 5V3l-5 5H4zm12.5 3l2.5 2.5-1.4 1.4L15 12.4l-2.6 2.5-1.4-1.4L13.6 11 11 8.6l1.4-1.4L15 9.6l2.6-2.5 1.4 1.4L16.4 11z" /></svg>';
+      } else {
+        // Speaker icon
+        icon.innerHTML = '<svg width="22" height="22" viewBox="0 0 22 22"><path d="M4 8v6h4l5 5V3l-5 5H4z"/><path d="M16 7c1.7 1.7 1.7 4.3 0 6" stroke="#222" stroke-width="1.5" fill="none"/></svg>';
+      }
+    }
+  }
+
+  function showPlayer() {
+    const el = $('cabinetAudioPlayer');
+    if (el) el.classList.add('show');
+  }
+  function hidePlayer() {
+    const el = $('cabinetAudioPlayer');
+    if (el) el.classList.remove('show');
+    // Pause audio
+    if (playerState.audio) {
+      playerState.audio.pause();
+      playerState.playing = false;
+    }
+    closeVolumePopup();
+  }
+
+  function loadVolume() {
+    let v = 1;
+    try {
+      v = parseFloat(localStorage.getItem(AUDIO_VOLUME_KEY));
+    } catch {}
+    if (isNaN(v) || v < 0 || v > 1) v = 1;
+    return v;
+  }
+  function saveVolume(vol) {
+    try {
+      localStorage.setItem(AUDIO_VOLUME_KEY, String(vol));
+    } catch {}
+  }
+
+  function setVolume(vol, persist) {
+    vol = Math.max(0, Math.min(1, vol));
+    playerState.volume = vol;
+    if (playerState.audio) {
+      playerState.audio.volume = vol;
+      if (vol === 0) {
+        playerState.audio.muted = true;
+        playerState.muted = true;
+      } else {
+        playerState.audio.muted = false;
+        playerState.muted = false;
+      }
+    }
+    if (persist) saveVolume(vol);
+    updateVolumeIcon();
+    updateVolumeSlider();
+  }
+
+  function toggleMute() {
+    if (!playerState.audio) return;
+    if (playerState.audio.muted || playerState.audio.volume === 0) {
+      // Unmute, restore lastVolume
+      setVolume(playerState.lastVolume > 0 ? playerState.lastVolume : 1, true);
+      playerState.audio.muted = false;
+      playerState.muted = false;
+    } else {
+      playerState.lastVolume = playerState.audio.volume;
+      setVolume(0, true);
+      playerState.audio.muted = true;
+      playerState.muted = true;
+    }
+    updateVolumeIcon();
+    updateVolumeSlider();
+  }
+
+  // Volume popup
+  function ensureVolumePopup() {
+    if (playerState.volumePopup) return playerState.volumePopup;
+    let popup = document.createElement('div');
+    popup.className = 'audio-volume-popup';
+    popup.innerHTML = '<input type="range" min="0" max="1" step="0.01" class="audio-volume-slider" style="width:110px">';
+    document.body.appendChild(popup);
+    playerState.volumePopup = popup;
+    // Events
+    const slider = popup.querySelector('input[type="range"]');
+    slider.addEventListener('input', function (e) {
+      setVolume(parseFloat(this.value), true);
+    });
+    // Clicking outside closes
+    setTimeout(() => {
+      document.addEventListener('mousedown', onVolumePopupOutside, true);
+    }, 20);
+    return popup;
+  }
+  function showVolumePopup() {
+    const btn = $('audioPlayerVolume');
+    if (!btn) return;
+    const popup = ensureVolumePopup();
+    // Position below the button
+    const rect = btn.getBoundingClientRect();
+    popup.style.position = 'absolute';
+    popup.style.left = rect.left + window.scrollX + 'px';
+    popup.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+    popup.style.zIndex = 999999;
+    popup.classList.add('show');
+    updateVolumeSlider();
+    clearTimeout(playerState.volumePopupTimeout);
+    playerState.volumePopupTimeout = setTimeout(closeVolumePopup, 1800);
+  }
+  function closeVolumePopup() {
+    if (playerState.volumePopup) {
+      playerState.volumePopup.classList.remove('show');
+      clearTimeout(playerState.volumePopupTimeout);
+      playerState.volumePopupTimeout = null;
+      setTimeout(() => {
+        if (playerState.volumePopup) {
+          document.removeEventListener('mousedown', onVolumePopupOutside, true);
+        }
+      }, 40);
+    }
+  }
+  function onVolumePopupOutside(e) {
+    const popup = playerState.volumePopup;
+    if (!popup || !popup.classList.contains('show')) return;
+    if (popup.contains(e.target) || $('audioPlayerVolume').contains(e.target)) return;
+    closeVolumePopup();
+  }
+  function updateVolumeSlider() {
+    if (!playerState.volumePopup) return;
+    const slider = playerState.volumePopup.querySelector('input[type="range"]');
+    if (slider) {
+      slider.value = playerState.audio ? playerState.audio.volume : playerState.volume;
+    }
+  }
+
+  function seekTo(frac) {
+    if (!playerState.audio || !playerState.audio.duration) return;
+    playerState.audio.currentTime = Math.max(0, Math.min(playerState.audio.duration, playerState.audio.duration * frac));
+    updatePlayerUI();
+  }
+
+  function playPause() {
+    if (!playerState.audio) return;
+    if (playerState.audio.paused) {
+      playerState.audio.play();
+      playerState.playing = true;
+    } else {
+      playerState.audio.pause();
+      playerState.playing = false;
+    }
+    updatePlayerUI();
+  }
+
+  function playTrack(idx) {
+    if (!playerState.tracks.length) return;
+    idx = Math.max(0, Math.min(idx, playerState.tracks.length - 1));
+    playerState.index = idx;
+    const track = playerState.tracks[idx];
+    // If already playing this track, just play/pause
+    if (playerState.audio && playerState.audio.src === track.url) {
+      playPause();
+      return;
+    }
+    // Remove old
+    if (playerState.audio) {
+      playerState.audio.pause();
+      playerState.audio.remove();
+      playerState.audio = null;
+    }
+    // Create new audio
+    const audio = document.createElement('audio');
+    audio.src = track.url;
+    audio.preload = 'auto';
+    audio.volume = playerState.volume;
+    audio.muted = playerState.muted;
+    playerState.audio = audio;
+    playerState.playing = true;
+    audio.addEventListener('loadedmetadata', function () {
+      updatePlayerUI();
+    });
+    audio.addEventListener('timeupdate', function () {
+      updatePlayerUI();
+    });
+    audio.addEventListener('ended', function () {
+      // Auto-advance
+      if (playerState.index < playerState.tracks.length - 1) {
+        playTrack(playerState.index + 1);
+      } else {
+        playerState.playing = false;
+        updatePlayerUI();
+      }
+    });
+    audio.addEventListener('play', function () {
+      playerState.playing = true;
+      updatePlayerUI();
+    });
+    audio.addEventListener('pause', function () {
+      playerState.playing = false;
+      updatePlayerUI();
+    });
+    audio.addEventListener('volumechange', function () {
+      playerState.volume = audio.volume;
+      playerState.muted = audio.muted;
+      updateVolumeIcon();
+      updateVolumeSlider();
+      if (!audio.muted && audio.volume > 0) {
+        playerState.lastVolume = audio.volume;
+      }
+      saveVolume(audio.volume);
+    });
+    // Start playing
+    audio.play().catch(() => {});
+    updatePlayerUI();
+    showPlayer();
+  }
+
+  function prevTrack() {
+    if (playerState.index > 0) playTrack(playerState.index - 1);
+  }
+  function nextTrack() {
+    if (playerState.index < playerState.tracks.length - 1) playTrack(playerState.index + 1);
+  }
+
+  // Seek bar events
+  function bindSeekBar() {
+    const bar = $('audioPlayerProgress');
+    if (!bar) return;
+    bar.addEventListener('mousedown', function (e) {
+      if (!playerState.audio || !playerState.audio.duration) return;
+      playerState.seeking = true;
+      const rect = bar.getBoundingClientRect();
+      function move(ev) {
+        const x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+        const frac = Math.max(0, Math.min(1, x / rect.width));
+        seekTo(frac);
+      }
+      function up(ev) {
+        move(ev);
+        playerState.seeking = false;
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        document.removeEventListener('touchmove', move);
+        document.removeEventListener('touchend', up);
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+      document.addEventListener('touchmove', move);
+      document.addEventListener('touchend', up);
+      move(e);
+    });
+    bar.addEventListener('touchstart', function (e) {
+      if (!playerState.audio || !playerState.audio.duration) return;
+      playerState.seeking = true;
+      const rect = bar.getBoundingClientRect();
+      function move(ev) {
+        const x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+        const frac = Math.max(0, Math.min(1, x / rect.width));
+        seekTo(frac);
+      }
+      function up(ev) {
+        move(ev);
+        playerState.seeking = false;
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        document.removeEventListener('touchmove', move);
+        document.removeEventListener('touchend', up);
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+      document.addEventListener('touchmove', move);
+      document.addEventListener('touchend', up);
+      move(e);
+    }, { passive: false });
+  }
+
+  function bindPlayerControls() {
+    const closeBtn = $('audioPlayerClose');
+    if (closeBtn) closeBtn.onclick = hidePlayer;
+    const prevBtn = $('audioPlayerPrev');
+    if (prevBtn) prevBtn.onclick = prevTrack;
+    const playBtn = $('audioPlayerPlay');
+    if (playBtn) playBtn.onclick = function () {
+      // If already playing this track, toggle play/pause
+      playPause();
+    };
+    const nextBtn = $('audioPlayerNext');
+    if (nextBtn) nextBtn.onclick = nextTrack;
+    const volBtn = $('audioPlayerVolume');
+    if (volBtn) {
+      volBtn.onclick = function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        showVolumePopup();
+      };
+      volBtn.oncontextmenu = function (e) {
+        e.preventDefault();
+        toggleMute();
+      };
+    }
+    bindSeekBar();
+  }
+
+  function open(tracks, index) {
+    if (!Array.isArray(tracks) || !tracks.length) return;
+    playerState.tracks = tracks;
+    playerState.index = typeof index === 'number' && index >= 0 ? index : 0;
+    // Load volume
+    playerState.volume = loadVolume();
+    playerState.muted = false;
+    playerState.lastVolume = playerState.volume;
+    playTrack(playerState.index);
+    showPlayer();
+  }
+
+  // Clicking the same track toggles play/pause
+  function openOrToggle(tracks, index) {
+    if (
+      playerState.tracks.length &&
+      tracks.length === playerState.tracks.length &&
+      tracks.every((t, i) => t.url === playerState.tracks[i].url) &&
+      index === playerState.index
+    ) {
+      playPause();
+      showPlayer();
+    } else {
+      open(tracks, index);
+    }
+  }
+
+  // Expose module
+  if (!window.SYLVEX) window.SYLVEX = {};
+  window.SYLVEX.audioPlayer = {
+    open,
+    openOrToggle,
+    hide: hidePlayer,
+    isOpen: function () {
+      const el = $('cabinetAudioPlayer');
+      return el && el.classList.contains('show');
+    }
+  };
+
+  // Bind controls on DOMContentLoaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindPlayerControls);
+  } else {
+    bindPlayerControls();
+  }
+})();
 // Cabinet controller: wires DOM events, renders dynamic content, manages
 // Pro Studio chat workspace, support modal, hero carousel, pricing logic.
 (function () {
