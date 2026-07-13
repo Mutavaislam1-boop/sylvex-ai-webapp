@@ -206,6 +206,19 @@ const GROK_IMAGE_SIZES = [
   { id:'9:20', label:'9:20', ratio:'9:20' }
 ];
 
+const GOOGLE_IMAGE_SIZES = [
+  { id:'1:1', label:'1:1', ratio:'1:1' },
+  { id:'16:9', label:'16:9', ratio:'16:9' },
+  { id:'9:16', label:'9:16', ratio:'9:16' },
+  { id:'3:4', label:'3:4', ratio:'3:4' },
+  { id:'4:3', label:'4:3', ratio:'4:3' },
+  { id:'1:2', label:'1:2', ratio:'1:2' },
+  { id:'2:1', label:'2:1', ratio:'2:1' },
+  { id:'20:9', label:'20:9', ratio:'20:9' },
+  { id:'9:20', label:'9:20', ratio:'9:20' },
+  { id:'auto', label:'Auto', ratio:'auto' }
+];
+
 const IMAGE_MODEL_LIST = [
   {
     id:'ideogram_3_0',
@@ -534,9 +547,79 @@ const IMAGE_MODEL_LIST = [
     ]
   },
 
-  { id:'nano_banana_pro', label:'Nano Banana Pro', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'DISCOUNT' },
-  { id:'nano_banana_2', label:'Nano Banana 2', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'FAST' },
-  { id:'nano_banana', label:'Nano Banana', desc:'Google/Gemini image model', icon:'nanoBanana' },
+  {
+    id:'nano_banana_2',
+    label:'Nano Banana 2',
+    desc:'Google Gemini 3.1 Flash Image',
+    icon:'nanoBanana',
+    badge:'FAST',
+    providerModel:'gemini-3.1-flash-image',
+    seed:false,
+    costCredits:11,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
+  {
+    id:'nano_banana_2_lite',
+    label:'Nano Banana 2 Lite',
+    desc:'Google Gemini 3.1 Flash Lite Image',
+    icon:'nanoBanana',
+    badge:'FAST',
+    providerModel:'gemini-3.1-flash-lite-image',
+    seed:false,
+    costCredits:6,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
+  {
+    id:'nano_banana_pro',
+    label:'Nano Banana Pro',
+    desc:'Google Gemini 3 Pro Image',
+    icon:'nanoBanana',
+    badge:'DISCOUNT',
+    providerModel:'gemini-3-pro-image',
+    seed:false,
+    costCredits:21,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
+  {
+    id:'nano_banana',
+    label:'Nano Banana',
+    desc:'Google Gemini 2.5 Flash Image',
+    icon:'nanoBanana',
+    providerModel:'gemini-2.5-flash-image',
+    seed:false,
+    costCredits:6,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
+  {
+    id:'imagen_4_fast',
+    label:'Imagen 4 Fast',
+    desc:'Google Imagen 4 Fast',
+    icon:'google',
+    providerModel:'imagen-4.0-fast-generate-001',
+    seed:false,
+    costCredits:3,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
+  {
+    id:'imagen_4_standard',
+    label:'Imagen 4 Standard',
+    desc:'Google Imagen 4 Standard',
+    icon:'google',
+    providerModel:'imagen-4.0-generate-001',
+    seed:false,
+    costCredits:6,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
+  {
+    id:'imagen_4_ultra',
+    label:'Imagen 4 Ultra',
+    desc:'Google Imagen 4 Ultra',
+    icon:'google',
+    providerModel:'imagen-4.0-ultra-generate-001',
+    seed:false,
+    costCredits:9,
+    sizes:GOOGLE_IMAGE_SIZES
+  },
 
   {
     id:'grok_pro',
@@ -568,9 +651,13 @@ const IMAGE_MODEL_LIST = [
 ];
 
 const MODEL_FEATURES = {
-  nano_banana_pro: { character: true, object: true },
-  nano_banana_2: { character: false, object: false },
-  nano_banana: { character: true, object: true },
+  nano_banana_pro: { character: true, object: true, seed: false },
+  nano_banana_2: { character: false, object: false, seed: false },
+  nano_banana_2_lite: { character: false, object: false, seed: false },
+  nano_banana: { character: true, object: true, seed: false },
+  imagen_4_fast: { character: false, object: false, seed: false },
+  imagen_4_standard: { character: false, object: false, seed: false },
+  imagen_4_ultra: { character: false, object: false, seed: false },
   gpt_image_2: { character: true, object: true, seed: false },
   seedream_5_0_lite: { character: true, object: true, seed: true },
   seedream_5_0: { character: true, object: true, seed: true },
@@ -616,6 +703,19 @@ function getModelCapabilities(modelId) {
 function isGrokImageModel(modelId) {
   const raw = String(modelId || '').trim().replace(/-/g, '_');
   return raw === 'grok' || raw === 'grok_pro';
+}
+
+function hidesSeedSettings(modelId) {
+  const raw = String(modelId || '').trim().replace(/-/g, '_');
+  return isGrokImageModel(raw) || [
+    'nano_banana_2',
+    'nano_banana_2_lite',
+    'nano_banana_pro',
+    'nano_banana',
+    'imagen_4_fast',
+    'imagen_4_standard',
+    'imagen_4_ultra'
+  ].includes(raw);
 }
 
 function presetSvg(label, hue) {
@@ -1184,7 +1284,11 @@ let styleSheetCssInjected = false;
 { id:'seedream-4-0-250828', label:'Seedream 4.0', icon:'▥', description:'BytePlus Seedream 4.0 — генерация изображений и визуальных сцен через ModelArk.' },
 { id:'nano-banana-pro', label:'Nano Banana Pro', icon:'🍌', description:'Фотореалистичные изображения, идеально подходящие для рекламы и текста.' },
 { id:'nano-banana-2', label:'Nano Banana 2', icon:'🍌', description:'Современная генерация изображений с расширенным редактированием и композицией.' },
+{ id:'nano-banana-2-lite', label:'Nano Banana 2 Lite', icon:'🍌', description:'Быстрая и экономичная генерация изображений через Gemini 3.1 Flash Lite Image.' },
 { id:'nano-banana', label:'Nano Banana', icon:'🍌', description:'Потрясающие фотореалистичные изображения для любой идеи.' },
+{ id:'imagen-4-fast', label:'Imagen 4 Fast', icon:'G', description:'Быстрая генерация изображений через Google Imagen 4.' },
+{ id:'imagen-4-standard', label:'Imagen 4 Standard', icon:'G', description:'Стандартная генерация изображений через Google Imagen 4.' },
+{ id:'imagen-4-ultra', label:'Imagen 4 Ultra', icon:'G', description:'Максимальное качество генерации изображений через Google Imagen 4.' },
 { id:'gpt-image-2', label:'GPT Image 2', icon:'◎', description:'Современная генерация изображений с реализмом, типографикой и контролем.' },
 { id:'grok-pro', label:'Grok Pro', icon:'◒', description:'xAI Grok — генерация высококачественных изображений.' },
 { id:'davinci-ultra', label:'DaVinci Ultra', icon:'◩', description:'Модель DaVinci, оптимизированная для получения высококачественных результатов.' },
@@ -1300,6 +1404,7 @@ const MODEL_ICON_SVG = {
     if (/^gpt[_-]?image|openai/i.test(model)) return 'openai';
     if (/sora/i.test(model)) return 'sora';
     if (/grok/i.test(model)) return 'xai';
+    if (/nano[_-]?banana|imagen|gemini/i.test(model)) return 'google';
     if (/flux/i.test(model)) return 'flux';
     if (/ideogram/i.test(model)) return 'ideogram';
     if (/recraft/i.test(model)) return 'recraft';
@@ -3314,7 +3419,7 @@ function imageModelButton(model) {
     if (kind === 'settings') {
       const el = document.getElementById('modelPop');
       if (!el) return;
-      const showSeedSettings = !isGrokImageModel(imageState.modelId);
+      const showSeedSettings = !hidesSeedSettings(imageState.modelId);
       const seedRowHtml = showSeedSettings
         ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'seed\')">'
           + '<span class="image-size-label"><span class="image-seed-hex">⬢</span> Seed</span>'
