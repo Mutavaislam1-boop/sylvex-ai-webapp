@@ -3704,6 +3704,17 @@ function imageModelButton(model) {
       size: backendMeta.size || options.size || options.ratio || '',
       count: backendMeta.count || options.count || 1,
       seed: seed === '' ? null : seed,
+      generation_cost: backendMeta.generation_cost || (result && result.generation_cost) || '',
+      cost_usd: backendMeta.cost_usd !== undefined ? backendMeta.cost_usd : (result && result.cost_usd),
+      unit_cost_usd: backendMeta.unit_cost_usd !== undefined ? backendMeta.unit_cost_usd : (result && result.unit_cost_usd),
+      cost: backendMeta.cost !== undefined ? backendMeta.cost : (result && result.cost),
+      cost_credits: backendMeta.cost_credits !== undefined ? backendMeta.cost_credits : (result && result.cost_credits),
+      unit_cost_credits: backendMeta.unit_cost_credits !== undefined ? backendMeta.unit_cost_credits : (result && result.unit_cost_credits),
+      balance_charged: backendMeta.balance_charged !== undefined ? backendMeta.balance_charged : (result && result.balance_charged),
+      balance_after: backendMeta.balance_after !== undefined ? backendMeta.balance_after : (result && result.balance_after),
+      charge_id: backendMeta.charge_id || (result && (result.charge_id || result.generation_id || result.job_id)) || '',
+      rendering_speed: backendMeta.rendering_speed || (result && result.rendering_speed) || '',
+      provider_model: backendMeta.provider_model || (result && result.provider_model) || '',
       settings: Object.assign({}, options),
       image_options: Object.assign({}, options, {
         seed: seed === '' ? null : seed,
@@ -5042,8 +5053,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
 
   const j = await res.json().catch(() => ({}));
   if (res.status === 402 && j && j.paywall) {
-    const err = new Error('paywall');
+    const err = new Error(j.error || 'Недостаточно токенов');
     err.paywall = true;
+    err.insufficientBalance = !!j.insufficient_balance;
+    err.requiredCredits = j.required_credits || 0;
+    err.balance = j.balance || 0;
+    err.shopUrl = j.shop_url || '';
     throw err;
   }
   if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
@@ -5212,7 +5227,12 @@ async function waitGeneration(jobId) {
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       if (err && err.paywall) {
         renderChat();
-        openPaywall();
+        if (err.insufficientBalance) {
+          toast('Недостаточно токенов');
+          switchView('shop');
+        } else {
+          openPaywall();
+        }
         return;
       }
       chatMessages.push({
