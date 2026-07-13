@@ -190,6 +190,22 @@ const AI_LOGOS = {
   davinci: 'custom-davinci'
 };
 
+const GROK_IMAGE_SIZES = [
+  { id:'1:1', label:'1:1', ratio:'1:1' },
+  { id:'2:3', label:'2:3', ratio:'2:3' },
+  { id:'3:2', label:'3:2', ratio:'3:2' },
+  { id:'16:9', label:'16:9', ratio:'16:9' },
+  { id:'9:16', label:'9:16', ratio:'9:16' },
+  { id:'3:4', label:'3:4', ratio:'3:4' },
+  { id:'4:3', label:'4:3', ratio:'4:3' },
+  { id:'1:2', label:'1:2', ratio:'1:2' },
+  { id:'2:1', label:'2:1', ratio:'2:1' },
+  { id:'19.5:9', label:'19.5:9', ratio:'19.5:9' },
+  { id:'9:19.5', label:'9:19.5', ratio:'9:19.5' },
+  { id:'20:9', label:'20:9', ratio:'20:9' },
+  { id:'9:20', label:'9:20', ratio:'9:20' }
+];
+
 const IMAGE_MODEL_LIST = [
   {
     id:'ideogram_3_0',
@@ -522,8 +538,31 @@ const IMAGE_MODEL_LIST = [
   { id:'nano_banana_2', label:'Nano Banana 2', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'FAST' },
   { id:'nano_banana', label:'Nano Banana', desc:'Google/Gemini image model', icon:'nanoBanana' },
 
-  { id:'grok_pro', label:'Grok Pro', desc:'xAI Grok image model', icon:'grok', badge:'HOT' },
-  { id:'grok', label:'Grok', desc:'xAI Grok image model', icon:'grok' },
+  {
+    id:'grok_pro',
+    label:'Grok Pro',
+    desc:'xAI Grok image quality model',
+    icon:'grok',
+    badge:'HOT',
+    providerModel:'grok-imagine-image-quality',
+    seed:false,
+    costCredits:8,
+    inputImageCostCredits:2,
+    inputImageCostProvisional:true,
+    sizes:GROK_IMAGE_SIZES
+  },
+  {
+    id:'grok',
+    label:'Grok',
+    desc:'xAI Grok image model',
+    icon:'grok',
+    providerModel:'grok-imagine-image',
+    seed:false,
+    costCredits:3,
+    inputImageCostCredits:1,
+    inputImageCostProvisional:true,
+    sizes:GROK_IMAGE_SIZES
+  },
 
   { id:'davinci_ultra', label:'DaVinci Ultra', desc:'DaVinci image model', icon:'davinci' }
 ];
@@ -541,9 +580,9 @@ const MODEL_FEATURES = {
   seedream_4_5: { character: true, object: true, seed: true },
   seedream_4_0: { character: true, object: true, seed: true },
   seedream_4: { character: true, object: true, seed: true },
-  grok_pro: { character: false, object: false },
+  grok_pro: { character: false, object: false, seed: false },
   davinci_ultra: { character: false, object: false },
-  grok: { character: false, object: false },
+  grok: { character: false, object: false, seed: false },
   flux_2: { character: true, object: true, seed: false },
   flux_2_turbo: { character: true, object: true, seed: false },
   flux_pro_kontext: { character: true, object: false, seed: false },
@@ -572,6 +611,11 @@ function getModelCapabilities(modelId) {
     object: !!cfg.object,
     seed: !!cfg.seed,
   };
+}
+
+function isGrokImageModel(modelId) {
+  const raw = String(modelId || '').trim().replace(/-/g, '_');
+  return raw === 'grok' || raw === 'grok_pro';
 }
 
 function presetSvg(label, hue) {
@@ -3270,6 +3314,13 @@ function imageModelButton(model) {
     if (kind === 'settings') {
       const el = document.getElementById('modelPop');
       if (!el) return;
+      const showSeedSettings = !isGrokImageModel(imageState.modelId);
+      const seedRowHtml = showSeedSettings
+        ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'seed\')">'
+          + '<span class="image-size-label"><span class="image-seed-hex">⬢</span> Seed</span>'
+          + '<span class="image-size-check">›</span>'
+          + '</button>'
+        : '';
       if (el.parentElement !== document.body) document.body.appendChild(el);
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
@@ -3288,10 +3339,7 @@ function imageModelButton(model) {
       el.style.zIndex = '999999';
       el.innerHTML = '<div class="image-size-sheet-title">Settings</div>'
         + '<div class="image-size-sheet-list">'
-        + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'seed\')">'
-        + '<span class="image-size-label"><span class="image-seed-hex">⬢</span> Seed</span>'
-        + '<span class="image-size-check">›</span>'
-        + '</button>'
+        + seedRowHtml
         + (currentRecraftTools().length ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'recraft_tools\')">'
           + '<span class="image-size-label"><span class="image-seed-hex">R</span> Функции Recraft</span>'
           + '<span class="image-size-check">›</span>'
