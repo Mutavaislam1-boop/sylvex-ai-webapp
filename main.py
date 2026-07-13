@@ -5003,10 +5003,16 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
 
 def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None, size: str = "", seed=None) -> tuple:
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
+    is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
+    try:
+        timeout_seconds = int(os.getenv("BYTEPLUS_SEEDREAM_PRO_TIMEOUT" if is_pro_model else "BYTEPLUS_SEEDREAM_TIMEOUT") or (360 if is_pro_model else 120))
+    except Exception:
+        timeout_seconds = 360 if is_pro_model else 120
 
     def _send(include_refs: bool):
         request_payload = byteplus_seedream_body(model, prompt, refs if include_refs else [], size=size, seed=seed)
         print("BYTEPLUS IMAGE PAYLOAD:", {k: v for k, v in request_payload.items() if k != "image"})
+        print("BYTEPLUS IMAGE TIMEOUT:", timeout_seconds)
         return requests.post(
             f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
             headers={
@@ -5014,11 +5020,19 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
                 "Content-Type": "application/json",
             },
             data=json.dumps(request_payload),
-            timeout=120,
+            timeout=timeout_seconds,
         )
 
     try:
         response = _send(bool(refs))
+    except requests.ReadTimeout:
+        if not is_pro_model:
+            return [], "ReadTimeout"
+        print("BYTEPLUS IMAGE PRO TIMEOUT, RETRY ONCE")
+        try:
+            response = _send(bool(refs))
+        except Exception as exc:
+            return [], type(exc).__name__
     except Exception as exc:
         return [], type(exc).__name__
 
