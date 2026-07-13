@@ -4986,7 +4986,6 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
         "sequential_image_generation": "disabled",
         "response_format": "url",
         "size": seedream_size_value(size),
-        "output_format": "png",
         "stream": False,
         "watermark": False,
     }
@@ -5629,16 +5628,16 @@ def seedream_size_value(size: str) -> str:
     if raw in {"", "auto"}:
         return "2K"
     mapping = {
-        "1:1": "1024x1024",
-        "1x1": "1024x1024",
-        "4:3": "1152x864",
-        "4x3": "1152x864",
-        "3:4": "864x1152",
-        "3x4": "864x1152",
-        "16:9": "1280x720",
-        "16x9": "1280x720",
-        "9:16": "720x1280",
-        "9x16": "720x1280",
+        "1:1": "2048x2048",
+        "1x1": "2048x2048",
+        "4:3": "2304x1728",
+        "4x3": "2304x1728",
+        "3:4": "1728x2304",
+        "3x4": "1728x2304",
+        "16:9": "2560x1440",
+        "16x9": "2560x1440",
+        "9:16": "1440x2560",
+        "9x16": "1440x2560",
     }
     return mapping.get(raw, "2K")
 
