@@ -86,9 +86,9 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "seedream_4_5": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "gpt_image_1": {"provider": "openai", "provider_model": "gpt-image-1", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
     "gpt_image_2": {"provider": "openai", "provider_model": "gpt-image-2", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
-    "flux_pro_kontext": {"provider": "flux", "provider_model": os.getenv("FLUX_PRO_KONTEXT_MODEL"), "endpoint": "https://api.bfl.ai/v1"},
-    "flux_2": {"provider": "flux", "provider_model": os.getenv("FLUX_2_MODEL", "flux-2-pro"), "endpoint": "https://api.bfl.ai/v1"},
-    "flux_2_turbo": {"provider": "flux", "provider_model": os.getenv("FLUX_2_TURBO_MODEL"), "endpoint": "https://api.bfl.ai/v1"},
+    "flux_pro_kontext": {"provider": "flux", "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL"), "endpoint": "https://api.bfl.ai/v1"},
+    "flux_2": {"provider": "flux", "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"), "endpoint": "https://api.bfl.ai/v1"},
+    "flux_2_turbo": {"provider": "flux", "provider_model": env_value("FLUX_2_TURBO_MODEL", "FLUX-2-TURBO-MODEL", default="flux-2-flex"), "endpoint": "https://api.bfl.ai/v1"},
     "qwen_image": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
     "qwen_image_2_pro": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_PRO_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
     "qwen_image_2": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
@@ -218,6 +218,22 @@ SEEDREAM_MODEL_VARIANTS = {
         "cost_usd": 0.0525,
     },
 }
+FLUX_MODEL_VARIANTS = {
+    "flux_2": {
+        "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"),
+        "label": "FLUX.2",
+        "seed": False,
+        "cost_credits": 5,
+        "cost_usd": 0.045,
+    },
+    "flux_2_turbo": {
+        "provider_model": env_value("FLUX_2_TURBO_MODEL", "FLUX-2-TURBO-MODEL", default="flux-2-flex"),
+        "label": "FLUX.2 Turbo",
+        "seed": False,
+        "cost_credits": 11,
+        "cost_usd": 0.105,
+    },
+}
 RECRAFT_TOOL_CATALOG = {
     "image_to_image": {"label": "Изображение → Изображение", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/imageToImage"},
     "outpaint": {"label": "Дорисовка изображения", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/outpaint"},
@@ -246,9 +262,9 @@ IMAGE_MODEL_FEATURES = {
     "grok_pro": {"character": False, "object": False},
     "davinci_ultra": {"character": False, "object": False},
     "grok": {"character": False, "object": False},
-    "flux_2": {"character": True, "object": True},
-    "flux_2_turbo": {"character": True, "object": True},
-    "flux_pro_kontext": {"character": True, "object": False},
+    "flux_2": {"character": True, "object": True, "seed": False},
+    "flux_2_turbo": {"character": True, "object": True, "seed": False},
+    "flux_pro_kontext": {"character": True, "object": False, "seed": False},
     "ideogram_3_0": {"character": False, "object": False, "seed": True},
     "ideogram_3": {"character": False, "object": False, "seed": True},
     "ideogram_4_0": {"character": False, "object": False, "seed": False},
@@ -3284,7 +3300,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
 
     model = payload.get("model") or options.get("modelId") or options.get("model") or result.get("model") or ""
     provider = payload.get("provider") or result.get("provider") or ""
-    seed = options.get("seed") if mode == "image" else None
+    seed = options.get("seed") if mode == "image" and image_model_features(model).get("seed") else None
     result_url = ""
     if mode == "image":
         result_url = images[0] if images else ""
@@ -5443,6 +5459,12 @@ def image_dimensions(size: str) -> tuple[int, int]:
         return 1536, 864
     if raw in {"9:16", "portrait"}:
         return 864, 1536
+    if raw in {"4:3", "4x3"}:
+        return 1408, 1056
+    if raw in {"3:4", "3x4"}:
+        return 1056, 1408
+    if raw in {"1:1", "1x1", "auto"}:
+        return 1024, 1024
     return 1024, 1024
 
 
@@ -5744,6 +5766,33 @@ def seedream_cost_info(frontend_model: str, provider_model: str, count: int) -> 
     }
 
 
+def flux_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    if raw in FLUX_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").lower()
+    if model == "flux-2-flex":
+        return "flux_2_turbo"
+    return "flux_2"
+
+
+def flux_cost_info(frontend_model: str, provider_model: str, count: int) -> dict:
+    key = flux_frontend_model(frontend_model, provider_model)
+    cfg = FLUX_MODEL_VARIANTS.get(key) or FLUX_MODEL_VARIANTS["flux_2"]
+    image_count = max(1, int(count or 1))
+    unit_credits = int(cfg.get("cost_credits") or 0)
+    unit_usd = float(cfg.get("cost_usd") or 0)
+    return {
+        "cost": unit_credits * image_count,
+        "cost_credits": unit_credits * image_count,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": round(unit_usd * image_count, 4),
+        "unit_cost_usd": unit_usd,
+        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+    }
+
+
 def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
     headers = recraft_headers()
     if not headers:
@@ -5797,6 +5846,17 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", f"{requested_model or ''} {api_model or ''}", re.I):
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         info = seedream_cost_info(requested_model, api_model, count)
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "model_label": info.get("model_label") or "",
+        }
+    if provider == "flux":
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        info = flux_cost_info(requested_model, api_model, count)
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -5962,12 +6022,28 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "flux":
-        images, error, request_payload = call_flux_image(requested_model, api_model, endpoint, prompt, payload, size)
-        print("FLUX IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": request_payload})
-        if error:
-            return error
+        images = []
+        last_payload = {}
+        for index in range(1, count + 1):
+            request_images, error, request_payload = call_flux_image(requested_model, api_model, endpoint, prompt, payload, size)
+            last_payload = request_payload
+            print("FLUX IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "attempt": index, "payload": request_payload})
+            if error:
+                return error
+            for url in request_images or []:
+                if url and url not in images:
+                    images.append(url)
+            if len(images) >= count:
+                break
         if images:
-            return await finalize_image_result(payload, images[:count])
+            final_images = images[:count]
+            result = await finalize_image_result(payload, final_images)
+            result.update(flux_cost_info(requested_model, api_model, len(final_images) or count))
+            result["provider"] = "flux"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            result["request_payload"] = last_payload
+            return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "recraft":
