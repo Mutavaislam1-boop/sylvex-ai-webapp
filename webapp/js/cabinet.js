@@ -191,8 +191,45 @@ const AI_LOGOS = {
 };
 
 const IMAGE_MODEL_LIST = [
-  { id:'ideogram_3_0', label:'Ideogram 3.0', desc:'Ideogram image model', icon:'ideogram' },
-  { id:'ideogram_4_0', label:'Ideogram 4.0', desc:'Ideogram image model', icon:'ideogram' },
+  {
+    id:'ideogram_3_0',
+    label:'Ideogram 3.0',
+    desc:'Ideogram 3.0 Turbo image model',
+    icon:'ideogram',
+    providerModel:'ideogram-v3',
+    renderingSpeed:'TURBO',
+    seed:true,
+    costUsd:0.045,
+    costCredits:5,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'1:1 HD', label:'1:1 HD', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'ideogram_4_0',
+    label:'Ideogram 4.0',
+    desc:'Ideogram 4.0 Turbo image model',
+    icon:'ideogram',
+    providerModel:'ideogram-v4',
+    renderingSpeed:'TURBO',
+    seed:false,
+    costUsd:0.045,
+    costCredits:5,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
 
   { id:'recraft_v4_1', label:'Recraft V4.1', desc:'Recraft image model', icon:'recraft' },
   { id:'recraft_v3', label:'Recraft V3', desc:'Recraft image model', icon:'recraft' },
@@ -240,10 +277,10 @@ const MODEL_FEATURES = {
   flux_2: { character: true, object: true },
   flux_2_turbo: { character: true, object: true },
   flux_pro_kontext: { character: true, object: false },
-  ideogram_3_0: { character: false, object: false },
-  ideogram_3: { character: false, object: false },
-  ideogram_4_0: { character: false, object: false },
-  ideogram_4: { character: false, object: false },
+  ideogram_3_0: { character: false, object: false, seed: true },
+  ideogram_3: { character: false, object: false, seed: true },
+  ideogram_4_0: { character: false, object: false, seed: false },
+  ideogram_4: { character: false, object: false, seed: false },
   recraft_v4_1: { character: false, object: false },
   recraft_v3: { character: false, object: false },
   recraft_v4_1_pro: { character: false, object: false },
@@ -256,13 +293,14 @@ const MODEL_FEATURES = {
 };
 
 function getModelCapabilities(modelId) {
-  const fallback = { character: false, object: false };
+  const fallback = { character: false, object: false, seed: false };
   const raw = String(modelId || '').trim();
   const normalized = raw.replace(/_0$/, '').replace(/-/g, '_');
   const cfg = MODEL_FEATURES[raw] || MODEL_FEATURES[normalized] || fallback;
   return {
     character: !!cfg.character,
     object: !!cfg.object,
+    seed: !!cfg.seed,
   };
 }
 
@@ -2593,9 +2631,23 @@ function imageModelButton(model) {
     imageState.character = (model.characters && model.characters[0] && model.characters[0].id) || 'auto';
   }
 
+  function syncImageModelOptionDefaults(model) {
+    const cfg = model || currentImageModel();
+    if (!cfg) return;
+    const sizes = cfg.sizes && cfg.sizes.length ? cfg.sizes : [];
+    if (sizes.length && !sizes.some((item) => item.id === imageState.size)) {
+      imageState.size = sizes[0].id;
+    }
+    const counts = cfg.counts && cfg.counts.length ? cfg.counts : [1, 2, 3, 4];
+    if (!counts.includes(Number(imageState.count || 1))) {
+      imageState.count = counts[0] || 1;
+    }
+  }
+
   function renderImageControls() {
     const model = currentImageModel();
     if (!model) return;
+    syncImageModelOptionDefaults(model);
     const modelEl = document.getElementById('modelValComposer');
     if (modelEl && isImageMode()) modelEl.textContent = model.label || model.id;
     const sizeOptions = model.sizes && model.sizes.length ? model.sizes : [
@@ -2637,7 +2689,8 @@ function imageModelButton(model) {
   }
 
   function imageOptionsPayload(referenceImages) {
-    const seed = normalizeImageSeed(imageState.seed);
+    const capabilities = getModelCapabilities(imageState.modelId);
+    const seed = capabilities.seed ? normalizeImageSeed(imageState.seed) : null;
     return Object.assign({}, imageState, {
       seed,
       referenceImageUrls: (referenceImages || []).slice(),
@@ -2972,6 +3025,7 @@ function imageModelButton(model) {
       return;
     }
     if (kind === 'seed') {
+      const seedSupported = !!getModelCapabilities(imageState.modelId).seed;
       const el = document.getElementById('modelPop');
       if (!el) return;
       if (el.parentElement !== document.body) document.body.appendChild(el);
@@ -2996,13 +3050,14 @@ function imageModelButton(model) {
         + '<button class="image-seed-info" id="imageSeedInfoBtn" type="button" aria-label="Seed info" onclick="SYLVEX.toggleImageSeedTooltip(event)">ⓘ</button>'
         + '<div class="image-seed-tooltip" id="imageSeedTooltip" hidden>Use a specific seed value to reproduce the same image. Leave empty for random generation.</div>'
         + '</div>'
-        + '<input class="image-seed-input" id="imageSeedInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Enter seed value" value="' + S.escapeHtml(imageSeedInputValue()) + '" oninput="SYLVEX.onImageSeedInput(event)" />'
+        + '<input class="image-seed-input" id="imageSeedInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="' + (seedSupported ? 'Enter seed value' : 'Seed is not supported') + '" value="' + S.escapeHtml(seedSupported ? imageSeedInputValue() : '') + '" oninput="SYLVEX.onImageSeedInput(event)"' + (seedSupported ? '' : ' disabled') + ' />'
+        + (seedSupported ? '' : '<div class="image-seed-disabled-note">Seed недоступен для выбранной модели</div>')
         + '<button class="music-settings-clear" type="button" onclick="SYLVEX.resetImageSettings(event)">Сбросить настройки</button>';
       el.classList.add('show');
       const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
       const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
       const input = document.getElementById('imageSeedInput');
-      if (input) setTimeout(() => input.focus(), 60);
+      if (input && seedSupported) setTimeout(() => input.focus(), 60);
       S.haptic && S.haptic.impact && S.haptic.impact('light');
       return;
     }
@@ -3139,6 +3194,7 @@ function imageModelButton(model) {
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           imageState.modelId = model.id;
+          syncImageModelOptionDefaults(model);
           syncImageFeatureAvailability();
           renderImageReferenceSections();
           const mvc = document.getElementById('modelValComposer');
@@ -4615,6 +4671,8 @@ function openGenerationInfoDrawer(e, index) {
   const refImages = meta.reference_images || [];
   const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
   const settings = meta.settings || meta.image_options || meta.video_options || meta.music_options || meta.voice_options || {};
+  const generationCost = meta.generation_cost
+    || (meta.cost_usd !== undefined && meta.cost_usd !== null && meta.cost_usd !== '' ? '$' + Number(meta.cost_usd).toFixed(3) : '');
   const titleMap = {
     image: 'Изображение',
     video: 'Видео',
@@ -4662,6 +4720,7 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Ratio', meta.ratio)
     + generationInfoRow('Size', meta.size || settings.resolution)
     + (type === 'image' ? generationInfoRow('Seed', (meta.seed === null || meta.seed === undefined || meta.seed === '') ? 'Случайный' : meta.seed) : '')
+    + (type === 'image' ? generationInfoRow('Generation Cost', generationCost) : '')
     + generationInfoRow('Duration', meta.duration || settings.duration)
     + generationInfoRow('Count', meta.count)
     + generationInfoRow('Created', created)
