@@ -800,6 +800,8 @@ body:has(.view[data-view="tools"].active) .studio-audio-player{
 .image-seed-input:focus{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.07)}
 .image-seed-input:disabled{opacity:.48;cursor:not-allowed}
 .image-seed-disabled-note{margin:-2px 12px 10px;color:rgba(255,255,255,.52);font-size:12px;line-height:1.35}
+.recraft-tool-row{cursor:default}
+.recraft-tool-row .image-size-check{font-size:12px;color:rgba(255,255,255,.72)}
 .studio-generate{
   flex:0 0 auto;min-height:48px;border:0;border-radius:999px;padding:0 22px;
   background:#244f86;color:#a7a7a7;font-family:inherit;font-size:15px;font-weight:700;
