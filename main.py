@@ -1145,6 +1145,68 @@ def add_user_balance(telegram_id: int, credits: int):
         conn.close()
 
 
+def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
+    credits = int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
+    if not DATABASE_URL or not telegram_id or not generation_id or credits <= 0:
+        return {"charged": False, "credits": max(0, credits), "balance_after": None}
+
+    ensure_user_exists(telegram_id)
+    ensure_prostudio_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO generation_charges (
+                generation_id, telegram_id, mode, model, provider, credits
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (generation_id) DO NOTHING
+            RETURNING id
+        """, (
+            generation_id,
+            telegram_id,
+            payload.get("mode") or payload.get("category") or result.get("type") or "",
+            payload.get("model") or result.get("model") or "",
+            payload.get("provider") or result.get("provider") or "",
+            credits,
+        ))
+        inserted = cursor.fetchone()
+        if inserted:
+            cursor.execute("""
+                UPDATE users
+                SET balance = COALESCE(balance, 0) - %s
+                WHERE telegram_id = %s
+                RETURNING COALESCE(balance, 0)
+            """, (credits, telegram_id))
+            row = cursor.fetchone()
+            balance_after = int(row[0]) if row else None
+            cursor.execute(
+                "UPDATE generation_charges SET balance_after = %s WHERE generation_id = %s",
+                (balance_after, generation_id),
+            )
+            conn.commit()
+            return {"charged": True, "credits": credits, "balance_after": balance_after}
+
+        cursor.execute(
+            "SELECT credits, balance_after FROM generation_charges WHERE generation_id = %s",
+            (generation_id,),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        return {
+            "charged": False,
+            "already_charged": True,
+            "credits": int(row[0]) if row else credits,
+            "balance_after": int(row[1]) if row and row[1] is not None else None,
+        }
+    except Exception as exc:
+        conn.rollback()
+        print("GENERATION BALANCE CHARGE FAILED:", exc)
+        return {"charged": False, "credits": credits, "balance_after": None, "error": str(exc)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: int, currency: str, payload: str, charge_id: str):
     credits = int(item.get("credits") or 0)
     bonus_credits = int(item.get("bonus_credits") or 0)
@@ -2590,6 +2652,23 @@ def ensure_prostudio_table():
         CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_user_mode
         ON prostudio_generation_jobs (telegram_id, mode, updated_at DESC)
         """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generation_charges (
+            id SERIAL PRIMARY KEY,
+            generation_id TEXT UNIQUE NOT NULL,
+            telegram_id BIGINT NOT NULL,
+            mode TEXT,
+            model TEXT,
+            provider TEXT,
+            credits INTEGER NOT NULL,
+            balance_after INTEGER,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_generation_charges_user
+        ON generation_charges (telegram_id, created_at DESC)
+        """)
         cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0")
         cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
         cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP")
@@ -2687,6 +2766,7 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
                 response_json = COALESCE(%s::jsonb, response_json),
                 result_json = COALESCE(%s::jsonb, result_json),
                 error_json = COALESCE(%s::jsonb, error_json),
+                cost = CASE WHEN %s IN ('completed', 'provider_processing') THEN COALESCE(%s, cost) ELSE cost END,
                 updated_at = NOW(),
                 completed_at = CASE WHEN %s IN ('completed', 'failed') THEN NOW() ELSE completed_at END
             WHERE id = %s
@@ -2696,6 +2776,8 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
             _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
             _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
             _safe_json_dumps(_sanitize_event_payload(error or {}, max_text=1200, max_items=50, depth=5)),
+            status,
+            int((result or {}).get("cost_credits") or (result or {}).get("cost") or (result or {}).get("price") or 0),
             status,
             job_id,
         ))
@@ -3108,6 +3190,9 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "cost": result.get("cost"),
         "cost_credits": result.get("cost_credits"),
         "unit_cost_credits": result.get("unit_cost_credits"),
+        "balance_charged": result.get("balance_charged"),
+        "balance_after": result.get("balance_after"),
+        "charge_id": result.get("charge_id") or result.get("generation_id") or result.get("job_id") or "",
         "rendering_speed": result.get("rendering_speed") or options.get("rendering_speed") or "",
         "provider_model": result.get("provider_model") or "",
         "image_options": options if mode == "image" else {},
@@ -5743,7 +5828,13 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             log_prostudio_error(payload, error_result, job_id=job_id)
             return
 
-        save_generation(int(payload.get("telegram_id") or 0), mode, prompt or "[attachment]")
+        telegram_id = int(payload.get("telegram_id") or 0)
+        charge = charge_generation_balance(telegram_id, job_id or result.get("generation_id") or str(uuid4()), result, payload)
+        result["balance_charged"] = bool(charge.get("charged") or charge.get("already_charged"))
+        result["balance_after"] = charge.get("balance_after")
+        result["charge_id"] = job_id or result.get("generation_id") or ""
+
+        save_generation(telegram_id, mode, prompt or "[attachment]")
         metadata = build_prostudio_metadata(payload, result)
         if metadata:
             result["metadata"] = metadata
