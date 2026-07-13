@@ -435,9 +435,57 @@ const IMAGE_MODEL_LIST = [
     ]
   },
 
-  { id:'qwen_image', label:'Qwen Image', desc:'Qwen image model', icon:'qwen' },
-  { id:'qwen_image_2_pro', label:'Qwen Image 2 Pro', desc:'Qwen image generation', icon:'qwen' },
-  { id:'qwen_image_2', label:'Qwen Image 2', desc:'Qwen image generation', icon:'qwen' },
+  {
+    id:'qwen_image',
+    label:'Qwen Image',
+    desc:'Qwen image model',
+    icon:'qwen',
+    seed:false,
+    costUsd:0.0675,
+    costCredits:7,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'qwen_image_2_pro',
+    label:'Qwen Image 2 Pro',
+    desc:'Qwen image generation',
+    icon:'qwen',
+    seed:true,
+    costUsd:0.1125,
+    costCredits:12,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'qwen_image_2',
+    label:'Qwen Image 2',
+    desc:'Qwen image generation',
+    icon:'qwen',
+    seed:true,
+    costUsd:0.0525,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
 
   { id:'nano_banana_pro', label:'Nano Banana Pro', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'DISCOUNT' },
   { id:'nano_banana_2', label:'Nano Banana 2', desc:'Google/Gemini image model', icon:'nanoBanana', badge:'FAST' },
@@ -476,9 +524,9 @@ const MODEL_FEATURES = {
   recraft_v3: { character: false, object: false, seed: true },
   recraft_v4_1_pro: { character: false, object: false, seed: false },
   gpt_image_1: { character: false, object: false },
-  qwen_image: { character: false, object: false },
-  qwen_image_2: { character: false, object: false },
-  qwen_image_2_pro: { character: false, object: false },
+  qwen_image: { character: false, object: false, seed: false },
+  qwen_image_2: { character: false, object: false, seed: true },
+  qwen_image_2_pro: { character: false, object: false, seed: true },
   krea_2: { character: false, object: false },
   microsoft_mai_image_2_5: { character: false, object: false },
 };
