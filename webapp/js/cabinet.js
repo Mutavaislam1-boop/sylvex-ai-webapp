@@ -304,10 +304,79 @@ const IMAGE_MODEL_LIST = [
     ]
   },
 
-  { id:'seedream_4_0', label:'Seedream 4.0', desc:'ByteDance Seedream image model', icon:'seedream' },
-  { id:'seedream_5_0', label:'Seedream 5.0', desc:'ByteDance Seedream image model', icon:'seedream' },
-  { id:'seedream_4_5', label:'Seedream 4.5', desc:'ByteDance Seedream image model', icon:'seedream', badge:'TRENDING' },
-
+  {
+    id:'seedream_5_0_lite',
+    label:'Seedream 5.0 Lite',
+    desc:'ByteDance Seedream 5.0 Lite image model',
+    icon:'seedream',
+    providerModel:'seedream-5-0-260128',
+    seed:true,
+    costUsd:0.0525,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'seedream_4_5',
+    label:'Seedream 4.5',
+    desc:'ByteDance Seedream image model',
+    icon:'seedream',
+    badge:'TRENDING',
+    providerModel:'seedream-4-5-251128',
+    seed:true,
+    costUsd:0.06,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'seedream_5_0_pro',
+    label:'Seedream 5.0 Pro',
+    desc:'ByteDance Seedream Pro image model',
+    icon:'seedream',
+    providerModel:'dola-seedream-5-0-pro-260628',
+    seed:true,
+    costUsd:0.0675,
+    costCredits:7,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'seedream_4_0',
+    label:'Seedream 4.0',
+    desc:'ByteDance Seedream image model',
+    icon:'seedream',
+    providerModel:'seedream-4-0-250828',
+    seed:true,
+    costUsd:0.0525,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
   { id:'gpt_image_1', label:'GPT Image 1', desc:'OpenAI image generation', icon:'gptImage' },
   { id:'gpt_image_2', label:'GPT Image 2', desc:'OpenAI image generation', icon:'gptImage', badge:'FEATURED' },
 
@@ -334,12 +403,14 @@ const MODEL_FEATURES = {
   nano_banana_2: { character: false, object: false },
   nano_banana: { character: true, object: true },
   gpt_image_2: { character: true, object: true },
-  seedream_5_0: { character: true, object: true },
-  seedream_5: { character: true, object: true },
-  seedream_5_pro: { character: true, object: true },
-  seedream_4_5: { character: true, object: true },
-  seedream_4_0: { character: true, object: true },
-  seedream_4: { character: true, object: true },
+  seedream_5_0_lite: { character: true, object: true, seed: true },
+  seedream_5_0: { character: true, object: true, seed: true },
+  seedream_5: { character: true, object: true, seed: true },
+  seedream_5_0_pro: { character: true, object: true, seed: true },
+  seedream_5_pro: { character: true, object: true, seed: true },
+  seedream_4_5: { character: true, object: true, seed: true },
+  seedream_4_0: { character: true, object: true, seed: true },
+  seedream_4: { character: true, object: true, seed: true },
   grok_pro: { character: false, object: false },
   davinci_ultra: { character: false, object: false },
   grok: { character: false, object: false },

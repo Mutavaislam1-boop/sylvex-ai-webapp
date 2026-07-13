@@ -48,18 +48,6 @@ PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
 SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=shop")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
-BYTEPLUS_ARK_API_KEY = os.getenv("BYTEPLUS_ARK_API_KEY")
-BYTEPLUS_ARK_ENDPOINT = os.getenv("BYTEPLUS_ARK_ENDPOINT", "https://ark.ap-southeast.bytepluses.com/api/v3").rstrip("/")
-BYTEPLUS_SEEDREAM_MODEL_MAP = {
-    "seedream_5_0": os.getenv("BYTEPLUS_SEEDREAM_5_MODEL", "seedream-5-0-260128"),
-    "seedream_4_5": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
-    "seedream_4_0": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
-    "seedream-5-0-260128": os.getenv("BYTEPLUS_SEEDREAM_5_MODEL", "seedream-5-0-260128"),
-    "seedream-4-5-251128": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
-    "seedream-4-0-250828": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
-}
 
 def env_value(*names: str, default: str = "") -> str:
     for name in names:
@@ -67,6 +55,23 @@ def env_value(*names: str, default: str = "") -> str:
         if value:
             return value
     return default
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+BYTEPLUS_ARK_API_KEY = os.getenv("BYTEPLUS_ARK_API_KEY")
+BYTEPLUS_ARK_ENDPOINT = os.getenv("BYTEPLUS_ARK_ENDPOINT", "https://ark.ap-southeast.bytepluses.com/api/v3").rstrip("/")
+BYTEPLUS_SEEDREAM_MODEL_MAP = {
+    "seedream_5_0_lite": env_value("BYTEPLUS_SEEDREAM_5_LITE_MODEL", "BYTEPLUS-SEEDREAM-5-LITE-MODEL", default="seedream-5-0-260128"),
+    "seedream_5_0": os.getenv("BYTEPLUS_SEEDREAM_5_MODEL", "seedream-5-0-260128"),
+    "seedream_5_0_pro": env_value("BYTEPLUS_SEEDREAM_5_PRO_MODEL", "BYTEPLUS-SEEDREAM-5-PRO-MODEL", default="dola-seedream-5-0-pro-260628"),
+    "seedream_4_5": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
+    "seedream_4_0": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
+    "seedream-5-0-lite-260128": os.getenv("BYTEPLUS_SEEDREAM_5_LITE_MODEL", "seedream-5-0-260128"),
+    "seedream-5-0-260128": os.getenv("BYTEPLUS_SEEDREAM_5_MODEL", "seedream-5-0-260128"),
+    "dola-seedream-5-0-pro-260628": os.getenv("BYTEPLUS_SEEDREAM_5_PRO_MODEL", "dola-seedream-5-0-pro-260628"),
+    "seedream-4-5-251128": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
+    "seedream-4-0-250828": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
+}
 
 IMAGE_PROVIDER_MODEL_MAP = {
     "ideogram_3_0": {"provider": "ideogram", "provider_model": env_value("IDEOGRAM_3_MODEL", "IDEOGRAM-3-MODEL", default="ideogram-v3"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
@@ -76,6 +81,8 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "recraft_v4_1_pro": {"provider": "recraft", "provider_model": env_value("RECRAFT_V4_1_PRO_MODEL", "RECRAFT-V4-1-PRO-MODEL", default="recraftv4_1_pro"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "seedream_4_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "seedream_5_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
+    "seedream_5_0_lite": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_lite"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
+    "seedream_5_0_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "seedream_4_5": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "gpt_image_1": {"provider": "openai", "provider_model": "gpt-image-1", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
     "gpt_image_2": {"provider": "openai", "provider_model": "gpt-image-2", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
@@ -174,6 +181,43 @@ RECRAFT_MODEL_VARIANTS = {
         ],
     },
 }
+SEEDREAM_MODEL_VARIANTS = {
+    "seedream_5_0_lite": {
+        "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_lite"],
+        "label": "Seedream 5.0 Lite",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.0525,
+    },
+    "seedream_5_0": {
+        "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0"],
+        "label": "Seedream 5.0 Lite",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.0525,
+    },
+    "seedream_4_5": {
+        "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"],
+        "label": "Seedream 4.5",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.06,
+    },
+    "seedream_5_0_pro": {
+        "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"],
+        "label": "Seedream 5.0 Pro",
+        "seed": True,
+        "cost_credits": 7,
+        "cost_usd": 0.0675,
+    },
+    "seedream_4_0": {
+        "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"],
+        "label": "Seedream 4.0",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.0525,
+    },
+}
 RECRAFT_TOOL_CATALOG = {
     "image_to_image": {"label": "Изображение → Изображение", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/imageToImage"},
     "outpaint": {"label": "Дорисовка изображения", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/outpaint"},
@@ -191,12 +235,14 @@ IMAGE_MODEL_FEATURES = {
     "nano_banana_2": {"character": False, "object": False},
     "nano_banana": {"character": True, "object": True},
     "gpt_image_2": {"character": True, "object": True},
-    "seedream_5_0": {"character": True, "object": True},
-    "seedream_5": {"character": True, "object": True},
-    "seedream_5_pro": {"character": True, "object": True},
-    "seedream_4_5": {"character": True, "object": True},
-    "seedream_4_0": {"character": True, "object": True},
-    "seedream_4": {"character": True, "object": True},
+    "seedream_5_0_lite": {"character": True, "object": True, "seed": True},
+    "seedream_5_0": {"character": True, "object": True, "seed": True},
+    "seedream_5": {"character": True, "object": True, "seed": True},
+    "seedream_5_0_pro": {"character": True, "object": True, "seed": True},
+    "seedream_5_pro": {"character": True, "object": True, "seed": True},
+    "seedream_4_5": {"character": True, "object": True, "seed": True},
+    "seedream_4_0": {"character": True, "object": True, "seed": True},
+    "seedream_4": {"character": True, "object": True, "seed": True},
     "grok_pro": {"character": False, "object": False},
     "davinci_ultra": {"character": False, "object": False},
     "grok": {"character": False, "object": False},
@@ -4329,11 +4375,12 @@ def default_image_capabilities() -> list:
         seedream_common = {
             "provider": "bytedance",
             "sizes": [
+                image_size("auto"),
                 image_size("1:1"),
-                image_size("16:9"),
-                image_size("9:16"),
                 image_size("4:3"),
                 image_size("3:4"),
+                image_size("16:9"),
+                image_size("9:16"),
             ],
             "counts": [1, 2, 3, 4],
             "styles": [
@@ -4358,8 +4405,15 @@ def default_image_capabilities() -> list:
                 **seedream_common,
                 "id": "seedream-5-0-260128",
                 "api_model": "seedream-5-0-260128",
-                "label": "Seedream 5.0",
-                "description": "BytePlus Seedream 5.0 — фото-генерация высокого качества через ModelArk.",
+                "label": "Seedream 5.0 Lite",
+                "description": "BytePlus Seedream 5.0 Lite — фото-генерация высокого качества через ModelArk.",
+            },
+            {
+                **seedream_common,
+                "id": "dola-seedream-5-0-pro-260628",
+                "api_model": "dola-seedream-5-0-pro-260628",
+                "label": "Seedream 5.0 Pro",
+                "description": "BytePlus Seedream 5.0 Pro — профессиональная фото-генерация через ModelArk.",
             },
             {
                 **seedream_common,
@@ -4412,7 +4466,13 @@ def get_image_capabilities() -> dict:
                 continue
             item = dict(model)
             model_id = item.get("id") or item.get("model") or item.get("api_model") or ""
-            frontend_id = str(model_id).replace("seedream-5-0-260128", "seedream_5_0").replace("seedream-4-5-251128", "seedream_4_5").replace("seedream-4-0-250828", "seedream_4_0")
+            frontend_id = (
+                str(model_id)
+                .replace("seedream-5-0-260128", "seedream_5_0_lite")
+                .replace("dola-seedream-5-0-pro-260628", "seedream_5_0_pro")
+                .replace("seedream-4-5-251128", "seedream_4_5")
+                .replace("seedream-4-0-250828", "seedream_4_0")
+            )
             item.update(image_model_features(frontend_id))
             out.append(item)
         return out
@@ -4919,17 +4979,19 @@ def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
     return max(1, min(count, max_count))
 
 
-def byteplus_seedream_body(model: str, prompt: str, reference_images=None) -> dict:
+def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size: str = "", seed=None) -> dict:
     body = {
         "model": model,
         "prompt": prompt,
         "sequential_image_generation": "disabled",
         "response_format": "url",
-        "size": "2K",
+        "size": seedream_size_value(size),
         "output_format": "png",
         "stream": False,
         "watermark": False,
     }
+    if seed is not None:
+        body["seed"] = seed
 
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
 
@@ -4938,17 +5000,19 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None) -> di
 
     return body
 
-def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None) -> tuple:
+def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None, size: str = "", seed=None) -> tuple:
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
 
     def _send(include_refs: bool):
+        request_payload = byteplus_seedream_body(model, prompt, refs if include_refs else [], size=size, seed=seed)
+        print("BYTEPLUS IMAGE PAYLOAD:", {k: v for k, v in request_payload.items() if k != "image"})
         return requests.post(
             f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
             headers={
                 "Authorization": f"Bearer {BYTEPLUS_ARK_API_KEY}",
                 "Content-Type": "application/json",
             },
-            data=json.dumps(byteplus_seedream_body(model, prompt, refs if include_refs else [])),
+            data=json.dumps(request_payload),
             timeout=120,
         )
 
@@ -5118,7 +5182,10 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     if not model:
         return unknown_byteplus_image_model_response(requested_model)
     prompt = build_image_prompt(payload)
+    size = opts.get("size") or opts.get("ratio") or (model_cfg.get("sizes") or [{}])[0].get("id") or "auto"
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+    seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(seedream_frontend_model(requested_model, model)) or {}).get("seed"))
+    seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
 
     reference_images = (
         opts.get("referenceImageUrls")
@@ -5139,7 +5206,7 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     # generated by repeated safe calls and normalized into the frontend format.
     for index in range(1, count + 1):
         print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
-        request_images, error = request_byteplus_seedream_image(model, prompt, reference_images)
+        request_images, error = request_byteplus_seedream_image(model, prompt, reference_images, size=size, seed=seed)
         if request_images:
             for url in request_images:
                 if url and url not in images:
@@ -5160,6 +5227,10 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
         "type": "image",
         "image_url": images[0],
         "images": images,
+        "provider": "bytedance",
+        "model": requested_model,
+        "provider_model": model,
+        **seedream_cost_info(requested_model, model, len(images)),
     })
 
     telegram_id = int(payload.get("telegram_id") or 0)
@@ -5537,6 +5608,58 @@ def recraft_cost_info(frontend_model: str, provider_model: str, count: int) -> d
     }
 
 
+def seedream_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    if raw in SEEDREAM_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").lower()
+    if "dola-seedream-5-0-pro" in model or "seedream-5-0-pro" in model:
+        return "seedream_5_0_pro"
+    if "seedream-4-5" in model:
+        return "seedream_4_5"
+    if "seedream-4-0" in model:
+        return "seedream_4_0"
+    if "seedream-5-0" in model:
+        return "seedream_5_0_lite"
+    return "seedream_5_0_lite"
+
+
+def seedream_size_value(size: str) -> str:
+    raw = str(size or "").strip().lower()
+    if raw in {"", "auto"}:
+        return "2K"
+    mapping = {
+        "1:1": "1024x1024",
+        "1x1": "1024x1024",
+        "4:3": "1152x864",
+        "4x3": "1152x864",
+        "3:4": "864x1152",
+        "3x4": "864x1152",
+        "16:9": "1280x720",
+        "16x9": "1280x720",
+        "9:16": "720x1280",
+        "9x16": "720x1280",
+    }
+    return mapping.get(raw, "2K")
+
+
+def seedream_cost_info(frontend_model: str, provider_model: str, count: int) -> dict:
+    key = seedream_frontend_model(frontend_model, provider_model)
+    cfg = SEEDREAM_MODEL_VARIANTS.get(key) or SEEDREAM_MODEL_VARIANTS["seedream_5_0_lite"]
+    image_count = max(1, int(count or 1))
+    unit_credits = int(cfg.get("cost_credits") or 0)
+    unit_usd = float(cfg.get("cost_usd") or 0)
+    return {
+        "cost": unit_credits * image_count,
+        "cost_credits": unit_credits * image_count,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": round(unit_usd * image_count, 4),
+        "unit_cost_usd": unit_usd,
+        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+    }
+
+
 def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
     headers = recraft_headers()
     if not headers:
@@ -5579,6 +5702,17 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider == "recraft":
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         info = recraft_cost_info(requested_model, api_model, count)
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "model_label": info.get("model_label") or "",
+        }
+    if provider in ("byteplus", "bytedance") or re.search(r"seedream", f"{requested_model or ''} {api_model or ''}", re.I):
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        info = seedream_cost_info(requested_model, api_model, count)
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -5687,9 +5821,11 @@ async def image_generation(payload: dict) -> dict:
 
         images = []
         reference_images = image_reference_urls(payload)
+        seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(seedream_frontend_model(requested_model, api_model)) or {}).get("seed"))
+        seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
         for index in range(1, count + 1):
             print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
-            request_images, error = request_byteplus_seedream_image(api_model, prompt, reference_images)
+            request_images, error = request_byteplus_seedream_image(api_model, prompt, reference_images, size=size, seed=seed)
             if request_images:
                 for url in request_images:
                     if url and url not in images:
@@ -5701,7 +5837,12 @@ async def image_generation(payload: dict) -> dict:
                 break
         if not images:
             return image_error_response(provider, requested_model, api_model, f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "Генерация не прошла. Проверь выбранную модель или backend-провайдер.")
-        return await finalize_image_result(payload, images[:count])
+        result = await finalize_image_result(payload, images[:count])
+        result.update(seedream_cost_info(requested_model, api_model, len(images[:count])))
+        result["provider"] = "bytedance"
+        result["model"] = requested_model
+        result["provider_model"] = api_model
+        return result
 
     if provider == "openai":
         if not OPENAI_API_KEY:
