@@ -2914,6 +2914,15 @@ def _safe_json_dumps(value) -> str:
     except Exception:
         return "{}"
 
+def _sql_text(value, max_text: int = 2000) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value[:max_text]
+    if isinstance(value, (dict, list)):
+        return _safe_json_dumps(_sanitize_event_payload(value, max_text=max_text, max_items=50, depth=5))[:max_text]
+    return str(value)[:max_text]
+
 def create_prostudio_generation_job(payload: dict) -> str:
     job_id = str(uuid4())
     telegram_id = int(payload.get("telegram_id") or 0)
@@ -3139,15 +3148,15 @@ def log_prostudio_error(payload: dict, error: dict, job_id: str = ""):
         """, (
             telegram_id or None,
             job_id or None,
-            error.get("provider") or payload.get("provider") or "",
-            error.get("model") or payload.get("model") or "",
-            error.get("endpoint") or "",
-            error.get("request_id") or "",
-            error.get("status") or "failed",
-            error.get("error") or error.get("message") or str(error)[:1000],
+            _sql_text(error.get("provider") or payload.get("provider") or "", 200),
+            _sql_text(error.get("model") or payload.get("model") or "", 200),
+            _sql_text(error.get("endpoint") or "", 1000),
+            _sql_text(error.get("request_id") or "", 200),
+            _sql_text(error.get("status") or "failed", 80),
+            _sql_text(error.get("error") or error.get("message") or error, 1000),
             _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
             _safe_json_dumps(_sanitize_event_payload(error, max_text=1200, max_items=50, depth=5)),
-            error.get("stack_trace") or "",
+            _sql_text(error.get("stack_trace") or error.get("traceback") or "", 4000),
         ))
         conn.commit()
         cursor.close()
@@ -3471,7 +3480,7 @@ def attach_image_thumbnails(result: dict) -> dict:
     print("PROSTUDIO IMAGE THUMBNAILS:", {
         "image_count": len(images),
         "thumb_count": len(result.get("thumbnails") or []),
-        "image_url": result.get("image_url"),
+        "image_url": _sql_text(result.get("image_url"), 180),
         "thumbnail_url": result.get("thumbnail_url"),
         "thumb_url": result.get("thumb_url"),
         "preview_fallback_url": result.get("preview_fallback_url") or "",
