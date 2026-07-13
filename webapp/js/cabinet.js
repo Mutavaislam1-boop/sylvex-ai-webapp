@@ -3779,11 +3779,14 @@ function imageModelButton(model) {
     || '';
 }
 
-  function previewImgHtml(url, alt) {
+  function previewImgHtml(url, alt, fallbackUrl) {
     const safeUrl = S.escapeHtml(url || '');
     const safeAlt = S.escapeHtml(alt || 'preview');
+    const safeFallbackUrl = S.escapeHtml(fallbackUrl || '');
     if (!safeUrl) return '<span class="generation-result-fallback">IMG</span>';
-    return '<img src="' + safeUrl + '" alt="' + safeAlt + '" loading="lazy" decoding="async" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'generation-result-fallback\',textContent:\'IMG\'}))" />';
+    return '<img src="' + safeUrl + '" alt="' + safeAlt + '" loading="lazy" decoding="async"'
+      + (safeFallbackUrl ? ' data-fallback-src="' + safeFallbackUrl + '"' : '')
+      + ' onerror="if(this.dataset&&this.dataset.fallbackSrc&&this.src!==this.dataset.fallbackSrc){this.src=this.dataset.fallbackSrc;this.removeAttribute(\'data-fallback-src\');}else{this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'generation-result-fallback\',textContent:\'IMG\'}));}" />';
   }
 
   function aiMessageFromGenerateResponse(j) {
@@ -3871,6 +3874,19 @@ function imageModelButton(model) {
         : (backendMeta.thumbnail_url || backendMeta.thumb_url ? [backendMeta.thumbnail_url || backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
     const imageUrl = backendMeta.image_url || backendMeta.result_url || images[0] || '';
     const thumbUrl = backendMeta.thumbnail_url || backendMeta.thumb_url || thumbs[0] || '';
+    console.debug('PROSTUDIO IMAGE METADATA DEBUG', {
+      resultKeys: result && typeof result === 'object' ? Object.keys(result) : [],
+      backendMetaKeys: Object.keys(backendMeta || {}),
+      images,
+      thumbs,
+      imageUrl,
+      thumbUrl,
+      previewFallbackUrl: backendMeta.preview_fallback_url || backendMeta.full_url || backendMeta.result_url || imageUrl,
+      modelId,
+      provider: backendMeta.provider || (result && result.provider) || providerHintForModel(modelId),
+      generationCost: backendMeta.generation_cost || (result && result.generation_cost) || '',
+      costCredits: backendMeta.cost_credits !== undefined ? backendMeta.cost_credits : (result && result.cost_credits),
+    });
     const seed = backendMeta.seed !== undefined ? backendMeta.seed : (options.seed === undefined ? null : options.seed);
     const refs = (backendMeta.reference_images && backendMeta.reference_images.length)
       ? backendMeta.reference_images.slice()
@@ -3920,6 +3936,7 @@ function imageModelButton(model) {
       result_thumbnails: thumbs,
       image_url: imageUrl,
       full_url: backendMeta.full_url || backendMeta.result_url || imageUrl,
+      preview_fallback_url: backendMeta.preview_fallback_url || backendMeta.full_url || backendMeta.result_url || imageUrl,
       thumbnail_url: thumbUrl,
       thumb_url: thumbUrl,
       created_at: backendMeta.created_at || new Date().toISOString(),
@@ -3991,6 +4008,7 @@ function imageModelButton(model) {
     const meta = m.metadata || {};
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? 'music' : 'image'));
     const thumb = imagePreviewUrl(meta, '');
+    const fallbackUrl = meta.preview_fallback_url || meta.image_url || meta.full_url || meta.result_url || ((meta.result_images || [])[0]) || '';
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
     const titleMap = {
       image: 'Изображение готово',
@@ -4000,7 +4018,7 @@ function imageModelButton(model) {
     };
     const iconMap = { image: 'IMG', video: 'VID', music: '♪', voice: 'VO' };
     const media = thumb
-      ? previewImgHtml(thumb, 'generated result')
+      ? previewImgHtml(thumb, 'generated result', type === 'image' ? fallbackUrl : '')
       : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
     const handler = type === 'music'
       ? 'SYLVEX.playMusicTrackFromMessage(event,' + index + ')'
@@ -4890,6 +4908,7 @@ function openGenerationInfoDrawer(e, index) {
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
   const previewUrl = imagePreviewUrl(meta, '');
+  const previewFallbackUrl = meta.preview_fallback_url || imageUrl || resultUrl || '';
   const refImages = meta.reference_images || [];
   const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
   const settings = meta.settings || meta.image_options || meta.video_options || meta.music_options || meta.voice_options || {};
@@ -4905,7 +4924,7 @@ function openGenerationInfoDrawer(e, index) {
   if (titleEl) titleEl.textContent = titleMap[type] || 'Result';
   const videoThumb = imagePreviewUrl(meta, '');
   const previewHtml = type === 'image' && imageUrl
-    ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated image') + '</div>'
+    ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</div>'
     : type === 'video' && videoUrl
       ? '<div class="generation-info-preview generation-info-video-preview">' + (videoThumb ? previewImgHtml(videoThumb, 'video thumbnail') : '<span>VID</span>') + '</div>'
       : (type === 'music' || type === 'voice') && imageUrl
