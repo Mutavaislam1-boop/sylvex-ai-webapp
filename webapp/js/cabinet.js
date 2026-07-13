@@ -3781,6 +3781,24 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  function renderInsufficientBalanceCard(m, index) {
+    const required = Number(m.requiredCredits || 0);
+    const balance = Number(m.balance || 0);
+    const costText = m.generationCost || (required ? required + ' ⚡️' : '');
+    return '<div class="generation-balance-card">'
+      + '<div class="generation-balance-title">Недостаточно токенов</div>'
+      + '<div class="generation-balance-text">'
+      + (m.prompt ? '<span class="generation-balance-prompt">' + S.escapeHtml(String(m.prompt)).slice(0, 160) + '</span>' : '')
+      + (costText ? 'Стоимость: ' + S.escapeHtml(String(costText)) + '<br>' : '')
+      + 'Баланс: ' + S.escapeHtml(String(balance)) + ' ⚡️'
+      + '</div>'
+      + '<div class="generation-balance-actions">'
+      + '<button type="button" onclick="SYLVEX.openShopForGeneration(event,' + index + ')">Пополнить баланс</button>'
+      + '<button type="button" onclick="SYLVEX.resumePendingGeneration(event,' + index + ')">Возобновить</button>'
+      + '</div>'
+      + '</div>';
+  }
+
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? 'music' : 'image'));
@@ -3837,6 +3855,11 @@ function imageModelButton(model) {
       if (m.imageLoading) {
         return '<div class="msg ai generation-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageGenerationLoadingCard()
+          + '</div>';
+      }
+      if (m.insufficientBalance) {
+        return '<div class="msg ai generation-balance-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+          + renderInsufficientBalanceCard(m, i)
           + '</div>';
       }
       if (m.imageResultMini) {
@@ -5073,6 +5096,44 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   return j;
 }
 
+function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, imageOptionsSnapshot, videoOptionsSnapshot, audioUploads) {
+  const required = Number((err && err.requiredCredits) || 0);
+  const balance = Number((err && err.balance) || 0);
+  return {
+    role: 'ai',
+    insufficientBalance: true,
+    prompt: prompt || '',
+    requiredCredits: required,
+    balance,
+    generationCost: required ? required + ' ⚡️' : '',
+    resume: {
+      mode: currentChatType(),
+      videoSection: videoState.section || 'generate',
+      prompt: prompt || '',
+      attachment: attachment || null,
+      referenceImages: (referenceImages || []).slice(),
+      imageOptions: imageOptionsSnapshot ? Object.assign({}, imageOptionsSnapshot) : null,
+      videoOptions: videoOptionsSnapshot ? Object.assign({}, videoOptionsSnapshot) : null,
+      audioUploads: (audioUploads || []).slice(),
+    },
+    created_at: new Date().toISOString(),
+  };
+}
+
+function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
+  const known = !!(S.user && S.user.balance !== undefined && S.user.balance !== null);
+  const balance = Number((S.user && S.user.balance) || 0);
+  let required = 1;
+  if (isImageMode()) {
+    const modelId = (imageOptionsSnapshot && (imageOptionsSnapshot.modelId || imageOptionsSnapshot.model)) || imageState.modelId || '';
+    const model = IMAGE_MODEL_LIST.find((item) => item.id === modelId) || {};
+    const unit = Number(model.costCredits || 0);
+    const count = Number((imageOptionsSnapshot && imageOptionsSnapshot.count) || imageState.count || 1);
+    required = unit > 0 ? unit * Math.max(1, count || 1) : 1;
+  }
+  return { balance, required, known };
+}
+
 async function waitGeneration(jobId) {
   while (true) {
     const res = await fetch(
@@ -5106,6 +5167,76 @@ async function waitGeneration(jobId) {
   }
 }
 
+  function openShopForGeneration(e, index) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    switchView('shop');
+    const message = chatMessages[index];
+    if (message) message.shopOpenedAt = new Date().toISOString();
+    rememberCurrentChatSpace();
+  }
+
+  async function resumePendingGeneration(e, index) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const message = chatMessages[index];
+    if (!message || !message.insufficientBalance) return;
+    const snapshot = message.resume || {};
+    const prompt = snapshot.prompt || message.prompt || '';
+    const attachment = snapshot.attachment || null;
+    const referenceImages = Array.isArray(snapshot.referenceImages) ? snapshot.referenceImages.slice() : [];
+    const videoOptions = snapshot.videoOptions || null;
+    const mode = snapshot.mode || currentChatType();
+    const videoSection = snapshot.videoSection === 'edit' || snapshot.videoSection === 'motion'
+      ? snapshot.videoSection
+      : 'video';
+    updateComposerMode(mode === 'video' ? videoSection : mode);
+    chatMessages[index] = isImageMode()
+      ? { role: 'ai', imageLoading: true }
+      : { role: 'ai', typing: true };
+    renderChat();
+    rememberCurrentChatSpace();
+    document.body.classList.add('ai-generating');
+    try {
+      const start = await callGenerate(prompt, attachment, referenceImages, videoOptions);
+      const j = start.result || start;
+      if (mode === 'image') {
+        const images = generatedUrlsFromResponse(j, 'image');
+        const thumbs = generatedThumbsFromResponse(j);
+        if (images.length) addGeneratedImages(images, thumbs);
+        chatMessages[index] = {
+          role: 'ai',
+          imageResultMini: true,
+          metadata: imageGenerationMetadata(prompt, referenceImages, j, snapshot.imageOptions || null),
+        };
+      } else {
+        const resultType = mode === 'video' ? 'video' : (mode === 'music' ? 'music' : (mode === 'voice' ? 'voice' : 'file'));
+        chatMessages[index] = {
+          role: 'ai',
+          imageResultMini: true,
+          metadata: generationResultMetadata(resultType, prompt, j, referenceImages, resultType === 'video' ? videoOptions : null),
+        };
+      }
+      loadConversations();
+    } catch (err) {
+      chatMessages[index] = buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, snapshot.imageOptions || null, videoOptions, snapshot.audioUploads || []);
+      if (!(err && err.paywall)) {
+        chatMessages[index] = {
+          role: 'ai',
+          text: '⚠️ ' + (err && err.message ? err.message : 'Генерация не прошла'),
+        };
+      }
+    } finally {
+      document.body.classList.remove('ai-generating');
+      renderChat();
+      rememberCurrentChatSpace();
+    }
+  }
+
    async function sendChat() {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
@@ -5120,6 +5251,32 @@ async function waitGeneration(jobId) {
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
     if (!v && !attachment && !referenceImages.length && !audioUploads.length) return;
+
+    const balanceCheck = estimateFrontendGenerationCredits(imageOptionsSnapshot);
+    if (balanceCheck.known && balanceCheck.balance < balanceCheck.required) {
+      chatMessages.push(buildInsufficientBalanceMessage(
+        {
+          paywall: true,
+          insufficientBalance: true,
+          requiredCredits: balanceCheck.required,
+          balance: balanceCheck.balance,
+        },
+        v,
+        attachment,
+        referenceImages,
+        imageOptionsSnapshot,
+        videoOptionsSnapshot,
+        audioUploads
+      ));
+      ta.value = '';
+      autoGrow(ta);
+      updateSendButton();
+      saveCurrentDraftSoon();
+      renderChat();
+      rememberCurrentChatSpace();
+      toast('Недостаточно токенов');
+      return;
+    }
 
     const photoMode = isImageMode();
     let loadingIndex = -1;
@@ -5224,17 +5381,24 @@ async function waitGeneration(jobId) {
       loadConversations(); // refresh sidebar order
       rememberCurrentChatSpace();
     } catch (err) {
-      if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       if (err && err.paywall) {
-        renderChat();
-        if (err.insufficientBalance) {
-          toast('Недостаточно токенов');
-          switchView('shop');
-        } else {
-          openPaywall();
+        if (loadingIndex >= 0) {
+          chatMessages[loadingIndex] = buildInsufficientBalanceMessage(
+            err,
+            v,
+            attachment,
+            referenceImages,
+            imageOptionsSnapshot,
+            videoOptionsSnapshot,
+            audioUploads
+          );
         }
+        renderChat();
+        rememberCurrentChatSpace();
+        toast('Недостаточно токенов');
         return;
       }
+      if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       chatMessages.push({
         role: 'ai',
         text: '⚠️ ' + (err && err.message ? err.message : 'Генерация не прошла')
@@ -6817,7 +6981,7 @@ async function waitGeneration(jobId) {
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
-    openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, updateSendButton,
+    openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
