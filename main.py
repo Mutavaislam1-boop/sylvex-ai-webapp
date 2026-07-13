@@ -3418,6 +3418,38 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "sent_to_telegram": bool(result.get("sent_to_telegram")),
     }
 
+def materialize_data_image_url(url: str) -> str:
+    value = str(url or "")
+    if not value.startswith("data:image") or "," not in value:
+        return value
+    try:
+        import base64
+        import imghdr
+
+        header, raw = value.split(",", 1)
+        content = base64.b64decode(raw)
+        detected = imghdr.what(None, h=content) or "png"
+        if detected == "jpeg":
+            ext = "jpg"
+        elif detected in {"png", "webp", "gif"}:
+            ext = detected
+        else:
+            ext = "png"
+        image_dir = WEBAPP_DIR / "generated" / "images"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid4().hex}.{ext}"
+        path = image_dir / filename
+        path.write_bytes(content)
+        return f"/webapp/generated/images/{filename}"
+    except Exception as exc:
+        print("DATA IMAGE MATERIALIZE FAILED:", type(exc).__name__)
+        return value
+
+
+def materialize_image_urls(image_urls: list) -> list:
+    return [materialize_data_image_url(url) for url in _json_list(image_urls)]
+
+
 def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
     thumbs = []
     if not image_urls:
@@ -3436,6 +3468,10 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
             if str(url).startswith("data:"):
                 raw = str(url).split(",", 1)[1] if "," in str(url) else ""
                 content = base64.b64decode(raw)
+            elif str(url).startswith("/webapp/generated/"):
+                local_rel = str(url).replace("/webapp/", "", 1)
+                local_path = WEBAPP_DIR / local_rel
+                content = local_path.read_bytes()
             else:
                 r = requests.get(url, timeout=45)
                 if r.status_code >= 400 or not r.content:
@@ -3465,6 +3501,7 @@ def attach_image_thumbnails(result: dict) -> dict:
     )
     if not images:
         return result
+    images = materialize_image_urls(images)
     thumbs = _json_list(result.get("thumbnails"))
     if len(thumbs) != len(images):
         thumbs = create_image_thumbnails(images)
@@ -3960,12 +3997,12 @@ async def public_prostudio_job(job_id: str):
             "status": row[0],
             "conversation_id": row[3],
             "result_keys": sorted(result_json.keys()) if isinstance(result_json, dict) else [],
-            "image_url": result_json.get("image_url") if isinstance(result_json, dict) else "",
-            "thumbnail_url": result_json.get("thumbnail_url") if isinstance(result_json, dict) else "",
-            "images": _json_list(result_json.get("images")) if isinstance(result_json, dict) else [],
-            "thumbnails": _json_list(result_json.get("thumbnails")) if isinstance(result_json, dict) else [],
-            "metadata_image_url": ((result_json.get("metadata") or {}).get("image_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "",
-            "metadata_thumbnail_url": ((result_json.get("metadata") or {}).get("thumbnail_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "",
+            "image_url": _sql_text(result_json.get("image_url"), 180) if isinstance(result_json, dict) else "",
+            "thumbnail_url": _sql_text(result_json.get("thumbnail_url"), 180) if isinstance(result_json, dict) else "",
+            "images_count": len(_json_list(result_json.get("images"))) if isinstance(result_json, dict) else 0,
+            "thumbnails_count": len(_json_list(result_json.get("thumbnails"))) if isinstance(result_json, dict) else 0,
+            "metadata_image_url": _sql_text(((result_json.get("metadata") or {}).get("image_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "", 180),
+            "metadata_thumbnail_url": _sql_text(((result_json.get("metadata") or {}).get("thumbnail_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "", 180),
         })
 
         return {
