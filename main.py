@@ -60,9 +60,17 @@ BYTEPLUS_SEEDREAM_MODEL_MAP = {
     "seedream-4-5-251128": os.getenv("BYTEPLUS_SEEDREAM_4_5_MODEL", "seedream-4-5-251128"),
     "seedream-4-0-250828": os.getenv("BYTEPLUS_SEEDREAM_4_MODEL", "seedream-4-0-250828"),
 }
+
+def env_value(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return default
+
 IMAGE_PROVIDER_MODEL_MAP = {
-    "ideogram_3_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_3_MODEL", "ideogram-v3"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
-    "ideogram_4_0": {"provider": "ideogram", "provider_model": os.getenv("IDEOGRAM_4_MODEL", "ideogram-v4"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v4/generate"},
+    "ideogram_3_0": {"provider": "ideogram", "provider_model": env_value("IDEOGRAM_3_MODEL", "IDEOGRAM-3-MODEL", default="ideogram-v3"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
+    "ideogram_4_0": {"provider": "ideogram", "provider_model": env_value("IDEOGRAM_4_MODEL", "IDEOGRAM-4-MODEL", default="ideogram-v4"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v4/generate"},
     "recraft_v4_1": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "recraft_v3": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V3_MODEL"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "recraft_v4_1_pro": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_PRO_MODEL", os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1")), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
@@ -84,6 +92,48 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "grok": {"provider": "grok", "provider_model": os.getenv("GROK_IMAGE_MODEL"), "endpoint": os.getenv("XAI_IMAGE_ENDPOINT")},
     "davinci_ultra": {"provider": "davinci", "provider_model": os.getenv("DAVINCI_ULTRA_MODEL"), "endpoint": os.getenv("DAVINCI_IMAGE_ENDPOINT")},
 }
+IDEOGRAM_MODEL_VARIANTS = {
+    "ideogram_3_0": {
+        "rendering_speed": env_value("IDEOGRAM_3_RENDERING_SPEED", "IDEOGRAM-3-RENDERING-SPEED", default="TURBO").upper(),
+        "provider_model": env_value("IDEOGRAM_3_MODEL", "IDEOGRAM-3-MODEL", default="ideogram-v3"),
+        "label_prefix": "Ideogram 3.0",
+        "seed": True,
+        "cost_usd": {
+            "FLASH": 0.045,
+            "TURBO": 0.045,
+            "DEFAULT": 0.090,
+            "QUALITY": 0.135,
+            "TURBO_CHARACTER": 0.150,
+            "DEFAULT_CHARACTER": 0.225,
+            "QUALITY_CHARACTER": 0.300,
+        },
+        "cost_credits": {
+            "FLASH": 5,
+            "TURBO": 5,
+            "DEFAULT": 9,
+            "QUALITY": 14,
+            "TURBO_CHARACTER": 15,
+            "DEFAULT_CHARACTER": 23,
+            "QUALITY_CHARACTER": 30,
+        },
+    },
+    "ideogram_4_0": {
+        "rendering_speed": env_value("IDEOGRAM_4_RENDERING_SPEED", "IDEOGRAM-4-RENDERING-SPEED", default="TURBO").upper(),
+        "provider_model": env_value("IDEOGRAM_4_MODEL", "IDEOGRAM-4-MODEL", default="ideogram-v4"),
+        "label_prefix": "Ideogram 4.0",
+        "seed": False,
+        "cost_usd": {
+            "TURBO": 0.045,
+            "DEFAULT": 0.090,
+            "QUALITY": 0.150,
+        },
+        "cost_credits": {
+            "TURBO": 5,
+            "DEFAULT": 9,
+            "QUALITY": 15,
+        },
+    },
+}
 IMAGE_MODEL_FEATURES = {
     "nano_banana_pro": {"character": True, "object": True},
     "nano_banana_2": {"character": False, "object": False},
@@ -101,10 +151,10 @@ IMAGE_MODEL_FEATURES = {
     "flux_2": {"character": True, "object": True},
     "flux_2_turbo": {"character": True, "object": True},
     "flux_pro_kontext": {"character": True, "object": False},
-    "ideogram_3_0": {"character": False, "object": False},
-    "ideogram_3": {"character": False, "object": False},
-    "ideogram_4_0": {"character": False, "object": False},
-    "ideogram_4": {"character": False, "object": False},
+    "ideogram_3_0": {"character": False, "object": False, "seed": True},
+    "ideogram_3": {"character": False, "object": False, "seed": True},
+    "ideogram_4_0": {"character": False, "object": False, "seed": False},
+    "ideogram_4": {"character": False, "object": False, "seed": False},
     "recraft_v4_1": {"character": False, "object": False},
     "recraft_v3": {"character": False, "object": False},
     "recraft_v4_1_pro": {"character": False, "object": False},
@@ -3021,6 +3071,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
 
     model = payload.get("model") or options.get("modelId") or options.get("model") or result.get("model") or ""
     provider = payload.get("provider") or result.get("provider") or ""
+    seed = options.get("seed") if mode == "image" else None
     result_url = ""
     if mode == "image":
         result_url = images[0] if images else ""
@@ -3050,6 +3101,15 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "size": options.get("size") or options.get("resolution") or options.get("ratio") or "",
         "duration": result.get("duration") or options.get("duration") or "",
         "count": options.get("count") or len(images) or 1,
+        "seed": seed,
+        "generation_cost": result.get("generation_cost") or "",
+        "cost_usd": result.get("cost_usd"),
+        "unit_cost_usd": result.get("unit_cost_usd"),
+        "cost": result.get("cost"),
+        "cost_credits": result.get("cost_credits"),
+        "unit_cost_credits": result.get("unit_cost_credits"),
+        "rendering_speed": result.get("rendering_speed") or options.get("rendering_speed") or "",
+        "provider_model": result.get("provider_model") or "",
         "image_options": options if mode == "image" else {},
         "video_options": options if mode == "video" else {},
         "music_options": options if mode == "music" else {},
@@ -4245,10 +4305,11 @@ def image_model_features(frontend_model: str) -> dict:
     if isinstance(features, str):
         features = IMAGE_MODEL_FEATURES.get(features)
     if not features:
-        features = {"character": False, "object": False}
+        features = {"character": False, "object": False, "seed": False}
     return {
         "character": bool(features.get("character")),
         "object": bool(features.get("object")),
+        "seed": bool(features.get("seed")),
     }
 
 def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
@@ -4320,6 +4381,26 @@ def invalid_generation_model_response(model: str) -> JSONResponse:
         },
         status_code=400,
     )
+
+def normalize_image_seed(value):
+    if value in (None, ""):
+        return None
+    try:
+        seed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("Seed must be an integer")
+    if seed < 0:
+        raise ValueError("Seed must be zero or greater")
+    return seed
+
+def normalize_payload_image_seed(payload: dict):
+    opts = payload.get("image_options") or {}
+    if not isinstance(opts, dict):
+        opts = {}
+    seed = normalize_image_seed(opts.get("seed"))
+    opts["seed"] = seed
+    payload["image_options"] = opts
+    return seed
 
 def is_seedream_request(payload: dict) -> bool:
     model = str(payload.get("model") or "")
@@ -5165,7 +5246,7 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
 
 
 def ideogram_headers(json_content: bool = True) -> dict:
-    api_key = os.getenv("IDEOGRAM_API_KEY")
+    api_key = env_value("IDEOGRAM_API_KEY", "IDEOGRAM-API-KEY")
     if not api_key:
         return {}
     headers = {"Api-Key": api_key}
@@ -5174,34 +5255,129 @@ def ideogram_headers(json_content: bool = True) -> dict:
     return headers
 
 
-def ideogram_resolution(size: str) -> str:
-    raw = str(size or "").strip()
-    if raw in {"1024x1024", "2048x2048"}:
-        return "2048x2048"
-    if raw in {"16:9", "1536x1024", "landscape"}:
-        return "2048x1152"
-    if raw in {"9:16", "1024x1536", "portrait"}:
-        return "1152x2048"
-    return "2048x2048"
+def ideogram_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_")
+    if raw in IDEOGRAM_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").lower()
+    if "v4" in model or raw in {"ideogram_4", "ideogram_4_0"}:
+        return "ideogram_4_0"
+    return "ideogram_3_0"
 
 
-def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str) -> tuple[list, dict, dict]:
-    headers = ideogram_headers(json_content=True)
+def ideogram_rendering_speed(frontend_model: str, provider_model: str, opts: Optional[dict] = None) -> str:
+    key = ideogram_frontend_model(frontend_model, provider_model)
+    cfg = IDEOGRAM_MODEL_VARIANTS.get(key) or {}
+    speed = str((opts or {}).get("rendering_speed") or cfg.get("rendering_speed") or "TURBO").upper()
+    if key == "ideogram_4_0" and speed == "FLASH":
+        return "TURBO"
+    valid = {"FLASH", "TURBO", "DEFAULT", "QUALITY"}
+    return speed if speed in valid else str(cfg.get("rendering_speed") or "TURBO").upper()
+
+
+def ideogram_size_params(frontend_model: str, provider_model: str, size: str) -> dict:
+    raw = str(size or "").strip().lower().replace("_", "-")
+    if raw in {"", "auto"}:
+        return {}
+    is_v4 = ideogram_frontend_model(frontend_model, provider_model) == "ideogram_4_0"
+    if is_v4:
+        mapping = {
+            "1:1": {"resolution": "2048x2048"},
+            "1x1": {"resolution": "2048x2048"},
+            "4:3": {"resolution": "2496x1664"},
+            "4x3": {"resolution": "2496x1664"},
+            "3:4": {"resolution": "1664x2496"},
+            "3x4": {"resolution": "1664x2496"},
+            "16:9": {"resolution": "2880x1440"},
+            "16x9": {"resolution": "2880x1440"},
+            "9:16": {"resolution": "1440x2880"},
+            "9x16": {"resolution": "1440x2880"},
+        }
+        return mapping.get(raw, {"resolution": "2048x2048"})
+    mapping = {
+        "1:1": {"aspect_ratio": "1x1"},
+        "1x1": {"aspect_ratio": "1x1"},
+        "1:1-hd": {"resolution": "1024x1024"},
+        "1:1 hd": {"resolution": "1024x1024"},
+        "4:3": {"aspect_ratio": "4x3"},
+        "4x3": {"aspect_ratio": "4x3"},
+        "3:4": {"aspect_ratio": "3x4"},
+        "3x4": {"aspect_ratio": "3x4"},
+        "16:9": {"aspect_ratio": "16x9"},
+        "16x9": {"aspect_ratio": "16x9"},
+        "9:16": {"aspect_ratio": "9x16"},
+        "9x16": {"aspect_ratio": "9x16"},
+    }
+    return mapping.get(raw, {"aspect_ratio": "1x1"})
+
+
+def ideogram_cost_info(frontend_model: str, provider_model: str, rendering_speed: str, count: int, has_character: bool = False) -> dict:
+    key = ideogram_frontend_model(frontend_model, provider_model)
+    cfg = IDEOGRAM_MODEL_VARIANTS.get(key) or IDEOGRAM_MODEL_VARIANTS["ideogram_3_0"]
+    speed = str(rendering_speed or cfg.get("rendering_speed") or "TURBO").upper()
+    cost_key = f"{speed}_CHARACTER" if has_character and key == "ideogram_3_0" else speed
+    unit_usd = float((cfg.get("cost_usd") or {}).get(cost_key, 0))
+    unit_credits = int((cfg.get("cost_credits") or {}).get(cost_key, 0))
+    image_count = max(1, int(count or 1))
+    label_speed = speed.title()
+    if has_character and key == "ideogram_3_0":
+        label_speed += " + Character"
+    return {
+        "cost": unit_credits * image_count,
+        "cost_credits": unit_credits * image_count,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": round(unit_usd * image_count, 3),
+        "unit_cost_usd": unit_usd,
+        "generation_cost": f"${unit_usd * image_count:.3f}",
+        "rendering_speed": speed,
+        "model_label": f"{cfg.get('label_prefix', 'Ideogram')} {label_speed}",
+    }
+
+
+def ideogram_form_files(request_payload: dict) -> dict:
+    return {
+        key: (None, str(value))
+        for key, value in (request_payload or {}).items()
+        if value is not None and value != ""
+    }
+
+
+def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+    headers = ideogram_headers(json_content=False)
     if not headers:
         return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+    opts = payload.get("image_options") or {}
+    frontend_key = ideogram_frontend_model(frontend_model, provider_model)
+    rendering_speed = ideogram_rendering_speed(frontend_model, provider_model, opts)
+    seed = normalize_image_seed(opts.get("seed")) if frontend_key == "ideogram_3_0" else None
+    is_v4 = frontend_key == "ideogram_4_0"
     request_payload = {
-        "text_prompt": prompt,
-        "rendering_speed": (payload.get("image_options") or {}).get("rendering_speed") or "TURBO",
-        "resolution": ideogram_resolution(size),
+        "rendering_speed": rendering_speed,
+        **ideogram_size_params(frontend_model, provider_model, size),
     }
+    if is_v4:
+        request_payload["text_prompt"] = prompt
+    else:
+        request_payload["prompt"] = prompt
+        request_payload["num_images"] = str(max(1, min(int(count or 1), 4)))
+        if seed is not None:
+            request_payload["seed"] = str(seed)
+
+    images = []
+    attempts = 1 if not is_v4 else max(1, min(int(count or 1), 4))
     try:
-        response = requests.post(endpoint, headers=headers, json=request_payload, timeout=120)
+        for _ in range(attempts):
+            response = requests.post(endpoint, headers=headers, files=ideogram_form_files(request_payload), timeout=120)
+            data = safe_provider_json(response, "ideogram", endpoint)
+            if response.status_code >= 400 or data.get("ok") is False:
+                return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, data.get("error") or "Provider request failed", response, data), request_payload
+            for url in normalize_image_response(data):
+                if url and url not in images:
+                    images.append(url)
+            if len(images) >= count:
+                break
     except requests.RequestException as exc:
         return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
-    data = safe_provider_json(response, "ideogram", endpoint)
-    if response.status_code >= 400 or data.get("ok") is False:
-        return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, data.get("error") or "Provider request failed", response, data), request_payload
-    images = normalize_image_response(data)
     return images, {}, request_payload
 
 
@@ -5302,12 +5478,24 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "ideogram":
-        images, error, request_payload = call_ideogram_image(requested_model, api_model, endpoint, prompt, payload, size)
+        images, error, request_payload = call_ideogram_image(requested_model, api_model, endpoint, prompt, payload, size, count)
         print("IDEOGRAM IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": request_payload})
         if error:
             return error
         if images:
-            return await finalize_image_result(payload, images[:count])
+            final_images = images[:count]
+            result = await finalize_image_result(payload, final_images)
+            result.update(ideogram_cost_info(
+                requested_model,
+                api_model,
+                request_payload.get("rendering_speed") or "TURBO",
+                len(final_images) or count,
+                False,
+            ))
+            result["provider"] = "ideogram"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     return image_error_response(provider, requested_model, api_model, endpoint, "Image provider adapter is not connected")
@@ -5407,6 +5595,14 @@ async def public_prostudio_generate(request: Request):
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
 
     if mode == "image":
+        try:
+            normalize_payload_image_seed(payload)
+            image_options = payload.get("image_options") or {}
+        except ValueError as exc:
+            return JSONResponse(
+                {"ok": False, "type": "image", "error": str(exc)},
+                status_code=400,
+            )
         feature_error = validate_image_feature_request(payload)
         if feature_error:
             return JSONResponse(feature_error, status_code=400)
@@ -5467,6 +5663,16 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         )
         generation_modes = {"image", "video", "music", "voice"}
         text_modes = {"text", "chat", "pro", "lite"}
+        if mode == "image":
+            try:
+                normalize_payload_image_seed(payload)
+                image_options = payload.get("image_options") or {}
+            except ValueError as exc:
+                result = {"ok": False, "type": "image", "error": str(exc)}
+                if job_id:
+                    update_prostudio_generation_job(job_id, "failed", error=result)
+                    log_prostudio_error(payload, result, job_id=job_id)
+                return
         heartbeat_prostudio_generation_job(job_id)
         log_user_event(
             int(payload.get("telegram_id") or 0),

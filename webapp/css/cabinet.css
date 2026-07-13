@@ -609,12 +609,10 @@ body.kb-open .nav{
 .studio-video-composer[data-composer-mode="image"] .studio-image-tools{display:grid}
 .studio-video-composer[data-composer-mode="music"] .music-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="music"] .music-only.studio-select-pill{display:flex}
-.studio-video-composer[data-composer-mode="music"] .studio-audio-player{display:flex}
 .studio-video-composer[data-composer-mode="music"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
 .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-left:0;padding-left:0}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
-.studio-video-composer[data-composer-mode="voice"] .studio-audio-player{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
 
@@ -739,28 +737,69 @@ body.kb-open .nav{
 .image-count-pill span{color:#9a9a9a;font-size:18px;line-height:1}
 .image-settings-pill{width:48px;min-width:48px;justify-content:center;padding:0;border-radius:50%}
 .studio-audio-player{
-  display:none;align-items:center;gap:18px;margin-top:12px;padding:14px 20px;
-  min-height:76px;border-radius:28px;background:#181818;border:1px solid rgba(255,255,255,.10);
+  position:fixed;left:12px;right:12px;bottom:calc(86px + env(safe-area-inset-bottom));
+  z-index:99990;display:none;align-items:center;gap:10px;margin:0;padding:8px 12px;
+  min-height:54px;border-radius:18px;background:#181818;border:1px solid rgba(255,255,255,.10);
   box-shadow:0 14px 42px -24px rgba(0,0,0,.9);color:#f4f4f4;
+  max-width:760px;margin-left:auto;margin-right:auto;pointer-events:auto;
+}
+body:has(.view[data-view="tools"].active) .studio-audio-player{
+  bottom:calc(10px + env(safe-area-inset-bottom));
+}
+.studio-audio-player.is-visible{
+  display:flex;
 }
 .studio-track-art{
-  width:48px;height:48px;border-radius:50%;background:
+  width:36px;height:36px;border-radius:50%;background:
     radial-gradient(circle at 65% 35%,rgba(200,20,30,.9),transparent 35%),
     linear-gradient(135deg,#231019,#9b1018 48%,#150c12 49%);
   flex:0 0 auto;overflow:hidden;
 }
 .studio-track-art img{width:100%;height:100%;display:block;object-fit:cover}
-.studio-track-title{font-size:17px;font-weight:500;min-width:180px}
-.studio-player-controls{display:flex;align-items:center;gap:18px}
+.studio-track-title{font-size:14px;font-weight:600;min-width:90px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-player-controls{display:flex;align-items:center;gap:8px}
 .studio-player-controls button,.studio-player-icon{
-  width:32px;height:32px;border:0;background:transparent;color:#f4f4f4;
-  display:grid;place-items:center;cursor:pointer;padding:0;
+  width:36px;height:36px;border:0;background:rgba(255,255,255,.04);color:#f4f4f4;
+  display:grid;place-items:center;cursor:pointer;padding:0;border-radius:50%;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
 }
-.studio-time,.studio-duration{font-size:16px;font-weight:700;color:#eeeeee;white-space:nowrap}
+.studio-player-controls button:active,.studio-player-icon:active{transform:scale(.94);background:rgba(255,255,255,.10)}
+.studio-player-controls button:disabled{opacity:.35;cursor:default}
+.studio-time,.studio-duration{font-size:12px;font-weight:700;color:#eeeeee;white-space:nowrap}
 .studio-duration{color:#9a9a9a}
-.studio-progress{height:5px;border-radius:999px;background:#5a5a5a;flex:1 1 auto;min-width:160px;overflow:hidden}
-.studio-progress span{display:block;width:0;height:100%;background:#efefef}
-.studio-player-icon:last-child{font-size:30px;color:#bdbdbd;line-height:1}
+.studio-progress{height:18px;border-radius:999px;background:transparent;flex:1 1 auto;min-width:92px;overflow:hidden;cursor:pointer;position:relative}
+.studio-progress::before{content:"";position:absolute;left:0;right:0;top:50%;height:5px;border-radius:999px;background:#5a5a5a;transform:translateY(-50%)}
+.studio-progress span{position:absolute;left:0;top:50%;display:block;width:0;height:5px;border-radius:999px;background:#efefef;transform:translateY(-50%)}
+.studio-player-icon:last-child{font-size:22px;color:#bdbdbd;line-height:1;background:transparent}
+.studio-volume-popover{
+  position:absolute;right:42px;bottom:44px;width:132px;padding:8px 10px;border-radius:14px;
+  background:#202020;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 34px -18px rgba(0,0,0,.9);z-index:1;
+}
+.studio-volume-popover:not([hidden]){display:block}
+.studio-volume-popover input{width:100%;display:block;accent-color:#efefef}
+.image-seed-pop .image-size-sheet-title{font-size:15px;font-weight:700}
+.image-seed-row .image-size-label{display:flex;align-items:center;gap:8px}
+.image-seed-hex{font-size:13px;color:#d8d8d8}
+.image-seed-head{position:relative;display:flex;align-items:center;gap:8px;padding:8px 10px 12px;font-size:15px;font-weight:800;color:#f4f4f4}
+.image-seed-back,.image-seed-info{
+  width:28px;height:28px;border:0;border-radius:50%;background:rgba(255,255,255,.06);
+  color:#f4f4f4;display:grid;place-items:center;padding:0;font:inherit;cursor:pointer
+}
+.image-seed-info{font-size:14px}
+.image-seed-tooltip{
+  position:absolute;left:10px;right:10px;top:42px;z-index:2;padding:10px 12px;border-radius:12px;
+  background:#202020;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 34px -18px rgba(0,0,0,.9);
+  color:#dcdcdc;font-size:12px;line-height:1.35;font-weight:500
+}
+.image-seed-tooltip[hidden]{display:none}
+.image-seed-input{
+  width:calc(100% - 20px);margin:0 10px 8px;min-height:48px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);
+  color:#f4f4f4;font:inherit;font-size:15px;padding:0 14px;outline:none;box-sizing:border-box
+}
+.image-seed-input:focus{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.07)}
+.image-seed-input:disabled{opacity:.48;cursor:not-allowed}
+.image-seed-disabled-note{margin:-2px 12px 10px;color:rgba(255,255,255,.52);font-size:12px;line-height:1.35}
 .studio-generate{
   flex:0 0 auto;min-height:48px;border:0;border-radius:999px;padding:0 22px;
   background:#244f86;color:#a7a7a7;font-family:inherit;font-size:15px;font-weight:700;
@@ -825,9 +864,15 @@ body.kb-open .nav{
   .studio-image-tool{min-height:54px;padding:8px 9px;border-radius:12px}
   .studio-image-tool span:last-child{font-size:11px}
   .studio-links-btn{min-height:58px}
-  .studio-audio-player{gap:10px;padding:12px;overflow-x:auto;border-radius:22px}
-  .studio-track-title{min-width:90px;font-size:15px}
-  .studio-progress{min-width:110px}
+  .studio-audio-player{gap:7px;padding:8px 10px;overflow:visible;border-radius:18px;flex-wrap:wrap;min-height:78px}
+  .studio-track-art{width:34px;height:34px}
+  .studio-track-title{min-width:0;max-width:none;flex:1 1 90px;font-size:13px}
+  .studio-player-controls{gap:5px}
+  .studio-player-controls button,.studio-player-icon{width:32px;height:32px}
+  .studio-time{order:10}
+  .studio-progress{order:11;min-width:120px;flex:1 1 120px}
+  .studio-duration{order:12}
+  .studio-volume-popover{right:42px;bottom:38px}
 }
 
 /* Hide bottom nav while in Pro Studio? Keep it but lighten background */
