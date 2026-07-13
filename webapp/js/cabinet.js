@@ -380,7 +380,23 @@ const IMAGE_MODEL_LIST = [
   { id:'gpt_image_1', label:'GPT Image 1', desc:'OpenAI image generation', icon:'gptImage' },
   { id:'gpt_image_2', label:'GPT Image 2', desc:'OpenAI image generation', icon:'gptImage', badge:'FEATURED' },
 
-  { id:'flux_pro_kontext', label:'Flux Pro Kontext', desc:'Black Forest Labs Flux image model', icon:'flux' },
+  {
+    id:'flux_pro_kontext',
+    label:'FLUX Pro Text',
+    desc:'Black Forest Labs FLUX.1 Kontext Pro text image model',
+    icon:'flux',
+    providerModel:'flux-kontext-pro',
+    seed:false,
+    costUsd:0.06,
+    costCredits:6,
+    sizes:[
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
   {
     id:'flux_2',
     label:'FLUX.2',
@@ -1058,7 +1074,7 @@ let styleSheetCssInjected = false;
 { id:'recraft-v3', label:'Recraft V3', icon:'R', description:'Генерация графики, иллюстраций и рекламных визуалов.' },
 { id:'recraft-v4-1-pro', label:'Recraft V4.1 Pro', icon:'R', description:'Профессиональная версия Recraft для точной визуальной генерации.' },
 { id:'gpt-image-1', label:'GPT Image 1', icon:'◎', description:'Генерация и редактирование изображений через OpenAI.' },
-{ id:'flux-pro-kontext', label:'Flux Pro Kontext', icon:'△', description:'Модель Flux для точной работы с контекстом изображения.' },
+{ id:'flux-pro-kontext', label:'FLUX Pro Text', icon:'△', description:'Модель FLUX для генерации изображений по текстовому описанию.' },
 { id:'qwen-image', label:'Qwen Image', icon:'Q', description:'Генерация изображений через Qwen Image.' },
 { id:'qwen-image-2-pro', label:'Qwen Image 2 Pro', icon:'Q', description:'Профессиональная версия Qwen Image для качественной генерации.' },
 { id:'qwen-image-2', label:'Qwen Image 2', icon:'Q', description:'Новая версия Qwen Image для генерации изображений.' },

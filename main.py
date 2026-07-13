@@ -86,7 +86,7 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "seedream_4_5": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "gpt_image_1": {"provider": "openai", "provider_model": "gpt-image-1", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
     "gpt_image_2": {"provider": "openai", "provider_model": "gpt-image-2", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
-    "flux_pro_kontext": {"provider": "flux", "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL"), "endpoint": "https://api.bfl.ai/v1"},
+    "flux_pro_kontext": {"provider": "flux", "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL", default="flux-kontext-pro"), "endpoint": "https://api.bfl.ai/v1"},
     "flux_2": {"provider": "flux", "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"), "endpoint": "https://api.bfl.ai/v1"},
     "flux_2_turbo": {"provider": "flux", "provider_model": env_value("FLUX_2_TURBO_MODEL", "FLUX-2-TURBO-MODEL", default="flux-2-flex"), "endpoint": "https://api.bfl.ai/v1"},
     "qwen_image": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
@@ -219,6 +219,13 @@ SEEDREAM_MODEL_VARIANTS = {
     },
 }
 FLUX_MODEL_VARIANTS = {
+    "flux_pro_kontext": {
+        "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL", default="flux-kontext-pro"),
+        "label": "FLUX Pro Text",
+        "seed": False,
+        "cost_credits": 6,
+        "cost_usd": 0.06,
+    },
     "flux_2": {
         "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"),
         "label": "FLUX.2",
@@ -5468,6 +5475,22 @@ def image_dimensions(size: str) -> tuple[int, int]:
     return 1024, 1024
 
 
+def normalize_flux_aspect_ratio(size: str) -> str:
+    raw = str(size or "").strip().lower()
+    aliases = {
+        "square": "1:1",
+        "1x1": "1:1",
+        "4x3": "4:3",
+        "3x4": "3:4",
+        "landscape": "16:9",
+        "portrait": "9:16",
+    }
+    value = aliases.get(raw, raw)
+    if value in {"1:1", "4:3", "3:4", "16:9", "9:16"}:
+        return value
+    return "1:1"
+
+
 def image_error_response(provider: str, frontend_model: str, provider_model: str, endpoint: str, error: str, response=None, data: dict = None) -> dict:
     status_code = getattr(response, "status_code", None) if response is not None else None
     body_preview = ""
@@ -5540,16 +5563,29 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
     headers = flux_headers()
     if not headers:
         return [], image_error_response("flux", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
-    width, height = image_dimensions(size)
     refs = image_reference_urls(payload)
-    request_payload = {
-        "prompt": prompt,
-        "width": width,
-        "height": height,
-        "output_format": (payload.get("image_options") or {}).get("output_format") or "jpeg",
-    }
-    if refs:
-        request_payload["input_image"] = refs[0]
+    options = payload.get("image_options") or {}
+    output_format = options.get("output_format") or "jpeg"
+    normalized_provider_model = str(provider_model or "").strip().lower()
+    if normalized_provider_model.startswith("flux-kontext-"):
+        request_payload = {
+            "prompt": prompt,
+            "aspect_ratio": normalize_flux_aspect_ratio(size),
+            "output_format": output_format,
+        }
+        for index, ref in enumerate(refs[:4], start=1):
+            key = "input_image" if index == 1 else f"input_image_{index}"
+            request_payload[key] = ref
+    else:
+        width, height = image_dimensions(size)
+        request_payload = {
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "output_format": output_format,
+        }
+        if refs:
+            request_payload["input_image"] = refs[0]
     submit_endpoint = f"{endpoint.rstrip('/')}/{provider_model}"
     try:
         response = requests.post(submit_endpoint, headers=headers, json=request_payload, timeout=60)
