@@ -377,8 +377,39 @@ const IMAGE_MODEL_LIST = [
       { id:'9:16', label:'9:16', ratio:'9:16' }
     ]
   },
-  { id:'gpt_image_1', label:'GPT Image 1', desc:'OpenAI image generation', icon:'gptImage' },
-  { id:'gpt_image_2', label:'GPT Image 2', desc:'OpenAI image generation', icon:'gptImage', badge:'FEATURED' },
+  {
+    id:'gpt_image_1',
+    label:'GPT Image 1',
+    desc:'OpenAI image generation',
+    icon:'gptImage',
+    seed:false,
+    quality:'medium',
+    costUsd:0.063,
+    costCredits:7,
+    sizes:[
+      { id:'2:3', label:'2:3', ratio:'2:3' },
+      { id:'3:2', label:'3:2', ratio:'3:2' },
+      { id:'1:1', label:'1:1', ratio:'1:1' }
+    ]
+  },
+  {
+    id:'gpt_image_2',
+    label:'GPT Image 2',
+    desc:'OpenAI image generation',
+    icon:'gptImage',
+    badge:'FEATURED',
+    seed:false,
+    quality:'medium',
+    costUsd:0.0795,
+    costCredits:8,
+    sizes:[
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
 
   {
     id:'flux_pro_kontext',
@@ -501,7 +532,7 @@ const MODEL_FEATURES = {
   nano_banana_pro: { character: true, object: true },
   nano_banana_2: { character: false, object: false },
   nano_banana: { character: true, object: true },
-  gpt_image_2: { character: true, object: true },
+  gpt_image_2: { character: true, object: true, seed: false },
   seedream_5_0_lite: { character: true, object: true, seed: true },
   seedream_5_0: { character: true, object: true, seed: true },
   seedream_5: { character: true, object: true, seed: true },
@@ -523,7 +554,7 @@ const MODEL_FEATURES = {
   recraft_v4_1: { character: false, object: false, seed: true },
   recraft_v3: { character: false, object: false, seed: true },
   recraft_v4_1_pro: { character: false, object: false, seed: false },
-  gpt_image_1: { character: false, object: false },
+  gpt_image_1: { character: false, object: false, seed: false },
   qwen_image: { character: false, object: false, seed: false },
   qwen_image_2: { character: false, object: false, seed: true },
   qwen_image_2_pro: { character: false, object: false, seed: true },
