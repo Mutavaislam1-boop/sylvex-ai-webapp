@@ -237,7 +237,7 @@
                   <span id="videoSoundVal">Звук выкл</span>
                 </button>
                 <button class="studio-select-pill image-count-pill image-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'count')"><span>−</span><b id="imageCountVal">1</b><span>+</span></button>
-                <button class="studio-select-pill image-settings-pill image-only" type="button" aria-label="Настройки">
+                <button class="studio-select-pill image-settings-pill image-only" type="button" aria-label="Настройки" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                 </button>
                 <button class="studio-select-pill music-only voice-only" type="button">
@@ -270,7 +270,7 @@
                 <button class="studio-generate" id="sendBtn" type="button" onclick="sendChat()" disabled>Сгенерировать</button>
               </div>
             </div>
-          <div class="studio-audio-player music-only voice-only">
+          <div class="studio-audio-player" id="studioAudioPlayer" aria-live="polite">
             <audio id="studioAudioElement" preload="metadata"></audio>
             <div class="studio-track-art" id="studioTrackArt">
               <img id="studioTrackArtImage" src="" alt="Album cover" hidden />
@@ -295,6 +295,9 @@
             <button class="studio-player-icon" type="button" aria-label="Громкость" id="studioVolumeBtn">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>
             </button>
+            <div class="studio-volume-popover" id="studioVolumePopover" hidden>
+              <input id="studioVolumeSlider" type="range" min="0" max="100" value="100" aria-label="Громкость" />
+            </div>
             <button class="studio-player-icon" type="button" aria-label="Закрыть" id="studioClosePlayerBtn">×</button>
           </div>
           <input type="file" id="attachInput" hidden onchange="SYLVEX.onAttachFile(event)" />
