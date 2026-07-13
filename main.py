@@ -241,6 +241,26 @@ FLUX_MODEL_VARIANTS = {
         "cost_usd": 0.105,
     },
 }
+QWEN_MODEL_VARIANTS = {
+    "qwen_image_2_pro": {
+        "label": "Qwen Image 2 Pro",
+        "seed": True,
+        "cost_credits": 12,
+        "cost_usd": 0.1125,
+    },
+    "qwen_image_2": {
+        "label": "Qwen Image 2",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.0525,
+    },
+    "qwen_image": {
+        "label": "Qwen Image",
+        "seed": False,
+        "cost_credits": 7,
+        "cost_usd": 0.0675,
+    },
+}
 RECRAFT_TOOL_CATALOG = {
     "image_to_image": {"label": "Изображение → Изображение", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/imageToImage"},
     "outpaint": {"label": "Дорисовка изображения", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/outpaint"},
@@ -280,9 +300,9 @@ IMAGE_MODEL_FEATURES = {
     "recraft_v3": {"character": False, "object": False, "seed": True},
     "recraft_v4_1_pro": {"character": False, "object": False, "seed": False},
     "gpt_image_1": {"character": False, "object": False},
-    "qwen_image": {"character": False, "object": False},
-    "qwen_image_2": {"character": False, "object": False},
-    "qwen_image_2_pro": {"character": False, "object": False},
+    "qwen_image": {"character": False, "object": False, "seed": False},
+    "qwen_image_2": {"character": False, "object": False, "seed": True},
+    "qwen_image_2_pro": {"character": False, "object": False, "seed": True},
     "krea_2": {"character": False, "object": False},
     "microsoft_mai_image_2_5": {"character": False, "object": False},
 }
@@ -5829,6 +5849,37 @@ def flux_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+def qwen_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    if raw in QWEN_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").strip().replace("-", "_").lower()
+    if model in QWEN_MODEL_VARIANTS:
+        return model
+    if "2_pro" in model or "2_pro" in raw:
+        return "qwen_image_2_pro"
+    if "_2" in model or "_2" in raw:
+        return "qwen_image_2"
+    return "qwen_image"
+
+
+def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict:
+    key = qwen_frontend_model(frontend_model, provider_model)
+    cfg = QWEN_MODEL_VARIANTS.get(key) or QWEN_MODEL_VARIANTS["qwen_image"]
+    image_count = max(1, int(count or 1))
+    unit_credits = int(cfg.get("cost_credits") or 0)
+    unit_usd = float(cfg.get("cost_usd") or 0)
+    return {
+        "cost": unit_credits * image_count,
+        "cost_credits": unit_credits * image_count,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": round(unit_usd * image_count, 4),
+        "unit_cost_usd": unit_usd,
+        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+    }
+
+
 def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
     headers = recraft_headers()
     if not headers:
@@ -5893,6 +5944,17 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider == "flux":
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         info = flux_cost_info(requested_model, api_model, count)
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "model_label": info.get("model_label") or "",
+        }
+    if provider == "qwen":
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        info = qwen_cost_info(requested_model, api_model, count)
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
