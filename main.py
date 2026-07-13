@@ -1246,6 +1246,12 @@ def add_user_balance(telegram_id: int, credits: int):
 def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
     credits = int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
     if not DATABASE_URL or not telegram_id or not generation_id or credits <= 0:
+        print("PROSTUDIO CHARGE SKIPPED:", {
+            "telegram_id": telegram_id,
+            "generation_id": generation_id,
+            "credits": max(0, credits),
+            "has_database": bool(DATABASE_URL),
+        })
         return {"charged": False, "credits": max(0, credits), "balance_after": None}
 
     ensure_user_exists(telegram_id)
@@ -1280,6 +1286,11 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
             if not row:
                 cursor.execute("DELETE FROM generation_charges WHERE generation_id = %s", (generation_id,))
                 conn.commit()
+                print("PROSTUDIO CHARGE INSUFFICIENT:", {
+                    "telegram_id": telegram_id,
+                    "generation_id": generation_id,
+                    "credits": credits,
+                })
                 return {"charged": False, "credits": credits, "balance_after": None, "insufficient_balance": True}
             balance_after = int(row[0])
             cursor.execute(
@@ -1287,6 +1298,12 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
                 (balance_after, generation_id),
             )
             conn.commit()
+            print("PROSTUDIO CHARGE SUCCESS:", {
+                "telegram_id": telegram_id,
+                "generation_id": generation_id,
+                "credits": credits,
+                "balance_after": balance_after,
+            })
             return {"charged": True, "credits": credits, "balance_after": balance_after}
 
         cursor.execute(
@@ -1295,6 +1312,12 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
         )
         row = cursor.fetchone()
         conn.commit()
+        print("PROSTUDIO CHARGE ALREADY_EXISTS:", {
+            "telegram_id": telegram_id,
+            "generation_id": generation_id,
+            "credits": int(row[0]) if row else credits,
+            "balance_after": int(row[1]) if row and row[1] is not None else None,
+        })
         return {
             "charged": False,
             "already_charged": True,
@@ -1303,7 +1326,12 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
         }
     except Exception as exc:
         conn.rollback()
-        print("GENERATION BALANCE CHARGE FAILED:", exc)
+        print("PROSTUDIO CHARGE ERROR:", {
+            "telegram_id": telegram_id,
+            "generation_id": generation_id,
+            "credits": credits,
+            "error": str(exc),
+        })
         return {"charged": False, "credits": credits, "balance_after": None, "error": str(exc)}
     finally:
         cursor.close()
@@ -3268,6 +3296,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "type": mode,
         "result_url": result_url,
         "full_url": result_url,
+        "preview_fallback_url": result.get("preview_fallback_url") or result_url,
         "model": model,
         "model_label": result.get("model_label") or result.get("model_name") or options.get("modelLabel") or model,
         "provider": provider,
@@ -3375,6 +3404,16 @@ def attach_image_thumbnails(result: dict) -> dict:
     result["thumbnail_url"] = thumbs[0] if thumbs else ""
     result["thumb_url"] = thumbs[0] if thumbs else ""
     result["thumbnails"] = thumbs or []
+    if result.get("thumbnail_url") and not (str(result.get("thumbnail_url")).startswith("http://") or str(result.get("thumbnail_url")).startswith("https://")):
+        result["preview_fallback_url"] = images[0]
+    print("PROSTUDIO IMAGE THUMBNAILS:", {
+        "image_count": len(images),
+        "thumb_count": len(result.get("thumbnails") or []),
+        "image_url": result.get("image_url"),
+        "thumbnail_url": result.get("thumbnail_url"),
+        "thumb_url": result.get("thumb_url"),
+        "preview_fallback_url": result.get("preview_fallback_url") or "",
+    })
     return result
 
 def save_prostudio_message(payload: dict, result: dict) -> str:
@@ -3383,6 +3422,22 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
     if not DATABASE_URL or not telegram_id:
         return conversation_id
     metadata = _json_obj(result.get("metadata")) or build_prostudio_metadata(payload, result)
+    print("PROSTUDIO MESSAGE SAVE DEBUG:", {
+        "conversation_id": conversation_id,
+        "telegram_id": telegram_id,
+        "mode": payload.get("mode") or "text",
+        "model": payload.get("model") or result.get("model") or "",
+        "provider": payload.get("provider") or result.get("provider") or "",
+        "image_url": result.get("image_url") or "",
+        "images": _json_list(result.get("images")),
+        "thumbnail_url": result.get("thumbnail_url") or "",
+        "thumbnails": _json_list(result.get("thumbnails")),
+        "metadata_keys": sorted((metadata or {}).keys()),
+        "metadata_image_url": (metadata or {}).get("image_url"),
+        "metadata_thumbnail_url": (metadata or {}).get("thumbnail_url"),
+        "generation_cost": (metadata or {}).get("generation_cost"),
+        "cost_credits": (metadata or {}).get("cost_credits"),
+    })
 
     try:
         ensure_prostudio_table()
@@ -3827,14 +3882,28 @@ async def public_prostudio_job(job_id: str):
                 {"ok": False, "error": "job_not_found"},
                 status_code=404,
             )
+        result_json = _json_obj(row[1])
+        error_json = _json_obj(row[2])
+        print("PROSTUDIO JOB GET DEBUG:", {
+            "job_id": job_id,
+            "status": row[0],
+            "conversation_id": row[3],
+            "result_keys": sorted(result_json.keys()) if isinstance(result_json, dict) else [],
+            "image_url": result_json.get("image_url") if isinstance(result_json, dict) else "",
+            "thumbnail_url": result_json.get("thumbnail_url") if isinstance(result_json, dict) else "",
+            "images": _json_list(result_json.get("images")) if isinstance(result_json, dict) else [],
+            "thumbnails": _json_list(result_json.get("thumbnails")) if isinstance(result_json, dict) else [],
+            "metadata_image_url": ((result_json.get("metadata") or {}).get("image_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "",
+            "metadata_thumbnail_url": ((result_json.get("metadata") or {}).get("thumbnail_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "",
+        })
 
         return {
             "ok": True,
             "generation_id": job_id,
             "job_id": job_id,
             "status": row[0],
-            "result": _json_obj(row[1]),
-            "error": _json_obj(row[2]),
+            "result": result_json,
+            "error": error_json,
             "conversation_id": row[3],
         }
 
@@ -6217,10 +6286,33 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             return
 
         telegram_id = int(payload.get("telegram_id") or 0)
+        print("PROSTUDIO RESULT BEFORE CHARGE:", {
+            "job_id": job_id,
+            "mode": mode,
+            "ok": result.get("ok"),
+            "status": result.get("status"),
+            "image_url": result.get("image_url"),
+            "images": _json_list(result.get("images")),
+            "thumbnail_url": result.get("thumbnail_url"),
+            "thumbnails": _json_list(result.get("thumbnails")),
+            "provider": result.get("provider"),
+            "model": result.get("model"),
+            "provider_model": result.get("provider_model"),
+            "cost": result.get("cost"),
+            "cost_credits": result.get("cost_credits"),
+            "generation_cost": result.get("generation_cost"),
+        })
         charge = charge_generation_balance(telegram_id, job_id or result.get("generation_id") or str(uuid4()), result, payload)
         result["balance_charged"] = bool(charge.get("charged") or charge.get("already_charged"))
         result["balance_after"] = charge.get("balance_after")
         result["charge_id"] = job_id or result.get("generation_id") or ""
+        print("PROSTUDIO CHARGE RESULT:", {
+            "job_id": job_id,
+            "telegram_id": telegram_id,
+            "charge": charge,
+            "balance_charged": result.get("balance_charged"),
+            "balance_after": result.get("balance_after"),
+        })
 
         save_generation(telegram_id, mode, prompt or "[attachment]")
         metadata = build_prostudio_metadata(payload, result)
@@ -6228,6 +6320,17 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             result["metadata"] = metadata
         result["conversation_id"] = save_prostudio_message(payload, result)
         if job_id:
+            print("PROSTUDIO JOB COMPLETED PAYLOAD:", {
+                "job_id": job_id,
+                "conversation_id": result["conversation_id"],
+                "result_keys": sorted(result.keys()),
+                "image_url": result.get("image_url"),
+                "thumbnail_url": result.get("thumbnail_url"),
+                "metadata_image_url": (result.get("metadata") or {}).get("image_url") if isinstance(result.get("metadata"), dict) else "",
+                "metadata_thumbnail_url": (result.get("metadata") or {}).get("thumbnail_url") if isinstance(result.get("metadata"), dict) else "",
+                "generation_cost": result.get("generation_cost"),
+                "cost_credits": result.get("cost_credits"),
+            })
             update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
             log_user_event(
                 int(payload.get("telegram_id") or 0),
