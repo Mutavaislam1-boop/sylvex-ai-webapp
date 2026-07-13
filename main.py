@@ -4983,12 +4983,14 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
     body = {
         "model": model,
         "prompt": prompt,
-        "sequential_image_generation": "disabled",
         "response_format": "url",
         "size": seedream_size_value(size),
-        "stream": False,
-        "watermark": False,
     }
+    is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
+    if not is_pro_model:
+        body["sequential_image_generation"] = "disabled"
+        body["stream"] = False
+        body["watermark"] = False
     if seed is not None:
         body["seed"] = seed
 
