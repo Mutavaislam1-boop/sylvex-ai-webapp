@@ -92,9 +92,20 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "qwen_image": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
     "qwen_image_2_pro": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_PRO_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
     "qwen_image_2": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
-    "nano_banana_pro": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_PRO_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
-    "nano_banana_2": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_2_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
-    "nano_banana": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
+    "nano_banana_pro": {"provider": "google", "provider_model": env_value("NANO_BANANA_PRO_MODEL", "NANO-BANANA-PRO-MODEL", default="gemini-3-pro-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "nano_banana_2": {"provider": "google", "provider_model": env_value("NANO_BANANA_2_MODEL", "NANO-BANANA-2-MODEL", default="gemini-3.1-flash-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "nano_banana_2_lite": {"provider": "google", "provider_model": env_value("NANO_BANANA_2_LITE_MODEL", "NANO-BANANA-2-LITE-MODEL", default="gemini-3.1-flash-lite-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "nano_banana": {"provider": "google", "provider_model": env_value("NANO_BANANA_MODEL", "NANO-BANANA-MODEL", default="gemini-2.5-flash-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "gemini-3.1-flash-image": {"provider": "google", "provider_model": env_value("NANO_BANANA_2_MODEL", "NANO-BANANA-2-MODEL", default="gemini-3.1-flash-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "gemini-3.1-flash-lite-image": {"provider": "google", "provider_model": env_value("NANO_BANANA_2_LITE_MODEL", "NANO-BANANA-2-LITE-MODEL", default="gemini-3.1-flash-lite-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "gemini-3-pro-image": {"provider": "google", "provider_model": env_value("NANO_BANANA_PRO_MODEL", "NANO-BANANA-PRO-MODEL", default="gemini-3-pro-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "gemini-2.5-flash-image": {"provider": "google", "provider_model": env_value("NANO_BANANA_MODEL", "NANO-BANANA-MODEL", default="gemini-2.5-flash-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
+    "imagen_4_fast": {"provider": "google", "provider_model": env_value("IMAGEN_4_FAST_MODEL", "IMAGEN-4-FAST-MODEL", default="imagen-4.0-fast-generate-001"), "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"},
+    "imagen_4_standard": {"provider": "google", "provider_model": env_value("IMAGEN_4_STANDARD_MODEL", "IMAGEN-4-STANDARD-MODEL", default="imagen-4.0-generate-001"), "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"},
+    "imagen_4_ultra": {"provider": "google", "provider_model": env_value("IMAGEN_4_ULTRA_MODEL", "IMAGEN-4-ULTRA-MODEL", default="imagen-4.0-ultra-generate-001"), "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"},
+    "imagen-4.0-fast-generate-001": {"provider": "google", "provider_model": env_value("IMAGEN_4_FAST_MODEL", "IMAGEN-4-FAST-MODEL", default="imagen-4.0-fast-generate-001"), "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"},
+    "imagen-4.0-generate-001": {"provider": "google", "provider_model": env_value("IMAGEN_4_STANDARD_MODEL", "IMAGEN-4-STANDARD-MODEL", default="imagen-4.0-generate-001"), "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"},
+    "imagen-4.0-ultra-generate-001": {"provider": "google", "provider_model": env_value("IMAGEN_4_ULTRA_MODEL", "IMAGEN-4-ULTRA-MODEL", default="imagen-4.0-ultra-generate-001"), "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"},
     "grok_pro": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_PRO_MODEL", "GROK-IMAGE-PRO-MODEL", default="grok-imagine-image-quality"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
     "grok": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
     "grok_imagine_image_quality": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_PRO_MODEL", "GROK-IMAGE-PRO-MODEL", default="grok-imagine-image-quality"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
@@ -281,6 +292,60 @@ QWEN_MODEL_VARIANTS = {
         "cost_usd": 0.0675,
     },
 }
+GOOGLE_IMAGE_MODEL_VARIANTS = {
+    "nano_banana_2": {
+        "provider_model": env_value("NANO_BANANA_2_MODEL", "NANO-BANANA-2-MODEL", default="gemini-3.1-flash-image"),
+        "label": "Nano Banana 2",
+        "seed": False,
+        "cost_credits": {"0.5k": 7, "1k": 11, "2k": 16, "4k": 23},
+        "default_resolution": "1k",
+    },
+    "nano_banana_2_lite": {
+        "provider_model": env_value("NANO_BANANA_2_LITE_MODEL", "NANO-BANANA-2-LITE-MODEL", default="gemini-3.1-flash-lite-image"),
+        "label": "Nano Banana 2 Lite",
+        "seed": False,
+        "cost_credits": {"1k": 6},
+        "default_resolution": "1k",
+    },
+    "nano_banana_pro": {
+        "provider_model": env_value("NANO_BANANA_PRO_MODEL", "NANO-BANANA-PRO-MODEL", default="gemini-3-pro-image"),
+        "label": "Nano Banana Pro",
+        "seed": False,
+        "cost_credits": {"1k": 21, "2k": 21, "4k": 36},
+        "default_resolution": "1k",
+    },
+    "nano_banana": {
+        "provider_model": env_value("NANO_BANANA_MODEL", "NANO-BANANA-MODEL", default="gemini-2.5-flash-image"),
+        "label": "Nano Banana",
+        "seed": False,
+        "cost_credits": {"1k": 6},
+        "default_resolution": "1k",
+    },
+    "imagen_4_fast": {
+        "provider_model": env_value("IMAGEN_4_FAST_MODEL", "IMAGEN-4-FAST-MODEL", default="imagen-4.0-fast-generate-001"),
+        "label": "Imagen 4 Fast",
+        "seed": False,
+        "cost_credits": {"1k": 3},
+        "default_resolution": "1k",
+        "imagen": True,
+    },
+    "imagen_4_standard": {
+        "provider_model": env_value("IMAGEN_4_STANDARD_MODEL", "IMAGEN-4-STANDARD-MODEL", default="imagen-4.0-generate-001"),
+        "label": "Imagen 4 Standard",
+        "seed": False,
+        "cost_credits": {"1k": 6, "2k": 6},
+        "default_resolution": "1k",
+        "imagen": True,
+    },
+    "imagen_4_ultra": {
+        "provider_model": env_value("IMAGEN_4_ULTRA_MODEL", "IMAGEN-4-ULTRA-MODEL", default="imagen-4.0-ultra-generate-001"),
+        "label": "Imagen 4 Ultra",
+        "seed": False,
+        "cost_credits": {"1k": 9, "2k": 9},
+        "default_resolution": "1k",
+        "imagen": True,
+    },
+}
 GROK_MODEL_VARIANTS = {
     "grok": {
         "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"),
@@ -312,9 +377,13 @@ RECRAFT_TOOL_CATALOG = {
     "erase_region": {"label": "Стирание области", "raster_credits": 1, "endpoint": "/images/eraseRegion"},
 }
 IMAGE_MODEL_FEATURES = {
-    "nano_banana_pro": {"character": True, "object": True},
-    "nano_banana_2": {"character": False, "object": False},
-    "nano_banana": {"character": True, "object": True},
+    "nano_banana_pro": {"character": True, "object": True, "seed": False},
+    "nano_banana_2": {"character": False, "object": False, "seed": False},
+    "nano_banana_2_lite": {"character": False, "object": False, "seed": False},
+    "nano_banana": {"character": True, "object": True, "seed": False},
+    "imagen_4_fast": {"character": False, "object": False, "seed": False},
+    "imagen_4_standard": {"character": False, "object": False, "seed": False},
+    "imagen_4_ultra": {"character": False, "object": False, "seed": False},
     "gpt_image_2": {"character": True, "object": True, "seed": False},
     "seedream_5_0_lite": {"character": True, "object": True, "seed": True},
     "seedream_5_0": {"character": True, "object": True, "seed": True},
@@ -5993,6 +6062,92 @@ def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+def google_image_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    if raw in GOOGLE_IMAGE_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").strip().lower()
+    if model == "gemini-3.1-flash-image":
+        return "nano_banana_2"
+    if model == "gemini-3.1-flash-lite-image":
+        return "nano_banana_2_lite"
+    if model == "gemini-3-pro-image":
+        return "nano_banana_pro"
+    if model == "gemini-2.5-flash-image":
+        return "nano_banana"
+    if model == "imagen-4.0-fast-generate-001":
+        return "imagen_4_fast"
+    if model == "imagen-4.0-ultra-generate-001":
+        return "imagen_4_ultra"
+    if model == "imagen-4.0-generate-001":
+        return "imagen_4_standard"
+    return "nano_banana_2"
+
+
+def google_image_aspect_ratio(size: str, imagen: bool = False) -> str:
+    raw = str(size or "").strip().lower().replace("x", ":")
+    if raw in {"", "auto"}:
+        return "1:1" if imagen else "auto"
+    supported = {
+        "1:1",
+        "16:9",
+        "9:16",
+        "3:4",
+        "4:3",
+        "1:2",
+        "2:1",
+        "20:9",
+        "9:20",
+    }
+    if imagen:
+        supported = {"1:1", "3:4", "4:3", "9:16", "16:9"}
+    return raw if raw in supported else "1:1"
+
+
+def google_image_resolution(opts: dict, frontend_model: str, provider_model: str = "") -> str:
+    key = google_image_frontend_model(frontend_model, provider_model)
+    cfg = GOOGLE_IMAGE_MODEL_VARIANTS.get(key) or GOOGLE_IMAGE_MODEL_VARIANTS["nano_banana_2"]
+    raw = str(
+        (opts or {}).get("resolution")
+        or (opts or {}).get("image_resolution")
+        or (opts or {}).get("quality")
+        or cfg.get("default_resolution")
+        or "1k"
+    ).strip().lower()
+    aliases = {"0.5": "0.5k", "512": "0.5k", "1024": "1k", "2048": "2k", "4096": "4k"}
+    raw = aliases.get(raw, raw)
+    if raw not in (cfg.get("cost_credits") or {}):
+        return str(cfg.get("default_resolution") or "1k").lower()
+    return raw
+
+
+def google_has_input_image(payload: dict) -> bool:
+    return bool(image_reference_urls(payload))
+
+
+def google_image_cost_info(frontend_model: str, provider_model: str, count: int, resolution: str = "", has_input_image: bool = False) -> dict:
+    key = google_image_frontend_model(frontend_model, provider_model)
+    cfg = GOOGLE_IMAGE_MODEL_VARIANTS.get(key) or GOOGLE_IMAGE_MODEL_VARIANTS["nano_banana_2"]
+    res = google_image_resolution({"resolution": resolution}, key, cfg.get("provider_model") or provider_model)
+    image_count = max(1, int(count or 1))
+    unit_credits = int((cfg.get("cost_credits") or {}).get(res, 0))
+    input_credits = 0
+    total_credits = unit_credits * image_count + input_credits
+    return {
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": 0,
+        "unit_cost_usd": 0,
+        "generation_cost": f"{total_credits} ⚡" if total_credits else "",
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+        "resolution": res.upper(),
+        "input_image_credits": input_credits,
+        "input_image_cost_included": bool(has_input_image),
+        "input_image_surcharge_provisional": False,
+    }
+
+
 def grok_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in GROK_MODEL_VARIANTS:
@@ -6138,6 +6293,151 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
     return images, {}, request_payload
 
 
+def google_image_headers() -> dict:
+    api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
+    if not api_key:
+        return {}
+    return {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+
+
+def google_local_or_remote_image_part(url: str) -> dict:
+    raw = str(url or "").strip()
+    if not raw:
+        return {}
+    mime_type = "image/png"
+    try:
+        if raw.startswith("data:image/") and ";base64," in raw:
+            head, data = raw.split(";base64,", 1)
+            mime_type = head.replace("data:", "") or mime_type
+            return {"type": "image", "mime_type": mime_type, "data": data}
+        if raw.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            data = local_path.read_bytes()
+            suffix = local_path.suffix.lower()
+            if suffix in {".jpg", ".jpeg"}:
+                mime_type = "image/jpeg"
+            elif suffix == ".webp":
+                mime_type = "image/webp"
+            return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(data).decode("utf-8")}
+        if raw.startswith("/generated/"):
+            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            data = local_path.read_bytes()
+            suffix = local_path.suffix.lower()
+            if suffix in {".jpg", ".jpeg"}:
+                mime_type = "image/jpeg"
+            elif suffix == ".webp":
+                mime_type = "image/webp"
+            return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(data).decode("utf-8")}
+        response = requests.get(raw, timeout=30)
+        response.raise_for_status()
+        content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if content_type.startswith("image/"):
+            mime_type = content_type
+        return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(response.content).decode("utf-8")}
+    except Exception as exc:
+        print("GOOGLE IMAGE REFERENCE LOAD FAILED:", type(exc).__name__)
+        return {}
+
+
+def google_extract_images(data: dict) -> list:
+    images = []
+
+    def add_image(value, mime_type="image/png"):
+        if isinstance(value, str) and value.strip():
+            if value.startswith("http") or value.startswith("/"):
+                images.append(value)
+            else:
+                images.append(f"data:{mime_type or 'image/png'};base64,{value}")
+
+    def walk(node):
+        if isinstance(node, dict):
+            mime_type = node.get("mime_type") or node.get("mimeType") or "image/png"
+            for key in ("data", "imageBytes", "bytesBase64Encoded"):
+                if node.get(key):
+                    add_image(node.get(key), mime_type)
+            inline = node.get("inlineData") or node.get("inline_data")
+            if isinstance(inline, dict):
+                add_image(inline.get("data"), inline.get("mimeType") or inline.get("mime_type") or mime_type)
+            if isinstance(node.get("url"), str):
+                images.append(node["url"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    clean = []
+    for url in images:
+        if url and url not in clean:
+            clean.append(url)
+    return clean
+
+
+def call_google_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+    headers = google_image_headers()
+    if not headers:
+        return [], image_error_response("google", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+    opts = payload.get("image_options") or {}
+    key = google_image_frontend_model(frontend_model, provider_model)
+    cfg = GOOGLE_IMAGE_MODEL_VARIANTS.get(key) or GOOGLE_IMAGE_MODEL_VARIANTS["nano_banana_2"]
+    resolution = google_image_resolution(opts, key, provider_model)
+    is_imagen = bool(cfg.get("imagen") or str(provider_model).startswith("imagen-"))
+    aspect_ratio = google_image_aspect_ratio(size, imagen=is_imagen)
+
+    if is_imagen:
+        request_payload = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {
+                "sampleCount": max(1, min(int(count or 1), 4)),
+                "aspectRatio": aspect_ratio,
+            },
+        }
+        if key in {"imagen_4_standard", "imagen_4_ultra"}:
+            request_payload["parameters"]["imageSize"] = resolution.upper()
+        request_endpoint = endpoint.replace("{model}", provider_model)
+    else:
+        input_items = [{"type": "text", "text": prompt}]
+        for ref in image_reference_urls(payload):
+            part = google_local_or_remote_image_part(ref)
+            if part:
+                input_items.append(part)
+        request_payload = {
+            "model": provider_model,
+            "input": input_items,
+            "generation_config": {
+                "candidate_count": max(1, min(int(count or 1), 4)),
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+            },
+        }
+        request_endpoint = endpoint
+
+    try:
+        response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
+    except requests.RequestException as exc:
+        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "google", request_endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+    return google_extract_images(data), {}, request_payload
+
+
+def sanitized_google_request_payload(request_payload: dict) -> dict:
+    if not isinstance(request_payload, dict):
+        return {}
+    clean = json.loads(json.dumps(request_payload))
+    input_items = clean.get("input")
+    if isinstance(input_items, list):
+        for item in input_items:
+            if isinstance(item, dict) and item.get("data"):
+                item["data"] = "[base64 image omitted]"
+    return clean
+
+
 def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
     headers = recraft_headers()
     if not headers:
@@ -6233,6 +6533,21 @@ def estimate_generation_cost(payload: dict) -> dict:
             "unit_cost_credits": info.get("unit_cost_credits") or 0,
             "unit_cost_usd": info.get("unit_cost_usd") or 0,
             "model_label": info.get("model_label") or "",
+        }
+    if provider == "google":
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        resolution = google_image_resolution(opts, requested_model, api_model)
+        info = google_image_cost_info(requested_model, api_model, count, resolution, google_has_input_image(payload))
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "resolution": info.get("resolution") or "",
+            "model_label": info.get("model_label") or "",
+            "input_image_credits": info.get("input_image_credits") or 0,
+            "input_image_cost_included": bool(info.get("input_image_cost_included")),
         }
     if provider in ("grok", "xai"):
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
@@ -6462,6 +6777,35 @@ async def image_generation(payload: dict) -> dict:
             result["provider"] = "recraft"
             result["model"] = requested_model
             result["provider_model"] = api_model
+            return result
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
+
+    if provider == "google":
+        images, error, request_payload = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        print("GOOGLE IMAGE PAYLOAD:", {
+            "frontend_model": requested_model,
+            "provider_model": api_model,
+            "endpoint": endpoint,
+            "payload_keys": list((request_payload or {}).keys()),
+            "has_references": bool(image_reference_urls(payload)),
+        })
+        if error:
+            return error
+        if images:
+            final_images = images[:count]
+            opts = payload.get("image_options") or {}
+            result = await finalize_image_result(payload, final_images)
+            result.update(google_image_cost_info(
+                requested_model,
+                api_model,
+                len(final_images) or count,
+                google_image_resolution(opts, requested_model, api_model),
+                google_has_input_image(payload),
+            ))
+            result["provider"] = "google"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            result["request_payload"] = sanitized_google_request_payload(request_payload)
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
