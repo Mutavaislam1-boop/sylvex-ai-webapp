@@ -141,6 +141,24 @@ IDEOGRAM_MODEL_VARIANTS = {
         },
     },
 }
+OPENAI_IMAGE_MODEL_VARIANTS = {
+    "gpt_image_1": {
+        "provider_model": "gpt-image-1",
+        "label": "GPT Image 1",
+        "seed": False,
+        "default_quality": env_value("GPT_IMAGE_1_QUALITY", "GPT-IMAGE-1-QUALITY", default="medium"),
+        "cost_credits": {"low": 2, "medium": 7, "high": 26},
+        "cost_usd": {"low": 0.0165, "medium": 0.063, "high": 0.2505},
+    },
+    "gpt_image_2": {
+        "provider_model": "gpt-image-2",
+        "label": "GPT Image 2",
+        "seed": False,
+        "default_quality": env_value("GPT_IMAGE_2_QUALITY", "GPT-IMAGE-2-QUALITY", default="medium"),
+        "cost_credits": {"low": 1, "medium": 8, "high": 32},
+        "cost_usd": {"low": 0.009, "medium": 0.0795, "high": 0.3165},
+    },
+}
 RECRAFT_MODEL_VARIANTS = {
     "recraft_v4_1": {
         "provider_model": env_value("RECRAFT_V4_1_MODEL", "RECRAFT-V4-1-MODEL", default="recraftv4_1"),
@@ -277,7 +295,7 @@ IMAGE_MODEL_FEATURES = {
     "nano_banana_pro": {"character": True, "object": True},
     "nano_banana_2": {"character": False, "object": False},
     "nano_banana": {"character": True, "object": True},
-    "gpt_image_2": {"character": True, "object": True},
+    "gpt_image_2": {"character": True, "object": True, "seed": False},
     "seedream_5_0_lite": {"character": True, "object": True, "seed": True},
     "seedream_5_0": {"character": True, "object": True, "seed": True},
     "seedream_5": {"character": True, "object": True, "seed": True},
@@ -299,7 +317,7 @@ IMAGE_MODEL_FEATURES = {
     "recraft_v4_1": {"character": False, "object": False, "seed": True},
     "recraft_v3": {"character": False, "object": False, "seed": True},
     "recraft_v4_1_pro": {"character": False, "object": False, "seed": False},
-    "gpt_image_1": {"character": False, "object": False},
+    "gpt_image_1": {"character": False, "object": False, "seed": False},
     "qwen_image": {"character": False, "object": False, "seed": False},
     "qwen_image_2": {"character": False, "object": False, "seed": True},
     "qwen_image_2_pro": {"character": False, "object": False, "seed": True},
@@ -3357,6 +3375,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "ratio": options.get("ratio") or options.get("size") or "",
         "size": options.get("size") or options.get("resolution") or options.get("ratio") or "",
         "duration": result.get("duration") or options.get("duration") or "",
+        "quality": result.get("quality") or options.get("quality") or "",
         "count": options.get("count") or len(images) or 1,
         "seed": seed,
         "generation_cost": result.get("generation_cost") or "",
@@ -5427,15 +5446,43 @@ def text_generation(payload: dict) -> dict:
         "text": data.get("choices", [{}])[0].get("message", {}).get("content", "")
     }
 
-def normalize_openai_image_size(size: str) -> str:
-    raw = str(size or "").strip()
+def openai_image_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    if raw in OPENAI_IMAGE_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").strip().replace("-", "_").lower()
+    if model == "gpt_image_2":
+        return "gpt_image_2"
+    return "gpt_image_1"
+
+
+def normalize_openai_image_quality(frontend_model: str, provider_model: str, opts: dict) -> str:
+    key = openai_image_frontend_model(frontend_model, provider_model)
+    cfg = OPENAI_IMAGE_MODEL_VARIANTS.get(key) or OPENAI_IMAGE_MODEL_VARIANTS["gpt_image_1"]
+    raw = str((opts or {}).get("quality") or cfg.get("default_quality") or "medium").strip().lower()
+    if raw == "standard":
+        raw = "medium"
+    if raw not in {"low", "medium", "high"}:
+        return "medium"
+    return raw
+
+
+def normalize_openai_image_size(size: str, frontend_model: str = "", provider_model: str = "") -> str:
+    raw = str(size or "").strip().lower()
     if raw in {"1024x1024", "1536x1024", "1024x1536", "auto"}:
         return raw
-    if raw in {"1:1", "square"}:
+    key = openai_image_frontend_model(frontend_model, provider_model)
+    if key == "gpt_image_1":
+        if raw in {"2:3", "2x3", "9:16", "portrait"}:
+            return "1024x1536"
+        if raw in {"3:2", "3x2", "16:9", "landscape"}:
+            return "1536x1024"
         return "1024x1024"
-    if raw in {"16:9", "landscape"}:
+    if raw in {"1:1", "1x1", "square"}:
+        return "1024x1024"
+    if raw in {"4:3", "4x3", "16:9", "landscape"}:
         return "1536x1024"
-    if raw in {"9:16", "portrait"}:
+    if raw in {"3:4", "3x4", "9:16", "portrait"}:
         return "1024x1536"
     return "1024x1024"
 
@@ -5880,6 +5927,27 @@ def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+def openai_image_cost_info(frontend_model: str, provider_model: str, quality: str, count: int) -> dict:
+    key = openai_image_frontend_model(frontend_model, provider_model)
+    cfg = OPENAI_IMAGE_MODEL_VARIANTS.get(key) or OPENAI_IMAGE_MODEL_VARIANTS["gpt_image_1"]
+    image_count = max(1, int(count or 1))
+    normalized_quality = str(quality or cfg.get("default_quality") or "medium").strip().lower()
+    if normalized_quality not in {"low", "medium", "high"}:
+        normalized_quality = "medium"
+    unit_credits = int((cfg.get("cost_credits") or {}).get(normalized_quality, 0))
+    unit_usd = float((cfg.get("cost_usd") or {}).get(normalized_quality, 0))
+    return {
+        "cost": unit_credits * image_count,
+        "cost_credits": unit_credits * image_count,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": round(unit_usd * image_count, 4),
+        "unit_cost_usd": unit_usd,
+        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "quality": normalized_quality,
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+    }
+
+
 def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
     headers = recraft_headers()
     if not headers:
@@ -5919,6 +5987,19 @@ def estimate_generation_cost(payload: dict) -> dict:
     mapping = image_provider_mapping(requested_model) if requested_model else {}
     provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
     api_model = mapping.get("provider_model") or ""
+    if provider == "openai":
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        quality = normalize_openai_image_quality(requested_model, api_model, opts)
+        info = openai_image_cost_info(requested_model, api_model, quality, count)
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "quality": info.get("quality") or "",
+            "model_label": info.get("model_label") or "",
+        }
     if provider == "recraft":
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         info = recraft_cost_info(requested_model, api_model, count)
@@ -6093,30 +6174,50 @@ async def image_generation(payload: dict) -> dict:
             return image_error_response(provider, requested_model, api_model, f"{OPENAI_API_BASE}/images/generations", "Selected model does not support image-to-image")
 
         endpoint = f"{OPENAI_API_BASE}/images/generations"
-        openai_size = normalize_openai_image_size(size)
-        try:
-            response = requests.post(
-                endpoint,
-                headers=openai_headers(),
-                data=json.dumps({
-                    "model": api_model,
-                    "prompt": prompt,
-                    "size": openai_size,
-                    "n": 1,
-                }),
-                timeout=120,
-            )
-        except requests.RequestException as exc:
-            return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
-        if response.status_code >= 400:
+        openai_size = normalize_openai_image_size(size, requested_model, api_model)
+        openai_quality = normalize_openai_image_quality(requested_model, api_model, opts)
+        images = []
+        last_payload = {}
+        for index in range(1, count + 1):
+            request_payload = {
+                "model": api_model,
+                "prompt": prompt,
+                "size": openai_size,
+                "quality": openai_quality,
+                "n": 1,
+            }
+            last_payload = request_payload
+            try:
+                response = requests.post(
+                    endpoint,
+                    headers=openai_headers(),
+                    data=json.dumps(request_payload),
+                    timeout=120,
+                )
+            except requests.RequestException as exc:
+                return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+            if response.status_code >= 400:
+                data = safe_provider_json(response, provider, endpoint)
+                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
             data = safe_provider_json(response, provider, endpoint)
-            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
-        data = safe_provider_json(response, provider, endpoint)
-        if data.get("ok") is False:
-            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
-        images = normalize_image_response(data)
+            if data.get("ok") is False:
+                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
+            for url in normalize_image_response(data):
+                if url and url not in images:
+                    images.append(url)
+            print("OPENAI IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "attempt": index, "payload": request_payload, "has_image": bool(images)})
+            if len(images) >= count:
+                break
         if images:
-            return await finalize_image_result(payload, images[:count])
+            final_images = images[:count]
+            result = await finalize_image_result(payload, final_images)
+            result.update(openai_image_cost_info(requested_model, api_model, openai_quality, len(final_images) or count))
+            result["provider"] = "openai"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            result["quality"] = openai_quality
+            result["request_payload"] = last_payload
+            return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "flux":
