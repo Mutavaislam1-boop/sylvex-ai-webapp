@@ -53,6 +53,7 @@ let imageState = {
     referenceImageUrls: [],
     uploadedImageUrls: [],
     attachment: null,
+    seed: null,
   };
 
 let videoState = {
@@ -2621,6 +2622,69 @@ function imageModelButton(model) {
     renderImageReferenceSections();
   }
 
+  function normalizeImageSeed(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const seed = Number(raw);
+    if (!Number.isSafeInteger(seed) || seed < 0) {
+      throw new Error('Seed должен быть целым положительным числом');
+    }
+    return seed;
+  }
+
+  function imageSeedInputValue() {
+    return imageState.seed === null || imageState.seed === undefined ? '' : String(imageState.seed);
+  }
+
+  function imageOptionsPayload(referenceImages) {
+    const seed = normalizeImageSeed(imageState.seed);
+    return Object.assign({}, imageState, {
+      seed,
+      referenceImageUrls: (referenceImages || []).slice(),
+      referenceImages: (referenceImages || []).slice(),
+    }, imageVisualReferenceOptions());
+  }
+
+  function sanitizeImageSeedInput(value) {
+    return String(value || '').replace(/\D+/g, '');
+  }
+
+  function onImageSeedInput(e) {
+    const input = e && e.currentTarget ? e.currentTarget : document.getElementById('imageSeedInput');
+    if (!input) return;
+    const clean = sanitizeImageSeedInput(input.value);
+    if (input.value !== clean) input.value = clean;
+    imageState.seed = clean ? clean : null;
+  }
+
+  function toggleImageSeedTooltip(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const tip = document.getElementById('imageSeedTooltip');
+    if (!tip) return;
+    tip.hidden = !tip.hidden;
+  }
+
+  function resetImageSettings(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    imageState.seed = null;
+    openImageOptionMenu(e, 'seed');
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
+  }
+
+  function closeImageSeedTooltipOnOutside(e) {
+    const tip = document.getElementById('imageSeedTooltip');
+    if (!tip || tip.hidden) return;
+    const btn = document.getElementById('imageSeedInfoBtn');
+    if (tip.contains(e.target) || (btn && btn.contains(e.target))) return;
+    tip.hidden = true;
+  }
+
   async function loadImageCapabilities() {
     try {
       const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
@@ -2872,6 +2936,73 @@ function imageModelButton(model) {
 
       imageState.count = nextImageCountValue();
       renderImageControls();
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+      return;
+    }
+    if (kind === 'settings') {
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+      if (el.parentElement !== document.body) document.body.appendChild(el);
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.classList.add('image-seed-pop');
+      el.style.cssText = '';
+      el.style.position = 'fixed';
+      el.style.left = '8px';
+      el.style.right = 'auto';
+      el.style.top = 'auto';
+      el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+      el.style.width = '70vw';
+      el.style.maxWidth = '320px';
+      el.style.minWidth = '245px';
+      el.style.zIndex = '999999';
+      el.innerHTML = '<div class="image-size-sheet-title">Settings</div>'
+        + '<div class="image-size-sheet-list">'
+        + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'seed\')">'
+        + '<span class="image-size-label"><span class="image-seed-hex">⬢</span> Seed</span>'
+        + '<span class="image-size-check">›</span>'
+        + '</button>'
+        + '</div>';
+      el.classList.add('show');
+      const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+      const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+      return;
+    }
+    if (kind === 'seed') {
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+      if (el.parentElement !== document.body) document.body.appendChild(el);
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.classList.add('image-seed-pop');
+      el.style.cssText = '';
+      el.style.position = 'fixed';
+      el.style.left = '8px';
+      el.style.right = 'auto';
+      el.style.top = 'auto';
+      el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+      el.style.width = '72vw';
+      el.style.maxWidth = '340px';
+      el.style.minWidth = '260px';
+      el.style.zIndex = '999999';
+      el.innerHTML = '<div class="image-seed-head">'
+        + '<button class="image-seed-back" type="button" aria-label="Back" onclick="SYLVEX.openImageOptionMenu(event,\'settings\')">‹</button>'
+        + '<span>Seed</span>'
+        + '<button class="image-seed-info" id="imageSeedInfoBtn" type="button" aria-label="Seed info" onclick="SYLVEX.toggleImageSeedTooltip(event)">ⓘ</button>'
+        + '<div class="image-seed-tooltip" id="imageSeedTooltip" hidden>Use a specific seed value to reproduce the same image. Leave empty for random generation.</div>'
+        + '</div>'
+        + '<input class="image-seed-input" id="imageSeedInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Enter seed value" value="' + S.escapeHtml(imageSeedInputValue()) + '" oninput="SYLVEX.onImageSeedInput(event)" />'
+        + '<button class="music-settings-clear" type="button" onclick="SYLVEX.resetImageSettings(event)">Сбросить настройки</button>';
+      el.classList.add('show');
+      const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+      const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+      const input = document.getElementById('imageSeedInput');
+      if (input) setTimeout(() => input.focus(), 60);
       S.haptic && S.haptic.impact && S.haptic.impact('light');
       return;
     }
@@ -3499,6 +3630,7 @@ function imageModelButton(model) {
         : (backendMeta.thumbnail_url || backendMeta.thumb_url ? [backendMeta.thumbnail_url || backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
     const imageUrl = backendMeta.image_url || backendMeta.result_url || images[0] || '';
     const thumbUrl = backendMeta.thumbnail_url || backendMeta.thumb_url || thumbs[0] || '';
+    const seed = backendMeta.seed !== undefined ? backendMeta.seed : (options.seed === undefined ? null : options.seed);
     const refs = (backendMeta.reference_images && backendMeta.reference_images.length)
       ? backendMeta.reference_images.slice()
       : (referenceImages || []).slice();
@@ -3515,8 +3647,10 @@ function imageModelButton(model) {
       ratio: backendMeta.ratio || options.ratio || options.size || '',
       size: backendMeta.size || options.size || options.ratio || '',
       count: backendMeta.count || options.count || 1,
+      seed: seed === '' ? null : seed,
       settings: Object.assign({}, options),
       image_options: Object.assign({}, options, {
+        seed: seed === '' ? null : seed,
         referenceImageUrls: refs.slice(),
         referenceImages: refs.slice(),
       }),
@@ -4350,6 +4484,40 @@ function playMusicTrackFromMessage(e, index) {
   }), e);
 }
 
+function restoreImageStateFromGenerationMetadata(meta) {
+  if (!meta || meta.type !== 'image') return;
+  const settings = meta.image_options || meta.settings || {};
+  imageState.modelId = meta.model || settings.modelId || imageState.modelId;
+  imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || imageState.size;
+  imageState.count = Number(meta.count || settings.count || imageState.count || 1);
+  imageState.style = meta.style || settings.style || imageState.style || 'auto';
+  imageState.character = meta.character || settings.character || imageState.character || 'auto';
+  imageState.objects = meta.objectName || meta.objects || settings.objects || imageState.objects || '';
+  imageState.characterId = meta.characterId || settings.characterId || null;
+  imageState.characterName = meta.characterName || settings.characterName || '';
+  imageState.characterReferences = Array.isArray(meta.characterReferences) ? meta.characterReferences.slice() : (Array.isArray(settings.characterReferences) ? settings.characterReferences.slice() : []);
+  imageState.objectId = meta.objectId || settings.objectId || null;
+  imageState.objectName = meta.objectName || settings.objectName || '';
+  imageState.objectReferences = Array.isArray(meta.objectReferences) ? meta.objectReferences.slice() : (Array.isArray(settings.objectReferences) ? settings.objectReferences.slice() : []);
+  imageState.seed = meta.seed === undefined ? (settings.seed === undefined ? null : settings.seed) : meta.seed;
+  const refs = Array.isArray(meta.reference_images) && meta.reference_images.length
+    ? meta.reference_images.slice()
+    : (Array.isArray(settings.referenceImageUrls) ? settings.referenceImageUrls.slice() : []);
+  imageState.referenceImageUrls = refs.slice();
+  imageState.uploadedImageUrls = refs.slice();
+  imageState.referenceImageUrl = refs[0] || '';
+  const ta = document.getElementById('chatInput');
+  if (ta && meta.prompt) {
+    ta.value = meta.prompt;
+    autoGrow(ta);
+    updateSendButton();
+  }
+  renderImageControls();
+  renderComposerImageDraft();
+  renderUploadedPhotoGrid();
+  updateImageUploadButtonPreview();
+}
+
 function animateGeneratedImage(e) {
   if (e) {
     e.preventDefault();
@@ -4438,6 +4606,7 @@ function openGenerationInfoDrawer(e, index) {
   if (!body) return;
 
   const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? 'music' : 'image'));
+  if (type === 'image') restoreImageStateFromGenerationMetadata(meta);
   const imageUrl = meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
@@ -4492,6 +4661,7 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Object', meta.objectName || meta.objects)
     + generationInfoRow('Ratio', meta.ratio)
     + generationInfoRow('Size', meta.size || settings.resolution)
+    + (type === 'image' ? generationInfoRow('Seed', (meta.seed === null || meta.seed === undefined || meta.seed === '') ? 'Случайный' : meta.seed) : '')
     + generationInfoRow('Duration', meta.duration || settings.duration)
     + generationInfoRow('Count', meta.count)
     + generationInfoRow('Created', created)
@@ -4761,10 +4931,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
 
   const imageOptions = isImageMode()
-    ? Object.assign({}, imageState, {
-        referenceImageUrls: imageReferenceImages,
-        referenceImages: imageReferenceImages,
-      }, imageVisualReferenceOptions())
+    ? imageOptionsPayload(imageReferenceImages)
     : null;
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
@@ -4874,10 +5041,7 @@ async function waitGeneration(jobId) {
       : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
     const audioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []).slice() : [];
     const imageOptionsSnapshot = isImageMode()
-      ? Object.assign({}, imageState, {
-          referenceImageUrls: referenceImages.slice(),
-          referenceImages: referenceImages.slice(),
-        }, imageVisualReferenceOptions())
+      ? imageOptionsPayload(referenceImages)
       : null;
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
 
@@ -6570,7 +6734,7 @@ async function waitGeneration(jobId) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
@@ -6593,6 +6757,9 @@ async function waitGeneration(jobId) {
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
+  window.onImageSeedInput = onImageSeedInput;
+  window.toggleImageSeedTooltip = toggleImageSeedTooltip;
+  window.resetImageSettings = resetImageSettings;
   window.showImageModelPicker = showImageModelPicker;
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
@@ -6636,6 +6803,9 @@ async function waitGeneration(jobId) {
   S.pickImageStyleFromPanel = pickImageStyleFromPanel;
   S.toggleImageStyleInfo = toggleImageStyleInfo;
   S.openImageOptionMenu = openImageOptionMenu;
+  S.onImageSeedInput = onImageSeedInput;
+  S.toggleImageSeedTooltip = toggleImageSeedTooltip;
+  S.resetImageSettings = resetImageSettings;
   S.openImageUpload = openImageUpload;
   S.openVideoStartUpload = openVideoStartUpload;
   S.openVideoEndUpload = openVideoEndUpload;
@@ -6687,6 +6857,7 @@ async function waitGeneration(jobId) {
   S.addMediaLink = addMediaLink;
   
   document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
+  document.addEventListener('pointerdown', closeImageSeedTooltipOnOutside, true);
   document.addEventListener('touchmove', hideImageStyleInfo, true);
   document.addEventListener('wheel', hideImageStyleInfo, true);
   document.addEventListener('scroll', hideImageStyleInfo, true);
