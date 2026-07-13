@@ -95,8 +95,10 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "nano_banana_pro": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_PRO_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
     "nano_banana_2": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_2_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
     "nano_banana": {"provider": "google", "provider_model": os.getenv("NANO_BANANA_MODEL"), "endpoint": os.getenv("GOOGLE_IMAGE_ENDPOINT")},
-    "grok_pro": {"provider": "grok", "provider_model": os.getenv("GROK_IMAGE_PRO_MODEL"), "endpoint": os.getenv("XAI_IMAGE_ENDPOINT")},
-    "grok": {"provider": "grok", "provider_model": os.getenv("GROK_IMAGE_MODEL"), "endpoint": os.getenv("XAI_IMAGE_ENDPOINT")},
+    "grok_pro": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_PRO_MODEL", "GROK-IMAGE-PRO-MODEL", default="grok-imagine-image-quality"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
+    "grok": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
+    "grok_imagine_image_quality": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_PRO_MODEL", "GROK-IMAGE-PRO-MODEL", default="grok-imagine-image-quality"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
+    "grok_imagine_image": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
     "davinci_ultra": {"provider": "davinci", "provider_model": os.getenv("DAVINCI_ULTRA_MODEL"), "endpoint": os.getenv("DAVINCI_IMAGE_ENDPOINT")},
 }
 IDEOGRAM_MODEL_VARIANTS = {
@@ -279,6 +281,24 @@ QWEN_MODEL_VARIANTS = {
         "cost_usd": 0.0675,
     },
 }
+GROK_MODEL_VARIANTS = {
+    "grok": {
+        "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"),
+        "label": "Grok",
+        "seed": False,
+        "cost_credits": {"1k": 3, "2k": 3},
+        "input_image_credits": 1,
+        "input_image_surcharge_provisional": True,
+    },
+    "grok_pro": {
+        "provider_model": env_value("GROK_IMAGE_PRO_MODEL", "GROK-IMAGE-PRO-MODEL", default="grok-imagine-image-quality"),
+        "label": "Grok Pro",
+        "seed": False,
+        "cost_credits": {"1k": 8, "2k": 11},
+        "input_image_credits": 2,
+        "input_image_surcharge_provisional": True,
+    },
+}
 RECRAFT_TOOL_CATALOG = {
     "image_to_image": {"label": "Изображение → Изображение", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/imageToImage"},
     "outpaint": {"label": "Дорисовка изображения", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/outpaint"},
@@ -304,9 +324,9 @@ IMAGE_MODEL_FEATURES = {
     "seedream_4_5": {"character": True, "object": True, "seed": True},
     "seedream_4_0": {"character": True, "object": True, "seed": True},
     "seedream_4": {"character": True, "object": True, "seed": True},
-    "grok_pro": {"character": False, "object": False},
+    "grok_pro": {"character": False, "object": False, "seed": False},
     "davinci_ultra": {"character": False, "object": False},
-    "grok": {"character": False, "object": False},
+    "grok": {"character": False, "object": False, "seed": False},
     "flux_2": {"character": True, "object": True, "seed": False},
     "flux_2_turbo": {"character": True, "object": True, "seed": False},
     "flux_pro_kontext": {"character": True, "object": False, "seed": False},
@@ -5973,6 +5993,103 @@ def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+def grok_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    if raw in GROK_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").strip().lower()
+    if model == "grok-imagine-image-quality" or "quality" in model:
+        return "grok_pro"
+    return "grok"
+
+
+def grok_headers() -> dict:
+    api_key = env_value("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
+    if not api_key:
+        return {}
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def grok_aspect_ratio(size: str) -> str:
+    raw = str(size or "").strip().lower().replace("x", ":")
+    supported = {
+        "1:1",
+        "2:3",
+        "3:2",
+        "16:9",
+        "9:16",
+        "3:4",
+        "4:3",
+        "1:2",
+        "2:1",
+        "19.5:9",
+        "9:19.5",
+        "20:9",
+        "9:20",
+    }
+    if raw in supported:
+        return raw
+    return "1:1"
+
+
+def grok_resolution_value(opts: dict) -> str:
+    raw = str(
+        (opts or {}).get("resolution")
+        or (opts or {}).get("quality")
+        or (opts or {}).get("image_resolution")
+        or "1k"
+    ).strip().lower()
+    if raw in {"2", "2k"}:
+        return "2k"
+    return "1k"
+
+
+def grok_has_input_image(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    if image_reference_urls(payload):
+        return True
+    for key in ("image_url", "input_image", "inputImage", "referenceImageUrl"):
+        if isinstance(opts.get(key), str) and opts.get(key).strip():
+            return True
+    return False
+
+
+def grok_input_image_url(payload: dict) -> str:
+    opts = payload.get("image_options") or {}
+    for key in ("image_url", "input_image", "inputImage", "referenceImageUrl"):
+        value = opts.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    refs = image_reference_urls(payload)
+    return refs[0] if refs else ""
+
+
+def grok_cost_info(frontend_model: str, provider_model: str, count: int, resolution: str = "1k", has_input_image: bool = False) -> dict:
+    key = grok_frontend_model(frontend_model, provider_model)
+    cfg = GROK_MODEL_VARIANTS.get(key) or GROK_MODEL_VARIANTS["grok"]
+    image_count = max(1, int(count or 1))
+    res = "2k" if str(resolution or "").strip().lower() in {"2", "2k"} else "1k"
+    unit_credits = int((cfg.get("cost_credits") or {}).get(res, 0))
+    input_credits = int(cfg.get("input_image_credits") or 0) if has_input_image else 0
+    total_credits = unit_credits * image_count + input_credits
+    generation_cost = f"{total_credits} ⚡" if total_credits else ""
+    return {
+        "cost": total_credits,
+        "cost_credits": total_credits,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": 0,
+        "unit_cost_usd": 0,
+        "generation_cost": generation_cost,
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+        "resolution": res.upper(),
+        "input_image_credits": input_credits,
+        "input_image_surcharge_provisional": bool(has_input_image and cfg.get("input_image_surcharge_provisional")),
+    }
+
+
 def openai_image_cost_info(frontend_model: str, provider_model: str, quality: str, count: int) -> dict:
     key = openai_image_frontend_model(frontend_model, provider_model)
     cfg = OPENAI_IMAGE_MODEL_VARIANTS.get(key) or OPENAI_IMAGE_MODEL_VARIANTS["gpt_image_1"]
@@ -5992,6 +6109,33 @@ def openai_image_cost_info(frontend_model: str, provider_model: str, quality: st
         "quality": normalized_quality,
         "model_label": cfg.get("label") or frontend_model or provider_model,
     }
+
+
+def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+    headers = grok_headers()
+    if not headers:
+        return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+    opts = payload.get("image_options") or {}
+    resolution = grok_resolution_value(opts)
+    input_image = grok_input_image_url(payload)
+    request_payload = {
+        "model": provider_model,
+        "prompt": prompt,
+        "n": max(1, int(count or 1)),
+        "aspect_ratio": grok_aspect_ratio(size),
+        "resolution": resolution,
+    }
+    if input_image:
+        request_payload["image_url"] = input_image
+    try:
+        response = requests.post(endpoint, headers=headers, json=request_payload, timeout=180)
+    except requests.RequestException as exc:
+        return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "grok", endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return [], image_error_response("grok", frontend_model, provider_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+    images = normalize_image_response(data)
+    return images, {}, request_payload
 
 
 def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
@@ -6089,6 +6233,21 @@ def estimate_generation_cost(payload: dict) -> dict:
             "unit_cost_credits": info.get("unit_cost_credits") or 0,
             "unit_cost_usd": info.get("unit_cost_usd") or 0,
             "model_label": info.get("model_label") or "",
+        }
+    if provider in ("grok", "xai"):
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        resolution = grok_resolution_value(opts)
+        info = grok_cost_info(requested_model, api_model, count, resolution, grok_has_input_image(payload))
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "resolution": info.get("resolution") or "",
+            "model_label": info.get("model_label") or "",
+            "input_image_credits": info.get("input_image_credits") or 0,
+            "input_image_surcharge_provisional": bool(info.get("input_image_surcharge_provisional")),
         }
     if provider != "ideogram":
         return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
@@ -6303,6 +6462,34 @@ async def image_generation(payload: dict) -> dict:
             result["provider"] = "recraft"
             result["model"] = requested_model
             result["provider_model"] = api_model
+            return result
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
+
+    if provider in ("grok", "xai"):
+        images, error, request_payload = call_grok_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        print("GROK IMAGE PAYLOAD:", {
+            "frontend_model": requested_model,
+            "provider_model": api_model,
+            "endpoint": endpoint,
+            "payload": request_payload,
+            "has_input_image": bool(request_payload.get("image_url")),
+        })
+        if error:
+            return error
+        if images:
+            final_images = images[:count]
+            result = await finalize_image_result(payload, final_images)
+            result.update(grok_cost_info(
+                requested_model,
+                api_model,
+                len(final_images) or count,
+                request_payload.get("resolution") or "1k",
+                bool(request_payload.get("image_url")),
+            ))
+            result["provider"] = "grok"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            result["request_payload"] = request_payload
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
