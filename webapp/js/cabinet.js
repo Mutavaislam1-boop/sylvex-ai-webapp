@@ -231,9 +231,78 @@ const IMAGE_MODEL_LIST = [
     ]
   },
 
-  { id:'recraft_v4_1', label:'Recraft V4.1', desc:'Recraft image model', icon:'recraft' },
-  { id:'recraft_v3', label:'Recraft V3', desc:'Recraft image model', icon:'recraft' },
-  { id:'recraft_v4_1_pro', label:'Recraft V4.1 Pro', desc:'Recraft image model', icon:'recraft' },
+  {
+    id:'recraft_v4_1',
+    label:'Recraft V4.1',
+    desc:'Recraft V4.1 raster generation',
+    icon:'recraft',
+    providerModel:'recraftv4_1',
+    seed:true,
+    costUsd:0.0525,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'4:3', label:'4:3', ratio:'4:3' }
+    ],
+    recraftTools:[
+      { id:'image_to_image', label:'Изображение → Изображение', costCredits:6 }
+    ]
+  },
+  {
+    id:'recraft_v3',
+    label:'Recraft V3',
+    desc:'Recraft V3 raster generation',
+    icon:'recraft',
+    providerModel:'recraftv3',
+    seed:true,
+    costUsd:0.06,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'4:3', label:'4:3', ratio:'4:3' }
+    ],
+    recraftTools:[
+      { id:'image_to_image', label:'Изображение → Изображение', costCredits:6 },
+      { id:'outpaint', label:'Дорисовка изображения', costCredits:6 },
+      { id:'replace_background', label:'Замена фона', costCredits:6 },
+      { id:'generate_background', label:'Генерация фона', costCredits:6 },
+      { id:'create_style', label:'Генерация стиля', costCredits:6 },
+      { id:'vectorize', label:'Векторизация', costCredits:2 },
+      { id:'remove_background', label:'Удаление фона', costCredits:2 },
+      { id:'crisp_upscale', label:'Увеличение разрешения', costCredits:1 },
+      { id:'creative_upscale', label:'Повышение качества', costCredits:38 },
+      { id:'erase_region', label:'Стирание области', costCredits:1 }
+    ]
+  },
+  {
+    id:'recraft_v4_1_pro',
+    label:'Recraft V4.1 Pro',
+    desc:'Recraft V4.1 Pro raster generation',
+    icon:'recraft',
+    providerModel:'recraftv4_1_pro',
+    seed:false,
+    costUsd:0.21,
+    costCredits:21,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'4:3', label:'4:3', ratio:'4:3' }
+    ],
+    recraftTools:[
+      { id:'image_to_image', label:'Изображение → Изображение', costCredits:6 }
+    ]
+  },
 
   { id:'seedream_4_0', label:'Seedream 4.0', desc:'ByteDance Seedream image model', icon:'seedream' },
   { id:'seedream_5_0', label:'Seedream 5.0', desc:'ByteDance Seedream image model', icon:'seedream' },
@@ -281,9 +350,9 @@ const MODEL_FEATURES = {
   ideogram_3: { character: false, object: false, seed: true },
   ideogram_4_0: { character: false, object: false, seed: false },
   ideogram_4: { character: false, object: false, seed: false },
-  recraft_v4_1: { character: false, object: false },
-  recraft_v3: { character: false, object: false },
-  recraft_v4_1_pro: { character: false, object: false },
+  recraft_v4_1: { character: false, object: false, seed: true },
+  recraft_v3: { character: false, object: false, seed: true },
+  recraft_v4_1_pro: { character: false, object: false, seed: false },
   gpt_image_1: { character: false, object: false },
   qwen_image: { character: false, object: false },
   qwen_image_2: { character: false, object: false },
@@ -2688,6 +2757,11 @@ function imageModelButton(model) {
     return imageState.seed === null || imageState.seed === undefined ? '' : String(imageState.seed);
   }
 
+  function currentRecraftTools() {
+    const model = currentImageModel() || {};
+    return Array.isArray(model.recraftTools) ? model.recraftTools.slice() : [];
+  }
+
   function imageOptionsPayload(referenceImages) {
     const capabilities = getModelCapabilities(imageState.modelId);
     const seed = capabilities.seed ? normalizeImageSeed(imageState.seed) : null;
@@ -3017,6 +3091,46 @@ function imageModelButton(model) {
         + '<span class="image-size-label"><span class="image-seed-hex">⬢</span> Seed</span>'
         + '<span class="image-size-check">›</span>'
         + '</button>'
+        + (currentRecraftTools().length ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'recraft_tools\')">'
+          + '<span class="image-size-label"><span class="image-seed-hex">R</span> Функции Recraft</span>'
+          + '<span class="image-size-check">›</span>'
+          + '</button>' : '')
+        + '</div>';
+      el.classList.add('show');
+      const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+      const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+      return;
+    }
+    if (kind === 'recraft_tools') {
+      const tools = currentRecraftTools();
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+      if (el.parentElement !== document.body) document.body.appendChild(el);
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.classList.add('image-seed-pop');
+      el.style.cssText = '';
+      el.style.position = 'fixed';
+      el.style.left = '8px';
+      el.style.right = 'auto';
+      el.style.top = 'auto';
+      el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+      el.style.width = '78vw';
+      el.style.maxWidth = '360px';
+      el.style.minWidth = '270px';
+      el.style.zIndex = '999999';
+      el.innerHTML = '<div class="image-seed-head">'
+        + '<button class="image-seed-back" type="button" aria-label="Back" onclick="SYLVEX.openImageOptionMenu(event,\'settings\')">‹</button>'
+        + '<span>Функции Recraft</span>'
+        + '</div>'
+        + '<div class="image-size-sheet-list">'
+        + tools.map((tool) => '<div class="image-size-row image-seed-row recraft-tool-row">'
+          + '<span class="image-size-label">' + S.escapeHtml(tool.label || tool.id) + '</span>'
+          + '<span class="image-size-check">' + S.escapeHtml(String(tool.costCredits || 0)) + ' ⚡</span>'
+          + '</div>').join('')
         + '</div>';
       el.classList.add('show');
       const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
@@ -3715,6 +3829,9 @@ function imageModelButton(model) {
       charge_id: backendMeta.charge_id || (result && (result.charge_id || result.generation_id || result.job_id)) || '',
       rendering_speed: backendMeta.rendering_speed || (result && result.rendering_speed) || '',
       provider_model: backendMeta.provider_model || (result && result.provider_model) || '',
+      recraft_tools: Array.isArray(backendMeta.recraft_tools)
+        ? backendMeta.recraft_tools.slice()
+        : (result && Array.isArray(result.recraft_tools) ? result.recraft_tools.slice() : []),
       settings: Object.assign({}, options),
       image_options: Object.assign({}, options, {
         seed: seed === '' ? null : seed,
@@ -4745,6 +4862,7 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Тип', type)
     + generationInfoRow('Модель', meta.model_label || meta.model)
     + generationInfoRow('Provider', meta.provider)
+    + generationInfoRow('Provider Model', meta.provider_model)
     + generationInfoRow('Style', meta.style)
     + generationInfoRow('Genre', settings.genre)
     + generationInfoRow('Mood', settings.mood)

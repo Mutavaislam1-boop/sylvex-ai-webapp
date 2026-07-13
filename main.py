@@ -71,9 +71,9 @@ def env_value(*names: str, default: str = "") -> str:
 IMAGE_PROVIDER_MODEL_MAP = {
     "ideogram_3_0": {"provider": "ideogram", "provider_model": env_value("IDEOGRAM_3_MODEL", "IDEOGRAM-3-MODEL", default="ideogram-v3"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate"},
     "ideogram_4_0": {"provider": "ideogram", "provider_model": env_value("IDEOGRAM_4_MODEL", "IDEOGRAM-4-MODEL", default="ideogram-v4"), "endpoint": "https://api.ideogram.ai/v1/ideogram-v4/generate"},
-    "recraft_v4_1": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
-    "recraft_v3": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V3_MODEL"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
-    "recraft_v4_1_pro": {"provider": "recraft", "provider_model": os.getenv("RECRAFT_V4_1_PRO_MODEL", os.getenv("RECRAFT_V4_1_MODEL", "recraftv4_1")), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "recraft_v4_1": {"provider": "recraft", "provider_model": env_value("RECRAFT_V4_1_MODEL", "RECRAFT-V4-1-MODEL", default="recraftv4_1"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "recraft_v3": {"provider": "recraft", "provider_model": env_value("RECRAFT_V3_MODEL", "RECRAFT-V3-MODEL", default="recraftv3"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "recraft_v4_1_pro": {"provider": "recraft", "provider_model": env_value("RECRAFT_V4_1_PRO_MODEL", "RECRAFT-V4-1-PRO-MODEL", default="recraftv4_1_pro"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "seedream_4_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "seedream_5_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "seedream_4_5": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
@@ -134,6 +134,58 @@ IDEOGRAM_MODEL_VARIANTS = {
         },
     },
 }
+RECRAFT_MODEL_VARIANTS = {
+    "recraft_v4_1": {
+        "provider_model": env_value("RECRAFT_V4_1_MODEL", "RECRAFT-V4-1-MODEL", default="recraftv4_1"),
+        "label": "Recraft V4.1",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.0525,
+        "provider_cost_usd": 0.035,
+        "tools": ["image_to_image"],
+    },
+    "recraft_v4_1_pro": {
+        "provider_model": env_value("RECRAFT_V4_1_PRO_MODEL", "RECRAFT-V4-1-PRO-MODEL", default="recraftv4_1_pro"),
+        "label": "Recraft V4.1 Pro",
+        "seed": False,
+        "cost_credits": 21,
+        "cost_usd": 0.21,
+        "provider_cost_usd": 0.21,
+        "tools": ["image_to_image"],
+    },
+    "recraft_v3": {
+        "provider_model": env_value("RECRAFT_V3_MODEL", "RECRAFT-V3-MODEL", default="recraftv3"),
+        "label": "Recraft V3",
+        "seed": True,
+        "cost_credits": 6,
+        "cost_usd": 0.06,
+        "provider_cost_usd": 0.04,
+        "tools": [
+            "image_to_image",
+            "outpaint",
+            "replace_background",
+            "generate_background",
+            "create_style",
+            "vectorize",
+            "remove_background",
+            "crisp_upscale",
+            "creative_upscale",
+            "erase_region",
+        ],
+    },
+}
+RECRAFT_TOOL_CATALOG = {
+    "image_to_image": {"label": "Изображение → Изображение", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/imageToImage"},
+    "outpaint": {"label": "Дорисовка изображения", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/outpaint"},
+    "replace_background": {"label": "Замена фона", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/replaceBackground"},
+    "generate_background": {"label": "Генерация фона", "raster_credits": 6, "vector_credits": 12, "endpoint": "/images/generateBackground"},
+    "create_style": {"label": "Генерация стиля", "raster_credits": 6, "endpoint": "/styles"},
+    "vectorize": {"label": "Векторизация", "raster_credits": 2, "endpoint": "/images/vectorize"},
+    "remove_background": {"label": "Удаление фона", "raster_credits": 2, "endpoint": "/images/removeBackground"},
+    "crisp_upscale": {"label": "Увеличение разрешения", "raster_credits": 1, "endpoint": "/images/crispUpscale"},
+    "creative_upscale": {"label": "Повышение качества", "raster_credits": 38, "endpoint": "/images/creativeUpscale"},
+    "erase_region": {"label": "Стирание области", "raster_credits": 1, "endpoint": "/images/eraseRegion"},
+}
 IMAGE_MODEL_FEATURES = {
     "nano_banana_pro": {"character": True, "object": True},
     "nano_banana_2": {"character": False, "object": False},
@@ -155,9 +207,9 @@ IMAGE_MODEL_FEATURES = {
     "ideogram_3": {"character": False, "object": False, "seed": True},
     "ideogram_4_0": {"character": False, "object": False, "seed": False},
     "ideogram_4": {"character": False, "object": False, "seed": False},
-    "recraft_v4_1": {"character": False, "object": False},
-    "recraft_v3": {"character": False, "object": False},
-    "recraft_v4_1_pro": {"character": False, "object": False},
+    "recraft_v4_1": {"character": False, "object": False, "seed": True},
+    "recraft_v3": {"character": False, "object": False, "seed": True},
+    "recraft_v4_1_pro": {"character": False, "object": False, "seed": False},
     "gpt_image_1": {"character": False, "object": False},
     "qwen_image": {"character": False, "object": False},
     "qwen_image_2": {"character": False, "object": False},
@@ -3200,6 +3252,7 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "charge_id": result.get("charge_id") or result.get("generation_id") or result.get("job_id") or "",
         "rendering_speed": result.get("rendering_speed") or options.get("rendering_speed") or "",
         "provider_model": result.get("provider_model") or "",
+        "recraft_tools": _json_list(result.get("recraft_tools")),
         "image_options": options if mode == "image" else {},
         "video_options": options if mode == "video" else {},
         "music_options": options if mode == "music" else {},
@@ -5424,6 +5477,96 @@ def ideogram_cost_info(frontend_model: str, provider_model: str, rendering_speed
     }
 
 
+def recraft_frontend_model(frontend_model: str, provider_model: str = "") -> str:
+    raw = str(frontend_model or "").strip().replace("-", "_")
+    if raw in RECRAFT_MODEL_VARIANTS:
+        return raw
+    model = str(provider_model or "").lower()
+    if "v4_1_pro" in model or "v4.1_pro" in model:
+        return "recraft_v4_1_pro"
+    if "v3" in model:
+        return "recraft_v3"
+    return "recraft_v4_1"
+
+
+def recraft_headers() -> dict:
+    api_key = env_value("RECRAFT_API_KEY", "RECRAFT-API-KEY")
+    if not api_key:
+        return {}
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def recraft_size_value(size: str) -> str:
+    raw = str(size or "").strip()
+    if raw.lower() in {"", "auto"}:
+        return ""
+    supported = {"1:1", "16:9", "9:16", "3:4", "4:3"}
+    return raw if raw in supported else "1:1"
+
+
+def recraft_available_tools(frontend_model: str, provider_model: str = "") -> list:
+    key = recraft_frontend_model(frontend_model, provider_model)
+    cfg = RECRAFT_MODEL_VARIANTS.get(key) or {}
+    tools = []
+    for tool_id in cfg.get("tools") or []:
+        item = RECRAFT_TOOL_CATALOG.get(tool_id)
+        if item:
+            tools.append({"id": tool_id, **item})
+    return tools
+
+
+def recraft_cost_info(frontend_model: str, provider_model: str, count: int) -> dict:
+    key = recraft_frontend_model(frontend_model, provider_model)
+    cfg = RECRAFT_MODEL_VARIANTS.get(key) or RECRAFT_MODEL_VARIANTS["recraft_v4_1"]
+    image_count = max(1, int(count or 1))
+    unit_credits = int(cfg.get("cost_credits") or 0)
+    unit_usd = float(cfg.get("cost_usd") or 0)
+    return {
+        "cost": unit_credits * image_count,
+        "cost_credits": unit_credits * image_count,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": round(unit_usd * image_count, 4),
+        "unit_cost_usd": unit_usd,
+        "provider_cost_usd": round(float(cfg.get("provider_cost_usd") or 0) * image_count, 4),
+        "generation_cost": f"${unit_usd * image_count:.4f}",
+        "model_label": cfg.get("label") or frontend_model or provider_model,
+        "recraft_tools": recraft_available_tools(frontend_model, provider_model),
+    }
+
+
+def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+    headers = recraft_headers()
+    if not headers:
+        return [], image_error_response("recraft", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
+    opts = payload.get("image_options") or {}
+    frontend_key = recraft_frontend_model(frontend_model, provider_model)
+    seed_supported = bool((RECRAFT_MODEL_VARIANTS.get(frontend_key) or {}).get("seed"))
+    seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
+    request_payload = {
+        "prompt": prompt,
+        "model": provider_model,
+        "n": max(1, min(int(count or 1), 6)),
+        "response_format": "url",
+    }
+    size_value = recraft_size_value(size)
+    if size_value:
+        request_payload["size"] = size_value
+    if seed is not None:
+        request_payload["random_seed"] = seed
+    try:
+        response = requests.post(endpoint, headers=headers, data=json.dumps(request_payload), timeout=120)
+    except requests.RequestException as exc:
+        return [], image_error_response("recraft", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "recraft", endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return [], image_error_response("recraft", frontend_model, provider_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+    images = normalize_image_response(data)
+    return images, {}, request_payload
+
+
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
     if mode != "image":
@@ -5433,6 +5576,17 @@ def estimate_generation_cost(payload: dict) -> dict:
     mapping = image_provider_mapping(requested_model) if requested_model else {}
     provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
     api_model = mapping.get("provider_model") or ""
+    if provider == "recraft":
+        count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+        info = recraft_cost_info(requested_model, api_model, count)
+        return {
+            "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+            "cost_usd": info.get("cost_usd") or 0,
+            "generation_cost": info.get("generation_cost") or "",
+            "unit_cost_credits": info.get("unit_cost_credits") or 0,
+            "unit_cost_usd": info.get("unit_cost_usd") or 0,
+            "model_label": info.get("model_label") or "",
+        }
     if provider != "ideogram":
         return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
@@ -5589,6 +5743,21 @@ async def image_generation(payload: dict) -> dict:
             return error
         if images:
             return await finalize_image_result(payload, images[:count])
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
+
+    if provider == "recraft":
+        images, error, request_payload = call_recraft_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        print("RECRAFT IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": request_payload})
+        if error:
+            return error
+        if images:
+            final_images = images[:count]
+            result = await finalize_image_result(payload, final_images)
+            result.update(recraft_cost_info(requested_model, api_model, len(final_images) or count))
+            result["provider"] = "recraft"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "ideogram":
