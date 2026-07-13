@@ -381,8 +381,43 @@ const IMAGE_MODEL_LIST = [
   { id:'gpt_image_2', label:'GPT Image 2', desc:'OpenAI image generation', icon:'gptImage', badge:'FEATURED' },
 
   { id:'flux_pro_kontext', label:'Flux Pro Kontext', desc:'Black Forest Labs Flux image model', icon:'flux' },
-  { id:'flux_2', label:'Flux 2', desc:'Black Forest Labs Flux image model', icon:'flux' },
-  { id:'flux_2_turbo', label:'Flux 2 Turbo', desc:'Black Forest Labs Flux fast image model', icon:'flux', badges:['FAST','LOW COST'] },
+  {
+    id:'flux_2',
+    label:'FLUX.2',
+    desc:'Black Forest Labs FLUX.2 image model',
+    icon:'flux',
+    providerModel:'flux-2-pro',
+    seed:false,
+    costUsd:0.045,
+    costCredits:5,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
+    id:'flux_2_turbo',
+    label:'FLUX.2 Turbo',
+    desc:'Black Forest Labs FLUX.2 fast image model',
+    icon:'flux',
+    providerModel:'flux-2-flex',
+    seed:false,
+    costUsd:0.105,
+    costCredits:11,
+    badges:['FAST','LOW COST'],
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
 
   { id:'qwen_image', label:'Qwen Image', desc:'Qwen image model', icon:'qwen' },
   { id:'qwen_image_2_pro', label:'Qwen Image 2 Pro', desc:'Qwen image generation', icon:'qwen' },
@@ -414,9 +449,9 @@ const MODEL_FEATURES = {
   grok_pro: { character: false, object: false },
   davinci_ultra: { character: false, object: false },
   grok: { character: false, object: false },
-  flux_2: { character: true, object: true },
-  flux_2_turbo: { character: true, object: true },
-  flux_pro_kontext: { character: true, object: false },
+  flux_2: { character: true, object: true, seed: false },
+  flux_2_turbo: { character: true, object: true, seed: false },
+  flux_pro_kontext: { character: true, object: false, seed: false },
   ideogram_3_0: { character: false, object: false, seed: true },
   ideogram_3: { character: false, object: false, seed: true },
   ideogram_4_0: { character: false, object: false, seed: false },
