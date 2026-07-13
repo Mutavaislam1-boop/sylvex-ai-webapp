@@ -1175,10 +1175,15 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
                 UPDATE users
                 SET balance = COALESCE(balance, 0) - %s
                 WHERE telegram_id = %s
+                  AND COALESCE(balance, 0) >= %s
                 RETURNING COALESCE(balance, 0)
-            """, (credits, telegram_id))
+            """, (credits, telegram_id, credits))
             row = cursor.fetchone()
-            balance_after = int(row[0]) if row else None
+            if not row:
+                cursor.execute("DELETE FROM generation_charges WHERE generation_id = %s", (generation_id,))
+                conn.commit()
+                return {"charged": False, "credits": credits, "balance_after": None, "insufficient_balance": True}
+            balance_after = int(row[0])
             cursor.execute(
                 "UPDATE generation_charges SET balance_after = %s WHERE generation_id = %s",
                 (balance_after, generation_id),
@@ -5419,6 +5424,30 @@ def ideogram_cost_info(frontend_model: str, provider_model: str, rendering_speed
     }
 
 
+def estimate_generation_cost(payload: dict) -> dict:
+    mode = (payload.get("mode") or payload.get("category") or "").lower()
+    if mode != "image":
+        return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+    opts = payload.get("image_options") or {}
+    requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
+    mapping = image_provider_mapping(requested_model) if requested_model else {}
+    provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
+    api_model = mapping.get("provider_model") or ""
+    if provider != "ideogram":
+        return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+    count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+    speed = ideogram_rendering_speed(requested_model, api_model, opts)
+    info = ideogram_cost_info(requested_model, api_model, speed, count, False)
+    return {
+        "credits": int(info.get("cost_credits") or info.get("cost") or 0),
+        "cost_usd": info.get("cost_usd") or 0,
+        "generation_cost": info.get("generation_cost") or "",
+        "unit_cost_credits": info.get("unit_cost_credits") or 0,
+        "unit_cost_usd": info.get("unit_cost_usd") or 0,
+        "model_label": info.get("model_label") or "",
+    }
+
+
 def ideogram_form_files(request_payload: dict) -> dict:
     return {
         key: (None, str(value))
@@ -5691,6 +5720,40 @@ async def public_prostudio_generate(request: Request):
         feature_error = validate_image_feature_request(payload)
         if feature_error:
             return JSONResponse(feature_error, status_code=400)
+
+        telegram_id = int(payload.get("telegram_id") or 0)
+        cost_estimate = estimate_generation_cost(payload)
+        required_credits = int(cost_estimate.get("credits") or 0)
+        if required_credits > 0:
+            user_state = get_user_state(telegram_id) if telegram_id else {"balance": 0}
+            balance = int(user_state.get("balance") or 0)
+            if balance < required_credits:
+                return JSONResponse({
+                    "ok": False,
+                    "paywall": True,
+                    "insufficient_balance": True,
+                    "error": "Недостаточно токенов для генерации",
+                    "required_credits": required_credits,
+                    "balance": balance,
+                    "generation_cost": cost_estimate.get("generation_cost") or "",
+                    "cost_usd": cost_estimate.get("cost_usd") or 0,
+                    "shop_url": SHOP_WEBAPP_URL,
+                }, status_code=402)
+
+    if mode in generation_modes:
+        telegram_id = int(payload.get("telegram_id") or 0)
+        user_state = get_user_state(telegram_id) if telegram_id else {"balance": 0}
+        balance = int(user_state.get("balance") or 0)
+        if balance <= 0:
+            return JSONResponse({
+                "ok": False,
+                "paywall": True,
+                "insufficient_balance": True,
+                "error": "Недостаточно токенов для генерации",
+                "required_credits": 1,
+                "balance": balance,
+                "shop_url": SHOP_WEBAPP_URL,
+            }, status_code=402)
 
     if mode in text_modes:
         if not selected_model or is_internal_ui_model(selected_model):
