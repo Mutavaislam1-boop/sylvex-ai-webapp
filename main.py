@@ -7341,7 +7341,24 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                     "poll_url": result.get("poll_url"),
                 },
             )
-            return
+            while True:
+                await asyncio.sleep(5)
+                poll = await poll_video_generation(result)
+
+                if not poll.get("ok"):
+                    update_prostudio_generation_job(job_id, "failed", error=poll)
+                    return
+
+                status = poll.get("status")
+
+                if status == "completed":
+                    result = poll
+                    final_status = "completed"
+                    break
+
+                if status == "failed":
+                    update_prostudio_generation_job(job_id, "failed", error=poll)
+                    return
 
         if final_status != "completed":
             error_result = {
