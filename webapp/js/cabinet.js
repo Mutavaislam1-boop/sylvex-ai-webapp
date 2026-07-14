@@ -5713,31 +5713,55 @@ function errorMessage(value, fallback) {
 }
 
 function translateGenerationError(value, fallback) {
-  const text = errorMessage(value, fallback || 'Генерация не прошла. Попробуйте повторить немного позже.');
+  const text = errorMessage(value, fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
   const low = String(text || '').toLowerCase();
+  if (/prompt.*size.*between.*0.*3072|prompt.*3072|size must be between/.test(low)) {
+    return 'Описание слишком длинное для выбранной модели.\nМаксимальная длина текста для Kling — 3072 символа.\nСократите описание и попробуйте снова.';
+  }
   if (/api key|unauthorized|401|forbidden|invalid api key/.test(low)) {
-    return 'Временная ошибка сервиса. Попробуйте повторить генерацию немного позже.';
+    return 'Сервис генерации временно недоступен.\nМы уже получили информацию об ошибке. Попробуйте немного позже.';
   }
-  if (/unknown parameter|unsupported parameter|invalid parameter|duration not supported|resolution not supported|candidate_count/.test(low)) {
-    return 'Выбранные настройки временно недоступны для этой модели. Попробуйте изменить параметры генерации.';
+  if (/unknown parameter|unsupported parameter|invalid parameter|unrecognized.*parameter|candidate_count|badrequest|bad request/.test(low)) {
+    return 'Выбранные параметры не поддерживаются этой моделью.\nИзмените настройки генерации и попробуйте снова.';
   }
-  if (/quota|rate limit|too many requests|overloaded/.test(low)) {
-    return 'Сервис временно перегружен. Повторите попытку через несколько минут.';
+  if (/duration.*not supported|unsupported.*duration|video too long|duration.*limit/.test(low)) {
+    return 'Длительность видео превышает допустимый лимит для выбранной модели.';
+  }
+  if (/resolution.*not supported|unsupported.*resolution|size.*not supported/.test(low)) {
+    return 'Выбранное разрешение временно недоступно для этой модели. Измените настройки и попробуйте снова.';
+  }
+  if (/image too large|file too large|payload too large|413/.test(low)) {
+    return 'Размер изображения превышает допустимый лимит.\nУменьшите размер файла и повторите попытку.';
+  }
+  if (/invalid image|image.*invalid|cannot process.*image|bad image|unsupported image/.test(low)) {
+    return 'Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение.';
+  }
+  if (/quota|insufficient quota|credit.*exceed|limit.*exceed/.test(low)) {
+    return 'Временный лимит генераций исчерпан.\nПовторите попытку позже.';
+  }
+  if (/rate limit|too many requests|429|overloaded|busy/.test(low)) {
+    return 'Сервис сейчас перегружен большим количеством запросов.\nПовторите попытку через несколько минут.';
   }
   if (/timeout|timed out|readtimeout/.test(low)) {
-    return 'Генерация заняла слишком много времени. Попробуйте снова.';
+    return 'Генерация заняла слишком много времени.\nПопробуйте выполнить запрос ещё раз.';
   }
   if (/sensitive|safety|policy|blocked|moderation/.test(low)) {
-    return 'Запрос не может быть обработан из-за ограничений выбранной AI-модели. Попробуйте изменить изображение или описание.';
+    return 'Запрос не может быть обработан из-за ограничений выбранной AI-модели.\nПопробуйте изменить изображение или описание.';
   }
-  if (/provider returned invalid response|json|decode|badrequest|bad request|request failed|http 5|502|503|504/.test(low)) {
-    return 'Сервис временно недоступен. Попробуйте позже.';
+  if (/provider returned invalid response|invalid response|non-json|json|decode|html|empty response/.test(low)) {
+    return 'Сервис временно вернул некорректный ответ.\nПопробуйте повторить генерацию через несколько секунд.';
+  }
+  if (/http\s*503|status_code.*503|\b503\b|service unavailable|temporarily unavailable/.test(low)) {
+    return 'Сервис сейчас временно недоступен.\nПовторите попытку немного позже.';
+  }
+  if (/http\s*500|status_code.*500|\b500\b|internal server error|bad gateway|\b502\b|\b504\b/.test(low)) {
+    return 'Во время генерации произошла временная ошибка сервиса.\nПопробуйте немного позже.';
   }
   if (/http 4|400/.test(low)) {
-    return 'Выбранные настройки не подошли для этой модели. Попробуйте изменить параметры генерации.';
+    return 'Выбранные параметры не поддерживаются этой моделью.\nИзмените настройки генерации и попробуйте снова.';
   }
   return /traceback|exception|provider|request|json|http/i.test(text)
-    ? (fallback || 'Генерация не прошла. Попробуйте повторить немного позже.')
+    ? (fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.')
     : text;
 }
 
@@ -6173,10 +6197,10 @@ async function waitGeneration(jobId, options) {
         fd.append('file', blob, 'voice.' + ext);
         const r = await fetch('/api/public/prostudio/transcribe', { method: 'POST', body: fd });
         const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j.error || 'transcribe failed');
+        if (!r.ok || !j.ok) throw new Error(translateGenerationError(j, 'Не удалось распознать голос. Попробуйте ещё раз.'));
         if (ta) { ta.value = (ta.value ? ta.value + ' ' : '') + (j.text || ''); autoGrow(ta); ta.focus(); }
       } catch (err) {
-        toast('Voice: ' + (err && err.message ? err.message : 'failed'));
+        toast(translateGenerationError(err, 'Не удалось распознать голос. Попробуйте ещё раз.'));
       } finally {
         if (ta) ta.placeholder = 'Message SYLVEX…';
       }

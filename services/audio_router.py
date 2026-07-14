@@ -5,6 +5,8 @@ from typing import Any
 
 import httpx
 
+from services.error_translator import raw_error_text, translate_provider_error
+
 
 AUDIO_API_BASE_URL = os.getenv("AUDIO_API_BASE_URL", "https://udioapi.pro/api").rstrip("/")
 AUDIO_GENERATE_ENDPOINT = os.getenv("AUDIO_API_GENERATE_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/generate")
@@ -61,6 +63,22 @@ def _get_env(*names: str) -> str:
         if value:
             return value
     return ""
+
+
+def _audio_error(provider: str, frontend_model: str, provider_model: str = "", error: Any = "", **extra) -> dict:
+    user_message = translate_provider_error(error, provider=provider, model=frontend_model)
+    result = {
+        "ok": False,
+        "type": "music",
+        "provider": provider,
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "error": user_message,
+        "message": user_message,
+        "raw_error": raw_error_text(error, ""),
+    }
+    result.update(extra)
+    return result
 
 
 def _audio_headers(api_key: str) -> dict[str, str]:
@@ -296,24 +314,10 @@ async def audio_generation(payload: dict) -> dict:
     )
     provider_model = _music_model_mapping(frontend_model)
     if not provider_model:
-        return {
-            "ok": False,
-            "type": "music",
-            "provider": provider,
-            "model": frontend_model,
-            "error": "Unknown provider model mapping",
-            "frontend_model": frontend_model,
-        }
+        return _audio_error(provider, frontend_model, "", "Unknown provider model mapping", frontend_model=frontend_model)
 
     if not api_key:
-        return {
-            "ok": False,
-            "type": "music",
-            "provider": provider,
-            "model": frontend_model,
-            "provider_model": provider_model,
-            "error": "AUDIO_API_KEY is not configured",
-        }
+        return _audio_error(provider, frontend_model, provider_model, "AUDIO_API_KEY is not configured")
 
     submit_body = _audio_payload(payload, provider_model)
     print("AUDIO API GENERATE REQUEST:", {
@@ -334,16 +338,7 @@ async def audio_generation(payload: dict) -> dict:
                 json=submit_body,
             )
         except Exception as exc:
-            return {
-                "ok": False,
-                "type": "music",
-                "provider": provider,
-                "model": frontend_model,
-                "provider_model": provider_model,
-                "endpoint": AUDIO_GENERATE_ENDPOINT,
-                "error": "Audio API submit request failed",
-                "details": repr(exc),
-            }
+            return _audio_error(provider, frontend_model, provider_model, exc, endpoint=AUDIO_GENERATE_ENDPOINT, details=repr(exc))
 
         submit_data = await safe_audio_json_response(submit_response, provider, AUDIO_GENERATE_ENDPOINT)
         work_id = _work_id_from_response(submit_data)
@@ -355,35 +350,14 @@ async def audio_generation(payload: dict) -> dict:
         })
 
         if submit_response.status_code >= 400:
-            return {
-                "ok": False,
-                "type": "music",
-                "provider": provider,
-                "model": frontend_model,
-                "provider_model": provider_model,
-                "endpoint": AUDIO_GENERATE_ENDPOINT,
-                "status_code": submit_response.status_code,
-                "error": "Audio API submit failed",
-                "body_preview": json.dumps(submit_data, ensure_ascii=False)[:1000],
-                "response": submit_data,
-            }
+            return _audio_error(provider, frontend_model, provider_model, submit_data, endpoint=AUDIO_GENERATE_ENDPOINT, status_code=submit_response.status_code, body_preview=json.dumps(submit_data, ensure_ascii=False)[:1000], response=submit_data)
 
         result = _extract_audio_result(submit_data)
         if result["audio_url"]:
             return await _completed_audio_response(payload, provider, frontend_model, provider_model, work_id, submit_status, result, submit_data)
 
         if not work_id:
-            return {
-                "ok": False,
-                "type": "music",
-                "provider": provider,
-                "model": frontend_model,
-                "provider_model": provider_model,
-                "endpoint": AUDIO_GENERATE_ENDPOINT,
-                "status_code": submit_response.status_code,
-                "error": "Audio API did not return workId",
-                "response": submit_data,
-            }
+            return _audio_error(provider, frontend_model, provider_model, "Audio API did not return workId", endpoint=AUDIO_GENERATE_ENDPOINT, status_code=submit_response.status_code, response=submit_data)
 
         attempts = int(os.getenv("AUDIO_API_POLL_ATTEMPTS", "60"))
         interval = float(os.getenv("AUDIO_API_POLL_INTERVAL", "5"))
@@ -409,20 +383,7 @@ async def audio_generation(payload: dict) -> dict:
             last_data = poll_data
             poll_status_code = getattr(poll_response, "status_code", None)
             if poll_status_code and poll_status_code >= 400:
-                return {
-                    "ok": False,
-                    "type": "music",
-                    "provider": provider,
-                    "model": frontend_model,
-                    "provider_model": provider_model,
-                    "workId": work_id,
-                    "task_id": work_id,
-                    "endpoint": feed_url,
-                    "status_code": poll_status_code,
-                    "error": "Audio API polling failed",
-                    "body_preview": json.dumps(poll_data, ensure_ascii=False)[:1000],
-                    "response": poll_data,
-                }
+                return _audio_error(provider, frontend_model, provider_model, poll_data, workId=work_id, task_id=work_id, endpoint=feed_url, status_code=poll_status_code, body_preview=json.dumps(poll_data, ensure_ascii=False)[:1000], response=poll_data)
 
             status = _status_from_response(poll_data)
             result = _extract_audio_result(poll_data)
@@ -439,19 +400,7 @@ async def audio_generation(payload: dict) -> dict:
                 return await _completed_audio_response(payload, provider, frontend_model, provider_model, work_id, status, result, poll_data)
 
             if status in {"failed", "error", "cancelled", "canceled"}:
-                return {
-                    "ok": False,
-                    "type": "music",
-                    "provider": provider,
-                    "model": frontend_model,
-                    "provider_model": provider_model,
-                    "workId": work_id,
-                    "status": status,
-                    "endpoint": feed_url,
-                    "status_code": getattr(poll_response, "status_code", None),
-                    "error": "Audio API generation failed",
-                    "response": poll_data,
-                }
+                return _audio_error(provider, frontend_model, provider_model, poll_data, workId=work_id, status=status, endpoint=feed_url, status_code=getattr(poll_response, "status_code", None), response=poll_data)
 
             if attempt < attempts:
                 await asyncio.sleep(interval)
