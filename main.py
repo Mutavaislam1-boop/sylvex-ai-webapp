@@ -8,6 +8,7 @@ import asyncio
 import re
 import base64
 import time
+import traceback
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -3012,10 +3013,31 @@ def _sql_text(value, max_text: int = 2000) -> str:
         return _safe_json_dumps(_sanitize_event_payload(value, max_text=max_text, max_items=50, depth=5))[:max_text]
     return str(value)[:max_text]
 
+def prostudio_debug(stage: str, **data):
+    safe = _sanitize_event_payload(data, max_text=700, max_items=30, depth=4)
+    print(f"PROSTUDIO DEBUG {stage}:", safe)
+
+def prostudio_error(stage: str, exc: Exception = None, **data):
+    safe = _sanitize_event_payload(data, max_text=1000, max_items=30, depth=4)
+    if exc is not None:
+        safe["error"] = str(exc)
+        safe["traceback"] = traceback.format_exc()
+    print(f"PROSTUDIO ERROR {stage}:", safe)
+
 def create_prostudio_generation_job(payload: dict) -> str:
     job_id = str(uuid4())
     telegram_id = int(payload.get("telegram_id") or 0)
+    prostudio_debug(
+        "JOB_CREATE_START",
+        job_id=job_id,
+        telegram_id=telegram_id,
+        mode=payload.get("mode") or payload.get("category") or "text",
+        model=payload.get("model") or "",
+        provider=payload.get("provider") or "",
+        has_database=bool(DATABASE_URL),
+    )
     if not DATABASE_URL or not telegram_id:
+        prostudio_debug("JOB_CREATE_SKIPPED_DB", job_id=job_id, has_database=bool(DATABASE_URL), telegram_id=telegram_id)
         return job_id
     try:
         ensure_prostudio_table()
@@ -3038,12 +3060,22 @@ def create_prostudio_generation_job(payload: dict) -> str:
         conn.commit()
         cursor.close()
         conn.close()
+        prostudio_debug("JOB_CREATE_DONE", job_id=job_id, status="queued")
     except Exception as exc:
-        print("PROSTUDIO JOB CREATE FAILED:", exc)
+        prostudio_error("JOB_CREATE_FAILED", exc, job_id=job_id, telegram_id=telegram_id)
     return job_id
 
 def update_prostudio_generation_job(job_id: str, status: str, result: Optional[dict] = None, error: Optional[dict] = None, conversation_id: str = ""):
+    prostudio_debug(
+        "JOB_UPDATE_START",
+        job_id=job_id,
+        status=status,
+        result_keys=sorted((result or {}).keys()) if isinstance(result, dict) else [],
+        error_keys=sorted((error or {}).keys()) if isinstance(error, dict) else [],
+        conversation_id=conversation_id or "",
+    )
     if not DATABASE_URL or not job_id:
+        prostudio_debug("JOB_UPDATE_SKIPPED_DB", job_id=job_id, status=status, has_database=bool(DATABASE_URL))
         return
     try:
         ensure_prostudio_table()
@@ -3071,14 +3103,17 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
             status,
             job_id,
         ))
+        rowcount = cursor.rowcount
         conn.commit()
         cursor.close()
         conn.close()
+        prostudio_debug("JOB_UPDATE_DONE", job_id=job_id, status=status, rowcount=rowcount)
     except Exception as exc:
-        print("PROSTUDIO JOB UPDATE FAILED:", exc)
+        prostudio_error("JOB_UPDATE_FAILED", exc, job_id=job_id, status=status)
 
 def claim_next_prostudio_generation_job() -> Optional[dict]:
     if not DATABASE_URL:
+        prostudio_debug("WORKER_CLAIM_SKIPPED_DB")
         return None
     try:
         ensure_prostudio_table()
@@ -3109,11 +3144,21 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             cursor.close()
             conn.close()
         if not row:
+            prostudio_debug("WORKER_CLAIM_NONE")
             return None
         payload = _json_obj(row[1])
-        return {"id": row[0], "payload": payload, "attempts": row[2] or 1}
+        claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1}
+        prostudio_debug(
+            "WORKER_CLAIM_DONE",
+            job_id=row[0],
+            attempts=row[2] or 1,
+            mode=payload.get("mode") or payload.get("category") or "",
+            model=payload.get("model") or "",
+            provider=payload.get("provider") or "",
+        )
+        return claimed
     except Exception as exc:
-        print("PROSTUDIO JOB CLAIM FAILED:", exc)
+        prostudio_error("WORKER_CLAIM_FAILED", exc)
         return None
 
 def requeue_stale_prostudio_jobs():
@@ -3155,7 +3200,7 @@ def requeue_stale_prostudio_jobs():
             cursor.close()
             conn.close()
     except Exception as exc:
-        print("PROSTUDIO STALE JOB REQUEUE FAILED:", exc)
+        prostudio_error("STALE_JOB_REQUEUE_FAILED", exc)
 
 def heartbeat_prostudio_generation_job(job_id: str):
     if not DATABASE_URL or not job_id:
@@ -3175,7 +3220,7 @@ def heartbeat_prostudio_generation_job(job_id: str):
             cursor.close()
             conn.close()
     except Exception as exc:
-        print("PROSTUDIO JOB HEARTBEAT FAILED:", exc)
+        prostudio_error("JOB_HEARTBEAT_FAILED", exc, job_id=job_id)
 
 def generation_result_urls(result: Optional[dict], mode: str = "") -> list:
     if not isinstance(result, dict):
@@ -3528,15 +3573,22 @@ def materialize_data_image_url(url: str) -> str:
         image_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid4().hex}.{ext}"
         path = image_dir / filename
+        prostudio_debug("IMAGE_SAVE_START", path=str(path), ext=ext, bytes=len(content))
         path.write_bytes(content)
-        return f"/webapp/generated/images/{filename}"
+        saved_url = f"/webapp/generated/images/{filename}"
+        prostudio_debug("IMAGE_SAVE_DONE", path=str(path), url=saved_url, exists=path.exists(), bytes=path.stat().st_size if path.exists() else 0)
+        return saved_url
     except Exception as exc:
-        print("DATA IMAGE MATERIALIZE FAILED:", type(exc).__name__)
+        prostudio_error("IMAGE_SAVE_FAILED", exc)
         return value
 
 
 def materialize_image_urls(image_urls: list) -> list:
-    return [materialize_data_image_url(url) for url in _json_list(image_urls)]
+    urls = _json_list(image_urls)
+    prostudio_debug("IMAGE_MATERIALIZE_START", count=len(urls))
+    result = [materialize_data_image_url(url) for url in urls]
+    prostudio_debug("IMAGE_MATERIALIZE_DONE", count=len(result), urls=result)
+    return result
 
 
 def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
@@ -3572,10 +3624,12 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
                 img.thumbnail((size, size))
                 filename = f"{uuid4().hex}.jpg"
                 path = thumb_dir / filename
+                prostudio_debug("THUMBNAIL_CREATE_START", source=_sql_text(url, 180), path=str(path), size=size)
                 img.save(path, format="JPEG", quality=78, optimize=True)
                 thumb_url = f"/webapp/generated/thumbs/{filename}"
+                prostudio_debug("THUMBNAIL_CREATE_DONE", path=str(path), url=thumb_url, exists=path.exists(), bytes=path.stat().st_size if path.exists() else 0)
         except Exception as exc:
-            print("THUMBNAIL CREATE FAILED:", type(exc).__name__)
+            prostudio_error("THUMBNAIL_CREATE_FAILED", exc, source=_sql_text(url, 180))
             thumb_url = ""
         thumbs.append(thumb_url)
     return thumbs
@@ -3637,6 +3691,14 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
     })
 
     try:
+        prostudio_debug(
+            "MESSAGE_DB_WRITE_START",
+            conversation_id=conversation_id,
+            telegram_id=telegram_id,
+            mode=payload.get("mode") or "text",
+            image_url=result.get("image_url") or "",
+            thumbnail_url=result.get("thumbnail_url") or "",
+        )
         ensure_prostudio_table()
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -3690,8 +3752,9 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
         conn.commit()
         cursor.close()
         conn.close()
+        prostudio_debug("MESSAGE_DB_WRITE_DONE", conversation_id=conversation_id, telegram_id=telegram_id)
     except Exception as exc:
-        print("PROSTUDIO MESSAGE SAVE FAILED:", exc)
+        prostudio_error("MESSAGE_DB_WRITE_FAILED", exc, conversation_id=conversation_id, telegram_id=telegram_id)
 
     return conversation_id
 
@@ -4081,13 +4144,23 @@ async def public_prostudio_job(job_id: str):
             )
         result_json = _json_obj(row[1])
         error_json = _json_obj(row[2])
+        image_url = result_json.get("image_url") if isinstance(result_json, dict) else ""
+        thumb_url = result_json.get("thumbnail_url") if isinstance(result_json, dict) else ""
+        image_exists = None
+        thumb_exists = None
+        if isinstance(image_url, str) and image_url.startswith("/webapp/"):
+            image_exists = (WEBAPP_DIR / image_url.replace("/webapp/", "", 1)).exists()
+        if isinstance(thumb_url, str) and thumb_url.startswith("/webapp/"):
+            thumb_exists = (WEBAPP_DIR / thumb_url.replace("/webapp/", "", 1)).exists()
         print("PROSTUDIO JOB GET DEBUG:", {
             "job_id": job_id,
             "status": row[0],
             "conversation_id": row[3],
             "result_keys": sorted(result_json.keys()) if isinstance(result_json, dict) else [],
-            "image_url": _sql_text(result_json.get("image_url"), 180) if isinstance(result_json, dict) else "",
-            "thumbnail_url": _sql_text(result_json.get("thumbnail_url"), 180) if isinstance(result_json, dict) else "",
+            "image_url": _sql_text(image_url, 180),
+            "thumbnail_url": _sql_text(thumb_url, 180),
+            "image_file_exists": image_exists,
+            "thumbnail_file_exists": thumb_exists,
             "images_count": len(_json_list(result_json.get("images"))) if isinstance(result_json, dict) else 0,
             "thumbnails_count": len(_json_list(result_json.get("thumbnails"))) if isinstance(result_json, dict) else 0,
             "metadata_image_url": _sql_text(((result_json.get("metadata") or {}).get("image_url") if isinstance(result_json.get("metadata"), dict) else "") if isinstance(result_json, dict) else "", 180),
@@ -4105,7 +4178,7 @@ async def public_prostudio_job(job_id: str):
         }
 
     except Exception as exc:
-        print("PROSTUDIO JOB GET FAILED:", exc)
+        prostudio_error("JOB_GET_FAILED", exc, job_id=job_id)
         return JSONResponse(
             {"ok": False, "error": "job_read_failed"},
             status_code=500,
@@ -6283,10 +6356,28 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
     if input_image:
         request_payload["image_url"] = input_image
     try:
+        prostudio_debug(
+            "GROK_PROVIDER_REQUEST",
+            endpoint=endpoint,
+            frontend_model=frontend_model,
+            provider_model=provider_model,
+            aspect_ratio=request_payload.get("aspect_ratio"),
+            resolution=request_payload.get("resolution"),
+            count=request_payload.get("n"),
+            has_input_image=bool(request_payload.get("image_url")),
+        )
         response = requests.post(endpoint, headers=headers, json=request_payload, timeout=180)
     except requests.RequestException as exc:
+        prostudio_error("GROK_PROVIDER_REQUEST_FAILED", exc, endpoint=endpoint, frontend_model=frontend_model, provider_model=provider_model)
         return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
     data = safe_provider_json(response, "grok", endpoint)
+    prostudio_debug(
+        "GROK_PROVIDER_RESPONSE",
+        endpoint=endpoint,
+        status_code=response.status_code,
+        data_keys=sorted(data.keys()) if isinstance(data, dict) else [],
+        image_count=len(normalize_image_response(data)) if isinstance(data, dict) else 0,
+    )
     if response.status_code >= 400 or data.get("ok") is False:
         return [], image_error_response("grok", frontend_model, provider_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
     images = normalize_image_response(data)
@@ -6417,10 +6508,29 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
         request_endpoint = endpoint
 
     try:
+        prostudio_debug(
+            "GOOGLE_PROVIDER_REQUEST",
+            endpoint=request_endpoint,
+            frontend_model=frontend_model,
+            provider_model=provider_model,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            count=count,
+            is_imagen=is_imagen,
+            has_references=bool(image_reference_urls(payload)),
+        )
         response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
     except requests.RequestException as exc:
+        prostudio_error("GOOGLE_PROVIDER_REQUEST_FAILED", exc, endpoint=request_endpoint, frontend_model=frontend_model, provider_model=provider_model)
         return [], image_error_response("google", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
     data = safe_provider_json(response, "google", request_endpoint)
+    prostudio_debug(
+        "GOOGLE_PROVIDER_RESPONSE",
+        endpoint=request_endpoint,
+        status_code=response.status_code,
+        data_keys=sorted(data.keys()) if isinstance(data, dict) else [],
+        image_count=len(google_extract_images(data)) if isinstance(data, dict) else 0,
+    )
     if response.status_code >= 400 or data.get("ok") is False:
         return [], image_error_response("google", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
     return google_extract_images(data), {}, request_payload
@@ -6631,6 +6741,15 @@ async def image_generation(payload: dict) -> dict:
     prompt = build_image_prompt(payload)
     requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
     frontend_provider = (payload.get("provider") or "").strip().lower()
+    prostudio_debug(
+        "IMAGE_GENERATION_START",
+        job_id=payload.get("job_id") or payload.get("generation_id") or "",
+        requested_model=requested_model or "",
+        frontend_provider=frontend_provider,
+        size=opts.get("size") or opts.get("ratio") or "",
+        count=opts.get("count") or 1,
+        has_references=bool(image_reference_urls(payload)),
+    )
     mapping = image_provider_mapping(requested_model) if requested_model else {}
     model_cfg = find_image_model(requested_model) or infer_image_model(requested_model, frontend_provider)
 
@@ -6657,6 +6776,15 @@ async def image_generation(payload: dict) -> dict:
 
     size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
     count = safe_image_count(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1, default=1, max_count=4)
+    prostudio_debug(
+        "IMAGE_PROVIDER_RESOLVED",
+        requested_model=requested_model or "",
+        provider=provider,
+        api_model=api_model,
+        endpoint=endpoint,
+        size=size,
+        count=count,
+    )
 
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", api_model, re.I):
         if not BYTEPLUS_ARK_API_KEY:
@@ -7001,6 +7129,15 @@ async def public_prostudio_generate(request: Request):
                 "shop_url": SHOP_WEBAPP_URL,
             }, status_code=402)
 
+    prostudio_debug(
+        "GENERATE_ACCEPTED",
+        mode=mode,
+        category=category,
+        provider=selected_provider,
+        model=selected_model,
+        telegram_id=int(payload.get("telegram_id") or 0),
+        worker_enabled=PROSTUDIO_WORKER_ENABLED,
+    )
     if mode in text_modes:
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-4o-mini"
@@ -7012,6 +7149,10 @@ async def public_prostudio_generate(request: Request):
 
     job_id = create_prostudio_generation_job(payload) if mode in generation_modes else ""
     if job_id:
+        payload["job_id"] = job_id
+        payload["generation_id"] = job_id
+        prostudio_debug("GENERATE_JOB_CREATED", job_id=job_id, mode=mode, worker_enabled=PROSTUDIO_WORKER_ENABLED)
+    if job_id:
         log_user_event(
             int(payload.get("telegram_id") or 0),
             "miniapp",
@@ -7021,7 +7162,10 @@ async def public_prostudio_generate(request: Request):
         )
 
     if not PROSTUDIO_WORKER_ENABLED:
+        prostudio_debug("GENERATE_INLINE_TASK_SCHEDULED", job_id=job_id)
         asyncio.create_task(process_prostudio_generation(job_id, payload))
+    else:
+        prostudio_debug("GENERATE_QUEUED_FOR_WORKER", job_id=job_id)
 
     return {
         "ok": True,
@@ -7033,7 +7177,17 @@ async def public_prostudio_generate(request: Request):
 
 # New async function for background job processing
 async def process_prostudio_generation(job_id: str, payload: dict):
+    prostudio_debug(
+        "JOB_PROCESS_ENTER",
+        job_id=job_id,
+        payload_job_id=payload.get("job_id") or "",
+        mode=payload.get("mode") or payload.get("category") or "",
+        model=payload.get("model") or "",
+        provider=payload.get("provider") or "",
+    )
     try:
+        payload["job_id"] = job_id
+        payload["generation_id"] = job_id
         mode = (payload.get("mode") or payload.get("category") or "text").lower()
         category = (payload.get("category") or mode).lower()
         prompt = (payload.get("prompt") or "").strip()
@@ -7068,6 +7222,18 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                     log_prostudio_error(payload, result, job_id=job_id)
                 return
         heartbeat_prostudio_generation_job(job_id)
+        prostudio_debug(
+            "JOB_PROCESS_STARTED",
+            job_id=job_id,
+            mode=mode,
+            category=category,
+            model=selected_model,
+            provider=selected_provider,
+            has_prompt=bool(prompt),
+            has_image_refs=bool(reference_images),
+            has_video_refs=bool(video_references),
+            has_video_media=bool(video_media),
+        )
         log_user_event(
             int(payload.get("telegram_id") or 0),
             "worker",
@@ -7077,12 +7243,16 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         )
         result = None
         if mode == "image" and is_seedream_request(payload):
+            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
             result = await generateBytePlusSeedreamImage(payload)
         elif mode == "image":
+            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="image_generation")
             result = await image_generation(payload)
         elif mode == "video":
+            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
             result = await video_generation(payload)
         elif mode == "music":
+            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="audio_generation")
             result = await audio_generation(payload)
         elif mode == "voice":
             result = {
@@ -7099,16 +7269,31 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         else:
             result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
 
+        prostudio_debug(
+            "JOB_PROVIDER_RESULT",
+            job_id=job_id,
+            mode=mode,
+            ok=bool(result.get("ok")) if isinstance(result, dict) else False,
+            status=(result or {}).get("status") if isinstance(result, dict) else "",
+            result_keys=sorted((result or {}).keys()) if isinstance(result, dict) else [],
+            image_url=(result or {}).get("image_url") if isinstance(result, dict) else "",
+            thumbnail_url=(result or {}).get("thumbnail_url") if isinstance(result, dict) else "",
+            images_count=len(_json_list((result or {}).get("images"))) if isinstance(result, dict) else 0,
+        )
+        if not isinstance(result, dict):
+            result = {"ok": False, "error": "Provider returned empty result", "type": mode}
         if not result.get("ok"):
             if job_id:
                 update_prostudio_generation_job(job_id, "failed", error=result)
                 log_prostudio_error(payload, result, job_id=job_id)
+                prostudio_debug("JOB_PROCESS_FAILED_PROVIDER_RESULT", job_id=job_id, error=(result or {}).get("error") or "")
             return
 
         final_status = normalize_generation_status(result, mode)
         result["job_id"] = job_id
         result["generation_id"] = job_id
         result["status"] = final_status
+        prostudio_debug("JOB_STATUS_NORMALIZED", job_id=job_id, mode=mode, final_status=final_status)
 
         if final_status == "provider_processing":
             update_prostudio_generation_job(job_id, "provider_processing", result=result)
@@ -7135,6 +7320,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             }
             update_prostudio_generation_job(job_id, "failed", error=error_result)
             log_prostudio_error(payload, error_result, job_id=job_id)
+            prostudio_debug("JOB_PROCESS_FAILED_NOT_COMPLETED", job_id=job_id, final_status=final_status)
             return
 
         telegram_id = int(payload.get("telegram_id") or 0)
@@ -7166,11 +7352,22 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             "balance_after": result.get("balance_after"),
         })
 
+        prostudio_debug("JOB_SAVE_GENERATION_START", job_id=job_id, telegram_id=telegram_id, mode=mode)
         save_generation(telegram_id, mode, prompt or "[attachment]")
+        prostudio_debug("JOB_METADATA_BUILD_START", job_id=job_id)
         metadata = build_prostudio_metadata(payload, result)
         if metadata:
             result["metadata"] = metadata
+        prostudio_debug(
+            "JOB_MESSAGE_SAVE_START",
+            job_id=job_id,
+            image_url=result.get("image_url") or "",
+            thumbnail_url=result.get("thumbnail_url") or "",
+            images_count=len(_json_list(result.get("images"))),
+            thumbs_count=len(_json_list(result.get("thumbnails"))),
+        )
         result["conversation_id"] = save_prostudio_message(payload, result)
+        prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
         if job_id:
             print("PROSTUDIO JOB COMPLETED PAYLOAD:", {
                 "job_id": job_id,
@@ -7184,6 +7381,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 "cost_credits": result.get("cost_credits"),
             })
             update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
+            prostudio_debug("JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id=result["conversation_id"], status="completed")
             log_user_event(
                 int(payload.get("telegram_id") or 0),
                 "backend",
@@ -7192,25 +7390,29 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
             )
     except Exception as exc:
-        import traceback
+        prostudio_error("JOB_PROCESS_EXCEPTION", exc, job_id=job_id)
         error_result = {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
         if job_id:
             update_prostudio_generation_job(job_id, "failed", error=error_result)
+            log_prostudio_error(payload, error_result, job_id=job_id)
 
 async def prostudio_generation_worker_loop():
     if not PROSTUDIO_WORKER_ENABLED:
         print("PROSTUDIO WORKER DISABLED")
         return
     print("PROSTUDIO WORKER STARTED")
+    prostudio_debug("WORKER_LOOP_STARTED", interval=PROSTUDIO_WORKER_INTERVAL)
     while True:
         try:
             requeue_stale_prostudio_jobs()
             claimed = claim_next_prostudio_generation_job()
             if claimed and claimed.get("id") and claimed.get("payload"):
+                prostudio_debug("WORKER_PROCESS_CLAIMED_START", job_id=claimed["id"], attempts=claimed.get("attempts"))
                 await process_prostudio_generation(claimed["id"], claimed["payload"])
+                prostudio_debug("WORKER_PROCESS_CLAIMED_DONE", job_id=claimed["id"])
                 continue
         except Exception as exc:
-            print("PROSTUDIO WORKER LOOP ERROR:", exc)
+            prostudio_error("WORKER_LOOP_EXCEPTION", exc)
         await asyncio.sleep(PROSTUDIO_WORKER_INTERVAL)
 
 @app.on_event("startup")
