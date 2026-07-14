@@ -7016,6 +7016,105 @@ async def image_generation(payload: dict) -> dict:
 async def public_prostudio_image_capabilities():
     return get_image_capabilities()
 
+def prostudio_video_templates_from_env() -> list:
+    raw = os.getenv("VIDEO_TEMPLATES_JSON", "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except Exception as exc:
+        prostudio_error("VIDEO_TEMPLATES_JSON_PARSE_FAILED", exc)
+        return []
+    items = parsed.get("templates") if isinstance(parsed, dict) else parsed
+    if not isinstance(items, list):
+        return []
+
+    def _template_int(value, default=0):
+        try:
+            if isinstance(value, str):
+                match = re.search(r"\d+", value)
+                return int(match.group(0)) if match else default
+            return int(value)
+        except Exception:
+            return default
+
+    templates = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        template_id = str(item.get("id") or f"template_{index + 1}").strip()
+        title = str(item.get("title") or item.get("name") or template_id).strip()
+        preview_video = str(item.get("preview_video") or item.get("previewVideo") or item.get("video") or "").strip()
+        preset_id = str(item.get("preset_id") or item.get("presetId") or item.get("kling_preset_id") or "").strip()
+        if not template_id or not title or not preview_video or not preset_id:
+            continue
+
+        ratios = item.get("ratios") or item.get("aspect_ratios") or item.get("supported_ratios") or ["16:9", "1:1", "9:16"]
+        if not isinstance(ratios, list):
+            ratios = [ratios]
+        ratios = [str(r).strip() for r in ratios if str(r or "").strip() in {"16:9", "1:1", "9:16"}]
+        if not ratios:
+            ratios = ["16:9"]
+
+        models = item.get("models") or item.get("supported_models") or []
+        if not isinstance(models, list):
+            models = [models]
+        models = [str(model).strip() for model in models if str(model or "").strip()]
+        preferred_model = (
+            "kling_motion_3_0"
+            if (not models or "kling_motion_3_0" in models)
+            else ("kling_motion_2_6" if "kling_motion_2_6" in models else models[0])
+        )
+        duration = _template_int(item.get("duration"), 5) or 5
+        resolution = str(item.get("resolution") or "720p").strip() or "720p"
+        default_ratio = str(item.get("aspect_ratio") or item.get("ratio") or ratios[0]).strip()
+        if default_ratio not in ratios:
+            default_ratio = ratios[0]
+
+        cost_payload = {
+            "mode": "video",
+            "provider": "kling",
+            "model": preferred_model,
+            "prompt": "",
+            "video_options": {
+                "model": preferred_model,
+                "generation_mode": "motion_control",
+                "mode": "motion_control",
+                "ratio": default_ratio,
+                "duration": duration,
+                "resolution": resolution,
+                "start_image": "template-image",
+                "motion_control": True,
+                "kling_preset_id": preset_id,
+            },
+        }
+        cost = estimate_video_generation_cost(cost_payload)
+
+        fallback_cost = _template_int(item.get("cost_credits") or item.get("cost"), 0)
+        calculated_cost = _template_int(cost.get("credits"), 0)
+
+        templates.append({
+            "id": template_id,
+            "title": title,
+            "description": str(item.get("description") or "").strip(),
+            "preview_video": preview_video,
+            "preset_id": preset_id,
+            "aspect_ratio": default_ratio,
+            "ratios": ratios,
+            "models": models or ["kling_motion_3_0", "kling_motion_2_6"],
+            "preferred_model": preferred_model,
+            "duration": duration,
+            "resolution": resolution,
+            "cost": calculated_cost or fallback_cost,
+            "cost_credits": calculated_cost or fallback_cost,
+            "generation_cost": cost.get("generation_cost") or (f"{fallback_cost} ⚡" if fallback_cost else ""),
+        })
+    return templates
+
+@app.get("/api/public/prostudio/video-templates")
+async def public_prostudio_video_templates():
+    return {"ok": True, "templates": prostudio_video_templates_from_env()}
+
 @app.get("/api/public/prostudio/download-image")
 async def download_prostudio_image(url: str):
     return await download_prostudio_content(url=url, kind="image")
@@ -7119,6 +7218,26 @@ async def public_prostudio_generate(request: Request):
         if feature_error:
             return JSONResponse(feature_error, status_code=400)
 
+        telegram_id = int(payload.get("telegram_id") or 0)
+        cost_estimate = estimate_generation_cost(payload)
+        required_credits = int(cost_estimate.get("credits") or 0)
+        if required_credits > 0:
+            user_state = get_user_state(telegram_id) if telegram_id else {"balance": 0}
+            balance = int(user_state.get("balance") or 0)
+            if balance < required_credits:
+                return JSONResponse({
+                    "ok": False,
+                    "paywall": True,
+                    "insufficient_balance": True,
+                    "error": "Недостаточно токенов для генерации",
+                    "required_credits": required_credits,
+                    "balance": balance,
+                    "generation_cost": cost_estimate.get("generation_cost") or "",
+                    "cost_usd": cost_estimate.get("cost_usd") or 0,
+                    "shop_url": SHOP_WEBAPP_URL,
+                }, status_code=402)
+
+    if mode == "video":
         telegram_id = int(payload.get("telegram_id") or 0)
         cost_estimate = estimate_generation_cost(payload)
         required_credits = int(cost_estimate.get("credits") or 0)
