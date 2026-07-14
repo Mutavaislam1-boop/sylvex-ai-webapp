@@ -5549,6 +5549,76 @@ function closeUploadPanel(e) {
     return (dict[lang] && dict[lang][key]) || dict.ru[key] || key;
   }
 
+  function defaultVideoTemplateItems() {
+    const base = [
+      ['Сброс сумки', 'Предметы динамично высыпаются из сумки на городской переход, камера следует за движением, реалистичный рекламный стиль.'],
+      ['Ангел в дороге', 'Персонаж с большими белыми крыльями стоит на пустой дороге, ветер развевает одежду, кинематографичный пролет камеры.'],
+      ['Полет супергероя', 'Персонаж взлетает над городом, камера стремительно летит рядом, одежда и волосы двигаются от скорости.'],
+      ['Баннер Skyline', 'Персонаж позирует на высотной конструкции среди небоскребов, камера облетает вокруг, ощущение дорогой fashion-рекламы.'],
+      ['Праздничный момент', 'Конфетти и вспышки света заполняют сцену, персонаж празднует победу, камера делает плавный dolly-in.'],
+      ['Офисный хаос', 'Стильный офис превращается в хаотичную кино-сцену с бумагами, светом и дымом, персонаж остается в центре кадра.'],
+      ['Реакция толпы', 'Толпа вокруг персонажа эмоционально реагирует, камера быстро меняет планы, живой репортажный стиль.'],
+      ['Прогулка знаменитости', 'Персонаж идет через аэропорт или вокзал как знаменитость, камеры, вспышки, охрана и динамичная съемка.'],
+      ['Подъем кубка', 'Персонаж поднимает трофей под золотым дождем конфетти, спортивная арена, мощный cinematic slow motion.'],
+      ['Момент трансформации', 'Окружение вокруг персонажа меняется из обычного в футуристическое, частицы света собирают новый мир.'],
+      ['Неоновый портрет', 'Ночной город, неоновые отражения на лице, камера плавно вращается вокруг персонажа, атмосферный cyber look.'],
+      ['Космический проход', 'Персонаж идет по поверхности планеты, вокруг галактики и светящиеся частицы, камера следует одним проходом.'],
+      ['Дождь и свет', 'Кинематографичный дождь, контровой свет, капли на объективе, персонаж медленно смотрит в камеру.'],
+      ['Магазин будущего', 'Обычный магазин превращается в футуристический шоурум, продукты и объекты всплывают в воздухе.'],
+      ['Пустынный ветер', 'Персонаж стоит в пустыне, ткань и волосы развеваются ветром, камера делает широкий эпичный пролет.'],
+      ['Красная дорожка', 'Персонаж проходит по красной дорожке, вспышки камер, толпа, роскошный вечерний свет.'],
+      ['Голограммы вокруг', 'Вокруг персонажа появляются интерактивные голограммы, камера скользит между ними, high-tech реклама.'],
+      ['Музей оживает', 'Картины и скульптуры оживают вокруг персонажа, камера движется через зал как в одном дубле.'],
+      ['Городской спорт', 'Персонаж делает динамичное движение на улице, камера low-angle, энергия спортивной рекламы.'],
+      ['Ледяной мир', 'Окружение замерзает и покрывается кристаллами льда, персонаж остается теплым центром кадра.'],
+      ['Огненный фон', 'Позади персонажа вспыхивают контролируемые кинематографичные огни, драматичный контраст и slow motion.'],
+      ['Зеркальная комната', 'Персонаж внутри комнаты зеркал, отражения умножаются, камера плавно вращается.'],
+      ['Взрыв красок', 'Цветной порошок и краска взрываются вокруг персонажа, high-speed рекламный кадр.'],
+      ['Подводная сцена', 'Персонаж словно находится под водой, ткань медленно движется, лучи света проходят сверху.'],
+      ['Ретро кино', 'Сцена превращается в винтажный кинематографичный кадр с мягким зерном и теплым светом.'],
+      ['Роботы вокруг', 'Дружелюбные роботы и дроны появляются вокруг персонажа, футуристический свет и движение камеры.'],
+      ['Золотой зал', 'Окружение превращается в роскошный золотой зал, камера делает плавный dolly-out.'],
+      ['Портал за спиной', 'За персонажем открывается светящийся портал, ветер и частицы притягиваются внутрь.'],
+      ['Уличная мода', 'Персонаж идет по модной улице, камера следует сбоку, быстрые cuts и fashion-commercial стиль.'],
+      ['Молния в небе', 'Небо драматично вспыхивает молниями, персонаж стоит уверенно, камера медленно приближается.'],
+      ['Микромир', 'Предметы вокруг становятся гигантскими, персонаж проходит через сюрреалистичный масштабный мир.'],
+      ['Воздушные шары', 'Сотни воздушных шаров поднимаются вокруг персонажа, мягкий радостный рекламный стиль.'],
+      ['Снежный город', 'Город покрывается снегом, теплый свет витрин, персонаж идет через мягкую метель.'],
+      ['Танец света', 'Луч света повторяет движение персонажа, сцена становится музыкальной и ритмичной.'],
+      ['Пиксельный взрыв', 'Окружение распадается на пиксели и собирается заново, динамичная digital-трансформация.'],
+      ['Летающие объекты', 'Предметы из изображения плавно поднимаются в воздух вокруг персонажа, камера проходит сквозь них.'],
+      ['Киносъемка', 'Вокруг персонажа появляется съемочная площадка, свет, камеры, хлопушка, ощущение backstage.'],
+      ['Витрина бренда', 'Персонаж или объект становится центральным героем premium product showcase, камера делает clean orbit.'],
+      ['Ночной мост', 'Персонаж идет по мосту ночью, городские огни отражаются на мокрой поверхности.'],
+      ['Финальный логотип', 'В конце сцены частицы собираются в яркий светящийся логотип или символ, premium reveal.'],
+      ['Вихрь ткани', 'Ткань, шарфы или элементы одежды закручиваются вокруг персонажа, элегантный fashion motion.'],
+      ['Солнечный flare', 'Теплый солнечный flare проходит через объектив, персонаж медленно поворачивается к камере.'],
+      ['Драматичный лифт', 'Двери лифта открываются в другой мир, персонаж выходит, камера отъезжает назад.'],
+      ['Бумажный шторм', 'Листы бумаги кружатся вокруг, офис или улица превращается в динамичную рекламную сцену.'],
+      ['Арена будущего', 'Персонаж появляется на футуристической арене с огромными экранами и световыми кольцами.'],
+      ['Волна энергии', 'От персонажа расходится световая волна, меняющая окружение и подсветку сцены.'],
+      ['Драгоценный блеск', 'Сцена заполняется бликами кристаллов и ювелирным светом, камера макро-проходом раскрывает детали.'],
+      ['Город сверху', 'Камера поднимается от персонажа вверх, раскрывая масштабный город и движение улиц.'],
+      ['Побег из кадра', 'Персонаж выходит из плоского фото в живую 3D-сцену, эффект оживления изображения.'],
+      ['Сюрреалистичный сон', 'Окружение превращается в мягкий dreamlike мир, предметы парят, камера движется плавно и медленно.'],
+    ];
+    return base.map((entry, index) => ({
+      id: 'builtin_video_template_' + (index + 1),
+      title: entry[0],
+      description: entry[1],
+      prompt: entry[1],
+      preview_video: '',
+      aspect_ratio: index % 3 === 0 ? '9:16' : (index % 3 === 1 ? '16:9' : '1:1'),
+      ratios: ['16:9', '1:1', '9:16'],
+      models: ['kling_motion_3_0', 'kling_motion_2_6'],
+      preferred_model: 'kling_motion_3_0',
+      duration: 5,
+      resolution: '720p',
+      cost_credits: 95,
+      generation_cost: '95 ⚡',
+    }));
+  }
+
   function closeVideoTemplateIntro() {
     const el = document.getElementById('videoTemplateIntro');
     if (el) el.remove();
@@ -5579,9 +5649,9 @@ function closeUploadPanel(e) {
     try {
       const res = await fetch('/api/public/prostudio/video-templates', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      videoTemplatesCache = Array.isArray(data.templates) ? data.templates : [];
+      videoTemplatesCache = normalizeVideoTemplateList(data.templates);
     } catch {
-      videoTemplatesCache = [];
+      videoTemplatesCache = normalizeVideoTemplateList([]);
     }
     return videoTemplatesCache;
   }
@@ -5619,6 +5689,25 @@ function closeUploadPanel(e) {
     return clean.length ? clean : ['16:9', '1:1', '9:16'];
   }
 
+  function normalizeVideoTemplateList(items) {
+    const incoming = Array.isArray(items) ? items : [];
+    const defaults = defaultVideoTemplateItems();
+    const byId = new Map();
+    incoming.concat(defaults).forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const id = String(item.id || '').trim();
+      if (!id || byId.has(id)) return;
+      const credits = Number(item.cost_credits || item.cost || 0) || 95;
+      byId.set(id, Object.assign({}, item, {
+        prompt: item.prompt || item.video_prompt || item.description || item.title || '',
+        ratios: videoTemplateRatios(item),
+        cost_credits: credits,
+        generation_cost: item.generation_cost || (credits + ' ⚡'),
+      }));
+    });
+    return Array.from(byId.values()).slice(0, 50);
+  }
+
   async function openVideoTemplatesCatalog() {
     closeVideoTemplateIntro();
     let overlay = document.getElementById('videoTemplatesOverlay');
@@ -5638,10 +5727,6 @@ function closeUploadPanel(e) {
     if (grid) grid.innerHTML = '<div class="video-templates-empty">...</div>';
     const templates = await loadVideoTemplates();
     if (!grid) return;
-    if (!templates.length) {
-      grid.innerHTML = '<div class="video-templates-empty">' + S.escapeHtml(videoTemplateText('catalogEmpty')) + '</div>';
-      return;
-    }
     grid.innerHTML = templates.map((template, index) => {
       const id = S.escapeHtml(template.id || String(index));
       const title = S.escapeHtml(template.title || template.id || 'Video');
@@ -5649,7 +5734,7 @@ function closeUploadPanel(e) {
       const cost = S.escapeHtml(videoTemplateCostLabel(template));
       const tall = index % 5 === 0 || String(template.aspect_ratio || '').includes('9:16');
       return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '">'
-        + '<video src="' + src + '" autoplay loop muted playsinline preload="metadata"></video>'
+        + (src ? '<video src="' + src + '" autoplay loop muted playsinline preload="metadata"></video>' : '<span class="video-template-card-poster"><span>▶</span></span>')
         + '<span class="video-template-card-shade"></span>'
         + '<span class="video-template-card-title">' + title + '</span>'
         + (cost ? '<span class="video-template-card-cost">' + cost + '</span>' : '')
@@ -5697,9 +5782,12 @@ function closeUploadPanel(e) {
     modal.id = 'videoTemplateModal';
     modal.className = 'video-template-modal-backdrop';
     const cost = videoTemplateCostLabel(template);
+    const previewHtml = template.preview_video
+      ? '<video src="' + S.escapeHtml(template.preview_video || '') + '" autoplay loop muted playsinline></video>'
+      : '<div class="video-template-preview-fallback"><span>▶</span><b>' + S.escapeHtml(template.title || 'Видео') + '</b></div>';
     modal.innerHTML = '<div class="video-template-modal">'
       + '<button class="video-template-modal-close" type="button" aria-label="Close">×</button>'
-      + '<div class="video-template-preview"><video src="' + S.escapeHtml(template.preview_video || '') + '" autoplay loop muted playsinline></video></div>'
+      + '<div class="video-template-preview">' + previewHtml + '</div>'
       + '<div class="video-template-details">'
       + '<h3>' + S.escapeHtml(template.title || 'Video') + '</h3>'
       + '<p>' + S.escapeHtml(template.description || '') + '</p>'
@@ -5764,6 +5852,7 @@ function closeUploadPanel(e) {
       id: template.id || '',
       title: template.title || '',
       description: template.description || '',
+      prompt: template.prompt || template.video_prompt || template.description || template.title || '',
       preset_id: videoState.klingPresetId,
       aspect_ratio: selectedRatio,
     };
@@ -5773,6 +5862,7 @@ function closeUploadPanel(e) {
     updateImageUploadButtonPreview();
 
     const promptLabel = template.title || 'Video template';
+    const promptText = template.prompt || template.video_prompt || template.description || template.title || '';
     chatMessages.push({
       role: 'user',
       text: promptLabel,
@@ -5789,7 +5879,7 @@ function closeUploadPanel(e) {
 
     const videoOptions = videoOptionsPayload([]);
     try {
-      const start = await callGenerate('', null, [], videoOptions, {
+      const start = await callGenerate(promptText, null, [], videoOptions, {
         onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       });
       const result = start.result || start;
