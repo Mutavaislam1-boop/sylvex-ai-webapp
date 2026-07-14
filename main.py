@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from services.audio_router import audio_generation
 from services.error_translator import raw_error_text, translate_provider_error
+from services.prompt_optimizer import optimize_prompt_for_model
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation
 
 from fastapi import FastAPI, Request
@@ -7216,6 +7217,48 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         prompt = (payload.get("prompt") or "").strip()
         selected_model = (payload.get("model") or "").strip()
         selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
+        prompt_report = optimize_prompt_for_model(
+            prompt,
+            model=selected_model,
+            provider=selected_provider,
+            mode=mode,
+        )
+        prostudio_debug(
+            "PROMPT_OPTIMIZER",
+            job_id=job_id,
+            mode=mode,
+            model=selected_model,
+            provider=selected_provider,
+            original_length=prompt_report.get("original_length"),
+            model_limit=prompt_report.get("limit"),
+            optimized=prompt_report.get("optimized"),
+            new_length=prompt_report.get("optimized_length"),
+            failed_reason=prompt_report.get("failed_reason") or "",
+        )
+        if prompt and not prompt_report.get("ok"):
+            provider_name = "Kling" if "kling" in f"{selected_provider} {selected_model}".lower() else "выбранной модели"
+            error_result = {
+                "ok": False,
+                "type": mode,
+                "provider": selected_provider,
+                "model": selected_model,
+                "error": (
+                    f"Ваше описание слишком большое для {provider_name}.\n\n"
+                    f"Максимальный размер описания для {provider_name} — {prompt_report.get('limit')} символов.\n\n"
+                    "Попробуйте сделать описание немного короче или выберите другую модель."
+                ),
+                "raw_error": "Prompt optimization failed to reach limit",
+                "prompt_limit": prompt_report.get("limit"),
+                "prompt_length": prompt_report.get("original_length"),
+                "optimized_length": prompt_report.get("optimized_length"),
+            }
+            update_prostudio_generation_job(job_id, "failed", error=error_result)
+            log_prostudio_error(payload, error_result, job_id=job_id)
+            return
+        if prompt_report.get("optimized"):
+            prompt = prompt_report.get("prompt") or prompt
+            payload["prompt"] = prompt
+            payload["prompt_optimization"] = prompt_report
         image_options = payload.get("image_options") or {}
         video_options = payload.get("video_options") or {}
         reference_images = image_options.get("referenceImageUrls") or []
