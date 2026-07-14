@@ -5624,11 +5624,11 @@ function closeUploadPanel(e) {
     if (el) el.remove();
   }
 
-  function maybeShowVideoTemplateIntro() {
+  function maybeShowVideoTemplateIntro(force) {
     if (!isVideoMode() || videoState.section !== 'generate') return;
     let seen = false;
     try { seen = sessionStorage.getItem(VIDEO_TEMPLATE_INTRO_KEY) === '1'; } catch {}
-    if (seen || document.getElementById('videoTemplateIntro')) return;
+    if ((!force && seen) || document.getElementById('videoTemplateIntro')) return;
     try { sessionStorage.setItem(VIDEO_TEMPLATE_INTRO_KEY, '1'); } catch {}
     const intro = document.createElement('div');
     intro.id = 'videoTemplateIntro';
@@ -5642,6 +5642,25 @@ function closeUploadPanel(e) {
       });
     }
     document.body.appendChild(intro);
+    if (force) {
+      const trigger = document.querySelector('[data-studio-mode-btn="video"]');
+      if (trigger) {
+        const rect = trigger.getBoundingClientRect();
+        intro.classList.add('anchored');
+        intro.style.left = (rect.left + rect.width / 2) + 'px';
+        intro.style.top = (rect.bottom + 8) + 'px';
+        intro.style.bottom = 'auto';
+      }
+      setTimeout(() => {
+        const closeOnOutside = (event) => {
+          if (!intro.contains(event.target) && !event.target.closest('[data-studio-mode-btn="video"]')) {
+            closeVideoTemplateIntro();
+            document.removeEventListener('pointerdown', closeOnOutside, true);
+          }
+        };
+        document.addEventListener('pointerdown', closeOnOutside, true);
+      }, 0);
+    }
   }
 
   async function loadVideoTemplates() {
@@ -6004,6 +6023,9 @@ function closeUploadPanel(e) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
     updateComposerMode(tabKey || kind);
+    if (kind === 'video' && !tabKey) {
+      setTimeout(() => maybeShowVideoTemplateIntro(true), 0);
+    }
     const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Generate Voiceover' };
     toast(labels[kind] || kind);
   }
