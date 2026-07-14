@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from services.audio_router import audio_generation
-from services.video_router import estimate_video_generation_cost, video_generation
+from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
@@ -3261,9 +3261,27 @@ def normalize_generation_status(result: Optional[dict], mode: str = "") -> str:
         return "failed"
     if generation_has_completed_result(result, mode):
         return "completed"
-    if result.get("task_id") or result.get("workId") or result.get("poll_url") or raw in {"processing", "queued", "submitted", "running", "pending"}:
+    if result.get("task_id") or result.get("workId") or result.get("poll_url") or raw in {"processing", "queued", "submitted", "running", "waiting", "pending", "provider_processing"}:
         return "provider_processing"
     return "failed"
+
+
+def user_generation_error_text(value, fallback: str = "Генерация не прошла. Попробуйте повторить немного позже.") -> str:
+    text = provider_error_text(value, fallback)
+    low = text.lower()
+    if any(item in low for item in ("api key", "unauthorized", "401", "forbidden", "invalid api key")):
+        return "Временная ошибка сервиса. Попробуйте повторить генерацию немного позже."
+    if any(item in low for item in ("unknown parameter", "unsupported parameter", "invalid parameter", "duration not supported", "resolution not supported")):
+        return "Выбранные настройки временно недоступны для этой модели. Попробуйте изменить параметры генерации."
+    if any(item in low for item in ("quota", "rate limit", "too many requests", "overloaded")):
+        return "Сервис временно перегружен. Повторите попытку через несколько минут."
+    if any(item in low for item in ("timeout", "timed out", "readtimeout")):
+        return "Генерация заняла слишком много времени. Попробуйте снова."
+    if any(item in low for item in ("sensitive", "safety", "policy", "blocked", "moderation")):
+        return "Запрос не может быть обработан из-за ограничений выбранной AI-модели. Попробуйте изменить изображение или описание."
+    if any(item in low for item in ("provider returned invalid response", "json", "decode", "html", "empty response", "bad gateway", "http 500", "502", "503", "504")):
+        return "Сервис временно недоступен. Попробуйте позже."
+    return text if text and len(text) < 180 and not re.search(r"(traceback|http|json|provider|request|exception|badrequest)", text, re.I) else fallback
 
 def log_prostudio_error(payload: dict, error: dict, job_id: str = ""):
     telegram_id = int(payload.get("telegram_id") or 0)
@@ -4125,7 +4143,8 @@ async def public_prostudio_job(job_id: str):
                 status,
                 result_json,
                 error_json,
-                conversation_id
+                conversation_id,
+                mode
             FROM prostudio_generation_jobs
             WHERE id = %s
             LIMIT 1
@@ -4144,9 +4163,14 @@ async def public_prostudio_job(job_id: str):
         result_json = _json_obj(row[1])
         error_json = _json_obj(row[2])
         if isinstance(error_json, dict) and error_json:
-            normalized_error = provider_error_text(error_json.get("error") or error_json.get("message") or error_json, "Generation failed")
+            normalized_error = user_generation_error_text(error_json.get("error") or error_json.get("message") or error_json)
             error_json["error"] = normalized_error
             error_json["message"] = normalized_error
+        effective_status = row[0]
+        job_mode = (row[4] or "").lower()
+        if effective_status == "completed" and not generation_has_completed_result(result_json, job_mode):
+            effective_status = "provider_processing"
+            prostudio_debug("JOB_GET_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=job_mode)
         image_url = result_json.get("image_url") if isinstance(result_json, dict) else ""
         thumb_url = result_json.get("thumbnail_url") if isinstance(result_json, dict) else ""
         image_exists = None
@@ -4157,7 +4181,7 @@ async def public_prostudio_job(job_id: str):
             thumb_exists = (WEBAPP_DIR / thumb_url.replace("/webapp/", "", 1)).exists()
         print("PROSTUDIO JOB GET DEBUG:", {
             "job_id": job_id,
-            "status": row[0],
+            "status": effective_status,
             "conversation_id": row[3],
             "result_keys": sorted(result_json.keys()) if isinstance(result_json, dict) else [],
             "image_url": _sql_text(image_url, 180),
@@ -4174,7 +4198,7 @@ async def public_prostudio_job(job_id: str):
             "ok": True,
             "generation_id": job_id,
             "job_id": job_id,
-            "status": row[0],
+            "status": effective_status,
             "result": result_json,
             "error": error_json,
             "conversation_id": row[3],
@@ -7372,6 +7396,13 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             update_prostudio_generation_job(job_id, "failed", error=error_result)
             log_prostudio_error(payload, error_result, job_id=job_id)
             prostudio_debug("JOB_PROCESS_FAILED_NOT_COMPLETED", job_id=job_id, final_status=final_status)
+            return
+
+        if not generation_has_completed_result(result, mode):
+            pending_result = dict(result or {})
+            pending_result["status"] = "provider_processing"
+            update_prostudio_generation_job(job_id, "provider_processing", result=pending_result)
+            prostudio_debug("JOB_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=mode)
             return
 
         telegram_id = int(payload.get("telegram_id") or 0)

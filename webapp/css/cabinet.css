@@ -2876,6 +2876,34 @@ body.ai-generating .view[data-view="tools"].active .chat-area,
   letter-spacing:.01em;
 }
 
+.generation-loading-progress{
+  position:relative;
+  z-index:1;
+  height:6px;
+  margin-top:12px;
+  border-radius:999px;
+  overflow:hidden;
+  background:rgba(255,255,255,.10);
+}
+
+.generation-loading-progress span{
+  display:block;
+  height:100%;
+  width:0;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#fff,rgba(255,255,255,.66));
+  transition:width .55s ease;
+}
+
+.generation-loading-percent{
+  position:relative;
+  z-index:1;
+  margin-top:7px;
+  font-size:12px;
+  font-weight:700;
+  color:rgba(255,255,255,.68);
+}
+
 .generation-balance-msg{max-width:78% !important}
 .generation-balance-card{
   min-width:220px;max-width:300px;padding:14px 16px;border-radius:16px;
