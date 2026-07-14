@@ -938,12 +938,23 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
         print("HEYGEN STATUS:", response.status_code)
         print("HEYGEN RESPONSE:", response.text)
 
-        return _provider_result_from_response(
-            "heygen",
-            model_id,
-            response,
-            endpoint,
-        )
+        data = _safe_provider_json_response(response, "heygen", endpoint)
+
+        if getattr(response, "status_code", 0) >= 400:
+            return _provider_parse_error("heygen", model_id, data)
+
+        session = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+
+        return {
+            "ok": True,
+            "type": "video",
+            "provider": "heygen",
+            "model": model_id,
+            "status": session.get("status", "processing"),
+            "task_id": session.get("video_id") or session.get("session_id"),
+            "session_id": session.get("session_id"),
+            "poll_url": f"https://api.heygen.com/v3/videos/{session.get('video_id')}" if session.get("video_id") else None,
+        }
 
     except Exception as exc:
         return _provider_error(
