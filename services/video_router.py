@@ -889,29 +889,65 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("HEYGEN_API_KEY")
     if not api_key:
         return _provider_error("heygen", model_id, "Provider API key is missing: HEYGEN_API_KEY")
-    provider_model = _provider_model_for_video(model_id)
-    if not provider_model:
-        return _unknown_video_model_mapping_response(model_id, "heygen")
+
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({
+
+    heygen_body = {
         "prompt": prompt,
-        "model": provider_model,
-        "caption": False,
-    })
+        "mode": "generate",
+    }
+
     if os.getenv("HEYGEN_AVATAR_ID"):
-        body["avatar_id"] = os.getenv("HEYGEN_AVATAR_ID")
+        heygen_body["avatar_id"] = os.getenv("HEYGEN_AVATAR_ID")
+
     if os.getenv("HEYGEN_VOICE_ID"):
-        body["voice_id"] = os.getenv("HEYGEN_VOICE_ID")
+        heygen_body["voice_id"] = os.getenv("HEYGEN_VOICE_ID")
+
+    if body.get("ratio") == "9:16":
+        heygen_body["orientation"] = "portrait"
+    else:
+        heygen_body["orientation"] = "landscape"
+
+    reference_images = body.get("reference_images") or []
+    files = []
+    for url in reference_images:
+        if url:
+            files.append({
+                "type": "url",
+                "url": url,
+            })
+    if files:
+        heygen_body["files"] = files
+
     try:
-        endpoint = os.getenv("HEYGEN_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v3').rstrip('/')}/video/generate")
+        endpoint = os.getenv(
+            "HEYGEN_VIDEO_ENDPOINT",
+            "https://api.heygen.com/v3/video-agents"
+        )
+
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "x-api-key": api_key, "Content-Type": "application/json"},
-            body,
+            {
+                "x-api-key": api_key,
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            heygen_body,
         )
-        return _provider_result_from_response("heygen", model_id, response, endpoint)
+
+        return _provider_result_from_response(
+            "heygen",
+            model_id,
+            response,
+            endpoint,
+        )
+
     except Exception as exc:
-        return _provider_error("heygen", model_id, f"Provider request failed: {exc}")
+        return _provider_error(
+            "heygen",
+            model_id,
+            f"Provider request failed: {exc}",
+        )
 
 
 def _call_luma(model_id: str, prompt: str, payload: dict):
