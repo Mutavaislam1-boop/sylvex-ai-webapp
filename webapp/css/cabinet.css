@@ -3502,9 +3502,9 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 .video-template-modal{
   position:relative;
   display:grid;
-  grid-template-columns:minmax(220px,.92fr) minmax(260px,.86fr);
-  gap:20px;
-  width:min(860px,calc(100% - 18px));
+  grid-template-columns:minmax(260px,1fr) minmax(300px,1fr);
+  gap:0;
+  width:min(960px,calc(100% - 18px));
   max-height:min(620px,calc(100vh - 36px));
   padding:0;
   border-radius:26px;
@@ -3523,6 +3523,7 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 .video-template-preview{
   min-height:430px;
   background:#0b0b0d;
+  border-right:1px solid rgba(255,255,255,.08);
 }
 .video-template-preview video{
   width:100%;
@@ -3561,7 +3562,7 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   display:flex;
   flex-direction:column;
   gap:14px;
-  padding:34px 28px 24px 0;
+  padding:34px 32px 24px;
   color:#fff;
 }
 .video-template-details h3{
@@ -3659,8 +3660,9 @@ body > #modelPop.music-settings-pop .music-settings-clear{
     grid-template-columns:1fr;
     overflow-y:auto;
   }
+  .video-template-preview{border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}
   .video-template-preview{min-height:300px}
-  .video-template-details{padding:0 20px 22px}
+  .video-template-details{padding:22px 20px}
 }
 @media(max-width:560px){
   .video-templates-panel{width:calc(100% - 10px);height:66vh;border-radius:20px;padding:38px 8px 10px}

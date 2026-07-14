@@ -5603,11 +5603,13 @@ function closeUploadPanel(e) {
       ['Сюрреалистичный сон', 'Окружение превращается в мягкий dreamlike мир, предметы парят, камера движется плавно и медленно.'],
     ];
     return base.map((entry, index) => ({
+      slot: String(index + 1).padStart(2, '0'),
       id: 'builtin_video_template_' + (index + 1),
       title: entry[0],
       description: entry[1],
       prompt: entry[1],
-      preview_video: '',
+      preview_video: '/webapp/assets/video-templates/' + String(index + 1).padStart(2, '0') + '/preview.mp4',
+      poster_url: '/webapp/assets/video-templates/' + String(index + 1).padStart(2, '0') + '/poster.jpg',
       aspect_ratio: index % 3 === 0 ? '9:16' : (index % 3 === 1 ? '16:9' : '1:1'),
       ratios: ['16:9', '1:1', '9:16'],
       models: ['kling_motion_3_0', 'kling_motion_2_6'],
@@ -5742,9 +5744,11 @@ function closeUploadPanel(e) {
       const encodedId = encodeURIComponent(String(template.id || index));
       const title = S.escapeHtml(template.title || template.id || 'Video');
       const src = S.escapeHtml(template.preview_video || '');
+      const poster = S.escapeHtml(template.poster_url || '');
       const tall = index % 5 === 0 || String(template.aspect_ratio || '').includes('9:16');
       return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
-        + (src ? '<video src="' + src + '" autoplay loop muted playsinline preload="metadata"></video>' : '<span class="video-template-card-poster"><span>▶</span></span>')
+        + '<span class="video-template-card-poster"><span>▶</span></span>'
+        + (src ? '<video src="' + src + '"' + (poster ? ' poster="' + poster + '"' : '') + ' autoplay loop muted playsinline preload="metadata" onerror="this.style.display=\'none\'"></video>' : '')
         + '<span class="video-template-card-shade"></span>'
         + '<span class="video-template-card-title">' + title + '</span>'
         + '</button>';
@@ -5799,9 +5803,8 @@ function closeUploadPanel(e) {
     modal.id = 'videoTemplateModal';
     modal.className = 'video-template-modal-backdrop';
     const cost = videoTemplateCostLabel(template);
-    const previewHtml = template.preview_video
-      ? '<video src="' + S.escapeHtml(template.preview_video || '') + '" autoplay loop muted playsinline></video>'
-      : '<div class="video-template-preview-fallback"><span>▶</span><b>' + S.escapeHtml(template.title || 'Видео') + '</b></div>';
+    const previewHtml = '<div class="video-template-preview-fallback"><span>▶</span><b>' + S.escapeHtml(template.title || 'Видео') + '</b></div>'
+      + (template.preview_video ? '<video src="' + S.escapeHtml(template.preview_video || '') + '"' + (template.poster_url ? ' poster="' + S.escapeHtml(template.poster_url || '') + '"' : '') + ' autoplay loop muted playsinline onerror="this.style.display=\'none\'"></video>' : '');
     modal.innerHTML = '<div class="video-template-modal">'
       + '<button class="video-template-modal-close" type="button" aria-label="Close">×</button>'
       + '<div class="video-template-preview">' + previewHtml + '</div>'
