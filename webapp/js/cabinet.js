@@ -4470,6 +4470,11 @@ function imageModelButton(model) {
           + renderInsufficientBalanceCard(m, i)
           + '</div>';
       }
+      if (m.videoTemplateCatalog) {
+        return '<div class="msg ai video-template-catalog-msg" data-i="' + i + '">'
+          + renderVideoTemplatesCatalogMessage(m)
+          + '</div>';
+      }
       if (m.imageResultMini) {
         return '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageResultMiniCard(m, i)
@@ -5684,8 +5689,12 @@ function closeUploadPanel(e) {
 
   function closeVideoTemplatesCatalog() {
     closeVideoTemplateModal();
-    const overlay = document.getElementById('videoTemplatesOverlay');
-    if (overlay) overlay.remove();
+    const before = chatMessages.length;
+    chatMessages = chatMessages.filter((message) => !message.videoTemplateCatalog);
+    if (chatMessages.length !== before) {
+      renderChat();
+      rememberCurrentChatSpace();
+    }
   }
 
   function videoTemplateCostLabel(template) {
@@ -5729,43 +5738,51 @@ function closeUploadPanel(e) {
 
   async function openVideoTemplatesCatalog() {
     closeVideoTemplateIntro();
-    let overlay = document.getElementById('videoTemplatesOverlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'videoTemplatesOverlay';
-      overlay.className = 'video-templates-overlay';
-      overlay.innerHTML = '<div class="video-templates-panel"><button class="video-templates-close" type="button" aria-label="Close">×</button><div class="video-templates-grid"></div></div>';
-      overlay.addEventListener('click', (event) => {
-        if (event.target === overlay) closeVideoTemplatesCatalog();
-      });
-      const closeBtn = overlay.querySelector('.video-templates-close');
-      if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplatesCatalog);
-      document.body.appendChild(overlay);
-    }
-    const grid = overlay.querySelector('.video-templates-grid');
-    if (grid) grid.innerHTML = '<div class="video-templates-empty">...</div>';
     const templates = await loadVideoTemplates();
-    if (!grid) return;
-    grid.innerHTML = templates.map((template, index) => {
+    chatMessages = chatMessages.filter((message) => !message.videoTemplateCatalog);
+    chatMessages.push({
+      role: 'ai',
+      videoTemplateCatalog: true,
+      templates,
+    });
+    renderChat();
+    rememberCurrentChatSpace();
+    const area = document.getElementById('chatArea');
+    if (area) area.scrollTop = area.scrollHeight;
+  }
+
+  function renderVideoTemplatesCatalogMessage(message) {
+    const templates = Array.isArray(message && message.templates) ? message.templates : [];
+    if (!templates.length) {
+      return '<div class="video-template-chat-wrap"><div class="video-templates-empty">' + S.escapeHtml(videoTemplateText('catalogEmpty')) + '</div></div>';
+    }
+    return '<div class="video-template-chat-wrap">'
+      + '<button class="video-template-chat-close" type="button" onclick="SYLVEX.closeVideoTemplatesCatalog(event)">×</button>'
+      + '<div class="video-template-chat-grid">'
+      + templates.map((template, index) => {
       const id = S.escapeHtml(template.id || String(index));
+      const encodedId = encodeURIComponent(String(template.id || index));
       const title = S.escapeHtml(template.title || template.id || 'Video');
       const src = S.escapeHtml(template.preview_video || '');
       const cost = S.escapeHtml(videoTemplateCostLabel(template));
       const tall = index % 5 === 0 || String(template.aspect_ratio || '').includes('9:16');
-      return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '">'
+      return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
         + (src ? '<video src="' + src + '" autoplay loop muted playsinline preload="metadata"></video>' : '<span class="video-template-card-poster"><span>▶</span></span>')
         + '<span class="video-template-card-shade"></span>'
         + '<span class="video-template-card-title">' + title + '</span>'
         + (cost ? '<span class="video-template-card-cost">' + cost + '</span>' : '')
         + '</button>';
-    }).join('');
-    grid.querySelectorAll('.video-template-card').forEach((card) => {
-      card.addEventListener('click', () => {
-        const id = card.dataset.templateId;
-        const template = templates.find((item) => String(item.id) === String(id));
-        if (template) openVideoTemplateModal(template);
-      });
-    });
+      }).join('')
+      + '</div></div>';
+  }
+
+  function openVideoTemplateFromCatalog(event, id) {
+    if (event) event.stopPropagation();
+    try { id = decodeURIComponent(String(id || '')); } catch {}
+    const catalog = chatMessages.find((message) => message.videoTemplateCatalog);
+    const templates = Array.isArray(catalog && catalog.templates) ? catalog.templates : (videoTemplatesCache || []);
+    const template = templates.find((item) => String(item.id) === String(id));
+    if (template) openVideoTemplateModal(template);
   }
 
   function renderVideoTemplateUpload() {
@@ -6009,7 +6026,6 @@ function closeUploadPanel(e) {
         renderModelPop();
         renderUploadedPhotoGrid();
         updateImageUploadButtonPreview();
-        setTimeout(maybeShowVideoTemplateIntro, 80);
       }
     }
     if (!restoringChatSpace) restoreChatSpace(currentChatType());
@@ -8238,6 +8254,7 @@ async function waitGeneration(jobId, options) {
   S.openVideoTemplatesCatalog = openVideoTemplatesCatalog;
   S.closeVideoTemplatesCatalog = closeVideoTemplatesCatalog;
   S.closeVideoTemplateModal = closeVideoTemplateModal;
+  S.openVideoTemplateFromCatalog = openVideoTemplateFromCatalog;
   
   document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
   document.addEventListener('pointerdown', closeImageSeedTooltipOnOutside, true);
