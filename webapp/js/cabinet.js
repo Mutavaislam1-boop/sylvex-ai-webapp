@@ -5575,7 +5575,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     err.shopUrl = j.shop_url || '';
     throw err;
   }
-  if (!res.ok || !j.ok) throw new Error(j.error || ('HTTP ' + res.status));
+  if (!res.ok || !j.ok) throw new Error(errorMessage(j, 'HTTP ' + res.status));
   if (j.conversation_id) {
     currentConvId = j.conversation_id;
     rememberCurrentChatSpace();
@@ -5585,6 +5585,23 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   }
 
   return j;
+}
+
+function errorMessage(value, fallback) {
+  const fallbackText = fallback || 'Генерация не прошла';
+  if (value === null || value === undefined || value === '') return fallbackText;
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message || fallbackText;
+  if (typeof value === 'object') {
+    const direct = value.error || value.message || value.detail || value.details || value.body_preview || value.status;
+    if (direct && direct !== value) return errorMessage(direct, fallbackText);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallbackText;
+    }
+  }
+  return String(value);
 }
 
 function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, imageOptionsSnapshot, videoOptionsSnapshot, audioUploads) {
@@ -5634,7 +5651,7 @@ async function waitGeneration(jobId) {
 
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
-      throw new Error(job.error || ('Generation status failed: HTTP ' + res.status));
+      throw new Error(errorMessage(job, 'Generation status failed: HTTP ' + res.status));
     }
 
     if (job.status === 'completed') {
@@ -5647,7 +5664,7 @@ async function waitGeneration(jobId) {
 
     if (job.status === 'failed') {
       const error = job.error || {};
-      throw new Error(error.error || error.message || 'Generation failed');
+      throw new Error(errorMessage(error, 'Generation failed'));
     }
 
     if (!isActiveGenerationStatus(job.status)) {

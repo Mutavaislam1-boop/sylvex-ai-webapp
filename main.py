@@ -4144,6 +4144,10 @@ async def public_prostudio_job(job_id: str):
             )
         result_json = _json_obj(row[1])
         error_json = _json_obj(row[2])
+        if isinstance(error_json, dict) and error_json:
+            normalized_error = provider_error_text(error_json.get("error") or error_json.get("message") or error_json, "Generation failed")
+            error_json["error"] = normalized_error
+            error_json["message"] = normalized_error
         image_url = result_json.get("image_url") if isinstance(result_json, dict) else ""
         thumb_url = result_json.get("thumbnail_url") if isinstance(result_json, dict) else ""
         image_exists = None
@@ -5766,21 +5770,54 @@ def normalize_flux_aspect_ratio(size: str) -> str:
     return "1:1"
 
 
+def provider_error_text(value, fallback: str = "Provider request failed") -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("message", "error", "detail", "status", "code"):
+            nested = value.get(key)
+            if isinstance(nested, str) and nested.strip():
+                if key == "message":
+                    return nested.strip()
+                return f"{key}: {nested.strip()}"
+            if isinstance(nested, (dict, list)):
+                nested_text = provider_error_text(nested, "")
+                if nested_text:
+                    return nested_text
+        try:
+            return json.dumps(value, ensure_ascii=False)[:1000]
+        except Exception:
+            return fallback
+    if isinstance(value, list):
+        try:
+            return json.dumps(value, ensure_ascii=False)[:1000]
+        except Exception:
+            return fallback
+    if value is not None:
+        return str(value)
+    return fallback
+
+
 def image_error_response(provider: str, frontend_model: str, provider_model: str, endpoint: str, error: str, response=None, data: dict = None) -> dict:
     status_code = getattr(response, "status_code", None) if response is not None else None
     body_preview = ""
+    details = ""
     if data:
         status_code = data.get("status_code") or status_code
         body_preview = data.get("body_preview") or ""
+        details = provider_error_text(data.get("details") or data.get("error") or data.get("message") or "", "")
     if response is not None and not body_preview:
         try:
             body_preview = response.text[:1000]
         except Exception:
             body_preview = ""
+    message = provider_error_text(error, "Provider request failed")
     return {
         "ok": False,
         "type": "image",
-        "error": error,
+        "error": message,
+        "message": message,
+        "details": details,
         "provider": provider,
         "frontend_model": frontend_model or "",
         "provider_model": provider_model or "",
@@ -6532,7 +6569,8 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
         image_count=len(google_extract_images(data)) if isinstance(data, dict) else 0,
     )
     if response.status_code >= 400 or data.get("ok") is False:
-        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+        provider_error = provider_error_text(data.get("error") or data.get("message") or data, "Provider request failed")
+        return [], image_error_response("google", frontend_model, provider_model, request_endpoint, provider_error, response, data), request_payload
     return google_extract_images(data), {}, request_payload
 
 
