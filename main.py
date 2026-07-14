@@ -6537,7 +6537,6 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
             "model": provider_model,
             "input": input_items,
             "generation_config": {
-                "candidate_count": max(1, min(int(count or 1), 4)),
                 "aspect_ratio": aspect_ratio,
                 "resolution": resolution,
             },
