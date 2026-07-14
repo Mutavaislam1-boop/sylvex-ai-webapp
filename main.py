@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from services.audio_router import audio_generation
+from services.error_translator import raw_error_text, translate_provider_error
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation
 
 from fastapi import FastAPI, Request
@@ -3267,21 +3268,7 @@ def normalize_generation_status(result: Optional[dict], mode: str = "") -> str:
 
 
 def user_generation_error_text(value, fallback: str = "Генерация не прошла. Попробуйте повторить немного позже.") -> str:
-    text = provider_error_text(value, fallback)
-    low = text.lower()
-    if any(item in low for item in ("api key", "unauthorized", "401", "forbidden", "invalid api key")):
-        return "Временная ошибка сервиса. Попробуйте повторить генерацию немного позже."
-    if any(item in low for item in ("unknown parameter", "unsupported parameter", "invalid parameter", "duration not supported", "resolution not supported")):
-        return "Выбранные настройки временно недоступны для этой модели. Попробуйте изменить параметры генерации."
-    if any(item in low for item in ("quota", "rate limit", "too many requests", "overloaded")):
-        return "Сервис временно перегружен. Повторите попытку через несколько минут."
-    if any(item in low for item in ("timeout", "timed out", "readtimeout")):
-        return "Генерация заняла слишком много времени. Попробуйте снова."
-    if any(item in low for item in ("sensitive", "safety", "policy", "blocked", "moderation")):
-        return "Запрос не может быть обработан из-за ограничений выбранной AI-модели. Попробуйте изменить изображение или описание."
-    if any(item in low for item in ("provider returned invalid response", "json", "decode", "html", "empty response", "bad gateway", "http 500", "502", "503", "504")):
-        return "Сервис временно недоступен. Попробуйте позже."
-    return text if text and len(text) < 180 and not re.search(r"(traceback|http|json|provider|request|exception|badrequest)", text, re.I) else fallback
+    return translate_provider_error(value, fallback=fallback)
 
 def log_prostudio_error(payload: dict, error: dict, job_id: str = ""):
     telegram_id = int(payload.get("telegram_id") or 0)
@@ -5794,31 +5781,7 @@ def normalize_flux_aspect_ratio(size: str) -> str:
 
 
 def provider_error_text(value, fallback: str = "Provider request failed") -> str:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    if isinstance(value, dict):
-        for key in ("message", "error", "detail", "status", "code"):
-            nested = value.get(key)
-            if isinstance(nested, str) and nested.strip():
-                if key == "message":
-                    return nested.strip()
-                return f"{key}: {nested.strip()}"
-            if isinstance(nested, (dict, list)):
-                nested_text = provider_error_text(nested, "")
-                if nested_text:
-                    return nested_text
-        try:
-            return json.dumps(value, ensure_ascii=False)[:1000]
-        except Exception:
-            return fallback
-    if isinstance(value, list):
-        try:
-            return json.dumps(value, ensure_ascii=False)[:1000]
-        except Exception:
-            return fallback
-    if value is not None:
-        return str(value)
-    return fallback
+    return raw_error_text(value, fallback)
 
 
 def image_error_response(provider: str, frontend_model: str, provider_model: str, endpoint: str, error: str, response=None, data: dict = None) -> dict:
@@ -5834,12 +5797,14 @@ def image_error_response(provider: str, frontend_model: str, provider_model: str
             body_preview = response.text[:1000]
         except Exception:
             body_preview = ""
-    message = provider_error_text(error, "Provider request failed")
+    raw_message = provider_error_text(error, "Provider request failed")
+    message = translate_provider_error(error, provider=provider, model=frontend_model)
     return {
         "ok": False,
         "type": "image",
         "error": message,
         "message": message,
+        "raw_error": raw_message,
         "details": details,
         "provider": provider,
         "frontend_model": frontend_model or "",

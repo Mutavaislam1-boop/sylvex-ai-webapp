@@ -5,6 +5,8 @@ import time
 import requests
 import httpx
 
+from services.error_translator import raw_error_text, translate_provider_error
+
 
 VIDEO_MODEL_CONFIG = {
     "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -1021,12 +1023,15 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
 
 
 def _provider_error(provider: str, model_id: str, detail: str):
+    user_message = translate_provider_error(detail, provider=provider, model=model_id)
     return {
         "ok": False,
         "type": "video",
         "provider": provider,
         "model": model_id,
-        "error": detail,
+        "error": user_message,
+        "message": user_message,
+        "raw_error": raw_error_text(detail, ""),
     }
 
 
@@ -1122,12 +1127,16 @@ def _provider_parse_error(provider: str, model_id: str, data: dict):
         )
         if not provider_message and data.get("code") not in (None, 0):
             provider_message = f"Provider error code {data.get('code')}"
+    raw_message = raw_error_text(data, "")
+    user_message = translate_provider_error(data, provider=provider, model=model_id)
     result = {
         "ok": False,
         "type": "video",
         "provider": provider,
         "model": model_id,
-        "error": data.get("error") or provider_message or "Provider returned invalid response",
+        "error": user_message,
+        "message": user_message,
+        "raw_error": raw_message or data.get("error") or provider_message or "",
     }
     for key in ("status_code", "details", "endpoint", "body_preview", "code", "message", "msg"):
         if key in data:
