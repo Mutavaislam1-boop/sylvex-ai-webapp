@@ -935,6 +935,9 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
             heygen_body,
         )
 
+        print("HEYGEN STATUS:", response.status_code)
+        print("HEYGEN RESPONSE:", response.text)
+
         return _provider_result_from_response(
             "heygen",
             model_id,
