@@ -111,7 +111,7 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "grok": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
     "grok_imagine_image_quality": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_PRO_MODEL", "GROK-IMAGE-PRO-MODEL", default="grok-imagine-image-quality"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
     "grok_imagine_image": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
-    "davinci_ultra": {"provider": "davinci", "provider_model": os.getenv("DAVINCI_ULTRA_MODEL"), "endpoint": os.getenv("DAVINCI_IMAGE_ENDPOINT")},
+   
 }
 IDEOGRAM_MODEL_VARIANTS = {
     "ideogram_3_0": {
@@ -395,7 +395,6 @@ IMAGE_MODEL_FEATURES = {
     "seedream_4_0": {"character": True, "object": True, "seed": True},
     "seedream_4": {"character": True, "object": True, "seed": True},
     "grok_pro": {"character": False, "object": False, "seed": False},
-    "davinci_ultra": {"character": False, "object": False},
     "grok": {"character": False, "object": False, "seed": False},
     "flux_2": {"character": True, "object": True, "seed": False},
     "flux_2_turbo": {"character": True, "object": True, "seed": False},

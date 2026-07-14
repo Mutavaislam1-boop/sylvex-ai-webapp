@@ -187,7 +187,6 @@ const AI_LOGOS = {
   heygen: LOBE_ICON_BASE + '/runway.svg',
   suno: LOBE_ICON_BASE + '/suno.svg',
   nanoBanana: 'custom-banana',
-  davinci: 'custom-davinci'
 };
 
 const GROK_IMAGE_SIZES = [
@@ -647,7 +646,6 @@ const IMAGE_MODEL_LIST = [
     sizes:GROK_IMAGE_SIZES
   },
 
-  { id:'davinci_ultra', label:'DaVinci Ultra', desc:'DaVinci image model', icon:'davinci' }
 ];
 
 const MODEL_FEATURES = {
@@ -668,7 +666,6 @@ const MODEL_FEATURES = {
   seedream_4_0: { character: true, object: true, seed: true },
   seedream_4: { character: true, object: true, seed: true },
   grok_pro: { character: false, object: false, seed: false },
-  davinci_ultra: { character: false, object: false },
   grok: { character: false, object: false, seed: false },
   flux_2: { character: true, object: true, seed: false },
   flux_2_turbo: { character: true, object: true, seed: false },
@@ -1291,7 +1288,6 @@ let styleSheetCssInjected = false;
 { id:'imagen-4-ultra', label:'Imagen 4 Ultra', icon:'G', description:'Максимальное качество генерации изображений через Google Imagen 4.' },
 { id:'gpt-image-2', label:'GPT Image 2', icon:'◎', description:'Современная генерация изображений с реализмом, типографикой и контролем.' },
 { id:'grok-pro', label:'Grok Pro', icon:'◒', description:'xAI Grok — генерация высококачественных изображений.' },
-{ id:'davinci-ultra', label:'DaVinci Ultra', icon:'◩', description:'Модель DaVinci, оптимизированная для получения высококачественных результатов.' },
 { id:'grok', label:'Grok', icon:'◒', description:'Генерация изображений через модель Grok.' },
 { id:'flux-2', label:'Flux 2', icon:'△', description:'Быстрая генерация изображений в стиле Flux.' },
 { id:'flux-2-turbo', label:'Flux 2 Turbo', icon:'△', description:'Быстрая бюджетная генерация изображений.' },
@@ -1317,8 +1313,6 @@ const MODEL_ICON_SVG = {
   cdrm: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 6V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M9.2 10V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M14.4 13V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M19.6 7V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M4 18H6.3M9.2 18H11.5M14.4 18H16.7M19.6 18H21.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
 
   grokPro: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 17.6C3.9 14.6 4.5 11 7 8.4C9.9 5.4 14.6 5 18 7.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M19.3 5.2L4.7 19.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M19.2 10.3C20.3 13.3 19.6 16.8 17.1 19.2C14.7 21.4 11.3 21.8 8.6 20.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
-
-  davinci: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4.5 19.5C5.1 12.6 10.4 5.2 19.5 4.5C18.8 13.5 11.4 18.9 4.5 19.5Z" fill="currentColor"/><path d="M4.8 19.2C8.1 15.7 11.5 12.6 16.2 9.5" stroke="#1a1a1a" stroke-width="1.4" stroke-linecap="round"/></svg>',
 
   grokFlux: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.2 18.5L11.6 4.8L20.8 18.5H3.2Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M7.9 18.5L11.7 12.1L15.8 18.5" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M18.3 5.2L19 6.8L20.6 7.5L19 8.2L18.3 9.8L17.6 8.2L16 7.5L17.6 6.8L18.3 5.2Z" fill="currentColor"/></svg>',
 
@@ -2979,7 +2973,6 @@ function imageModelIconKey(model) {
   if (id.includes('seedream')) return 'cdrm';
   if (id.includes('grok-pro')) return 'grokPro';
   if (id === 'grok') return 'grokPro';
-  if (id.includes('davinci')) return 'davinci';
   if (id.includes('flux')) return 'grokFlux';
   if (id.includes('ideogram')) return 'idrm';
   if (id.includes('recraft')) return 'craft';
@@ -2996,13 +2989,6 @@ function imageModelIconHtml(model) {
     : imageModelIconKey(model);
 
   const iconValue = AI_LOGOS[key] || AI_LOGOS.openai;
-
-  if (iconValue === 'custom-davinci') {
-    return '<svg class="model-brand-logo svg-current" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
-      + '<path d="M3.6 18.9C4.4 11.6 10.2 5.1 20.4 3.6C18.9 13.8 12.4 19.6 5.1 20.4C4.2 20.5 3.5 19.8 3.6 18.9Z" fill="currentColor" />'
-      + '<path d="M5.8 18.2C9.5 14.4 13.1 11.3 18.2 8.4" stroke="#141518" stroke-width="1.4" stroke-linecap="round" />'
-      + '</svg>';
-  }
 
   if (iconValue === 'custom-banana') {
     return '<svg class="model-brand-logo svg-current" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
