@@ -3480,6 +3480,65 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
 }
+.video-template-catalog-msg{
+  display:block;
+  width:100%;
+  padding:0 6px;
+}
+.video-template-catalog-msg .ai-avatar{display:none}
+.video-template-chat-wrap{
+  position:relative;
+  width:100%;
+  padding:6px 0 12px;
+}
+.video-template-chat-close{
+  position:sticky;
+  top:6px;
+  float:right;
+  width:30px;
+  height:30px;
+  border:0;
+  border-radius:50%;
+  background:rgba(0,0,0,.5);
+  color:#fff;
+  font-size:22px;
+  line-height:1;
+  z-index:2;
+  cursor:pointer;
+}
+.video-template-chat-grid{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:6px;
+  clear:both;
+}
+.video-template-chat-grid .video-template-card{
+  min-height:112px;
+  margin:0;
+  border-radius:14px;
+}
+.video-template-chat-grid .video-template-card.tall{
+  min-height:154px;
+  grid-row:span 2;
+}
+.video-template-chat-grid .video-template-card-title{
+  left:7px;
+  right:7px;
+  bottom:8px;
+  font-size:10.5px;
+  line-height:1.1;
+}
+.video-template-chat-grid .video-template-card-cost{
+  right:5px;
+  top:5px;
+  padding:4px 5px;
+  font-size:9px;
+}
+.video-template-chat-grid .video-template-card-poster span{
+  width:30px;
+  height:30px;
+  font-size:13px;
+}
 .video-template-modal-backdrop{
   position:fixed;
   inset:0;
@@ -3652,10 +3711,15 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   .video-template-details{padding:0 20px 22px}
 }
 @media(max-width:560px){
-  .video-templates-grid{column-count:2}
+  .video-templates-grid{column-count:5;column-gap:6px}
   .video-template-card{min-height:154px;border-radius:18px}
   .video-template-card.tall{min-height:260px}
   .video-template-card-title{font-size:17px}
+  .video-template-chat-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+  .video-template-chat-grid .video-template-card{min-height:94px;border-radius:12px}
+  .video-template-chat-grid .video-template-card.tall{min-height:130px}
+  .video-template-chat-grid .video-template-card-title{font-size:9px;left:5px;right:5px;bottom:6px}
+  .video-template-chat-grid .video-template-card-cost{font-size:8px;padding:3px 4px}
   .video-template-modal-backdrop{padding:10px}
   .video-template-details h3{font-size:24px}
   .video-template-details p{font-size:15px}
