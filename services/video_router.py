@@ -1393,6 +1393,23 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "kling")
 
+    prompt_report = optimize_prompt_for_model(prompt, model=model_id, provider="kling", mode="video")
+    print("KLING PROMPT OPTIMIZER:", {
+        "model": model_id,
+        "provider_model": provider_model,
+        "prompt_length": prompt_report.get("original_length"),
+        "metric": prompt_report.get("metric"),
+        "model_limit": prompt_report.get("limit"),
+        "optimized": prompt_report.get("optimized"),
+        "new_length": prompt_report.get("optimized_length"),
+        "failed_reason": prompt_report.get("failed_reason") or "",
+    })
+    if prompt and not prompt_report.get("ok"):
+        return _provider_error("kling", model_id, "Prompt optimization failed to reach limit")
+    if prompt_report.get("optimized"):
+        prompt = prompt_report.get("prompt") or prompt
+        payload["prompt"] = prompt
+
     body = _build_video_payload(model_id, prompt, payload)
     raw_options = payload.get("video_options") or payload.get("options") or {}
 
@@ -1502,6 +1519,16 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                 },
             ]
 
+    def _kling_prompt_too_long(data):
+        text = raw_error_text(data, "").lower()
+        return bool(re.search(r"prompt.*size.*between|prompt too long|maximum length exceeded|context length exceeded|input too large", text))
+
+    def _replace_kling_prompt(body_payload, next_prompt):
+        body_payload["prompt"] = next_prompt
+        for item in body_payload.get("contents") or []:
+            if isinstance(item, dict) and item.get("type") == "text":
+                item["text"] = next_prompt
+
     try:
         endpoint_body = dict(body)
         if input_image:
@@ -1518,6 +1545,25 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         data = _safe_provider_json_response(response, "kling", endpoint)
         _log_provider_response("kling", "SUBMIT", endpoint, kling_body, response, data)
         status = getattr(response, "status_code", None) or 0
+        if status >= 400 and _kling_prompt_too_long(data):
+            retry_report = optimize_prompt_for_model(kling_body.get("prompt") or prompt, model=model_id, provider="kling", mode="video")
+            if retry_report.get("ok") and retry_report.get("prompt") and retry_report.get("prompt") != kling_body.get("prompt"):
+                _replace_kling_prompt(kling_body, retry_report.get("prompt"))
+                print("KLING PROMPT RETRY:", {
+                    "model": model_id,
+                    "prompt_length": retry_report.get("original_length"),
+                    "metric": retry_report.get("metric"),
+                    "model_limit": retry_report.get("limit"),
+                    "new_length": retry_report.get("optimized_length"),
+                })
+                response = _request_json(
+                    endpoint,
+                    {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    kling_body,
+                )
+                data = _safe_provider_json_response(response, "kling", endpoint)
+                _log_provider_response("kling", "SUBMIT_RETRY", endpoint, kling_body, response, data)
+                status = getattr(response, "status_code", None) or 0
         if status >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
             return _provider_parse_error("kling", model_id, data)
         task_id = _task_id_from_response(data.get("data") if isinstance(data.get("data"), dict) else data)
