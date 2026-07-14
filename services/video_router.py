@@ -13,11 +13,6 @@ VIDEO_MODEL_CONFIG = {
     "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
     "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_motion_2_6": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "motion_control"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
     "runway_aleph": {"provider": "runway", "modes": ["video_edit", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "runway_gen": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "minimax_hailuo_2_3": {"provider": "minimax", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -83,28 +78,23 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
     "runway_aleph": {"provider": "runway", "provider_model": os.getenv("RUNWAY_ALEPH_MODEL", "act_two"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
-    "kling_motion_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_2_6_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": _seedance_1_5_pro_model and os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
     "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
-    "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_O3_OMNI_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "gemini_omni_flash": {"provider": "veo", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
     "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
-    "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_O3_EDIT_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
 }
 
 VIDEO_PROVIDER_MODEL_MAP.update({
-    "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0-motion")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_O3_OMNI_MODEL", "kling-o3-omni"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_O3_EDIT_MODEL", "kling-o3-edit"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_OMNI_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_EDIT_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o1": {"provider": "kling", "provider_model": os.getenv("KLING_O1_MODEL", "kling-o1"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_2_6_MODEL", "kling-2.6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_motion_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_2_6_MODEL", os.getenv("KLING_2_6_MOTION_MODEL", "kling-2.6-motion")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
@@ -270,6 +260,36 @@ def _request_get(url: str, headers: dict):
 
 def _request_form(url: str, headers: dict, data: dict, files=None):
     return requests.post(url, headers=headers, data=data, files=files, timeout=120)
+
+
+def _safe_response_text(response):
+    try:
+        text = response.text
+        if callable(text):
+            text = text()
+        return text or ""
+    except Exception:
+        return ""
+
+
+def _response_headers_dict(response):
+    try:
+        return dict(response.headers or {})
+    except Exception:
+        return {}
+
+
+def _log_provider_response(provider: str, label: str, url: str, payload: dict, response, data=None):
+    status = getattr(response, "status_code", None) or getattr(response, "status", None)
+    body_preview = _safe_response_text(response)[:4000]
+    print(f"{provider.upper()} {label} RESPONSE DEBUG:", {
+        "request_url": url,
+        "request_payload": payload,
+        "http_status": status,
+        "response_headers": _response_headers_dict(response),
+        "response_body": body_preview,
+        "json_body": data if isinstance(data, dict) else None,
+    })
 
 
 def _provider_for_model(model_id: str):
@@ -892,6 +912,7 @@ def _kling_poll_until_ready(task_id: str, headers: dict):
         endpoint = _kling_task_endpoint(task_id)
         response = _request_get(endpoint, headers)
         data = _safe_provider_json_response(response, "kling", endpoint)
+        _log_provider_response("kling", "POLL", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
         status_code = getattr(response, "status_code", None) or 0
         if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
             return _provider_parse_error("kling", task_id, data)
@@ -1033,7 +1054,11 @@ async def safe_provider_json_response(response, provider: str, endpoint: str):
         }
 
     try:
-        return json.loads(text)
+        data = json.loads(text)
+        if isinstance(data, dict):
+            data.setdefault("status_code", status)
+            data.setdefault("endpoint", endpoint)
+        return data
     except Exception as exc:
         return {
             "ok": False,
@@ -1067,7 +1092,11 @@ def _safe_provider_json_response(response, provider: str, endpoint: str):
         }
 
     try:
-        return json.loads(text)
+        data = json.loads(text)
+        if isinstance(data, dict):
+            data.setdefault("status_code", status)
+            data.setdefault("endpoint", endpoint)
+        return data
     except Exception as exc:
         return {
             "ok": False,
@@ -1081,17 +1110,57 @@ def _safe_provider_json_response(response, provider: str, endpoint: str):
 
 
 def _provider_parse_error(provider: str, model_id: str, data: dict):
+    provider_message = ""
+    if isinstance(data, dict):
+        provider_message = (
+            data.get("message")
+            or data.get("msg")
+            or data.get("detail")
+            or data.get("details")
+            or data.get("body_preview")
+            or ""
+        )
+        if not provider_message and data.get("code") not in (None, 0):
+            provider_message = f"Provider error code {data.get('code')}"
     result = {
         "ok": False,
         "type": "video",
         "provider": provider,
         "model": model_id,
-        "error": data.get("error") or "Provider returned invalid response",
+        "error": data.get("error") or provider_message or "Provider returned invalid response",
     }
-    for key in ("status_code", "details", "endpoint", "body_preview"):
+    for key in ("status_code", "details", "endpoint", "body_preview", "code", "message", "msg"):
         if key in data:
             result[key] = data.get(key)
+    if isinstance(data, dict):
+        result["provider_response"] = data
     return result
+
+
+async def poll_video_generation(result: dict) -> dict:
+    if not isinstance(result, dict):
+        return _provider_error("video", "", "Generation status is unavailable")
+    provider = str(result.get("provider") or "").lower()
+    model_id = result.get("model") or ""
+    task_id = result.get("task_id") or result.get("workId") or result.get("id") or ""
+    if not task_id:
+        return _provider_error(provider or "video", model_id, "Generation task id is unavailable")
+    if provider in {"bytedance", "seedance"}:
+        api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "ARK_API_KEY")
+        if not api_key:
+            return _provider_error("bytedance", model_id, "Provider API key is missing: BYTEDANCE_API_KEY")
+        return _seedance_poll_until_ready(str(task_id), _seedance_headers(api_key), max_attempts=1, interval_seconds=1)
+    if provider == "kling":
+        api_key = _get_env("KLING_API_KEY", "KLING_ACCESS_KEY")
+        if not api_key:
+            return _provider_error("kling", model_id, "Provider API key is missing: KLING_API_KEY")
+        return _kling_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    if provider == "luma":
+        api_key = _get_env("LUMA_API_KEY")
+        if not api_key:
+            return _provider_error("luma", model_id, "Provider API key is missing: LUMA_API_KEY")
+        return _luma_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    return _provider_success(provider or "video", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
 
 
 def _provider_success(provider: str, model_id: str, video_urls: list[str], status: str = "completed", task_id: str = None, poll_url: str = None):
@@ -1437,6 +1506,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             kling_body,
         )
         data = _safe_provider_json_response(response, "kling", endpoint)
+        _log_provider_response("kling", "SUBMIT", endpoint, kling_body, response, data)
         status = getattr(response, "status_code", None) or 0
         if status >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
             return _provider_parse_error("kling", model_id, data)

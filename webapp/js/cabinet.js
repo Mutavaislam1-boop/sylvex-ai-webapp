@@ -912,15 +912,14 @@ const VIDEO_MODELS = [
 
   { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
   { id:'seedance_2_0', label:'Seedance 2.0', desc:'ByteDance Seedance video', icon:'seedance', badge:'В ТРЕНДЕ', badgeClass:'pink' },
-  { id:'kling_o3_omni', label:'Клинг O3 Омни', desc:'Kling Omni video model', icon:'kling', badge:'ГОРЯЧИЙ', badgeClass:'red' },
+  { id:'kling_o3_omni', label:'Kling 3.0 Omni', desc:'Kling Omni video model', icon:'kling', badge:'ГОРЯЧИЙ', badgeClass:'red' },
   { id:'gemini_omni_flash', label:'Gemini Omni Flash', desc:'Google Gemini video model', icon:'gemini' },
   { id:'sora_2', label:'Sora 2', desc:'OpenAI Sora video', icon:'sora' },
 
   { id:'grok_video', label:'Грок', desc:'xAI Grok video model', icon:'grok', badge:'БЮДЖЕТНЫЙ', badgeClass:'green' },
   { id:'veo_3_1_fast', label:'Veo 3.1 Fast', desc:'Google Veo fast video', icon:'veo', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
   { id:'runway_gen', label:'Взлетно-посадочная полоса Gen', desc:'Runway generation model', icon:'runway' },
-  { id:'kling_o3_edit', label:'Клинг O3 Редактировать', desc:'Kling video editing model', icon:'kling' },
-  { id:'kling_3_0', label:'Клинг 3.0', desc:'Kling video model', icon:'kling', badge:'СКИДКА', badgeClass:'green' }
+  { id:'kling_3_0', label:'Kling 3.0', desc:'Kling video model', icon:'kling', badge:'СКИДКА', badgeClass:'green' }
 ];
 
 const VIDEO_MODEL_CONFIG = {
@@ -935,20 +934,15 @@ const VIDEO_MODEL_CONFIG = {
   grok_video_edit: { provider:'grok', modes:['video_edit'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
   wan_2_7_edit: { provider:'wan', modes:['video_edit'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:false, end_image:false, video_upload:true, video_edit:true },
   runway_aleph: { provider:'runway', modes:['video_edit','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:true, video_edit:true },
-  kling_motion_2_6: { provider:'kling', modes:['motion_control','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
-  kling_motion_3_0: { provider:'kling', modes:['motion_control','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
   seedance_1_5_pro: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   wan_2_6: { provider:'wan', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   seedance_2_fast: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   seedance_2_0: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
-  kling_o3_omni: { provider:'kling', modes:['text_to_video','image_to_video','motion_control'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
   gemini_omni_flash: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video: { provider:'grok', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
   veo_3_1_fast: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
-  runway_gen: { provider:'runway', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
-  kling_o3_edit: { provider:'kling', modes:['video_edit'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
-  kling_3_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false }
+  runway_gen: { provider:'runway', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false }
 };
 
 const KLING_VIDEO_BASE_RATIOS = ['16:9','9:16','1:1'];
@@ -1597,7 +1591,7 @@ function localizedGreeting() {
   }
 
   function isActiveGenerationStatus(status) {
-    return ['queued', 'processing', 'provider_processing'].includes(String(status || '').toLowerCase());
+    return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
   }
 
   function restoreActiveGenerationJobs(jobs) {
@@ -4311,9 +4305,75 @@ function imageModelButton(model) {
   }
 
   function renderImageGenerationLoadingCard() {
+    return renderGenerationLoadingCard({ progress: createGenerationProgress('image') });
+  }
+
+  const GENERATION_PROGRESS_STEPS = [0,3,7,12,18,25,33,40,47,55,61,68,74,80,84,87,89,90,91,92,93,94,95,96,97,98];
+  const GENERATION_STAGE_MESSAGES = {
+    image: ['Создаем изображение...', 'Подготавливаем композицию...', 'Прорисовываем детали...', 'Финальная обработка...'],
+    video: ['Создаем сценарий...', 'Строим движение камеры...', 'Генерируем кадры...', 'Просчитываем анимацию...', 'Финальный рендер...'],
+    music: ['Создаем мелодию...', 'Подбираем инструменты...', 'Формируем композицию...', 'Сводим звук...'],
+    voice: ['Подготавливаем голос...', 'Синтезируем речь...', 'Настраиваем интонацию...', 'Финальная обработка...'],
+    text: ['Анализируем запрос...', 'Строим ответ...', 'Формируем результат...'],
+    kling: ['Building motion...', 'Generating frames...', 'Applying native audio...', 'Rendering video...'],
+  };
+
+  function generationKindForCurrentMode() {
+    if (isVideoMode()) {
+      const model = String(videoState.modelId || '').toLowerCase();
+      return model.includes('kling') ? 'kling' : 'video';
+    }
+    if (isMusicMode()) return 'music';
+    if (isVoiceMode()) return 'voice';
+    if (isImageMode()) return 'image';
+    return 'text';
+  }
+
+  function createGenerationProgress(kind, modelId) {
+    return {
+      kind: kind || generationKindForCurrentMode(),
+      modelId: modelId || pickStudioModel() || '',
+      percent: 0,
+      stepIndex: 0,
+      startedAt: Date.now(),
+      message: '',
+    };
+  }
+
+  function generationProgressMessage(progress) {
+    const p = progress || {};
+    const items = GENERATION_STAGE_MESSAGES[p.kind] || GENERATION_STAGE_MESSAGES.text;
+    if (p.message) return p.message;
+    const pct = Number(p.percent || 0);
+    const index = Math.min(items.length - 1, Math.max(0, Math.floor((pct / 99) * items.length)));
+    return items[index] || items[0] || 'Генерация...';
+  }
+
+  function nextGenerationProgress(progress, completed) {
+    const p = Object.assign(createGenerationProgress('text'), progress || {});
+    if (completed) {
+      p.percent = 100;
+      p.message = 'Готово';
+      return p;
+    }
+    const elapsed = Math.max(0, Date.now() - Number(p.startedAt || Date.now()));
+    const timeStep = Math.min(GENERATION_PROGRESS_STEPS.length - 1, Math.floor(elapsed / 2200));
+    p.stepIndex = Math.max(Number(p.stepIndex || 0), timeStep);
+    p.percent = GENERATION_PROGRESS_STEPS[Math.min(p.stepIndex, GENERATION_PROGRESS_STEPS.length - 1)] || 0;
+    if (p.percent >= 98) p.percent = 97 + Math.floor((Date.now() / 1800) % 2);
+    return p;
+  }
+
+  function renderGenerationLoadingCard(message) {
+    const progress = nextGenerationProgress(message && message.progress, false);
+    const pct = Math.max(0, Math.min(98, Number(progress.percent || 0)));
     return '<div class="generation-loading-card">'
       + '<div class="generation-loading-border"></div>'
-      + '<div class="generation-loading-title">Создаю изображение…</div>'
+      + '<div class="generation-loading-title">' + S.escapeHtml(generationProgressMessage(progress)) + '</div>'
+      + '<div class="generation-loading-progress" aria-label="Generation progress">'
+      + '<span style="width:' + pct + '%"></span>'
+      + '</div>'
+      + '<div class="generation-loading-percent">' + pct + '%</div>'
       + '</div>';
   }
 
@@ -4389,9 +4449,9 @@ function imageModelButton(model) {
   function renderChat() {
     const el = document.getElementById('chatArea'); if (!el) return;
     el.innerHTML = chatMessages.map((m, i) => {
-      if (m.imageLoading) {
+      if (m.imageLoading || m.generationLoading) {
         return '<div class="msg ai generation-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
-          + renderImageGenerationLoadingCard()
+          + renderGenerationLoadingCard(m)
           + '</div>';
       }
       if (m.insufficientBalance) {
@@ -5548,7 +5608,7 @@ function closeUploadPanel(e) {
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }
 
-async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride) {
+async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
   const promptText = (prompt || '').trim();
   const imageReferenceImages = isImageMode() && Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
@@ -5623,13 +5683,13 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     err.shopUrl = j.shop_url || '';
     throw err;
   }
-  if (!res.ok || !j.ok) throw new Error(errorMessage(j, 'HTTP ' + res.status));
+  if (!res.ok || !j.ok) throw new Error(translateGenerationError(j, 'Генерация не прошла. Попробуйте повторить немного позже.'));
   if (j.conversation_id) {
     currentConvId = j.conversation_id;
     rememberCurrentChatSpace();
   }
   if (j.job_id) {
-    j.result = await waitGeneration(j.job_id);
+    j.result = await waitGeneration(j.job_id, generationOptions || {});
   }
 
   return j;
@@ -5650,6 +5710,35 @@ function errorMessage(value, fallback) {
     }
   }
   return String(value);
+}
+
+function translateGenerationError(value, fallback) {
+  const text = errorMessage(value, fallback || 'Генерация не прошла. Попробуйте повторить немного позже.');
+  const low = String(text || '').toLowerCase();
+  if (/api key|unauthorized|401|forbidden|invalid api key/.test(low)) {
+    return 'Временная ошибка сервиса. Попробуйте повторить генерацию немного позже.';
+  }
+  if (/unknown parameter|unsupported parameter|invalid parameter|duration not supported|resolution not supported|candidate_count/.test(low)) {
+    return 'Выбранные настройки временно недоступны для этой модели. Попробуйте изменить параметры генерации.';
+  }
+  if (/quota|rate limit|too many requests|overloaded/.test(low)) {
+    return 'Сервис временно перегружен. Повторите попытку через несколько минут.';
+  }
+  if (/timeout|timed out|readtimeout/.test(low)) {
+    return 'Генерация заняла слишком много времени. Попробуйте снова.';
+  }
+  if (/sensitive|safety|policy|blocked|moderation/.test(low)) {
+    return 'Запрос не может быть обработан из-за ограничений выбранной AI-модели. Попробуйте изменить изображение или описание.';
+  }
+  if (/provider returned invalid response|json|decode|badrequest|bad request|request failed|http 5|502|503|504/.test(low)) {
+    return 'Сервис временно недоступен. Попробуйте позже.';
+  }
+  if (/http 4|400/.test(low)) {
+    return 'Выбранные настройки не подошли для этой модели. Попробуйте изменить параметры генерации.';
+  }
+  return /traceback|exception|provider|request|json|http/i.test(text)
+    ? (fallback || 'Генерация не прошла. Попробуйте повторить немного позже.')
+    : text;
 }
 
 function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, imageOptionsSnapshot, videoOptionsSnapshot, audioUploads) {
@@ -5690,8 +5779,21 @@ function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   return { balance, required, known };
 }
 
-async function waitGeneration(jobId) {
+function updateGenerationLoadingProgress(index, completed) {
+  if (index === undefined || index === null || index < 0) return;
+  const message = chatMessages[index];
+  if (!message || (!message.generationLoading && !message.imageLoading)) return;
+  message.generationLoading = true;
+  message.imageLoading = false;
+  message.progress = nextGenerationProgress(message.progress, !!completed);
+  renderChat();
+  rememberCurrentChatSpace();
+}
+
+async function waitGeneration(jobId, options) {
+  const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   while (true) {
+    if (onProgress) onProgress(false);
     const res = await fetch(
       `/api/public/prostudio/job/${jobId}`,
       { cache: 'no-store' }
@@ -5699,7 +5801,7 @@ async function waitGeneration(jobId) {
 
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
-      throw new Error(errorMessage(job, 'Generation status failed: HTTP ' + res.status));
+      throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
     }
 
     if (job.status === 'completed') {
@@ -5707,16 +5809,17 @@ async function waitGeneration(jobId) {
       result.job_id = result.job_id || job.job_id || jobId;
       result.generation_id = result.generation_id || job.generation_id || jobId;
       result.conversation_id = result.conversation_id || job.conversation_id || '';
+      if (onProgress) onProgress(true);
       return result;
     }
 
     if (job.status === 'failed') {
       const error = job.error || {};
-      throw new Error(errorMessage(error, 'Generation failed'));
+      throw new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
     }
 
     if (!isActiveGenerationStatus(job.status)) {
-      throw new Error('Generation ended without completed result');
+      throw new Error('Генерация не завершилась. Попробуйте повторить немного позже.');
     }
 
     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -5751,14 +5854,18 @@ async function waitGeneration(jobId) {
       ? snapshot.videoSection
       : 'video';
     updateComposerMode(mode === 'video' ? videoSection : mode);
-    chatMessages[index] = isImageMode()
-      ? { role: 'ai', imageLoading: true }
-      : { role: 'ai', typing: true };
+    chatMessages[index] = {
+      role: 'ai',
+      generationLoading: true,
+      progress: createGenerationProgress(generationKindForCurrentMode()),
+    };
     renderChat();
     rememberCurrentChatSpace();
     document.body.classList.add('ai-generating');
     try {
-      const start = await callGenerate(prompt, attachment, referenceImages, videoOptions);
+      const start = await callGenerate(prompt, attachment, referenceImages, videoOptions, {
+        onProgress: (completed) => updateGenerationLoadingProgress(index, completed),
+      });
       const j = start.result || start;
       if (mode === 'image') {
         const images = generatedUrlsFromResponse(j, 'image');
@@ -5783,7 +5890,7 @@ async function waitGeneration(jobId) {
       if (!(err && err.paywall)) {
         chatMessages[index] = {
           role: 'ai',
-          text: '⚠️ ' + (err && err.message ? err.message : 'Генерация не прошла'),
+          text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.'),
         };
       }
     } finally {
@@ -5839,7 +5946,8 @@ async function waitGeneration(jobId) {
     if (photoMode) {
       loadingIndex = chatMessages.push({
         role: 'ai',
-        imageLoading: true,
+        generationLoading: true,
+        progress: createGenerationProgress(generationKindForCurrentMode()),
       }) - 1;
     } else {
       chatMessages.push({
@@ -5865,7 +5973,11 @@ async function waitGeneration(jobId) {
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
     if (!photoMode) {
-      loadingIndex = chatMessages.push({ typing: true, role: 'ai' }) - 1;
+      loadingIndex = chatMessages.push({
+        generationLoading: true,
+        role: 'ai',
+        progress: createGenerationProgress(generationKindForCurrentMode()),
+      }) - 1;
     }
     renderChat();
     rememberCurrentChatSpace();
@@ -5876,7 +5988,10 @@ async function waitGeneration(jobId) {
         v,
         attachment,
         referenceImages,
-        videoOptionsSnapshot
+        videoOptionsSnapshot,
+        {
+          onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+        }
       );
       renderChat();
       rememberCurrentChatSpace();
@@ -5957,7 +6072,7 @@ async function waitGeneration(jobId) {
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       chatMessages.push({
         role: 'ai',
-        text: '⚠️ ' + (err && err.message ? err.message : 'Генерация не прошла')
+        text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.')
       });
       rememberCurrentChatSpace();
     } finally {
@@ -5976,10 +6091,16 @@ async function waitGeneration(jobId) {
   const prev = chatMessages[i - 1];
   if (!prev || prev.role !== 'user') return;
 
-  chatMessages[i] = { typing: true, role: 'ai' };
+  chatMessages[i] = {
+    generationLoading: true,
+    role: 'ai',
+    progress: createGenerationProgress(generationKindForCurrentMode()),
+  };
   renderChat();
 
-  callGenerate(prev.text, null, prev.referenceImages || [])
+  callGenerate(prev.text, null, prev.referenceImages || [], null, {
+    onProgress: (completed) => updateGenerationLoadingProgress(i, completed),
+  })
     .then(async (start) => {
       const j = start.result || start;
 
@@ -6004,10 +6125,10 @@ async function waitGeneration(jobId) {
       rememberCurrentChatSpace();
       renderChat();
     })
-    .catch(() => {
+    .catch((err) => {
       chatMessages[i] = {
         role: 'ai',
-        text: '⚠️ Генерация не прошла. Проверь выбранную модель и backend-провайдер.'
+        text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.')
       };
 
       rememberCurrentChatSpace();
