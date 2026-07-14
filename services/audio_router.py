@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from services.error_translator import raw_error_text, translate_provider_error
+from services.prompt_optimizer import optimize_prompt_for_model
 
 
 AUDIO_API_BASE_URL = os.getenv("AUDIO_API_BASE_URL", "https://udioapi.pro/api").rstrip("/")
@@ -313,6 +314,34 @@ async def audio_generation(payload: dict) -> dict:
         or "suno_chirp_5"
     )
     provider_model = _music_model_mapping(frontend_model)
+    prompt_report = optimize_prompt_for_model(
+        payload.get("prompt") or (payload.get("music_options") or {}).get("prompt") or "",
+        model=frontend_model,
+        provider=provider,
+        mode="music",
+    )
+    print("AUDIO PROMPT OPTIMIZER:", {
+        "model": frontend_model,
+        "provider": provider,
+        "prompt_length": prompt_report.get("original_length"),
+        "model_limit": prompt_report.get("limit"),
+        "optimized": prompt_report.get("optimized"),
+        "new_length": prompt_report.get("optimized_length"),
+        "failed_reason": prompt_report.get("failed_reason") or "",
+    })
+    if (payload.get("prompt") or (payload.get("music_options") or {}).get("prompt")) and not prompt_report.get("ok"):
+        return _audio_error(
+            provider,
+            frontend_model,
+            provider_model,
+            "Prompt optimization failed to reach limit",
+            prompt_limit=prompt_report.get("limit"),
+            prompt_length=prompt_report.get("original_length"),
+            optimized_length=prompt_report.get("optimized_length"),
+        )
+    if prompt_report.get("optimized"):
+        payload["prompt"] = prompt_report.get("prompt") or payload.get("prompt") or ""
+        payload["prompt_optimization"] = prompt_report
     if not provider_model:
         return _audio_error(provider, frontend_model, "", "Unknown provider model mapping", frontend_model=frontend_model)
 

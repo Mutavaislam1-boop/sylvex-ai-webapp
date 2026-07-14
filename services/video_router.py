@@ -6,6 +6,7 @@ import requests
 import httpx
 
 from services.error_translator import raw_error_text, translate_provider_error
+from services.prompt_optimizer import optimize_prompt_for_model
 
 
 VIDEO_MODEL_CONFIG = {
@@ -1759,6 +1760,37 @@ async def video_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     model_id = (payload.get("model") or "seedance_2_fast").strip()
     provider = (payload.get("provider") or _provider_for_model(model_id) or "sylvex-router").strip().lower()
+    prompt_report = optimize_prompt_for_model(prompt, model=model_id, provider=provider, mode="video")
+    print("VIDEO PROMPT OPTIMIZER:", {
+        "model": model_id,
+        "provider": provider,
+        "prompt_length": prompt_report.get("original_length"),
+        "model_limit": prompt_report.get("limit"),
+        "optimized": prompt_report.get("optimized"),
+        "new_length": prompt_report.get("optimized_length"),
+        "failed_reason": prompt_report.get("failed_reason") or "",
+    })
+    if prompt and not prompt_report.get("ok"):
+        limit = prompt_report.get("limit")
+        provider_name = "Kling" if "kling" in f"{provider} {model_id}".lower() else "выбранной модели"
+        return {
+            "ok": False,
+            "type": "video",
+            "provider": provider,
+            "model": model_id,
+            "error": (
+                f"Ваше описание слишком большое для {provider_name}.\n\n"
+                f"Максимальный размер описания — {limit} символов.\n\n"
+                "Попробуйте сделать описание немного короче или выберите другую модель."
+            ),
+            "raw_error": "Prompt optimization failed to reach limit",
+            "prompt_limit": limit,
+            "prompt_length": prompt_report.get("original_length"),
+            "optimized_length": prompt_report.get("optimized_length"),
+        }
+    if prompt_report.get("optimized"):
+        prompt = prompt_report.get("prompt") or prompt
+        payload["prompt"] = prompt
 
     if not prompt:
         return {"ok": False, "type": "video", "model": model_id, "provider": provider, "error": "Prompt is required"}
