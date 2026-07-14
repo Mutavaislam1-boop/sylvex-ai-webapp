@@ -3315,3 +3315,283 @@ body > #modelPop.music-settings-pop .music-settings-clear{
     grid-area:imageControls;
   }
 }
+
+/* ===== Pro Studio video templates ===== */
+.video-template-intro{
+  position:fixed;
+  left:50%;
+  bottom:calc(96px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  width:min(360px,calc(100% - 28px));
+  z-index:99990;
+  padding:8px;
+  border-radius:18px;
+  background:rgba(18,18,24,.9);
+  border:1px solid rgba(255,255,255,.1);
+  box-shadow:0 18px 46px rgba(0,0,0,.42);
+  backdrop-filter:blur(18px) saturate(140%);
+  -webkit-backdrop-filter:blur(18px) saturate(140%);
+}
+.video-template-intro button{
+  width:100%;
+  min-height:44px;
+  border:0;
+  border-radius:14px;
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  font:700 15px/1.2 inherit;
+  cursor:pointer;
+}
+.video-templates-overlay{
+  position:fixed;
+  inset:0;
+  z-index:99991;
+  background:rgba(0,0,0,.78);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  overflow-y:auto;
+  padding:calc(18px + env(safe-area-inset-top)) 12px calc(26px + env(safe-area-inset-bottom));
+}
+.video-templates-panel{
+  position:relative;
+  width:min(1180px,100%);
+  margin:0 auto;
+}
+.video-templates-close,
+.video-template-modal-close{
+  position:fixed;
+  right:18px;
+  top:calc(14px + env(safe-area-inset-top));
+  width:46px;
+  height:46px;
+  border:0;
+  border-radius:50%;
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  font-size:34px;
+  line-height:1;
+  cursor:pointer;
+  z-index:2;
+}
+.video-templates-grid{
+  column-count:5;
+  column-gap:10px;
+}
+.video-template-card{
+  position:relative;
+  display:block;
+  width:100%;
+  min-height:174px;
+  margin:0 0 10px;
+  break-inside:avoid;
+  border:0;
+  border-radius:22px;
+  overflow:hidden;
+  background:#191a1f;
+  color:#fff;
+  text-align:left;
+  cursor:pointer;
+  box-shadow:0 10px 30px rgba(0,0,0,.22);
+}
+.video-template-card.tall{min-height:330px}
+.video-template-card video{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.video-template-card-shade{
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,.72) 100%);
+}
+.video-template-card-title{
+  position:absolute;
+  left:14px;
+  right:12px;
+  bottom:14px;
+  color:#fff;
+  font-size:20px;
+  font-weight:850;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.video-template-card-cost{
+  position:absolute;
+  right:10px;
+  top:10px;
+  padding:7px 10px;
+  border-radius:999px;
+  background:rgba(0,0,0,.42);
+  color:#fff;
+  font-size:12px;
+  font-weight:800;
+}
+.video-templates-empty{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:220px;
+  border-radius:22px;
+  color:rgba(255,255,255,.72);
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+}
+.video-template-modal-backdrop{
+  position:fixed;
+  inset:0;
+  z-index:99993;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(0,0,0,.48);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+.video-template-modal{
+  position:relative;
+  display:grid;
+  grid-template-columns:minmax(280px,1.05fr) minmax(300px,.95fr);
+  gap:28px;
+  width:min(1120px,100%);
+  max-height:min(760px,calc(100vh - 48px));
+  padding:0;
+  border-radius:30px;
+  overflow:hidden;
+  background:linear-gradient(135deg,#151516,#23211f);
+  box-shadow:0 30px 90px rgba(0,0,0,.6);
+}
+.video-template-modal-close{
+  position:absolute;
+  top:16px;
+  right:16px;
+}
+.video-template-preview{
+  min-height:560px;
+  background:#0b0b0d;
+}
+.video-template-preview video{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.video-template-details{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  padding:42px 42px 32px 0;
+  color:#fff;
+}
+.video-template-details h3{
+  margin:0;
+  font-size:28px;
+  line-height:1.12;
+}
+.video-template-details p{
+  margin:0;
+  color:rgba(255,255,255,.66);
+  font-size:18px;
+  line-height:1.45;
+}
+.video-template-upload{
+  min-height:250px;
+  border:2px dashed rgba(255,255,255,.16);
+  border-radius:26px;
+  background:rgba(255,255,255,.05);
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  cursor:pointer;
+  overflow:hidden;
+}
+.video-template-upload.has-file{
+  position:relative;
+  align-items:stretch;
+  justify-content:flex-end;
+  padding:0;
+}
+.video-template-upload.has-file img{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.video-template-upload.has-file span{
+  position:relative;
+  z-index:1;
+  padding:14px;
+  background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.66));
+  font-weight:800;
+}
+.video-template-upload-icon{
+  width:58px;
+  height:58px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:rgba(255,255,255,.09);
+  font-size:24px;
+}
+.video-template-upload b{font-size:20px}
+.video-template-upload small{color:rgba(255,255,255,.62);font-size:15px}
+.video-template-ratios{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;
+}
+.video-template-ratios button{
+  min-height:58px;
+  border-radius:26px;
+  border:1px solid transparent;
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  font:800 18px/1 inherit;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  cursor:pointer;
+}
+.video-template-ratios button.active{
+  border-color:#fff;
+  background:rgba(255,255,255,.16);
+}
+.video-template-generate{
+  margin-top:auto;
+  min-height:72px;
+  border:0;
+  border-radius:26px;
+  background:#1f5da6;
+  color:#fff;
+  font:850 20px/1 inherit;
+  cursor:pointer;
+}
+@media(max-width:900px){
+  .video-templates-grid{column-count:3}
+  .video-template-modal{
+    grid-template-columns:1fr;
+    overflow-y:auto;
+  }
+  .video-template-preview{min-height:360px}
+  .video-template-details{padding:0 20px 22px}
+}
+@media(max-width:560px){
+  .video-templates-grid{column-count:2}
+  .video-template-card{min-height:154px;border-radius:18px}
+  .video-template-card.tall{min-height:260px}
+  .video-template-card-title{font-size:17px}
+  .video-template-modal-backdrop{padding:10px}
+  .video-template-details h3{font-size:24px}
+  .video-template-details p{font-size:15px}
+  .video-template-upload{min-height:190px}
+  .video-template-ratios{gap:8px}
+  .video-template-ratios button{min-height:52px;font-size:15px;border-radius:20px}
+  .video-template-generate{min-height:60px;font-size:18px}
+}

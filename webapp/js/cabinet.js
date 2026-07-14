@@ -73,6 +73,8 @@ let videoState = {
   videoUrl: '',
   imageUrl: '',
   motionPreset: '',
+  klingPresetId: '',
+  videoTemplate: null,
   referenceImageUrl: '',
   referenceImageUrls: [],
   uploadedImageUrls: [],
@@ -88,6 +90,11 @@ const UPLOAD_TARGETS = {
 };
 let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
+let videoTemplatesCache = null;
+let activeVideoTemplate = null;
+let videoTemplateUploadUrl = '';
+let videoTemplateRatio = '16:9';
+const VIDEO_TEMPLATE_INTRO_KEY = 'sylvex_video_templates_intro_seen';
 
 function setUploadTarget(target) {
   activeUploadTarget = Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
@@ -1082,6 +1089,10 @@ function videoOptionsPayload(referenceImagesOverride) {
     video_url: videoState.videoUrl || '',
     image_url: '',
     motion_preset: videoState.motionPreset || '',
+    kling_preset_id: videoState.klingPresetId || '',
+    preset_id: videoState.klingPresetId || '',
+    template_id: videoState.videoTemplate && videoState.videoTemplate.id ? videoState.videoTemplate.id : '',
+    video_template: videoState.videoTemplate || null,
     character_image: videoState.characterImage || '',
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
@@ -5512,6 +5523,318 @@ function closeUploadPanel(e) {
     setCurrentModeAttachment(null);
     try { updateSendButton(); } catch {}
   }
+
+  function videoTemplateText(key) {
+    const lang = (typeof uiLang === 'function' && uiLang()) || 'ru';
+    const dict = {
+      ru: {
+        video: 'Видео',
+        catalogEmpty: 'Видео-шаблоны пока не настроены',
+        uploadTitle: 'Загрузить изображение',
+        uploadHint: 'PNG, JPG или вставить из буфера обмена',
+        create: 'Создать',
+        imageRequired: 'Загрузите изображение для видео-шаблона',
+        ratioRequired: 'Выберите формат видео',
+      },
+      en: {
+        video: 'Video',
+        catalogEmpty: 'Video templates are not configured yet',
+        uploadTitle: 'Upload image',
+        uploadHint: 'PNG, JPG or paste from clipboard',
+        create: 'Generate',
+        imageRequired: 'Upload an image for this video template',
+        ratioRequired: 'Choose a video format',
+      },
+    };
+    return (dict[lang] && dict[lang][key]) || dict.ru[key] || key;
+  }
+
+  function closeVideoTemplateIntro() {
+    const el = document.getElementById('videoTemplateIntro');
+    if (el) el.remove();
+  }
+
+  function maybeShowVideoTemplateIntro() {
+    if (!isVideoMode() || videoState.section !== 'generate') return;
+    let seen = false;
+    try { seen = sessionStorage.getItem(VIDEO_TEMPLATE_INTRO_KEY) === '1'; } catch {}
+    if (seen || document.getElementById('videoTemplateIntro')) return;
+    try { sessionStorage.setItem(VIDEO_TEMPLATE_INTRO_KEY, '1'); } catch {}
+    const intro = document.createElement('div');
+    intro.id = 'videoTemplateIntro';
+    intro.className = 'video-template-intro';
+    intro.innerHTML = '<button type="button">' + S.escapeHtml(videoTemplateText('video')) + '</button>';
+    const btn = intro.querySelector('button');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        closeVideoTemplateIntro();
+        openVideoTemplatesCatalog();
+      });
+    }
+    document.body.appendChild(intro);
+  }
+
+  async function loadVideoTemplates() {
+    if (Array.isArray(videoTemplatesCache)) return videoTemplatesCache;
+    try {
+      const res = await fetch('/api/public/prostudio/video-templates', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      videoTemplatesCache = Array.isArray(data.templates) ? data.templates : [];
+    } catch {
+      videoTemplatesCache = [];
+    }
+    return videoTemplatesCache;
+  }
+
+  function closeVideoTemplateModal() {
+    activeVideoTemplate = null;
+    videoTemplateUploadUrl = '';
+    const modal = document.getElementById('videoTemplateModal');
+    if (modal) modal.remove();
+  }
+
+  function closeVideoTemplatesCatalog() {
+    closeVideoTemplateModal();
+    const overlay = document.getElementById('videoTemplatesOverlay');
+    if (overlay) overlay.remove();
+  }
+
+  function videoTemplateCostLabel(template) {
+    const credits = Number(template && (template.cost_credits || template.cost) || 0);
+    if (credits > 0) return '⚡ ' + credits;
+    const label = template && template.generation_cost;
+    return label ? String(label) : '';
+  }
+
+  function templatePreferredModel(template) {
+    const models = Array.isArray(template && template.models) ? template.models : [];
+    if ((template && template.preferred_model) === 'kling_motion_3_0' || models.includes('kling_motion_3_0') || !models.length) return 'kling_motion_3_0';
+    if ((template && template.preferred_model) === 'kling_motion_2_6' || models.includes('kling_motion_2_6')) return 'kling_motion_2_6';
+    return String((template && template.preferred_model) || models[0] || 'kling_motion_2_6');
+  }
+
+  function videoTemplateRatios(template) {
+    const ratios = Array.isArray(template && template.ratios) ? template.ratios : [];
+    const clean = ratios.filter((ratio) => ['16:9', '1:1', '9:16'].includes(String(ratio)));
+    return clean.length ? clean : ['16:9', '1:1', '9:16'];
+  }
+
+  async function openVideoTemplatesCatalog() {
+    closeVideoTemplateIntro();
+    let overlay = document.getElementById('videoTemplatesOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'videoTemplatesOverlay';
+      overlay.className = 'video-templates-overlay';
+      overlay.innerHTML = '<div class="video-templates-panel"><button class="video-templates-close" type="button" aria-label="Close">×</button><div class="video-templates-grid"></div></div>';
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) closeVideoTemplatesCatalog();
+      });
+      const closeBtn = overlay.querySelector('.video-templates-close');
+      if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplatesCatalog);
+      document.body.appendChild(overlay);
+    }
+    const grid = overlay.querySelector('.video-templates-grid');
+    if (grid) grid.innerHTML = '<div class="video-templates-empty">...</div>';
+    const templates = await loadVideoTemplates();
+    if (!grid) return;
+    if (!templates.length) {
+      grid.innerHTML = '<div class="video-templates-empty">' + S.escapeHtml(videoTemplateText('catalogEmpty')) + '</div>';
+      return;
+    }
+    grid.innerHTML = templates.map((template, index) => {
+      const id = S.escapeHtml(template.id || String(index));
+      const title = S.escapeHtml(template.title || template.id || 'Video');
+      const src = S.escapeHtml(template.preview_video || '');
+      const cost = S.escapeHtml(videoTemplateCostLabel(template));
+      const tall = index % 5 === 0 || String(template.aspect_ratio || '').includes('9:16');
+      return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '">'
+        + '<video src="' + src + '" autoplay loop muted playsinline preload="metadata"></video>'
+        + '<span class="video-template-card-shade"></span>'
+        + '<span class="video-template-card-title">' + title + '</span>'
+        + (cost ? '<span class="video-template-card-cost">' + cost + '</span>' : '')
+        + '</button>';
+    }).join('');
+    grid.querySelectorAll('.video-template-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.templateId;
+        const template = templates.find((item) => String(item.id) === String(id));
+        if (template) openVideoTemplateModal(template);
+      });
+    });
+  }
+
+  function renderVideoTemplateUpload() {
+    const upload = document.getElementById('videoTemplateUpload');
+    if (!upload) return;
+    if (videoTemplateUploadUrl) {
+      upload.classList.add('has-file');
+      upload.innerHTML = '<img src="' + S.escapeHtml(videoTemplateUploadUrl) + '" alt="" /><span>' + S.escapeHtml(videoTemplateText('uploadTitle')) + '</span>';
+    } else {
+      upload.classList.remove('has-file');
+      upload.innerHTML = '<span class="video-template-upload-icon">▧</span><b>' + S.escapeHtml(videoTemplateText('uploadTitle')) + '</b><small>' + S.escapeHtml(videoTemplateText('uploadHint')) + '</small>';
+    }
+  }
+
+  function setVideoTemplateFile(file) {
+    if (!file || !/^image\//.test(file.type || '')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      videoTemplateUploadUrl = String(reader.result || '');
+      renderVideoTemplateUpload();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function openVideoTemplateModal(template) {
+    activeVideoTemplate = template;
+    videoTemplateUploadUrl = '';
+    const ratios = videoTemplateRatios(template);
+    videoTemplateRatio = ratios.includes(template.aspect_ratio) ? template.aspect_ratio : ratios[0];
+    closeVideoTemplateModal();
+    activeVideoTemplate = template;
+    const modal = document.createElement('div');
+    modal.id = 'videoTemplateModal';
+    modal.className = 'video-template-modal-backdrop';
+    const cost = videoTemplateCostLabel(template);
+    modal.innerHTML = '<div class="video-template-modal">'
+      + '<button class="video-template-modal-close" type="button" aria-label="Close">×</button>'
+      + '<div class="video-template-preview"><video src="' + S.escapeHtml(template.preview_video || '') + '" autoplay loop muted playsinline></video></div>'
+      + '<div class="video-template-details">'
+      + '<h3>' + S.escapeHtml(template.title || 'Video') + '</h3>'
+      + '<p>' + S.escapeHtml(template.description || '') + '</p>'
+      + '<button id="videoTemplateUpload" class="video-template-upload" type="button"></button>'
+      + '<div class="video-template-ratios">' + ratios.map((ratio) => '<button type="button" data-ratio="' + S.escapeHtml(ratio) + '" class="' + (ratio === videoTemplateRatio ? 'active' : '') + '"><span class="image-size-icon" data-ratio="' + S.escapeHtml(ratio) + '"></span>' + S.escapeHtml(ratio) + '</button>').join('') + '</div>'
+      + '<button id="videoTemplateGenerate" class="video-template-generate" type="button">' + S.escapeHtml(videoTemplateText('create')) + (cost ? ' ' + S.escapeHtml(cost) : '') + '</button>'
+      + '</div>'
+      + '<input id="videoTemplateFileInput" type="file" accept="image/png,image/jpeg,image/jpg" hidden />'
+      + '</div>';
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) closeVideoTemplateModal();
+    });
+    document.body.appendChild(modal);
+    const closeBtn = modal.querySelector('.video-template-modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplateModal);
+    const upload = modal.querySelector('#videoTemplateUpload');
+    const fileInput = modal.querySelector('#videoTemplateFileInput');
+    if (upload && fileInput) {
+      upload.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => setVideoTemplateFile(fileInput.files && fileInput.files[0]));
+    }
+    modal.querySelectorAll('[data-ratio]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        videoTemplateRatio = btn.dataset.ratio || videoTemplateRatio;
+        modal.querySelectorAll('[data-ratio]').forEach((item) => item.classList.toggle('active', item === btn));
+      });
+    });
+    const generate = modal.querySelector('#videoTemplateGenerate');
+    if (generate) generate.addEventListener('click', startVideoTemplateGeneration);
+    renderVideoTemplateUpload();
+  }
+
+  async function startVideoTemplateGeneration() {
+    const template = activeVideoTemplate;
+    if (!template) return;
+    if (!videoTemplateUploadUrl) {
+      toast(videoTemplateText('imageRequired'));
+      return;
+    }
+    if (!videoTemplateRatio) {
+      toast(videoTemplateText('ratioRequired'));
+      return;
+    }
+    const modelId = templatePreferredModel(template);
+    const uploadedImage = videoTemplateUploadUrl;
+    const selectedRatio = videoTemplateRatio;
+    closeVideoTemplateModal();
+    closeVideoTemplatesCatalog();
+    updateComposerMode('video');
+    videoState.modelId = modelId;
+    videoState.provider = 'kling';
+    videoState.section = 'generate';
+    videoState.generationMode = 'motion_control';
+    videoState.mode = 'motion_control';
+    videoState.ratio = selectedRatio;
+    videoState.duration = Number(template.duration || 5);
+    videoState.resolution = template.resolution || '720p';
+    videoState.sound = false;
+    videoState.startImage = uploadedImage;
+    videoState.klingPresetId = template.preset_id || template.presetId || template.kling_preset_id || '';
+    videoState.videoTemplate = {
+      id: template.id || '',
+      title: template.title || '',
+      description: template.description || '',
+      preset_id: videoState.klingPresetId,
+      aspect_ratio: selectedRatio,
+    };
+    normalizeVideoStateForModel();
+    renderVideoControls();
+    renderUploadedPhotoGrid();
+    updateImageUploadButtonPreview();
+
+    const promptLabel = template.title || 'Video template';
+    chatMessages.push({
+      role: 'user',
+      text: promptLabel,
+      referenceImages: [uploadedImage],
+    });
+    const loadingIndex = chatMessages.push({
+      generationLoading: true,
+      role: 'ai',
+      progress: createGenerationProgress('video'),
+    }) - 1;
+    renderChat();
+    rememberCurrentChatSpace();
+    document.body.classList.add('ai-generating');
+
+    const videoOptions = videoOptionsPayload([]);
+    try {
+      const start = await callGenerate('', null, [], videoOptions, {
+        onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      });
+      const result = start.result || start;
+      chatMessages.splice(loadingIndex, 1, {
+        role: 'ai',
+        imageResultMini: true,
+        metadata: generationResultMetadata('video', promptLabel, result, [uploadedImage], videoOptions),
+      });
+      loadConversations();
+    } catch (err) {
+      if (loadingIndex >= 0) {
+        chatMessages[loadingIndex] = buildInsufficientBalanceMessage(err, promptLabel, null, [uploadedImage], null, videoOptions, []);
+        if (!(err && err.paywall)) {
+          chatMessages[loadingIndex] = {
+            role: 'ai',
+            text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.'),
+          };
+        }
+      }
+      toast(translateGenerationError(err, 'Генерация не прошла'));
+    } finally {
+      document.body.classList.remove('ai-generating');
+      videoState.klingPresetId = '';
+      videoState.videoTemplate = null;
+      renderChat();
+      rememberCurrentChatSpace();
+    }
+  }
+
+  document.addEventListener('paste', (event) => {
+    if (!document.getElementById('videoTemplateModal')) return;
+    const items = event.clipboardData && event.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item && item.type && item.type.indexOf('image/') === 0) {
+        const file = item.getAsFile();
+        if (file) {
+          event.preventDefault();
+          setVideoTemplateFile(file);
+          break;
+        }
+      }
+    }
+  });
+
   function updateComposerMode(kind) {
     if (!restoringChatSpace) rememberCurrentChatSpace();
     const isVideoSection = kind === 'video' || kind === 'edit' || kind === 'motion';
@@ -5577,6 +5900,7 @@ function closeUploadPanel(e) {
         renderModelPop();
         renderUploadedPhotoGrid();
         updateImageUploadButtonPreview();
+        setTimeout(maybeShowVideoTemplateIntro, 80);
       }
     }
     if (!restoringChatSpace) restoreChatSpace(currentChatType());
@@ -7799,6 +8123,9 @@ async function waitGeneration(jobId, options) {
   S.updateComposerMode = updateComposerMode;
   S.renderVideoControls = renderVideoControls;
   S.addMediaLink = addMediaLink;
+  S.openVideoTemplatesCatalog = openVideoTemplatesCatalog;
+  S.closeVideoTemplatesCatalog = closeVideoTemplatesCatalog;
+  S.closeVideoTemplateModal = closeVideoTemplateModal;
   
   document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
   document.addEventListener('pointerdown', closeImageSeedTooltipOnOutside, true);

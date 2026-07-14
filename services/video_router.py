@@ -389,6 +389,9 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "video_url": opts.get("video_url") or "",
         "image_url": opts.get("image_url") or payload.get("image_url") or "",
         "motion_preset": opts.get("motion_preset") or "",
+        "video_template": opts.get("video_template") or {},
+        "kling_preset_id": opts.get("kling_preset_id") or opts.get("preset_id") or "",
+        "template_id": opts.get("template_id") or "",
         "character_image": opts.get("character_image") or "",
         "native_audio": bool(opts.get("native_audio")),
         "motion_control": bool(opts.get("motion_control")),
@@ -1485,14 +1488,27 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
 
     cost_info = _kling_cost_info(model_id, body)
 
+    video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
+    kling_preset_id = body.get("kling_preset_id") or video_template.get("preset_id") or ""
+
     kling_body = {
-        "prompt": prompt,
         "settings": {
             "duration": int(body.get("duration") or 5),
             "resolution": body.get("resolution") or "720p",
             "aspect_ratio": body.get("ratio") or "16:9",
         },
     }
+    if prompt:
+        kling_body["prompt"] = prompt
+    if kling_preset_id:
+        kling_body["preset_id"] = kling_preset_id
+        kling_body["template_id"] = body.get("template_id") or video_template.get("id") or ""
+    if video_template:
+        kling_body["template"] = {
+            key: video_template.get(key)
+            for key in ("id", "title", "preset_id", "aspect_ratio")
+            if video_template.get(key)
+        }
 
     if input_image:
         if _is_data_image(input_image):
@@ -1501,11 +1517,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                     "type": "image",
                     "image": input_image,
                 },
-                {
-                    "type": "text",
-                    "text": prompt,
-                },
             ]
+            if prompt:
+                kling_body["contents"].append({"type": "text", "text": prompt})
         else:
             kling_body["image_url"] = input_image
             kling_body["contents"] = [
@@ -1513,11 +1527,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                     "type": "image_url",
                     "image_url": input_image,
                 },
-                {
-                    "type": "text",
-                    "text": prompt,
-                },
             ]
+            if prompt:
+                kling_body["contents"].append({"type": "text", "text": prompt})
 
     def _kling_prompt_too_long(data):
         text = raw_error_text(data, "").lower()
@@ -1838,7 +1850,9 @@ async def video_generation(payload: dict) -> dict:
         prompt = prompt_report.get("prompt") or prompt
         payload["prompt"] = prompt
 
-    if not prompt:
+    raw_options = payload.get("video_options") or payload.get("options") or {}
+    has_template = bool(raw_options.get("kling_preset_id") or raw_options.get("preset_id") or raw_options.get("video_template"))
+    if not prompt and not has_template:
         return {"ok": False, "type": "video", "model": model_id, "provider": provider, "error": "Prompt is required"}
 
     if provider == "seedance" or re.search(r"seedance", model_id, re.I):
