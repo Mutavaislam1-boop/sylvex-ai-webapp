@@ -34,6 +34,31 @@ VIDEO_MODEL_CONFIG = {
     "grok_video_edit": {"provider": "grok", "modes": ["video_edit"], "durations": [5], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
 }
 
+KLING_BASE_RATIOS = ["16:9", "9:16", "1:1"]
+KLING_FULL_RESOLUTIONS = ["720p", "1080p", "4K"]
+KLING_STANDARD_RESOLUTIONS = ["720p", "1080p"]
+KLING_DURATIONS = [5, 10, 15]
+
+VIDEO_MODEL_CONFIG.update({
+    "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "motion_control", "video_edit"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
+    "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "kling_2_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_motion_2_6": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_5_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_1": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_1_master": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_0_master": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_1_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "multi_image_to_video", "multi_element_editing", "video_extension"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "multi_image": True, "multi_element_editing": True, "video_extension": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "kling_1_5": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_extension"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_extension": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "kling_1_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_extension"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_extension": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "kling_avatar": {"provider": "kling", "modes": ["avatar"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "avatar": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "kling_lip_sync": {"provider": "kling", "modes": ["lip_sync"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["720p"], "sound": True, "lip_sync": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
+})
+
 BYTEPLUS_SEEDANCE_MODEL_MAP = {
     "seedance_2_fast": os.getenv("BYTEPLUS_SEEDANCE_2_FAST_MODEL", "dreamina-seedance-2-0-fast-260128"),
     "seedance_2_0": os.getenv("BYTEPLUS_SEEDANCE_2_MODEL", "dreamina-seedance-2-0-260128"),
@@ -73,6 +98,26 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_O3_EDIT_MODEL"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
 }
+
+VIDEO_PROVIDER_MODEL_MAP.update({
+    "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0-motion")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_O3_OMNI_MODEL", "kling-o3-omni"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_O3_EDIT_MODEL", "kling-o3-edit"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_o1": {"provider": "kling", "provider_model": os.getenv("KLING_O1_MODEL", "kling-o1"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_2_6_MODEL", "kling-2.6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_motion_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_2_6_MODEL", os.getenv("KLING_2_6_MOTION_MODEL", "kling-2.6-motion")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_2_5_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_2_5_TURBO_MODEL", "kling-2.5-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_2_1": {"provider": "kling", "provider_model": os.getenv("KLING_2_1_MODEL", "kling-2.1"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_2_1_master": {"provider": "kling", "provider_model": os.getenv("KLING_2_1_MASTER_MODEL", "kling-2.1-master"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_2_0_master": {"provider": "kling", "provider_model": os.getenv("KLING_2_0_MASTER_MODEL", "kling-2.0-master"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_1_6": {"provider": "kling", "provider_model": os.getenv("KLING_1_6_MODEL", "kling-1.6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_1_5": {"provider": "kling", "provider_model": os.getenv("KLING_1_5_MODEL", "kling-1.5"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_1_0": {"provider": "kling", "provider_model": os.getenv("KLING_1_0_MODEL", "kling-1.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_avatar": {"provider": "kling", "provider_model": os.getenv("KLING_AVATAR_MODEL", "kling-avatar"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_lip_sync": {"provider": "kling", "provider_model": os.getenv("KLING_LIP_SYNC_MODEL", "kling-lip-sync"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+})
 
 
 def _get_env(*names):
@@ -322,8 +367,263 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "image_url": opts.get("image_url") or payload.get("image_url") or "",
         "motion_preset": opts.get("motion_preset") or "",
         "character_image": opts.get("character_image") or "",
+        "native_audio": bool(opts.get("native_audio")),
+        "motion_control": bool(opts.get("motion_control")),
+        "video_input": bool(opts.get("video_input")),
+        "avatar": bool(opts.get("avatar")),
+        "lip_sync": bool(opts.get("lip_sync")),
+        "multi_image": bool(opts.get("multi_image")),
+        "multi_element_editing": bool(opts.get("multi_element_editing")),
+        "video_extension": bool(opts.get("video_extension")),
         "advanced": opts.get("advanced") or {},
         "telegram_id": payload.get("telegram_id"),
+    }
+
+
+KLING_COST_MATRIX = {
+    "kling_3_0_turbo": {
+        "native_audio": {
+            "720p": {5: 84, 10: 168, 15: 252},
+            "1080p": {5: 105, 10: 210, 15: 315},
+        },
+    },
+    "kling_3_0": {
+        "standard": {
+            "720p": {5: 63, 10: 126, 15: 189},
+            "1080p": {5: 84, 10: 168, 15: 252},
+            "4k": {5: 315, 10: 630, 15: 945},
+        },
+        "native_audio": {
+            "720p": {5: 95, 10: 189, 15: 284},
+            "1080p": {5: 126, 10: 252, 15: 378},
+            "4k": {5: 315, 10: 630, 15: 945},
+        },
+    },
+    "kling_motion_3_0": {
+        "motion_control": {
+            "720p": {5: 95, 10: 189, 15: 284},
+            "1080p": {5: 126, 10: 252, 15: 378},
+        },
+    },
+    "kling_o3_omni": {
+        "standard": {
+            "720p": {5: 63, 10: 126, 15: 189},
+            "1080p": {5: 84, 10: 168, 15: 252},
+            "4k": {5: 315, 10: 630, 15: 945},
+        },
+        "native_audio": {
+            "720p": {5: 84, 10: 168, 15: 252},
+            "1080p": {5: 105, 10: 210, 15: 315},
+            "4k": {5: 315, 10: 630, 15: 945},
+        },
+        "video_input": {
+            "720p": {5: 95, 10: 189, 15: 284},
+            "1080p": {5: 126, 10: 252, 15: 378},
+            "4k": {5: 315, 10: 630, 15: 945},
+        },
+    },
+    "kling_o3_edit": {
+        "video_input": {
+            "720p": {5: 95, 10: 189, 15: 284},
+            "1080p": {5: 126, 10: 252, 15: 378},
+            "4k": {5: 315, 10: 630, 15: 945},
+        },
+    },
+    "kling_o1": {
+        "standard": {
+            "720p": {5: 63, 10: 126, 15: 189},
+            "1080p": {5: 84, 10: 168, 15: 252},
+        },
+        "video_input": {
+            "720p": {5: 95, 10: 189, 15: 284},
+            "1080p": {5: 126, 10: 252, 15: 378},
+        },
+    },
+    "kling_2_6": {
+        "standard": {
+            "720p": {5: 32, 10: 63, 15: 95},
+            "1080p": {5: 53, 10: 105, 15: 158},
+        },
+        "native_audio": {
+            "1080p": {5: 105, 10: 210, 15: 315},
+        },
+        "voice_control": {
+            "1080p": {5: 126, 10: 252, 15: 378},
+        },
+    },
+    "kling_motion_2_6": {
+        "motion_control": {
+            "720p": {5: 53, 10: 105, 15: 158},
+            "1080p": {5: 84, 10: 168, 15: 252},
+        },
+    },
+    "kling_2_5_turbo": {
+        "standard": {
+            "720p": {5: 32, 10: 63, 15: 95},
+            "1080p": {5: 53, 10: 105, 15: 158},
+        },
+    },
+    "kling_2_1": {
+        "standard": {
+            "720p": {5: 42, 10: 84, 15: 126},
+            "1080p": {5: 74, 10: 147, 15: 221},
+        },
+    },
+    "kling_2_1_master": {
+        "standard": {
+            "1080p": {5: 210, 10: 420, 15: 630},
+        },
+    },
+    "kling_2_0_master": {
+        "standard": {
+            "1080p": {5: 210, 10: 420, 15: 630},
+        },
+    },
+    "kling_1_6": {
+        "standard": {
+            "720p": {5: 42, 10: 84, 15: 126},
+            "1080p": {5: 74, 10: 147, 15: 221},
+        },
+        "multi_element_editing": {
+            "720p": {5: 63, 10: 126, 15: 189},
+            "1080p": {5: 105, 10: 210, 15: 315},
+        },
+        "video_extension": {
+            "720p": {5: 42, 10: 42, 15: 42},
+            "1080p": {5: 74, 10: 74, 15: 74},
+        },
+    },
+    "kling_1_5": {
+        "standard": {
+            "720p": {5: 42, 10: 84, 15: 126},
+            "1080p": {5: 74, 10: 147, 15: 221},
+        },
+        "video_extension": {
+            "720p": {5: 42, 10: 42, 15: 42},
+            "1080p": {5: 74, 10: 74, 15: 74},
+        },
+    },
+    "kling_1_0": {
+        "standard": {
+            "720p": {5: 21, 10: 42, 15: 63},
+            "1080p": {5: 74, 10: 147, 15: 221},
+        },
+        "video_extension": {
+            "720p": {5: 42, 10: 42, 15: 42},
+            "1080p": {5: 74, 10: 74, 15: 74},
+        },
+    },
+    "kling_avatar": {
+        "avatar": {
+            "720p": {5: 42, 10: 84, 15: 126},
+            "1080p": {5: 84, 10: 168, 15: 252},
+        },
+    },
+    "kling_lip_sync": {
+        "lip_sync": {
+            "720p": {5: 11, 10: 21, 15: 32},
+        },
+    },
+}
+
+
+def _kling_resolution_key(value):
+    raw = str(value or "720p").strip().lower().replace(" ", "")
+    if raw in {"4k", "2160p", "uhd"}:
+        return "4k"
+    if raw in {"1080", "1080p", "fhd"}:
+        return "1080p"
+    return "720p"
+
+
+def _kling_duration_key(value):
+    try:
+        duration = int(value or 5)
+    except Exception:
+        duration = 5
+    if duration <= 5:
+        return 5
+    if duration <= 10:
+        return 10
+    return 15
+
+
+def _kling_has_video_input(body: dict):
+    if not isinstance(body, dict):
+        return False
+    mode = str(body.get("mode") or body.get("generation_mode") or "").lower()
+    return bool(body.get("video_input") or body.get("input_video") or body.get("video_url") or mode in {"video_edit", "video_extension"})
+
+
+def _kling_cost_variant(model_id: str, body: dict):
+    mode = str((body or {}).get("mode") or (body or {}).get("generation_mode") or "").lower()
+    advanced = (body or {}).get("advanced") if isinstance((body or {}).get("advanced"), dict) else {}
+    if model_id == "kling_3_0_turbo":
+        return "native_audio"
+    if body.get("lip_sync") or mode in {"lip_sync", "lip sync"} or model_id == "kling_lip_sync":
+        return "lip_sync"
+    if body.get("avatar") or mode == "avatar" or model_id == "kling_avatar":
+        return "avatar"
+    if body.get("motion_control") or mode in {"motion_control", "motion control"} or "motion" in model_id:
+        return "motion_control"
+    if body.get("multi_element_editing") or mode in {"multi_element_editing", "multi element editing"}:
+        return "multi_element_editing"
+    if body.get("video_extension") or mode in {"video_extension", "video extension"}:
+        return "video_extension"
+    if advanced.get("voice_control"):
+        return "voice_control"
+    if model_id in {"kling_o1", "kling_o3_omni", "kling_o3_edit"} and _kling_has_video_input(body):
+        return "video_input"
+    if body.get("native_audio") or body.get("sound"):
+        return "native_audio"
+    return "standard"
+
+
+def _kling_cost_info(model_id: str, body: dict):
+    matrix = KLING_COST_MATRIX.get(model_id) or {}
+    variant = _kling_cost_variant(model_id, body)
+    variant_matrix = matrix.get(variant) or matrix.get("standard") or next(iter(matrix.values()), {})
+    resolution = _kling_resolution_key((body or {}).get("resolution"))
+    if resolution not in variant_matrix and variant_matrix:
+        resolution = next(iter(variant_matrix.keys()))
+    duration = _kling_duration_key((body or {}).get("duration"))
+    duration_matrix = variant_matrix.get(resolution) or {}
+    unit_credits = int(duration_matrix.get(duration) or duration_matrix.get(5) or 0)
+    return {
+        "cost_credits": unit_credits,
+        "unit_cost_credits": unit_credits,
+        "cost_usd": 0,
+        "unit_cost_usd": 0,
+        "generation_cost": f"{unit_credits} ⚡" if unit_credits else "",
+        "cost_variant": variant,
+        "cost_resolution": resolution,
+        "cost_duration": duration,
+    }
+
+
+def estimate_video_generation_cost(payload: dict):
+    model_id = (
+        (payload.get("video_options") or {}).get("model")
+        or payload.get("model")
+        or ""
+    )
+    if not model_id:
+        return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+    mapping = _video_model_mapping(model_id)
+    provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
+    if provider != "kling":
+        return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+    body = _build_video_payload(model_id, payload.get("prompt") or "", payload)
+    info = _kling_cost_info(model_id, body)
+    return {
+        "credits": int(info.get("cost_credits") or 0),
+        "cost_usd": info.get("cost_usd") or 0,
+        "generation_cost": info.get("generation_cost") or "",
+        "unit_cost_credits": info.get("unit_cost_credits") or 0,
+        "unit_cost_usd": info.get("unit_cost_usd") or 0,
+        "cost_variant": info.get("cost_variant") or "",
+        "cost_resolution": info.get("cost_resolution") or "",
+        "cost_duration": info.get("cost_duration") or "",
     }
 
 
@@ -1087,6 +1387,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     if requires_image and not input_image:
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
 
+    cost_info = _kling_cost_info(model_id, body)
+
     kling_body = {
         "prompt": prompt,
         "settings": {
@@ -1128,6 +1430,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         endpoint = _kling_submit_endpoint(provider_model, endpoint_body)
         print("KLING DEBUG ENDPOINT:", endpoint)
         print("KLING DEBUG PAYLOAD:", kling_body)
+        print("KLING DEBUG COST:", cost_info)
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -1143,6 +1446,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         result = _kling_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         result["model"] = model_id
         result["provider_model"] = provider_model
+        result.update(cost_info)
         return result
     except Exception as exc:
         return _provider_error("kling", model_id, f"Provider request failed: {exc}")

@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from services.audio_router import audio_generation
-from services.video_router import video_generation
+from services.video_router import estimate_video_generation_cost, video_generation
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
@@ -6612,6 +6612,8 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
 
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
+    if mode == "video":
+        return estimate_video_generation_cost(payload)
     if mode != "image":
         return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
     opts = payload.get("image_options") or {}
