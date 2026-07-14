@@ -6536,9 +6536,6 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
         request_payload = {
             "model": provider_model,
             "input": input_items,
-            "generation_config": {
-                "resolution": resolution,
-            },
         }
         request_endpoint = endpoint
 
