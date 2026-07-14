@@ -37,7 +37,7 @@
 let imageCapabilities = [];
 let generatedImageLibrary = [];
 let imageState = {
-    modelId: '',
+    modelId: 'seedream_5_0_lite',
     size: '',
     count: 1,
     style: 'auto',
@@ -220,6 +220,24 @@ const GOOGLE_IMAGE_SIZES = [
 
 const IMAGE_MODEL_LIST = [
   {
+    id:'seedream_5_0_lite',
+    label:'Seedream 5.0 Lite',
+    desc:'ByteDance Seedream 5.0 Lite image model',
+    icon:'seedream',
+    providerModel:'seedream-5-0-260128',
+    seed:true,
+    costUsd:0.0525,
+    costCredits:6,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'4:3', label:'4:3', ratio:'4:3' },
+      { id:'3:4', label:'3:4', ratio:'3:4' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' }
+    ]
+  },
+  {
     id:'ideogram_3_0',
     label:'Ideogram 3.0',
     desc:'Ideogram 3.0 Turbo image model',
@@ -332,24 +350,6 @@ const IMAGE_MODEL_LIST = [
     ]
   },
 
-  {
-    id:'seedream_5_0_lite',
-    label:'Seedream 5.0 Lite',
-    desc:'ByteDance Seedream 5.0 Lite image model',
-    icon:'seedream',
-    providerModel:'seedream-5-0-260128',
-    seed:true,
-    costUsd:0.0525,
-    costCredits:6,
-    sizes:[
-      { id:'auto', label:'Auto', ratio:'auto' },
-      { id:'1:1', label:'1:1', ratio:'1:1' },
-      { id:'4:3', label:'4:3', ratio:'4:3' },
-      { id:'3:4', label:'3:4', ratio:'3:4' },
-      { id:'16:9', label:'16:9', ratio:'16:9' },
-      { id:'9:16', label:'9:16', ratio:'9:16' }
-    ]
-  },
   {
     id:'seedream_4_5',
     label:'Seedream 4.5',
