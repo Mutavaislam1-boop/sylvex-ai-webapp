@@ -70,6 +70,36 @@ def prompt_limit_for_model(model: str = "", provider: str = "", mode: str = "") 
     return DEFAULT_PROMPT_LIMIT
 
 
+def prompt_metric_for_model(model: str = "", provider: str = "") -> str:
+    value = f"{provider or ''} {model or ''}".lower()
+    if "kling" in value:
+        return "utf8_bytes"
+    return "characters"
+
+
+def _measure_prompt(text: str, metric: str) -> int:
+    if metric == "utf8_bytes":
+        return len(str(text or "").encode("utf-8"))
+    return len(str(text or ""))
+
+
+def _trim_to_limit(text: str, limit: int, metric: str) -> str:
+    value = str(text or "")
+    if _measure_prompt(value, metric) <= limit:
+        return value
+    if metric != "utf8_bytes":
+        return value[:limit].rsplit(" ", 1)[0].strip()
+    total = 0
+    chars = []
+    for char in value:
+        size = len(char.encode("utf-8"))
+        if total + size > limit:
+            break
+        chars.append(char)
+        total += size
+    return "".join(chars).rsplit(" ", 1)[0].strip()
+
+
 def _normalize_prompt(prompt: str) -> str:
     text = str(prompt or "").replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
@@ -98,8 +128,8 @@ def _dedupe_sentences(text: str) -> str:
     return " ".join(kept).strip()
 
 
-def _fit_by_sentences(text: str, limit: int) -> str:
-    if len(text) <= limit:
+def _fit_by_sentences(text: str, limit: int, metric: str) -> str:
+    if _measure_prompt(text, metric) <= limit:
         return text
     parts = re.split(r"(?<=[.!?。！？])\s+", text)
     kept = []
@@ -108,34 +138,40 @@ def _fit_by_sentences(text: str, limit: int) -> str:
         item = part.strip()
         if not item:
             continue
-        add_len = len(item) + (1 if kept else 0)
+        add_len = _measure_prompt(item, metric) + (1 if kept else 0)
         if total + add_len > limit:
             continue
         kept.append(item)
         total += add_len
     result = " ".join(kept).strip()
-    return result if result else text[:limit].rsplit(" ", 1)[0].strip()
+    return result if result else _trim_to_limit(text, limit, metric)
 
 
 def optimize_prompt_for_model(prompt: str, model: str = "", provider: str = "", mode: str = "") -> dict[str, Any]:
     original = str(prompt or "")
     limit = prompt_limit_for_model(model, provider, mode)
+    metric = prompt_metric_for_model(model, provider)
     normalized = _normalize_prompt(original)
     optimized = normalized
     reason = ""
-    if len(optimized) > limit:
+    if _measure_prompt(optimized, metric) > limit:
         optimized = _dedupe_sentences(optimized)
-    if len(optimized) > limit:
-        optimized = _fit_by_sentences(optimized, limit)
-    if len(optimized) > limit:
+    if _measure_prompt(optimized, metric) > limit:
+        optimized = _fit_by_sentences(optimized, limit, metric)
+    if _measure_prompt(optimized, metric) > limit:
+        optimized = _trim_to_limit(optimized, limit, metric)
+    if _measure_prompt(optimized, metric) > limit:
         reason = "Optimization failed to reach limit"
     return {
         "prompt": optimized,
-        "ok": bool(optimized) and len(optimized) <= limit,
+        "ok": bool(optimized) and _measure_prompt(optimized, metric) <= limit,
         "limit": limit,
-        "original_length": len(original),
-        "normalized_length": len(normalized),
-        "optimized_length": len(optimized),
+        "metric": metric,
+        "original_length": _measure_prompt(original, metric),
+        "normalized_length": _measure_prompt(normalized, metric),
+        "optimized_length": _measure_prompt(optimized, metric),
+        "original_characters": len(original),
+        "optimized_characters": len(optimized),
         "optimized": optimized != original,
         "failed_reason": reason,
     }
