@@ -893,8 +893,20 @@ const VIDEO_MODELS = [
   { id:'wan_2_7_edit', label:'WAN 2.7 Редактировать', desc:'Wan video editing model', icon:'wan' },
 
   { id:'runway_aleph', label:'Взлетно-посадочная полоса Aleph', desc:'Runway video model', icon:'runway' },
+  { id:'kling_3_0_turbo', label:'Kling 3.0 Turbo', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_motion_2_6', label:'Kling Motion 2.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_motion_3_0', label:'Kling Motion 3.0', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_o1', label:'Kling O1', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_2_6', label:'Kling 2.6', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_2_5_turbo', label:'Kling 2.5 Turbo', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_2_1', label:'Kling 2.1', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_2_1_master', label:'Kling 2.1 Master', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_2_0_master', label:'Kling 2.0 Master', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_1_6', label:'Kling 1.6', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_1_5', label:'Kling 1.5', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_1_0', label:'Kling 1.0', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_avatar', label:'Kling Avatar', desc:'Kling avatar video', icon:'kling' },
+  { id:'kling_lip_sync', label:'Kling Lip Sync', desc:'Kling lip sync video', icon:'kling' },
   { id:'seedance_1_5_pro', label:'Seedance 1.5 Pro', desc:'ByteDance Seedance video', icon:'seedance' },
   { id:'wan_2_6', label:'Ван 2.6', desc:'Alibaba Wan video model', icon:'wan' },
 
@@ -938,6 +950,31 @@ const VIDEO_MODEL_CONFIG = {
   kling_o3_edit: { provider:'kling', modes:['video_edit'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
   kling_3_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false }
 };
+
+const KLING_VIDEO_BASE_RATIOS = ['16:9','9:16','1:1'];
+const KLING_VIDEO_DURATIONS = [5,10,15];
+const KLING_VIDEO_STANDARD_RESOLUTIONS = ['720p','1080p'];
+const KLING_VIDEO_FULL_RESOLUTIONS = ['720p','1080p','4K'];
+
+Object.assign(VIDEO_MODEL_CONFIG, {
+  kling_3_0_turbo: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_3_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_motion_3_0: { provider:'kling', modes:['motion_control','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, motion_control:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_o3_omni: { provider:'kling', modes:['text_to_video','image_to_video','motion_control','video_edit'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, omni:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  kling_o3_edit: { provider:'kling', modes:['video_edit'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, video_input:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
+  kling_o1: { provider:'kling', modes:['text_to_video','image_to_video','video_edit'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  kling_2_6: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_motion_2_6: { provider:'kling', modes:['motion_control','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, motion_control:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_2_5_turbo: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_2_1: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_2_1_master: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:['1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_2_0_master: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:['1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_1_6: { provider:'kling', modes:['text_to_video','image_to_video','multi_image_to_video','multi_element_editing','video_extension'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, multi_image:true, multi_element_editing:true, video_extension:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  kling_1_5: { provider:'kling', modes:['text_to_video','image_to_video','video_extension'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_extension:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  kling_1_0: { provider:'kling', modes:['text_to_video','image_to_video','video_extension'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_extension:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  kling_avatar: { provider:'kling', modes:['avatar'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:true, avatar:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  kling_lip_sync: { provider:'kling', modes:['lip_sync'], durations:KLING_VIDEO_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:['720p'], sound:true, lip_sync:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
+});
 
 const VIDEO_MOTION_PRESETS = [
   'Walk', 'Run', 'Turn around', 'Wave hand', 'Jump',
@@ -1030,6 +1067,7 @@ function labelItems(values, suffix) {
 
 function videoOptionsPayload(referenceImagesOverride) {
   normalizeVideoStateForModel();
+  const config = currentVideoConfig() || {};
   const referenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : (videoState.referenceImageUrls || []).slice();
@@ -1052,7 +1090,24 @@ function videoOptionsPayload(referenceImagesOverride) {
     motion_preset: videoState.motionPreset || '',
     character_image: videoState.characterImage || '',
     model: videoState.modelId || '',
-    advanced: Object.assign({}, videoState.advanced || {}),
+    native_audio: !!(config.native_audio && videoState.sound),
+    motion_control: !!config.motion_control,
+    video_input: !!(config.video_input || config.video_upload || videoState.inputVideo || videoState.videoUrl),
+    avatar: !!config.avatar,
+    lip_sync: !!config.lip_sync,
+    multi_image: !!config.multi_image,
+    multi_element_editing: !!config.multi_element_editing,
+    video_extension: !!config.video_extension,
+    advanced: Object.assign({}, videoState.advanced || {}, {
+      native_audio: !!(config.native_audio && videoState.sound),
+      motion_control: !!config.motion_control,
+      video_input: !!(config.video_input || config.video_upload || videoState.inputVideo || videoState.videoUrl),
+      avatar: !!config.avatar,
+      lip_sync: !!config.lip_sync,
+      multi_image: !!config.multi_image,
+      multi_element_editing: !!config.multi_element_editing,
+      video_extension: !!config.video_extension,
+    }),
   };
 }
 
@@ -1070,6 +1125,13 @@ function videoOptionLabel(kind, value) {
   if (kind === 'mode') {
     if (str === 'image_to_video') return 'Image to Video';
     if (str === 'video_to_video') return 'Video to Video';
+    if (str === 'video_edit') return 'Video Edit';
+    if (str === 'motion_control') return 'Motion Control';
+    if (str === 'multi_image_to_video') return 'Multi Image';
+    if (str === 'multi_element_editing') return 'Multi Element';
+    if (str === 'video_extension') return 'Video Extension';
+    if (str === 'avatar') return 'Avatar';
+    if (str === 'lip_sync') return 'Lip Sync';
     return 'Text to Video';
   }
 
