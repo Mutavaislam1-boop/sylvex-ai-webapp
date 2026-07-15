@@ -4,6 +4,7 @@ import re
 import time
 import requests
 import httpx
+from urllib.parse import urlparse
 
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
@@ -387,6 +388,9 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "reference_images": reference_images,
         "input_video": opts.get("input_video") or "",
         "video_url": opts.get("video_url") or "",
+        "reference_video": opts.get("reference_video") or "",
+        "template_video_url": opts.get("template_video_url") or opts.get("template_video") or "",
+        "preview_video": opts.get("preview_video") or "",
         "image_url": opts.get("image_url") or payload.get("image_url") or "",
         "motion_preset": opts.get("motion_preset") or "",
         "video_template": opts.get("video_template") or {},
@@ -884,6 +888,17 @@ def _kling_base_url():
 def _kling_submit_endpoint(provider_model: str, body: dict):
     kind = "image-to-video" if body.get("start_image") else "text-to-video"
     return f"{_kling_base_url()}/{kind}/{provider_model}"
+
+
+def _kling_motion_provider_model(provider_model: str):
+    model = str(provider_model or "").strip()
+    if model.endswith("-motion"):
+        model = model[: -len("-motion")]
+    return model or "kling-3.0"
+
+
+def _kling_motion_endpoint(provider_model: str):
+    return f"{_kling_base_url()}/motion-control/{_kling_motion_provider_model(provider_model)}"
 
 
 def _kling_task_endpoint(task_id: str):
@@ -1433,6 +1448,35 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     def _is_data_image(value):
         return isinstance(value, str) and value.strip().lower().startswith("data:image/")
 
+    def _strip_data_url(value):
+        if not isinstance(value, str):
+            return ""
+        text = value.strip()
+        if ";base64," in text:
+            return text.split(";base64,", 1)[1].strip()
+        return text
+
+    def _absolute_public_url(value):
+        if not isinstance(value, str):
+            return ""
+        text = value.strip()
+        if not text:
+            return ""
+        parsed = urlparse(text)
+        if parsed.scheme in {"http", "https"}:
+            return text
+        if text.startswith("data:"):
+            return text
+        if text.startswith("/"):
+            base = (
+                os.getenv("WEBAPP_URL")
+                or os.getenv("PUBLIC_WEBAPP_URL")
+                or os.getenv("PUBLIC_BASE_URL")
+                or "https://sylvex-ai-webapp-production.up.railway.app"
+            ).rstrip("/")
+            return f"{base}{text}" if base else text
+        return text
+
     def _normalize_kling_image_input(value):
         if not isinstance(value, str):
             return ""
@@ -1458,6 +1502,28 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     )
     input_image = _normalize_kling_image_input(input_image)
 
+    video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
+    input_video = (
+        body.get("input_video")
+        or body.get("video_url")
+        or body.get("reference_video")
+        or body.get("template_video_url")
+        or body.get("preview_video")
+        or raw_options.get("input_video")
+        or raw_options.get("video_url")
+        or raw_options.get("reference_video")
+        or raw_options.get("template_video_url")
+        or raw_options.get("template_video")
+        or raw_options.get("preview_video")
+        or video_template.get("reference_video")
+        or video_template.get("video_url")
+        or video_template.get("template_video_url")
+        or video_template.get("preview_video")
+        or payload.get("input_video")
+        or payload.get("video_url")
+    )
+    input_video = _absolute_public_url(input_video)
+
     video_mode = str(
         body.get("mode")
         or body.get("generation_mode")
@@ -1482,54 +1548,75 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     print("KLING DEBUG RAW OPTIONS IMAGE_URL:", raw_options.get("image_url"))
     print("KLING DEBUG RAW OPTIONS REFERENCES:", raw_options.get("reference_images") or raw_options.get("referenceImageUrls"))
     print("KLING DEBUG INPUT_IMAGE:", input_image)
+    print("KLING DEBUG INPUT_VIDEO:", input_video)
 
     if requires_image and not input_image:
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
 
     cost_info = _kling_cost_info(model_id, body)
 
-    video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
     kling_preset_id = body.get("kling_preset_id") or video_template.get("preset_id") or ""
+    is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
 
-    kling_body = {
-        "settings": {
-            "duration": int(body.get("duration") or 5),
-            "resolution": body.get("resolution") or "720p",
-            "aspect_ratio": body.get("ratio") or "16:9",
-        },
-    }
-    if prompt:
-        kling_body["prompt"] = prompt
-    if kling_preset_id:
-        kling_body["preset_id"] = kling_preset_id
-        kling_body["template_id"] = body.get("template_id") or video_template.get("id") or ""
-    if video_template:
-        kling_body["template"] = {
-            key: video_template.get(key)
-            for key in ("id", "title", "preset_id", "aspect_ratio")
-            if video_template.get(key)
+    if is_motion_reference:
+        kling_body = {
+            "contents": [],
+            "settings": {
+                "character_orientation": raw_options.get("character_orientation") or "video",
+                "resolution": body.get("resolution") or "720p",
+                "audio": "original" if body.get("sound") else "off",
+            },
+            "options": {},
         }
+        if prompt:
+            kling_body["contents"].append({"type": "prompt", "text": prompt})
+        if input_image:
+            kling_body["contents"].append({"type": "image", "url": _strip_data_url(_absolute_public_url(input_image))})
+        kling_body["contents"].append({"type": "video", "url": input_video})
+        if payload.get("job_id"):
+            kling_body["options"]["external_task_id"] = str(payload.get("job_id"))
+        if not kling_body["options"]:
+            kling_body.pop("options", None)
+    else:
+        kling_body = {
+            "settings": {
+                "duration": int(body.get("duration") or 5),
+                "resolution": body.get("resolution") or "720p",
+                "aspect_ratio": body.get("ratio") or "16:9",
+            },
+        }
+        if prompt:
+            kling_body["prompt"] = prompt
+        if kling_preset_id:
+            kling_body["preset_id"] = kling_preset_id
+            kling_body["template_id"] = body.get("template_id") or video_template.get("id") or ""
+        if video_template:
+            kling_body["template"] = {
+                key: video_template.get(key)
+                for key in ("id", "title", "preset_id", "aspect_ratio")
+                if video_template.get(key)
+            }
 
-    if input_image:
-        if _is_data_image(input_image):
-            kling_body["contents"] = [
-                {
-                    "type": "image",
-                    "image": input_image,
-                },
-            ]
-            if prompt:
-                kling_body["contents"].append({"type": "text", "text": prompt})
-        else:
-            kling_body["image_url"] = input_image
-            kling_body["contents"] = [
-                {
-                    "type": "image_url",
-                    "image_url": input_image,
-                },
-            ]
-            if prompt:
-                kling_body["contents"].append({"type": "text", "text": prompt})
+        if input_image:
+            if _is_data_image(input_image):
+                kling_body["contents"] = [
+                    {
+                        "type": "image",
+                        "image": input_image,
+                    },
+                ]
+                if prompt:
+                    kling_body["contents"].append({"type": "text", "text": prompt})
+            else:
+                kling_body["image_url"] = input_image
+                kling_body["contents"] = [
+                    {
+                        "type": "image_url",
+                        "image_url": input_image,
+                    },
+                ]
+                if prompt:
+                    kling_body["contents"].append({"type": "text", "text": prompt})
 
     def _kling_prompt_too_long(data):
         text = raw_error_text(data, "").lower()
@@ -1538,14 +1625,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     def _replace_kling_prompt(body_payload, next_prompt):
         body_payload["prompt"] = next_prompt
         for item in body_payload.get("contents") or []:
-            if isinstance(item, dict) and item.get("type") == "text":
+            if isinstance(item, dict) and item.get("type") in {"text", "prompt"}:
                 item["text"] = next_prompt
 
     try:
         endpoint_body = dict(body)
         if input_image:
             endpoint_body["start_image"] = input_image
-        endpoint = _kling_submit_endpoint(provider_model, endpoint_body)
+        endpoint = _kling_motion_endpoint(provider_model) if is_motion_reference else _kling_submit_endpoint(provider_model, endpoint_body)
         print("KLING DEBUG ENDPOINT:", endpoint)
         print("KLING DEBUG PAYLOAD:", kling_body)
         print("KLING DEBUG COST:", cost_info)

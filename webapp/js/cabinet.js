@@ -5876,12 +5876,16 @@ function closeUploadPanel(e) {
     videoState.resolution = template.resolution || '720p';
     videoState.sound = false;
     videoState.startImage = uploadedImage;
+    videoState.inputVideo = template.preview_video || template.reference_video || template.video_url || '';
+    videoState.videoUrl = videoState.inputVideo;
     videoState.klingPresetId = template.preset_id || template.presetId || template.kling_preset_id || '';
     videoState.videoTemplate = {
       id: template.id || '',
       title: template.title || '',
       description: template.description || '',
       prompt: template.prompt || template.video_prompt || template.description || template.title || '',
+      preview_video: template.preview_video || '',
+      reference_video: template.reference_video || template.video_url || template.preview_video || '',
       preset_id: videoState.klingPresetId,
       aspect_ratio: selectedRatio,
     };
@@ -5933,6 +5937,8 @@ function closeUploadPanel(e) {
       document.body.classList.remove('ai-generating');
       videoState.klingPresetId = '';
       videoState.videoTemplate = null;
+      videoState.inputVideo = '';
+      videoState.videoUrl = '';
       renderChat();
       rememberCurrentChatSpace();
     }
