@@ -831,7 +831,7 @@ body:has(.view[data-view="tools"].active) .studio-audio-player{
     flex:0 0 auto;
     min-height:34px;
     height:34px;
-    padding:0 10px;
+    padding:0 14px;
     font-size:11px;
     line-height:1;
     gap:5px;
@@ -850,7 +850,7 @@ body:has(.view[data-view="tools"].active) .studio-audio-player{
     width:16px;
     height:16px;
   }
-  .studio-control-row .image-count-pill{min-width:76px;justify-content:center}
+  .studio-control-row .image-count-pill{min-width:88px;justify-content:center}
   .studio-control-row .image-count-pill b{font-size:11px;line-height:1}
   .studio-control-row .image-count-pill span{font-size:13px;line-height:1}
   .studio-control-row .image-settings-pill{width:34px;min-width:34px;padding:0;justify-content:center}
