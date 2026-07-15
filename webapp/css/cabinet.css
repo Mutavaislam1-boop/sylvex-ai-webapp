@@ -585,10 +585,32 @@ body.kb-open .nav{
 .studio-mini-tab.active{background:#f4f4f4;color:#111}
 .studio-mini-tab:active,.studio-mode-tab:active,.studio-frame-card:active,.studio-select-pill:active{transform:scale(.98)}
 .studio-mode-tab{
-  height:52px;gap:8px;padding:0 18px;border:0;color:#b8b8b8;
-  font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;
+  flex:0 0 auto;
+  min-height:48px;
+  border:0;
+  border-radius:999px;
+  padding:0 22px;
+  background:#244f86;
+  color:#a7a7a7;
+  font-family:inherit;
+  font-size:15px;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  transition:background .2s ease,color .2s ease,transform .15s ease;
 }
-.studio-mode-tab.active{background:#4a4a4a;color:#f4f4f4}
+.studio-mode-tab.active{
+  background:#2f6fbd;
+  color:#fff;
+}
+.studio-mode-tab:hover{
+  background:#2a629f;
+  color:#fff;
+}
 .studio-mode-tab svg{flex:0 0 auto;color:currentColor}
 .studio-video-composer[data-composer-mode="video"] .image-only{display:none !important}
 .studio-video-composer[data-composer-mode="video"] .music-only{display:none !important}
