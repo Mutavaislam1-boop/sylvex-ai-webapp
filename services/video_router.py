@@ -2,6 +2,7 @@ import os
 import json
 import re
 import time
+import copy
 import base64
 import binascii
 import pathlib
@@ -1914,6 +1915,38 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             if isinstance(item, dict) and item.get("type") in {"text", "prompt"}:
                 item["text"] = next_prompt
 
+    def _kling_zero_billing_failure(result_payload):
+        response_payload = result_payload.get("provider_response") if isinstance(result_payload, dict) else {}
+        data_items = response_payload.get("data") if isinstance(response_payload, dict) else []
+        task_payload = data_items[0] if isinstance(data_items, list) and data_items and isinstance(data_items[0], dict) else {}
+        billing_items = task_payload.get("billing") if isinstance(task_payload, dict) else []
+        if not billing_items:
+            return True
+        for item in billing_items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                if float(item.get("amount") or 0) > 0:
+                    return False
+            except Exception:
+                return False
+        return True
+
+    def _kling_should_retry_file_content_error(result_payload):
+        if not isinstance(result_payload, dict) or result_payload.get("ok"):
+            return False
+        raw_text = raw_error_text(result_payload.get("raw_error") or result_payload.get("provider_response") or result_payload, "").lower()
+        if not re.search(r"get.*contents.*file|contents of the file", raw_text):
+            return False
+        return _kling_zero_billing_failure(result_payload)
+
+    def _kling_prepare_retry_payload(body_payload, suffix):
+        retry_payload = copy.deepcopy(body_payload)
+        options_payload = retry_payload.setdefault("options", {})
+        external_id = str(options_payload.get("external_task_id") or payload.get("job_id") or uuid4().hex)
+        options_payload["external_task_id"] = f"{external_id}-{suffix}"[:255]
+        return retry_payload
+
     try:
         endpoint_body = dict(body)
         if input_image_public_url or input_image_content:
@@ -1961,6 +1994,33 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             result = _kling_legacy_poll_until_ready(task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         else:
             result = _kling_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        if _kling_should_retry_file_content_error(result):
+            retry_body = _kling_prepare_retry_payload(kling_body, "retry1")
+            print("KLING FILE CONTENT RETRY:", {
+                "model": model_id,
+                "task_id": task_id,
+                "raw_error": result.get("raw_error"),
+                "external_task_id": (retry_body.get("options") or {}).get("external_task_id"),
+            })
+            retry_response = _request_json(
+                endpoint,
+                {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                retry_body,
+            )
+            retry_data = _safe_provider_json_response(retry_response, "kling", endpoint)
+            _log_provider_response("kling", "SUBMIT_FILE_RETRY", endpoint, retry_body, retry_response, retry_data)
+            retry_status = getattr(retry_response, "status_code", None) or 0
+            if retry_status >= 400 or retry_data.get("ok") is False or retry_data.get("code") not in (None, 0):
+                result = _provider_parse_error("kling", model_id, retry_data)
+            else:
+                retry_task_id = _task_id_from_response(retry_data.get("data") if isinstance(retry_data.get("data"), dict) else retry_data)
+                if retry_task_id:
+                    if is_legacy_model:
+                        result = _kling_legacy_poll_until_ready(retry_task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                    else:
+                        result = _kling_poll_until_ready(retry_task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                else:
+                    result = _provider_error("kling", model_id, "Kling retry task id not found")
         result["model"] = model_id
         result["provider_model"] = provider_model
         result.update(cost_info)
