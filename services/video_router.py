@@ -396,8 +396,6 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "image_url": opts.get("image_url") or payload.get("image_url") or "",
         "motion_preset": opts.get("motion_preset") or "",
         "video_template": opts.get("video_template") or {},
-        "kling_preset_id": opts.get("kling_preset_id") or opts.get("preset_id") or "",
-        "template_id": opts.get("template_id") or "",
         "character_image": opts.get("character_image") or "",
         "native_audio": bool(opts.get("native_audio")),
         "motion_control": bool(opts.get("motion_control")),
@@ -2190,8 +2188,7 @@ async def video_generation(payload: dict) -> dict:
         payload["prompt"] = prompt
 
     raw_options = payload.get("video_options") or payload.get("options") or {}
-    has_template = bool(raw_options.get("kling_preset_id") or raw_options.get("preset_id") or raw_options.get("video_template"))
-    if not prompt and not has_template:
+    if not prompt:
         return {"ok": False, "type": "video", "model": model_id, "provider": provider, "error": "Prompt is required"}
 
     if provider == "seedance" or re.search(r"seedance", model_id, re.I):

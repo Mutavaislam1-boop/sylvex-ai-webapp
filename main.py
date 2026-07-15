@@ -7045,8 +7045,8 @@ def prostudio_video_templates_from_env() -> list:
         template_id = str(item.get("id") or f"template_{index + 1}").strip()
         title = str(item.get("title") or item.get("name") or template_id).strip()
         preview_video = str(item.get("preview_video") or item.get("previewVideo") or item.get("video") or "").strip()
-        preset_id = str(item.get("preset_id") or item.get("presetId") or item.get("kling_preset_id") or "").strip()
-        if not template_id or not title or not preview_video or not preset_id:
+        reference_video = str(item.get("reference_video") or item.get("referenceVideo") or preview_video).strip()
+        if not template_id or not title or not reference_video:
             continue
 
         ratios = item.get("ratios") or item.get("aspect_ratios") or item.get("supported_ratios") or ["16:9", "1:1", "9:16"]
@@ -7084,8 +7084,9 @@ def prostudio_video_templates_from_env() -> list:
                 "duration": duration,
                 "resolution": resolution,
                 "start_image": "template-image",
+                "input_video": reference_video,
+                "video_url": reference_video,
                 "motion_control": True,
-                "kling_preset_id": preset_id,
             },
         }
         cost = estimate_video_generation_cost(cost_payload)
@@ -7098,7 +7099,7 @@ def prostudio_video_templates_from_env() -> list:
             "title": title,
             "description": str(item.get("description") or "").strip(),
             "preview_video": preview_video,
-            "preset_id": preset_id,
+            "reference_video": reference_video,
             "aspect_ratio": default_ratio,
             "ratios": ratios,
             "models": models or ["kling_motion_3_0", "kling_motion_2_6"],

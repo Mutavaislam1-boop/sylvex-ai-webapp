@@ -73,7 +73,6 @@ let videoState = {
   videoUrl: '',
   imageUrl: '',
   motionPreset: '',
-  klingPresetId: '',
   videoTemplate: null,
   referenceImageUrl: '',
   referenceImageUrls: [],
@@ -1087,9 +1086,6 @@ function videoOptionsPayload(referenceImagesOverride) {
     video_url: videoState.videoUrl || '',
     image_url: '',
     motion_preset: videoState.motionPreset || '',
-    kling_preset_id: videoState.klingPresetId || '',
-    preset_id: videoState.klingPresetId || '',
-    template_id: videoState.videoTemplate && videoState.videoTemplate.id ? videoState.videoTemplate.id : '',
     video_template: videoState.videoTemplate || null,
     character_image: videoState.characterImage || '',
     model: videoState.modelId || '',
@@ -5902,7 +5898,6 @@ function closeUploadPanel(e) {
     videoState.startImage = uploadedImage;
     videoState.inputVideo = referenceVideo;
     videoState.videoUrl = videoState.inputVideo;
-    videoState.klingPresetId = template.preset_id || template.presetId || template.kling_preset_id || '';
     videoState.videoTemplate = {
       id: template.id || '',
       title: template.title || '',
@@ -5910,7 +5905,6 @@ function closeUploadPanel(e) {
       prompt: template.prompt || template.video_prompt || template.description || template.title || '',
       preview_video: template.preview_video || '',
       reference_video: referenceVideo,
-      preset_id: videoState.klingPresetId,
       aspect_ratio: selectedRatio,
     };
     normalizeVideoStateForModel();
@@ -5959,7 +5953,6 @@ function closeUploadPanel(e) {
       toast(translateGenerationError(err, 'Генерация не прошла'));
     } finally {
       document.body.classList.remove('ai-generating');
-      videoState.klingPresetId = '';
       videoState.videoTemplate = null;
       videoState.inputVideo = '';
       videoState.videoUrl = '';
