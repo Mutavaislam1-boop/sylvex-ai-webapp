@@ -100,12 +100,12 @@ VIDEO_PROVIDER_MODEL_MAP = {
 VIDEO_PROVIDER_MODEL_MAP.update({
     "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0-motion")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_OMNI_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_EDIT_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o1": {"provider": "kling", "provider_model": os.getenv("KLING_O1_MODEL", "kling-o1"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_2_6_MODEL", "kling-2.6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_motion_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_2_6_MODEL", os.getenv("KLING_2_6_MOTION_MODEL", "kling-2.6-motion")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_motion_2_6": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_2_6_MODEL", os.getenv("KLING_2_6_MOTION_MODEL", "kling-2.6")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_2_5_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_2_5_TURBO_MODEL", "kling-2.5-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_2_1": {"provider": "kling", "provider_model": os.getenv("KLING_2_1_MODEL", "kling-2.1"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_2_1_master": {"provider": "kling", "provider_model": os.getenv("KLING_2_1_MASTER_MODEL", "kling-2.1-master"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
@@ -891,7 +891,7 @@ def _kling_base_url():
 
 def _kling_submit_endpoint(provider_model: str, body: dict):
     kind = "image-to-video" if body.get("start_image") else "text-to-video"
-    return f"{_kling_base_url()}/{kind}/{provider_model}"
+    return f"{_kling_base_url()}/{kind}/{_kling_motion_provider_model(provider_model)}"
 
 
 def _kling_motion_provider_model(provider_model: str):
@@ -903,6 +903,91 @@ def _kling_motion_provider_model(provider_model: str):
 
 def _kling_motion_endpoint(provider_model: str):
     return f"{_kling_base_url()}/motion-control/{_kling_motion_provider_model(provider_model)}"
+
+
+def _kling_resolution(value: str, supported=None):
+    resolution = str(value or "720p").strip().lower()
+    if resolution == "4K".lower():
+        resolution = "4k"
+    supported_values = list(supported or ["720p", "1080p", "4k"])
+    return resolution if resolution in supported_values else supported_values[0]
+
+
+def _kling_duration(value, supported=None):
+    supported_values = supported or {5, 10, 15}
+    try:
+        duration = int(value or 5)
+    except Exception:
+        duration = 5
+    return duration if duration in supported_values else sorted(supported_values)[0]
+
+
+def _kling_aspect_ratio(value):
+    ratio = str(value or "16:9").strip()
+    return ratio if ratio in {"16:9", "9:16", "1:1"} else "16:9"
+
+
+def _kling_options(payload: dict):
+    options = {"watermark_info": {"enabled": False}}
+    if payload.get("job_id"):
+        options["external_task_id"] = str(payload.get("job_id"))
+    return options
+
+
+def _kling_model_family(provider_model: str):
+    return _kling_motion_provider_model(provider_model).lower()
+
+
+def _kling_supports_last_frame(provider_model: str):
+    model = _kling_model_family(provider_model)
+    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6"}
+
+
+def _kling_text_settings(provider_model: str, body: dict):
+    model = _kling_model_family(provider_model)
+    supported_resolutions = {"720p", "1080p"}
+    if model in {"kling-3.0", "kling-3.0-omni"}:
+        supported_resolutions.add("4k")
+    settings = {
+        "duration": _kling_duration(body.get("duration"), {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}),
+        "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
+        "aspect_ratio": _kling_aspect_ratio(body.get("ratio")),
+    }
+    if model in {"kling-3.0", "kling-3.0-omni"}:
+        settings["audio"] = "native" if body.get("sound") else "off"
+        settings["multi_shot"] = True
+    return settings
+
+
+def _kling_image_settings(provider_model: str, body: dict, has_last_frame=False):
+    model = _kling_model_family(provider_model)
+    supported_resolutions = {"720p", "1080p"}
+    if model in {"kling-3.0", "kling-3.0-omni"} and not has_last_frame:
+        supported_resolutions.add("4k")
+    settings = {
+        "duration": _kling_duration(body.get("duration"), {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}),
+        "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
+    }
+    if model in {"kling-3.0", "kling-3.0-omni"}:
+        settings["audio"] = "native" if body.get("sound") else "off"
+        settings["multi_shot"] = True
+    return settings
+
+
+def _kling_motion_settings(provider_model: str, body: dict, raw_options: dict):
+    model = _kling_model_family(provider_model)
+    supported_resolutions = {"720p", "1080p"}
+    if model not in {"kling-3.0", "kling-2.6"}:
+        supported_resolutions = {"720p", "1080p"}
+    orientation = str(raw_options.get("character_orientation") or "video").strip().lower()
+    if orientation not in {"image", "video"}:
+        orientation = "video"
+    audio = "original" if body.get("sound") else "off"
+    return {
+        "character_orientation": orientation,
+        "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
+        "audio": audio,
+    }
 
 
 def _kling_task_endpoint(task_id: str):
@@ -1560,6 +1645,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     )
     input_image = _normalize_kling_image_input(input_image)
     input_image = _materialize_data_image_to_public_url(input_image)
+    end_image = (
+        body.get("end_image")
+        or raw_options.get("end_image")
+        or payload.get("end_image")
+        or ""
+    )
+    end_image = _normalize_kling_image_input(end_image)
+    end_image = _materialize_data_image_to_public_url(end_image)
 
     video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
     input_video = (
@@ -1614,68 +1707,38 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
 
     cost_info = _kling_cost_info(model_id, body)
 
-    kling_preset_id = body.get("kling_preset_id") or video_template.get("preset_id") or ""
     is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
 
     if is_motion_reference:
         kling_body = {
             "contents": [],
-            "settings": {
-                "character_orientation": raw_options.get("character_orientation") or "video",
-                "resolution": body.get("resolution") or "720p",
-                "audio": "original" if body.get("sound") else "off",
-            },
-            "options": {},
+            "settings": _kling_motion_settings(provider_model, body, raw_options),
+            "options": _kling_options(payload),
         }
         if prompt:
             kling_body["contents"].append({"type": "prompt", "text": prompt})
         if input_image:
-            kling_body["contents"].append({"type": "image", "url": _strip_data_url(_absolute_public_url(input_image))})
+            kling_body["contents"].append({"type": "image", "url": _absolute_public_url(input_image)})
         kling_body["contents"].append({"type": "video", "url": input_video})
-        if payload.get("job_id"):
-            kling_body["options"]["external_task_id"] = str(payload.get("job_id"))
-        if not kling_body["options"]:
-            kling_body.pop("options", None)
     else:
-        kling_body = {
-            "settings": {
-                "duration": int(body.get("duration") or 5),
-                "resolution": body.get("resolution") or "720p",
-                "aspect_ratio": body.get("ratio") or "16:9",
-            },
-        }
-        if prompt:
-            kling_body["prompt"] = prompt
-        if kling_preset_id:
-            kling_body["preset_id"] = kling_preset_id
-            kling_body["template_id"] = body.get("template_id") or video_template.get("id") or ""
-        if video_template:
-            kling_body["template"] = {
-                key: video_template.get(key)
-                for key in ("id", "title", "preset_id", "aspect_ratio")
-                if video_template.get(key)
-            }
-
         if input_image:
-            if _is_data_image(input_image):
-                kling_body["contents"] = [
-                    {
-                        "type": "image",
-                        "image": input_image,
-                    },
-                ]
-                if prompt:
-                    kling_body["contents"].append({"type": "text", "text": prompt})
-            else:
-                kling_body["image_url"] = input_image
-                kling_body["contents"] = [
-                    {
-                        "type": "image_url",
-                        "image_url": input_image,
-                    },
-                ]
-                if prompt:
-                    kling_body["contents"].append({"type": "text", "text": prompt})
+            contents = []
+            if prompt:
+                contents.append({"type": "prompt", "text": prompt})
+            contents.append({"type": "first_frame", "url": _absolute_public_url(input_image)})
+            if end_image and _kling_supports_last_frame(provider_model):
+                contents.append({"type": "last_frame", "url": _absolute_public_url(end_image)})
+            kling_body = {
+                "contents": contents,
+                "settings": _kling_image_settings(provider_model, body, bool(end_image and _kling_supports_last_frame(provider_model))),
+                "options": _kling_options(payload),
+            }
+        else:
+            kling_body = {
+                "prompt": prompt or "",
+                "settings": _kling_text_settings(provider_model, body),
+                "options": _kling_options(payload),
+            }
 
     def _kling_prompt_too_long(data):
         text = raw_error_text(data, "").lower()
