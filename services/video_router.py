@@ -40,26 +40,26 @@ VIDEO_MODEL_CONFIG = {
 KLING_BASE_RATIOS = ["16:9", "9:16", "1:1"]
 KLING_FULL_RESOLUTIONS = ["720p", "1080p", "4K"]
 KLING_STANDARD_RESOLUTIONS = ["720p", "1080p"]
+KLING_LONG_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+KLING_SHORT_DURATIONS = [5, 10]
 KLING_DURATIONS = [5, 10, 15]
 
 VIDEO_MODEL_CONFIG.update({
-    "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "motion_control", "video_edit"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
-    "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
-    "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
-    "kling_2_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_motion_2_6": {"provider": "kling", "modes": ["motion_control", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_2_5_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_2_1": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_2_1_master": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_2_0_master": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_1_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "multi_image_to_video", "multi_element_editing", "video_extension"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "multi_image": True, "multi_element_editing": True, "video_extension": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
-    "kling_1_5": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_extension"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_extension": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
-    "kling_1_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_extension"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_extension": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
-    "kling_avatar": {"provider": "kling", "modes": ["avatar"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "avatar": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "kling_lip_sync": {"provider": "kling", "modes": ["lip_sync"], "durations": KLING_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["720p"], "sound": True, "lip_sync": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
+    "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
+    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
+    "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_motion_2_6": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
+    "kling_2_5_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_1": {"provider": "kling", "modes": ["image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_2_1_master": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "kling_2_0_master": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "kling_1_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "multi_image": False, "multi_element_editing": False, "video_extension": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_1_5": {"provider": "kling", "modes": ["image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_extension": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_1_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_extension": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
 })
 
 BYTEPLUS_SEEDANCE_MODEL_MAP = {
@@ -113,8 +113,6 @@ VIDEO_PROVIDER_MODEL_MAP.update({
     "kling_1_6": {"provider": "kling", "provider_model": os.getenv("KLING_1_6_MODEL", "kling-1.6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_1_5": {"provider": "kling", "provider_model": os.getenv("KLING_1_5_MODEL", "kling-1.5"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_1_0": {"provider": "kling", "provider_model": os.getenv("KLING_1_0_MODEL", "kling-1.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_avatar": {"provider": "kling", "provider_model": os.getenv("KLING_AVATAR_MODEL", "kling-avatar"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_lip_sync": {"provider": "kling", "provider_model": os.getenv("KLING_LIP_SYNC_MODEL", "kling-lip-sync"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
 })
 
 
@@ -940,7 +938,7 @@ def _kling_model_family(provider_model: str):
 
 def _kling_supports_last_frame(provider_model: str):
     model = _kling_model_family(provider_model)
-    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6"}
+    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6", "kling-2.5-turbo"}
 
 
 def _kling_text_settings(provider_model: str, body: dict):
@@ -948,14 +946,19 @@ def _kling_text_settings(provider_model: str, body: dict):
     supported_resolutions = {"720p", "1080p"}
     if model in {"kling-3.0", "kling-3.0-omni"}:
         supported_resolutions.add("4k")
+    duration_values = {5, 10} if model in {"kling-2.6", "kling-2.5-turbo"} else {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+    if model == "kling-2.6" and body.get("sound"):
+        supported_resolutions = {"1080p"}
     settings = {
-        "duration": _kling_duration(body.get("duration"), {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}),
+        "duration": _kling_duration(body.get("duration"), duration_values),
         "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
         "aspect_ratio": _kling_aspect_ratio(body.get("ratio")),
     }
     if model in {"kling-3.0", "kling-3.0-omni"}:
         settings["audio"] = "native" if body.get("sound") else "off"
         settings["multi_shot"] = True
+    if model == "kling-2.6":
+        settings["audio"] = "native" if body.get("sound") else "off"
     return settings
 
 
@@ -964,13 +967,22 @@ def _kling_image_settings(provider_model: str, body: dict, has_last_frame=False)
     supported_resolutions = {"720p", "1080p"}
     if model in {"kling-3.0", "kling-3.0-omni"} and not has_last_frame:
         supported_resolutions.add("4k")
+    if model == "kling-2.6" and has_last_frame:
+        supported_resolutions = {"720p"}
+    if model == "kling-2.6" and body.get("sound") and not has_last_frame:
+        supported_resolutions = {"1080p"}
+    if model == "kling-2.5-turbo" and has_last_frame:
+        supported_resolutions = {"1080p"}
+    duration_values = {5, 10} if model in {"kling-2.6", "kling-2.5-turbo"} else {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
     settings = {
-        "duration": _kling_duration(body.get("duration"), {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}),
+        "duration": _kling_duration(body.get("duration"), duration_values),
         "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
     }
     if model in {"kling-3.0", "kling-3.0-omni"}:
         settings["audio"] = "native" if body.get("sound") else "off"
         settings["multi_shot"] = True
+    if model == "kling-2.6":
+        settings["audio"] = "native" if body.get("sound") and not has_last_frame else "off"
     return settings
 
 
@@ -994,11 +1006,49 @@ def _kling_task_endpoint(task_id: str):
     return f"{_kling_base_url()}/tasks?task_ids={task_id}"
 
 
+KLING_LEGACY_MODEL_NAMES = {
+    "kling_2_1": "kling-v2-1",
+    "kling_2_1_master": "kling-v2-1-master",
+    "kling_2_0_master": "kling-v2-master",
+    "kling_1_6": "kling-v1-6",
+    "kling_1_5": "kling-v1-5",
+    "kling_1_0": "kling-v1",
+}
+
+
+def _kling_is_legacy_model(model_id: str):
+    return str(model_id or "").strip() in KLING_LEGACY_MODEL_NAMES
+
+
+def _kling_legacy_submit_endpoint(kind: str):
+    path = "image2video" if kind == "image" else "text2video"
+    return f"{_kling_base_url()}/v1/videos/{path}"
+
+
+def _kling_legacy_task_endpoint(task_id: str, kind: str):
+    path = "image2video" if kind == "image" else "text2video"
+    return f"{_kling_base_url()}/v1/videos/{path}/{task_id}"
+
+
+def _kling_legacy_mode(resolution: str):
+    value = _kling_resolution_key(resolution)
+    if value == "4k":
+        return "4k"
+    if value == "1080p":
+        return "pro"
+    return "std"
+
+
 def _kling_extract_video_url(data: dict):
     tasks = data.get("data") if isinstance(data.get("data"), list) else []
     task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
     if not isinstance(task, dict):
         return None
+    task_result = task.get("task_result") if isinstance(task.get("task_result"), dict) else {}
+    legacy_videos = task_result.get("videos") if isinstance(task_result.get("videos"), list) else []
+    for item in legacy_videos:
+        if isinstance(item, dict) and item.get("url"):
+            return item.get("url")
     outputs = task.get("outputs") or []
     if isinstance(outputs, list):
         for item in outputs:
@@ -1012,7 +1062,7 @@ def _kling_status(data: dict):
     task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
     if not isinstance(task, dict):
         return ""
-    return str(task.get("status") or task.get("state") or "").lower()
+    return str(task.get("status") or task.get("state") or task.get("task_status") or "").lower()
 
 
 def _kling_poll_until_ready(task_id: str, headers: dict):
@@ -1043,6 +1093,36 @@ def _kling_poll_until_ready(task_id: str, headers: dict):
         if attempt < attempts:
             time.sleep(interval)
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_task_endpoint(task_id))
+
+
+def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
+    attempts, interval = _poll_attempt_settings("KLING", 60, 5)
+    last_result = None
+    for attempt in range(1, attempts + 1):
+        endpoint = _kling_legacy_task_endpoint(task_id, kind)
+        response = _request_get(endpoint, headers)
+        data = _safe_provider_json_response(response, "kling", endpoint)
+        _log_provider_response("kling", "POLL_LEGACY", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+        status_code = getattr(response, "status_code", None) or 0
+        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+            return _provider_parse_error("kling", task_id, data)
+        state = _kling_status(data)
+        video_url = _kling_extract_video_url(data)
+        print("KLING LEGACY VIDEO POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": state,
+            "has_video_url": bool(video_url),
+            "video_url": video_url or "",
+        })
+        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+        if state in {"failed", "error", "cancelled"}:
+            return _provider_parse_error("kling", task_id, data)
+        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
+        if attempt < attempts:
+            time.sleep(interval)
+    return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_legacy_task_endpoint(task_id, kind))
 
 
 def _luma_base_url():
@@ -1705,11 +1785,29 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     if requires_image and not input_image:
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
 
-    cost_info = _kling_cost_info(model_id, body)
-
     is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
+    is_legacy_model = _kling_is_legacy_model(model_id)
+    legacy_kind = "image" if input_image else "text"
 
-    if is_motion_reference:
+    if is_legacy_model:
+        legacy_model_name = KLING_LEGACY_MODEL_NAMES.get(model_id) or _kling_motion_provider_model(provider_model)
+        kling_body = {
+            "model_name": legacy_model_name,
+            "prompt": prompt or "",
+            "duration": str(_kling_duration(body.get("duration"), {5, 10})),
+            "mode": _kling_legacy_mode(body.get("resolution")),
+            "watermark_info": {"enabled": False},
+            "sound": "on" if body.get("sound") else "off",
+        }
+        if payload.get("job_id"):
+            kling_body["external_task_id"] = str(payload.get("job_id"))
+        if input_image:
+            kling_body["image"] = _absolute_public_url(input_image)
+            if end_image and model_id in {"kling_2_1", "kling_1_6", "kling_1_5"}:
+                kling_body["image_tail"] = _absolute_public_url(end_image)
+        else:
+            kling_body["aspect_ratio"] = _kling_aspect_ratio(body.get("ratio"))
+    elif is_motion_reference:
         kling_body = {
             "contents": [],
             "settings": _kling_motion_settings(provider_model, body, raw_options),
@@ -1740,6 +1838,32 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                 "options": _kling_options(payload),
             }
 
+    cost_body = dict(body)
+    settings_for_cost = kling_body.get("settings") if isinstance(kling_body.get("settings"), dict) else {}
+    if settings_for_cost:
+        if settings_for_cost.get("resolution"):
+            cost_body["resolution"] = settings_for_cost.get("resolution")
+        if settings_for_cost.get("duration"):
+            cost_body["duration"] = settings_for_cost.get("duration")
+        if settings_for_cost.get("audio") in {"native", "original"}:
+            cost_body["sound"] = True
+            cost_body["native_audio"] = True
+        elif settings_for_cost.get("audio") == "off":
+            cost_body["sound"] = False
+            cost_body["native_audio"] = False
+    if is_legacy_model:
+        cost_body["duration"] = kling_body.get("duration") or cost_body.get("duration")
+        legacy_mode = kling_body.get("mode")
+        if legacy_mode == "pro":
+            cost_body["resolution"] = "1080p"
+        elif legacy_mode == "4k":
+            cost_body["resolution"] = "4k"
+        else:
+            cost_body["resolution"] = "720p"
+        cost_body["sound"] = kling_body.get("sound") == "on"
+        cost_body["native_audio"] = kling_body.get("sound") == "on"
+    cost_info = _kling_cost_info(model_id, cost_body)
+
     def _kling_prompt_too_long(data):
         text = raw_error_text(data, "").lower()
         return bool(re.search(r"prompt.*size.*between|prompt too long|maximum length exceeded|context length exceeded|input too large", text))
@@ -1754,7 +1878,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         endpoint_body = dict(body)
         if input_image:
             endpoint_body["start_image"] = input_image
-        endpoint = _kling_motion_endpoint(provider_model) if is_motion_reference else _kling_submit_endpoint(provider_model, endpoint_body)
+        if is_legacy_model:
+            endpoint = _kling_legacy_submit_endpoint(legacy_kind)
+        else:
+            endpoint = _kling_motion_endpoint(provider_model) if is_motion_reference else _kling_submit_endpoint(provider_model, endpoint_body)
         print("KLING DEBUG ENDPOINT:", endpoint)
         print("KLING DEBUG PAYLOAD:", kling_body)
         print("KLING DEBUG COST:", cost_info)
@@ -1790,7 +1917,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         task_id = _task_id_from_response(data.get("data") if isinstance(data.get("data"), dict) else data)
         if not task_id:
             return _provider_error("kling", model_id, "Kling task id not found")
-        result = _kling_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        if is_legacy_model:
+            result = _kling_legacy_poll_until_ready(task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        else:
+            result = _kling_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         result["model"] = model_id
         result["provider_model"] = provider_model
         result.update(cost_info)
