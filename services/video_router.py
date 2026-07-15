@@ -881,6 +881,14 @@ def _poll_attempt_settings(prefix: str, default_attempts: int = 60, default_inte
     return max(1, min(attempts, 60)), max(1, interval)
 
 
+def _kling_poll_attempt_settings(default_attempts: int = 60, default_interval: int = 5):
+    attempts, interval = _poll_attempt_settings("KLING", default_attempts, default_interval)
+    # Kling Motion Control can stay in "submitted" for more than 50 seconds.
+    # Keep env overrides useful for longer waits, but never let a short
+    # production value end an accepted provider task before it can finish.
+    return max(attempts, default_attempts), interval
+
+
 def _kling_base_url():
     return os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com").rstrip("/")
 
@@ -1064,7 +1072,7 @@ def _kling_status(data: dict):
 
 
 def _kling_poll_until_ready(task_id: str, headers: dict):
-    attempts, interval = _poll_attempt_settings("KLING", 60, 5)
+    attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
     for attempt in range(1, attempts + 1):
         endpoint = _kling_task_endpoint(task_id)
@@ -1094,7 +1102,7 @@ def _kling_poll_until_ready(task_id: str, headers: dict):
 
 
 def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
-    attempts, interval = _poll_attempt_settings("KLING", 60, 5)
+    attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
     for attempt in range(1, attempts + 1):
         endpoint = _kling_legacy_task_endpoint(task_id, kind)
