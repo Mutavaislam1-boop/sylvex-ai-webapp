@@ -3410,16 +3410,26 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   position:fixed;
   inset:0;
   z-index:99991;
-  background:rgba(0,0,0,.78);
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  background:rgba(0,0,0,.22);
   backdrop-filter:blur(10px);
   -webkit-backdrop-filter:blur(10px);
-  overflow-y:auto;
-  padding:calc(18px + env(safe-area-inset-top)) 12px calc(26px + env(safe-area-inset-bottom));
+  overflow:hidden;
+  padding-top:12vh;
 }
 .video-templates-panel{
   position:relative;
-  width:min(1180px,100%);
-  margin:0 auto;
+  width:min(1180px,calc(100% - 24px));
+  max-height:68vh;
+  overflow-y:auto;
+  margin:0;
+  padding:12px;
+  border-radius:22px;
+  background:rgba(18,18,24,.10);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
 }
 .video-templates-close,
 .video-template-modal-close{
