@@ -923,32 +923,35 @@ body:has(.view[data-view="tools"].active) .studio-audio-player{
   opacity:0;pointer-events:none;transition:opacity .25s;z-index:125;
 }
 .hd-backdrop.show{opacity:1;pointer-events:auto}
-.hd-head {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 8px 0;
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: #0B0B0D;
+.hd-head{
+  position:sticky;
+  top:0;
+  z-index:20;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  height:56px;
+  background:rgba(11,11,13,.92);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
 }
-.hd-close {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: transparent;
-  border: none;
-  color: #8D8D92;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: sticky;
-  left: 0;
-  top: 0;
+.hd-close{
+  position:absolute;
+  left:12px;
+  top:50%;
+  transform:translateY(-50%);
+  width:36px;
+  height:36px;
+  border:none;
+  background:transparent;
+  color:#F3F3F3;
+  font-size:26px;
+  line-height:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  z-index:21;
 }
 .hd-close:hover {
   background: #17181C;
