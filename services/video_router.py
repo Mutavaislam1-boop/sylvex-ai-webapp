@@ -2,6 +2,10 @@ import os
 import json
 import re
 import time
+import base64
+import binascii
+import pathlib
+from uuid import uuid4
 import requests
 import httpx
 from urllib.parse import urlparse
@@ -1477,6 +1481,60 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return f"{base}{text}" if base else text
         return text
 
+    def _short_debug_value(value, limit=220):
+        text = str(value or "")
+        if text.startswith("data:image/"):
+            return text[:80] + f"... [data image {len(text)} chars]"
+        return text if len(text) <= limit else text[:limit] + f"... [{len(text)} chars]"
+
+    def _guess_image_ext(content, mime_hint=""):
+        hint = str(mime_hint or "").lower()
+        if "jpeg" in hint or "jpg" in hint:
+            return "jpg"
+        if "webp" in hint:
+            return "webp"
+        if "gif" in hint:
+            return "gif"
+        if content.startswith(b"\xff\xd8\xff"):
+            return "jpg"
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "png"
+        if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            return "webp"
+        if content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
+            return "gif"
+        return "png"
+
+    def _materialize_data_image_to_public_url(value):
+        if not _is_data_image(value):
+            return _absolute_public_url(value)
+        text = value.strip()
+        if ";base64," not in text:
+            return text
+        header, raw = text.split(";base64,", 1)
+        try:
+            content = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError):
+            return text
+        if not content:
+            return text
+        mime_hint = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else ""
+        ext = _guess_image_ext(content, mime_hint)
+        root = pathlib.Path(__file__).resolve().parents[1]
+        image_dir = root / "webapp" / "generated" / "video-inputs"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid4().hex}.{ext}"
+        path = image_dir / filename
+        path.write_bytes(content)
+        public_path = f"/webapp/generated/video-inputs/{filename}"
+        print("KLING DEBUG MATERIALIZED_INPUT_IMAGE:", {
+            "path": str(path),
+            "url": public_path,
+            "bytes": len(content),
+            "exists": path.exists(),
+        })
+        return _absolute_public_url(public_path)
+
     def _normalize_kling_image_input(value):
         if not isinstance(value, str):
             return ""
@@ -1501,6 +1559,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or _first_url(payload.get("uploadedImageUrls"))
     )
     input_image = _normalize_kling_image_input(input_image)
+    input_image = _materialize_data_image_to_public_url(input_image)
 
     video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
     input_video = (
@@ -1541,14 +1600,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     )
 
     print("KLING DEBUG MODE:", video_mode)
-    print("KLING DEBUG BODY START IMAGE:", body.get("start_image"))
-    print("KLING DEBUG BODY IMAGE_URL:", body.get("image_url"))
-    print("KLING DEBUG BODY REFERENCES:", body.get("reference_images"))
-    print("KLING DEBUG RAW OPTIONS START IMAGE:", raw_options.get("start_image"))
-    print("KLING DEBUG RAW OPTIONS IMAGE_URL:", raw_options.get("image_url"))
-    print("KLING DEBUG RAW OPTIONS REFERENCES:", raw_options.get("reference_images") or raw_options.get("referenceImageUrls"))
-    print("KLING DEBUG INPUT_IMAGE:", input_image)
-    print("KLING DEBUG INPUT_VIDEO:", input_video)
+    print("KLING DEBUG BODY START IMAGE:", _short_debug_value(body.get("start_image")))
+    print("KLING DEBUG BODY IMAGE_URL:", _short_debug_value(body.get("image_url")))
+    print("KLING DEBUG BODY REFERENCES:", _short_debug_value(body.get("reference_images")))
+    print("KLING DEBUG RAW OPTIONS START IMAGE:", _short_debug_value(raw_options.get("start_image")))
+    print("KLING DEBUG RAW OPTIONS IMAGE_URL:", _short_debug_value(raw_options.get("image_url")))
+    print("KLING DEBUG RAW OPTIONS REFERENCES:", _short_debug_value(raw_options.get("reference_images") or raw_options.get("referenceImageUrls")))
+    print("KLING DEBUG INPUT_IMAGE:", _short_debug_value(input_image))
+    print("KLING DEBUG INPUT_VIDEO:", _short_debug_value(input_video))
 
     if requires_image and not input_image:
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
