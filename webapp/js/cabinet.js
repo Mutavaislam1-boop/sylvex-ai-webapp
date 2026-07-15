@@ -5803,8 +5803,17 @@ function closeUploadPanel(e) {
     modal.id = 'videoTemplateModal';
     modal.className = 'video-template-modal-backdrop';
     const cost = videoTemplateCostLabel(template);
-    const previewHtml = '<div class="video-template-preview-fallback"><span>▶</span><b>' + S.escapeHtml(template.title || 'Видео') + '</b></div>'
-      + (template.preview_video ? '<video src="' + S.escapeHtml(template.preview_video || '') + '"' + (template.poster_url ? ' poster="' + S.escapeHtml(template.poster_url || '') + '"' : '') + ' autoplay loop muted playsinline onerror="this.style.display=\'none\'"></video>' : '');
+    const previewHtml =
+      '<div class="video-template-preview-fallback"><span>▶</span><b>' + S.escapeHtml(template.title || 'Видео') + '</b></div>'
+      + (template.preview_video
+        ? '<video class="video-template-preview-video" src="' + S.escapeHtml(template.preview_video || '') + '"'
+          + (template.poster_url ? ' poster="' + S.escapeHtml(template.poster_url || '') + '"' : '')
+          + ' autoplay loop muted playsinline preload="auto" webkit-playsinline x5-playsinline'
+          + ' oncanplay="this.play().catch(()=>{})"'
+          + ' onloadeddata="this.play().catch(()=>{})"'
+          + ' onerror="this.style.display=\'none\'">'
+          + '</video>'
+        : '');
     modal.innerHTML = '<div class="video-template-modal">'
       + '<button class="video-template-modal-close" type="button" aria-label="Close">×</button>'
       + '<div class="video-template-preview">' + previewHtml + '</div>'
