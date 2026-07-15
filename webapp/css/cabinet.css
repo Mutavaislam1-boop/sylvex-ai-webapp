@@ -684,12 +684,21 @@ body.kb-open .nav{
   z-index:0;
   display:block;
 }
-.studio-frame-preview img,
-.studio-frame-preview video{
+.studio-frame-preview,
+.studio-frame-preview video,
+.studio-frame-preview img{
   width:100%;
   height:100%;
-  object-fit:cover;
   display:block;
+}
+
+.studio-frame-preview video,
+.studio-frame-preview img{
+  object-fit:cover;
+}
+
+.studio-frame-preview video{
+  background:#000;
 }
 .studio-frame-ico{color:#cfcfcf;display:flex;align-items:center;justify-content:center}
 .studio-image-tools{grid-template-columns:1fr 1fr;gap:6px}
