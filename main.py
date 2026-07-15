@@ -9,6 +9,7 @@ import re
 import base64
 import time
 import traceback
+import threading
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -44,6 +45,7 @@ app.mount("/generated", StaticFiles(directory=WEBAPP_DIR / "generated"), name="g
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
 print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
+PROSTUDIO_SCHEMA_LOCK = threading.Lock()
 PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
@@ -2842,10 +2844,14 @@ def ensure_prostudio_table():
     if not DATABASE_URL:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
+    with PROSTUDIO_SCHEMA_LOCK:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        advisory_locked = False
+        try:
+            cursor.execute("SELECT pg_advisory_lock(%s)", (742193601,))
+            advisory_locked = True
+            cursor.execute("""
         CREATE TABLE IF NOT EXISTS prostudio_messages (
             id SERIAL PRIMARY KEY,
             conversation_id TEXT NOT NULL,
@@ -2857,125 +2863,131 @@ def ensure_prostudio_table():
             created_at TIMESTAMP DEFAULT NOW()
         )
         """)
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_prostudio_messages_user_conv
-        ON prostudio_messages (telegram_id, conversation_id, created_at DESC)
-        """)
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS images_json TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumbnails_json TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumb_url TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS video_url TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS videos_json TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audio_url TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audios_json TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS metadata_json TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed'")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS model TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS provider TEXT")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS cost INTEGER DEFAULT 0")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS request_json JSONB DEFAULT '{}'::jsonb")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS response_json JSONB DEFAULT '{}'::jsonb")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
-        cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS prostudio_drafts (
-            telegram_id BIGINT NOT NULL,
-            mode TEXT NOT NULL,
-            conversation_id TEXT,
-            draft_text TEXT DEFAULT '',
-            attachment_json JSONB DEFAULT '{}'::jsonb,
-            updated_at TIMESTAMP DEFAULT NOW(),
-            PRIMARY KEY (telegram_id, mode)
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS prostudio_resources (
-            id TEXT PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            resource_type TEXT NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            gender TEXT DEFAULT '',
-            preview_url TEXT DEFAULT '',
-            photos_json JSONB DEFAULT '[]'::jsonb,
-            metadata_json JSONB DEFAULT '{}'::jsonb,
-            status TEXT DEFAULT 'ready',
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_prostudio_resources_user_type
-        ON prostudio_resources (telegram_id, resource_type, updated_at DESC)
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS prostudio_generation_jobs (
-            id TEXT PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            conversation_id TEXT,
-            mode TEXT NOT NULL,
-            model TEXT,
-            provider TEXT,
-            prompt TEXT DEFAULT '',
-            status TEXT DEFAULT 'queued',
-            cost INTEGER DEFAULT 0,
-            attempts INTEGER DEFAULT 0,
-            locked_at TIMESTAMP,
-            heartbeat_at TIMESTAMP,
-            request_json JSONB DEFAULT '{}'::jsonb,
-            response_json JSONB DEFAULT '{}'::jsonb,
-            error_json JSONB DEFAULT '{}'::jsonb,
-            result_json JSONB DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW(),
-            completed_at TIMESTAMP
-        )
-        """)
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_user_mode
-        ON prostudio_generation_jobs (telegram_id, mode, updated_at DESC)
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS generation_charges (
-            id SERIAL PRIMARY KEY,
-            generation_id TEXT UNIQUE NOT NULL,
-            telegram_id BIGINT NOT NULL,
-            mode TEXT,
-            model TEXT,
-            provider TEXT,
-            credits INTEGER NOT NULL,
-            balance_after INTEGER,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_generation_charges_user
-        ON generation_charges (telegram_id, created_at DESC)
-        """)
-        cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0")
-        cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
-        cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP")
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS prostudio_errors (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT,
-            job_id TEXT,
-            provider TEXT,
-            model TEXT,
-            endpoint TEXT,
-            request_id TEXT,
-            status TEXT DEFAULT 'failed',
-            error_text TEXT,
-            request_json JSONB DEFAULT '{}'::jsonb,
-            response_json JSONB DEFAULT '{}'::jsonb,
-            stack_trace TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prostudio_messages_user_conv
+            ON prostudio_messages (telegram_id, conversation_id, created_at DESC)
+            """)
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS images_json TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumbnails_json TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumb_url TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS video_url TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS videos_json TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audio_url TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS audios_json TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS metadata_json TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed'")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS model TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS provider TEXT")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS cost INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS request_json JSONB DEFAULT '{}'::jsonb")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS response_json JSONB DEFAULT '{}'::jsonb")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
+            cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_drafts (
+                telegram_id BIGINT NOT NULL,
+                mode TEXT NOT NULL,
+                conversation_id TEXT,
+                draft_text TEXT DEFAULT '',
+                attachment_json JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (telegram_id, mode)
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_resources (
+                id TEXT PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                resource_type TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                gender TEXT DEFAULT '',
+                preview_url TEXT DEFAULT '',
+                photos_json JSONB DEFAULT '[]'::jsonb,
+                metadata_json JSONB DEFAULT '{}'::jsonb,
+                status TEXT DEFAULT 'ready',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prostudio_resources_user_type
+            ON prostudio_resources (telegram_id, resource_type, updated_at DESC)
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_generation_jobs (
+                id TEXT PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                conversation_id TEXT,
+                mode TEXT NOT NULL,
+                model TEXT,
+                provider TEXT,
+                prompt TEXT DEFAULT '',
+                status TEXT DEFAULT 'queued',
+                cost INTEGER DEFAULT 0,
+                attempts INTEGER DEFAULT 0,
+                locked_at TIMESTAMP,
+                heartbeat_at TIMESTAMP,
+                request_json JSONB DEFAULT '{}'::jsonb,
+                response_json JSONB DEFAULT '{}'::jsonb,
+                error_json JSONB DEFAULT '{}'::jsonb,
+                result_json JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                completed_at TIMESTAMP
+            )
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_user_mode
+            ON prostudio_generation_jobs (telegram_id, mode, updated_at DESC)
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS generation_charges (
+                id SERIAL PRIMARY KEY,
+                generation_id TEXT UNIQUE NOT NULL,
+                telegram_id BIGINT NOT NULL,
+                mode TEXT,
+                model TEXT,
+                provider TEXT,
+                credits INTEGER NOT NULL,
+                balance_after INTEGER,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_generation_charges_user
+            ON generation_charges (telegram_id, created_at DESC)
+            """)
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP")
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_errors (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT,
+                job_id TEXT,
+                provider TEXT,
+                model TEXT,
+                endpoint TEXT,
+                request_id TEXT,
+                status TEXT DEFAULT 'failed',
+                error_text TEXT,
+                request_json JSONB DEFAULT '{}'::jsonb,
+                response_json JSONB DEFAULT '{}'::jsonb,
+                stack_trace TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            conn.commit()
+        finally:
+            if advisory_locked:
+                try:
+                    cursor.execute("SELECT pg_advisory_unlock(%s)", (742193601,))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+            cursor.close()
+            conn.close()
 
 def _json_list(value) -> list:
     if isinstance(value, list):
