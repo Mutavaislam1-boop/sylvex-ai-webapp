@@ -3376,28 +3376,25 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 }
 .video-template-intro button{
   width:100%;
-  height:52px;
-  display:flex;
+  min-height:44px;
+  height:44px;
+  padding:0 14px;
+  display:inline-flex;
   align-items:center;
   justify-content:center;
-  gap:8px;
-  padding:0 18px;
-
+  gap:6px;
   border:0;
   border-radius:999px;
-
-  background:#4a4a4a;
-  color:#f4f4f4;
-
-  font:700 15px/1 inherit;
+  background:#2f6fbd;
+  color:#fff;
+  font:700 14px/1.2 inherit;
   cursor:pointer;
-
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
-  transition:background .18s ease, transform .12s ease;
+  box-shadow:none;
+  transition:transform .15s ease, background .2s ease;
 }
 
 .video-template-intro button:hover{
-  background:#565656;
+  background:#3b7dce;
 }
 
 .video-template-intro button:active{
