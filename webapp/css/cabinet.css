@@ -3412,10 +3412,11 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   position:relative;
   display:block;
   width:100%;
-  min-height:112px;
+  aspect-ratio:0.8 / 1;
+  min-height:128px;
   margin:0;
   border:0;
-  border-radius:14px;
+  border-radius:16px;
   overflow:hidden;
   background:#191a1f;
   color:#fff;
@@ -3423,7 +3424,10 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   cursor:pointer;
   box-shadow:0 10px 30px rgba(0,0,0,.22);
 }
-.video-template-card.tall{min-height:156px;grid-row:span 2}
+.video-template-card.tall{
+  min-height:180px;
+  grid-row:span 2;
+}
 .video-template-card video{
   position:absolute;
   inset:0;
@@ -3667,8 +3671,14 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 @media(max-width:560px){
   .video-templates-panel{width:calc(100% - 10px);height:66vh;border-radius:20px;padding:38px 8px 10px}
   .video-templates-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
-  .video-template-card{min-height:94px;border-radius:12px}
-  .video-template-card.tall{min-height:130px}
+  .video-template-card{
+    min-height:108px;
+    border-radius:14px;
+    aspect-ratio:0.8 / 1;
+  }
+  .video-template-card.tall{
+    min-height:130px;
+  }
   .video-template-card-title{font-size:9px;left:5px;right:5px;bottom:6px}
   .video-template-modal-backdrop{padding:10px}
   .video-template-details h3{font-size:24px}
