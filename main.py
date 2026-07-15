@@ -7111,9 +7111,35 @@ def prostudio_video_templates_from_env() -> list:
         })
     return templates
 
+def prostudio_builtin_video_template_slots() -> list:
+    templates = []
+    base_dir = WEBAPP_DIR / "assets" / "video-templates"
+    for index in range(1, 51):
+        slot = f"{index:02d}"
+        template_id = f"builtin_video_template_{index}"
+        slot_dir = base_dir / slot
+        preview_file = slot_dir / "preview.mp4"
+        poster_file = slot_dir / "poster.jpg"
+        preview_exists = preview_file.exists()
+        poster_exists = poster_file.exists()
+        templates.append({
+            "id": template_id,
+            "slot": slot,
+            "preview_exists": preview_exists,
+            "poster_exists": poster_exists,
+            "preview_video": f"/webapp/assets/video-templates/{slot}/preview.mp4" if preview_exists else "",
+            "reference_video": f"/webapp/assets/video-templates/{slot}/preview.mp4" if preview_exists else "",
+            "poster_url": f"/webapp/assets/video-templates/{slot}/poster.jpg" if poster_exists else "",
+            "upload_path": f"webapp/assets/video-templates/{slot}/preview.mp4",
+        })
+    return templates
+
 @app.get("/api/public/prostudio/video-templates")
 async def public_prostudio_video_templates():
-    return {"ok": True, "templates": prostudio_video_templates_from_env()}
+    return {
+        "ok": True,
+        "templates": prostudio_video_templates_from_env() + prostudio_builtin_video_template_slots(),
+    }
 
 @app.get("/api/public/prostudio/download-image")
 async def download_prostudio_image(url: str):

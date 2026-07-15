@@ -5535,6 +5535,7 @@ function closeUploadPanel(e) {
         create: 'Создать',
         imageRequired: 'Загрузите изображение для видео-шаблона',
         ratioRequired: 'Выберите формат видео',
+        templateVideoRequired: 'Для этого видео-шаблона нужно загрузить preview.mp4',
       },
       en: {
         video: 'Video',
@@ -5544,6 +5545,7 @@ function closeUploadPanel(e) {
         create: 'Generate',
         imageRequired: 'Upload an image for this video template',
         ratioRequired: 'Choose a video format',
+        templateVideoRequired: 'Upload preview.mp4 for this video template first',
       },
     };
     return (dict[lang] && dict[lang][key]) || dict.ru[key] || key;
@@ -5710,20 +5712,39 @@ function closeUploadPanel(e) {
     return clean.length ? clean : ['16:9', '1:1', '9:16'];
   }
 
+  function videoTemplateReferenceVideo(template) {
+    if (!template) return '';
+    return String(template.reference_video || template.video_url || template.template_video_url || template.preview_video || '').trim();
+  }
+
   function normalizeVideoTemplateList(items) {
     const incoming = Array.isArray(items) ? items : [];
     const defaults = defaultVideoTemplateItems();
     const byId = new Map();
-    incoming.concat(defaults).forEach((item) => {
+    defaults.forEach((item) => {
       if (!item || typeof item !== 'object') return;
       const id = String(item.id || '').trim();
-      if (!id || byId.has(id)) return;
+      if (!id) return;
       const credits = Number(item.cost_credits || item.cost || 0) || 95;
       byId.set(id, Object.assign({}, item, {
         prompt: item.prompt || item.video_prompt || item.description || item.title || '',
         ratios: videoTemplateRatios(item),
         cost_credits: credits,
         generation_cost: item.generation_cost || (credits + ' ⚡'),
+      }));
+    });
+    incoming.forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const id = String(item.id || '').trim();
+      if (!id) return;
+      const existing = byId.get(id) || {};
+      const merged = Object.assign({}, existing, item);
+      const credits = Number(merged.cost_credits || merged.cost || 0) || 95;
+      byId.set(id, Object.assign({}, merged, {
+        prompt: merged.prompt || merged.video_prompt || merged.description || merged.title || '',
+        ratios: videoTemplateRatios(merged),
+        cost_credits: credits,
+        generation_cost: merged.generation_cost || (credits + ' ⚡'),
       }));
     });
     return Array.from(byId.values()).slice(0, 50);
@@ -5743,7 +5764,7 @@ function closeUploadPanel(e) {
       const id = S.escapeHtml(template.id || String(index));
       const encodedId = encodeURIComponent(String(template.id || index));
       const title = S.escapeHtml(template.title || template.id || 'Video');
-      const src = S.escapeHtml(template.preview_video || '');
+      const src = S.escapeHtml(videoTemplateReferenceVideo(template));
       const poster = S.escapeHtml(template.poster_url || '');
       const tall = index % 5 === 0 || String(template.aspect_ratio || '').includes('9:16');
       return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
@@ -5860,6 +5881,11 @@ function closeUploadPanel(e) {
       toast(videoTemplateText('ratioRequired'));
       return;
     }
+    const referenceVideo = videoTemplateReferenceVideo(template);
+    if (!referenceVideo) {
+      toast(videoTemplateText('templateVideoRequired'));
+      return;
+    }
     const modelId = templatePreferredModel(template);
     const uploadedImage = videoTemplateUploadUrl;
     const selectedRatio = videoTemplateRatio;
@@ -5876,7 +5902,7 @@ function closeUploadPanel(e) {
     videoState.resolution = template.resolution || '720p';
     videoState.sound = false;
     videoState.startImage = uploadedImage;
-    videoState.inputVideo = template.preview_video || template.reference_video || template.video_url || '';
+    videoState.inputVideo = referenceVideo;
     videoState.videoUrl = videoState.inputVideo;
     videoState.klingPresetId = template.preset_id || template.presetId || template.kling_preset_id || '';
     videoState.videoTemplate = {
@@ -5885,7 +5911,7 @@ function closeUploadPanel(e) {
       description: template.description || '',
       prompt: template.prompt || template.video_prompt || template.description || template.title || '',
       preview_video: template.preview_video || '',
-      reference_video: template.reference_video || template.video_url || template.preview_video || '',
+      reference_video: referenceVideo,
       preset_id: videoState.klingPresetId,
       aspect_ratio: selectedRatio,
     };
