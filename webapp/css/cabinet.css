@@ -3575,15 +3575,35 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   right:16px;
 }
 .video-template-preview{
+  position:relative;
   min-height:430px;
   background:#0b0b0d;
   border-right:1px solid rgba(255,255,255,.08);
+  overflow:hidden;
 }
 .video-template-preview video{
   width:100%;
   height:100%;
   object-fit:cover;
 }
+
+.video-template-preview video{
+  position:absolute;
+  inset:0;
+  z-index:2;
+}
+
+.video-template-preview-fallback{
+  position:absolute;
+  inset:0;
+  z-index:1;
+}
+
+.video-template-preview video:not([src]),
+.video-template-preview video[src=""]{
+  display:none;
+}
+
 .video-template-preview-fallback{width:100%;height:100%;display:grid;place-items:center;gap:12px;align-content:center;color:#fff;text-align:center;background:radial-gradient(circle at 35% 22%,rgba(73,142,255,.36),transparent 34%),radial-gradient(circle at 75% 72%,rgba(255,255,255,.13),transparent 32%),linear-gradient(135deg,#111217,#30323b)}
 .video-template-preview-fallback span{width:72px;height:72px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.12);font-size:30px;padding-left:4px}
 .video-template-preview-fallback b{max-width:80%;font-size:24px}
