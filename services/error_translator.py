@@ -57,7 +57,7 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
         return "Выбранное разрешение временно недоступно для этой модели. Измените настройки и попробуйте снова."
     if re.search(r"image too large|file too large|payload too large|413", low):
         return "Размер изображения превышает допустимый лимит.\nУменьшите размер файла и повторите попытку."
-    if re.search(r"invalid image|image.*invalid|cannot process.*image|bad image|unsupported image", low):
+    if re.search(r"invalid image|image.*invalid|cannot process.*image|bad image|unsupported image|get.*contents.*file|contents of the file", low):
         return "Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение."
     if re.search(r"sensitive|safety|policy|moderation|blocked|content.*violat", low):
         return "Запрос не может быть обработан из-за ограничений выбранной AI-модели.\nПопробуйте изменить изображение или описание."

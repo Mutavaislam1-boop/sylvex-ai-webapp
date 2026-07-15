@@ -290,12 +290,25 @@ def _log_provider_response(provider: str, label: str, url: str, payload: dict, r
     body_preview = _safe_response_text(response)[:4000]
     print(f"{provider.upper()} {label} RESPONSE DEBUG:", {
         "request_url": url,
-        "request_payload": payload,
+        "request_payload": _sanitize_debug_payload(payload),
         "http_status": status,
         "response_headers": _response_headers_dict(response),
         "response_body": body_preview,
         "json_body": data if isinstance(data, dict) else None,
     })
+
+
+def _sanitize_debug_payload(value, limit: int = 260):
+    if isinstance(value, dict):
+        return {key: _sanitize_debug_payload(item, limit) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_debug_payload(item, limit) for item in value]
+    if isinstance(value, str) and len(value) > limit:
+        prefix = value[:80]
+        if value.startswith("data:") or len(value) > 1000:
+            return f"{prefix}... [{len(value)} chars]"
+        return f"{value[:limit]}... [{len(value)} chars]"
+    return value
 
 
 def _provider_for_model(model_id: str):
@@ -1311,8 +1324,16 @@ def _safe_provider_json_response(response, provider: str, endpoint: str):
 def _provider_parse_error(provider: str, model_id: str, data: dict):
     provider_message = ""
     if isinstance(data, dict):
+        nested_data = data.get("data")
+        if isinstance(nested_data, list) and nested_data:
+            first_item = nested_data[0] if isinstance(nested_data[0], dict) else {}
+            if isinstance(first_item, dict):
+                provider_message = first_item.get("message") or first_item.get("error") or ""
+        elif isinstance(nested_data, dict):
+            provider_message = nested_data.get("message") or nested_data.get("error") or ""
         provider_message = (
-            data.get("message")
+            provider_message
+            or data.get("message")
             or data.get("msg")
             or data.get("detail")
             or data.get("details")
@@ -1321,8 +1342,8 @@ def _provider_parse_error(provider: str, model_id: str, data: dict):
         )
         if not provider_message and data.get("code") not in (None, 0):
             provider_message = f"Provider error code {data.get('code')}"
-    raw_message = raw_error_text(data, "")
-    user_message = translate_provider_error(data, provider=provider, model=model_id)
+    raw_message = provider_message or raw_error_text(data, "")
+    user_message = translate_provider_error(raw_message or data, provider=provider, model=model_id)
     result = {
         "ok": False,
         "type": "video",
@@ -1714,6 +1735,16 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return ""
         return value
 
+    def _kling_image_content_value(value):
+        if not isinstance(value, str):
+            return ""
+        text = value.strip()
+        if not text:
+            return ""
+        if _is_data_image(text):
+            return _strip_data_url(text)
+        return _absolute_public_url(text)
+
     input_image = (
         body.get("start_image")
         or raw_options.get("start_image")
@@ -1730,7 +1761,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or _first_url(payload.get("uploadedImageUrls"))
     )
     input_image = _normalize_kling_image_input(input_image)
-    input_image = _materialize_data_image_to_public_url(input_image)
+    input_image_content = _kling_image_content_value(input_image)
+    input_image_public_url = _materialize_data_image_to_public_url(input_image)
     end_image = (
         body.get("end_image")
         or raw_options.get("end_image")
@@ -1738,7 +1770,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or ""
     )
     end_image = _normalize_kling_image_input(end_image)
-    end_image = _materialize_data_image_to_public_url(end_image)
+    end_image_content = _kling_image_content_value(end_image)
+    end_image_public_url = _materialize_data_image_to_public_url(end_image)
 
     video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
     input_video = (
@@ -1775,7 +1808,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
 
     requires_image = (
         video_mode in {"image_to_video", "image to video", "motion_control", "motion control"}
-        or bool(input_image)
+        or bool(input_image_content)
     )
 
     print("KLING DEBUG MODE:", video_mode)
@@ -1785,15 +1818,16 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     print("KLING DEBUG RAW OPTIONS START IMAGE:", _short_debug_value(raw_options.get("start_image")))
     print("KLING DEBUG RAW OPTIONS IMAGE_URL:", _short_debug_value(raw_options.get("image_url")))
     print("KLING DEBUG RAW OPTIONS REFERENCES:", _short_debug_value(raw_options.get("reference_images") or raw_options.get("referenceImageUrls")))
-    print("KLING DEBUG INPUT_IMAGE:", _short_debug_value(input_image))
+    print("KLING DEBUG INPUT_IMAGE:", _short_debug_value(input_image_public_url or input_image_content))
+    print("KLING DEBUG INPUT_IMAGE_CONTENT:", _short_debug_value(input_image_content))
     print("KLING DEBUG INPUT_VIDEO:", _short_debug_value(input_video))
 
-    if requires_image and not input_image:
+    if requires_image and not input_image_content:
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
 
     is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
     is_legacy_model = _kling_is_legacy_model(model_id)
-    legacy_kind = "image" if input_image else "text"
+    legacy_kind = "image" if (input_image_public_url or input_image_content) else "text"
 
     if is_legacy_model:
         legacy_model_name = KLING_LEGACY_MODEL_NAMES.get(model_id) or _kling_motion_provider_model(provider_model)
@@ -1807,10 +1841,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         }
         if payload.get("job_id"):
             kling_body["external_task_id"] = str(payload.get("job_id"))
-        if input_image:
-            kling_body["image"] = _absolute_public_url(input_image)
-            if end_image and model_id in {"kling_2_1", "kling_1_6", "kling_1_5"}:
-                kling_body["image_tail"] = _absolute_public_url(end_image)
+        if input_image_public_url or input_image_content:
+            kling_body["image"] = input_image_public_url or input_image_content
+            if (end_image_public_url or end_image_content) and model_id in {"kling_2_1", "kling_1_6", "kling_1_5"}:
+                kling_body["image_tail"] = end_image_public_url or end_image_content
         else:
             kling_body["aspect_ratio"] = _kling_aspect_ratio(body.get("ratio"))
     elif is_motion_reference:
@@ -1821,20 +1855,20 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         }
         if prompt:
             kling_body["contents"].append({"type": "prompt", "text": prompt})
-        if input_image:
-            kling_body["contents"].append({"type": "image", "url": _absolute_public_url(input_image)})
+        if input_image_content:
+            kling_body["contents"].append({"type": "image", "url": input_image_content})
         kling_body["contents"].append({"type": "video", "url": input_video})
     else:
-        if input_image:
+        if input_image_content:
             contents = []
             if prompt:
                 contents.append({"type": "prompt", "text": prompt})
-            contents.append({"type": "first_frame", "url": _absolute_public_url(input_image)})
-            if end_image and _kling_supports_last_frame(provider_model):
-                contents.append({"type": "last_frame", "url": _absolute_public_url(end_image)})
+            contents.append({"type": "first_frame", "url": input_image_content})
+            if end_image_content and _kling_supports_last_frame(provider_model):
+                contents.append({"type": "last_frame", "url": end_image_content})
             kling_body = {
                 "contents": contents,
-                "settings": _kling_image_settings(provider_model, body, bool(end_image and _kling_supports_last_frame(provider_model))),
+                "settings": _kling_image_settings(provider_model, body, bool(end_image_content and _kling_supports_last_frame(provider_model))),
                 "options": _kling_options(payload),
             }
         else:
@@ -1882,14 +1916,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
 
     try:
         endpoint_body = dict(body)
-        if input_image:
-            endpoint_body["start_image"] = input_image
+        if input_image_public_url or input_image_content:
+            endpoint_body["start_image"] = input_image_public_url or input_image_content
         if is_legacy_model:
             endpoint = _kling_legacy_submit_endpoint(legacy_kind)
         else:
             endpoint = _kling_motion_endpoint(provider_model) if is_motion_reference else _kling_submit_endpoint(provider_model, endpoint_body)
         print("KLING DEBUG ENDPOINT:", endpoint)
-        print("KLING DEBUG PAYLOAD:", kling_body)
+        print("KLING DEBUG PAYLOAD:", _sanitize_debug_payload(kling_body))
         print("KLING DEBUG COST:", cost_info)
         response = _request_json(
             endpoint,
