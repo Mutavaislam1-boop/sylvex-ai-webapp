@@ -737,14 +737,17 @@ body.kb-open .nav{
 .image-count-pill span{color:#9a9a9a;font-size:18px;line-height:1}
 .image-settings-pill{width:48px;min-width:48px;justify-content:center;padding:0;border-radius:50%}
 .studio-audio-player{
-  position:fixed;left:12px;right:12px;bottom:calc(86px + env(safe-area-inset-bottom));
+  position:fixed;left:12px;right:12px;bottom:calc(120px + env(safe-area-inset-bottom));
   z-index:99990;display:none;align-items:center;gap:10px;margin:0;padding:8px 12px;
-  min-height:54px;border-radius:18px;background:#181818;border:1px solid rgba(255,255,255,.10);
+  min-height:54px;border-radius:18px;background:rgba(24,24,24,.55);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  border:1px solid rgba(255,255,255,.08);
   box-shadow:0 14px 42px -24px rgba(0,0,0,.9);color:#f4f4f4;
   max-width:760px;margin-left:auto;margin-right:auto;pointer-events:auto;
 }
 body:has(.view[data-view="tools"].active) .studio-audio-player{
-  bottom:calc(10px + env(safe-area-inset-bottom));
+  bottom:calc(44px + env(safe-area-inset-bottom));
 }
 .studio-audio-player.is-visible{
   display:flex;
