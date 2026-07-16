@@ -330,6 +330,86 @@ def _load_media_content_part(url: str, media_type: str):
         return {}
 
 
+def _read_media_bytes(url: str, media_type: str):
+    raw = str(url or "").strip()
+    if not raw:
+        return b"", ""
+    default_mime = "video/mp4" if media_type == "video" else "image/jpeg"
+    try:
+        if raw.startswith("data:") and ";base64," in raw:
+            header, data = raw.split(";base64,", 1)
+            mime_type = header.replace("data:", "").split(";", 1)[0] or default_mime
+            return base64.b64decode(data, validate=True), mime_type
+        if raw.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            return local_path.read_bytes(), _guess_mime_from_url(raw, default_mime)
+        if raw.startswith("/generated/"):
+            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            return local_path.read_bytes(), _guess_mime_from_url(raw, default_mime)
+        response = requests.get(raw, timeout=120)
+        response.raise_for_status()
+        mime_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip() or _guess_mime_from_url(raw, default_mime)
+        return response.content, mime_type
+    except Exception as exc:
+        print("GEMINI MEDIA READ FAILED:", {"type": media_type, "url": raw[:180], "error": type(exc).__name__})
+        return b"", ""
+
+
+def _gemini_upload_file_from_url(url: str, api_key: str, media_type: str):
+    content, mime_type = _read_media_bytes(url, media_type)
+    if not content:
+        return {}
+    display_name = f"sylvex-{media_type}-{uuid4().hex}"
+    start_url = "https://generativelanguage.googleapis.com/upload/v1beta/files"
+    start_headers = {
+        "x-goog-api-key": api_key,
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": str(len(content)),
+        "X-Goog-Upload-Header-Content-Type": mime_type,
+        "Content-Type": "application/json",
+    }
+    metadata = {"file": {"display_name": display_name}}
+    try:
+        start_response = requests.post(start_url, headers=start_headers, json=metadata, timeout=60)
+        upload_url = start_response.headers.get("x-goog-upload-url") or start_response.headers.get("X-Goog-Upload-URL")
+        if start_response.status_code >= 400 or not upload_url:
+            data = _safe_provider_json_response(start_response, "gemini", start_url)
+            _log_provider_response("gemini", "FILE_UPLOAD_START", start_url, metadata, start_response, data)
+            return {}
+        upload_headers = {
+            "Content-Length": str(len(content)),
+            "X-Goog-Upload-Offset": "0",
+            "X-Goog-Upload-Command": "upload, finalize",
+        }
+        upload_response = requests.post(upload_url, headers=upload_headers, data=content, timeout=180)
+        data = _safe_provider_json_response(upload_response, "gemini", upload_url)
+        _log_provider_response("gemini", "FILE_UPLOAD", upload_url, {"display_name": display_name, "mime_type": mime_type, "bytes": len(content)}, upload_response, data)
+        if upload_response.status_code >= 400:
+            return {}
+        file_info = data.get("file") if isinstance(data.get("file"), dict) else data
+        file_name = file_info.get("name") if isinstance(file_info, dict) else ""
+        file_uri = file_info.get("uri") if isinstance(file_info, dict) else ""
+        for _ in range(18):
+            raw_state = (file_info or {}).get("state") if isinstance(file_info, dict) else ""
+            state = str(raw_state.get("name") if isinstance(raw_state, dict) else raw_state or "").upper()
+            if state in {"ACTIVE", "FAILED"}:
+                break
+            if not file_name:
+                break
+            time.sleep(5)
+            status_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}"
+            status_response = requests.get(status_url, headers={"x-goog-api-key": api_key}, timeout=30)
+            status_data = _safe_provider_json_response(status_response, "gemini", status_url)
+            file_info = status_data.get("file") if isinstance(status_data.get("file"), dict) else status_data
+            file_uri = file_info.get("uri") if isinstance(file_info, dict) else file_uri
+        if file_uri:
+            return {"type": media_type, "uri": file_uri, "mime_type": mime_type}
+    except Exception as exc:
+        print("GEMINI FILE UPLOAD FAILED:", {"type": media_type, "error": type(exc).__name__})
+    return {}
+
+
 def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
     if not content:
         return ""
@@ -2524,7 +2604,7 @@ def _call_gemini_video(model_id: str, prompt: str, payload: dict):
 
     if mode in {"video_edit", "edit"} or body.get("input_video") or body.get("video_url") or body.get("reference_video"):
         video_url = body.get("input_video") or body.get("video_url") or body.get("reference_video")
-        part = _load_media_content_part(video_url, "video")
+        part = _gemini_upload_file_from_url(video_url, api_key, "video") or _load_media_content_part(video_url, "video")
         if not part:
             return _provider_error("gemini", model_id, "Для Gemini Video Edit нужно загрузить видео")
         input_items = [part]
