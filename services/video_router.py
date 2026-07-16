@@ -33,7 +33,7 @@ VIDEO_MODEL_CONFIG = {
     "runway_aleph": {"provider": "runway", "modes": ["video_edit", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "runway_gen": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "minimax_hailuo_2_3": {"provider": "minimax", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "pixverse_v6": {"provider": "pixverse", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "pixverse_v6": {"provider": "pixverse", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "sora_2": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "sora_2_pro": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "veo_3_1": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -94,7 +94,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
     "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
     "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
-    "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://api.pixverse.io/v1/videos/generations")},
+    "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL", "v6"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://app-api.pixverse.ai/openapi/v2")},
     "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
     "wan_2_7": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_MODEL", "wan2.7-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
@@ -284,6 +284,105 @@ def _wan_seed(value):
     if 0 <= seed <= 2147483647:
         return seed
     return None
+
+
+def _pixverse_base_url():
+    return os.getenv("PIXVERSE_API_ENDPOINT", "https://app-api.pixverse.ai/openapi/v2").rstrip("/")
+
+
+def _pixverse_headers(api_key: str, content_type: str = "application/json"):
+    headers = {
+        "API-KEY": api_key,
+        "Ai-trace-id": str(uuid4()),
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
+
+
+def _pixverse_duration(value):
+    try:
+        duration = int(value or 5)
+    except (TypeError, ValueError):
+        duration = 5
+    return 8 if duration >= 8 else 5
+
+
+def _pixverse_quality(value):
+    text = str(value or "720p").lower()
+    if "1080" in text:
+        return "1080p"
+    if "540" in text:
+        return "540p"
+    if "360" in text:
+        return "360p"
+    return "720p"
+
+
+def _pixverse_seed(value):
+    if value in (None, ""):
+        return None
+    try:
+        seed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= seed <= 2147483647:
+        return seed
+    return None
+
+
+def _pixverse_resp(data):
+    return data.get("Resp") if isinstance(data, dict) and isinstance(data.get("Resp"), dict) else {}
+
+
+def _pixverse_response_failed(data):
+    if not isinstance(data, dict):
+        return False
+    err_code = data.get("ErrCode")
+    if err_code in (None, 0, "0"):
+        return False
+    return True
+
+
+def _pixverse_error(provider_model: str, data: dict):
+    message = ""
+    if isinstance(data, dict):
+        message = str(data.get("ErrMsg") or data.get("message") or data.get("error") or data)
+    return _provider_parse_error("pixverse", provider_model, {"message": message or "PixVerse provider error", "provider_response": data})
+
+
+def _pixverse_video_id(data):
+    resp = _pixverse_resp(data)
+    value = resp.get("video_id") or resp.get("id") or data.get("video_id") if isinstance(data, dict) else None
+    return str(value) if value not in (None, "") else ""
+
+
+def _pixverse_upload_image(api_key: str, image_url: str, model_id: str):
+    source = _public_input_url(image_url)
+    if not source:
+        return None, _provider_error("pixverse", model_id, "PixVerse image-to-video requires an image")
+    content, mime_type = _read_media_bytes(source, "image")
+    if not content:
+        return None, _provider_error("pixverse", model_id, "PixVerse image upload could not read the image")
+    endpoint = f"{_pixverse_base_url()}/image/upload"
+    try:
+        response = _request_form(
+            endpoint,
+            _pixverse_headers(api_key, content_type=""),
+            {},
+            files={"image": ("image", content, mime_type or "image/jpeg")},
+        )
+        data = _safe_provider_json_response(response, "pixverse", endpoint)
+        _log_provider_response("pixverse", "UPLOAD_IMAGE", endpoint, {"image": source}, response, data)
+        status = getattr(response, "status_code", 0) or 0
+        if status >= 400 or data.get("ok") is False or _pixverse_response_failed(data):
+            return None, _pixverse_error(model_id, data)
+        img_id = _pixverse_resp(data).get("img_id")
+        if img_id in (None, ""):
+            return None, _provider_error("pixverse", model_id, "PixVerse image upload returned no img_id")
+        return int(img_id), None
+    except Exception as exc:
+        return None, _provider_error("pixverse", model_id, f"Provider image upload failed: {exc}")
 
 
 def _runway_ratio(ratio: str, resolution: str):
@@ -1762,6 +1861,30 @@ async def poll_video_generation(result: dict) -> dict:
         if not api_key:
             return _provider_error("luma", model_id, "Provider API key is missing: LUMA_AGENTS_API_KEY")
         return _luma_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    if provider == "pixverse":
+        api_key = _get_env("PIXVERSE_API_KEY")
+        if not api_key:
+            return _provider_error("pixverse", model_id, "Provider API key is missing: PIXVERSE_API_KEY")
+        endpoint = str(result.get("poll_url") or f"{_pixverse_base_url()}/video/result/{task_id}")
+        try:
+            response = _request_get(endpoint, _pixverse_headers(api_key, content_type=""))
+            data = _safe_provider_json_response(response, "pixverse", endpoint)
+            _log_provider_response("pixverse", "POLL", endpoint, {}, response, data)
+            status_code = getattr(response, "status_code", 0) or 0
+            if status_code >= 400 or data.get("ok") is False or _pixverse_response_failed(data):
+                return _pixverse_error(model_id, data)
+            resp = _pixverse_resp(data)
+            pix_status = int(resp.get("status") or 0)
+            urls = _normalize_video_urls(data)
+            if pix_status == 1 and urls:
+                result = _provider_success("pixverse", model_id, urls, status="completed", task_id=str(task_id))
+                result["provider_response"] = data
+                return result
+            if pix_status in {7, 8}:
+                return _pixverse_error(model_id, data)
+            return _provider_success("pixverse", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+        except Exception as exc:
+            return _provider_error("pixverse", model_id, f"Provider polling failed: {exc}")
     if provider == "wan":
         api_key = _get_env("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY", "ALIBABA_API_KEY")
         if not api_key:
@@ -2903,23 +3026,83 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "pixverse")
     body = _build_video_payload(model_id, prompt, payload)
+    opts = payload.get("video_options") or payload.get("options") or {}
+    start_image = body.get("start_image") or body.get("image_url") or ""
+    end_image = body.get("end_image") or ""
+    template_id = (
+        opts.get("template_id")
+        or opts.get("templateId")
+        or body.get("motion_preset")
+        or (body.get("video_template") or {}).get("preset_id")
+        or (body.get("video_template") or {}).get("template_id")
+        or ""
+    )
     pixverse_body = {
         "model": provider_model,
-        "prompt": prompt,
+        "prompt": prompt or "",
         "aspect_ratio": body.get("ratio") or "16:9",
-        "duration": int(body.get("duration") or 5),
-        "quality": body.get("resolution") or body.get("quality") or "720p",
+        "duration": _pixverse_duration(body.get("duration")),
+        "quality": _pixverse_quality(body.get("resolution") or body.get("quality")),
+        "motion_mode": opts.get("motion_mode") or "normal",
+        "water_mark": bool(opts.get("water_mark", False)),
     }
-    if body.get("start_image"):
-        pixverse_body["image_url"] = body.get("start_image")
+    seed = _pixverse_seed(body.get("seed"))
+    if seed is not None:
+        pixverse_body["seed"] = seed
+    negative_prompt = str(opts.get("negative_prompt") or payload.get("negative_prompt") or "").strip()
+    if negative_prompt:
+        pixverse_body["negative_prompt"] = negative_prompt[:500]
+    if template_id:
+        pixverse_body["template_id"] = int(template_id) if str(template_id).isdigit() else template_id
     try:
-        endpoint = os.getenv("PIXVERSE_API_ENDPOINT", "https://api.pixverse.io/v1/videos/generations")
+        endpoint = f"{_pixverse_base_url()}/video/text/generate"
+        if start_image or end_image or template_id:
+            img_id, error = _pixverse_upload_image(api_key, start_image, model_id)
+            if error:
+                return error
+            pixverse_body["img_id"] = img_id
+            endpoint = f"{_pixverse_base_url()}/video/img/generate"
+            if end_image:
+                end_img_id, error = _pixverse_upload_image(api_key, end_image, model_id)
+                if error:
+                    return error
+                pixverse_body.pop("img_id", None)
+                pixverse_body["first_frame_img"] = img_id
+                pixverse_body["last_frame_img"] = end_img_id
+                endpoint = f"{_pixverse_base_url()}/video/transition/generate"
+        print("PIXVERSE SUBMIT REQUEST:", {
+            "endpoint": endpoint,
+            "frontend_model": model_id,
+            "provider_model": provider_model,
+            "has_start_image": bool(start_image),
+            "has_end_image": bool(end_image),
+            "has_template": bool(template_id),
+            "payload": _sanitize_debug_payload(pixverse_body),
+        })
         response = _request_json(
             endpoint,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            _pixverse_headers(api_key),
             pixverse_body,
         )
-        return _provider_result_from_response("pixverse", model_id, response, endpoint)
+        data = _safe_provider_json_response(response, "pixverse", endpoint)
+        _log_provider_response("pixverse", "SUBMIT", endpoint, pixverse_body, response, data)
+        status = getattr(response, "status_code", 0) or 0
+        if status >= 400 or data.get("ok") is False or _pixverse_response_failed(data):
+            return _pixverse_error(model_id, data)
+        urls = _normalize_video_urls(data)
+        if urls:
+            result = _provider_success("pixverse", model_id, urls, status="completed")
+            result["provider_model"] = provider_model
+            result["provider_response"] = data
+            return result
+        video_id = _pixverse_video_id(data)
+        if video_id:
+            result = _provider_success("pixverse", model_id, [], status="processing", task_id=video_id, poll_url=f"{_pixverse_base_url()}/video/result/{video_id}")
+            result["provider_model"] = provider_model
+            result["request_payload"] = pixverse_body
+            result["provider_response"] = data
+            return result
+        return _provider_error("pixverse", model_id, "Provider returned no video URL or video_id")
     except Exception as exc:
         return _provider_error("pixverse", model_id, f"Provider request failed: {exc}")
 
