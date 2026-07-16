@@ -3513,7 +3513,8 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         result_url = videos[0] if videos else ""
     else:
         result_url = audios[0] if audios else ""
-    return {
+    provider_metadata = _json_obj(result.get("metadata"))
+    metadata = {
         "type": mode,
         "result_url": result_url,
         "full_url": result_url,
@@ -3568,6 +3569,16 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "title": result.get("title") or "",
         "sent_to_telegram": bool(result.get("sent_to_telegram")),
     }
+    if provider_metadata:
+        metadata["provider_metadata"] = provider_metadata
+        for key in (
+            "last_frame_url", "seed", "resolution", "ratio", "duration",
+            "frames", "framespersecond", "generate_audio", "usage",
+            "service_tier", "draft", "draft_task_id", "execution_expires_after",
+        ):
+            if provider_metadata.get(key) is not None and metadata.get(key) in (None, ""):
+                metadata[key] = provider_metadata.get(key)
+    return metadata
 
 def materialize_data_image_url(url: str) -> str:
     value = str(url or "")
