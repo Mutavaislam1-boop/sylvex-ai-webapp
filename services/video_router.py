@@ -42,6 +42,7 @@ KLING_BASE_RATIOS = ["16:9", "9:16", "1:1"]
 KLING_FULL_RESOLUTIONS = ["720p", "1080p", "4K"]
 KLING_STANDARD_RESOLUTIONS = ["720p", "1080p"]
 KLING_LONG_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+KLING_O1_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10]
 KLING_SHORT_DURATIONS = [5, 10]
 KLING_DURATIONS = [5, 10, 15]
 
@@ -49,9 +50,9 @@ VIDEO_MODEL_CONFIG.update({
     "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
-    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
-    "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_O1_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "kling_2_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "kling_motion_2_6": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
     "kling_2_5_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
@@ -912,6 +913,10 @@ def _kling_submit_endpoint(provider_model: str, body: dict):
     return f"{_kling_base_url()}/{kind}/{_kling_motion_provider_model(provider_model)}"
 
 
+def _kling_omni_endpoint(provider_model: str):
+    return f"{_kling_base_url()}/omni-video/{_kling_motion_provider_model(provider_model)}"
+
+
 def _kling_motion_provider_model(provider_model: str):
     model = str(provider_model or "").strip()
     if model.endswith("-motion"):
@@ -958,7 +963,7 @@ def _kling_model_family(provider_model: str):
 
 def _kling_supports_last_frame(provider_model: str):
     model = _kling_model_family(provider_model)
-    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6", "kling-2.5-turbo"}
+    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6"}
 
 
 def _kling_text_settings(provider_model: str, body: dict):
@@ -1020,6 +1025,27 @@ def _kling_motion_settings(provider_model: str, body: dict, raw_options: dict):
         "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
         "audio": audio,
     }
+
+
+def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_video=False):
+    model = _kling_model_family(provider_model)
+    supported_resolutions = {"720p", "1080p"}
+    if model == "kling-3.0-omni":
+        supported_resolutions.add("4k")
+    duration_values = (
+        {3, 4, 5, 6, 7, 8, 9, 10}
+        if model == "kling-o1"
+        else {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+    )
+    settings = {
+        "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
+        "duration": _kling_duration(body.get("duration"), duration_values),
+        "audio": "original" if has_video and body.get("sound") else "off",
+        "aspect_ratio": _kling_aspect_ratio(body.get("ratio")),
+    }
+    if model == "kling-3.0-omni":
+        settings["multi_shot"] = False if base_video else True
+    return settings
 
 
 def _kling_task_endpoint(task_id: str):
@@ -1811,6 +1837,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         video_mode in {"image_to_video", "image to video", "motion_control", "motion control"}
         or bool(input_image_content)
     )
+    is_official_omni_model = _kling_model_family(provider_model) in {"kling-3.0-omni", "kling-o1"}
 
     print("KLING DEBUG MODE:", video_mode)
     print("KLING DEBUG BODY START IMAGE:", _short_debug_value(body.get("start_image")))
@@ -1826,7 +1853,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     if requires_image and not input_image_content:
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
 
+    model_family = _kling_model_family(provider_model)
     is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
+    is_omni_video_reference = (
+        is_official_omni_model
+        and bool(input_video)
+        and video_mode not in {"motion_control", "motion control"}
+    )
+    is_omni_unified_generation = model_family in {"kling-o1", "kling-3.0-omni"} and not is_motion_reference
     is_legacy_model = _kling_is_legacy_model(model_id)
     legacy_kind = "image" if (input_image_public_url or input_image_content) else "text"
 
@@ -1859,6 +1893,22 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         if input_image_content:
             kling_body["contents"].append({"type": "image", "url": input_image_content})
         kling_body["contents"].append({"type": "video", "url": input_video})
+    elif is_omni_video_reference or is_omni_unified_generation:
+        contents = []
+        if prompt:
+            contents.append({"type": "prompt", "text": prompt})
+        if input_image_content:
+            contents.append({"type": "first_frame", "url": input_image_content, "id": "image_1"})
+        reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit"} else "feature_video"
+        if input_video:
+            contents.append({"type": reference_type, "url": input_video, "id": "video_1"})
+        if end_image_content and reference_type != "base_video" and input_image_content:
+            contents.append({"type": "last_frame", "url": end_image_content, "id": "image_2"})
+        kling_body = {
+            "contents": contents,
+            "settings": _kling_omni_settings(provider_model, body, has_video=bool(input_video), base_video=reference_type == "base_video" and bool(input_video)),
+            "options": _kling_options(payload),
+        }
     else:
         if input_image_content:
             contents = []
@@ -1954,7 +2004,12 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         if is_legacy_model:
             endpoint = _kling_legacy_submit_endpoint(legacy_kind)
         else:
-            endpoint = _kling_motion_endpoint(provider_model) if is_motion_reference else _kling_submit_endpoint(provider_model, endpoint_body)
+            if is_motion_reference:
+                endpoint = _kling_motion_endpoint(provider_model)
+            elif is_omni_video_reference or is_omni_unified_generation:
+                endpoint = _kling_omni_endpoint(provider_model)
+            else:
+                endpoint = _kling_submit_endpoint(provider_model, endpoint_body)
         print("KLING DEBUG ENDPOINT:", endpoint)
         print("KLING DEBUG PAYLOAD:", _sanitize_debug_payload(kling_body))
         print("KLING DEBUG COST:", cost_info)

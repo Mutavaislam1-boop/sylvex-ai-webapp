@@ -22,7 +22,7 @@ from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -4062,6 +4062,51 @@ async def public_prostudio_save_resource(request: Request):
     if not item:
         return JSONResponse({"ok": False, "error": "invalid_resource"}, status_code=400)
     return {"ok": True, "resource": item}
+
+
+@app.post("/api/public/prostudio/upload-media")
+async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str = "image"):
+    media_kind = (kind or "").strip().lower()
+    filename = pathlib.Path(file.filename or "").name
+    suffix = pathlib.Path(filename).suffix.lower()
+    content_type = (file.content_type or "").lower()
+    is_video = media_kind == "video" or content_type.startswith("video/")
+    allowed_exts = {".mp4", ".mov"} if is_video else {".jpg", ".jpeg", ".png", ".webp"}
+    max_bytes = 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024
+
+    if suffix not in allowed_exts:
+        return JSONResponse({"ok": False, "error": "Unsupported media format"}, status_code=400)
+
+    content = await file.read()
+    if not content:
+        return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
+    if len(content) > max_bytes:
+        return JSONResponse({"ok": False, "error": "File is too large"}, status_code=400)
+
+    upload_dir = WEBAPP_DIR / "generated" / "video-inputs"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid4().hex}{suffix}"
+    stored_path = upload_dir / stored_name
+    stored_path.write_bytes(content)
+    public_path = f"/webapp/generated/video-inputs/{stored_name}"
+    base = (WEBAPP_URL or "").rstrip("/")
+    public_url = f"{base}{public_path}" if base else public_path
+    print("PROSTUDIO MEDIA UPLOAD:", {
+        "kind": "video" if is_video else "image",
+        "filename": filename,
+        "content_type": content_type,
+        "bytes": len(content),
+        "url": public_url,
+    })
+    return {
+        "ok": True,
+        "kind": "video" if is_video else "image",
+        "url": public_url,
+        "path": public_path,
+        "content_type": content_type,
+        "bytes": len(content),
+    }
+
 
 @app.post("/api/public/prostudio/events")
 async def public_prostudio_event(request: Request):
