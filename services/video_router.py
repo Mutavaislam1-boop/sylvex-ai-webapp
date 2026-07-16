@@ -23,6 +23,11 @@ VIDEO_MODEL_CONFIG = {
     "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "seedance_1_5_pro": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_avatar_iv": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_avatar_v": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_avatar_iii": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p", "4k"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_image_video": {"provider": "heygen", "modes": ["image_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_cinematic_avatar": {"provider": "heygen", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
     "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "runway_aleph": {"provider": "runway", "modes": ["video_edit", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
@@ -80,7 +85,12 @@ for _provider_model_id in tuple(BYTEPLUS_SEEDANCE_MODEL_MAP.values()):
     BYTEPLUS_SEEDANCE_MODEL_MAP.setdefault(_provider_model_id, _provider_model_id)
 
 VIDEO_PROVIDER_MODEL_MAP = {
-    "heygen_v3_video_agent": {"provider": "heygen", "provider_model": os.getenv("HEYGEN_VIDEO_MODEL", "avatar"), "endpoint": os.getenv("HEYGEN_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com/v2').rstrip('/')}/videos")},
+    "heygen_v3_video_agent": {"provider": "heygen", "provider_model": os.getenv("HEYGEN_VIDEO_MODEL", "video-agent"), "endpoint": os.getenv("HEYGEN_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/video-agents")},
+    "heygen_avatar_iv": {"provider": "heygen", "provider_model": "avatar_iv", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
+    "heygen_avatar_v": {"provider": "heygen", "provider_model": "avatar_v", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
+    "heygen_avatar_iii": {"provider": "heygen", "provider_model": "avatar_iii", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
+    "heygen_image_video": {"provider": "heygen", "provider_model": "image", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
+    "heygen_cinematic_avatar": {"provider": "heygen", "provider_model": "cinematic_avatar", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-2")), "endpoint": os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")},
     "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-2")), "endpoint": os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")},
     "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
@@ -1697,6 +1707,16 @@ async def poll_video_generation(result: dict) -> dict:
         if not api_key:
             return _provider_error("kling", model_id, "Provider API key is missing: KLING_API_KEY")
         return _kling_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    if provider == "heygen":
+        api_key = _get_env("HEYGEN_API_KEY")
+        if not api_key:
+            return _provider_error("heygen", model_id, "Provider API key is missing: HEYGEN_API_KEY")
+        session_id = result.get("session_id") or ""
+        poll_url = str(result.get("poll_url") or "")
+        video_id = str(task_id) if "/v3/videos/" in poll_url or str(task_id).startswith(("vid", "v_")) else ""
+        if not session_id and not video_id:
+            session_id = str(task_id)
+        return _heygen_poll_until_ready(session_id=session_id, video_id=video_id, headers=_heygen_headers(api_key))
     if provider == "luma":
         api_key = _get_env("LUMA_API_KEY")
         if not api_key:
@@ -1771,6 +1791,160 @@ def _provider_result_from_response(provider: str, model_id: str, response, endpo
     if _task_id_from_response(data):
         return _provider_processing(provider, model_id, data, endpoint)
     return _provider_error(provider, model_id, "Provider returned no video URL or task id")
+
+
+def _heygen_headers(api_key: str):
+    return {
+        "X-Api-Key": api_key,
+        "Content-Type": "application/json",
+    }
+
+
+def _heygen_base_url():
+    return os.getenv("HEYGEN_BASE_URL", "https://api.heygen.com").rstrip("/")
+
+
+def _heygen_video_url_from_data(data: dict):
+    if not isinstance(data, dict):
+        return ""
+    item = data.get("data") if isinstance(data.get("data"), dict) else data
+    return (
+        item.get("video_url")
+        or item.get("url")
+        or item.get("download_url")
+        or item.get("file_url")
+        or ""
+    )
+
+
+def _heygen_video_status(data: dict):
+    if not isinstance(data, dict):
+        return ""
+    item = data.get("data") if isinstance(data.get("data"), dict) else data
+    return str(item.get("status") or item.get("state") or "").lower()
+
+
+def _heygen_video_id_from_session(data: dict):
+    if not isinstance(data, dict):
+        return ""
+    item = data.get("data") if isinstance(data.get("data"), dict) else data
+    return str(item.get("video_id") or item.get("videoId") or "").strip()
+
+
+def _public_input_url(value: str):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if re.match(r"^https?://", text, re.I):
+        return text
+    if text.startswith("/"):
+        base = (
+            os.getenv("WEBAPP_URL")
+            or os.getenv("PUBLIC_WEBAPP_URL")
+            or os.getenv("PUBLIC_BASE_URL")
+            or "https://sylvex-ai-webapp-production.up.railway.app"
+        ).rstrip("/")
+        return f"{base}{text}" if base else text
+    return text
+
+
+def _heygen_asset_input(value):
+    if isinstance(value, dict):
+        if value.get("type") in {"url", "asset_id", "base64"}:
+            return value
+        for key in ("asset_id", "url", "image_url", "video_url", "src", "href"):
+            if value.get(key):
+                if key == "asset_id":
+                    return {"type": "asset_id", "asset_id": str(value.get(key))}
+                return _heygen_asset_input(value.get(key))
+    text = str(value or "").strip()
+    if not text:
+        return {}
+    if text.startswith("data:") and ";base64," in text:
+        header, data = text.split(";base64,", 1)
+        media_type = header.replace("data:", "").split(";", 1)[0] or "application/octet-stream"
+        return {"type": "base64", "media_type": media_type, "data": data.strip()}
+    if re.match(r"^https?://", text, re.I):
+        return {"type": "url", "url": text}
+    if text.startswith("/"):
+        content, mime_type = _read_media_bytes(text, "image")
+        if content:
+            return {"type": "base64", "media_type": mime_type or "application/octet-stream", "data": base64.b64encode(content).decode("utf-8")}
+        public_url = _public_input_url(text)
+        if public_url:
+            return {"type": "url", "url": public_url}
+    return {}
+
+
+def _heygen_files_from_payload(body: dict, payload: dict):
+    raw_options = payload.get("video_options") or payload.get("options") or {}
+    candidates = []
+    explicit_files = raw_options.get("files") or raw_options.get("heygen_files") or payload.get("files") or []
+    if isinstance(explicit_files, list):
+        candidates.extend(explicit_files)
+    for key in ("start_image", "image_url", "input_video", "video_url", "reference_video"):
+        if body.get(key):
+            candidates.append(body.get(key))
+        if raw_options.get(key):
+            candidates.append(raw_options.get(key))
+        if payload.get(key):
+            candidates.append(payload.get(key))
+    for key in ("reference_images", "referenceImageUrls", "uploadedImageUrls"):
+        value = raw_options.get(key) or payload.get(key) or body.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+    files = []
+    seen = set()
+    for item in candidates:
+        asset = _heygen_asset_input(item)
+        if not asset:
+            continue
+        marker = json.dumps(asset, sort_keys=True, ensure_ascii=False)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        files.append(asset)
+        if len(files) >= 20:
+            break
+    return files
+
+
+def _heygen_poll_until_ready(session_id: str = "", video_id: str = "", headers: dict = None):
+    headers = headers or {}
+    base = _heygen_base_url()
+    attempts, interval = _poll_attempt_settings("HEYGEN", 90, 5)
+    last_result = None
+    current_video_id = video_id or ""
+    for attempt in range(1, attempts + 1):
+        if not current_video_id and session_id:
+            session_url = f"{base}/v3/video-agents/{session_id}"
+            session_response = _request_get(session_url, headers)
+            session_data = _safe_provider_json_response(session_response, "heygen", session_url)
+            _log_provider_response("heygen", "SESSION_POLL", session_url, {"session_id": session_id, "attempt": attempt}, session_response, session_data)
+            if getattr(session_response, "status_code", 0) >= 400 or session_data.get("ok") is False:
+                return _provider_parse_error("heygen", session_id, session_data)
+            current_video_id = _heygen_video_id_from_session(session_data)
+            status = _heygen_video_status(session_data) or "processing"
+            last_result = _provider_success("heygen", session_id, [], status=status, task_id=session_id, poll_url=session_url)
+
+        if current_video_id:
+            video_url = f"{base}/v3/videos/{current_video_id}"
+            video_response = _request_get(video_url, headers)
+            video_data = _safe_provider_json_response(video_response, "heygen", video_url)
+            _log_provider_response("heygen", "VIDEO_POLL", video_url, {"video_id": current_video_id, "attempt": attempt}, video_response, video_data)
+            if getattr(video_response, "status_code", 0) >= 400 or video_data.get("ok") is False:
+                return _provider_parse_error("heygen", current_video_id, video_data)
+            status = _heygen_video_status(video_data) or "processing"
+            ready_url = _heygen_video_url_from_data(video_data)
+            if status in {"completed", "done", "success"} and ready_url:
+                return _provider_success("heygen", current_video_id, [ready_url], status="completed", task_id=current_video_id)
+            if status in {"failed", "error"}:
+                return _provider_parse_error("heygen", current_video_id, video_data)
+            last_result = _provider_success("heygen", current_video_id, [], status="processing", task_id=current_video_id, poll_url=video_url)
+
+        if attempt < attempts:
+            time.sleep(interval)
+    return last_result or _provider_success("heygen", session_id or current_video_id, [], status="processing", task_id=session_id or current_video_id)
 
 
 def _telegram_caption(model_id: str, provider: str, payload: dict):
@@ -1857,35 +2031,43 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("HEYGEN_API_KEY")
     if not api_key:
         return _provider_error("heygen", model_id, "Provider API key is missing: HEYGEN_API_KEY")
-
     body = _build_video_payload(model_id, prompt, payload)
+    raw_options = payload.get("video_options") or payload.get("options") or {}
 
     heygen_body = {
         "prompt": prompt,
-        "mode": "generate",
     }
-
-    if os.getenv("HEYGEN_AVATAR_ID"):
-        heygen_body["avatar_id"] = os.getenv("HEYGEN_AVATAR_ID")
-
-    if os.getenv("HEYGEN_VOICE_ID"):
-        heygen_body["voice_id"] = os.getenv("HEYGEN_VOICE_ID")
-
-    if body.get("ratio") == "9:16":
-        heygen_body["orientation"] = "portrait"
-    else:
-        heygen_body["orientation"] = "landscape"
-
-    reference_images = body.get("reference_images") or []
-    files = []
-    for url in reference_images:
-        if url:
-            files.append({
-                "type": "url",
-                "url": url,
-            })
+    mode = str(raw_options.get("heygen_mode") or raw_options.get("session_mode") or raw_options.get("mode") or "generate").strip().lower()
+    if mode in {"generate", "chat"}:
+        heygen_body["mode"] = mode
+    avatar_id = raw_options.get("avatar_id") or raw_options.get("heygen_avatar_id") or os.getenv("HEYGEN_AVATAR_ID")
+    voice_id = raw_options.get("voice_id") or raw_options.get("heygen_voice_id") or os.getenv("HEYGEN_VOICE_ID")
+    style_id = raw_options.get("style_id") or raw_options.get("heygen_style_id") or os.getenv("HEYGEN_STYLE_ID")
+    brand_kit_id = raw_options.get("brand_kit_id") or raw_options.get("heygen_brand_kit_id") or os.getenv("HEYGEN_BRAND_KIT_ID")
+    for key, value in (
+        ("avatar_id", avatar_id),
+        ("voice_id", voice_id),
+        ("style_id", style_id),
+        ("brand_kit_id", brand_kit_id),
+    ):
+        if value:
+            heygen_body[key] = str(value)
+    orientation = str(raw_options.get("orientation") or "").strip().lower()
+    if orientation not in {"landscape", "portrait"}:
+        orientation = "portrait" if body.get("ratio") == "9:16" else "landscape" if body.get("ratio") == "16:9" else ""
+    if orientation:
+        heygen_body["orientation"] = orientation
+    files = _heygen_files_from_payload(body, payload)
     if files:
         heygen_body["files"] = files
+    callback_url = raw_options.get("callback_url") or payload.get("callback_url") or os.getenv("HEYGEN_CALLBACK_URL")
+    callback_id = raw_options.get("callback_id") or payload.get("callback_id") or payload.get("job_id") or payload.get("generation_id")
+    if callback_url:
+        heygen_body["callback_url"] = str(callback_url)
+    if callback_id:
+        heygen_body["callback_id"] = str(callback_id)
+    if raw_options.get("incognito_mode") is not None:
+        heygen_body["incognito_mode"] = bool(raw_options.get("incognito_mode"))
 
     try:
         endpoint = os.getenv(
@@ -1895,33 +2077,39 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
 
         response = _request_json(
             endpoint,
-            {
-                "x-api-key": api_key,
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            _heygen_headers(api_key),
             heygen_body,
         )
-
-        print("HEYGEN STATUS:", response.status_code)
-        print("HEYGEN RESPONSE:", response.text)
-
         data = _safe_provider_json_response(response, "heygen", endpoint)
+        _log_provider_response("heygen", "CREATE_VIDEO_AGENT", endpoint, heygen_body, response, data)
 
         if getattr(response, "status_code", 0) >= 400:
             return _provider_parse_error("heygen", model_id, data)
 
         session = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+        session_id = session.get("session_id") or session.get("id") or ""
+        video_id = session.get("video_id") or ""
+        status = session.get("status") or "processing"
+
+        if video_id:
+            result = _heygen_poll_until_ready(session_id=session_id, video_id=video_id, headers=_heygen_headers(api_key))
+            result["model"] = model_id
+            result["session_id"] = session_id
+            return result
 
         return {
             "ok": True,
             "type": "video",
             "provider": "heygen",
             "model": model_id,
-            "status": session.get("status", "processing"),
-            "task_id": session.get("video_id") or session.get("session_id"),
-            "session_id": session.get("session_id"),
-            "poll_url": f"https://api.heygen.com/v3/videos/{session.get('video_id')}" if session.get("video_id") else None,
+            "status": status,
+            "task_id": session_id,
+            "session_id": session_id,
+            "poll_url": f"{_heygen_base_url()}/v3/video-agents/{session_id}" if session_id else None,
+            "metadata": {
+                "heygen_session_id": session_id,
+                "heygen_status": status,
+            },
         }
 
     except Exception as exc:
@@ -1930,6 +2118,124 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
             model_id,
             f"Provider request failed: {exc}",
         )
+
+
+def _heygen_direct_common_fields(request_body: dict, body: dict, raw_options: dict, payload: dict):
+    ratio = body.get("ratio") or raw_options.get("aspect_ratio") or "auto"
+    if ratio not in {"auto", "16:9", "9:16", "4:5", "5:4", "1:1"}:
+        ratio = "auto"
+    resolution = str(body.get("resolution") or raw_options.get("resolution") or "1080p").lower()
+    if resolution not in {"720p", "1080p", "4k"}:
+        resolution = "1080p"
+    request_body["aspect_ratio"] = ratio
+    request_body["resolution"] = resolution
+    for key in ("title", "fit", "remove_background", "output_format", "background", "caption", "voice_settings", "audio_url", "audio_asset_id"):
+        if raw_options.get(key) not in (None, ""):
+            request_body[key] = raw_options.get(key)
+    callback_url = raw_options.get("callback_url") or payload.get("callback_url") or os.getenv("HEYGEN_CALLBACK_URL")
+    callback_id = raw_options.get("callback_id") or payload.get("callback_id") or payload.get("job_id") or payload.get("generation_id")
+    if callback_url:
+        request_body["callback_url"] = str(callback_url)
+    if callback_id:
+        request_body["callback_id"] = str(callback_id)
+    return request_body
+
+
+def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
+    api_key = _get_env("HEYGEN_API_KEY")
+    if not api_key:
+        return _provider_error("heygen", model_id, "Provider API key is missing: HEYGEN_API_KEY")
+    body = _build_video_payload(model_id, prompt, payload)
+    raw_options = payload.get("video_options") or payload.get("options") or {}
+    provider_model = _provider_model_for_video(model_id)
+    endpoint = _video_model_mapping(model_id).get("endpoint") or f"{_heygen_base_url()}/v3/videos"
+    request_body = {}
+
+    if provider_model in {"avatar_iv", "avatar_v", "avatar_iii"}:
+        avatar_id = raw_options.get("avatar_id") or raw_options.get("heygen_avatar_id") or os.getenv("HEYGEN_AVATAR_ID")
+        if not avatar_id:
+            return _provider_error("heygen", model_id, "Для HeyGen Avatar нужно указать avatar_id")
+        request_body = {
+            "type": "avatar",
+            "avatar_id": str(avatar_id),
+            "script": raw_options.get("script") or prompt,
+            "engine": {"type": provider_model},
+        }
+        voice_id = raw_options.get("voice_id") or raw_options.get("heygen_voice_id") or os.getenv("HEYGEN_VOICE_ID")
+        if voice_id:
+            request_body["voice_id"] = str(voice_id)
+        if raw_options.get("motion_prompt"):
+            request_body["motion_prompt"] = str(raw_options.get("motion_prompt"))
+        elif provider_model in {"avatar_iv", "avatar_v"} and body.get("motion_control"):
+            request_body["motion_prompt"] = prompt
+        if provider_model == "avatar_v" and raw_options.get("reference_look_id"):
+            request_body["engine"]["reference_look_id"] = str(raw_options.get("reference_look_id"))
+        if provider_model == "avatar_iv" and raw_options.get("expressiveness") in {"low", "medium", "high"}:
+            request_body["expressiveness"] = raw_options.get("expressiveness")
+
+    elif provider_model == "image":
+        image_source = body.get("start_image") or body.get("image_url") or raw_options.get("image_url") or ""
+        image_asset = _heygen_asset_input(image_source)
+        if not image_asset:
+            return _provider_error("heygen", model_id, "Для HeyGen Image Video нужно загрузить изображение")
+        request_body = {
+            "type": "image",
+            "image": image_asset,
+            "script": raw_options.get("script") or prompt,
+        }
+        voice_id = raw_options.get("voice_id") or raw_options.get("heygen_voice_id") or os.getenv("HEYGEN_VOICE_ID")
+        if voice_id:
+            request_body["voice_id"] = str(voice_id)
+        if raw_options.get("motion_prompt"):
+            request_body["motion_prompt"] = str(raw_options.get("motion_prompt"))
+        if raw_options.get("expressiveness") in {"low", "medium", "high"}:
+            request_body["expressiveness"] = raw_options.get("expressiveness")
+
+    elif provider_model == "cinematic_avatar":
+        avatar_ids = raw_options.get("avatar_id") or raw_options.get("avatar_ids") or raw_options.get("heygen_avatar_id") or os.getenv("HEYGEN_AVATAR_ID")
+        if isinstance(avatar_ids, str):
+            avatar_ids = [item.strip() for item in avatar_ids.split(",") if item.strip()]
+        if not isinstance(avatar_ids, list) or not avatar_ids:
+            return _provider_error("heygen", model_id, "Для HeyGen Cinematic Avatar нужно указать 1–3 avatar_id")
+        request_body = {
+            "type": "cinematic_avatar",
+            "prompt": prompt,
+            "avatar_id": avatar_ids[:3],
+            "references": _heygen_files_from_payload(body, payload),
+            "aspect_ratio": body.get("ratio") if body.get("ratio") in {"16:9", "9:16", "1:1"} else "16:9",
+            "resolution": body.get("resolution") if body.get("resolution") in {"720p", "1080p"} else "720p",
+        }
+        duration = int(body.get("duration") or 10)
+        if 4 <= duration <= 15 and not raw_options.get("auto_duration"):
+            request_body["duration"] = duration
+        if raw_options.get("auto_duration") is not None:
+            request_body["auto_duration"] = bool(raw_options.get("auto_duration"))
+        if raw_options.get("enhance_prompt") is not None:
+            request_body["enhance_prompt"] = bool(raw_options.get("enhance_prompt"))
+
+    else:
+        return _provider_error("heygen", model_id, f"Unsupported HeyGen direct model: {provider_model}")
+
+    if provider_model != "cinematic_avatar":
+        _heygen_direct_common_fields(request_body, body, raw_options, payload)
+    try:
+        headers = _heygen_headers(api_key)
+        idempotency_key = payload.get("job_id") or payload.get("generation_id") or ""
+        if idempotency_key:
+            headers["Idempotency-Key"] = str(idempotency_key)[:255]
+        response = _request_json(endpoint, headers, request_body)
+        data = _safe_provider_json_response(response, "heygen", endpoint)
+        _log_provider_response("heygen", "CREATE_VIDEO", endpoint, request_body, response, data)
+        if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+            return _provider_parse_error("heygen", model_id, data)
+        item = data.get("data") if isinstance(data.get("data"), dict) else data
+        video_id = str(item.get("video_id") or item.get("id") or "").strip()
+        status = item.get("status") or "processing"
+        if not video_id:
+            return _provider_parse_error("heygen", model_id, data)
+        return _provider_success("heygen", model_id, [], status=status, task_id=video_id, poll_url=f"{_heygen_base_url()}/v3/videos/{video_id}")
+    except Exception as exc:
+        return _provider_error("heygen", model_id, f"Provider request failed: {exc}")
 
 
 def _call_luma(model_id: str, prompt: str, payload: dict):
@@ -2784,7 +3090,10 @@ async def video_generation(payload: dict) -> dict:
     if provider == "seedance" or re.search(r"seedance", model_id, re.I):
         result = _call_seedance(model_id, prompt, payload)
     elif provider == "heygen" or re.search(r"heygen", model_id, re.I):
-        result = _call_heygen(model_id, prompt, payload)
+        if model_id == "heygen_v3_video_agent":
+            result = _call_heygen(model_id, prompt, payload)
+        else:
+            result = _call_heygen_direct_video(model_id, prompt, payload)
     elif provider == "hedra" or re.search(r"hedra", model_id, re.I):
         result = _call_hedra(model_id, prompt, payload)
     elif provider == "sora" or re.search(r"sora", model_id, re.I):
