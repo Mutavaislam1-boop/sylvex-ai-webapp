@@ -887,6 +887,11 @@ Object.keys(MUSIC_SETTINGS).forEach((key) => {
 
 const VIDEO_MODELS = [
   { id:'heygen_v3_video_agent', label:'HeyGen V3 Video Agent', desc:'HeyGen video model', icon:'heygen' },
+  { id:'heygen_avatar_iv', label:'HeyGen Avatar IV', desc:'HeyGen avatar engine', icon:'heygen' },
+  { id:'heygen_avatar_v', label:'HeyGen Avatar V', desc:'HeyGen high fidelity avatar engine', icon:'heygen' },
+  { id:'heygen_avatar_iii', label:'HeyGen Avatar III', desc:'HeyGen avatar engine', icon:'heygen' },
+  { id:'heygen_image_video', label:'HeyGen Image Video', desc:'HeyGen image to avatar video', icon:'heygen' },
+  { id:'heygen_cinematic_avatar', label:'HeyGen Cinematic Avatar', desc:'HeyGen cinematic avatar generation', icon:'heygen' },
   { id:'luma_ray_v3_2', label:'Luma Ray v3.2', desc:'Luma AI video model', icon:'luma' },
   { id:'luma_dream_machine', label:'Luma Dream Machine', desc:'Luma Dream Machine', icon:'dreamMachine' },
   { id:'minimax_hailuo_2_3', label:'Минимакс Хайлуо 2.3', desc:'MiniMax Hailuo video', icon:'hailuo' },
@@ -928,6 +933,11 @@ const VIDEO_MODELS = [
 
 const VIDEO_MODEL_CONFIG = {
   heygen_v3_video_agent: { provider:'heygen', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
+  heygen_avatar_iv: { provider:'heygen', modes:['text_to_video'], durations:[5], ratios:['auto','16:9','9:16','4:5','5:4','1:1'], resolutions:['720p','1080p'], sound:true, avatar:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
+  heygen_avatar_v: { provider:'heygen', modes:['text_to_video'], durations:[5], ratios:['auto','16:9','9:16','4:5','5:4','1:1'], resolutions:['720p','1080p'], sound:true, avatar:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
+  heygen_avatar_iii: { provider:'heygen', modes:['text_to_video'], durations:[5], ratios:['auto','16:9','9:16','4:5','5:4','1:1'], resolutions:['720p','1080p','4k'], sound:true, avatar:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
+  heygen_image_video: { provider:'heygen', modes:['image_to_video'], durations:[5], ratios:['auto','16:9','9:16','4:5','5:4','1:1'], resolutions:['720p','1080p'], sound:true, avatar:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  heygen_cinematic_avatar: { provider:'heygen', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, avatar:true, start_image:true, end_image:false, video_upload:true, video_edit:false },
   luma_ray_v3_2: { provider:'luma', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   luma_dream_machine: { provider:'luma', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   minimax_hailuo_2_3: { provider:'minimax', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
