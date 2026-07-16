@@ -6288,6 +6288,17 @@ def google_image_resolution(opts: dict, frontend_model: str, provider_model: str
     return raw
 
 
+def google_interactions_image_size(resolution: str) -> str:
+    raw = str(resolution or "").strip().lower()
+    if raw in {"0.5k", "0.5", "512", "512px"}:
+        return "512"
+    if raw in {"2k", "2048"}:
+        return "2K"
+    if raw in {"4k", "4096"}:
+        return "4K"
+    return "1K"
+
+
 def google_has_input_image(payload: dict) -> bool:
     return bool(image_reference_urls(payload))
 
@@ -6540,14 +6551,19 @@ def google_extract_images(data: dict) -> list:
     def walk(node):
         if isinstance(node, dict):
             mime_type = node.get("mime_type") or node.get("mimeType") or "image/png"
+            if isinstance(node.get("output_image"), dict):
+                walk(node.get("output_image"))
+            elif isinstance(node.get("output_image"), str):
+                add_image(node.get("output_image"), mime_type)
             for key in ("data", "imageBytes", "bytesBase64Encoded"):
                 if node.get(key):
                     add_image(node.get(key), mime_type)
             inline = node.get("inlineData") or node.get("inline_data")
             if isinstance(inline, dict):
                 add_image(inline.get("data"), inline.get("mimeType") or inline.get("mime_type") or mime_type)
-            if isinstance(node.get("url"), str):
-                images.append(node["url"])
+            for key in ("url", "uri"):
+                if isinstance(node.get(key), str) and node.get(key).strip():
+                    images.append(node[key].strip())
             for value in node.values():
                 walk(value)
         elif isinstance(node, list):
@@ -6590,9 +6606,19 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
             part = google_local_or_remote_image_part(ref)
             if part:
                 input_items.append(part)
+        response_format = {
+            "type": "image",
+            "mime_type": "image/jpeg",
+            "aspect_ratio": aspect_ratio,
+            "image_size": google_interactions_image_size(resolution),
+            "delivery": "inline",
+        }
         request_payload = {
             "model": provider_model,
             "input": input_items,
+            "store": False,
+            "response_modalities": "image",
+            "response_format": response_format,
         }
         request_endpoint = endpoint
 
@@ -6607,6 +6633,8 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
             count=count,
             is_imagen=is_imagen,
             has_references=bool(image_reference_urls(payload)),
+            response_modalities=request_payload.get("response_modalities") if not is_imagen else [],
+            response_format=request_payload.get("response_format") if not is_imagen else {},
         )
         response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
     except requests.RequestException as exc:
@@ -6635,6 +6663,10 @@ def sanitized_google_request_payload(request_payload: dict) -> dict:
         for item in input_items:
             if isinstance(item, dict) and item.get("data"):
                 item["data"] = "[base64 image omitted]"
+            if isinstance(item, dict) and isinstance(item.get("inlineData"), dict) and item["inlineData"].get("data"):
+                item["inlineData"]["data"] = "[base64 image omitted]"
+            if isinstance(item, dict) and isinstance(item.get("inline_data"), dict) and item["inline_data"].get("data"):
+                item["inline_data"]["data"] = "[base64 image omitted]"
     return clean
 
 
