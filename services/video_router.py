@@ -357,6 +357,22 @@ def _pixverse_video_id(data):
     return str(value) if value not in (None, "") else ""
 
 
+def _pixverse_status(data):
+    if not isinstance(data, dict):
+        return 0
+    resp = _pixverse_resp(data)
+    value = (
+        resp.get("status")
+        or resp.get("Status")
+        or data.get("status")
+        or data.get("Status")
+    )
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _pixverse_upload_image(api_key: str, image_url: str, model_id: str):
     source = _public_input_url(image_url)
     if not source:
@@ -1873,10 +1889,11 @@ async def poll_video_generation(result: dict) -> dict:
             status_code = getattr(response, "status_code", 0) or 0
             if status_code >= 400 or data.get("ok") is False or _pixverse_response_failed(data):
                 return _pixverse_error(model_id, data)
-            resp = _pixverse_resp(data)
-            pix_status = int(resp.get("status") or 0)
-            urls = _normalize_video_urls(data)
-            if pix_status == 1 and urls:
+            pix_status = _pixverse_status(data)
+            urls = _normalize_video_urls(data) or _normalize_video_urls(result)
+            if pix_status == 1:
+                if not urls:
+                    return _provider_error("pixverse", model_id, "PixVerse completed without a video URL")
                 result = _provider_success("pixverse", model_id, urls, status="completed", task_id=str(task_id))
                 result["provider_response"] = data
                 return result
