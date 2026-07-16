@@ -28,7 +28,7 @@ VIDEO_MODEL_CONFIG = {
     "heygen_avatar_iii": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p", "4k"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
     "heygen_image_video": {"provider": "heygen", "modes": ["image_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "heygen_cinematic_avatar": {"provider": "heygen", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
-    "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video", "video_edit", "video_reframe"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "runway_aleph": {"provider": "runway", "modes": ["video_edit", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "runway_gen": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
@@ -91,8 +91,8 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "heygen_avatar_iii": {"provider": "heygen", "provider_model": "avatar_iii", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "heygen_image_video": {"provider": "heygen", "provider_model": "image", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "heygen_cinematic_avatar": {"provider": "heygen", "provider_model": "cinematic_avatar", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
-    "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-2")), "endpoint": os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")},
-    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-2")), "endpoint": os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")},
+    "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
+    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
     "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
     "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://api.pixverse.io/v1/videos/generations")},
     "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
@@ -1473,7 +1473,7 @@ def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
 
 
 def _luma_base_url():
-    endpoint = os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")
+    endpoint = os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))
     return endpoint.rsplit("/generations", 1)[0].rstrip("/")
 
 
@@ -1718,9 +1718,9 @@ async def poll_video_generation(result: dict) -> dict:
             session_id = str(task_id)
         return _heygen_poll_until_ready(session_id=session_id, video_id=video_id, headers=_heygen_headers(api_key))
     if provider == "luma":
-        api_key = _get_env("LUMA_API_KEY")
+        api_key = _get_env("LUMA_AGENTS_API_KEY", "LUMA_API_KEY")
         if not api_key:
-            return _provider_error("luma", model_id, "Provider API key is missing: LUMA_API_KEY")
+            return _provider_error("luma", model_id, "Provider API key is missing: LUMA_AGENTS_API_KEY")
         return _luma_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
     if provider == "gemini":
         api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY")
@@ -2239,30 +2239,60 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
 
 
 def _call_luma(model_id: str, prompt: str, payload: dict):
-    api_key = _get_env("LUMA_API_KEY")
+    api_key = _get_env("LUMA_AGENTS_API_KEY", "LUMA_API_KEY")
     if not api_key:
-        return _provider_error("luma", model_id, "Provider API key is missing: LUMA_API_KEY")
+        return _provider_error("luma", model_id, "Provider API key is missing: LUMA_AGENTS_API_KEY")
     provider_model = _provider_model_for_video(model_id)
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "luma")
     body = _build_video_payload(model_id, prompt, payload)
     try:
-        endpoint = os.getenv("LUMA_API_ENDPOINT", "https://api.lumalabs.ai/dream-machine/v1/generations")
+        endpoint = _video_model_mapping(model_id).get("endpoint") or os.getenv("LUMA_AGENTS_ENDPOINT", "https://agents.lumalabs.ai/v1/generations")
+        mode = str(body.get("mode") or body.get("generation_mode") or "text_to_video").strip().lower()
+        luma_type = "video"
+        if mode in {"video_edit", "edit"} or body.get("input_video") or body.get("video_url") or body.get("reference_video"):
+            luma_type = "video_edit"
+        if mode in {"video_reframe", "reframe"}:
+            luma_type = "video_reframe"
         luma_body = {
+            "model": provider_model,
+            "type": luma_type,
             "prompt": prompt,
             "aspect_ratio": body.get("ratio") or "16:9",
-            "model": provider_model,
         }
-        if body.get("start_image"):
-            luma_body["keyframes"] = {"frame0": {"type": "image", "url": body.get("start_image")}}
-        if body.get("end_image"):
-            luma_body.setdefault("keyframes", {})["frame1"] = {"type": "image", "url": body.get("end_image")}
+        user_id = str(payload.get("telegram_id") or payload.get("user_id") or "").strip()
+        if user_id:
+            luma_body["user_id"] = user_id[:256]
+        if luma_type == "video":
+            video_options = {
+                "resolution": body.get("resolution") or "720p",
+                "duration": f"{int(body.get('duration') or 5)}s",
+            }
+            if body.get("start_image"):
+                video_options["start_frame"] = {"url": _public_input_url(body.get("start_image"))}
+            if body.get("end_image"):
+                video_options["end_frame"] = {"url": _public_input_url(body.get("end_image"))}
+            luma_body["video"] = video_options
+        else:
+            source_video = (
+                body.get("input_video")
+                or body.get("video_url")
+                or body.get("reference_video")
+                or body.get("template_video_url")
+                or (payload.get("video_options") or {}).get("input_video")
+                or (payload.get("video_options") or {}).get("video_url")
+                or payload.get("video_url")
+            )
+            if not source_video:
+                return _provider_error("luma", model_id, "Для Luma video edit/reframe нужно загрузить видео")
+            luma_body["source"] = {"url": _public_input_url(source_video)}
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             luma_body,
         )
         data = _safe_provider_json_response(response, "luma", endpoint)
+        _log_provider_response("luma", "SUBMIT", endpoint, luma_body, response, data)
         status = getattr(response, "status_code", None) or 0
         if status not in (200, 201, 202) or data.get("ok") is False:
             return _provider_parse_error("luma", model_id, data)
