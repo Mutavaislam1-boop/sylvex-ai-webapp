@@ -1,3 +1,8 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/elevenlabs.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 (function () {
   const S = window.SYLVEX || {};
   const tg = S.tg || window.Telegram && window.Telegram.WebApp;
@@ -11,6 +16,10 @@
 
   const els = {};
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: toast
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function toast(message) {
     if (typeof window.toast === 'function') {
       window.toast(message);
@@ -24,15 +33,27 @@
     setTimeout(() => node.classList.remove('show'), 2600);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: getTelegramUser
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function getTelegramUser() {
     const unsafe = tg && tg.initDataUnsafe || {};
     return unsafe.user || {};
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: option
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function option(value, label, selected) {
     return '<option value="' + String(value || '').replace(/"/g, '&quot;') + '"' + (selected ? ' selected' : '') + '>' + label + '</option>';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: voiceMatchesType
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function voiceMatchesType(voice, type) {
     if (!type || type === 'all') return true;
     const gender = String(voice.gender || '').trim().toLowerCase();
@@ -59,18 +80,34 @@
     return true;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: filteredVoices
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function filteredVoices() {
     const type = els.voiceTypeSelect.value;
     const selectedVoice = els.voiceSelect.value || state.settings.voice_id;
+    // =====================================================
+    // JAVASCRIPT-БЛОК: voices
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const voices = state.voices.filter(voice => voiceMatchesType(voice, type));
     if (voices.length) return voices;
     if (selectedVoice) {
+      // =====================================================
+      // JAVASCRIPT-БЛОК: current
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const current = state.voices.find(voice => voice.voice_id === selectedVoice);
       if (current) return [current];
     }
     return state.voices;
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderModels
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderModels() {
     const current = state.settings.model_id || 'eleven_multilingual_v2';
     els.modelSelect.innerHTML = state.models.map(model => {
@@ -78,6 +115,10 @@
     }).join('');
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderVoices
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderVoices() {
     const current = state.settings.voice_id || '21m00Tcm4TlvDq8ikWAM';
     const voices = filteredVoices();
@@ -88,11 +129,19 @@
     }).join('');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: setSlider
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function setSlider(input, label, value) {
     input.value = value;
     label.textContent = Number(value).toFixed(2);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applySettings
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applySettings(settings) {
     state.settings = settings || {};
     renderModels();
@@ -106,7 +155,15 @@
     els.speakerBoostInput.checked = state.settings.speaker_boost !== false;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: collectSettings
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function collectSettings() {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: voice
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const voice = state.voices.find(item => item.voice_id === els.voiceSelect.value) || {};
     return {
       telegram_id: state.telegramId,
@@ -123,6 +180,10 @@
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadBootstrap
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadBootstrap() {
     const user = getTelegramUser();
     state.telegramId = Number(user.id || new URLSearchParams(location.search).get('telegram_id') || 0);
@@ -141,6 +202,10 @@
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: save
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function save() {
     if (!state.telegramId) {
       toast('Откройте страницу из Telegram Mini App');
@@ -186,6 +251,10 @@
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: bind
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function bind() {
     els.modelSelect = document.getElementById('modelSelect');
     els.voiceTypeSelect = document.getElementById('voiceTypeSelect');
@@ -202,6 +271,10 @@
     els.speedValue = document.getElementById('speedValue');
     els.saveButton = document.getElementById('saveButton');
 
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     els.voiceTypeSelect.addEventListener('change', renderVoices);
     [
       [els.stabilityInput, els.stabilityValue],
@@ -213,9 +286,17 @@
         label.textContent = Number(input.value).toFixed(2);
       });
     });
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     els.saveButton.addEventListener('click', save);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: init
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function init() {
     if (tg) {
       try {
@@ -244,5 +325,9 @@
     }
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('DOMContentLoaded', init);
 })();

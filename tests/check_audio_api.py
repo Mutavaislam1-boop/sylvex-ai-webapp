@@ -1,3 +1,8 @@
+# =====================================================
+# АВТОДОКУМЕНТАЦИЯ SYLVEX: tests/check_audio_api.py
+# Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
+# Комментарии описывают назначение блоков и не меняют работу приложения.
+# =====================================================
 #!/usr/bin/env python3
 """
 Temporary Audio API smoke test.
@@ -32,6 +37,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 
 
+# =====================================================
+# PYTHON-БЛОК: load_dotenv
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def load_dotenv(path: Path) -> None:
     if not path.exists():
         return
@@ -46,6 +56,11 @@ def load_dotenv(path: Path) -> None:
             os.environ[key] = value
 
 
+# =====================================================
+# PYTHON-БЛОК: pretty
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def pretty(title: str, data: Any) -> None:
     print("\n" + "=" * 80)
     print(title)
@@ -53,6 +68,11 @@ def pretty(title: str, data: Any) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+# =====================================================
+# PYTHON-БЛОК: safe_json
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def safe_json(text: str) -> Any:
     if not text:
         return None
@@ -66,10 +86,20 @@ def safe_json(text: str) -> Any:
         }
 
 
+# =====================================================
+# PYTHON-БЛОК: normalize_base_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_base_url(value: str) -> str:
     return value.rstrip("/")
 
 
+# =====================================================
+# PYTHON-БЛОК: join_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def join_url(base_url: str, path: str) -> str:
     if path.startswith("http://") or path.startswith("https://"):
         return path
@@ -78,6 +108,11 @@ def join_url(base_url: str, path: str) -> str:
     return base_url.rstrip("/") + path
 
 
+# =====================================================
+# PYTHON-БЛОК: auth_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def auth_headers(api_key: str) -> dict[str, str]:
     header = os.getenv("AUDIO_API_AUTH_HEADER", "Authorization")
     scheme = os.getenv("AUDIO_API_AUTH_SCHEME", "Bearer")
@@ -89,6 +124,11 @@ def auth_headers(api_key: str) -> dict[str, str]:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: request_json
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def request_json(
     method: str,
     url: str,
@@ -143,6 +183,11 @@ def request_json(
         }
 
 
+# =====================================================
+# PYTHON-БЛОК: first_ok
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def first_ok(
     title: str,
     base_url: str,
@@ -159,6 +204,10 @@ def first_ok(
     return last
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: pick_task_id
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def pick_task_id(data: Any) -> str:
     keys = ("task_id", "taskId", "id", "generation_id", "generationId", "job_id", "jobId")
     queue = [data]
@@ -175,6 +224,11 @@ def pick_task_id(data: Any) -> str:
     return ""
 
 
+# =====================================================
+# PYTHON-БЛОК: pick_result_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def pick_result_url(data: Any) -> str:
     keys = (
         "result_url",
@@ -198,6 +252,11 @@ def pick_result_url(data: Any) -> str:
     return ""
 
 
+# =====================================================
+# PYTHON-БЛОК: pick_status
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def pick_status(data: Any) -> str:
     keys = ("status", "state", "task_status", "generation_status")
     queue = [data]
@@ -214,6 +273,11 @@ def pick_status(data: Any) -> str:
     return ""
 
 
+# =====================================================
+# PYTHON-БЛОК: default_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def default_payload() -> dict[str, Any]:
     raw = os.getenv("AUDIO_API_GENERATE_PAYLOAD_JSON", "").strip()
     if raw:
@@ -233,6 +297,11 @@ def default_payload() -> dict[str, Any]:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: main
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def main() -> int:
     load_dotenv(ROOT / ".env")
 

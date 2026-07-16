@@ -1,3 +1,5 @@
+<!-- АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/assets/video-templates/README.md. Этот markdown-файл описывает ресурс проекта или слот видеошаблона; комментарий добавлен только для навигации и не влияет на работу Mini App. -->
+
 # Video Template Preview Slots
 
 Upload preview videos for the 50 video prompt icons here.

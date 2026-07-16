@@ -1,3 +1,8 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/payments.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 (function () {
   const S = window.SYLVEX || {};
   const tg = S.tg || (window.Telegram && window.Telegram.WebApp);
@@ -10,6 +15,10 @@
     pack_5000: "https://www.paypal.com/ncp/payment/LTF8NMXED9ZCW",
   };
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: toast
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function toast(message) {
     if (window.toast) {
       window.toast(message);
@@ -19,18 +28,30 @@
     alert(message);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: stripHtml
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function stripHtml(value) {
     const div = document.createElement("div");
     div.innerHTML = value || "";
     return (div.textContent || div.innerText || "").trim();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: getTelegramId
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function getTelegramId() {
     const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
     const params = new URLSearchParams(window.location.search || "");
     return Number((user && user.id) || params.get("telegram_id") || params.get("user_id") || 0);
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openCheckout
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openCheckout(url) {
     if (!url) {
       toast("Ссылка оплаты не найдена");
@@ -40,6 +61,10 @@
     window.location.href = url;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: createPayPalOrder
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function createPayPalOrder(packId, purchaseType) {
     if (PAYPAL_PAYMENT_LINKS[packId]) {
       window.location.href = PAYPAL_PAYMENT_LINKS[packId];
@@ -82,6 +107,10 @@
     openCheckout(checkoutUrl);
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderProducts
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderProducts(products) {
     const grid = document.getElementById("paymentGrid");
     if (!grid) return;
@@ -128,6 +157,10 @@
     });
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initPayments
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function initPayments() {
     if (tg) {
       try {
@@ -174,5 +207,9 @@
     }
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener("DOMContentLoaded", initPayments);
 })();

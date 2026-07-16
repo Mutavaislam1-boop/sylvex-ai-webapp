@@ -1,3 +1,8 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/telegram.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 // Telegram WebApp SDK bootstrap and haptics helpers.
 (function () {
   const tg = window.Telegram && window.Telegram.WebApp;

@@ -1,7 +1,16 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/user.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 // Real Telegram user data + backend balance/status sync.
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initials
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function initials(first, last, username) {
     const a = (first || '').trim();
     const b = (last || '').trim();
@@ -11,16 +20,28 @@
     return '··';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: fmtNum
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function fmtNum(n) {
     const v = Number(n || 0);
     return v.toLocaleString();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: setText
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function setText(id, val) {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: setAvatar
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function setAvatar(id, photoUrl, ini) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -41,6 +62,10 @@
     if (dot) el.appendChild(dot);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: statusLabel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function statusLabel(status) {
     const s = (status || 'free').toLowerCase();
     if (s === 'pro' || s === 'active') return 'PRO';
@@ -49,6 +74,10 @@
     return 'FREE';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: normalizeState
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function normalizeState(state) {
     if (!state) return {};
     const subscription = state.subscription || state.subscription_plan || null;
@@ -63,6 +92,10 @@
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: mergeUserPatch
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function mergeUserPatch(patch) {
     const prev = S.user || {};
     const next = Object.assign({}, prev);
@@ -78,6 +111,10 @@
     return next;
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderIdentity
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderIdentity(u) {
     if (!u) return;
     const merged = mergeUserPatch(u);
@@ -101,6 +138,10 @@
     setAvatar('profileAvatar', avatarUrl, ini);
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderUserState
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderUserState(state) {
     const normalized = normalizeState(state);
     const u = mergeUserPatch(normalized);
@@ -137,12 +178,20 @@
     if (S.renderSubscription) S.renderSubscription();
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderUser
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderUser(u) {
     if (!u) return;
     renderIdentity(u);
     renderUserState(u);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: telegramUserFromInit
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function telegramUserFromInit() {
     const tg = S.tg;
     const initDataUnsafe = tg && tg.initDataUnsafe ? tg.initDataUnsafe : null;
@@ -160,6 +209,10 @@
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: fetchUserState
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function fetchUserState(telegramId) {
     if (!telegramId) return;
     try {
@@ -174,6 +227,10 @@
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncTelegramUserInBackground
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function syncTelegramUserInBackground(initData, initDataUnsafe, telegramId) {
     fetch('/api/public/telegram/sync', {
       method: 'POST',
@@ -193,6 +250,10 @@
       });
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncUser
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function syncUser() {
     const tg = S.tg;
     const initData = tg && tg.initData ? tg.initData : '';

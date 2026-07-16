@@ -1,3 +1,8 @@
+# =====================================================
+# АВТОДОКУМЕНТАЦИЯ SYLVEX: services/audio_router.py
+# Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
+# Комментарии описывают назначение блоков и не меняют работу приложения.
+# =====================================================
 import asyncio
 import json
 import os
@@ -22,6 +27,11 @@ SUNO_MUSIC_MODEL_MAP = {
 }
 
 
+# =====================================================
+# PYTHON-БЛОК: safe_audio_json_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def safe_audio_json_response(response, provider: str, endpoint: str):
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
     try:
@@ -58,6 +68,11 @@ async def safe_audio_json_response(response, provider: str, endpoint: str):
         }
 
 
+# =====================================================
+# PYTHON-БЛОК: _get_env
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _get_env(*names: str) -> str:
     for name in names:
         value = os.getenv(name)
@@ -66,6 +81,10 @@ def _get_env(*names: str) -> str:
     return ""
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: _audio_error
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def _audio_error(provider: str, frontend_model: str, provider_model: str = "", error: Any = "", **extra) -> dict:
     user_message = translate_provider_error(error, provider=provider, model=frontend_model)
     result = {
@@ -82,6 +101,11 @@ def _audio_error(provider: str, frontend_model: str, provider_model: str = "", e
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: _audio_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _audio_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
@@ -90,6 +114,11 @@ def _audio_headers(api_key: str) -> dict[str, str]:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _first_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _first_value(data: Any, keys: tuple[str, ...]):
     queue = [data]
     while queue:
@@ -105,16 +134,31 @@ def _first_value(data: Any, keys: tuple[str, ...]):
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: _work_id_from_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _work_id_from_response(data: Any) -> str:
     value = _first_value(data, ("task_id", "workId", "work_id", "taskId", "id"))
     return str(value) if value else ""
 
 
+# =====================================================
+# PYTHON-БЛОК: _status_from_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _status_from_response(data: Any) -> str:
     value = _first_value(data, ("type", "status", "state", "task_status", "work_status"))
     return str(value or "").lower()
 
 
+# =====================================================
+# PYTHON-БЛОК: _response_items
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _response_items(data: Any) -> list[dict]:
     if not isinstance(data, dict):
         return []
@@ -140,6 +184,11 @@ def _response_items(data: Any) -> list[dict]:
     return []
 
 
+# =====================================================
+# PYTHON-БЛОК: _extract_audio_result
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _extract_audio_result(data: Any) -> dict[str, Any]:
     items = _response_items(data)
     first = items[0] if items else {}
@@ -172,11 +221,21 @@ def _extract_audio_result(data: Any) -> dict[str, Any]:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _music_model_mapping
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _music_model_mapping(frontend_model: str) -> str:
     value = (frontend_model or "").strip()
     return SUNO_MUSIC_MODEL_MAP.get(value) or SUNO_MUSIC_MODEL_MAP.get(value.lower()) or ""
 
 
+# =====================================================
+# PYTHON-БЛОК: _music_option_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _music_option_value(music_options: dict, key: str) -> str:
     value = music_options.get(key)
     if value is None:
@@ -185,6 +244,11 @@ def _music_option_value(music_options: dict, key: str) -> str:
     return str(value or "").strip()
 
 
+# =====================================================
+# PYTHON-БЛОК: _style_from_music_options
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _style_from_music_options(music_options: dict) -> str:
     values = []
     for key in ("genre", "mood", "tempo", "theme"):
@@ -194,6 +258,11 @@ def _style_from_music_options(music_options: dict) -> str:
     return ", ".join(values)
 
 
+# =====================================================
+# PYTHON-БЛОК: _audio_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
     music_options = payload.get("music_options") or {}
     prompt = (payload.get("prompt") or music_options.get("prompt") or "").strip()
@@ -238,6 +307,10 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
     return body
 
 
+# =====================================================
+# СИНХРОНИЗАЦИЯ С TELEGRAM: _send_generated_audio_to_telegram
+# Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
+# =====================================================
 async def _send_generated_audio_to_telegram(
     telegram_id: int,
     audio_url: str,
@@ -305,6 +378,11 @@ async def _send_generated_audio_to_telegram(
             return False
 
 
+# =====================================================
+# PYTHON-БЛОК: audio_generation
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def audio_generation(payload: dict) -> dict:
     api_key = _get_env("AUDIO_API_KEY")
     provider = "suno"
@@ -448,6 +526,11 @@ async def audio_generation(payload: dict) -> dict:
         }
 
 
+# =====================================================
+# PYTHON-БЛОК: _completed_audio_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def _completed_audio_response(
     payload: dict,
     provider: str,

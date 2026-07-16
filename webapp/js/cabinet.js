@@ -1,3 +1,8 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/cabinet.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 // Cabinet controller: wires DOM events, renders dynamic content, manages
 // Pro Studio chat workspace, support modal, hero carousel, pricing logic.
 (function () {
@@ -95,6 +100,10 @@ let videoTemplateUploadUrl = '';
 let videoTemplateRatio = '16:9';
 const VIDEO_TEMPLATE_INTRO_KEY = 'sylvex_video_templates_intro_seen';
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: setUploadTarget
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function setUploadTarget(target) {
   activeUploadTarget = Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
   currentUploadTarget = activeUploadTarget;
@@ -113,6 +122,10 @@ function setUploadTarget(target) {
   if (panel) panel.dataset.uploadTarget = activeUploadTarget;
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: getUploadTarget
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function getUploadTarget() {
   const panel = document.getElementById('uploadPanel');
   const target = (panel && panel.dataset && panel.dataset.uploadTarget) || activeUploadTarget || currentUploadTarget || UPLOAD_TARGETS.IMAGE_UPLOAD;
@@ -691,6 +704,10 @@ const MODEL_FEATURES = {
   microsoft_mai_image_2_5: { character: false, object: false },
 };
 
+// =====================================================
+// JAVASCRIPT-БЛОК: getModelCapabilities
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function getModelCapabilities(modelId) {
   const fallback = { character: false, object: false, seed: false };
   const raw = String(modelId || '').trim();
@@ -703,11 +720,19 @@ function getModelCapabilities(modelId) {
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isGrokImageModel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isGrokImageModel(modelId) {
   const raw = String(modelId || '').trim().replace(/-/g, '_');
   return raw === 'grok' || raw === 'grok_pro';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: hidesSeedSettings
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function hidesSeedSettings(modelId) {
   const raw = String(modelId || '').trim().replace(/-/g, '_');
   return isGrokImageModel(raw) || [
@@ -721,6 +746,10 @@ function hidesSeedSettings(modelId) {
   ].includes(raw);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: presetSvg
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function presetSvg(label, hue) {
   const text = String(label || '').slice(0, 2).toUpperCase();
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">'
@@ -990,40 +1019,76 @@ const VIDEO_MOTION_PRESETS = [
   'Dance 1', 'Dance 2', 'Cinematic pose', 'Camera orbit', 'Slow motion'
 ];
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentVideoModel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function currentVideoModel() {
   return VIDEO_MODELS.find((item) => item.id === videoState.modelId) || VIDEO_MODELS[0];
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isImageMode
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isImageMode() {
   return studioMode === 'image' || activeCat === 'image';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isVideoMode
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isVideoMode() {
   return studioMode === 'video' || activeCat === 'video';
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: isMusicMode
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function isMusicMode() {
   return studioMode === 'music' || activeCat === 'music';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isVoiceMode
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isVoiceMode() {
   return studioMode === 'voice' || activeCat === 'voice';
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: currentAudioState
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function currentAudioState() {
   if (isVoiceMode()) return voiceState;
   return musicState;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentVideoConfig
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function currentVideoConfig() {
   return VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentVideoProvider
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function currentVideoProvider() {
   const config = currentVideoConfig();
   return (config && config.provider) || 'sylvex-router';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: videoModelSettingsSnapshot
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function videoModelSettingsSnapshot() {
   return {
     ratio: videoState.ratio,
@@ -1037,11 +1102,19 @@ function videoModelSettingsSnapshot() {
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: saveCurrentVideoModelSettings
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function saveCurrentVideoModelSettings() {
   if (!videoState.modelId) return;
   videoModelSettings[videoState.modelId] = videoModelSettingsSnapshot();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: restoreVideoModelSettings
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function restoreVideoModelSettings(modelId) {
   const saved = videoModelSettings[modelId || videoState.modelId];
   if (saved) {
@@ -1050,6 +1123,10 @@ function restoreVideoModelSettings(modelId) {
   normalizeVideoStateForModel();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: normalizeVideoStateForModel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function normalizeVideoStateForModel() {
   const config = currentVideoConfig();
   if (!config) return;
@@ -1067,6 +1144,10 @@ function normalizeVideoStateForModel() {
   if (!config.sound) videoState.sound = false;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: labelItems
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function labelItems(values, suffix) {
   return (values || []).map((value) => {
     const id = String(value);
@@ -1074,6 +1155,10 @@ function labelItems(values, suffix) {
   });
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: videoOptionsPayload
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function videoOptionsPayload(referenceImagesOverride) {
   normalizeVideoStateForModel();
   const config = currentVideoConfig() || {};
@@ -1121,6 +1206,10 @@ function videoOptionsPayload(referenceImagesOverride) {
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: videoOptionLabel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function videoOptionLabel(kind, value) {
   const str = String(value || '');
 
@@ -1158,6 +1247,10 @@ function videoOptionLabel(kind, value) {
   return str;
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoControls
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderVideoControls() {
   normalizeVideoStateForModel();
   const model = currentVideoModel();
@@ -1207,6 +1300,10 @@ function renderVideoControls() {
   if (characterVal) characterVal.textContent = videoOptionLabel('quality', videoState.quality);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickVideoOption
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickVideoOption(kind, value) {
   const config = currentVideoConfig();
   if (kind === 'size' || kind === 'ratio') {
@@ -1249,6 +1346,10 @@ function pickVideoOption(kind, value) {
   renderVideoControls();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentComposerModelList
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function currentComposerModelList() {
   if (isImageMode()) return IMAGE_MODEL_LIST;
   if (isVideoMode()) return VIDEO_MODELS;
@@ -1256,16 +1357,32 @@ function currentComposerModelList() {
   return [];
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: musicOptionLabel
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function musicOptionLabel(items, id, fallback) {
   const value = String(id || 'auto');
+  // =====================================================
+  // JAVASCRIPT-БЛОК: item
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const item = (items || []).find((entry) => String(entry.id) === value);
   return item ? (item.label || item.id) : fallback;
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: currentMusicModel
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function currentMusicModel() {
   return MUSIC_MODEL_LIST.find((item) => item.id === musicState.modelId) || MUSIC_MODEL_LIST[0] || null;
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: ensureMusicSettings
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function ensureMusicSettings() {
   if (!musicState.settings || typeof musicState.settings !== 'object') musicState.settings = {};
   Object.keys(MUSIC_SETTINGS).forEach((key) => {
@@ -1275,6 +1392,10 @@ function ensureMusicSettings() {
   if (!musicState.modelId && MUSIC_MODEL_LIST.length) musicState.modelId = MUSIC_MODEL_LIST[0].id;
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: musicOptionsPayload
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function musicOptionsPayload() {
   ensureMusicSettings();
   return {
@@ -1287,6 +1408,10 @@ function musicOptionsPayload() {
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageVisualReferenceOptions
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageVisualReferenceOptions() {
   const character = selectedImageCharacter();
   const object = selectedImageObject();
@@ -1300,6 +1425,10 @@ function imageVisualReferenceOptions() {
   };
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderMusicControls
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderMusicControls() {
   ensureMusicSettings();
   const model = currentMusicModel();
@@ -1397,6 +1526,10 @@ const MODEL_ICON_SVG = {
   microsoft: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="8" height="8" fill="currentColor"/><rect x="13" y="3" width="8" height="8" fill="currentColor"/><rect x="3" y="13" width="8" height="8" fill="currentColor"/><rect x="13" y="13" width="8" height="8" fill="currentColor"/></svg>'
 };
 
+ // =====================================================
+ // JAVASCRIPT-БЛОК: withImageDefaults
+ // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+ // =====================================================
  function withImageDefaults(model) {
   const base = Object.assign({
     sizes: [
@@ -1432,6 +1565,10 @@ const MODEL_ICON_SVG = {
   return base;
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: mergeImageModels
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function mergeImageModels(apiModels) {
     const map = new Map();
     IMAGE_MODEL_CATALOG.map(withImageDefaults).forEach((model) => map.set(model.id, model));
@@ -1445,6 +1582,10 @@ const MODEL_ICON_SVG = {
     return Array.from(map.values());
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: getTelegramId
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function getTelegramId() {
     try {
       const tg = S.tg;
@@ -1453,6 +1594,10 @@ const MODEL_ICON_SVG = {
     } catch { return 0; }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickStudioModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickStudioModel() {
     if (isImageMode()) {
       return imageState.modelId || (IMAGE_MODEL_LIST[0] && IMAGE_MODEL_LIST[0].id) || 'ideogram_3_0';
@@ -1465,6 +1610,10 @@ const MODEL_ICON_SVG = {
     return textState.modelId || 'gpt-4o-mini';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: providerHintForModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function providerHintForModel(model) {
     if (/seedream|seedance/i.test(model)) return 'bytedance';
     if (/^gpt[_-]?image|openai/i.test(model)) return 'openai';
@@ -1484,18 +1633,34 @@ const MODEL_ICON_SVG = {
     return 'sylvex-router';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickProviderHint
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickProviderHint() {
     return providerHintForModel(pickStudioModel());
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: uiLang
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function uiLang() {
     return (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
   }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: localizedGreeting
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function localizedGreeting() {
   return '';
 }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: chatTypeForMode
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function chatTypeForMode(mode) {
     if (mode === 'edit' || mode === 'motion') return 'video';
     if (CHAT_SPACE_TYPES.includes(mode)) return mode;
@@ -1506,18 +1671,34 @@ function localizedGreeting() {
     return 'video';
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: currentChatType
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function currentChatType() {
     return chatTypeForMode(studioMode);
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: chatStorageKey
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function chatStorageKey(type) {
     return 'sylvex-prostudio-chat-' + (getTelegramId() || 'anon') + '-' + chatTypeForMode(type);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: lastModeStorageKey
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function lastModeStorageKey() {
     return 'sylvex-prostudio-last-mode-' + (getTelegramId() || 'anon');
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: rememberCurrentChatSpace
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function rememberCurrentChatSpace() {
     const type = currentChatType();
     if (!chatSpaces[type]) return;
@@ -1530,6 +1711,10 @@ function localizedGreeting() {
     } catch {}
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: loadStoredChatSpace
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function loadStoredChatSpace(type) {
     const normalized = chatTypeForMode(type);
     try {
@@ -1543,11 +1728,19 @@ function localizedGreeting() {
     } catch {}
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: latestConversationForType
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function latestConversationForType(type) {
     const normalized = chatTypeForMode(type);
     return ((chatCollections && chatCollections[normalized]) || []).find(Boolean) || null;
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: syncChatCollections
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function syncChatCollections(conversations) {
     CHAT_SPACE_TYPES.forEach((type) => {
       chatCollections[type] = [];
@@ -1558,6 +1751,10 @@ function localizedGreeting() {
     });
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: restoreChatSpace
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function restoreChatSpace(type) {
     const normalized = chatTypeForMode(type);
     if (!chatSpaces[normalized]) return;
@@ -1575,6 +1772,10 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: savedInitialStudioMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function savedInitialStudioMode() {
     try {
       const saved = localStorage.getItem(lastModeStorageKey());
@@ -1584,6 +1785,10 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadProStudioSync
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadProStudioSync() {
     const tg = getTelegramId();
     if (!tg) return;
@@ -1606,10 +1811,18 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: isActiveGenerationStatus
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function isActiveGenerationStatus(status) {
     return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
   }
 
+  // =====================================================
+  // ОЖИДАНИЕ JOB: restoreActiveGenerationJobs
+  // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
+  // =====================================================
   function restoreActiveGenerationJobs(jobs) {
     (jobs || []).forEach((job) => {
       if (!job || !job.id || !isActiveGenerationStatus(job.status)) return;
@@ -1617,6 +1830,10 @@ function localizedGreeting() {
     });
   }
 
+  // =====================================================
+  // ОЖИДАНИЕ JOB: watchGenerationJob
+  // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
+  // =====================================================
   function watchGenerationJob(jobId, jobInfo) {
     if (!jobId || activeGenerationWatchers.has(jobId)) return;
     activeGenerationWatchers.add(jobId);
@@ -1635,6 +1852,10 @@ function localizedGreeting() {
       });
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyCurrentDraft
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyCurrentDraft() {
     const ta = document.getElementById('chatInput');
     if (!ta) return;
@@ -1648,6 +1869,10 @@ function localizedGreeting() {
     updateSendButton();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: saveCurrentDraftSoon
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function saveCurrentDraftSoon() {
     if (restoringDraft) return;
     const tg = getTelegramId();
@@ -1677,6 +1902,10 @@ function localizedGreeting() {
     }, 450);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: saveVisualItemToBackend
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function saveVisualItemToBackend(kind, item) {
     const tg = getTelegramId();
     if (!tg || !item) return item;
@@ -1699,11 +1928,19 @@ function localizedGreeting() {
   }
 
   /* ===== Rendering ===== */
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderModeStrip
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderModeStrip() {
     const el = document.getElementById('modeStrip'); if (!el) return;
     el.innerHTML = '';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderModelPop
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderModelPop() {
     const el = document.getElementById('modelPop');
     if (!el) return;
@@ -1721,6 +1958,10 @@ function localizedGreeting() {
     el.innerHTML = '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: showImageModelPicker
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function showImageModelPicker(e) {
     if (e) {
       e.preventDefault();
@@ -1764,7 +2005,15 @@ function localizedGreeting() {
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: currentImageModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function currentImageModel() {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: model
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const model = IMAGE_MODEL_LIST.find((item) => item.id === imageState.modelId) || IMAGE_MODEL_LIST[0];
     if (!model) return null;
 
@@ -1780,10 +2029,18 @@ function localizedGreeting() {
     }, model);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: customVisualKey
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function customVisualKey(kind) {
     return 'sylvex-prostudio-' + kind + '-' + (getTelegramId() || 'anon');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadCustomVisualItems
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function loadCustomVisualItems(kind) {
     const serverItems = serverVisualItems && Array.isArray(serverVisualItems[kind])
       ? serverVisualItems[kind]
@@ -1791,6 +2048,10 @@ function localizedGreeting() {
     try {
       const raw = localStorage.getItem(customVisualKey(kind));
       const list = raw ? JSON.parse(raw) : [];
+      // =====================================================
+      // JAVASCRIPT-БЛОК: localItems
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const localItems = Array.isArray(list) ? list.filter((item) => item && item.id && item.previewUrl) : [];
       const seen = new Set();
       return serverItems.concat(localItems).filter((item) => {
@@ -1803,34 +2064,62 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: saveCustomVisualItems
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function saveCustomVisualItems(kind, items) {
     try {
       localStorage.setItem(customVisualKey(kind), JSON.stringify((items || []).slice(0, 50)));
     } catch {}
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageCharacters
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageCharacters() {
     return loadCustomVisualItems('characters').concat(PRESET_CHARACTERS);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageObjects
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageObjects() {
     return loadCustomVisualItems('objects').concat(PRESET_OBJECTS);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: selectedImageCharacter
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function selectedImageCharacter() {
     return imageCharacters().find((item) => item.id === imageState.characterId) || null;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: selectedImageObject
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function selectedImageObject() {
     return imageObjects().find((item) => item.id === imageState.objectId) || null;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: clearSelectedCharacter
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function clearSelectedCharacter() {
     imageState.characterId = null;
     imageState.characterName = '';
     imageState.characterReferences = [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: clearSelectedObject
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function clearSelectedObject() {
     imageState.objectId = null;
     imageState.objectName = '';
@@ -1838,6 +2127,10 @@ function localizedGreeting() {
     imageState.objects = '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncImageFeatureAvailability
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function syncImageFeatureAvailability() {
     const caps = getModelCapabilities(imageState.modelId);
     if (!caps.character && imageState.characterId) clearSelectedCharacter();
@@ -1845,23 +2138,39 @@ function localizedGreeting() {
     return caps;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageFeatureUnavailableToast
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageFeatureUnavailableToast(feature) {
     const label = feature === 'character' ? 'персонажей' : 'объекты';
     toast('Выбранная AI-модель не поддерживает ' + label + '.');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: ensureImageReferenceSections
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function ensureImageReferenceSections() {
     let wrap = document.getElementById('imageReferenceSections');
     if (wrap) wrap.remove();
     return null;
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageReferenceSections
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderImageReferenceSections() {
     ensureImageReferenceSections();
     const caps = syncImageFeatureAvailability();
     const character = selectedImageCharacter();
     const object = selectedImageObject();
 
+    // =====================================================
+    // JAVASCRIPT-БЛОК: setButtonState
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const setButtonState = (valueEl, disabled) => {
       if (!valueEl) return;
       const btn = valueEl.closest('button');
@@ -1888,14 +2197,26 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: nextImageCountValue
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function nextImageCountValue() {
     const counts = [1, 2, 3, 4];
     const currentCount = Number(imageState.count || 1);
+    // =====================================================
+    // JAVASCRIPT-БЛОК: currentIndex
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const currentIndex = counts.findIndex((item) => Number(item) === currentCount);
     const safeIndex = currentIndex >= 0 ? currentIndex : 0;
     return Number(counts[(safeIndex + 1) % counts.length] || 1);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: optionLabel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function optionLabel(options, id, fallback) {
     const value = String(id || '');
 
@@ -1907,16 +2228,28 @@ function localizedGreeting() {
       return styleOpt.label || styleOpt.id;
     }
 
+    // =====================================================
+    // JAVASCRIPT-БЛОК: opt
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const opt = (options || []).find((item) => String(item.id) === value);
 
     return opt ? (opt.label || opt.id) : fallback;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageStyleSheetItem
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageStyleSheetItem(id) {
     const value = String(id || '');
     return IMAGE_STYLE_SHEET_ITEMS.find((item) => String(item.id) === value) || null;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updateImageStyleButtonPreview
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function updateImageStyleButtonPreview(styleItem) {
     const styleVal = document.getElementById('imageStyleVal');
     if (!styleVal) return;
@@ -1937,6 +2270,10 @@ function localizedGreeting() {
     button.classList.add('has-style-preview');
   }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderUploadPreviewOnButton
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderUploadPreviewOnButton(button, urls) {
   if (!button) return;
   const clean = (urls || []).filter(Boolean).slice(0, 4);
@@ -1956,6 +2293,10 @@ function renderUploadPreviewOnButton(button, urls) {
   button.classList.add('has-upload-preview');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: setFramePreview
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function setFramePreview(card, url, label) {
   if (!card) return;
   let preview = card.querySelector(':scope > .studio-frame-preview');
@@ -1973,18 +2314,34 @@ function setFramePreview(card, url, label) {
   card.classList.add('has-frame-preview');
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderImageUploadPreview
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderImageUploadPreview() {
   renderUploadPreviewOnButton(document.getElementById('imageUploadButton'), imageState.uploadedImageUrls || []);
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoStartPreview
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderVideoStartPreview() {
   setFramePreview(document.getElementById('videoStartUploadButton'), videoState.startImage || '', 'start image');
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoEndPreview
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderVideoEndPreview() {
   setFramePreview(document.getElementById('videoEndUploadButton'), videoState.endImage || '', 'end image');
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoReferencesPreview
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderVideoReferencesPreview() {
   const button = document.getElementById('videoReferencesUploadButton');
   renderUploadPreviewOnButton(button, videoState.referenceImageUrls || []);
@@ -2004,11 +2361,19 @@ function renderVideoReferencesPreview() {
   }
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoInputPreviews
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderVideoInputPreviews() {
   renderVideoStartPreview();
   renderVideoEndPreview();
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderAllUploadPreviews
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderAllUploadPreviews() {
   injectImageStyleSheetCss();
   renderImageUploadPreview();
@@ -2017,6 +2382,10 @@ function renderAllUploadPreviews() {
   renderVideoReferencesPreview();
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderUploadPreviewForTarget
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderUploadPreviewForTarget(targetOverride) {
   injectImageStyleSheetCss();
   const target = targetOverride || getUploadTarget();
@@ -2031,10 +2400,18 @@ function renderUploadPreviewForTarget(targetOverride) {
   }
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: updateImageUploadButtonPreview
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function updateImageUploadButtonPreview() {
   renderAllUploadPreviews();
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: currentUploadImages
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function currentUploadImages(targetOverride) {
   const target = targetOverride || getUploadTarget();
   if (target === UPLOAD_TARGETS.VIDEO_START) return videoState.startImage ? [videoState.startImage] : [];
@@ -2043,11 +2420,19 @@ function currentUploadImages(targetOverride) {
   return (imageState.uploadedImageUrls || []).slice();
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: uploadLimitForTarget
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function uploadLimitForTarget(targetOverride) {
   const target = targetOverride || getUploadTarget();
   return target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END ? 1 : 4;
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: applyUploadToTarget
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function applyUploadToTarget(url, targetOverride) {
   if (!url) return;
   const target = targetOverride || getUploadTarget();
@@ -2064,6 +2449,10 @@ function applyUploadToTarget(url, targetOverride) {
     return;
   }
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: refs
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
     refs.unshift(url);
     videoState.referenceImageUrls = refs.slice(0, uploadLimitForTarget(target));
@@ -2076,6 +2465,10 @@ function applyUploadToTarget(url, targetOverride) {
     return;
   }
   if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
+    // =====================================================
+    // ЗАГРУЗКА В MINI APP: uploads
+    // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+    // =====================================================
     const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
     uploads.unshift(url);
     imageState.uploadedImageUrls = uploads.slice(0, uploadLimitForTarget(target));
@@ -2088,14 +2481,26 @@ function applyUploadToTarget(url, targetOverride) {
   }
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: applyUploadedMediaToTarget
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function applyUploadedMediaToTarget(url) {
   applyUploadToTarget(url, getUploadTarget());
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: addVideoReferenceImage
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function addVideoReferenceImage(url) {
   applyUploadToTarget(url, UPLOAD_TARGETS.VIDEO_REFERENCES);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: applyVideoReferenceToState
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function applyVideoReferenceToState(url) {
   if (!url) return;
   videoState.inputVideo = url;
@@ -2109,6 +2514,10 @@ function applyVideoReferenceToState(url) {
   updateSendButton();
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: setCurrentUploadImages
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function setCurrentUploadImages(urls, targetOverride) {
   const target = targetOverride || getUploadTarget();
   const clean = (urls || []).filter(Boolean).slice(0, uploadLimitForTarget(target));
@@ -2134,6 +2543,10 @@ function setCurrentUploadImages(urls, targetOverride) {
   updateSendButton();
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openUploadTarget
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openUploadTarget(target, e) {
   if (e) {
     e.preventDefault();
@@ -2150,14 +2563,26 @@ function openUploadTarget(target, e) {
   panel.dataset.uploadTarget = target;
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageUpload
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openImageUpload(e) {
   openUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD, e);
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageUploadTarget
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openImageUploadTarget(e) {
   openImageUpload(e);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureVisualCreateModal
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureVisualCreateModal() {
   let modal = document.getElementById('visualCreateModal');
   if (modal) return modal;
@@ -2168,6 +2593,10 @@ function ensureVisualCreateModal() {
   return modal;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureVisualPickerModal
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureVisualPickerModal() {
   let modal = document.getElementById('visualPickerModal');
   if (modal) return modal;
@@ -2178,6 +2607,10 @@ function ensureVisualPickerModal() {
   return modal;
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: closeVisualPicker
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function closeVisualPicker(e) {
   if (e) {
     e.preventDefault();
@@ -2187,6 +2620,10 @@ function closeVisualPicker(e) {
   if (modal) modal.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: visualPickerCardHtml
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function visualPickerCardHtml(item, kind) {
   const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
   return '<button class="visual-picker-card ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
@@ -2196,12 +2633,20 @@ function visualPickerCardHtml(item, kind) {
     + '</button>';
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openVisualPicker
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openVisualPicker(e, kind) {
   openImageStylePanel(e, kind === 'object' ? 'object' : 'character');
 }
 
 let visualCreateDraft = { kind: '', photos: [] };
 
+// =====================================================
+// JAVASCRIPT-БЛОК: visualCreatePhotoSlot
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function visualCreatePhotoSlot(index) {
   const url = visualCreateDraft.photos[index] || '';
   return '<button class="visual-photo-slot ' + (url ? 'has-photo' : '') + '" type="button" onclick="SYLVEX.pickVisualCreatePhoto(event,' + index + ')">'
@@ -2210,6 +2655,10 @@ function visualCreatePhotoSlot(index) {
     + '</button>';
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVisualCreateModal
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderVisualCreateModal() {
   const modal = ensureVisualCreateModal();
   const kind = visualCreateDraft.kind;
@@ -2237,6 +2686,10 @@ function renderVisualCreateModal() {
   modal.classList.add('show');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openVisualCreateModal
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openVisualCreateModal(e, kind) {
   if (e) {
     e.preventDefault();
@@ -2251,6 +2704,10 @@ function openVisualCreateModal(e, kind) {
   renderVisualCreateModal();
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: closeVisualCreateModal
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function closeVisualCreateModal(e) {
   if (e) {
     e.preventDefault();
@@ -2260,6 +2717,10 @@ function closeVisualCreateModal(e) {
   if (modal) modal.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: updateVisualCreateDraft
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function updateVisualCreateDraft(e, field) {
   const target = e && e.target;
   visualCreateDraft[field] = target ? target.value : '';
@@ -2270,6 +2731,10 @@ function updateVisualCreateDraft(e, field) {
   }
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: visualCreateCanSave
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function visualCreateCanSave() {
   const isCharacter = visualCreateDraft.kind === 'character';
   return String(visualCreateDraft.name || '').trim().length >= 2
@@ -2277,11 +2742,19 @@ function visualCreateCanSave() {
     && (visualCreateDraft.photos || []).filter(Boolean).length > 0;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: updateVisualCreateSaveState
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function updateVisualCreateSaveState() {
   const btn = document.querySelector('#visualCreateModal .visual-create-save');
   if (btn) btn.disabled = !visualCreateCanSave();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickVisualCreatePhoto
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickVisualCreatePhoto(e, index) {
   if (e) {
     e.preventDefault();
@@ -2311,6 +2784,10 @@ function pickVisualCreatePhoto(e, index) {
   input.click();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: removeVisualCreatePhoto
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function removeVisualCreatePhoto(e, index) {
   if (e) {
     e.preventDefault();
@@ -2320,6 +2797,10 @@ function removeVisualCreatePhoto(e, index) {
   renderVisualCreateModal();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: saveVisualCreateDraft
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 async function saveVisualCreateDraft(e) {
   if (e) {
     e.preventDefault();
@@ -2350,6 +2831,10 @@ async function saveVisualCreateDraft(e) {
     serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
     serverVisualItems[storageKind].unshift(item);
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: items
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const items = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== item.id);
   items.unshift(item);
   saveCustomVisualItems(storageKind, items);
@@ -2370,6 +2855,10 @@ async function saveVisualCreateDraft(e) {
   toast(kind === 'character' ? 'Персонаж создан' : 'Объект создан');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickVisualReference
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickVisualReference(e, kind, id) {
   if (e) {
     e.preventDefault();
@@ -2379,6 +2868,10 @@ function pickVisualReference(e, kind, id) {
   if (kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
   if (kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
   const list = kind === 'character' ? imageCharacters() : imageObjects();
+  // =====================================================
+  // JAVASCRIPT-БЛОК: item
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const item = list.find((entry) => entry.id === id);
   if (!item) return;
   if (kind === 'character') {
@@ -2405,18 +2898,34 @@ function pickVisualReference(e, kind, id) {
   updateSendButton();
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoStartUpload
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openVideoStartUpload(e) {
   openUploadTarget(UPLOAD_TARGETS.VIDEO_START, e);
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoEndUpload
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openVideoEndUpload(e) {
   openUploadTarget(UPLOAD_TARGETS.VIDEO_END, e);
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoReferencesUpload
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openVideoReferencesUpload(e) {
   openUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES, e);
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: aggressiveUploadTargetClickGuard
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function aggressiveUploadTargetClickGuard(e) {
   const target = e && e.target ? e.target : null;
   if (!target || !target.closest) return;
@@ -2433,9 +2942,17 @@ function aggressiveUploadTargetClickGuard(e) {
 
 if (!window.__sylvexUploadTargetGuardInstalled) {
   window.__sylvexUploadTargetGuardInstalled = true;
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('click', aggressiveUploadTargetClickGuard, true);
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: currentModeAttachment
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function currentModeAttachment() {
   if (isVideoMode()) return videoState.attachment || null;
   if (isMusicMode() || isVoiceMode()) return currentAudioState().attachment || null;
@@ -2443,6 +2960,10 @@ function currentModeAttachment() {
   return pendingAttachment;
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: setCurrentModeAttachment
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function setCurrentModeAttachment(attachment) {
   if (isVideoMode()) {
     videoState.attachment = attachment || null;
@@ -2456,6 +2977,10 @@ function setCurrentModeAttachment(attachment) {
   pendingAttachment = currentModeAttachment();
 }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: currentSelectedUploadImage
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function currentSelectedUploadImage() {
   const target = getUploadTarget();
 
@@ -2468,6 +2993,10 @@ function currentSelectedUploadImage() {
   return images[images.length - 1] || '';
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: injectImageStyleSheetCss
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function injectImageStyleSheetCss() {
   if (styleSheetCssInjected) return;
   styleSheetCssInjected = true;
@@ -2873,6 +3402,10 @@ function currentSelectedUploadImage() {
   document.head.appendChild(style);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureImageStylePanel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureImageStylePanel() {
   injectImageStyleSheetCss();
 
@@ -2906,6 +3439,10 @@ function ensureImageStylePanel() {
   return panel;
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderImageStylePanel
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderImageStylePanel() {
   const grid = document.getElementById('imageStylePanelGrid');
   if (!grid) return;
@@ -2976,6 +3513,10 @@ function renderImageStylePanel() {
   }).join('');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageStylePanel
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openImageStylePanel(e, kind) {
   if (e) {
     e.preventDefault();
@@ -3007,6 +3548,10 @@ function openImageStylePanel(e, kind) {
   S.haptic && S.haptic.impact && S.haptic.impact('light');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: closeImageStylePanel
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function closeImageStylePanel(e) {
   if (e) {
     e.preventDefault();
@@ -3019,11 +3564,19 @@ function closeImageStylePanel(e) {
   if (panel) panel.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: hideImageStyleInfo
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function hideImageStyleInfo() {
   const tooltip = document.getElementById('imageStyleInfoTooltip');
   if (tooltip) tooltip.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: handleImageStyleInfoOutsideTouch
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function handleImageStyleInfoOutsideTouch(e) {
   const tooltip = document.getElementById('imageStyleInfoTooltip');
   if (!tooltip || !tooltip.classList.contains('show')) return;
@@ -3037,6 +3590,10 @@ function handleImageStyleInfoOutsideTouch(e) {
   hideImageStyleInfo();
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleImageStyleInfo
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function toggleImageStyleInfo(e) {
   if (e) {
     e.preventDefault();
@@ -3049,6 +3606,10 @@ function toggleImageStyleInfo(e) {
   tooltip.classList.toggle('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickImageStyleFromPanel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickImageStyleFromPanel(e, value) {
   if (e) {
     e.preventDefault();
@@ -3065,6 +3626,10 @@ function pickImageStyleFromPanel(e, value) {
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelIconKey
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelIconKey(model) {
   const id = String(model && model.id ? model.id : '');
 
@@ -3083,6 +3648,10 @@ function imageModelIconKey(model) {
   return 'nn';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelIconHtml
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelIconHtml(model) {
   const key = model && (model.icon || model.iconKey)
     ? String(model.icon || model.iconKey)
@@ -3101,11 +3670,19 @@ function imageModelIconHtml(model) {
   return '<img class="model-brand-logo" src="' + S.escapeHtml(iconValue) + '" alt="" loading="lazy" decoding="async" />';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelDescription
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelDescription(model) {
   if (!model) return 'AI-модель для генерации изображений.';
   return model.description || model.desc || model.subtitle || model.note || 'AI-модель для генерации изображений.';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelButton
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
@@ -3127,6 +3704,10 @@ function imageModelButton(model) {
     + '</button>';
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyImageDefaults
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyImageDefaults(model) {
     if (!model) return;
     imageState.modelId = model.id;
@@ -3136,6 +3717,10 @@ function imageModelButton(model) {
     imageState.character = (model.characters && model.characters[0] && model.characters[0].id) || 'auto';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncImageModelOptionDefaults
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function syncImageModelOptionDefaults(model) {
     const cfg = model || currentImageModel();
     if (!cfg) return;
@@ -3149,6 +3734,10 @@ function imageModelButton(model) {
     }
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageControls
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderImageControls() {
     const model = currentImageModel();
     if (!model) return;
@@ -3161,6 +3750,10 @@ function imageModelButton(model) {
       { id:'9:16', label:'9:16', ratio:'9:16' }
     ];
     const selectedSizeId = imageState.size || '1:1';
+    // =====================================================
+    // JAVASCRIPT-БЛОК: size
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const size = sizeOptions.find((item) => item.id === selectedSizeId) || sizeOptions[0];
     const sizeVal = document.getElementById('imageSizeVal');
     if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
@@ -3179,6 +3772,10 @@ function imageModelButton(model) {
     renderImageReferenceSections();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: normalizeImageSeed
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function normalizeImageSeed(value) {
     const raw = String(value ?? '').trim();
     if (!raw) return null;
@@ -3189,15 +3786,27 @@ function imageModelButton(model) {
     return seed;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageSeedInputValue
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageSeedInputValue() {
     return imageState.seed === null || imageState.seed === undefined ? '' : String(imageState.seed);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: currentRecraftTools
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function currentRecraftTools() {
     const model = currentImageModel() || {};
     return Array.isArray(model.recraftTools) ? model.recraftTools.slice() : [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageOptionsPayload
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageOptionsPayload(referenceImages) {
     const capabilities = getModelCapabilities(imageState.modelId);
     const seed = capabilities.seed ? normalizeImageSeed(imageState.seed) : null;
@@ -3208,10 +3817,18 @@ function imageModelButton(model) {
     }, imageVisualReferenceOptions());
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: sanitizeImageSeedInput
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function sanitizeImageSeedInput(value) {
     return String(value || '').replace(/\D+/g, '');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: onImageSeedInput
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function onImageSeedInput(e) {
     const input = e && e.currentTarget ? e.currentTarget : document.getElementById('imageSeedInput');
     if (!input) return;
@@ -3220,6 +3837,10 @@ function imageModelButton(model) {
     imageState.seed = clean ? clean : null;
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleImageSeedTooltip
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function toggleImageSeedTooltip(e) {
     if (e) {
       e.preventDefault();
@@ -3230,6 +3851,10 @@ function imageModelButton(model) {
     tip.hidden = !tip.hidden;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: resetImageSettings
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function resetImageSettings(e) {
     if (e) {
       e.preventDefault();
@@ -3240,6 +3865,10 @@ function imageModelButton(model) {
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeImageSeedTooltipOnOutside
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeImageSeedTooltipOnOutside(e) {
     const tip = document.getElementById('imageSeedTooltip');
     if (!tip || tip.hidden) return;
@@ -3248,6 +3877,10 @@ function imageModelButton(model) {
     tip.hidden = true;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadImageCapabilities
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadImageCapabilities() {
     try {
       const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
@@ -3263,6 +3896,10 @@ function imageModelButton(model) {
     }
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageOptionMenu
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openImageOptionMenu(e, kind) {
     if (e) {
       e.preventDefault();
@@ -3295,6 +3932,10 @@ function imageModelButton(model) {
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
 
+      // =====================================================
+      // ОБРАБОТЧИК ИНТЕРФЕЙСА: openMusicSheet
+      // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+      // =====================================================
       const openMusicSheet = (title, items, optionKind, activeValue) => {
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
@@ -3388,11 +4029,19 @@ function imageModelButton(model) {
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
 
+      // =====================================================
+      // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeOtherSheets
+      // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+      // =====================================================
       const closeOtherSheets = () => {
         const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
         const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
       };
 
+      // =====================================================
+      // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoSheet
+      // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+      // =====================================================
       const openVideoSheet = (title, items, optionKind) => {
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
@@ -3692,6 +4341,10 @@ function imageModelButton(model) {
     el.classList.add('show');
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: pickMusicOption
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function pickMusicOption(e, kind, value) {
     if (e) {
       e.preventDefault();
@@ -3723,6 +4376,10 @@ function imageModelButton(model) {
     S.haptic && S.haptic.select && S.haptic.select();
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: resetMusicSettings
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function resetMusicSettings(e) {
     if (e) {
       e.preventDefault();
@@ -3738,6 +4395,10 @@ function imageModelButton(model) {
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickImageOption
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickImageOption(e, kind, value) {
     if (e) {
       e.preventDefault();
@@ -3745,6 +4406,10 @@ function imageModelButton(model) {
     }
     if (kind === 'model') {
       if (isImageMode()) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: model
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           imageState.modelId = model.id;
@@ -3755,6 +4420,10 @@ function imageModelButton(model) {
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
       } else if (isVideoMode()) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: model
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const model = VIDEO_MODELS.find((item) => item.id === value);
         if (model) {
           if (model.id !== videoState.modelId) saveCurrentVideoModelSettings();
@@ -3764,6 +4433,10 @@ function imageModelButton(model) {
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
       } else if (isMusicMode()) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: model
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const model = MUSIC_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           musicState.modelId = model.id;
@@ -3831,6 +4504,10 @@ function imageModelButton(model) {
     }
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: generatedUrlsFromMessage
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function generatedUrlsFromMessage(m, kind) {
     if (!m) return [];
     if (kind === 'image') {
@@ -3850,6 +4527,10 @@ function imageModelButton(model) {
     return Array.isArray(m.files) && m.files.length ? m.files : (m.fileUrl ? [m.fileUrl] : []);
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: generatedUrlsFromResponse
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function generatedUrlsFromResponse(j, kind) {
     if (!j) return [];
     if (kind === 'image') {
@@ -3882,6 +4563,10 @@ function imageModelButton(model) {
     return Array.isArray(j.files) && j.files.length ? j.files : (j.file_url ? [j.file_url] : []);
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: generatedThumbsFromResponse
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function generatedThumbsFromResponse(j) {
     if (!j) return [];
     if (j.thumbnail_url) return [j.thumbnail_url];
@@ -3892,6 +4577,10 @@ function imageModelButton(model) {
     return j.thumb_url ? [j.thumb_url] : [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickFirstMediaUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickFirstMediaUrl() {
     for (let i = 0; i < arguments.length; i += 1) {
       const value = arguments[i];
@@ -3926,6 +4615,10 @@ function imageModelButton(model) {
     return '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickFirstCoverUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickFirstCoverUrl() {
     for (let i = 0; i < arguments.length; i += 1) {
       const value = arguments[i];
@@ -3953,6 +4646,10 @@ function imageModelButton(model) {
     return '';
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: musicCoverUrl
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function musicCoverUrl(source) {
     const meta = source && source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
     return pickFirstCoverUrl(
@@ -3983,6 +4680,10 @@ function imageModelButton(model) {
     );
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: musicAudioUrl
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function musicAudioUrl(source) {
     const meta = source && source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
     return pickFirstMediaUrl(
@@ -4009,6 +4710,10 @@ function imageModelButton(model) {
     );
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: normalizeMusicTrack
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function normalizeMusicTrack(source, fallbackUrl) {
     const meta = source && source.metadata && typeof source.metadata === 'object' ? source.metadata : {};
     const audioUrl = musicAudioUrl(source || {}) || fallbackUrl || '';
@@ -4025,6 +4730,10 @@ function imageModelButton(model) {
     };
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: formatAudioTime
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function formatAudioTime(seconds) {
     const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
     const min = Math.floor(total / 60);
@@ -4034,6 +4743,10 @@ function imageModelButton(model) {
 
   let activeMusicTrack = null;
 
+  // =====================================================
+  // АУДИОПЛЕЕР: setStudioPlayerIcon
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function setStudioPlayerIcon(isPlaying) {
     const btn = document.getElementById('studioPlayPauseBtn');
     if (!btn) return;
@@ -4042,6 +4755,10 @@ function imageModelButton(model) {
       : '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderStudioPlayerTrack
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderStudioPlayerTrack(track) {
     const player = document.getElementById('studioAudioPlayer');
     const titleEl = document.getElementById('studioTrackTitle');
@@ -4059,6 +4776,10 @@ function imageModelButton(model) {
     }
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: bindStudioAudioElement
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function bindStudioAudioElement() {
     const audio = document.getElementById('studioAudioElement');
     if (!audio || audio.dataset.bound === '1') return audio;
@@ -4082,6 +4803,10 @@ function imageModelButton(model) {
     return audio;
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openMusicInPlayer
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openMusicInPlayer(trackLike, e) {
     if (e) {
       e.preventDefault();
@@ -4090,6 +4815,10 @@ function imageModelButton(model) {
     PlayerManager.playTrack(trackLike || {});
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleStudioAudioPlayer
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function toggleStudioAudioPlayer(e) {
     if (e) {
       e.preventDefault();
@@ -4098,6 +4827,10 @@ function imageModelButton(model) {
     PlayerManager.toggle();
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: generatedThumbsFromMessage
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function generatedThumbsFromMessage(m) {
     if (!m) return [];
     if (m.thumbnail_url) return [m.thumbnail_url];
@@ -4108,7 +4841,15 @@ function imageModelButton(model) {
     return m.thumbUrl ? [m.thumbUrl] : [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imagePreviewUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imagePreviewUrl(meta, fallback) {
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const pickUrl = (value) => {
     if (!value) return '';
 
@@ -4127,6 +4868,10 @@ function imageModelButton(model) {
     return '';
   };
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: firstUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const firstUrl = (list) => {
     if (!Array.isArray(list)) return '';
 
@@ -4148,6 +4893,10 @@ function imageModelButton(model) {
     || '';
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: previewImgHtml
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function previewImgHtml(url, alt, fallbackUrl) {
     const safeUrl = S.escapeHtml(url || '');
     const safeAlt = S.escapeHtml(alt || 'preview');
@@ -4158,6 +4907,10 @@ function imageModelButton(model) {
       + ' onerror="if(this.dataset&&this.dataset.fallbackSrc&&this.src!==this.dataset.fallbackSrc){this.src=this.dataset.fallbackSrc;this.removeAttribute(\'data-fallback-src\');}else{this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'generation-result-fallback\',textContent:\'IMG\'}));}" />';
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: aiMessageFromGenerateResponse
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function aiMessageFromGenerateResponse(j) {
     const images = generatedUrlsFromResponse(j, 'image');
     const thumbs = generatedThumbsFromResponse(j);
@@ -4180,6 +4933,10 @@ function imageModelButton(model) {
     };
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedTelegramButton
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGeneratedTelegramButton(url, kind) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
@@ -4188,6 +4945,10 @@ function imageModelButton(model) {
       + '</button>';
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: renderGeneratedOpenButton
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function renderGeneratedOpenButton(url, kind) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
@@ -4199,6 +4960,10 @@ function imageModelButton(model) {
     return '<button class="gen-action-btn" type="button" ' + dataAttr + '="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="' + handler + '">Открыть</button>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedActions
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGeneratedActions(url, kind) {
     const safeUrl = S.escapeHtml(url);
     let actions = renderGeneratedOpenButton(url, kind) + renderGeneratedTelegramButton(url, kind);
@@ -4211,6 +4976,10 @@ function imageModelButton(model) {
     return '<div class="gen-result-actions">' + actions + '</div>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedImage
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGeneratedImage(item, index) {
     const url = typeof item === 'string' ? item : item.url;
     const thumb = typeof item === 'string' ? item : (item.thumb || item.url);
@@ -4224,10 +4993,18 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageGenerationMetadata
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageGenerationMetadata(prompt, referenceImages, result, optionsSnapshot) {
     const backendMeta = result && result.metadata && typeof result.metadata === 'object' ? result.metadata : {};
     const options = Object.assign({}, optionsSnapshot || imageState || {}, backendMeta.image_options || backendMeta.settings || {});
     const modelId = backendMeta.model || (result && result.model) || options.modelId || imageState.modelId || '';
+    // =====================================================
+    // JAVASCRIPT-БЛОК: model
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const model = IMAGE_MODEL_LIST.find((item) => item.id === modelId) || currentImageModel() || {};
     const images = backendMeta.result_images && backendMeta.result_images.length
       ? backendMeta.result_images.slice()
@@ -4313,6 +5090,10 @@ function imageModelButton(model) {
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: generationResultMetadata
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function generationResultMetadata(type, prompt, result, referenceImages, optionsSnapshot) {
     if (type === 'image') return imageGenerationMetadata(prompt, referenceImages, result);
     const videoUrls = result ? generatedUrlsFromResponse(result, 'video') : [];
@@ -4348,6 +5129,10 @@ function imageModelButton(model) {
     };
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageGenerationLoadingCard
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderImageGenerationLoadingCard() {
     return renderGenerationLoadingCard({ progress: createGenerationProgress('image') });
   }
@@ -4362,6 +5147,10 @@ function imageModelButton(model) {
     kling: ['Building motion...', 'Generating frames...', 'Applying native audio...', 'Rendering video...'],
   };
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: generationKindForCurrentMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function generationKindForCurrentMode() {
     if (isVideoMode()) {
       const model = String(videoState.modelId || '').toLowerCase();
@@ -4373,6 +5162,10 @@ function imageModelButton(model) {
     return 'text';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: createGenerationProgress
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function createGenerationProgress(kind, modelId) {
     return {
       kind: kind || generationKindForCurrentMode(),
@@ -4384,6 +5177,10 @@ function imageModelButton(model) {
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: generationProgressMessage
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function generationProgressMessage(progress) {
     const p = progress || {};
     const items = GENERATION_STAGE_MESSAGES[p.kind] || GENERATION_STAGE_MESSAGES.text;
@@ -4393,6 +5190,10 @@ function imageModelButton(model) {
     return items[index] || items[0] || 'Генерация...';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: nextGenerationProgress
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function nextGenerationProgress(progress, completed) {
     const p = Object.assign(createGenerationProgress('text'), progress || {});
     if (completed) {
@@ -4408,6 +5209,10 @@ function imageModelButton(model) {
     return p;
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGenerationLoadingCard
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGenerationLoadingCard(message) {
     const progress = nextGenerationProgress(message && message.progress, false);
     const pct = Math.max(0, Math.min(98, Number(progress.percent || 0)));
@@ -4421,6 +5226,10 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderInsufficientBalanceCard
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderInsufficientBalanceCard(m, index) {
     const required = Number(m.requiredCredits || 0);
     const balance = Number(m.balance || 0);
@@ -4439,6 +5248,10 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageResultMiniCard
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? 'music' : 'image'));
@@ -4467,6 +5280,10 @@ function imageModelButton(model) {
       + '</button>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedVideo
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGeneratedVideo(url) {
     const safeUrl = S.escapeHtml(url);
     return '<div class="gen-media-card gen-video-card">'
@@ -4475,6 +5292,10 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedAudio
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGeneratedAudio(url) {
     const safeUrl = S.escapeHtml(url);
     return '<div class="gen-media-card gen-audio-card" role="button" tabindex="0" data-audio-url="' + safeUrl + '" data-title="Untitled Track" onclick="SYLVEX.playMusicTrack(event)">'
@@ -4483,6 +5304,10 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedFile
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderGeneratedFile(url) {
     return '<div class="gen-media-card gen-file-card">'
       + '<span class="gen-file-label">Generated file</span>'
@@ -4490,6 +5315,10 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderChat
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderChat() {
     const el = document.getElementById('chatArea'); if (!el) return;
     el.innerHTML = chatMessages.map((m, i) => {
@@ -4551,6 +5380,10 @@ function imageModelButton(model) {
           + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
       }
       if (imageUrls.length) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: imageItems
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const imageItems = imageUrls.map((url, idx) => ({ url, thumb: imageThumbs[idx] || url }));
         inner += '<div class="gen-img-grid">' + imageItems.map(renderGeneratedImage).join('') + '</div>';
       }
@@ -4565,6 +5398,10 @@ function imageModelButton(model) {
     el.scrollTop = el.scrollHeight;
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderDynamic
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
     const hh = document.getElementById('homeHist');
@@ -4584,16 +5421,28 @@ function imageModelButton(model) {
   }
 
   /* ===== Pricing ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: computePrice
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function computePrice() {
     if (!activeCat) return 0;
     let p = S.CAT_PRICE[activeCat] || 0;
     Object.keys(S.CTRL_PRICE).forEach(k => { p += (S.CTRL_PRICE[k][S.CTRL_IDX[k]] || 0); });
     return p;
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updatePrice
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function updatePrice() {
     const bar = document.getElementById('priceBar');
     if (bar) bar.classList.remove('show');
   }
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: generateNow
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function generateNow() {
     if (!activeCat) { toast(t('generating')); return; }
     toast(t('generating') + ' · ' + computePrice() + ' ⚡️');
@@ -4601,15 +5450,27 @@ function imageModelButton(model) {
   }
 
   /* ===== Studio interactions ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: selMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function selMode(k) {
     studioMode = k;
     activeCat = k;
     renderModeStrip();
     S.haptic.select();
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleModelPop
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function toggleModelPop(e) {
     showImageModelPicker(e);
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickModel(e, i) {
     e.stopPropagation();
     S.CTRL_IDX.model = i;
@@ -4618,6 +5479,10 @@ function imageModelButton(model) {
     document.getElementById('modelPop').classList.remove('show');
     S.haptic.select();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickModelKey
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickModelKey(e, key, label) {
     e.stopPropagation();
     currentModelLabel = label;
@@ -4632,6 +5497,10 @@ function imageModelButton(model) {
     const bb = document.getElementById('modelBtn'); if (bb) bb.setAttribute('aria-expanded','false');
     S.haptic.select();
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: togglePlusPop
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function togglePlusPop(e) {
     if (e) e.stopPropagation();
     const sheet = document.getElementById('plusSheet');
@@ -4639,11 +5508,19 @@ function imageModelButton(model) {
     const mp = document.getElementById('modelPop'); if (mp) mp.classList.remove('show');
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closePlusSheet
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closePlusSheet(e) {
     if (e && e.target && e.target.id !== 'plusSheet') return;
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: addMediaLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function addMediaLink(kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
@@ -4688,6 +5565,10 @@ function imageModelButton(model) {
       toast('Ссылка добавлена');
     }
   }
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: ensureUploadPanel
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function ensureUploadPanel() {
     let panel = document.getElementById('uploadPanel');
     if (panel) return panel;
@@ -4729,6 +5610,10 @@ function imageModelButton(model) {
     return panel;
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: normalizeGeneratedImageItem
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function normalizeGeneratedImageItem(item, thumb) {
     if (!item) return null;
     if (typeof item === 'object') {
@@ -4739,6 +5624,10 @@ function imageModelButton(model) {
     return { url: item, thumb: thumb || item };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: parseMetadataObject
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function parseMetadataObject(value) {
     if (!value) return {};
     if (typeof value === 'object') return value;
@@ -4753,6 +5642,10 @@ function imageModelButton(model) {
     return {};
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: firstMediaUrlFrom
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function firstMediaUrlFrom(value) {
     if (!value) return '';
     if (typeof value === 'string') return value;
@@ -4778,6 +5671,10 @@ function imageModelButton(model) {
     return '';
   }
 
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: collectImageHistoryItem
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function collectImageHistoryItem(source, fallback) {
     source = source || {};
     const meta = Object.assign({}, parseMetadataObject(source && source.metadata_json), parseMetadataObject(source && source.metadata), parseMetadataObject(source));
@@ -4823,6 +5720,10 @@ function imageModelButton(model) {
     return { url, thumb };
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: pushGeneratedPhotoHistoryItem
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function pushGeneratedPhotoHistoryItem(items, seen, source, fallback) {
     const item = collectImageHistoryItem(source || {}, fallback);
     if (!item || seen.has(item.url)) return;
@@ -4830,6 +5731,10 @@ function imageModelButton(model) {
     items.push(item);
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: getGeneratedPhotoHistoryItems
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function getGeneratedPhotoHistoryItems() {
     const items = [];
     const seen = new Set();
@@ -4861,7 +5766,15 @@ function imageModelButton(model) {
     return items.slice(0, 80);
   }
 
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: addGeneratedImages
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function addGeneratedImages(urls, thumbs) {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: list
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const list = (urls || []).map((url, index) => normalizeGeneratedImageItem(url, thumbs && thumbs[index])).filter(Boolean);
     if (!list.length) return;
     list.forEach((item) => {
@@ -4872,6 +5785,10 @@ function imageModelButton(model) {
     renderUploadPanelImages();
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderUploadPanelImages
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderUploadPanelImages() {
     const grid = document.getElementById('uploadGeneratedGrid');
     if (!grid) return;
@@ -4896,6 +5813,10 @@ function imageModelButton(model) {
     }).join('');
   }
 
+// =====================================================
+// ЗАГРУЗКА В MINI APP: uploadPhotoButtonHtml
+// Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+// =====================================================
 function uploadPhotoButtonHtml() {
   const uploadImages = currentUploadImages();
   const target = getUploadTarget();
@@ -4935,6 +5856,10 @@ function uploadPhotoButtonHtml() {
       : '');
 }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderUploadedPhotoGrid
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderUploadedPhotoGrid() {
     const grid = document.getElementById('uploadPhotoGrid');
     if (!grid) return;
@@ -4951,6 +5876,10 @@ function uploadPhotoButtonHtml() {
     if (clearBtn) clearBtn.hidden = !hasUploads;
 
     const selectedUrl = currentSelectedUploadImage();
+    // =====================================================
+    // JAVASCRIPT-БЛОК: items
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const items = uploadImages.map((url, index) => {
       const safeUrl = S.escapeHtml(url);
       const selected = selectedUrl === url;
@@ -4973,9 +5902,17 @@ function uploadPhotoButtonHtml() {
     grid.innerHTML = items.join('');
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: addUploadedPhoto
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function addUploadedPhoto(url) {
     if (!url) return;
     const target = getUploadTarget();
+    // =====================================================
+    // ЗАГРУЗКА В MINI APP: uploadImages
+    // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+    // =====================================================
     const uploadImages = currentUploadImages().filter((item) => item !== url);
     uploadImages.push(url);
     setCurrentUploadImages(uploadImages, target);
@@ -4984,6 +5921,10 @@ function uploadPhotoButtonHtml() {
     renderUploadPreviewForTarget(target);
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: selectUploadedPhoto
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function selectUploadedPhoto(e, url) {
     if (e) {
       e.preventDefault();
@@ -4996,6 +5937,10 @@ function uploadPhotoButtonHtml() {
     toast('Фото выбрано');
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: removeUploadedPhoto
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function removeUploadedPhoto(e, index) {
     if (e) {
       e.preventDefault();
@@ -5009,6 +5954,10 @@ function uploadPhotoButtonHtml() {
     renderUploadPreviewForTarget(target);
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: clearCurrentUploadTarget
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function clearCurrentUploadTarget(e) {
     if (e) {
       e.preventDefault();
@@ -5025,6 +5974,10 @@ function uploadPhotoButtonHtml() {
     toast('Очищено');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: clearVideoReference
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function clearVideoReference(e) {
     if (e) {
       e.preventDefault();
@@ -5037,6 +5990,10 @@ function uploadPhotoButtonHtml() {
     updateSendButton();
   }
 
+    // =====================================================
+    // ЗАГРУЗКА В MINI APP: confirmUploadedPhotos
+    // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+    // =====================================================
     function confirmUploadedPhotos(e) {
     if (e) {
         e.preventDefault();
@@ -5051,6 +6008,10 @@ function uploadPhotoButtonHtml() {
     S.haptic && S.haptic.notify && S.haptic.notify('success');
     }
 
+    // =====================================================
+    // JAVASCRIPT-БЛОК: ensureComposerImageDraft
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     function ensureComposerImageDraft() {
   const ta = document.getElementById('chatInput');
   if (!ta) return null;
@@ -5066,6 +6027,10 @@ function uploadPhotoButtonHtml() {
   return box;
 }
 
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderComposerImageDraft
+// Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+// =====================================================
 function renderComposerImageDraft() {
   const box = ensureComposerImageDraft();
   if (!box) return;
@@ -5080,6 +6045,10 @@ function renderComposerImageDraft() {
   updateImageUploadButtonPreview();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: removeComposerImageDraft
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function removeComposerImageDraft(e, index) {
   if (e) {
     e.preventDefault();
@@ -5098,6 +6067,10 @@ function removeComposerImageDraft(e, index) {
   updateImageUploadButtonPreview();
 }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openUploadImagePreview
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openUploadImagePreview(e, url) {
     if (e) {
       e.preventDefault();
@@ -5112,6 +6085,10 @@ function removeComposerImageDraft(e, index) {
     preview.classList.add('show');
   }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureImageViewer
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureImageViewer() {
   let viewer = document.getElementById('imageViewer');
   if (viewer) return viewer;
@@ -5131,6 +6108,10 @@ function ensureImageViewer() {
   return viewer;
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageViewer
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openImageViewer(e, url) {
   if (e) {
     e.preventDefault();
@@ -5150,6 +6131,10 @@ function openImageViewer(e, url) {
   viewer.classList.add('show');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: closeImageViewer
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function closeImageViewer(e) {
   if (e) {
     e.preventDefault();
@@ -5163,6 +6148,10 @@ function closeImageViewer(e) {
   if (img) img.src = '';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: telegramBotLink
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function telegramBotLink() {
   const explicit = S.TELEGRAM_BOT_LINK || S.BOT_LINK || '';
   if (explicit) return explicit;
@@ -5172,6 +6161,10 @@ function telegramBotLink() {
   return botLink || 'https://t.me/sylvexai_bot';
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openTelegramBot
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openTelegramBot(e) {
   if (e) {
     e.preventDefault();
@@ -5195,6 +6188,10 @@ function openTelegramBot(e) {
   }
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openGeneratedContent
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openGeneratedContent(e) {
   if (e) {
     e.preventDefault();
@@ -5224,6 +6221,10 @@ function openGeneratedContent(e) {
   }
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: playMusicTrack
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function playMusicTrack(eOrTrack) {
   if (eOrTrack && eOrTrack.preventDefault) {
     eOrTrack.preventDefault();
@@ -5245,6 +6246,10 @@ function playMusicTrack(eOrTrack) {
   openMusicInPlayer(eOrTrack || {});
 }
 
+// =====================================================
+// АУДИОПЛЕЕР: playMusicTrackFromMessage
+// Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+// =====================================================
 function playMusicTrackFromMessage(e, index) {
   if (e) {
     e.preventDefault();
@@ -5260,6 +6265,10 @@ function playMusicTrackFromMessage(e, index) {
   }), e);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: restoreImageStateFromGenerationMetadata
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function restoreImageStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'image') return;
   const settings = meta.image_options || meta.settings || {};
@@ -5294,6 +6303,10 @@ function restoreImageStateFromGenerationMetadata(meta) {
   updateImageUploadButtonPreview();
 }
 
+// =====================================================
+// ЗАПУСК ГЕНЕРАЦИИ: animateGeneratedImage
+// Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+// =====================================================
 function animateGeneratedImage(e) {
   if (e) {
     e.preventDefault();
@@ -5320,6 +6333,10 @@ function animateGeneratedImage(e) {
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
+// =====================================================
+// ЗАПУСК ГЕНЕРАЦИИ: editGeneratedVideo
+// Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+// =====================================================
 function editGeneratedVideo(e) {
   if (e) {
     e.preventDefault();
@@ -5346,6 +6363,10 @@ function editGeneratedVideo(e) {
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureGenerationInfoDrawer
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureGenerationInfoDrawer() {
   let drawer = document.getElementById('generationInfoDrawer');
   if (drawer) return drawer;
@@ -5365,11 +6386,19 @@ function ensureGenerationInfoDrawer() {
   return drawer;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: generationInfoRow
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function generationInfoRow(label, value) {
   if (value === undefined || value === null || value === '') return '';
   return '<div class="generation-info-row"><span>' + S.escapeHtml(label) + '</span><b>' + S.escapeHtml(String(value)) + '</b></div>';
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openGenerationInfoDrawer
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openGenerationInfoDrawer(e, index) {
   if (e) {
     e.preventDefault();
@@ -5455,6 +6484,10 @@ function openGenerationInfoDrawer(e, index) {
   drawer.classList.add('show');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: closeGenerationInfoDrawer
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function closeGenerationInfoDrawer(e) {
   if (e) {
     e.preventDefault();
@@ -5464,6 +6497,10 @@ function closeGenerationInfoDrawer(e) {
   if (drawer) drawer.classList.remove('show');
 }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeUploadImagePreview
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeUploadImagePreview(e) {
     if (e) {
       e.preventDefault();
@@ -5475,6 +6512,10 @@ function closeGenerationInfoDrawer(e) {
     if (img) img.src = '';
   }
 
+// =====================================================
+// ЗАПУСК ГЕНЕРАЦИИ: selectGeneratedImage
+// Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+// =====================================================
 function selectGeneratedImage(e, url) {
   if (e) {
     e.preventDefault();
@@ -5492,6 +6533,10 @@ function selectGeneratedImage(e, url) {
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: openUploadPanel
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function openUploadPanel(e) {
   if (e) {
     e.preventDefault();
@@ -5511,6 +6556,10 @@ panel.classList.add('show');
   S.haptic && S.haptic.impact && S.haptic.impact('light');
 }
 
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: closeUploadPanel
+// Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+// =====================================================
 function closeUploadPanel(e) {
   if (e) {
     e.preventDefault();
@@ -5520,6 +6569,10 @@ function closeUploadPanel(e) {
   const panel = document.getElementById('uploadPanel');
   if (panel) panel.classList.remove('show');
 }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openNativeFilePicker
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openNativeFilePicker(kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
@@ -5532,6 +6585,10 @@ function closeUploadPanel(e) {
     inp.click();
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: uploadProStudioMediaFile
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   async function uploadProStudioMediaFile(file, kind) {
     const form = new FormData();
     form.append('file', file);
@@ -5539,6 +6596,10 @@ function closeUploadPanel(e) {
       method: 'POST',
       body: form,
     });
+    // =====================================================
+    // JAVASCRIPT-БЛОК: data
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok || !data.url) {
       throw new Error(data.error || 'Не удалось загрузить файл');
@@ -5546,6 +6607,10 @@ function closeUploadPanel(e) {
     return String(data.url || '');
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: attach
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function attach(kind, target, e) {
     if (target && target.preventDefault) {
       e = target;
@@ -5560,6 +6625,10 @@ function closeUploadPanel(e) {
     if (target === 'reference' || target === 'references') return openVideoReferencesUpload(e);
     return openImageUpload(e);
   }
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: onAttachFile
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function onAttachFile(e) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -5630,11 +6699,19 @@ function closeUploadPanel(e) {
     };
     reader.readAsDataURL(f);
   }
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: clearAttachment
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function clearAttachment() {
     setCurrentModeAttachment(null);
     try { updateSendButton(); } catch {}
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateText
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateText(key) {
     const lang = (typeof uiLang === 'function' && uiLang()) || 'ru';
     const dict = {
@@ -5662,6 +6739,10 @@ function closeUploadPanel(e) {
     return (dict[lang] && dict[lang][key]) || dict.ru[key] || key;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: defaultVideoTemplateItems
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function defaultVideoTemplateItems() {
     const base = [
       ['Сброс сумки', 'Предметы динамично высыпаются из сумки на городской переход, камера следует за движением, реалистичный рекламный стиль.'],
@@ -5734,11 +6815,19 @@ function closeUploadPanel(e) {
     }));
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeVideoTemplateIntro
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeVideoTemplateIntro() {
     const el = document.getElementById('videoTemplateIntro');
     if (el) el.remove();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: maybeShowVideoTemplateIntro
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function maybeShowVideoTemplateIntro(force) {
     if (!isVideoMode() || videoState.section !== 'generate') return;
     let seen = false;
@@ -5767,21 +6856,37 @@ function closeUploadPanel(e) {
         intro.style.bottom = 'auto';
       }
       setTimeout(() => {
+        // =====================================================
+        // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeOnOutside
+        // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+        // =====================================================
         const closeOnOutside = (event) => {
           if (!intro.contains(event.target) && !event.target.closest('[data-studio-mode-btn="video"]')) {
             closeVideoTemplateIntro();
             document.removeEventListener('pointerdown', closeOnOutside, true);
           }
         };
+        // =====================================================
+        // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+        // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+        // =====================================================
         document.addEventListener('pointerdown', closeOnOutside, true);
       }, 0);
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadVideoTemplates
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadVideoTemplates() {
     if (Array.isArray(videoTemplatesCache)) return videoTemplatesCache;
     try {
       const res = await fetch('/api/public/prostudio/video-templates', { cache: 'no-store' });
+      // =====================================================
+      // JAVASCRIPT-БЛОК: data
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const data = await res.json().catch(() => ({}));
       videoTemplatesCache = normalizeVideoTemplateList(data.templates);
     } catch {
@@ -5790,6 +6895,10 @@ function closeUploadPanel(e) {
     return videoTemplatesCache;
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeVideoTemplateModal
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeVideoTemplateModal() {
     activeVideoTemplate = null;
     videoTemplateUploadUrl = '';
@@ -5797,12 +6906,20 @@ function closeUploadPanel(e) {
     if (modal) modal.remove();
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeVideoTemplatesCatalog
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeVideoTemplatesCatalog() {
     closeVideoTemplateModal();
     const overlay = document.getElementById('videoTemplatesOverlay');
     if (overlay) overlay.remove();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateCostLabel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateCostLabel(template) {
     const credits = Number(template && (template.cost_credits || template.cost) || 0);
     if (credits > 0) return '⚡ ' + credits;
@@ -5810,6 +6927,10 @@ function closeUploadPanel(e) {
     return label ? String(label) : '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: templatePreferredModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function templatePreferredModel(template) {
     const models = Array.isArray(template && template.models) ? template.models : [];
     if ((template && template.preferred_model) === 'kling_motion_3_0' || models.includes('kling_motion_3_0') || !models.length) return 'kling_motion_3_0';
@@ -5817,17 +6938,33 @@ function closeUploadPanel(e) {
     return String((template && template.preferred_model) || models[0] || 'kling_motion_2_6');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateRatios
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateRatios(template) {
     const ratios = Array.isArray(template && template.ratios) ? template.ratios : [];
+    // =====================================================
+    // JAVASCRIPT-БЛОК: clean
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const clean = ratios.filter((ratio) => ['16:9', '1:1', '9:16'].includes(String(ratio)));
     return clean.length ? clean : ['16:9', '1:1', '9:16'];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateReferenceVideo
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateReferenceVideo(template) {
     if (!template) return '';
     return String(template.reference_video || template.video_url || template.template_video_url || template.preview_video || '').trim();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: normalizeVideoTemplateList
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function normalizeVideoTemplateList(items) {
     const incoming = Array.isArray(items) ? items : [];
     const defaults = defaultVideoTemplateItems();
@@ -5861,6 +6998,10 @@ function closeUploadPanel(e) {
     return Array.from(byId.values()).slice(0, 50);
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplatesCatalog
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   async function openVideoTemplatesCatalog() {
     closeVideoTemplateIntro();
     const templates = await loadVideoTemplates();
@@ -5890,18 +7031,34 @@ function closeUploadPanel(e) {
       if (event.target === overlay) closeVideoTemplatesCatalog();
     });
     const closeBtn = overlay.querySelector('.video-templates-close');
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplatesCatalog);
     document.body.appendChild(overlay);
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplateFromCatalog
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openVideoTemplateFromCatalog(event, id) {
     if (event) event.stopPropagation();
     try { id = decodeURIComponent(String(id || '')); } catch {}
     const templates = Array.isArray(videoTemplatesCache) ? videoTemplatesCache : [];
+    // =====================================================
+    // JAVASCRIPT-БЛОК: template
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const template = templates.find((item) => String(item.id) === String(id));
     if (template) openVideoTemplateModal(template);
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoTemplateUpload
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderVideoTemplateUpload() {
     const upload = document.getElementById('videoTemplateUpload');
     if (!upload) return;
@@ -5914,6 +7071,10 @@ function closeUploadPanel(e) {
     }
   }
 
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: setVideoTemplateFile
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   function setVideoTemplateFile(file) {
     if (!file || !/^image\//.test(file.type || '')) return;
     const reader = new FileReader();
@@ -5924,6 +7085,10 @@ function closeUploadPanel(e) {
     reader.readAsDataURL(file);
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplateModal
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openVideoTemplateModal(template) {
     activeVideoTemplate = template;
     videoTemplateUploadUrl = '';
@@ -5963,6 +7128,10 @@ function closeUploadPanel(e) {
     });
     document.body.appendChild(modal);
     const closeBtn = modal.querySelector('.video-template-modal-close');
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplateModal);
     const upload = modal.querySelector('#videoTemplateUpload');
     const fileInput = modal.querySelector('#videoTemplateFileInput');
@@ -5977,10 +7146,18 @@ function closeUploadPanel(e) {
       });
     });
     const generate = modal.querySelector('#videoTemplateGenerate');
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     if (generate) generate.addEventListener('click', startVideoTemplateGeneration);
     renderVideoTemplateUpload();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: startVideoTemplateGeneration
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function startVideoTemplateGeneration() {
     const template = activeVideoTemplate;
     if (!template) return;
@@ -6094,6 +7271,10 @@ function closeUploadPanel(e) {
     }
   });
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updateComposerMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function updateComposerMode(kind) {
     if (!restoringChatSpace) rememberCurrentChatSpace();
     const isVideoSection = kind === 'video' || kind === 'edit' || kind === 'motion';
@@ -6165,6 +7346,10 @@ function closeUploadPanel(e) {
     applyCurrentDraft();
     updateSendButton();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: genAction
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function genAction(kind, tabKey) {
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
       document.activeElement.blur();
@@ -6178,6 +7363,10 @@ function closeUploadPanel(e) {
     const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Generate Voiceover' };
     toast(labels[kind] || kind);
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleHistory
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function toggleHistory(e) {
     if (e) e.stopPropagation();
     const d = document.getElementById('histDrawer');
@@ -6188,11 +7377,19 @@ function closeUploadPanel(e) {
     d.classList.toggle('show', on);
     b.classList.toggle('show', on);
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: autoGrow
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function autoGrow(ta) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   }
 
+// =====================================================
+// ЗАПУСК ГЕНЕРАЦИИ: callGenerate
+// Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+// =====================================================
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
   const promptText = (prompt || '').trim();
   const imageReferenceImages = isImageMode() && Array.isArray(referenceImagesOverride)
@@ -6258,6 +7455,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     body: JSON.stringify(payload),
   });
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: j
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const j = await res.json().catch(() => ({}));
   if (res.status === 402 && j && j.paywall) {
     const err = new Error(j.error || 'Недостаточно токенов');
@@ -6280,6 +7481,10 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   return j;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: errorMessage
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function errorMessage(value, fallback) {
   const fallbackText = fallback || 'Генерация не прошла';
   if (value === null || value === undefined || value === '') return fallbackText;
@@ -6297,6 +7502,10 @@ function errorMessage(value, fallback) {
   return String(value);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: translateGenerationError
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function translateGenerationError(value, fallback) {
   const text = errorMessage(value, fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
   const low = String(text || '').toLowerCase();
@@ -6350,6 +7559,10 @@ function translateGenerationError(value, fallback) {
     : text;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: buildInsufficientBalanceMessage
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, imageOptionsSnapshot, videoOptionsSnapshot, audioUploads) {
   const required = Number((err && err.requiredCredits) || 0);
   const balance = Number((err && err.balance) || 0);
@@ -6374,12 +7587,20 @@ function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImage
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: estimateFrontendGenerationCredits
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   const known = !!(S.user && S.user.balance !== undefined && S.user.balance !== null);
   const balance = Number((S.user && S.user.balance) || 0);
   let required = 1;
   if (isImageMode()) {
     const modelId = (imageOptionsSnapshot && (imageOptionsSnapshot.modelId || imageOptionsSnapshot.model)) || imageState.modelId || '';
+    // =====================================================
+    // JAVASCRIPT-БЛОК: model
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const model = IMAGE_MODEL_LIST.find((item) => item.id === modelId) || {};
     const unit = Number(model.costCredits || 0);
     const count = Number((imageOptionsSnapshot && imageOptionsSnapshot.count) || imageState.count || 1);
@@ -6388,6 +7609,10 @@ function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   return { balance, required, known };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: updateGenerationLoadingProgress
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function updateGenerationLoadingProgress(index, completed) {
   if (index === undefined || index === null || index < 0) return;
   const message = chatMessages[index];
@@ -6399,6 +7624,10 @@ function updateGenerationLoadingProgress(index, completed) {
   rememberCurrentChatSpace();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: waitGeneration
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   while (true) {
@@ -6408,6 +7637,10 @@ async function waitGeneration(jobId, options) {
       { cache: 'no-store' }
     );
 
+    // =====================================================
+    // ОЖИДАНИЕ JOB: job
+    // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
+    // =====================================================
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
       throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
@@ -6435,6 +7668,10 @@ async function waitGeneration(jobId, options) {
   }
 }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openShopForGeneration
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openShopForGeneration(e, index) {
     if (e) {
       e.preventDefault();
@@ -6446,6 +7683,10 @@ async function waitGeneration(jobId, options) {
     rememberCurrentChatSpace();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: resumePendingGeneration
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function resumePendingGeneration(e, index) {
     if (e) {
       e.preventDefault();
@@ -6509,6 +7750,10 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+   // =====================================================
+   // ЗАПУСК ГЕНЕРАЦИИ: sendChat
+   // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+   // =====================================================
    async function sendChat() {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
@@ -6690,12 +7935,20 @@ async function waitGeneration(jobId, options) {
     renderChat();
     rememberCurrentChatSpace();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: copyMsg
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function copyMsg(i) {
     const m = chatMessages[i]; if (!m) return;
     if (navigator.clipboard) navigator.clipboard.writeText(m.text || '');
     toast(t('copied'));
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: regenMsg
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function regenMsg(i) {
   const prev = chatMessages[i - 1];
   if (!prev || prev.role !== 'user') return;
@@ -6746,6 +7999,10 @@ async function waitGeneration(jobId, options) {
 }
 
   /* ===== Voice (mic) recording → Whisper ===== */
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleMic
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   async function toggleMic(e) {
     if (e) e.stopPropagation();
     const btn = document.getElementById('micBtn');
@@ -6761,6 +8018,10 @@ async function waitGeneration(jobId, options) {
     } catch {
       toast('Microphone access denied'); return;
     }
+    // =====================================================
+    // JAVASCRIPT-БЛОК: mime
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const mime = ['audio/webm', 'audio/mp4'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     try {
       mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
@@ -6794,11 +8055,19 @@ async function waitGeneration(jobId, options) {
     if (btn) btn.classList.add('rec');
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: deleteMsg
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function deleteMsg(i) {
     chatMessages.splice(i, 1); renderChat();
     rememberCurrentChatSpace();
     S.haptic.impact('light');
   }
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: newChat
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function newChat() {
     const type = currentChatType();
     currentConvId = null;
@@ -6811,6 +8080,10 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Real history sidebar ===== */
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: loadConversations
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   async function loadConversations() {
     const tg = getTelegramId();
     if (!tg) return;
@@ -6828,6 +8101,10 @@ async function waitGeneration(jobId, options) {
       }
     } catch {}
   }
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderConvList
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderConvList() {
     const el = document.getElementById('hdConvList'); if (!el) return;
     const labels = {
@@ -6856,6 +8133,10 @@ async function waitGeneration(jobId, options) {
         : '<div class="hd-label" style="opacity:.35">Пока пусто</div>')
       + '</div>';
   }
+  // =====================================================
+  // ЧАТ И ИСТОРИЯ: expandHistorySection
+  // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
+  // =====================================================
   function expandHistorySection(e, type) {
     if (e) {
       e.preventDefault();
@@ -6864,6 +8145,10 @@ async function waitGeneration(jobId, options) {
     expandedHistorySections[chatTypeForMode(type)] = true;
     renderConvList();
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openConv
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
     if (!id) return;
@@ -6963,6 +8248,10 @@ async function waitGeneration(jobId, options) {
       if (openKey) openingConversations.delete(openKey);
     }
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: deleteConv
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function deleteConv(e, id, type) {
     e.stopPropagation();
     const tg = getTelegramId(); if (!tg) return;
@@ -6977,15 +8266,27 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Paywall ===== */
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openPaywall
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openPaywall() {
     const el = document.getElementById('paywall');
     if (el) el.classList.add('show');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closePaywall
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closePaywall(e) {
     if (e && e.target && e.target.id !== 'paywall') return;
     const el = document.getElementById('paywall');
     if (el) el.classList.remove('show');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openShopFromPaywall
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openShopFromPaywall() {
     closePaywall();
     switchView('shop');
@@ -7016,6 +8317,10 @@ async function waitGeneration(jobId, options) {
   const paypalSubscriptionRendered = {};
   const paypalSubscriptionRenderAttempts = {};
   let pendingPack = null;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: getPayPalSubscriptionConfig
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function getPayPalSubscriptionConfig(packId) {
     if (packId === 'sub_month') {
       return {
@@ -7033,6 +8338,10 @@ async function waitGeneration(jobId, options) {
     }
     return null;
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: resetPayPalSubscriptionPanel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function resetPayPalSubscriptionPanel() {
     const panel = document.getElementById('paypalSubscriptionPanel');
     if (panel) panel.hidden = true;
@@ -7041,6 +8350,10 @@ async function waitGeneration(jobId, options) {
       if (el) el.hidden = true;
     });
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: showPayPalSubscriptionPanel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function showPayPalSubscriptionPanel(packId) {
     const config = getPayPalSubscriptionConfig(packId);
     const panel = document.getElementById('paypalSubscriptionPanel');
@@ -7053,6 +8366,10 @@ async function waitGeneration(jobId, options) {
     renderPayPalSubscriptionButton(config);
     return true;
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openBuy
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openBuy(packId) {
     // If already subscribed and clicking same-tier subscription card, open info modal instead.
     const u = S.user || {};
@@ -7087,10 +8404,18 @@ async function waitGeneration(jobId, options) {
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeBuy
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeBuy() { switchView('shop'); }
 
   /* ===== Subscription state rendering ===== */
   let _cdTimer = null;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: fmtCountdown
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function fmtCountdown(ms) {
     if (ms <= 0) return '0 д 0 ч 0 м 0 с';
 
@@ -7108,12 +8433,20 @@ async function waitGeneration(jobId, options) {
 
     return totalDays + ' д ' + hours + ' ч ' + minutes + ' м ' + seconds + ' с';
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: fmtDate
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function fmtDate(iso) {
     if (!iso) return '—';
     try { return new Date(iso).toLocaleDateString('ru-RU', { day:'2-digit', month:'long', year:'numeric' }); }
     catch { return '—'; }
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderPayPalSubscriptionButton
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderPayPalSubscriptionButton(config) {
     const container = document.getElementById(config.containerId);
     if (!container || paypalSubscriptionRendered[config.containerId]) return;
@@ -7192,6 +8525,10 @@ async function waitGeneration(jobId, options) {
     });
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderSubscription
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderSubscription() {
     const u = S.user || {};
     const active = u.subscription_status === 'active';
@@ -7234,6 +8571,10 @@ async function waitGeneration(jobId, options) {
     // Live countdown every second while subscription is active.
     if (_cdTimer) clearInterval(_cdTimer);
     if (active && expIso) {
+      // =====================================================
+      // JAVASCRIPT-БЛОК: tickCountdown
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const tickCountdown = () => {
         const ms = new Date(expIso).getTime() - Date.now();
         document.querySelectorAll('[data-sub-cd]').forEach((el) => { el.textContent = fmtCountdown(ms); });
@@ -7245,6 +8586,10 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openSubActive
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openSubActive(packId) {
     const u = S.user || {};
     const plan = u.subscription_plan || (packId === 'sub_year' ? 'year' : 'month');
@@ -7255,6 +8600,10 @@ async function waitGeneration(jobId, options) {
     document.getElementById('subActiveModal').classList.add('show');
     pendingPack = 'sub_' + plan;
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: renewFromModal
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function renewFromModal() {
     closeModal(null, 'subActiveModal');
     // Force purchase flow (bypass "already subscribed" branch).
@@ -7263,6 +8612,10 @@ async function waitGeneration(jobId, options) {
     openBuy(pack);
     S.user = savedUser;
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openManageSub
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openManageSub() {
     const u = S.user || {};
     if (u.subscription_status === 'active') openSubActive('sub_' + (u.subscription_plan || 'month'));
@@ -7270,10 +8623,18 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Modal helpers ===== */
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeModal
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeModal(e, id) {
     if (e && e.target && e.target.id !== id) return;
     const el = document.getElementById(id); if (el) el.classList.remove('show');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openProInfo
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openProInfo() {
     const u = S.user || {};
     const body = document.getElementById('proInfoBody');
@@ -7301,12 +8662,20 @@ async function waitGeneration(jobId, options) {
     'assets/avatars/a4.png','assets/avatars/a5.png',
   ];
   let epSelectedAvatar = null;
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openEditProfile
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openEditProfile() {
     const u = S.user || {};
     document.getElementById('epName').value = u.display_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '';
     epSelectedAvatar = u.custom_avatar_url || null;
     const grid = document.getElementById('avatarGrid');
     if (grid) {
+      // =====================================================
+      // JAVASCRIPT-БЛОК: items
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const items = [{ url: null, label: 'TG' }].concat(AVATAR_PRESETS.map((p) => ({ url: p })));
       grid.innerHTML = items.map((it, i) => {
         const sel = (epSelectedAvatar || '') === (it.url || '') ? 'sel' : '';
@@ -7316,11 +8685,19 @@ async function waitGeneration(jobId, options) {
     }
     document.getElementById('editProfileModal').classList.add('show');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickAvatar
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickAvatar(btn) {
     epSelectedAvatar = btn.dataset.url || null;
     document.querySelectorAll('#avatarGrid .av-opt').forEach((el) => el.classList.remove('sel'));
     btn.classList.add('sel');
   }
+  // =====================================================
+  // ЗАГРУЗКА В MINI APP: saveEditProfile
+  // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
+  // =====================================================
   async function saveEditProfile() {
     const name = (document.getElementById('epName').value || '').trim().slice(0, 60);
     const body = {
@@ -7350,7 +8727,15 @@ async function waitGeneration(jobId, options) {
     { id: 'plum',  label: 'Слива',     css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
     { id: 'light', label: 'Светлая',   css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
   ];
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyTheme
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyTheme(themeId, persist = true) {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: t
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const t = THEMES.find((x) => x.id === themeId) || THEMES[0];
     document.documentElement.setAttribute('data-theme', t.mode);
     const r = document.documentElement.style;
@@ -7370,6 +8755,10 @@ async function waitGeneration(jobId, options) {
     }
     renderThemeGrid();
   }
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderThemeGrid
+  // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+  // =====================================================
   function renderThemeGrid() {
     const g = document.getElementById('themeGrid'); if (!g) return;
     const cur = localStorage.getItem('sylvex-theme-id')
@@ -7384,10 +8773,18 @@ async function waitGeneration(jobId, options) {
         + '<div class="th-lbl">' + t.label + '</div></button>';
     }).join('');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openThemePicker
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openThemePicker() {
     renderThemeGrid();
     document.getElementById('themeModal').classList.add('show');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyStoredTheme
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyStoredTheme() {
     const id = localStorage.getItem('sylvex-theme-id')
       || (S.user && S.user.theme_preference && S.user.theme_preference.id);
@@ -7396,6 +8793,10 @@ async function waitGeneration(jobId, options) {
 
   /* ===== Referrals ===== */
   let _refData = null;
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openReferrals
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   async function openReferrals() {
     document.getElementById('refsModal').classList.add('show');
     document.getElementById('refLinkVal').textContent = 'Загрузка…';
@@ -7412,6 +8813,10 @@ async function waitGeneration(jobId, options) {
       if (btn) { btn.textContent = j.activated_at ? '✅ Активирована' : '🚀 Активировать'; btn.disabled = !!j.activated_at; }
     } catch { document.getElementById('refLinkVal').textContent = '—'; }
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: copyRefLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function copyRefLink() {
     const v = (_refData && (_refData.link || _refData.code)) || document.getElementById('refLinkVal').textContent;
     if (!v || v === '—') return;
@@ -7419,6 +8824,10 @@ async function waitGeneration(jobId, options) {
     toast('Ссылка скопирована');
     S.haptic && S.haptic.notify && S.haptic.notify('success');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: activateRefLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function activateRefLink() {
     const body = {
       initData: S.tg && S.tg.initData ? S.tg.initData : '',
@@ -7438,10 +8847,18 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Sign out ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: signOut
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function signOut() {
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
     if (S.tg && S.tg.close) S.tg.close();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: contactAdmin
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function contactAdmin() {
     const url = 'https://t.me/sylvex_admin';
     const tgApp = S.tg;
@@ -7449,9 +8866,17 @@ async function waitGeneration(jobId, options) {
     else if (tgApp && tgApp.openLink)    tgApp.openLink(url);
     else window.open(url, '_blank');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: isTelegramLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function isTelegramLink(url) {
     return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openPaymentUrl
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openPaymentUrl(url, method) {
     if (!url) {
       toast('Ссылка оплаты не найдена');
@@ -7469,6 +8894,10 @@ async function waitGeneration(jobId, options) {
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
     else window.open(url, '_blank');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: payWith
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function payWith(method) {
     const packId = pendingPack;
     if (!packId) return;
@@ -7554,6 +8983,10 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Input mic/send toggle ===== */
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: updateSendButton
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function updateSendButton() {
     const ta = document.getElementById('chatInput');
     const mic = document.getElementById('micBtn');
@@ -7579,15 +9012,27 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Support modal ===== */
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openSupport
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openSupport() {
     const m = document.getElementById('supportModal');
     m.classList.add('show');
     setTimeout(() => { const ta = document.getElementById('supportMsg'); ta && ta.focus(); }, 250);
     S.haptic.impact('light');
   }
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeSupport
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function closeSupport() {
     document.getElementById('supportModal').classList.remove('show');
   }
+  // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: sendSupport
+  // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
+  // =====================================================
   function sendSupport() {
     const ta = document.getElementById('supportMsg');
     const v = (ta.value || '').trim();
@@ -7602,17 +9047,29 @@ async function waitGeneration(jobId, options) {
   /* ===== Hero carousel ===== */
   let slideIdx = 0;
   let autoT;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initHero
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function initHero() {
     const track = document.getElementById('heroTrack');
     const dotsEl = document.getElementById('heroDots');
     if (!track || !dotsEl) return;
 
+    // =====================================================
+    // ОТРИСОВКА ИНТЕРФЕЙСА: renderDots
+    // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
+    // =====================================================
     function renderDots() {
       const n = track.children.length;
       let s = '';
       for (let i = 0; i < n; i++) s += '<div class="dot-i ' + (i === slideIdx ? 'act' : '') + '"></div>';
       dotsEl.innerHTML = s;
     }
+    // =====================================================
+    // JAVASCRIPT-БЛОК: goSlide
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     function goSlide(i) {
       const n = track.children.length;
       slideIdx = ((i % n) + n) % n;
@@ -7635,6 +9092,10 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Wire up DOM ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: bindEvents
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function bindEvents() {
     // Force bottom composer model button to open the image model picker.
     const composerModelVal = document.getElementById('modelValComposer');
@@ -7722,7 +9183,15 @@ async function waitGeneration(jobId, options) {
     // Theme
     const themeBtn = document.getElementById('themeBtn');
     const themeSwitch = document.getElementById('themeSwitch');
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     if (themeBtn) themeBtn.addEventListener('click', S.toggleTheme);
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     if (themeSwitch) themeSwitch.addEventListener('click', S.toggleTheme);
 
     // Animated background switch
@@ -7736,6 +9205,10 @@ async function waitGeneration(jobId, options) {
 
     // Support modal background click → close
     const supportModal = document.getElementById('supportModal');
+    // =====================================================
+    // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+    // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+    // =====================================================
     if (supportModal) supportModal.addEventListener('click', closeSupport);
 
     // Enter to send chat
@@ -7755,17 +9228,33 @@ async function waitGeneration(jobId, options) {
     // nav stays in its natural position and gets covered by the keyboard.
     const vv = window.visualViewport;
     if (vv) {
+      // =====================================================
+      // JAVASCRIPT-БЛОК: updateKb
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const updateKb = () => {
         const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
         document.documentElement.style.setProperty('--kb', kb + 'px');
         document.body.classList.toggle('kb-open', kb > 80);
       };
+      // =====================================================
+      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+      // =====================================================
       vv.addEventListener('resize', updateKb);
+      // =====================================================
+      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+      // =====================================================
       vv.addEventListener('scroll', updateKb);
       updateKb();
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initialViewFromUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function initialViewFromUrl() {
     const allowed = new Set(['home', 'history', 'shop', 'pay', 'profile', 'settings', 'tools']);
     const params = new URLSearchParams(window.location.search || '');
@@ -7775,11 +9264,19 @@ async function waitGeneration(jobId, options) {
     return allowed.has(view) ? view : 'home';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyInitialViewFromUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyInitialViewFromUrl() {
     const view = initialViewFromUrl();
     if (view && view !== 'home') switchView(view);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: handlePaymentReturnFromUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function handlePaymentReturnFromUrl() {
     const params = new URLSearchParams(window.location.search || '');
     if ((params.get('provider') || '').toLowerCase() !== 'paypal') return;
@@ -7793,6 +9290,10 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initializeProStudioComposerMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function initializeProStudioComposerMode() {
     const composer = document.getElementById('studioComposer');
     const initialMode = savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video';
@@ -7804,6 +9305,10 @@ async function waitGeneration(jobId, options) {
      ========================================== */
   const PLAYER_VOLUME_KEY = 'sylvex-global-audio-volume';
 
+  // =====================================================
+  // АУДИОПЛЕЕР: normalizePlayerTrack
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function normalizePlayerTrack(trackLike) {
     const track = normalizeMusicTrack(trackLike || {});
     if (!track) return null;
@@ -7822,6 +9327,10 @@ async function waitGeneration(jobId, options) {
     };
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: collectMusicTracksFromMessage
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function collectMusicTracksFromMessage(message) {
     if (!message) return [];
     const meta = message.metadata && typeof message.metadata === 'object' ? message.metadata : {};
@@ -7841,9 +9350,17 @@ async function waitGeneration(jobId, options) {
     }))).filter(Boolean);
   }
 
+  // =====================================================
+  // АУДИОПЛЕЕР: collectMusicPlaylist
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function collectMusicPlaylist(seedTrack) {
     const tracks = [];
     const seen = new Set();
+    // =====================================================
+    // JAVASCRIPT-БЛОК: addTrack
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const addTrack = (trackLike) => {
       const track = normalizePlayerTrack(trackLike);
       if (!track || !track.audioUrl || seen.has(track.audioUrl)) return;
@@ -7869,6 +9386,10 @@ async function waitGeneration(jobId, options) {
 
     if (!seedTrack) return tracks;
     const normalizedSeed = normalizePlayerTrack(seedTrack);
+    // =====================================================
+    // JAVASCRIPT-БЛОК: seedIndex
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const seedIndex = normalizedSeed ? tracks.findIndex((item) => item.audioUrl === normalizedSeed.audioUrl) : -1;
     return {
       tracks,
@@ -8147,7 +9668,15 @@ async function waitGeneration(jobId, options) {
       if (!this.audioEl || !this.progressBar) return;
       e.preventDefault();
       this.progressDragging = true;
+      // =====================================================
+      // JAVASCRIPT-БЛОК: move
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const move = (ev) => this.seekFromEvent(ev);
+      // =====================================================
+      // JAVASCRIPT-БЛОК: up
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const up = (ev) => {
         this.seekFromEvent(ev);
         this.progressDragging = false;
@@ -8156,9 +9685,25 @@ async function waitGeneration(jobId, options) {
         document.removeEventListener('mouseup', up);
         document.removeEventListener('touchend', up);
       };
+      // =====================================================
+      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+      // =====================================================
       document.addEventListener('mousemove', move);
+      // =====================================================
+      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+      // =====================================================
       document.addEventListener('touchmove', move, { passive: false });
+      // =====================================================
+      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+      // =====================================================
       document.addEventListener('mouseup', up);
+      // =====================================================
+      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+      // =====================================================
       document.addEventListener('touchend', up);
       this.seekFromEvent(e);
     },
@@ -8221,16 +9766,28 @@ async function waitGeneration(jobId, options) {
     },
   };
 
+  // =====================================================
+  // АУДИОПЛЕЕР: initAudioPlayer
+  // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
+  // =====================================================
   function initAudioPlayer() {
     PlayerManager.init();
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openAudioPlayer
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function openAudioPlayer(track, playlist = null, index = 0) {
     if (playlist) PlayerManager.open(playlist, index);
     else PlayerManager.playTrack(track);
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: init
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function init() {
     // Restore saved theme.
     const tg = S.tg;
@@ -8389,10 +9946,30 @@ async function waitGeneration(jobId, options) {
   S.closeVideoTemplateModal = closeVideoTemplateModal;
   S.openVideoTemplateFromCatalog = openVideoTemplateFromCatalog;
   
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('pointerdown', handleImageStyleInfoOutsideTouch, true);
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('pointerdown', closeImageSeedTooltipOnOutside, true);
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('touchmove', hideImageStyleInfo, true);
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('wheel', hideImageStyleInfo, true);
+  // =====================================================
+  // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
+  // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
+  // =====================================================
   document.addEventListener('scroll', hideImageStyleInfo, true);
 
   })();
