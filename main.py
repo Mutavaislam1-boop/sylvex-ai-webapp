@@ -94,9 +94,9 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "flux_pro_kontext": {"provider": "flux", "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL", default="flux-kontext-pro"), "endpoint": "https://api.bfl.ai/v1"},
     "flux_2": {"provider": "flux", "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"), "endpoint": "https://api.bfl.ai/v1"},
     "flux_2_turbo": {"provider": "flux", "provider_model": env_value("FLUX_2_TURBO_MODEL", "FLUX-2-TURBO-MODEL", default="flux-2-flex"), "endpoint": "https://api.bfl.ai/v1"},
-    "qwen_image": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
-    "qwen_image_2_pro": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_PRO_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
-    "qwen_image_2": {"provider": "qwen", "provider_model": os.getenv("QWEN_IMAGE_2_MODEL"), "endpoint": os.getenv("QWEN_IMAGE_ENDPOINT")},
+    "qwen_image": {"provider": "qwen", "provider_model": env_value("QWEN_IMAGE_MODEL", "QWEN-IMAGE-MODEL", default="qwen-image"), "endpoint": env_value("QWEN_IMAGE_ENDPOINT", "QWEN-IMAGE-ENDPOINT", default="https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")},
+    "qwen_image_2_pro": {"provider": "qwen", "provider_model": env_value("QWEN_IMAGE_2_PRO_MODEL", "QWEN-IMAGE-2-PRO-MODEL", default="qwen-image-2.0-pro"), "endpoint": env_value("QWEN_IMAGE_ENDPOINT", "QWEN-IMAGE-ENDPOINT", default="https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")},
+    "qwen_image_2": {"provider": "qwen", "provider_model": env_value("QWEN_IMAGE_2_MODEL", "QWEN-IMAGE-2-MODEL", default="qwen-image-2.0"), "endpoint": env_value("QWEN_IMAGE_ENDPOINT", "QWEN-IMAGE-ENDPOINT", default="https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")},
     "nano_banana_pro": {"provider": "google", "provider_model": env_value("NANO_BANANA_PRO_MODEL", "NANO-BANANA-PRO-MODEL", default="gemini-3-pro-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
     "nano_banana_2": {"provider": "google", "provider_model": env_value("NANO_BANANA_2_MODEL", "NANO-BANANA-2-MODEL", default="gemini-3.1-flash-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
     "nano_banana_2_lite": {"provider": "google", "provider_model": env_value("NANO_BANANA_2_LITE_MODEL", "NANO-BANANA-2-LITE-MODEL", default="gemini-3.1-flash-lite-image"), "endpoint": env_value("GOOGLE_IMAGE_ENDPOINT", "GOOGLE-IMAGE-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/interactions")},
@@ -5356,12 +5356,50 @@ def build_image_prompt(payload: dict) -> str:
 
 def normalize_image_response(data: dict) -> list:
     images = []
-    for item in data.get("data", []) if isinstance(data, dict) else []:
-        if item.get("url"):
-            images.append(item["url"])
-        elif item.get("b64_json"):
-            images.append("data:image/png;base64," + item["b64_json"])
-    return images
+    if not isinstance(data, dict):
+        return images
+
+    def add_image(value, mime_type="image/png"):
+        if not isinstance(value, str) or not value.strip():
+            return
+        raw = value.strip()
+        if raw.startswith("http") or raw.startswith("/") or raw.startswith("data:image/"):
+            images.append(raw)
+        else:
+            images.append(f"data:{mime_type or 'image/png'};base64,{raw}")
+
+    for item in data.get("data", []) if isinstance(data.get("data"), list) else []:
+        if isinstance(item, dict):
+            if item.get("url"):
+                add_image(item["url"])
+            elif item.get("b64_json"):
+                add_image(item["b64_json"])
+
+    def walk(node):
+        if isinstance(node, dict):
+            mime_type = node.get("mime_type") or node.get("mimeType") or "image/png"
+            for key in ("image", "url", "uri", "output_image", "image_url"):
+                add_image(node.get(key), mime_type)
+            inline = node.get("inlineData") or node.get("inline_data")
+            if isinstance(inline, dict):
+                add_image(inline.get("data"), inline.get("mimeType") or inline.get("mime_type") or mime_type)
+            for key in ("b64_json", "data", "imageBytes", "bytesBase64Encoded"):
+                value = node.get(key)
+                if isinstance(value, str) and not value.strip().startswith("{"):
+                    add_image(value, mime_type)
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data.get("output"))
+    clean = []
+    for image in images:
+        if image and image not in clean:
+            clean.append(image)
+    return clean
 
 def safe_provider_json(response, provider: str, endpoint: str) -> dict:
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
@@ -6229,6 +6267,110 @@ def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+def qwen_headers() -> dict:
+    api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
+    if not api_key:
+        return {}
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def qwen_image_size(size: str, frontend_model: str, provider_model: str = "") -> str:
+    ratio = str(size or "").strip().lower().replace("x", ":")
+    key = qwen_frontend_model(frontend_model, provider_model)
+    if ratio in {"", "auto"}:
+        return "2048*2048" if key in {"qwen_image_2", "qwen_image_2_pro"} else "1664*928"
+    if key in {"qwen_image_2", "qwen_image_2_pro"}:
+        return {
+            "1:1": "2048*2048",
+            "4:3": "2048*1536",
+            "3:4": "1536*2048",
+            "16:9": "2048*1152",
+            "9:16": "1152*2048",
+        }.get(ratio, "2048*2048")
+    return {
+        "1:1": "1328*1328",
+        "4:3": "1472*1104",
+        "3:4": "1104*1472",
+        "16:9": "1664*928",
+        "9:16": "928*1664",
+    }.get(ratio, "1664*928")
+
+
+def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, prompt: str, payload: dict, size: str, count: int = 1) -> tuple[list, dict, dict]:
+    headers = qwen_headers()
+    if not headers:
+        return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Provider API key is missing: DASHSCOPE_API_KEY"), {}
+    opts = payload.get("image_options") or {}
+    key = qwen_frontend_model(frontend_model, provider_model)
+    seed_supported = bool((QWEN_MODEL_VARIANTS.get(key) or {}).get("seed"))
+    seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
+    if seed is not None and seed > 2147483647:
+        return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Seed must be between 0 and 2147483647"), {}
+    image_count = max(1, int(count or 1))
+    per_request_count = image_count if key in {"qwen_image_2", "qwen_image_2_pro"} else 1
+    request_payload = {
+        "model": provider_model,
+        "input": {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}],
+                }
+            ]
+        },
+        "parameters": {
+            "negative_prompt": str(opts.get("negative_prompt") or "")[:500],
+            "prompt_extend": bool(opts.get("prompt_extend", True)),
+            "watermark": bool(opts.get("watermark", False)),
+            "size": qwen_image_size(size, frontend_model, provider_model),
+            "n": max(1, min(per_request_count, 6)),
+        },
+    }
+    if seed is not None:
+        request_payload["parameters"]["seed"] = seed
+
+    all_images = []
+    last_payload = request_payload
+    attempts = 1 if key in {"qwen_image_2", "qwen_image_2_pro"} else image_count
+    for attempt in range(1, attempts + 1):
+        try:
+            prostudio_debug(
+                "QWEN_IMAGE_PROVIDER_REQUEST",
+                endpoint=endpoint,
+                frontend_model=frontend_model,
+                provider_model=provider_model,
+                size=request_payload["parameters"].get("size"),
+                count=request_payload["parameters"].get("n"),
+                attempt=attempt,
+                seed_present=seed is not None,
+            )
+            response = requests.post(endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
+        except requests.RequestException as exc:
+            prostudio_error("QWEN_IMAGE_PROVIDER_REQUEST_FAILED", exc, endpoint=endpoint, frontend_model=frontend_model, provider_model=provider_model)
+            return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), last_payload
+        data = safe_provider_json(response, "qwen", endpoint)
+        images = normalize_image_response(data)
+        prostudio_debug(
+            "QWEN_IMAGE_PROVIDER_RESPONSE",
+            endpoint=endpoint,
+            status_code=response.status_code,
+            data_keys=sorted(data.keys()) if isinstance(data, dict) else [],
+            image_count=len(images),
+        )
+        if response.status_code >= 400 or data.get("ok") is False:
+            provider_error = provider_error_text(data.get("error") or data.get("message") or data, "Provider request failed")
+            return [], image_error_response("qwen", frontend_model, provider_model, endpoint, provider_error, response, data), last_payload
+        for url in images:
+            if url and url not in all_images:
+                all_images.append(url)
+        if len(all_images) >= image_count:
+            break
+    return all_images[:image_count], {}, last_payload
+
+
 def google_image_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in GOOGLE_IMAGE_MODEL_VARIANTS:
@@ -7058,6 +7200,27 @@ async def image_generation(payload: dict) -> dict:
             result["model"] = requested_model
             result["provider_model"] = api_model
             result["request_payload"] = sanitized_google_request_payload(request_payload)
+            return result
+        return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
+
+    if provider == "qwen":
+        images, error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        print("QWEN IMAGE PAYLOAD:", {
+            "frontend_model": requested_model,
+            "provider_model": api_model,
+            "endpoint": endpoint,
+            "payload": request_payload,
+        })
+        if error:
+            return error
+        if images:
+            final_images = images[:count]
+            result = await finalize_image_result(payload, final_images)
+            result.update(qwen_cost_info(requested_model, api_model, len(final_images) or count))
+            result["provider"] = "qwen"
+            result["model"] = requested_model
+            result["provider_model"] = api_model
+            result["request_payload"] = request_payload
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 

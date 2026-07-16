@@ -39,7 +39,7 @@ VIDEO_MODEL_CONFIG = {
     "veo_3_1": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "veo_3_1_fast": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "gemini_omni_flash": {"provider": "gemini", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
-    "wan_2_7": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "wan_2_7": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": False},
     "wan_2_7_edit": {"provider": "wan", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
     "wan_2_6": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "grok_video": {"provider": "grok", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
@@ -96,13 +96,13 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
     "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://api.pixverse.io/v1/videos/generations")},
     "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
-    "wan_2_7": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
+    "wan_2_7": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_MODEL", "wan2.7-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
-    "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
+    "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL", "wan2.1-vace-plus"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "runway_aleph": {"provider": "runway", "provider_model": os.getenv("RUNWAY_ALEPH_MODEL", "act_two"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
     "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": _seedance_1_5_pro_model and os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
-    "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
+    "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL", "wan2.6-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "gemini_omni_flash": {"provider": "gemini", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "gemini-omni-flash-preview"), "endpoint": os.getenv("GEMINI_INTERACTIONS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")},
@@ -244,6 +244,46 @@ def _size_for_video(ratio: str, resolution: str):
     if ratio == "1:1":
         return "1024x1024"
     return "1920x1080" if "1080" in res else "1280x720"
+
+
+def _dashscope_video_endpoint():
+    return os.getenv(
+        "WAN_API_ENDPOINT",
+        "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+    )
+
+
+def _dashscope_task_endpoint(task_id: str):
+    base = os.getenv("DASHSCOPE_API_BASE", "https://dashscope-intl.aliyuncs.com/api/v1").rstrip("/")
+    return f"{base}/tasks/{task_id}"
+
+
+def _wan_resolution(value: str):
+    text = str(value or "720p").upper()
+    if "1080" in text:
+        return "1080P"
+    return "720P"
+
+
+def _wan_ratio(value: str):
+    text = str(value or "16:9")
+    return text if text in {"16:9", "9:16", "1:1", "4:3", "3:4"} else "16:9"
+
+
+def _wan_size(ratio: str, resolution: str):
+    return _size_for_video(ratio, resolution).replace("x", "*")
+
+
+def _wan_seed(value):
+    if value in (None, ""):
+        return None
+    try:
+        seed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= seed <= 2147483647:
+        return seed
+    return None
 
 
 def _runway_ratio(ratio: str, resolution: str):
@@ -1722,6 +1762,30 @@ async def poll_video_generation(result: dict) -> dict:
         if not api_key:
             return _provider_error("luma", model_id, "Provider API key is missing: LUMA_AGENTS_API_KEY")
         return _luma_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    if provider == "wan":
+        api_key = _get_env("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY", "ALIBABA_API_KEY")
+        if not api_key:
+            return _provider_error("wan", model_id, "Provider API key is missing: DASHSCOPE_API_KEY")
+        endpoint = str(result.get("poll_url") or _dashscope_task_endpoint(str(task_id)))
+        try:
+            response = _request_get(endpoint, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+            data = _safe_provider_json_response(response, "wan", endpoint)
+            _log_provider_response("wan", "POLL", endpoint, {}, response, data)
+            status_code = getattr(response, "status_code", 0) or 0
+            if status_code >= 400 or data.get("ok") is False:
+                return _provider_parse_error("wan", model_id, data)
+            output = data.get("output") if isinstance(data.get("output"), dict) else data
+            task_status = str(output.get("task_status") or output.get("status") or "").upper() if isinstance(output, dict) else ""
+            urls = _normalize_video_urls(data)
+            if task_status == "SUCCEEDED" and urls:
+                result = _provider_success("wan", model_id, urls, status="completed", task_id=str(task_id))
+                result["provider_response"] = data
+                return result
+            if task_status in {"FAILED", "CANCELED", "CANCELLED", "UNKNOWN"}:
+                return _provider_parse_error("wan", model_id, data)
+            return _provider_success("wan", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+        except Exception as exc:
+            return _provider_error("wan", model_id, f"Provider polling failed: {exc}")
     if provider == "gemini":
         api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY")
         if not api_key:
@@ -3006,34 +3070,147 @@ def _call_gemini_video(model_id: str, prompt: str, payload: dict):
 
 
 def _call_wan(model_id: str, prompt: str, payload: dict):
-    api_key = _get_env("ALIBABA_API_KEY", "QWEN_API_KEY")
+    api_key = _get_env("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY", "ALIBABA_API_KEY")
     if not api_key:
-        return _provider_error("wan", model_id, "Provider API key is missing: ALIBABA_API_KEY")
+        return _provider_error("wan", model_id, "Provider API key is missing: DASHSCOPE_API_KEY")
     provider_model = _provider_model_for_video(model_id)
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "wan")
     body = _build_video_payload(model_id, prompt, payload)
-    wan_body = {
-        "model": provider_model,
-        "input": {"prompt": prompt},
-        "parameters": {
-            "duration": int(body.get("duration") or 5),
-            "size": _size_for_video(body.get("ratio"), body.get("resolution")),
-            "resolution": body.get("resolution") or "720p",
-        },
-    }
-    if body.get("start_image"):
-        wan_body["input"]["img_url"] = body.get("start_image")
-    if body.get("input_video"):
-        wan_body["input"]["video_url"] = body.get("input_video")
+
+    start_image = _public_input_url(body.get("start_image") or body.get("image_url") or "")
+    end_image = _public_input_url(body.get("end_image") or "")
+    input_video = _public_input_url(
+        body.get("input_video")
+        or body.get("video_url")
+        or body.get("reference_video")
+        or body.get("template_video_url")
+        or body.get("preview_video")
+        or ""
+    )
+    duration = max(2, min(int(body.get("duration") or 5), 15))
+    seed = _wan_seed(body.get("seed"))
+    negative_prompt = str((payload.get("video_options") or {}).get("negative_prompt") or payload.get("negative_prompt") or "").strip()
+    prompt_extend = bool((payload.get("video_options") or {}).get("prompt_extend", True))
+    watermark = bool((payload.get("video_options") or {}).get("watermark", False))
+
+    is_27 = str(provider_model).startswith("wan2.7")
+    has_media = bool(start_image or end_image or input_video)
+    if is_27 and has_media:
+        provider_model = os.getenv("WAN_2_7_I2V_MODEL", "wan2.7-i2v")
+        media = []
+        if input_video:
+            media.append({"type": "first_clip", "url": input_video})
+        elif start_image:
+            media.append({"type": "first_frame", "url": start_image})
+        if end_image:
+            media.append({"type": "last_frame", "url": end_image})
+        wan_body = {
+            "model": provider_model,
+            "input": {"prompt": prompt or "", "media": media},
+            "parameters": {
+                "resolution": _wan_resolution(body.get("resolution")),
+                "duration": duration,
+                "prompt_extend": prompt_extend,
+                "watermark": watermark,
+            },
+        }
+        if negative_prompt:
+            wan_body["input"]["negative_prompt"] = negative_prompt[:500]
+        if seed is not None:
+            wan_body["parameters"]["seed"] = seed
+    elif is_27:
+        wan_body = {
+            "model": provider_model,
+            "input": {"prompt": prompt},
+            "parameters": {
+                "resolution": _wan_resolution(body.get("resolution")),
+                "ratio": _wan_ratio(body.get("ratio")),
+                "duration": duration,
+                "prompt_extend": prompt_extend,
+                "watermark": watermark,
+            },
+        }
+        if negative_prompt:
+            wan_body["input"]["negative_prompt"] = negative_prompt[:500]
+        if seed is not None:
+            wan_body["parameters"]["seed"] = seed
+    elif has_media:
+        provider_model = os.getenv("WAN_2_6_I2V_MODEL", "wan2.6-i2v")
+        image_source = start_image or _public_input_url((body.get("reference_images") or [""])[0] if body.get("reference_images") else "")
+        if not image_source:
+            return _provider_error("wan", model_id, "Wan image-to-video requires a first-frame image")
+        wan_body = {
+            "model": provider_model,
+            "input": {"prompt": prompt or "", "img_url": image_source},
+            "parameters": {
+                "resolution": _wan_resolution(body.get("resolution")),
+                "duration": duration,
+                "prompt_extend": prompt_extend,
+                "watermark": watermark,
+            },
+        }
+        if negative_prompt:
+            wan_body["input"]["negative_prompt"] = negative_prompt[:500]
+        if seed is not None:
+            wan_body["parameters"]["seed"] = seed
+        shot_type = (payload.get("video_options") or {}).get("shot_type")
+        if shot_type in {"single", "multi"}:
+            wan_body["parameters"]["shot_type"] = shot_type
+    else:
+        wan_body = {
+            "model": provider_model,
+            "input": {"prompt": prompt},
+            "parameters": {
+                "duration": duration,
+                "size": _wan_size(body.get("ratio"), body.get("resolution")),
+                "prompt_extend": prompt_extend,
+                "watermark": watermark,
+            },
+        }
+        if negative_prompt:
+            wan_body["parameters"]["negative_prompt"] = negative_prompt[:500]
+        if seed is not None:
+            wan_body["parameters"]["seed"] = seed
+        shot_type = (payload.get("video_options") or {}).get("shot_type")
+        if shot_type == "multi":
+            wan_body["parameters"]["shot_type"] = "multi"
+
     try:
-        endpoint = os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")
+        endpoint = _video_model_mapping(model_id).get("endpoint") or _dashscope_video_endpoint()
+        print("WAN SUBMIT REQUEST:", {
+            "endpoint": endpoint,
+            "frontend_model": model_id,
+            "provider_model": provider_model,
+            "has_start_image": bool(start_image),
+            "has_end_image": bool(end_image),
+            "has_input_video": bool(input_video),
+            "payload": _sanitize_debug_payload(wan_body),
+        })
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "X-DashScope-Async": "enable"},
             wan_body,
         )
-        return _provider_result_from_response("wan", model_id, response, endpoint)
+        data = _safe_provider_json_response(response, "wan", endpoint)
+        _log_provider_response("wan", "SUBMIT", endpoint, wan_body, response, data)
+        status = getattr(response, "status_code", 0) or 0
+        if status >= 400 or data.get("ok") is False:
+            return _provider_parse_error("wan", model_id, data)
+        urls = _normalize_video_urls(data)
+        if urls:
+            result = _provider_success("wan", model_id, urls, status="completed")
+            result["provider_model"] = provider_model
+            result["provider_response"] = data
+            return result
+        task_id = _task_id_from_response(data.get("output") if isinstance(data.get("output"), dict) else data)
+        if task_id:
+            result = _provider_success("wan", model_id, [], status="processing", task_id=task_id, poll_url=_dashscope_task_endpoint(task_id))
+            result["provider_model"] = provider_model
+            result["request_payload"] = wan_body
+            result["provider_response"] = data
+            return result
+        return _provider_error("wan", model_id, "Provider returned no video URL or task id")
     except Exception as exc:
         return _provider_error("wan", model_id, f"Provider request failed: {exc}")
 
