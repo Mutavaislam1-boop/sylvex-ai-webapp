@@ -17,10 +17,10 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from services.audio_router import audio_generation
+from services.audio_router import audio_generation, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
-from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation
+from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, Response
@@ -3580,6 +3580,99 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
                 metadata[key] = provider_metadata.get(key)
     return metadata
 
+
+async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, payload: dict, result: dict) -> bool:
+    if not telegram_id or not isinstance(result, dict):
+        return False
+    if result.get("sent_to_telegram") is True:
+        result["telegram_status"] = result.get("telegram_status") or "sent"
+        return True
+    if not BOT_TOKEN:
+        result["sent_to_telegram"] = False
+        result["telegram_status"] = "not_sent"
+        return False
+
+    mode = (mode or result.get("type") or "").lower()
+    model = result.get("model") or payload.get("model") or ""
+    provider = result.get("provider") or payload.get("provider") or ""
+    caption_lines = ["Готово ✅", "SYLVEX Pro Studio"]
+    if model:
+        caption_lines.append(f"Модель: {model}")
+    elif provider:
+        caption_lines.append(f"Провайдер: {provider}")
+    generation_cost = result.get("generation_cost") or result.get("cost_credits")
+    if generation_cost:
+        caption_lines.append(f"Стоимость: {generation_cost}")
+    caption = "\n".join(caption_lines)
+
+    try:
+        if mode == "image":
+            images = (
+                _json_list(result.get("images"))
+                or _json_list(result.get("result_images"))
+                or ([result.get("image_url")] if result.get("image_url") else [])
+                or ([result.get("result_url")] if result.get("result_url") else [])
+            )
+            sent = await send_generated_images_to_telegram(telegram_id, images, caption=caption)
+        elif mode == "video":
+            videos = (
+                _json_list(result.get("videos"))
+                or ([result.get("video_url")] if result.get("video_url") else [])
+                or ([result.get("result_url")] if result.get("result_url") else [])
+            )
+            sent = await _send_generated_videos_to_telegram(telegram_id, videos, caption=caption)
+        elif mode in {"music", "voice"}:
+            audios = (
+                _json_list(result.get("audios"))
+                or ([result.get("audio_url")] if result.get("audio_url") else [])
+                or ([result.get("music_url")] if result.get("music_url") else [])
+                or ([result.get("result_url")] if result.get("result_url") else [])
+            )
+            audio_url = audios[0] if audios else ""
+            cover_url = (
+                result.get("cover_url")
+                or result.get("image_url")
+                or result.get("thumbnail_url")
+                or result.get("thumb_url")
+                or ""
+            )
+            sent = await _send_generated_audio_to_telegram(
+                telegram_id,
+                audio_url,
+                caption=caption,
+                image_url=cover_url,
+            )
+        elif mode in {"text", "chat", "pro", "lite"}:
+            text = str(result.get("text") or "").strip()
+            if not text:
+                sent = False
+            else:
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={
+                        "chat_id": telegram_id,
+                        "text": f"{caption}\n\n{text}"[:4096],
+                        "disable_web_page_preview": True,
+                    },
+                    timeout=60,
+                )
+                sent = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
+        else:
+            sent = bool(result.get("sent_to_telegram"))
+        result["sent_to_telegram"] = bool(sent)
+        result["telegram_status"] = "sent" if sent else "not_sent"
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            metadata["sent_to_telegram"] = bool(sent)
+            metadata["telegram_status"] = result["telegram_status"]
+        prostudio_debug("TELEGRAM_SYNC_DONE", telegram_id=telegram_id, mode=mode, sent=bool(sent), job_id=result.get("job_id") or "")
+        return bool(sent)
+    except Exception as exc:
+        result["sent_to_telegram"] = False
+        result["telegram_status"] = "failed"
+        prostudio_error("TELEGRAM_SYNC_FAILED", exc, telegram_id=telegram_id, mode=mode, job_id=result.get("job_id") or "")
+        return False
+
 def materialize_data_image_url(url: str) -> str:
     value = str(url or "")
     if not value.startswith("data:image") or "," not in value:
@@ -5712,12 +5805,10 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     sent_to_telegram = False
     if telegram_id:
         try:
-            asyncio.create_task(
-                send_generated_images_to_telegram(
-                    telegram_id=telegram_id,
-                    images=images,
-                    caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
-                )
+            sent_to_telegram = await send_generated_images_to_telegram(
+                telegram_id=telegram_id,
+                images=images,
+                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -7857,6 +7948,10 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         metadata = build_prostudio_metadata(payload, result)
         if metadata:
             result["metadata"] = metadata
+        await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
+        if isinstance(result.get("metadata"), dict):
+            result["metadata"]["sent_to_telegram"] = bool(result.get("sent_to_telegram"))
+            result["metadata"]["telegram_status"] = result.get("telegram_status") or ("sent" if result.get("sent_to_telegram") else "not_sent")
         prostudio_debug(
             "JOB_MESSAGE_SAVE_START",
             job_id=job_id,
