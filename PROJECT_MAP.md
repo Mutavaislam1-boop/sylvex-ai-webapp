@@ -1,0 +1,284 @@
+# PROJECT_MAP.md
+<!-- ==================================================
+АВТОДОКУМЕНТАЦИЯ SYLVEX: карта проекта.
+Файл создан как навигация для человека без опыта программирования.
+Он не участвует в запуске приложения и не меняет бизнес-логику.
+=================================================== -->
+## Общая структура
+SYLVEX состоит из FastAPI backend (`main.py` и `services/`), Telegram Bot синхронизации, Mini App frontend (`webapp/`), платежных экранов, профиля, Pro Studio, истории, провайдеров AI и локальных ассетов.
+## Где искать основные элементы интерфейса
+- **Главный экран Mini App** — `webapp/cabinet.html`. Блоки home/tools/history/shop/profile/payment; кнопки перехода, пополнения, профиля и поддержки.
+- **Pro Studio чат** — `webapp/cabinet.html + webapp/js/cabinet.js`. Разделы Фото/Видео/Музыка/Озвучка, поле prompt, кнопка «Сгенерировать», история и details drawer.
+- **Кнопки режима генерации** — `webapp/cabinet.html`. `studio-mini-tab` и `studio-mode-tab`: переключают image/video/music/voice/edit/motion.
+- **Upload-зоны Pro Studio** — `webapp/cabinet.html + webapp/js/cabinet.js`. Кнопки загрузки фото, начального изображения, конечного образа и референсов видео.
+- **Каталог видеошаблонов** — `webapp/js/cabinet.js + webapp/css/cabinet.css + webapp/assets/video-templates/`. Сетка видеоиконок, модальное окно шаблона, выбор изображения и запуск video generation.
+- **История и чаты** — `webapp/js/cabinet.js`. Разделение image/video/music/voice чатов, восстановление conversation и drawer карточек.
+- **Глобальный аудиоплеер** — `webapp/js/cabinet.js + webapp/css/cabinet.css`. Воспроизведение музыки/озвучки внутри Mini App, playlist, обложка, progress и volume.
+- **Магазин и оплата** — `webapp/cabinet.html + webapp/js/payments.js + webapp/payments.html`. Пакеты токенов, подписки, способы оплаты и возврат в Mini App.
+- **ElevenLabs настройки** — `webapp/elevenlabs.html + webapp/js/elevenlabs.js`. Страница настройки голоса ElevenLabs.
+- **HeyGen voice настройки** — `webapp/heygen-voice.html + webapp/js/heygen-voice.js`. Страница настройки голоса HeyGen.
+
+## Backend и API
+- `main.py` — Главный FastAPI сервер: публичные endpoints Mini App, Telegram sync, база данных, job lifecycle, image generation, billing, history, thumbnails и фоновые worker-задачи.
+- `services/video_router.py` — Единый слой видео-провайдеров: Kling, PixVerse, Seedance/BytePlus, HeyGen, Luma, Runway, Sora, Veo, Gemini, Wan/Qwen, Grok, Hedra. Здесь payload, polling, ошибки, стоимость и отправка видео в Telegram.
+- `services/audio_router.py` — Генерация музыки/аудио, статусы задач, извлечение audio_url/cover_url и отправка результата в Telegram.
+- `services/error_translator.py` — Универсальный перевод технических ошибок AI-провайдеров в понятные сообщения для пользователя.
+- `services/prompt_optimizer.py` — Проверка лимитов prompt и автоматическое сокращение длинных описаний перед отправкой провайдеру.
+- `services/__init__.py` — Маркер Python-пакета services.
+- `tests/check_audio_api.py` — Проверочный скрипт для аудио API и связанных endpoint’ов.
+
+## Основные API endpoints
+- `/api/public/prostudio/generate` — создаёт job генерации из Mini App и запускает backend lifecycle.
+- `/api/public/prostudio/job/{job_id}` — возвращает статус job, ссылки результата, thumbnails и metadata для polling Mini App.
+- `/api/public/prostudio/sync` — синхронизирует историю Mini App с backend/Telegram.
+- `/api/public/prostudio/conversations` — загружает чаты и сообщения Pro Studio.
+- `/api/public/prostudio/image-capabilities` — возвращает поддерживаемые настройки image-моделей.
+- `/api/public/telegram/user-state` — возвращает общий баланс/профиль пользователя Telegram и Mini App.
+- `/api/public/telegram/sync` — обновляет состояние пользователя и Telegram-связку.
+- `/api/public/prostudio/upload` — принимает пользовательские файлы и возвращает URL для generation payload.
+
+## Frontend файлы
+- `webapp/index.html` — Точка входа, загружает основные CSS/JS и контейнер Mini App.
+- `webapp/cabinet.html` — Главная разметка Mini App: home, Pro Studio, history drawer, shop, payment, profile, modals и sheets.
+- `webapp/css/cabinet.css` — Основные стили Mini App и Pro Studio: панели, карточки, кнопки, drawer, player, upload, video templates.
+- `webapp/styles.css` — Базовые общие стили оболочки.
+- `webapp/js/cabinet.js` — Крупнейший frontend controller: состояние Pro Studio, генерация, chats, upload, drawer, video templates, player, payments/profile helpers.
+- `webapp/js/user.js` — Профиль пользователя, баланс, Telegram user-state, подписка и аватар.
+- `webapp/js/telegram.js` — Получение Telegram WebApp context и user id.
+- `webapp/js/ui.js` — Общие UI-помощники: toast, theme, переключение view, карточки tools/history/shop.
+- `webapp/js/data.js` — Локальные данные для инструментов/истории/магазина.
+- `webapp/js/language.js` — Словарь локализации и переключение языка интерфейса.
+- `webapp/js/payments.js` — Платёжная страница и выбор способа оплаты.
+- `webapp/js/elevenlabs.js` — Настройка ElevenLabs voice.
+- `webapp/js/heygen-voice.js` — Настройка HeyGen voice.
+- `webapp/payments.html` — Отдельный экран оплаты.
+- `webapp/elevenlabs.html` — Отдельный экран ElevenLabs.
+- `webapp/heygen-voice.html` — Отдельный экран HeyGen voice.
+
+## Провайдеры AI и где искать их код
+- **Kling** — `services/video_router.py`. `_call_kling`, `_kling_poll_until_ready`, `_kling_*` настройки, Motion Control, text/image/video workflows.
+- **PixVerse** — `services/video_router.py`. `_call_pixverse`, `_pixverse_upload_image`, `poll_video_generation` ветка pixverse.
+- **Seedance / BytePlus** — `services/video_router.py`. `_call_seedance`, `_seedance_body`, `_seedance_poll_until_ready`.
+- **HeyGen** — `services/video_router.py + webapp/js/heygen-voice.js`. Direct video/video agent и настройки голоса.
+- **Luma** — `services/video_router.py`. `_call_luma`, `_luma_poll_until_ready`.
+- **Gemini / Veo** — `services/video_router.py`. `_call_gemini_video`, `_call_veo`, загрузка файлов Gemini.
+- **OpenAI Sora / GPT Image** — `services/video_router.py + main.py`. Видео в video_router, image generation в main.py.
+- **Audio / Music** — `services/audio_router.py`. Создание аудио, polling и Telegram отправка.
+
+## Конфигурация и зависимости
+- `requirements.txt` — Python-зависимости backend: FastAPI, Uvicorn, requests, psycopg2, dotenv и multipart uploads.
+- `railway.json` — команда запуска Railway deployment. JSON не содержит комментариев, чтобы оставаться валидным.
+- `.env` — локальные ключи провайдеров и параметры окружения; не должен попадать в отчёты или публичные логи.
+
+## Ассеты и шаблоны
+- `webapp/assets/video-templates/01/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/02/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/03/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/04/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/05/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/06/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/07/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/08/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/09/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/10/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/11/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/12/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/13/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/14/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/15/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/16/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/17/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/18/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/19/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/20/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/21/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/22/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/23/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/24/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/25/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/26/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/27/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/28/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/29/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/30/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/31/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/32/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/33/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/34/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/35/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/36/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/37/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/38/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/39/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/40/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/41/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/42/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/43/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/44/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/45/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/46/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/47/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/48/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/49/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/50/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/README.md` — описание слота видеошаблона; рядом может лежать `preview.mp4`, который показывает иконку каталога.
+- `webapp/assets/video-templates/*/preview.mp4` — preview-видео для карточек каталога; бинарные файлы не комментируются внутри, чтобы не повредить медиа.
+- `webapp/assets/styles/*` — изображения для карточек стиля генерации фото.
+- `webapp/assets/avatars/*` — аватары профиля.
+- `webapp/assets/logo.png` — логотип Mini App.
+- `webapp/generated/thumbs/*` — уже созданные thumbnails генераций; это runtime/static результаты, не исходный код.
+
+## Полный список файлов проекта
+- `.DS_Store` — служебный файл проекта.
+- `.gitignore` — служебный файл проекта.
+- `image/background.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `main.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `railway.json` — конфигурация/список зависимостей; JSON не комментируется, чтобы оставаться валидным.
+- `requirements.txt` — конфигурация/список зависимостей; JSON не комментируется, чтобы оставаться валидным.
+- `seedance_video.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `seedance_video.mp4git` — служебный файл проекта.
+- `services/__init__.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `services/audio_router.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `services/error_translator.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `services/prompt_optimizer.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `services/video_router.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `tests/check_audio_api.py` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/avatars/a1.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/avatars/a2.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/avatars/a3.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/avatars/a4.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/avatars/a5.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/logo.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/2146F11D-7C1D-4FF2-A195-2CF82B9E9F3C.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/7795CB58-F632-4A54-8CA7-751598F6D65D.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/7A052267-98E6-4301-905A-916F274FE9D0.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/FD41D911-E9EC-483C-9345-299FF0A80689.png` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/acid_ink.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/acid_swamp_cyan.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/aegean_luxury.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/ballpoint_blue.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/built_bricks.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/illustrated_retro_futurism.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/indie_fisheye.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/minimal_rainbow_gradient.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/neon_cutout.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/orange_dominion.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/pastel_hologram.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/quiet_sepia.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/radical_red.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/retro_american_cartoon.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/retro_futurism.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/retro_pop_graphic.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/rose_mint.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/silent_cyan.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/styles/urban_ink.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/01/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/01/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/02/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/02/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/03/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/03/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/04/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/04/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/05/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/05/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/06/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/06/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/07/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/07/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/08/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/08/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/09/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/09/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/10/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/10/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/11/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/11/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/12/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/12/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/13/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/13/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/14/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/14/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/15/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/15/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/16/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/16/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/17/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/17/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/18/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/18/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/19/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/19/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/20/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/20/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/21/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/21/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/22/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/22/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/23/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/23/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/24/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/24/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/25/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/25/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/26/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/26/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/27/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/27/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/28/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/28/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/29/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/29/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/30/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/30/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/31/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/31/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/32/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/32/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/33/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/33/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/34/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/34/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/35/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/35/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/36/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/36/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/37/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/37/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/38/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/38/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/39/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/39/preview.mp4` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/assets/video-templates/40/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/41/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/42/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/43/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/44/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/45/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/46/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/47/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/48/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/49/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/50/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/assets/video-templates/README.md` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/cabinet.html` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/css/cabinet.css` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/elevenlabs.html` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/generated/thumbs/419a14009b27499099f71894f05a32fe.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/generated/thumbs/685a2c9acd7d43519ca597625e043d3a.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/generated/thumbs/79da677431f3418b867a3a109975da03.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/generated/thumbs/843b5dc339ec4a38a8c396028969d60d.jpg` — медиа-ассет или сгенерированный preview; внутри не комментируется, чтобы не повредить бинарный файл.
+- `webapp/heygen-voice.html` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/index.html` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/cabinet.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/data.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/elevenlabs.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/heygen-voice.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/language.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/payments.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/telegram.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/ui.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/js/user.js` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/payments.html` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.
+- `webapp/styles.css` — текстовый исходник/документация; подписан русскими комментариями или описан в этой карте.

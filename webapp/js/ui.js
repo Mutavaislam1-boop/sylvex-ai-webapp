@@ -1,6 +1,15 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/ui.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 // Generic UI helpers: toast, view switching, theme, switches, popovers.
 (function () {
   let toastT;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: toast
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function toast(msg) {
     const el = document.getElementById('toast');
     if (!el) return;
@@ -11,6 +20,10 @@
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.impact('light');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: setTheme
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function setTheme(mode) {
     document.documentElement.dataset.theme = mode;
     localStorage.setItem('sylvex-theme', mode);
@@ -20,12 +33,24 @@
     if (tg) { try { tg.setHeaderColor && tg.setHeaderColor(mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {} }
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleTheme
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function toggleTheme() {
     setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
   }
 
+  // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleSwitch
+  // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
+  // =====================================================
   function toggleSwitch(el) { el.classList.toggle('on'); }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: switchView
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function switchView(name) {
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -44,10 +69,18 @@
   }
 
   // Card / list HTML renderers (presentation only).
+  // =====================================================
+  // JAVASCRIPT-БЛОК: escapeHtml
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: toolCard
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function toolCard(tt) {
     return '<div class="tool" onclick="toast(t(\u0027tool_' + tt.k + '\u0027))">'
       + '<div class="ico">' + tt.icon + '</div>'
@@ -55,6 +88,10 @@
       + '<p>' + t('tool_' + tt.k + '_d') + '</p></div>';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: histCard
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function histCard(h) {
     return '<div class="hist-item"><div class="thumb">' + h.icon + '</div>'
       + '<div class="hist-body"><div class="hist-title">' + t(h.tk) + '</div>'
@@ -62,6 +99,10 @@
       + '<button class="chip open" onclick="event.stopPropagation();toast(t(\u0027open\u0027)+\u0027 \u2192\u0027)">' + t('open') + '</button></div>';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: shopCard
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function shopCard(s) {
     return '<div class="pack ' + (s.pop ? 'pop' : '') + '">'
       + (s.pop ? '<div class="pop-tag">' + t('popular') + '</div>' : '')

@@ -1,3 +1,8 @@
+# =====================================================
+# АВТОДОКУМЕНТАЦИЯ SYLVEX: services/error_translator.py
+# Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
+# Комментарии описывают назначение блоков и не меняют работу приложения.
+# =====================================================
 import json
 import re
 from typing import Any
@@ -6,6 +11,10 @@ from typing import Any
 DEFAULT_USER_ERROR = "Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже."
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: raw_error_text
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def raw_error_text(value: Any, fallback: str = "") -> str:
     if isinstance(value, str):
         return value.strip() or fallback
@@ -40,6 +49,10 @@ def raw_error_text(value: Any, fallback: str = "") -> str:
     return fallback
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: translate_provider_error
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def translate_provider_error(value: Any, provider: str = "", model: str = "", fallback: str = DEFAULT_USER_ERROR) -> str:
     text = raw_error_text(value, "")
     low = text.lower()
@@ -82,6 +95,10 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
     return fallback
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: translated_error_payload
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def translated_error_payload(value: Any, provider: str = "", model: str = "", fallback: str = DEFAULT_USER_ERROR) -> dict:
     raw = raw_error_text(value, "")
     user_message = translate_provider_error(value, provider=provider, model=model, fallback=fallback)

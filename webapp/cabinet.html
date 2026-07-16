@@ -1,3 +1,8 @@
+<!-- ==================================================
+АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/cabinet.html
+HTML-страница Mini App. Комментарии подписывают экраны, кнопки, формы, модальные окна и блоки настроек.
+Исполняемая разметка и onclick/id/class не изменены.
+=================================================== -->
 <div class="app">
   <header class="topbar">
     <div class="brand" id="brandBtn">
@@ -15,17 +20,42 @@
           <b id="tbStreak">7</b>
         </span>
       </div>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: EN
+      ID используется JavaScript/CSS как точка подключения: langBtn
+      CSS-класс задаёт внешний вид и расположение: icon-btn lang-code
+      =================================================== -->
       <button class="icon-btn lang-code" id="langBtn" title="Language"><span id="langFlag">EN</span></button>
       <div class="lang-pop" id="langPop">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: en  English
+        CSS-класс задаёт внешний вид и расположение: lang-code-pill
+        =================================================== -->
         <button data-lang="en"><span class="lang-code-pill">en</span> English</button>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: ru  Русский
+        CSS-класс задаёт внешний вид и расположение: lang-code-pill
+        =================================================== -->
         <button data-lang="ru"><span class="lang-code-pill">ru</span> Русский</button>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: arb  العربية
+        CSS-класс задаёт внешний вид и расположение: lang-code-pill
+        =================================================== -->
         <button data-lang="ar"><span class="lang-code-pill">arb</span> العربية</button>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: tur  Türkçe
+        CSS-класс задаёт внешний вид и расположение: lang-code-pill
+        =================================================== -->
         <button data-lang="tr"><span class="lang-code-pill">tur</span> Türkçe</button>
       </div>
     </div>
   </header>
 
   <main class="scroll">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: view active
+    CSS-класс задаёт внешний вид и расположение: view active
+    =================================================== -->
     <section class="view active" data-view="home">
       <div class="user-card">
         <div class="user-row">
@@ -42,6 +72,11 @@
               <div class="balance-val" id="homeBalance">— ⚡️</div>
               <div class="balance-usd" id="homeBalanceUsd">≈ $0.00</div>
           </div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: +  Top up
+          При нажатии вызывает: switchView('shop')
+          CSS-класс задаёт внешний вид и расположение: topup
+          =================================================== -->
           <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
       </div>
@@ -70,12 +105,47 @@
       <div class="section-title"><h3 data-i18n="generate_with">Generate with SYLVEX AI</h3></div>
       <div class="hero-carousel">
         <div class="hero-track" id="heroTrack">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: AI Image Studio  Turn ideas into stunning HD images in seconds.    Start creatin
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s1
+          =================================================== -->
           <div class="hero-slide s1"><div><h2 data-i18n="slide1_t">AI Image Studio</h2><p data-i18n="slide1_d">Turn ideas into stunning HD images in seconds.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="start">Start creating</span> →</button></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Cinematic Video AI  Generate short-form clips with one prompt.    Try now  →
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s2
+          =================================================== -->
           <div class="hero-slide s2"><div><h2 data-i18n="slide2_t">Cinematic Video AI</h2><p data-i18n="slide2_d">Generate short-form clips with one prompt.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="try_now">Try now</span> →</button></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Voice & Music  Clone voices, compose tracks instantly.    Explore  →
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s3
+          =================================================== -->
           <div class="hero-slide s3"><div><h2 data-i18n="slide3_t">Voice & Music</h2><p data-i18n="slide3_d">Clone voices, compose tracks instantly.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="explore">Explore</span> →</button></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Smart Text Writer  Articles, posts and ideas in your style.    Write  →
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s4
+          =================================================== -->
           <div class="hero-slide s4"><div><h2 data-i18n="slide4_t">Smart Text Writer</h2><p data-i18n="slide4_d">Articles, posts and ideas in your style.</p></div><button class="cta" onclick="switchView('tools')"><span data-i18n="write">Write</span> →</button></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Code & Build  Generate, refactor and ship code with AI pair-programming.   Build
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s5
+          =================================================== -->
           <div class="hero-slide s5"><div><h2>Code & Build</h2><p>Generate, refactor and ship code with AI pair-programming.</p></div><button class="cta" onclick="switchView('tools')">Build →</button></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Research Assistant  Summarize papers, compare sources, get instant answers.   Re
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s6
+          =================================================== -->
           <div class="hero-slide s6"><div><h2>Research Assistant</h2><p>Summarize papers, compare sources, get instant answers.</p></div><button class="cta" onclick="switchView('tools')">Research →</button></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Vision & Analysis  Upload images and documents — let AI see and explain.   Try v
+          При нажатии вызывает: switchView('tools')
+          CSS-класс задаёт внешний вид и расположение: hero-slide s7
+          =================================================== -->
           <div class="hero-slide s7"><div><h2>Vision & Analysis</h2><p>Upload images and documents — let AI see and explain.</p></div><button class="cta" onclick="switchView('tools')">Try vision →</button></div>
         </div>
         <div class="dots" id="heroDots"></div>
@@ -96,30 +166,85 @@
 
     <section class="view" data-view="tools">
       <div class="studio">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: studio-bar
+        CSS-класс задаёт внешний вид и расположение: studio-bar
+        =================================================== -->
         <div class="studio-bar">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: historyBtn
+          При нажатии вызывает: SYLVEX.toggleHistory(event)
+          ID используется JavaScript/CSS как точка подключения: historyBtn
+          CSS-класс задаёт внешний вид и расположение: sb-icon
+          =================================================== -->
           <button class="sb-icon" id="historyBtn" onclick="SYLVEX.toggleHistory(event)" aria-label="History">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </button>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: modelBtn
+          При нажатии вызывает: SYLVEX.toggleModelPop(event)
+          ID используется JavaScript/CSS как точка подключения: modelBtn
+          CSS-класс задаёт внешний вид и расположение: sb-brand sb-brand-sm
+          =================================================== -->
           <button class="sb-brand sb-brand-sm" id="modelBtn" onclick="SYLVEX.toggleModelPop(event)" aria-haspopup="menu" aria-expanded="false">
             <span class="sb-brand-name" id="modelVal">SYLVEX Pro</span>
             <svg class="sb-brand-chv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
           </button>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: sb-icon
+          При нажатии вызывает: switchView('home')
+          CSS-класс задаёт внешний вид и расположение: sb-icon
+          =================================================== -->
           <button class="sb-icon" onclick="switchView('home')" title="Home" aria-label="Home">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
           </button>
           <div class="model-pop" id="modelPop" role="menu"></div>
           <div class="mode-strip" id="modeStrip" hidden></div>
         </div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: chatArea
+        ID используется JavaScript/CSS как точка подключения: chatArea
+        CSS-класс задаёт внешний вид и расположение: chat-area
+        =================================================== -->
         <div class="chat-area" id="chatArea"></div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: studioComposer
+        ID используется JavaScript/CSS как точка подключения: studioComposer
+        CSS-класс задаёт внешний вид и расположение: studio-input studio-video-composer
+        =================================================== -->
         <div class="studio-input studio-video-composer" id="studioComposer" data-composer-mode="video">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: studio-mode-tabs
+          CSS-класс задаёт внешний вид и расположение: studio-mode-tabs
+          =================================================== -->
           <div class="studio-mode-tabs" aria-label="Studio mode">
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mini-tabs
+            CSS-класс задаёт внешний вид и расположение: studio-mini-tabs
+            =================================================== -->
             <div class="studio-mini-tabs" aria-label="Input type">
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studio-mini-tab
+              При нажатии вызывает: SYLVEX.genAction('image')
+              CSS-класс задаёт внешний вид и расположение: studio-mini-tab
+              =================================================== -->
               <button class="studio-mini-tab" type="button" onclick="SYLVEX.genAction('image')" aria-label="Изображение">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
               </button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studio-mini-tab active
+              При нажатии вызывает: SYLVEX.genAction('video')
+              CSS-класс задаёт внешний вид и расположение: studio-mini-tab active
+              =================================================== -->
               <button class="studio-mini-tab active" type="button" onclick="SYLVEX.genAction('video')" aria-label="Видео">
                 <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="3"/><path d="M16 10l5-3v10l-5-3z"/></svg>
               </button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: musicBtn
+              При нажатии вызывает: SYLVEX.genAction('music')
+              ID используется JavaScript/CSS как точка подключения: musicBtn
+              CSS-класс задаёт внешний вид и расположение: studio-mini-tab
+              =================================================== -->
               <button class="studio-mini-tab" id="musicBtn" type="button" onclick="SYLVEX.genAction('music')" aria-label="Музыка">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M9 18V5l12-2v13"/>
@@ -127,54 +252,132 @@
                   <circle cx="18" cy="16" r="3"/>
                 </svg>
               </button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: voiceBtn
+              При нажатии вызывает: SYLVEX.genAction('voice')
+              ID используется JavaScript/CSS как точка подключения: voiceBtn
+              CSS-класс задаёт внешний вид и расположение: studio-mini-tab
+              =================================================== -->
               <button class="studio-mini-tab" id="voiceBtn" type="button" onclick="SYLVEX.genAction('voice')" aria-label="Озвучка">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2m3-6v12m3-9v6m3-10v14m3-7h2"/></svg>
               </button>
             </div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab music-only
+            При нажатии вызывает: SYLVEX.genAction('music')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab music-only
+            =================================================== -->
             <button class="studio-mode-tab music-only" type="button" data-studio-mode-btn="music" onclick="SYLVEX.genAction('music')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
               <span>Генератор музыки</span>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab voice-only
+            При нажатии вызывает: SYLVEX.genAction('voice')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab voice-only
+            =================================================== -->
             <button class="studio-mode-tab voice-only" type="button" data-studio-mode-btn="voice" onclick="SYLVEX.genAction('voice')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h2m3-6v12m3-9v6m3-10v14m3-7h2"/></svg>
               <span>Генерация озвучки</span>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab image-only
+            При нажатии вызывает: SYLVEX.genAction('image')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab image-only
+            =================================================== -->
             <button class="studio-mode-tab image-only" type="button" data-studio-mode-btn="image" onclick="SYLVEX.genAction('image')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.2 5.6L20 10l-5.8 2.4L12 18l-2.2-5.6L4 10l5.8-2.4L12 2z"/></svg>
               <span>Создать изображение</span>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab active video-only
+            При нажатии вызывает: SYLVEX.genAction('video')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab active video-only
+            =================================================== -->
             <button class="studio-mode-tab active video-only" type="button" data-studio-mode-btn="video" onclick="SYLVEX.genAction('video')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="14" height="14" rx="3"/><path d="M18 9l3-2v10l-3-2"/><path d="M8 8h5M8 12h3"/></svg>
               <span>Создать видео</span>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab video-only
+            При нажатии вызывает: SYLVEX.genAction('video','edit')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab video-only
+            =================================================== -->
             <button class="studio-mode-tab video-only" type="button" data-studio-mode-btn="edit" onclick="SYLVEX.genAction('video','edit')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13 6l5 5"/><path d="M4 8h6"/></svg>
               <span>Редактировать видео</span>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab video-only
+            При нажатии вызывает: SYLVEX.genAction('video','motion')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab video-only
+            =================================================== -->
             <button class="studio-mode-tab video-only" type="button" data-studio-mode-btn="motion" onclick="SYLVEX.genAction('video','motion')">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4a3 3 0 1 0-3 3"/><path d="M6 21l3-6 3-2 3 3 4 1"/><path d="M10 13l-3-2-3 2"/><path d="M13 9l3 2 3-1"/></svg>
               <span>Управление движением</span>
             </button>
           </div>
 
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: studio-video-panel
+          CSS-класс задаёт внешний вид и расположение: studio-video-panel
+          =================================================== -->
           <div class="studio-video-panel">
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-media-column studio-video-tools video-only
+            CSS-класс задаёт внешний вид и расположение: studio-media-column studio-video-tools video-only
+            =================================================== -->
             <div class="studio-media-column studio-video-tools video-only">
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studio-frame-row
+              CSS-класс задаёт внешний вид и расположение: studio-frame-row
+              =================================================== -->
               <div class="studio-frame-row">
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: videoStartFrameCard
+                При нажатии вызывает: SYLVEX.attach('image','start',event)
+                ID используется JavaScript/CSS как точка подключения: videoStartFrameCard
+                CSS-класс задаёт внешний вид и расположение: studio-frame-card
+                =================================================== -->
                 <button class="studio-frame-card" id="videoStartFrameCard" type="button" onclick="SYLVEX.attach('image','start',event)">
+                  <!-- ==================================================
+                  HTML-ЭЛЕМЕНТ: studio-frame-ico
+                  CSS-класс задаёт внешний вид и расположение: studio-frame-ico
+                  =================================================== -->
                   <span class="studio-frame-ico">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2"/><path d="M17 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2"/><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 11l2 2 3-4"/></svg>
                   </span>
                   <span>Начальное изображение</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: videoEndFrameCard
+                При нажатии вызывает: SYLVEX.attach('image','end',event)
+                ID используется JavaScript/CSS как точка подключения: videoEndFrameCard
+                CSS-класс задаёт внешний вид и расположение: studio-frame-card
+                =================================================== -->
                 <button class="studio-frame-card" id="videoEndFrameCard" type="button" onclick="SYLVEX.attach('image','end',event)">
+                  <!-- ==================================================
+                  HTML-ЭЛЕМЕНТ: studio-frame-ico
+                  CSS-класс задаёт внешний вид и расположение: studio-frame-ico
+                  =================================================== -->
                   <span class="studio-frame-ico">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2"/><path d="M7 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2"/><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 15l3-3 2 2 1-1"/></svg>
                   </span>
                   <span>Конечный образ</span>
                 </button>
               </div>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: videoReferencesUploadButton
+              При нажатии вызывает: SYLVEX.openVideoReferencesUpload(event)
+              ID используется JavaScript/CSS как точка подключения: videoReferencesUploadButton
+              CSS-класс задаёт внешний вид и расположение: studio-links-btn
+              =================================================== -->
               <button class="studio-links-btn" id="videoReferencesUploadButton" data-upload-target="video_references" type="button" onclick="SYLVEX.openVideoReferencesUpload(event)">
                 <span>Добавить ссылки</span>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-link-icons
+                CSS-класс задаёт внешний вид и расположение: studio-link-icons
+                =================================================== -->
                 <span class="studio-link-icons">
                   <span>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg>
@@ -188,140 +391,389 @@
                 </span>
               </button>
             </div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-media-column studio-music-tools music-only voice-only
+            CSS-класс задаёт внешний вид и расположение: studio-media-column studio-music-tools music-only voice-only
+            =================================================== -->
             <div class="studio-media-column studio-music-tools music-only voice-only" aria-hidden="true"></div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-prompt-column
+            CSS-класс задаёт внешний вид и расположение: studio-prompt-column
+            =================================================== -->
             <div class="studio-prompt-column">
               <div class="image-visual-grid image-only">
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-image-tool
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'style')
+                CSS-класс задаёт внешний вид и расположение: studio-image-tool
+                =================================================== -->
                 <button class="studio-image-tool" type="button" onclick="SYLVEX.openImageOptionMenu(event,'style')">
+                  <!-- ==================================================
+                  HTML-ЭЛЕМЕНТ: studio-frame-ico
+                  CSS-класс задаёт внешний вид и расположение: studio-frame-ico
+                  =================================================== -->
                   <span class="studio-frame-ico">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-14 6-2 6 6-2 6L4 20z"/><path d="M14 4l6 6"/><path d="M8 16l4-4"/></svg>
                   </span>
                   <span id="imageStyleVal">Стили</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-image-tool
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'character')
+                CSS-класс задаёт внешний вид и расположение: studio-image-tool
+                =================================================== -->
                 <button class="studio-image-tool" type="button" onclick="SYLVEX.openImageOptionMenu(event,'character')">
+                  <!-- ==================================================
+                  HTML-ЭЛЕМЕНТ: studio-frame-ico
+                  CSS-класс задаёт внешний вид и расположение: studio-frame-ico
+                  =================================================== -->
                   <span class="studio-frame-ico">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M9 8l2 2 4-4"/></svg>
                   </span>
                   <span id="imageCharacterVal">Персонаж</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: imageUploadButton
+                При нажатии вызывает: SYLVEX.openImageUpload(event)
+                ID используется JavaScript/CSS как точка подключения: imageUploadButton
+                CSS-класс задаёт внешний вид и расположение: studio-image-tool
+                =================================================== -->
                 <button class="studio-image-tool" id="imageUploadButton" data-upload-target="image_upload" type="button" onclick="SYLVEX.openImageUpload(event)">
+                  <!-- ==================================================
+                  HTML-ЭЛЕМЕНТ: studio-frame-ico
+                  CSS-класс задаёт внешний вид и расположение: studio-frame-ico
+                  =================================================== -->
                   <span class="studio-frame-ico">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
                   </span>
                   <span>Загрузить</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-image-tool
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'objects')
+                CSS-класс задаёт внешний вид и расположение: studio-image-tool
+                =================================================== -->
                 <button class="studio-image-tool" type="button" onclick="SYLVEX.openImageOptionMenu(event,'objects')">
+                  <!-- ==================================================
+                  HTML-ЭЛЕМЕНТ: studio-frame-ico
+                  CSS-класс задаёт внешний вид и расположение: studio-frame-ico
+                  =================================================== -->
                   <span class="studio-frame-ico">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l-1 18H7L6 3z"/><path d="M9 7h6M10 11h4"/></svg>
                   </span>
                   <span id="imageObjectVal">Объект</span>
                 </button>
               </div>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: chatInput
+              ID используется JavaScript/CSS как точка подключения: chatInput
+              =================================================== -->
               <textarea id="chatInput" rows="3" placeholder="Describe your video" oninput="autoGrow(this)"></textarea>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studio-control-row
+              CSS-класс задаёт внешний вид и расположение: studio-control-row
+              =================================================== -->
               <div class="studio-control-row">
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill wide
+                При нажатии вызывает: SYLVEX.toggleModelPop(event)
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill wide
+                =================================================== -->
                 <button class="studio-select-pill wide" type="button" onclick="SYLVEX.toggleModelPop(event)">
                   <span class="pill-meter"></span>
                   <span id="modelValComposer">Seedance 2.0 Fast</span>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: 1:1
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'size')
+                ID используется JavaScript/CSS как точка подключения: imageSizeBtn
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-video-only
+                =================================================== -->
                 <button class="studio-select-pill image-video-only" id="imageSizeBtn" type="button" onclick="SYLVEX.openImageOptionMenu(event,'size')"><span class="ratio-box" id="imageSizeIcon"></span><span id="imageSizeVal">1:1</span></button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill video-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'duration')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill video-only
+                =================================================== -->
                 <button class="studio-select-pill video-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'duration')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                   <span id="videoDurationVal">5 сек</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill video-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'resolution')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill video-only
+                =================================================== -->
                 <button class="studio-select-pill video-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'resolution')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 9-9 9-9-9 9-9z"/><path d="M9 12h6"/></svg>
                   <span id="videoResolutionVal">720p</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill video-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'sound')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill video-only
+                =================================================== -->
                 <button class="studio-select-pill video-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'sound')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg>
                   <span id="videoSoundVal">Звук выкл</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: −  1  +
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'count')
+                ID используется JavaScript/CSS как точка подключения: imageCountVal
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-count-pill image-only
+                =================================================== -->
                 <button class="studio-select-pill image-count-pill image-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'count')"><span>−</span><b id="imageCountVal">1</b><span>+</span></button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill image-settings-pill image-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'settings')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-settings-pill image-only
+                =================================================== -->
                 <button class="studio-select-pill image-settings-pill image-only" type="button" aria-label="Настройки" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill music-only voice-only
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill music-only voice-only
+                =================================================== -->
                 <button class="studio-select-pill music-only voice-only" type="button">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                   <span>Автотексты песен</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill music-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'genre')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill music-only
+                =================================================== -->
                 <button class="studio-select-pill music-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'genre')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h5l-2 7 9-11h-5l2-5-9 9z"/><path d="M3 6h6"/></svg>
                   <span id="musicGenreVal">Auto</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill music-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'settings')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill music-only
+                =================================================== -->
                 <button class="studio-select-pill music-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                   <span id="musicMoodVal">Авто</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill image-settings-pill music-only
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'settings')
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-settings-pill music-only
+                =================================================== -->
                 <button class="studio-select-pill image-settings-pill music-only" type="button" aria-label="Настройки" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                   <span id="musicSettingsVal" class="sr-only">Настройки</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill voice-only
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill voice-only
+                =================================================== -->
                 <button class="studio-select-pill voice-only" type="button">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h5l-2 7 9-11h-5l2-5-9 9z"/><path d="M3 6h6"/></svg>
                   <span>Авто</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill voice-only
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill voice-only
+                =================================================== -->
                 <button class="studio-select-pill voice-only" type="button">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                   <span>Авто</span>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-select-pill image-settings-pill voice-only
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-settings-pill voice-only
+                =================================================== -->
                 <button class="studio-select-pill image-settings-pill voice-only" type="button" aria-label="Настройки">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
                 </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: Сгенерировать
+                При нажатии вызывает: sendChat()
+                ID используется JavaScript/CSS как точка подключения: sendBtn
+                CSS-класс задаёт внешний вид и расположение: studio-generate
+                =================================================== -->
                 <button class="studio-generate" id="sendBtn" type="button" onclick="sendChat()" disabled>Сгенерировать</button>
               </div>
             </div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: studioAudioPlayer
+          ID используется JavaScript/CSS как точка подключения: studioAudioPlayer
+          CSS-класс задаёт внешний вид и расположение: studio-audio-player
+          =================================================== -->
           <div class="studio-audio-player" id="studioAudioPlayer" aria-live="polite">
             <audio id="studioAudioElement" preload="metadata"></audio>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studioTrackArt
+            ID используется JavaScript/CSS как точка подключения: studioTrackArt
+            CSS-класс задаёт внешний вид и расположение: studio-track-art
+            =================================================== -->
             <div class="studio-track-art" id="studioTrackArt">
               <img id="studioTrackArtImage" src="" alt="Album cover" hidden />
             </div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: —
+            ID используется JavaScript/CSS как точка подключения: studioTrackTitle
+            CSS-класс задаёт внешний вид и расположение: studio-track-title
+            =================================================== -->
             <div class="studio-track-title" id="studioTrackTitle">—</div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-player-controls
+            CSS-класс задаёт внешний вид и расположение: studio-player-controls
+            =================================================== -->
             <div class="studio-player-controls">
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studioPrevTrackBtn
+              ID используется JavaScript/CSS как точка подключения: studioPrevTrackBtn
+              =================================================== -->
               <button type="button" aria-label="Назад" id="studioPrevTrackBtn">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM10 12l9-6v12z"/></svg>
               </button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studioPlayPauseBtn
+              ID используется JavaScript/CSS как точка подключения: studioPlayPauseBtn
+              =================================================== -->
               <button type="button" aria-label="Play" id="studioPlayPauseBtn">
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
               </button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: studioNextTrackBtn
+              ID используется JavaScript/CSS как точка подключения: studioNextTrackBtn
+              =================================================== -->
               <button type="button" aria-label="Вперёд" id="studioNextTrackBtn">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM5 18l9-6-9-6z"/></svg>
               </button>
             </div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: 00:00
+            ID используется JavaScript/CSS как точка подключения: studioCurrentTime
+            CSS-класс задаёт внешний вид и расположение: studio-time
+            =================================================== -->
             <div class="studio-time" id="studioCurrentTime">00:00</div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studioProgressBar
+            ID используется JavaScript/CSS как точка подключения: studioProgressBar
+            CSS-класс задаёт внешний вид и расположение: studio-progress
+            =================================================== -->
             <div class="studio-progress" id="studioProgressBar">
               <span id="studioProgressFill"></span>
             </div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: 00:00
+            ID используется JavaScript/CSS как точка подключения: studioDuration
+            CSS-класс задаёт внешний вид и расположение: studio-duration
+            =================================================== -->
             <div class="studio-duration" id="studioDuration">00:00</div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studioVolumeBtn
+            ID используется JavaScript/CSS как точка подключения: studioVolumeBtn
+            CSS-класс задаёт внешний вид и расположение: studio-player-icon
+            =================================================== -->
             <button class="studio-player-icon" type="button" aria-label="Громкость" id="studioVolumeBtn">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studioVolumePopover
+            ID используется JavaScript/CSS как точка подключения: studioVolumePopover
+            CSS-класс задаёт внешний вид и расположение: studio-volume-popover
+            =================================================== -->
             <div class="studio-volume-popover" id="studioVolumePopover" hidden>
               <input id="studioVolumeSlider" type="range" min="0" max="100" value="100" aria-label="Громкость" />
             </div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: ×
+            ID используется JavaScript/CSS как точка подключения: studioClosePlayerBtn
+            CSS-класс задаёт внешний вид и расположение: studio-player-icon
+            =================================================== -->
             <button class="studio-player-icon" type="button" aria-label="Закрыть" id="studioClosePlayerBtn">×</button>
           </div>
           <input type="file" id="attachInput" hidden onchange="SYLVEX.onAttachFile(event)" />
         </div>
 
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: элемент
+        =================================================== -->
         <!-- Bottom sheet: Plus actions -->
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: plusSheet
+        При нажатии вызывает: SYLVEX.closePlusSheet(event)
+        ID используется JavaScript/CSS как точка подключения: plusSheet
+        CSS-класс задаёт внешний вид и расположение: sheet-overlay
+        =================================================== -->
         <div class="sheet-overlay" id="plusSheet" onclick="SYLVEX.closePlusSheet(event)">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: sheet
+          При нажатии вызывает: event.stopPropagation()
+          CSS-класс задаёт внешний вид и расположение: sheet
+          =================================================== -->
           <div class="sheet" onclick="event.stopPropagation()">
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: sheet-grab
+            CSS-класс задаёт внешний вид и расположение: sheet-grab
+            =================================================== -->
             <div class="sheet-grab"></div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: sheet-list
+            CSS-класс задаёт внешний вид и расположение: sheet-list
+            =================================================== -->
             <div class="sheet-list">
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: Photo
+              При нажатии вызывает: SYLVEX.attach('image')
+              =================================================== -->
               <button onclick="SYLVEX.attach('image')"><span data-i18n="att_photo">Photo</span></button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: Image URL
+              При нажатии вызывает: SYLVEX.addMediaLink('image')
+              =================================================== -->
               <button onclick="SYLVEX.addMediaLink('image')"><span>Image URL</span></button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: Video URL
+              При нажатии вызывает: SYLVEX.addMediaLink('video')
+              =================================================== -->
               <button onclick="SYLVEX.addMediaLink('video')"><span>Video URL</span></button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: File
+              При нажатии вызывает: SYLVEX.attach('file')
+              =================================================== -->
               <button onclick="SYLVEX.attach('file')"><span data-i18n="att_file">File</span></button>
             </div>
           </div>
         </div>
 
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: элемент
+        =================================================== -->
         <!-- Paywall modal -->
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: paywall
+        При нажатии вызывает: SYLVEX.closePaywall(event)
+        ID используется JavaScript/CSS как точка подключения: paywall
+        CSS-класс задаёт внешний вид и расположение: sheet-overlay
+        =================================================== -->
         <div class="sheet-overlay" id="paywall" onclick="SYLVEX.closePaywall(event)">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: sheet
+          При нажатии вызывает: event.stopPropagation()
+          CSS-класс задаёт внешний вид и расположение: sheet
+          =================================================== -->
           <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: sheet-grab
+            CSS-класс задаёт внешний вид и расположение: sheet-grab
+            =================================================== -->
             <div class="sheet-grab"></div>
             <h3 style="margin:6px 0 8px;font-size:17px" data-i18n="paywall_t">Subscription required</h3>
             <p style="opacity:.7;font-size:13px;margin:0 0 14px" data-i18n="paywall_d">To continue chatting, please subscribe.</p>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: Subscribe
+            При нажатии вызывает: SYLVEX.openShopFromPaywall()
+            CSS-класс задаёт внешний вид и расположение: topup
+            =================================================== -->
             <button class="topup" style="width:100%" onclick="SYLVEX.openShopFromPaywall()" data-i18n="subscribe_btn">Subscribe</button>
           </div>
         </div>
@@ -330,8 +782,18 @@
         <aside class="hist-drawer" id="histDrawer">
           <div class="hd-head">
             <span class="hd-title" data-i18n="chats">Chats</span>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: ×
+            При нажатии вызывает: SYLVEX.toggleHistory()
+            CSS-класс задаёт внешний вид и расположение: hd-close
+            =================================================== -->
             <button class="hd-close" onclick="SYLVEX.toggleHistory()" aria-label="Close">×</button>
           </div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: hd-new
+          При нажатии вызывает: SYLVEX.newChat();SYLVEX.toggleHistory()
+          CSS-класс задаёт внешний вид и расположение: hd-new
+          =================================================== -->
           <button class="hd-new" onclick="SYLVEX.newChat();SYLVEX.toggleHistory()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
             <span data-i18n="new_chat">New chat</span>
@@ -353,7 +815,17 @@
       <div class="shop-balance">
         <div class="sb-left">
           <div class="sb-label">Текущий баланс</div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: —   ⚡️
+          ID используется JavaScript/CSS как точка подключения: shopBalance
+          CSS-класс задаёт внешний вид и расположение: sb-val
+          =================================================== -->
           <div class="sb-val"><span id="shopBalance">—</span> <span class="sb-bolt">⚡️</span></div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: ≈ $0.00
+          ID используется JavaScript/CSS как точка подключения: shopBalanceUsd
+          CSS-класс задаёт внешний вид и расположение: sb-usd
+          =================================================== -->
           <div class="sb-usd" id="shopBalanceUsd">≈ $0.00</div>
         </div>
         <div class="sb-rate">1$ = 100 ⚡️</div>
@@ -377,6 +849,11 @@
             <li>Доступ ко всем AI-моделям: Kling, Veo, Seedance и др.</li>
             <li>100 ⚡️ SYLVEX BT в подарок</li>
           </ul>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Выбрать оплату
+          При нажатии вызывает: SYLVEX.openBuy('sub_month')
+          CSS-класс задаёт внешний вид и расположение: sub-cta sub-cta-fallback
+          =================================================== -->
           <button class="sub-cta sub-cta-fallback" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_month')">Выбрать оплату</button>
         </div>
 
@@ -398,6 +875,11 @@
             <li>500 ⚡️ SYLVEX BT сразу после покупки</li>
             <li>+100 ⚡️ автоматически каждый месяц</li>
           </ul>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Выбрать оплату
+          При нажатии вызывает: SYLVEX.openBuy('sub_year')
+          CSS-класс задаёт внешний вид и расположение: sub-cta sub-cta-fallback
+          =================================================== -->
           <button class="sub-cta sub-cta-fallback" data-sub-el="cta" onclick="SYLVEX.openBuy('sub_year')">Выбрать оплату</button>
         </div>
       </div>
@@ -441,6 +923,11 @@
         </div>
       </div>
 
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: admin-cta
+      При нажатии вызывает: SYLVEX.contactAdmin()
+      CSS-класс задаёт внешний вид и расположение: admin-cta
+      =================================================== -->
       <button class="admin-cta" onclick="SYLVEX.contactAdmin()">
         <span>Связаться с администратором</span>
         <small>Для покупки большего количества токенов</small>
@@ -448,39 +935,122 @@
     </section>
 
     <section class="view" data-view="pay">
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: pay-head
+      CSS-класс задаёт внешний вид и расположение: pay-head
+      =================================================== -->
       <div class="pay-head">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pay-back
+        При нажатии вызывает: switchView('shop')
+        CSS-класс задаёт внешний вид и расположение: pay-back
+        =================================================== -->
         <button class="pay-back" onclick="switchView('shop')" aria-label="Назад">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
         </button>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Оплата
+        CSS-класс задаёт внешний вид и расположение: pay-head-title
+        =================================================== -->
         <div class="pay-head-title">Оплата</div>
         <div style="width:36px"></div>
       </div>
 
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: pay-user
+      CSS-класс задаёт внешний вид и расположение: pay-user
+      =================================================== -->
       <div class="pay-user">
         <div class="avatar" id="payAvatar">··</div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pay-user-meta
+        CSS-класс задаёт внешний вид и расположение: pay-user-meta
+        =================================================== -->
         <div class="pay-user-meta">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: —
+          ID используется JavaScript/CSS как точка подключения: payUserName
+          CSS-класс задаёт внешний вид и расположение: pay-user-name
+          =================================================== -->
           <div class="pay-user-name" id="payUserName">—</div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: @—
+          ID используется JavaScript/CSS как точка подключения: payUserHandle
+          CSS-класс задаёт внешний вид и расположение: pay-user-handle
+          =================================================== -->
           <div class="pay-user-handle" id="payUserHandle">@—</div>
         </div>
       </div>
 
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: pay-summary
+      CSS-класс задаёт внешний вид и расположение: pay-summary
+      =================================================== -->
       <div class="pay-summary">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pay-row
+        CSS-класс задаёт внешний вид и расположение: pay-row
+        =================================================== -->
         <div class="pay-row">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Текущий баланс
+          CSS-класс задаёт внешний вид и расположение: pay-row-k
+          =================================================== -->
           <div class="pay-row-k">Текущий баланс</div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: 0  ⚡️  ≈ $0.00
+          ID используется JavaScript/CSS как точка подключения: payBalance
+          CSS-класс задаёт внешний вид и расположение: pay-row-v
+          =================================================== -->
           <div class="pay-row-v"><span id="payBalance">0</span> ⚡️ <span class="pay-usd" id="payBalanceUsd">≈ $0.00</span></div>
         </div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pay-row
+        CSS-класс задаёт внешний вид и расположение: pay-row
+        =================================================== -->
         <div class="pay-row">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: К оплате
+          CSS-класс задаёт внешний вид и расположение: pay-row-k
+          =================================================== -->
           <div class="pay-row-k">К оплате</div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: —
+          ID используется JavaScript/CSS как точка подключения: payPackTitle
+          CSS-класс задаёт внешний вид и расположение: pay-row-v pay-row-v-strong
+          =================================================== -->
           <div class="pay-row-v pay-row-v-strong" id="payPackTitle">—</div>
         </div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pay-row pay-row-total
+        CSS-класс задаёт внешний вид и расположение: pay-row pay-row-total
+        =================================================== -->
         <div class="pay-row pay-row-total">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Стоимость
+          CSS-класс задаёт внешний вид и расположение: pay-row-k
+          =================================================== -->
           <div class="pay-row-k">Стоимость</div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: —
+          ID используется JavaScript/CSS как точка подключения: payPackPrice
+          CSS-класс задаёт внешний вид и расположение: pay-row-v
+          =================================================== -->
           <div class="pay-row-v" id="payPackPrice">—</div>
         </div>
       </div>
 
       <div class="section-title"><h3>Способ оплаты</h3></div>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: pay-methods
+      CSS-класс задаёт внешний вид и расположение: pay-methods
+      =================================================== -->
       <div class="pay-methods">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pm-card
+        При нажатии вызывает: SYLVEX.payWith('stars')
+        CSS-класс задаёт внешний вид и расположение: pm-card
+        =================================================== -->
         <button class="pm-card" onclick="SYLVEX.payWith('stars')">
           <div class="pm-ico">⭐</div>
           <div class="pm-body">
@@ -489,6 +1059,11 @@
           </div>
           <div class="pm-arr">→</div>
         </button>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pm-card
+        При нажатии вызывает: SYLVEX.payWith('paypal')
+        CSS-класс задаёт внешний вид и расположение: pm-card
+        =================================================== -->
         <button class="pm-card" onclick="SYLVEX.payWith('paypal')">
           <div class="pm-ico">P</div>
           <div class="pm-body">
@@ -497,6 +1072,11 @@
           </div>
           <div class="pm-arr">→</div>
         </button>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: pm-card
+        При нажатии вызывает: SYLVEX.payWith('crypto')
+        CSS-класс задаёт внешний вид и расположение: pm-card
+        =================================================== -->
         <button class="pm-card" onclick="SYLVEX.payWith('crypto')">
           <div class="pm-ico">₿</div>
           <div class="pm-body">
@@ -518,28 +1098,94 @@
     <section class="view" data-view="profile">
       <div class="user-card">
         <div class="user-row">
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: ··
+          ID используется JavaScript/CSS как точка подключения: profileAvatar
+          CSS-класс задаёт внешний вид и расположение: avatar
+          =================================================== -->
           <div class="avatar" id="profileAvatar">··<span class="dot"></span></div>
           <div class="user-meta">
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: —   PRO
+            При нажатии вызывает: SYLVEX.openProInfo()
+            ID используется JavaScript/CSS как точка подключения: profileUserName
+            CSS-класс задаёт внешний вид и расположение: user-name
+            =================================================== -->
             <div class="user-name"><span id="profileUserName">—</span> <span class="badge pro-badge" id="profileUserBadge" data-i18n="pro" onclick="SYLVEX.openProInfo()">PRO</span></div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: @—  ·  Online
+            ID используется JavaScript/CSS как точка подключения: profileUserHandle
+            CSS-класс задаёт внешний вид и расположение: user-sub
+            =================================================== -->
             <div class="user-sub"><span id="profileUserHandle">@—</span> · <span data-i18n="online">Online</span></div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: ID  ·  —
+            ID используется JavaScript/CSS как точка подключения: profileUserId
+            CSS-класс задаёт внешний вид и расположение: id-pill
+            =================================================== -->
             <div class="id-pill"><span data-i18n="id">ID</span> · <span id="profileUserId">—</span></div>
           </div>
         </div>
         <div class="balance-row">
           <div>
             <div class="balance-label" data-i18n="balance">Balance</div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: — ⚡️
+            ID используется JavaScript/CSS как точка подключения: profileBalance
+            CSS-класс задаёт внешний вид и расположение: balance-val
+            =================================================== -->
             <div class="balance-val" id="profileBalance">— ⚡️</div>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: ≈ $0.00
+            ID используется JavaScript/CSS как точка подключения: profileBalanceUsd
+            CSS-класс задаёт внешний вид и расположение: balance-usd
+            =================================================== -->
             <div class="balance-usd" id="profileBalanceUsd">≈ $0.00</div>
           </div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: +  Top up
+          При нажатии вызывает: switchView('shop')
+          CSS-класс задаёт внешний вид и расположение: topup
+          =================================================== -->
           <button class="topup" onclick="switchView('shop')">+ <span data-i18n="topup">Top up</span></button>
         </div>
       </div>
       <div class="profile-grid">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Plan  —
+        ID используется JavaScript/CSS как точка подключения: profilePlan
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
         <div class="mini"><div class="k" data-i18n="plan">Plan</div><div class="v" id="profilePlan">—</div></div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Member since  —
+        ID используется JavaScript/CSS как точка подключения: profileSince
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
         <div class="mini"><div class="k" data-i18n="member_since">Member since</div><div class="v" id="profileSince">—</div></div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Токенов потрачено  0 ⚡️
+        ID используется JavaScript/CSS как точка подключения: profileSpent
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
         <div class="mini"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Referrals  0
+        ID используется JavaScript/CSS как точка подключения: profileReferrals
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
         <div class="mini"><div class="k" data-i18n="referrals">Referrals</div><div class="v" id="profileReferrals">0</div></div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Генераций  0
+        ID используется JavaScript/CSS как точка подключения: profileGens
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
         <div class="mini"><div class="k">Генераций</div><div class="v" id="profileGens">0</div></div>
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: В SYLVEX  —
+        ID используется JavaScript/CSS как точка подключения: profileUptime
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
         <div class="mini"><div class="k">В SYLVEX</div><div class="v" id="profileUptime">—</div></div>
       </div>
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
@@ -587,6 +1233,11 @@
 
       <div class="section-title"><h3 data-i18n="help_legal">Help & Legal</h3></div>
       <div class="list">
+        <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: 💬   Support  Get help from our team   ›
+        При нажатии вызывает: openSupport()
+        CSS-класс задаёт внешний вид и расположение: row
+        =================================================== -->
         <div class="row" onclick="openSupport()"><div class="ico">💬</div><div class="label"><span data-i18n="support">Support</span><small data-i18n="support_d">Get help from our team</small></div><div class="chev">›</div></div>
         <div class="row" onclick="toast(t('privacy_open'))"><div class="ico">🔒</div><div class="label"><span data-i18n="privacy">Privacy Policy</span><small data-i18n="privacy_d">How we handle your data</small></div><div class="chev">›</div></div>
         <div class="row" onclick="toast(t('terms_open'))"><div class="ico">📜</div><div class="label"><span data-i18n="terms">Terms of Service</span><small data-i18n="terms_d">Rules & responsibilities</small></div><div class="chev">›</div></div>
@@ -597,9 +1248,25 @@
   </main>
 
   <nav class="nav" id="nav">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: Home
+    CSS-класс задаёт внешний вид и расположение: nav-btn active
+    =================================================== -->
     <button class="nav-btn active" data-view="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg><span data-i18n="nav_home">Home</span></button>
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: History
+    CSS-класс задаёт внешний вид и расположение: nav-btn
+    =================================================== -->
     <button class="nav-btn" data-view="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span data-i18n="nav_history">History</span></button>
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: Shop
+    CSS-класс задаёт внешний вид и расположение: nav-btn
+    =================================================== -->
     <button class="nav-btn" data-view="shop"><svg viewBox="0 0 24 24"><path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7h-11A2 2 0 0 1 4.5 18L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg><span data-i18n="nav_shop">Shop</span></button>
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: Settings
+    CSS-класс задаёт внешний вид и расположение: nav-btn
+    =================================================== -->
     <button class="nav-btn" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5 2 2 0 1 1-4 0 1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3A2 2 0 1 1 4.4 17a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1 2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8A2 2 0 1 1 7 4.4a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5 2 2 0 1 1 4 0 1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3A2 2 0 1 1 19.6 7a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1 2 2 0 1 1 0 4 1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav_settings">Settings</span></button>
   </nav>
 </div>
@@ -609,27 +1276,76 @@
     <div class="pl" data-i18n="total">Total</div>
     <div class="pv"><span id="priceVal">0</span> ⚡️</div>
   </div>
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: pbtn
+  При нажатии вызывает: generateNow()
+  CSS-класс задаёт внешний вид и расположение: pbtn
+  =================================================== -->
   <button class="pbtn" onclick="generateNow()">
     <span data-i18n="generate_btn">Generate</span>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
   </button>
 </div>
 
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: supportModal
+ID используется JavaScript/CSS как точка подключения: supportModal
+CSS-класс задаёт внешний вид и расположение: modal-overlay
+=================================================== -->
 <div class="modal-overlay" id="supportModal">
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: modal
+  При нажатии вызывает: event.stopPropagation()
+  CSS-класс задаёт внешний вид и расположение: modal
+  =================================================== -->
   <div class="modal" onclick="event.stopPropagation()">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: modal-head
+    CSS-класс задаёт внешний вид и расположение: modal-head
+    =================================================== -->
     <div class="modal-head">
       <div class="mt">
         <div class="mi">💬</div>
         <div>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Contact Support
+          =================================================== -->
           <h3 data-i18n="support_title">Contact Support</h3>
+          <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: Usually replies in under 1 hour
+          CSS-класс задаёт внешний вид и расположение: ms
+          =================================================== -->
           <div class="ms" data-i18n="support_sub">Usually replies in under 1 hour</div>
         </div>
       </div>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: ×
+      При нажатии вызывает: closeSupport()
+      CSS-класс задаёт внешний вид и расположение: modal-close
+      =================================================== -->
       <button class="modal-close" onclick="closeSupport()" aria-label="Close">×</button>
     </div>
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: supportMsg
+    ID используется JavaScript/CSS как точка подключения: supportMsg
+    =================================================== -->
     <textarea id="supportMsg" data-i18n-ph="support_ph" placeholder="Describe your issue or question…"></textarea>
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: modal-actions
+    CSS-класс задаёт внешний вид и расположение: modal-actions
+    =================================================== -->
     <div class="modal-actions">
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: Close
+      При нажатии вызывает: closeSupport()
+      CSS-класс задаёт внешний вид и расположение: btn-ghost
+      =================================================== -->
       <button class="btn-ghost" onclick="closeSupport()" data-i18n="close">Close</button>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: btn-primary
+      При нажатии вызывает: sendSupport()
+      CSS-класс задаёт внешний вид и расположение: btn-primary
+      =================================================== -->
       <button class="btn-primary" onclick="sendSupport()">
         <span data-i18n="send">Send</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -638,9 +1354,27 @@
   </div>
 </div>
 
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: элемент
+=================================================== -->
 <!-- Active subscription modal -->
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: subActiveModal
+При нажатии вызывает: SYLVEX.closeModal(event,'subActiveModal')
+ID используется JavaScript/CSS как точка подключения: subActiveModal
+CSS-класс задаёт внешний вид и расположение: modal-overlay sub-active-overlay
+=================================================== -->
 <div class="modal-overlay sub-active-overlay" id="subActiveModal" onclick="SYLVEX.closeModal(event,'subActiveModal')">
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: modal sub-active-modal
+  При нажатии вызывает: event.stopPropagation()
+  CSS-класс задаёт внешний вид и расположение: modal sub-active-modal
+  =================================================== -->
   <div class="modal sub-active-modal" onclick="event.stopPropagation()">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: modal-head
+    CSS-класс задаёт внешний вид и расположение: modal-head
+    =================================================== -->
     <div class="modal-head">
       <div class="mt">
         <div class="mi">✓</div>
@@ -649,6 +1383,11 @@
           <div class="ms">Активная подписка SYLVEX Pro</div>
         </div>
       </div>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: ×
+      При нажатии вызывает: SYLVEX.closeModal(null,'subActiveModal')
+      CSS-класс задаёт внешний вид и расположение: modal-close sub-active-close
+      =================================================== -->
       <button class="modal-close sub-active-close" onclick="SYLVEX.closeModal(null,'subActiveModal')" aria-label="Close">×</button>
     </div>
 
@@ -659,23 +1398,62 @@
       <div><div class="k">Осталось</div><div class="v" id="saCountdown">—</div></div>
     </div>
 
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: modal-actions
+    CSS-класс задаёт внешний вид и расположение: modal-actions
+    =================================================== -->
     <div class="modal-actions">
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: Продлить подписку
+      При нажатии вызывает: SYLVEX.renewFromModal()
+      CSS-класс задаёт внешний вид и расположение: btn-primary
+      =================================================== -->
       <button class="btn-primary" style="width:100%" onclick="SYLVEX.renewFromModal()">Продлить подписку</button>
     </div>
   </div>
 </div>
 
 <!-- PRO indicator info -->
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: proInfoModal
+При нажатии вызывает: SYLVEX.closeModal(event,'proInfoModal')
+ID используется JavaScript/CSS как точка подключения: proInfoModal
+CSS-класс задаёт внешний вид и расположение: sheet-overlay
+=================================================== -->
 <div class="sheet-overlay" id="proInfoModal" onclick="SYLVEX.closeModal(event,'proInfoModal')">
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: sheet
+  При нажатии вызывает: event.stopPropagation()
+  CSS-класс задаёт внешний вид и расположение: sheet
+  =================================================== -->
   <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: sheet-grab
+    CSS-класс задаёт внешний вид и расположение: sheet-grab
+    =================================================== -->
     <div class="sheet-grab"></div>
     <div id="proInfoBody">—</div>
   </div>
 </div>
 
 <!-- Edit profile -->
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: editProfileModal
+При нажатии вызывает: SYLVEX.closeModal(event,'editProfileModal')
+ID используется JavaScript/CSS как точка подключения: editProfileModal
+CSS-класс задаёт внешний вид и расположение: sheet-overlay
+=================================================== -->
 <div class="sheet-overlay" id="editProfileModal" onclick="SYLVEX.closeModal(event,'editProfileModal')">
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: sheet
+  При нажатии вызывает: event.stopPropagation()
+  CSS-класс задаёт внешний вид и расположение: sheet
+  =================================================== -->
   <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: sheet-grab
+    CSS-класс задаёт внешний вид и расположение: sheet-grab
+    =================================================== -->
     <div class="sheet-grab"></div>
     <h3 style="margin:6px 0 12px;font-size:17px">Редактировать профиль</h3>
     <label class="ep-label">Имя пользователя</label>
@@ -683,28 +1461,73 @@
     <div class="ep-label" style="margin-top:14px">Аватарка</div>
     <div class="avatar-grid" id="avatarGrid"></div>
     <div style="display:flex;gap:8px;margin-top:16px">
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: Отмена
+      При нажатии вызывает: SYLVEX.closeModal(null,'editProfileModal')
+      CSS-класс задаёт внешний вид и расположение: btn-ghost
+      =================================================== -->
       <button class="btn-ghost" style="flex:1" onclick="SYLVEX.closeModal(null,'editProfileModal')">Отмена</button>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: Сохранить
+      При нажатии вызывает: SYLVEX.saveEditProfile()
+      CSS-класс задаёт внешний вид и расположение: btn-primary
+      =================================================== -->
       <button class="btn-primary" style="flex:1" onclick="SYLVEX.saveEditProfile()">Сохранить</button>
     </div>
   </div>
 </div>
 
 <!-- Theme picker -->
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: themeModal
+При нажатии вызывает: SYLVEX.closeModal(event,'themeModal')
+ID используется JavaScript/CSS как точка подключения: themeModal
+CSS-класс задаёт внешний вид и расположение: sheet-overlay
+=================================================== -->
 <div class="sheet-overlay" id="themeModal" onclick="SYLVEX.closeModal(event,'themeModal')">
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: sheet
+  При нажатии вызывает: event.stopPropagation()
+  CSS-класс задаёт внешний вид и расположение: sheet
+  =================================================== -->
   <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: sheet-grab
+    CSS-класс задаёт внешний вид и расположение: sheet-grab
+    =================================================== -->
     <div class="sheet-grab"></div>
     <h3 style="margin:6px 0 12px;font-size:17px">Оформление</h3>
     <div class="ep-label">Цветовая тема</div>
     <div class="theme-grid" id="themeGrid"></div>
     <div style="display:flex;gap:8px;margin-top:16px">
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: Готово
+      При нажатии вызывает: SYLVEX.closeModal(null,'themeModal')
+      CSS-класс задаёт внешний вид и расположение: btn-primary
+      =================================================== -->
       <button class="btn-primary" style="flex:1" onclick="SYLVEX.closeModal(null,'themeModal')">Готово</button>
     </div>
   </div>
 </div>
 
 <!-- Referrals -->
+<!-- ==================================================
+HTML-ЭЛЕМЕНТ: refsModal
+При нажатии вызывает: SYLVEX.closeModal(event,'refsModal')
+ID используется JavaScript/CSS как точка подключения: refsModal
+CSS-класс задаёт внешний вид и расположение: sheet-overlay
+=================================================== -->
 <div class="sheet-overlay" id="refsModal" onclick="SYLVEX.closeModal(event,'refsModal')">
+  <!-- ==================================================
+  HTML-ЭЛЕМЕНТ: sheet
+  При нажатии вызывает: event.stopPropagation()
+  CSS-класс задаёт внешний вид и расположение: sheet
+  =================================================== -->
   <div class="sheet" onclick="event.stopPropagation()" style="padding:18px 20px 22px">
+    <!-- ==================================================
+    HTML-ЭЛЕМЕНТ: sheet-grab
+    CSS-класс задаёт внешний вид и расположение: sheet-grab
+    =================================================== -->
     <div class="sheet-grab"></div>
     <h3 style="margin:6px 0 6px;font-size:17px">🎁 Пригласить друзей</h3>
     <p style="opacity:.75;font-size:13px;margin:0 0 12px;line-height:1.5">
@@ -720,7 +1543,18 @@
       <div><div class="k">Статус</div><div class="v" id="refStatus">—</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:14px">
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: 📋 Копировать
+      При нажатии вызывает: SYLVEX.copyRefLink()
+      CSS-класс задаёт внешний вид и расположение: btn-ghost
+      =================================================== -->
       <button class="btn-ghost" style="flex:1" onclick="SYLVEX.copyRefLink()">📋 Копировать</button>
+      <!-- ==================================================
+      HTML-ЭЛЕМЕНТ: 🚀 Активировать
+      При нажатии вызывает: SYLVEX.activateRefLink()
+      ID используется JavaScript/CSS как точка подключения: refActivateBtn
+      CSS-класс задаёт внешний вид и расположение: btn-primary
+      =================================================== -->
       <button class="btn-primary" style="flex:1" id="refActivateBtn" onclick="SYLVEX.activateRefLink()">🚀 Активировать</button>
     </div>
   </div>

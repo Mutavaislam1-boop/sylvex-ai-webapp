@@ -1,3 +1,5 @@
+<!-- АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/assets/video-templates/19/README.md. Этот markdown-файл описывает ресурс проекта или слот видеошаблона; комментарий добавлен только для навигации и не влияет на работу Mini App. -->
+
 Video template slot 19
 
 Put preview video here:

@@ -1,3 +1,8 @@
+# =====================================================
+# АВТОДОКУМЕНТАЦИЯ SYLVEX: services/prompt_optimizer.py
+# Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
+# Комментарии описывают назначение блоков и не меняют работу приложения.
+# =====================================================
 import json
 import os
 import re
@@ -40,6 +45,11 @@ PROMPT_LIMITS = {
 }
 
 
+# =====================================================
+# PYTHON-БЛОК: _configured_limits
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _configured_limits() -> dict:
     raw = os.getenv("PROMPT_LIMITS_JSON") or ""
     if not raw:
@@ -51,6 +61,11 @@ def _configured_limits() -> dict:
         return {}
 
 
+# =====================================================
+# PYTHON-БЛОК: prompt_limit_for_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def prompt_limit_for_model(model: str = "", provider: str = "", mode: str = "") -> int:
     key = (model or "").strip()
     limits = dict(PROMPT_LIMITS)
@@ -70,6 +85,11 @@ def prompt_limit_for_model(model: str = "", provider: str = "", mode: str = "") 
     return DEFAULT_PROMPT_LIMIT
 
 
+# =====================================================
+# PYTHON-БЛОК: prompt_metric_for_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def prompt_metric_for_model(model: str = "", provider: str = "") -> str:
     value = f"{provider or ''} {model or ''}".lower()
     if "kling" in value:
@@ -77,12 +97,22 @@ def prompt_metric_for_model(model: str = "", provider: str = "") -> str:
     return "characters"
 
 
+# =====================================================
+# PYTHON-БЛОК: _measure_prompt
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _measure_prompt(text: str, metric: str) -> int:
     if metric == "utf8_bytes":
         return len(str(text or "").encode("utf-8"))
     return len(str(text or ""))
 
 
+# =====================================================
+# PYTHON-БЛОК: _trim_to_limit
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _trim_to_limit(text: str, limit: int, metric: str) -> str:
     value = str(text or "")
     if _measure_prompt(value, metric) <= limit:
@@ -100,6 +130,11 @@ def _trim_to_limit(text: str, limit: int, metric: str) -> str:
     return "".join(chars).rsplit(" ", 1)[0].strip()
 
 
+# =====================================================
+# PYTHON-БЛОК: _normalize_prompt
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _normalize_prompt(prompt: str) -> str:
     text = str(prompt or "").replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
@@ -107,11 +142,21 @@ def _normalize_prompt(prompt: str) -> str:
     return text.strip()
 
 
+# =====================================================
+# PYTHON-БЛОК: _sentence_key
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _sentence_key(sentence: str) -> str:
     value = re.sub(r"\W+", " ", sentence.lower(), flags=re.U)
     return re.sub(r"\s+", " ", value).strip()
 
 
+# =====================================================
+# PYTHON-БЛОК: _dedupe_sentences
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _dedupe_sentences(text: str) -> str:
     parts = re.split(r"(?<=[.!?。！？])\s+|\n+", text)
     seen = set()
@@ -128,6 +173,11 @@ def _dedupe_sentences(text: str) -> str:
     return " ".join(kept).strip()
 
 
+# =====================================================
+# PYTHON-БЛОК: _fit_by_sentences
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _fit_by_sentences(text: str, limit: int, metric: str) -> str:
     if _measure_prompt(text, metric) <= limit:
         return text
@@ -147,6 +197,11 @@ def _fit_by_sentences(text: str, limit: int, metric: str) -> str:
     return result if result else _trim_to_limit(text, limit, metric)
 
 
+# =====================================================
+# PYTHON-БЛОК: optimize_prompt_for_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def optimize_prompt_for_model(prompt: str, model: str = "", provider: str = "", mode: str = "") -> dict[str, Any]:
     original = str(prompt or "")
     limit = prompt_limit_for_model(model, provider, mode)

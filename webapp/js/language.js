@@ -1,3 +1,8 @@
+// =====================================================
+// АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/language.js
+// Файл содержит frontend-логику Mini App.
+// Комментарии описывают экраны, кнопки, запросы и обработчики без изменения поведения.
+// =====================================================
 // Internationalization: dictionaries, language metadata, apply/set helpers.
 (function () {
   const I18N = {
@@ -16,10 +21,18 @@
 
   let lang = localStorage.getItem('sylvex-lang') || 'en';
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: t
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function t(key) {
     return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyLang
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyLang() {
     const meta = LANG_META[lang];
     document.documentElement.lang = lang;
@@ -43,6 +56,10 @@
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: setLang
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function setLang(L) {
     lang = L;
     localStorage.setItem('sylvex-lang', L);

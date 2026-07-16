@@ -1,3 +1,8 @@
+# =====================================================
+# АВТОДОКУМЕНТАЦИЯ SYLVEX: services/video_router.py
+# Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
+# Комментарии описывают назначение блоков и не меняют работу приложения.
+# =====================================================
 import os
 import json
 import re
@@ -131,6 +136,11 @@ VIDEO_PROVIDER_MODEL_MAP.update({
 })
 
 
+# =====================================================
+# PYTHON-БЛОК: _get_env
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _get_env(*names):
     for name in names:
         value = os.getenv(name)
@@ -139,6 +149,11 @@ def _get_env(*names):
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: _normalize_video_urls
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _normalize_video_urls(data):
     if not data:
         return []
@@ -170,6 +185,11 @@ def _normalize_video_urls(data):
     return []
 
 
+# =====================================================
+# PYTHON-БЛОК: _first_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _first_value(data, keys):
     if not isinstance(data, dict):
         return None
@@ -184,11 +204,20 @@ def _first_value(data, keys):
     return None
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _task_id_from_response
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def _task_id_from_response(data):
     value = _first_value(data, ("task_id", "taskId", "id", "generation_id", "generationId", "operation", "name"))
     return str(value) if value else None
 
 
+# =====================================================
+# PYTHON-БЛОК: _map_seedance_video_model_to_provider_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _map_seedance_video_model_to_provider_model(frontend_model: str):
     value = (frontend_model or "").strip()
     if not value:
@@ -197,16 +226,31 @@ def _map_seedance_video_model_to_provider_model(frontend_model: str):
     return BYTEPLUS_SEEDANCE_MODEL_MAP.get(normalized) or BYTEPLUS_SEEDANCE_MODEL_MAP.get(normalized.replace("-", "_"))
 
 
+# =====================================================
+# PYTHON-БЛОК: _video_model_mapping
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _video_model_mapping(frontend_model: str):
     value = (frontend_model or "").strip()
     normalized = value.lower()
     return VIDEO_PROVIDER_MODEL_MAP.get(normalized) or VIDEO_PROVIDER_MODEL_MAP.get(normalized.replace("-", "_")) or {}
 
 
+# =====================================================
+# PYTHON-БЛОК: _provider_model_for_video
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _provider_model_for_video(frontend_model: str):
     return _video_model_mapping(frontend_model).get("provider_model")
 
 
+# =====================================================
+# PYTHON-БЛОК: _unknown_video_model_mapping_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _unknown_video_model_mapping_response(frontend_model: str, provider: str = ""):
     mapping = _video_model_mapping(frontend_model)
     return {
@@ -219,6 +263,11 @@ def _unknown_video_model_mapping_response(frontend_model: str, provider: str = "
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _unknown_seedance_video_model_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _unknown_seedance_video_model_response(frontend_model: str):
     return {
         "ok": False,
@@ -229,6 +278,10 @@ def _unknown_seedance_video_model_response(frontend_model: str):
     }
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _provider_processing
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def _provider_processing(provider: str, model_id: str, data: dict, endpoint: str):
     task_id = _task_id_from_response(data)
     poll_url = data.get("poll_url") or data.get("status_url") if isinstance(data, dict) else None
@@ -237,6 +290,11 @@ def _provider_processing(provider: str, model_id: str, data: dict, endpoint: str
     return _provider_success(provider, model_id, [], status="processing", task_id=task_id, poll_url=poll_url)
 
 
+# =====================================================
+# PYTHON-БЛОК: _size_for_video
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _size_for_video(ratio: str, resolution: str):
     res = str(resolution or "720p").lower()
     if ratio == "9:16":
@@ -246,6 +304,11 @@ def _size_for_video(ratio: str, resolution: str):
     return "1920x1080" if "1080" in res else "1280x720"
 
 
+# =====================================================
+# PYTHON-БЛОК: _dashscope_video_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _dashscope_video_endpoint():
     return os.getenv(
         "WAN_API_ENDPOINT",
@@ -253,11 +316,20 @@ def _dashscope_video_endpoint():
     )
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _dashscope_task_endpoint
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def _dashscope_task_endpoint(task_id: str):
     base = os.getenv("DASHSCOPE_API_BASE", "https://dashscope-intl.aliyuncs.com/api/v1").rstrip("/")
     return f"{base}/tasks/{task_id}"
 
 
+# =====================================================
+# PYTHON-БЛОК: _wan_resolution
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _wan_resolution(value: str):
     text = str(value or "720p").upper()
     if "1080" in text:
@@ -265,15 +337,30 @@ def _wan_resolution(value: str):
     return "720P"
 
 
+# =====================================================
+# PYTHON-БЛОК: _wan_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _wan_ratio(value: str):
     text = str(value or "16:9")
     return text if text in {"16:9", "9:16", "1:1", "4:3", "3:4"} else "16:9"
 
 
+# =====================================================
+# PYTHON-БЛОК: _wan_size
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _wan_size(ratio: str, resolution: str):
     return _size_for_video(ratio, resolution).replace("x", "*")
 
 
+# =====================================================
+# PYTHON-БЛОК: _wan_seed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _wan_seed(value):
     if value in (None, ""):
         return None
@@ -286,10 +373,20 @@ def _wan_seed(value):
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_base_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_base_url():
     return os.getenv("PIXVERSE_API_ENDPOINT", "https://app-api.pixverse.ai/openapi/v2").rstrip("/")
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_headers(api_key: str, content_type: str = "application/json"):
     headers = {
         "API-KEY": api_key,
@@ -300,6 +397,11 @@ def _pixverse_headers(api_key: str, content_type: str = "application/json"):
     return headers
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_duration
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_duration(value):
     try:
         duration = int(value or 5)
@@ -308,6 +410,11 @@ def _pixverse_duration(value):
     return 8 if duration >= 8 else 5
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_quality
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_quality(value):
     text = str(value or "720p").lower()
     if "1080" in text:
@@ -319,6 +426,11 @@ def _pixverse_quality(value):
     return "720p"
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_seed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_seed(value):
     if value in (None, ""):
         return None
@@ -331,10 +443,20 @@ def _pixverse_seed(value):
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_resp
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_resp(data):
     return data.get("Resp") if isinstance(data, dict) and isinstance(data.get("Resp"), dict) else {}
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_response_failed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_response_failed(data):
     if not isinstance(data, dict):
         return False
@@ -344,6 +466,10 @@ def _pixverse_response_failed(data):
     return True
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: _pixverse_error
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def _pixverse_error(provider_model: str, data: dict):
     message = ""
     if isinstance(data, dict):
@@ -351,12 +477,22 @@ def _pixverse_error(provider_model: str, data: dict):
     return _provider_parse_error("pixverse", provider_model, {"message": message or "PixVerse provider error", "provider_response": data})
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_video_id
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_video_id(data):
     resp = _pixverse_resp(data)
     value = resp.get("video_id") or resp.get("id") or data.get("video_id") if isinstance(data, dict) else None
     return str(value) if value not in (None, "") else ""
 
 
+# =====================================================
+# PYTHON-БЛОК: _pixverse_status
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _pixverse_status(data):
     if not isinstance(data, dict):
         return 0
@@ -373,6 +509,10 @@ def _pixverse_status(data):
         return 0
 
 
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _pixverse_upload_image
+# Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
+# =====================================================
 def _pixverse_upload_image(api_key: str, image_url: str, model_id: str):
     source = _public_input_url(image_url)
     if not source:
@@ -401,15 +541,30 @@ def _pixverse_upload_image(api_key: str, image_url: str, model_id: str):
         return None, _provider_error("pixverse", model_id, f"Provider image upload failed: {exc}")
 
 
+# =====================================================
+# PYTHON-БЛОК: _runway_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _runway_ratio(ratio: str, resolution: str):
     size = _size_for_video(ratio, resolution)
     return size.replace("x", ":")
 
 
+# =====================================================
+# PYTHON-БЛОК: _openai_sora_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _openai_sora_model(model_id: str):
     return "sora-2-pro" if "pro" in (model_id or "").lower() else "sora-2"
 
 
+# =====================================================
+# PYTHON-БЛОК: _openai_sora_seconds
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _openai_sora_seconds(duration):
     try:
         value = int(duration or 16)
@@ -418,6 +573,11 @@ def _openai_sora_seconds(duration):
     return "20" if value >= 20 else "16"
 
 
+# =====================================================
+# PYTHON-БЛОК: _veo_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _veo_model(model_id: str):
     if "fast" in (model_id or "").lower():
         return os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview")
@@ -426,6 +586,11 @@ def _veo_model(model_id: str):
     return os.getenv("VEO_MODEL", "veo-3.1-generate-preview")
 
 
+# =====================================================
+# PYTHON-БЛОК: _public_generated_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _public_generated_url(path: str):
     text = str(path or "").strip()
     if not text:
@@ -441,6 +606,11 @@ def _public_generated_url(path: str):
     return f"{base}{text}" if base else text
 
 
+# =====================================================
+# PYTHON-БЛОК: _guess_mime_from_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _guess_mime_from_url(url: str, default: str = "application/octet-stream"):
     path = urlparse(str(url or "")).path.lower()
     if path.endswith((".jpg", ".jpeg")):
@@ -456,6 +626,11 @@ def _guess_mime_from_url(url: str, default: str = "application/octet-stream"):
     return default
 
 
+# =====================================================
+# PYTHON-БЛОК: _load_media_content_part
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _load_media_content_part(url: str, media_type: str):
     raw = str(url or "").strip()
     if not raw:
@@ -495,6 +670,11 @@ def _load_media_content_part(url: str, media_type: str):
         return {}
 
 
+# =====================================================
+# PYTHON-БЛОК: _read_media_bytes
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _read_media_bytes(url: str, media_type: str):
     raw = str(url or "").strip()
     if not raw:
@@ -520,6 +700,10 @@ def _read_media_bytes(url: str, media_type: str):
         return b"", ""
 
 
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _gemini_upload_file_from_url
+# Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
+# =====================================================
 def _gemini_upload_file_from_url(url: str, api_key: str, media_type: str):
     content, mime_type = _read_media_bytes(url, media_type)
     if not content:
@@ -575,6 +759,10 @@ def _gemini_upload_file_from_url(url: str, api_key: str, media_type: str):
     return {}
 
 
+# =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: _save_gemini_video_bytes
+# Записывает состояние пользователя, job, metadata или результат генерации в общую базу Mini App и Telegram Bot.
+# =====================================================
 def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
     if not content:
         return ""
@@ -586,12 +774,21 @@ def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
     return _public_generated_url(f"/webapp/generated/videos/{filename}")
 
 
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _gemini_file_id_from_uri
+# Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
+# =====================================================
 def _gemini_file_id_from_uri(uri: str):
     text = str(uri or "")
     match = re.search(r"/files/([^/:?]+)", text)
     return match.group(1) if match else ""
 
 
+# =====================================================
+# PYTHON-БЛОК: _download_gemini_video_uri
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _download_gemini_video_uri(uri: str, api_key: str):
     file_id = _gemini_file_id_from_uri(uri)
     headers = {"x-goog-api-key": api_key}
@@ -622,9 +819,19 @@ def _download_gemini_video_uri(uri: str, api_key: str):
     return ""
 
 
+# =====================================================
+# PYTHON-БЛОК: _extract_gemini_videos
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _extract_gemini_videos(data: dict, api_key: str):
     videos = []
 
+    # =====================================================
+    # PYTHON-БЛОК: add_data
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def add_data(value, mime_type="video/mp4"):
         if isinstance(value, str) and value.strip():
             try:
@@ -637,11 +844,21 @@ def _extract_gemini_videos(data: dict, api_key: str):
                 if url:
                     videos.append(url)
 
+    # =====================================================
+    # PYTHON-БЛОК: add_uri
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def add_uri(value):
         if isinstance(value, str) and value.strip():
             local = _download_gemini_video_uri(value.strip(), api_key)
             videos.append(local or value.strip())
 
+    # =====================================================
+    # PYTHON-БЛОК: walk
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def walk(node):
         if isinstance(node, dict):
             mime_type = node.get("mime_type") or node.get("mimeType") or "video/mp4"
@@ -666,18 +883,38 @@ def _extract_gemini_videos(data: dict, api_key: str):
     return clean
 
 
+# =====================================================
+# PYTHON-БЛОК: _request_json
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _request_json(url: str, headers: dict, payload: dict):
     return requests.post(url, headers=headers, json=payload, timeout=120)
 
 
+# =====================================================
+# PYTHON-БЛОК: _request_get
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _request_get(url: str, headers: dict):
     return requests.get(url, headers=headers, timeout=60)
 
 
+# =====================================================
+# PYTHON-БЛОК: _request_form
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _request_form(url: str, headers: dict, data: dict, files=None):
     return requests.post(url, headers=headers, data=data, files=files, timeout=120)
 
 
+# =====================================================
+# PYTHON-БЛОК: _safe_response_text
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _safe_response_text(response):
     try:
         text = response.text
@@ -688,6 +925,11 @@ def _safe_response_text(response):
         return ""
 
 
+# =====================================================
+# PYTHON-БЛОК: _response_headers_dict
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _response_headers_dict(response):
     try:
         return dict(response.headers or {})
@@ -695,6 +937,11 @@ def _response_headers_dict(response):
         return {}
 
 
+# =====================================================
+# PYTHON-БЛОК: _log_provider_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _log_provider_response(provider: str, label: str, url: str, payload: dict, response, data=None):
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
     body_preview = _safe_response_text(response)[:4000]
@@ -708,6 +955,11 @@ def _log_provider_response(provider: str, label: str, url: str, payload: dict, r
     })
 
 
+# =====================================================
+# PYTHON-БЛОК: _sanitize_debug_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _sanitize_debug_payload(value, limit: int = 260):
     if isinstance(value, dict):
         return {key: _sanitize_debug_payload(item, limit) for key, item in value.items()}
@@ -721,6 +973,11 @@ def _sanitize_debug_payload(value, limit: int = 260):
     return value
 
 
+# =====================================================
+# PYTHON-БЛОК: _provider_for_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _provider_for_model(model_id: str):
     value = (model_id or "").strip().lower()
     mapping = _video_model_mapping(value)
@@ -757,6 +1014,11 @@ def _provider_for_model(model_id: str):
     return "sylvex-router"
 
 
+# =====================================================
+# PYTHON-БЛОК: _defaults_for_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _defaults_for_model(model_id: str):
     config = VIDEO_MODEL_CONFIG.get((model_id or "").strip(), {})
     return {
@@ -769,10 +1031,20 @@ def _defaults_for_model(model_id: str):
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _coerce_supported
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _coerce_supported(value, supported, fallback):
     return value if value in supported else fallback
 
 
+# =====================================================
+# PYTHON-БЛОК: _build_video_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
     defaults = _defaults_for_model(model_id)
@@ -981,6 +1253,11 @@ KLING_COST_MATRIX = {
 }
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_resolution_key
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_resolution_key(value):
     raw = str(value or "720p").strip().lower().replace(" ", "")
     if raw in {"4k", "2160p", "uhd"}:
@@ -990,6 +1267,11 @@ def _kling_resolution_key(value):
     return "720p"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_duration_key
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_duration_key(value):
     try:
         duration = int(value or 5)
@@ -1002,6 +1284,11 @@ def _kling_duration_key(value):
     return 15
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_has_video_input
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_has_video_input(body: dict):
     if not isinstance(body, dict):
         return False
@@ -1009,6 +1296,10 @@ def _kling_has_video_input(body: dict):
     return bool(body.get("video_input") or body.get("input_video") or body.get("video_url") or mode in {"video_edit", "video_extension"})
 
 
+# =====================================================
+# БАЛАНС И СТОИМОСТЬ: _kling_cost_variant
+# Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
+# =====================================================
 def _kling_cost_variant(model_id: str, body: dict):
     mode = str((body or {}).get("mode") or (body or {}).get("generation_mode") or "").lower()
     advanced = (body or {}).get("advanced") if isinstance((body or {}).get("advanced"), dict) else {}
@@ -1033,6 +1324,10 @@ def _kling_cost_variant(model_id: str, body: dict):
     return "standard"
 
 
+# =====================================================
+# БАЛАНС И СТОИМОСТЬ: _kling_cost_info
+# Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
+# =====================================================
 def _kling_cost_info(model_id: str, body: dict):
     matrix = KLING_COST_MATRIX.get(model_id) or {}
     variant = _kling_cost_variant(model_id, body)
@@ -1055,6 +1350,10 @@ def _kling_cost_info(model_id: str, body: dict):
     }
 
 
+# =====================================================
+# БАЛАНС И СТОИМОСТЬ: estimate_video_generation_cost
+# Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
+# =====================================================
 def estimate_video_generation_cost(payload: dict):
     model_id = (
         (payload.get("video_options") or {}).get("model")
@@ -1081,6 +1380,11 @@ def estimate_video_generation_cost(payload: dict):
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _byteplus_ark_base_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _byteplus_ark_base_url():
     return (
         os.getenv("BYTEPLUS_ARK_BASE_URL")
@@ -1088,10 +1392,20 @@ def _byteplus_ark_base_url():
     ).rstrip("/")
 
 
+# =====================================================
+# PYTHON-БЛОК: _byteplus_project
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _byteplus_project():
     return os.getenv("BYTEPLUS_PROJECT", "default")
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_headers(api_key: str):
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -1104,6 +1418,11 @@ def _seedance_headers(api_key: str):
     return headers
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_submit_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_submit_endpoint():
     return os.getenv("BYTEDANCE_VIDEO_ENDPOINT") or os.getenv(
         "BYTEPLUS_SEEDANCE_TASK_ENDPOINT",
@@ -1111,6 +1430,11 @@ def _seedance_submit_endpoint():
     )
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_status_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_status_endpoint(task_id: str):
     template = os.getenv("BYTEPLUS_SEEDANCE_STATUS_URL_TEMPLATE")
     if template:
@@ -1118,6 +1442,11 @@ def _seedance_status_endpoint(task_id: str):
     return f"{_byteplus_ark_base_url()}/contents/generations/tasks/{task_id}"
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_resolution_for_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_resolution_for_model(provider_model: str, resolution: str):
     value = str(resolution or "720p").strip().lower()
     if value not in {"480p", "720p", "1080p"}:
@@ -1130,6 +1459,11 @@ def _seedance_resolution_for_model(provider_model: str, resolution: str):
     return value
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_ratio(body: dict):
     ratio = str(body.get("ratio") or "16:9").replace("_", ":")
     if ratio in {"auto", "adaptive"}:
@@ -1139,6 +1473,11 @@ def _seedance_ratio(body: dict):
     return "16:9"
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_seed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_seed(body: dict):
     advanced = body.get("advanced") if isinstance(body.get("advanced"), dict) else {}
     value = body.get("seed")
@@ -1155,6 +1494,11 @@ def _seedance_seed(body: dict):
     return min(seed, 4294967295)
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_bool
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_bool(value, default=False):
     if value is None:
         return default
@@ -1163,12 +1507,22 @@ def _seedance_bool(value, default=False):
     return bool(value)
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_safety_identifier
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_safety_identifier(value):
     raw = str(value or "sylvex-prostudio")
     safe = re.sub(r"[^A-Za-z0-9_-]+", "-", raw).strip("-_")
     return (safe or "sylvex-prostudio")[:64]
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_reference_content
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_reference_content(content: list, media_type: str, urls: list):
     role_by_type = {
         "image_url": "reference_image",
@@ -1183,6 +1537,11 @@ def _seedance_reference_content(content: list, media_type: str, urls: list):
         })
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_body
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_body(frontend_model: str, prompt: str, payload: dict):
     provider_model = _map_seedance_video_model_to_provider_model(frontend_model)
     if not provider_model:
@@ -1229,6 +1588,11 @@ def _seedance_body(frontend_model: str, prompt: str, payload: dict):
     return seedance_payload
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_extract_video_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_extract_video_url(data: dict):
     result = data.get("data") if isinstance(data.get("data"), dict) else data
     if not isinstance(result, dict):
@@ -1245,6 +1609,10 @@ def _seedance_extract_video_url(data: dict):
     )
 
 
+# =====================================================
+# METADATA КАРТОЧКИ ГЕНЕРАЦИИ: _seedance_task_metadata
+# Собирает параметры генерации, ссылки, стоимость, модель и статусы для drawer, истории и Telegram-синхронизации.
+# =====================================================
 def _seedance_task_metadata(data: dict):
     result = data.get("data") if isinstance(data.get("data"), dict) else data
     if not isinstance(result, dict):
@@ -1264,6 +1632,11 @@ def _seedance_task_metadata(data: dict):
     return metadata
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_status
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_status(data: dict):
     result = data.get("data") if isinstance(data.get("data"), dict) else data
     if not isinstance(result, dict):
@@ -1271,6 +1644,11 @@ def _seedance_status(data: dict):
     return str(result.get("status") or result.get("state") or "").lower()
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _seedance_poll_task
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _seedance_poll_task(task_id: str, headers: dict):
     endpoint = _seedance_status_endpoint(task_id)
     response = _request_get(endpoint, headers)
@@ -1294,6 +1672,11 @@ def _seedance_poll_task(task_id: str, headers: dict):
     )
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _seedance_poll_until_ready
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _seedance_poll_until_ready(task_id: str, headers: dict, max_attempts: int = None, interval_seconds: int = None):
     try:
         attempts = int(max_attempts or os.getenv("BYTEPLUS_SEEDANCE_POLL_ATTEMPTS") or 60)
@@ -1340,6 +1723,11 @@ def _seedance_poll_until_ready(task_id: str, headers: dict, max_attempts: int = 
     )
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _poll_attempt_settings
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _poll_attempt_settings(prefix: str, default_attempts: int = 60, default_interval: int = 5):
     try:
         attempts = int(os.getenv(f"{prefix}_POLL_ATTEMPTS") or default_attempts)
@@ -1352,6 +1740,11 @@ def _poll_attempt_settings(prefix: str, default_attempts: int = 60, default_inte
     return max(1, min(attempts, 60)), max(1, interval)
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _kling_poll_attempt_settings
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _kling_poll_attempt_settings(default_attempts: int = 60, default_interval: int = 5):
     attempts, interval = _poll_attempt_settings("KLING", default_attempts, default_interval)
     # Kling Motion Control can stay in "submitted" for more than 50 seconds.
@@ -1360,19 +1753,39 @@ def _kling_poll_attempt_settings(default_attempts: int = 60, default_interval: i
     return max(attempts, default_attempts), interval
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_base_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_base_url():
     return os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com").rstrip("/")
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_submit_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_submit_endpoint(provider_model: str, body: dict):
     kind = "image-to-video" if body.get("start_image") else "text-to-video"
     return f"{_kling_base_url()}/{kind}/{_kling_motion_provider_model(provider_model)}"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_omni_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_omni_endpoint(provider_model: str):
     return f"{_kling_base_url()}/omni-video/{_kling_motion_provider_model(provider_model)}"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_motion_provider_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_motion_provider_model(provider_model: str):
     model = str(provider_model or "").strip()
     if model.endswith("-motion"):
@@ -1380,10 +1793,20 @@ def _kling_motion_provider_model(provider_model: str):
     return model or "kling-3.0"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_motion_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_motion_endpoint(provider_model: str):
     return f"{_kling_base_url()}/motion-control/{_kling_motion_provider_model(provider_model)}"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_resolution
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_resolution(value: str, supported=None):
     resolution = str(value or "720p").strip().lower()
     if resolution == "4K".lower():
@@ -1392,6 +1815,11 @@ def _kling_resolution(value: str, supported=None):
     return resolution if resolution in supported_values else supported_values[0]
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_duration
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_duration(value, supported=None):
     supported_values = supported or {5, 10, 15}
     try:
@@ -1401,11 +1829,21 @@ def _kling_duration(value, supported=None):
     return duration if duration in supported_values else sorted(supported_values)[0]
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_aspect_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_aspect_ratio(value):
     ratio = str(value or "16:9").strip()
     return ratio if ratio in {"16:9", "9:16", "1:1"} else "16:9"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_options
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_options(payload: dict):
     options = {"watermark_info": {"enabled": False}}
     if payload.get("job_id"):
@@ -1413,15 +1851,30 @@ def _kling_options(payload: dict):
     return options
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_model_family
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_model_family(provider_model: str):
     return _kling_motion_provider_model(provider_model).lower()
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_supports_last_frame
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_supports_last_frame(provider_model: str):
     model = _kling_model_family(provider_model)
     return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6"}
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_text_settings
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_text_settings(provider_model: str, body: dict):
     model = _kling_model_family(provider_model)
     supported_resolutions = {"720p", "1080p"}
@@ -1443,6 +1896,11 @@ def _kling_text_settings(provider_model: str, body: dict):
     return settings
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_image_settings
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_image_settings(provider_model: str, body: dict, has_last_frame=False):
     model = _kling_model_family(provider_model)
     supported_resolutions = {"720p", "1080p"}
@@ -1467,6 +1925,11 @@ def _kling_image_settings(provider_model: str, body: dict, has_last_frame=False)
     return settings
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_motion_settings
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_motion_settings(provider_model: str, body: dict, raw_options: dict):
     model = _kling_model_family(provider_model)
     supported_resolutions = {"720p", "1080p"}
@@ -1483,6 +1946,11 @@ def _kling_motion_settings(provider_model: str, body: dict, raw_options: dict):
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_omni_settings
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_video=False):
     model = _kling_model_family(provider_model)
     supported_resolutions = {"720p", "1080p"}
@@ -1504,6 +1972,10 @@ def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_
     return settings
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _kling_task_endpoint
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def _kling_task_endpoint(task_id: str):
     return f"{_kling_base_url()}/tasks?task_ids={task_id}"
 
@@ -1518,20 +1990,39 @@ KLING_LEGACY_MODEL_NAMES = {
 }
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_is_legacy_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_is_legacy_model(model_id: str):
     return str(model_id or "").strip() in KLING_LEGACY_MODEL_NAMES
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_legacy_submit_endpoint
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_legacy_submit_endpoint(kind: str):
     path = "image2video" if kind == "image" else "text2video"
     return f"{_kling_base_url()}/v1/videos/{path}"
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _kling_legacy_task_endpoint
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def _kling_legacy_task_endpoint(task_id: str, kind: str):
     path = "image2video" if kind == "image" else "text2video"
     return f"{_kling_base_url()}/v1/videos/{path}/{task_id}"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_legacy_mode
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_legacy_mode(resolution: str):
     value = _kling_resolution_key(resolution)
     if value == "4k":
@@ -1541,6 +2032,11 @@ def _kling_legacy_mode(resolution: str):
     return "std"
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_extract_video_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_extract_video_url(data: dict):
     tasks = data.get("data") if isinstance(data.get("data"), list) else []
     task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
@@ -1559,6 +2055,11 @@ def _kling_extract_video_url(data: dict):
     return task.get("video_url") or task.get("url") or (task.get("assets") or {}).get("video")
 
 
+# =====================================================
+# PYTHON-БЛОК: _kling_status
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _kling_status(data: dict):
     tasks = data.get("data") if isinstance(data.get("data"), list) else []
     task = tasks[0] if tasks else (data.get("data") if isinstance(data.get("data"), dict) else data)
@@ -1567,6 +2068,11 @@ def _kling_status(data: dict):
     return str(task.get("status") or task.get("state") or task.get("task_status") or "").lower()
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _kling_poll_until_ready
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _kling_poll_until_ready(task_id: str, headers: dict):
     attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
@@ -1597,6 +2103,11 @@ def _kling_poll_until_ready(task_id: str, headers: dict):
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_task_endpoint(task_id))
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _kling_legacy_poll_until_ready
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
     attempts, interval = _kling_poll_attempt_settings(60, 5)
     last_result = None
@@ -1627,15 +2138,29 @@ def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_legacy_task_endpoint(task_id, kind))
 
 
+# =====================================================
+# PYTHON-БЛОК: _luma_base_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _luma_base_url():
     endpoint = os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))
     return endpoint.rsplit("/generations", 1)[0].rstrip("/")
 
 
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _luma_task_endpoint
+# Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
+# =====================================================
 def _luma_task_endpoint(task_id: str):
     return f"{_luma_base_url()}/generations/{task_id}"
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _luma_poll_until_ready
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _luma_poll_until_ready(task_id: str, headers: dict):
     attempts, interval = _poll_attempt_settings("LUMA", 60, 5)
     last_result = None
@@ -1666,6 +2191,10 @@ def _luma_poll_until_ready(task_id: str, headers: dict):
     return last_result or _provider_success("luma", task_id, [], status="processing", task_id=task_id, poll_url=_luma_task_endpoint(task_id))
 
 
+# =====================================================
+# СИНХРОНИЗАЦИЯ С TELEGRAM: _send_generated_videos_to_telegram
+# Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
+# =====================================================
 async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str], caption: str = ""):
     bot_token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
@@ -1712,6 +2241,10 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
     return sent_any
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: _provider_error
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def _provider_error(provider: str, model_id: str, detail: str):
     user_message = translate_provider_error(detail, provider=provider, model=model_id)
     return {
@@ -1725,6 +2258,11 @@ def _provider_error(provider: str, model_id: str, detail: str):
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: safe_provider_json_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def safe_provider_json_response(response, provider: str, endpoint: str):
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
 
@@ -1766,6 +2304,11 @@ async def safe_provider_json_response(response, provider: str, endpoint: str):
         }
 
 
+# =====================================================
+# PYTHON-БЛОК: _safe_provider_json_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _safe_provider_json_response(response, provider: str, endpoint: str):
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
 
@@ -1804,6 +2347,10 @@ def _safe_provider_json_response(response, provider: str, endpoint: str):
         }
 
 
+# =====================================================
+# ОБРАБОТКА ОШИБОК: _provider_parse_error
+# Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
+# =====================================================
 def _provider_parse_error(provider: str, model_id: str, data: dict):
     provider_message = ""
     if isinstance(data, dict):
@@ -1844,6 +2391,11 @@ def _provider_parse_error(provider: str, model_id: str, data: dict):
     return result
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: poll_video_generation
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 async def poll_video_generation(result: dict) -> dict:
     if not isinstance(result, dict):
         return _provider_error("video", "", "Generation status is unavailable")
@@ -1949,6 +2501,11 @@ async def poll_video_generation(result: dict) -> dict:
     return _provider_success(provider or "video", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
 
 
+# =====================================================
+# PYTHON-БЛОК: _provider_success
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _provider_success(provider: str, model_id: str, video_urls: list[str], status: str = "completed", task_id: str = None, poll_url: str = None):
     result = {
         "ok": True,
@@ -1966,6 +2523,11 @@ def _provider_success(provider: str, model_id: str, video_urls: list[str], statu
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: _seedance_provider_success
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _seedance_provider_success(model_id: str, video_urls: list[str], data: dict, status: str = "completed", task_id: str = None, poll_url: str = None):
     result = _provider_success("bytedance", model_id, video_urls, status=status, task_id=task_id, poll_url=poll_url)
     result["metadata"] = _seedance_task_metadata(data)
@@ -1984,6 +2546,11 @@ def _seedance_provider_success(model_id: str, video_urls: list[str], data: dict,
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: _provider_result_from_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _provider_result_from_response(provider: str, model_id: str, response, endpoint: str):
     data = _safe_provider_json_response(response, provider, endpoint)
     status = getattr(response, "status_code", None) or getattr(response, "status", None) or 0
@@ -1997,6 +2564,11 @@ def _provider_result_from_response(provider: str, model_id: str, response, endpo
     return _provider_error(provider, model_id, "Provider returned no video URL or task id")
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_headers(api_key: str):
     return {
         "X-Api-Key": api_key,
@@ -2004,10 +2576,20 @@ def _heygen_headers(api_key: str):
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_base_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_base_url():
     return os.getenv("HEYGEN_BASE_URL", "https://api.heygen.com").rstrip("/")
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_video_url_from_data
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_video_url_from_data(data: dict):
     if not isinstance(data, dict):
         return ""
@@ -2021,6 +2603,11 @@ def _heygen_video_url_from_data(data: dict):
     )
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_video_status
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_video_status(data: dict):
     if not isinstance(data, dict):
         return ""
@@ -2028,6 +2615,11 @@ def _heygen_video_status(data: dict):
     return str(item.get("status") or item.get("state") or "").lower()
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_video_id_from_session
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_video_id_from_session(data: dict):
     if not isinstance(data, dict):
         return ""
@@ -2035,6 +2627,11 @@ def _heygen_video_id_from_session(data: dict):
     return str(item.get("video_id") or item.get("videoId") or "").strip()
 
 
+# =====================================================
+# PYTHON-БЛОК: _public_input_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _public_input_url(value: str):
     text = str(value or "").strip()
     if not text:
@@ -2052,6 +2649,11 @@ def _public_input_url(value: str):
     return text
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_asset_input
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_asset_input(value):
     if isinstance(value, dict):
         if value.get("type") in {"url", "asset_id", "base64"}:
@@ -2080,6 +2682,10 @@ def _heygen_asset_input(value):
     return {}
 
 
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _heygen_files_from_payload
+# Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
+# =====================================================
 def _heygen_files_from_payload(body: dict, payload: dict):
     raw_options = payload.get("video_options") or payload.get("options") or {}
     candidates = []
@@ -2113,6 +2719,11 @@ def _heygen_files_from_payload(body: dict, payload: dict):
     return files
 
 
+# =====================================================
+# POLLING-ПРОЦЕСС: _heygen_poll_until_ready
+# Проверяет статус внешней задачи у AI-провайдера.
+# При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
+# =====================================================
 def _heygen_poll_until_ready(session_id: str = "", video_id: str = "", headers: dict = None):
     headers = headers or {}
     base = _heygen_base_url()
@@ -2151,6 +2762,10 @@ def _heygen_poll_until_ready(session_id: str = "", video_id: str = "", headers: 
     return last_result or _provider_success("heygen", session_id or current_video_id, [], status="processing", task_id=session_id or current_video_id)
 
 
+# =====================================================
+# СИНХРОНИЗАЦИЯ С TELEGRAM: _telegram_caption
+# Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
+# =====================================================
 def _telegram_caption(model_id: str, provider: str, payload: dict):
     opts = _build_video_payload(model_id, payload.get("prompt") or "", payload)
     model_labels = {
@@ -2174,6 +2789,10 @@ def _telegram_caption(model_id: str, provider: str, payload: dict):
     )
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_seedance
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_seedance(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "BYTEPLUS_ARK_API_KEY", "ARK_API_KEY")
     if not api_key:
@@ -2231,6 +2850,10 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
         return _provider_error("bytedance", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_heygen
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_heygen(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("HEYGEN_API_KEY")
     if not api_key:
@@ -2324,6 +2947,11 @@ def _call_heygen(model_id: str, prompt: str, payload: dict):
         )
 
 
+# =====================================================
+# PYTHON-БЛОК: _heygen_direct_common_fields
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _heygen_direct_common_fields(request_body: dict, body: dict, raw_options: dict, payload: dict):
     ratio = body.get("ratio") or raw_options.get("aspect_ratio") or "auto"
     if ratio not in {"auto", "16:9", "9:16", "4:5", "5:4", "1:1"}:
@@ -2345,6 +2973,10 @@ def _heygen_direct_common_fields(request_body: dict, body: dict, raw_options: di
     return request_body
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_heygen_direct_video
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("HEYGEN_API_KEY")
     if not api_key:
@@ -2442,6 +3074,10 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
         return _provider_error("heygen", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_luma
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_luma(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("LUMA_AGENTS_API_KEY", "LUMA_API_KEY")
     if not api_key:
@@ -2514,6 +3150,10 @@ def _call_luma(model_id: str, prompt: str, payload: dict):
         return _provider_error("luma", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_kling
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_kling(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("KLING_API_KEY", "KLING_ACCESS_KEY")
     if not api_key:
@@ -2542,6 +3182,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     body = _build_video_payload(model_id, prompt, payload)
     raw_options = payload.get("video_options") or payload.get("options") or {}
 
+    # =====================================================
+    # PYTHON-БЛОК: _first_url
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _first_url(value):
         if isinstance(value, list):
             for item in value:
@@ -2556,9 +3201,19 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return value.strip()
         return ""
 
+    # =====================================================
+    # PYTHON-БЛОК: _is_data_image
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _is_data_image(value):
         return isinstance(value, str) and value.strip().lower().startswith("data:image/")
 
+    # =====================================================
+    # PYTHON-БЛОК: _strip_data_url
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _strip_data_url(value):
         if not isinstance(value, str):
             return ""
@@ -2567,6 +3222,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return text.split(";base64,", 1)[1].strip()
         return text
 
+    # =====================================================
+    # PYTHON-БЛОК: _absolute_public_url
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _absolute_public_url(value):
         if not isinstance(value, str):
             return ""
@@ -2588,12 +3248,22 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return f"{base}{text}" if base else text
         return text
 
+    # =====================================================
+    # PYTHON-БЛОК: _short_debug_value
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _short_debug_value(value, limit=220):
         text = str(value or "")
         if text.startswith("data:image/"):
             return text[:80] + f"... [data image {len(text)} chars]"
         return text if len(text) <= limit else text[:limit] + f"... [{len(text)} chars]"
 
+    # =====================================================
+    # PYTHON-БЛОК: _guess_image_ext
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _guess_image_ext(content, mime_hint=""):
         hint = str(mime_hint or "").lower()
         if "jpeg" in hint or "jpg" in hint:
@@ -2612,6 +3282,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return "gif"
         return "png"
 
+    # =====================================================
+    # PYTHON-БЛОК: _materialize_data_image_to_public_url
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _materialize_data_image_to_public_url(value):
         if not _is_data_image(value):
             return _absolute_public_url(value)
@@ -2642,6 +3317,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         })
         return _absolute_public_url(public_path)
 
+    # =====================================================
+    # PYTHON-БЛОК: _normalize_kling_image_input
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _normalize_kling_image_input(value):
         if not isinstance(value, str):
             return ""
@@ -2650,6 +3330,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return ""
         return value
 
+    # =====================================================
+    # PYTHON-БЛОК: _kling_image_content_value
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _kling_image_content_value(value):
         if not isinstance(value, str):
             return ""
@@ -2843,16 +3528,31 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         cost_body["native_audio"] = kling_body.get("sound") == "on"
     cost_info = _kling_cost_info(model_id, cost_body)
 
+    # =====================================================
+    # PYTHON-БЛОК: _kling_prompt_too_long
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _kling_prompt_too_long(data):
         text = raw_error_text(data, "").lower()
         return bool(re.search(r"prompt.*size.*between|prompt too long|maximum length exceeded|context length exceeded|input too large", text))
 
+    # =====================================================
+    # PYTHON-БЛОК: _replace_kling_prompt
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _replace_kling_prompt(body_payload, next_prompt):
         body_payload["prompt"] = next_prompt
         for item in body_payload.get("contents") or []:
             if isinstance(item, dict) and item.get("type") in {"text", "prompt"}:
                 item["text"] = next_prompt
 
+    # =====================================================
+    # PYTHON-БЛОК: _kling_zero_billing_failure
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _kling_zero_billing_failure(result_payload):
         response_payload = result_payload.get("provider_response") if isinstance(result_payload, dict) else {}
         data_items = response_payload.get("data") if isinstance(response_payload, dict) else []
@@ -2870,6 +3570,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                 return False
         return True
 
+    # =====================================================
+    # ЗАГРУЗКА ФАЙЛОВ: _kling_should_retry_file_content_error
+    # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
+    # =====================================================
     def _kling_should_retry_file_content_error(result_payload):
         if not isinstance(result_payload, dict) or result_payload.get("ok"):
             return False
@@ -2878,6 +3582,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return False
         return _kling_zero_billing_failure(result_payload)
 
+    # =====================================================
+    # PYTHON-БЛОК: _kling_prepare_retry_payload
+    # Выполняет отдельный шаг backend-логики SYLVEX.
+    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+    # =====================================================
     def _kling_prepare_retry_payload(body_payload, suffix):
         retry_payload = copy.deepcopy(body_payload)
         options_payload = retry_payload.setdefault("options", {})
@@ -2972,6 +3681,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         return _provider_error("kling", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_runway
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_runway(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("RUNWAY_API_KEY")
     if not api_key:
@@ -3006,6 +3719,10 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         return _provider_error("runway", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_minimax
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_minimax(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("MINIMAX_API_KEY")
     if not api_key:
@@ -3035,6 +3752,10 @@ def _call_minimax(model_id: str, prompt: str, payload: dict):
         return _provider_error("minimax", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_pixverse
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_pixverse(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("PIXVERSE_API_KEY")
     if not api_key:
@@ -3124,6 +3845,10 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
         return _provider_error("pixverse", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_sora
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_sora(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("OPENAI_API_KEY")
     if not api_key:
@@ -3150,6 +3875,10 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
         return _provider_error("sora", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_veo
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_veo(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("GOOGLE_API_KEY")
     if not api_key:
@@ -3184,6 +3913,10 @@ def _call_veo(model_id: str, prompt: str, payload: dict):
         return _provider_error("veo", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_gemini_video
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_gemini_video(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY")
     if not api_key:
@@ -3269,6 +4002,10 @@ def _call_gemini_video(model_id: str, prompt: str, payload: dict):
         return _provider_error("gemini", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_wan
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_wan(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY", "ALIBABA_API_KEY")
     if not api_key:
@@ -3415,6 +4152,10 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
         return _provider_error("wan", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_grok
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_grok(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("XAI_API_KEY")
     if not api_key:
@@ -3436,6 +4177,10 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
         return _provider_error("grok", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _call_hedra
+# Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
+# =====================================================
 def _call_hedra(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("HEDRA_API_KEY")
     if not api_key:
@@ -3454,6 +4199,11 @@ def _call_hedra(model_id: str, prompt: str, payload: dict):
         return _provider_error("hedra", model_id, f"Provider request failed: {exc}")
 
 
+# =====================================================
+# PYTHON-БЛОК: video_generation
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def video_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     model_id = (payload.get("model") or "seedance_2_fast").strip()
