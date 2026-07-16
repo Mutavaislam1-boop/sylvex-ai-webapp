@@ -14,6 +14,9 @@ from urllib.parse import urlparse
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+WEBAPP_DIR = ROOT_DIR / "webapp"
+GENERATED_VIDEOS_DIR = WEBAPP_DIR / "generated" / "videos"
 
 VIDEO_MODEL_CONFIG = {
     "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
@@ -30,7 +33,7 @@ VIDEO_MODEL_CONFIG = {
     "sora_2_pro": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "veo_3_1": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "veo_3_1_fast": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "gemini_omni_flash": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "gemini_omni_flash": {"provider": "gemini", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
     "wan_2_7": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "wan_2_7_edit": {"provider": "wan", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
     "wan_2_6": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -92,7 +95,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/aigc/video/generation")},
     "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
-    "gemini_omni_flash": {"provider": "veo", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
+    "gemini_omni_flash": {"provider": "gemini", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "gemini-omni-flash-preview"), "endpoint": os.getenv("GEMINI_INTERACTIONS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")},
     "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
     "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
@@ -256,6 +259,166 @@ def _veo_model(model_id: str):
     if "gemini" in (model_id or "").lower():
         return os.getenv("GEMINI_VIDEO_MODEL", "veo-3.1-generate-preview")
     return os.getenv("VEO_MODEL", "veo-3.1-generate-preview")
+
+
+def _public_generated_url(path: str):
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    if re.match(r"^https?://", text, re.I):
+        return text
+    base = (
+        os.getenv("WEBAPP_URL")
+        or os.getenv("PUBLIC_WEBAPP_URL")
+        or os.getenv("PUBLIC_BASE_URL")
+        or ""
+    ).rstrip("/")
+    return f"{base}{text}" if base else text
+
+
+def _guess_mime_from_url(url: str, default: str = "application/octet-stream"):
+    path = urlparse(str(url or "")).path.lower()
+    if path.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if path.endswith(".png"):
+        return "image/png"
+    if path.endswith(".webp"):
+        return "image/webp"
+    if path.endswith(".mp4"):
+        return "video/mp4"
+    if path.endswith(".mov"):
+        return "video/quicktime"
+    return default
+
+
+def _load_media_content_part(url: str, media_type: str):
+    raw = str(url or "").strip()
+    if not raw:
+        return {}
+    default_mime = "video/mp4" if media_type == "video" else "image/jpeg"
+    try:
+        if raw.startswith("data:") and ";base64," in raw:
+            header, data = raw.split(";base64,", 1)
+            mime_type = header.replace("data:", "").split(";", 1)[0] or default_mime
+            return {"type": media_type, "mime_type": mime_type, "data": data.strip()}
+        if raw.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            content = local_path.read_bytes()
+            return {
+                "type": media_type,
+                "mime_type": _guess_mime_from_url(raw, default_mime),
+                "data": base64.b64encode(content).decode("utf-8"),
+            }
+        if raw.startswith("/generated/"):
+            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            content = local_path.read_bytes()
+            return {
+                "type": media_type,
+                "mime_type": _guess_mime_from_url(raw, default_mime),
+                "data": base64.b64encode(content).decode("utf-8"),
+            }
+        response = requests.get(raw, timeout=60)
+        response.raise_for_status()
+        mime_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip() or _guess_mime_from_url(raw, default_mime)
+        return {
+            "type": media_type,
+            "mime_type": mime_type,
+            "data": base64.b64encode(response.content).decode("utf-8"),
+        }
+    except Exception as exc:
+        print("GEMINI MEDIA LOAD FAILED:", {"type": media_type, "url": raw[:180], "error": type(exc).__name__})
+        return {}
+
+
+def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
+    if not content:
+        return ""
+    GENERATED_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+    ext = "mp4" if suffix not in {"mp4", "mov", "webm"} else suffix
+    filename = f"{uuid4().hex}.{ext}"
+    path = GENERATED_VIDEOS_DIR / filename
+    path.write_bytes(content)
+    return _public_generated_url(f"/webapp/generated/videos/{filename}")
+
+
+def _gemini_file_id_from_uri(uri: str):
+    text = str(uri or "")
+    match = re.search(r"/files/([^/:?]+)", text)
+    return match.group(1) if match else ""
+
+
+def _download_gemini_video_uri(uri: str, api_key: str):
+    file_id = _gemini_file_id_from_uri(uri)
+    headers = {"x-goog-api-key": api_key}
+    if file_id:
+        status_url = f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}"
+        for _ in range(24):
+            try:
+                status_response = requests.get(status_url, headers=headers, timeout=30)
+                info = _safe_provider_json_response(status_response, "gemini", status_url)
+                raw_state = info.get("state")
+                state = str(raw_state.get("name") if isinstance(raw_state, dict) else raw_state or "").upper()
+                if state == "FAILED":
+                    return ""
+                if not state or state == "ACTIVE":
+                    break
+            except Exception:
+                break
+            time.sleep(5)
+    download_url = uri
+    if file_id:
+        download_url = f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}:download?alt=media"
+    try:
+        response = requests.get(download_url, headers=headers, timeout=180)
+        if response.status_code < 400 and response.content:
+            return _save_gemini_video_bytes(response.content, "mp4")
+    except Exception as exc:
+        print("GEMINI VIDEO URI DOWNLOAD FAILED:", {"uri": uri[:180], "error": type(exc).__name__})
+    return ""
+
+
+def _extract_gemini_videos(data: dict, api_key: str):
+    videos = []
+
+    def add_data(value, mime_type="video/mp4"):
+        if isinstance(value, str) and value.strip():
+            try:
+                content = base64.b64decode(value.strip(), validate=True)
+            except (binascii.Error, ValueError):
+                content = b""
+            if content:
+                suffix = "mov" if "quicktime" in str(mime_type).lower() else "mp4"
+                url = _save_gemini_video_bytes(content, suffix)
+                if url:
+                    videos.append(url)
+
+    def add_uri(value):
+        if isinstance(value, str) and value.strip():
+            local = _download_gemini_video_uri(value.strip(), api_key)
+            videos.append(local or value.strip())
+
+    def walk(node):
+        if isinstance(node, dict):
+            mime_type = node.get("mime_type") or node.get("mimeType") or "video/mp4"
+            if node.get("type") == "video":
+                add_data(node.get("data"), mime_type)
+                add_uri(node.get("uri") or node.get("url"))
+            output_video = node.get("output_video")
+            if isinstance(output_video, dict):
+                walk(output_video)
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    clean = []
+    for url in videos:
+        if url and url not in clean:
+            clean.append(url)
+    return clean
 
 
 def _request_json(url: str, headers: dict, payload: dict):
@@ -1459,6 +1622,26 @@ async def poll_video_generation(result: dict) -> dict:
         if not api_key:
             return _provider_error("luma", model_id, "Provider API key is missing: LUMA_API_KEY")
         return _luma_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    if provider == "gemini":
+        api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY")
+        if not api_key:
+            return _provider_error("gemini", model_id, "Provider API key is missing: GEMINI_API_KEY")
+        endpoint = (result.get("poll_url") or f"https://generativelanguage.googleapis.com/v1beta/interactions/{task_id}").rstrip("/")
+        try:
+            response = _request_get(endpoint, {"x-goog-api-key": api_key})
+            data = _safe_provider_json_response(response, "gemini", endpoint)
+            _log_provider_response("gemini", "POLL", endpoint, {}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("gemini", model_id, data)
+            videos = _extract_gemini_videos(data, api_key)
+            if videos:
+                return _provider_success("gemini", model_id, videos, status="completed", task_id=str(task_id))
+            state = str(data.get("status") or "").lower()
+            if state in {"failed", "cancelled", "canceled"}:
+                return _provider_parse_error("gemini", model_id, data)
+            return _provider_success("gemini", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+        except Exception as exc:
+            return _provider_error("gemini", model_id, f"Provider polling failed: {exc}")
     return _provider_success(provider or "video", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
 
 
@@ -2321,6 +2504,91 @@ def _call_veo(model_id: str, prompt: str, payload: dict):
         return _provider_error("veo", model_id, f"Provider request failed: {exc}")
 
 
+def _call_gemini_video(model_id: str, prompt: str, payload: dict):
+    api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    if not api_key:
+        return _provider_error("gemini", model_id, "Provider API key is missing: GEMINI_API_KEY")
+    provider_model = _provider_model_for_video(model_id) or "gemini-omni-flash-preview"
+    endpoint = (_video_model_mapping(model_id).get("endpoint") or os.getenv("GEMINI_INTERACTIONS_ENDPOINT") or "https://generativelanguage.googleapis.com/v1beta/interactions").rstrip("/")
+    body = _build_video_payload(model_id, prompt, payload)
+    mode = str(body.get("mode") or "text_to_video").strip().lower()
+    input_items = []
+    task = "text_to_video"
+
+    if mode in {"image_to_video", "reference_to_video"} or body.get("start_image") or body.get("reference_images"):
+        for image_url in ([body.get("start_image")] if body.get("start_image") else []) + list(body.get("reference_images") or []):
+            part = _load_media_content_part(image_url, "image")
+            if part:
+                input_items.append(part)
+        task = "reference_to_video" if len(input_items) > 1 else "image_to_video"
+
+    if mode in {"video_edit", "edit"} or body.get("input_video") or body.get("video_url") or body.get("reference_video"):
+        video_url = body.get("input_video") or body.get("video_url") or body.get("reference_video")
+        part = _load_media_content_part(video_url, "video")
+        if not part:
+            return _provider_error("gemini", model_id, "Для Gemini Video Edit нужно загрузить видео")
+        input_items = [part]
+        task = "edit"
+
+    if input_items:
+        input_items.append({"type": "text", "text": prompt})
+        interaction_input = input_items
+    else:
+        interaction_input = prompt
+
+    response_format = {
+        "type": "video",
+        "delivery": "uri",
+        "aspect_ratio": body.get("ratio") if body.get("ratio") in {"16:9", "9:16"} else "16:9",
+    }
+    request_payload = {
+        "model": provider_model,
+        "input": interaction_input,
+        "background": False,
+        "store": False,
+        "response_format": response_format,
+        "generation_config": {
+            "video_config": {
+                "task": task,
+            }
+        },
+    }
+    try:
+        print("GEMINI VIDEO REQUEST:", {
+            "endpoint": endpoint,
+            "model": provider_model,
+            "task": task,
+            "aspect_ratio": response_format.get("aspect_ratio"),
+            "has_media": bool(input_items),
+        })
+        response = _request_json(
+            endpoint,
+            {"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            request_payload,
+        )
+        data = _safe_provider_json_response(response, "gemini", endpoint)
+        _log_provider_response("gemini", "SUBMIT", endpoint, request_payload, response, data)
+        status = getattr(response, "status_code", None) or 0
+        if status >= 400 or data.get("ok") is False:
+            return _provider_parse_error("gemini", model_id, data)
+        videos = _extract_gemini_videos(data, api_key)
+        if videos:
+            result = _provider_success("gemini", model_id, videos, status="completed", task_id=data.get("id"))
+            result["provider_model"] = provider_model
+            result["metadata"] = {
+                "interaction_id": data.get("id") or "",
+                "gemini_status": data.get("status") or "",
+                "task": task,
+                "response_format": response_format,
+            }
+            return result
+        if data.get("id") and str(data.get("status") or "").lower() not in {"completed", "failed"}:
+            return _provider_success("gemini", model_id, [], status="processing", task_id=data.get("id"), poll_url=f"{endpoint}/{data.get('id')}")
+        return _provider_error("gemini", model_id, "Provider returned no video URL")
+    except Exception as exc:
+        return _provider_error("gemini", model_id, f"Provider request failed: {exc}")
+
+
 def _call_wan(model_id: str, prompt: str, payload: dict):
     api_key = _get_env("ALIBABA_API_KEY", "QWEN_API_KEY")
     if not api_key:
@@ -2451,7 +2719,9 @@ async def video_generation(payload: dict) -> dict:
         result = _call_minimax(model_id, prompt, payload)
     elif provider == "pixverse" or re.search(r"pixverse", model_id, re.I):
         result = _call_pixverse(model_id, prompt, payload)
-    elif provider == "veo" or re.search(r"veo|gemini", model_id, re.I):
+    elif provider == "gemini" or re.search(r"gemini", model_id, re.I):
+        result = _call_gemini_video(model_id, prompt, payload)
+    elif provider == "veo" or re.search(r"veo", model_id, re.I):
         result = _call_veo(model_id, prompt, payload)
     elif provider == "wan" or re.search(r"wan", model_id, re.I):
         result = _call_wan(model_id, prompt, payload)
