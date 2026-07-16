@@ -16,9 +16,9 @@ from services.prompt_optimizer import optimize_prompt_for_model
 
 
 VIDEO_MODEL_CONFIG = {
-    "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
-    "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
-    "seedance_1_5_pro": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
+    "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
+    "seedance_1_5_pro": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
     "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
@@ -412,6 +412,7 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "motion_preset": opts.get("motion_preset") or "",
         "video_template": opts.get("video_template") or {},
         "character_image": opts.get("character_image") or "",
+        "seed": opts.get("seed") if opts.get("seed") not in (None, "") else payload.get("seed"),
         "native_audio": bool(opts.get("native_audio")),
         "motion_control": bool(opts.get("motion_control")),
         "video_input": bool(opts.get("video_input")),
@@ -711,23 +712,39 @@ def _seedance_status_endpoint(task_id: str):
 
 def _seedance_resolution_for_model(provider_model: str, resolution: str):
     value = str(resolution or "720p").strip().lower()
-    if value not in {"480p", "720p", "1080p", "4k"}:
+    if value not in {"480p", "720p", "1080p"}:
         value = "720p"
     if provider_model in {
         BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"),
         os.getenv("BYTEPLUS_SEEDANCE_2_MINI_MODEL", "dreamina-seedance-2-0-mini-260615"),
-    } and value in {"1080p", "4k"}:
+    } and value == "1080p":
         return None
     return value
 
 
 def _seedance_ratio(body: dict):
     ratio = str(body.get("ratio") or "16:9").replace("_", ":")
-    if body.get("start_image") and ratio in {"auto", "adaptive"}:
+    if ratio in {"auto", "adaptive"}:
         return "adaptive"
     if ratio in {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}:
         return ratio
     return "16:9"
+
+
+def _seedance_seed(body: dict):
+    advanced = body.get("advanced") if isinstance(body.get("advanced"), dict) else {}
+    value = body.get("seed")
+    if value in (None, ""):
+        value = advanced.get("seed")
+    if value in (None, ""):
+        return None
+    try:
+        seed = int(value)
+    except Exception:
+        return None
+    if seed < -1:
+        return None
+    return min(seed, 4294967295)
 
 
 def _seedance_bool(value, default=False):
@@ -736,6 +753,12 @@ def _seedance_bool(value, default=False):
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _seedance_safety_identifier(value):
+    raw = str(value or "sylvex-prostudio")
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "-", raw).strip("-_")
+    return (safe or "sylvex-prostudio")[:64]
 
 
 def _seedance_reference_content(content: list, media_type: str, urls: list):
@@ -784,11 +807,14 @@ def _seedance_body(frontend_model: str, prompt: str, payload: dict):
         "ratio": _seedance_ratio(body),
         "generate_audio": _seedance_bool((payload.get("video_options") or {}).get("sound"), default=True),
         "watermark": False,
-        "safety_identifier": str(body.get("telegram_id") or payload.get("telegram_id") or "sylvex-prostudio"),
+        "safety_identifier": _seedance_safety_identifier(body.get("telegram_id") or payload.get("telegram_id") or "sylvex-prostudio"),
     }
     resolution = _seedance_resolution_for_model(provider_model, body.get("resolution"))
     if resolution:
         seedance_payload["resolution"] = resolution
+    seed = _seedance_seed(body)
+    if seed is not None:
+        seedance_payload["seed"] = seed
     return seedance_payload
 
 
