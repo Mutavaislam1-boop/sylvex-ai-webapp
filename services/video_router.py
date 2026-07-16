@@ -815,6 +815,9 @@ def _seedance_body(frontend_model: str, prompt: str, payload: dict):
     seed = _seedance_seed(body)
     if seed is not None:
         seedance_payload["seed"] = seed
+    advanced = body.get("advanced") if isinstance(body.get("advanced"), dict) else {}
+    if advanced.get("return_last_frame") is not None:
+        seedance_payload["return_last_frame"] = _seedance_bool(advanced.get("return_last_frame"), default=False)
     return seedance_payload
 
 
@@ -834,6 +837,25 @@ def _seedance_extract_video_url(data: dict):
     )
 
 
+def _seedance_task_metadata(data: dict):
+    result = data.get("data") if isinstance(data.get("data"), dict) else data
+    if not isinstance(result, dict):
+        return {}
+    content = result.get("content") if isinstance(result.get("content"), dict) else {}
+    metadata = {}
+    for key in (
+        "id", "model", "status", "created_at", "updated_at", "seed",
+        "resolution", "ratio", "duration", "frames", "framespersecond",
+        "generate_audio", "safety_identifier", "priority", "draft",
+        "draft_task_id", "service_tier", "execution_expires_after", "usage",
+    ):
+        if key in result:
+            metadata[key] = result.get(key)
+    if content.get("last_frame_url"):
+        metadata["last_frame_url"] = content.get("last_frame_url")
+    return metadata
+
+
 def _seedance_status(data: dict):
     result = data.get("data") if isinstance(data.get("data"), dict) else data
     if not isinstance(result, dict):
@@ -851,13 +873,13 @@ def _seedance_poll_task(task_id: str, headers: dict):
     state = _seedance_status(data)
     video_url = _seedance_extract_video_url(data)
     if state in {"succeeded", "completed", "success", "done"} and video_url:
-        return _provider_success("bytedance", task_id, [video_url], status="completed", task_id=task_id)
-    if state in {"failed", "error", "cancelled"}:
+        return _seedance_provider_success(task_id, [video_url], data, status="completed", task_id=task_id)
+    if state in {"failed", "error", "cancelled", "expired"}:
         return _provider_parse_error("bytedance", task_id, data)
-    return _provider_success(
-        "bytedance",
+    return _seedance_provider_success(
         task_id,
         [],
+        data,
         status="processing",
         task_id=task_id,
         poll_url=endpoint,
@@ -1454,6 +1476,24 @@ def _provider_success(provider: str, model_id: str, video_urls: list[str], statu
         result["task_id"] = task_id
     if poll_url:
         result["poll_url"] = poll_url
+    return result
+
+
+def _seedance_provider_success(model_id: str, video_urls: list[str], data: dict, status: str = "completed", task_id: str = None, poll_url: str = None):
+    result = _provider_success("bytedance", model_id, video_urls, status=status, task_id=task_id, poll_url=poll_url)
+    result["metadata"] = _seedance_task_metadata(data)
+    meta = result["metadata"]
+    if isinstance(meta, dict):
+        if meta.get("duration") is not None:
+            result["duration"] = meta.get("duration")
+        if meta.get("resolution") is not None:
+            result["resolution"] = meta.get("resolution")
+        if meta.get("ratio") is not None:
+            result["ratio"] = meta.get("ratio")
+        if meta.get("seed") is not None:
+            result["seed"] = meta.get("seed")
+        if meta.get("last_frame_url"):
+            result["last_frame_url"] = meta.get("last_frame_url")
     return result
 
 
