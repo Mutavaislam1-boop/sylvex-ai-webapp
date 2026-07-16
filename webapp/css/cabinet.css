@@ -2417,6 +2417,37 @@ body.ai-generating .view[data-view="tools"].active .studio,
   line-height:1 !important;
   font-weight:900 !important;
 }
+
+.upload-video-center-btn{
+  margin-left:10px !important;
+}
+
+.upload-video-thumb{
+  background:rgba(36,103,210,.24) !important;
+  border-color:rgba(88,148,255,.42) !important;
+}
+
+.video-reference-control-badge{
+  position:absolute !important;
+  left:10px !important;
+  top:10px !important;
+  z-index:2 !important;
+  min-width:34px !important;
+  height:24px !important;
+  padding:0 8px !important;
+  border-radius:999px !important;
+  display:grid !important;
+  place-items:center !important;
+  background:rgba(22,119,255,.84) !important;
+  color:#fff !important;
+  font-size:11px !important;
+  font-weight:900 !important;
+  letter-spacing:0 !important;
+}
+
+.studio-links-btn.has-video-reference{
+  position:relative !important;
+}
 /* ===== Upload empty state: big upload button exactly centered ===== */
 .upload-panel-actions:has(.upload-photo-grid.empty){
   display:flex !important;

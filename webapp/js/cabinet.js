@@ -952,6 +952,7 @@ const VIDEO_MODEL_CONFIG = {
 const KLING_VIDEO_BASE_RATIOS = ['16:9','9:16','1:1'];
 const KLING_VIDEO_DURATIONS = [5,10,15];
 const KLING_VIDEO_LONG_DURATIONS = [3,4,5,6,7,8,9,10,11,12,13,14,15];
+const KLING_VIDEO_O1_DURATIONS = [3,4,5,6,7,8,9,10];
 const KLING_VIDEO_SHORT_DURATIONS = [5,10];
 const KLING_VIDEO_STANDARD_RESOLUTIONS = ['720p','1080p'];
 const KLING_VIDEO_FULL_RESOLUTIONS = ['720p','1080p','4K'];
@@ -960,9 +961,9 @@ Object.assign(VIDEO_MODEL_CONFIG, {
   kling_3_0_turbo: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   kling_3_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_motion_3_0: { provider:'kling', modes:['motion_control'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, motion_control:true, start_image:true, end_image:false, video_upload:true, video_edit:false },
-  kling_o3_omni: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, omni:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_o3_omni: { provider:'kling', modes:['text_to_video','image_to_video','video_edit'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, omni:true, video_input:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
   kling_o3_edit: { provider:'kling', modes:['video_edit'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, video_input:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
-  kling_o1: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  kling_o1: { provider:'kling', modes:['text_to_video','image_to_video','video_edit'], durations:KLING_VIDEO_O1_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_input:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
   kling_2_6: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_motion_2_6: { provider:'kling', modes:['motion_control'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, motion_control:true, start_image:true, end_image:false, video_upload:true, video_edit:false },
   kling_2_5_turbo: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
@@ -1975,7 +1976,22 @@ function renderVideoEndPreview() {
 }
 
 function renderVideoReferencesPreview() {
-  renderUploadPreviewOnButton(document.getElementById('videoReferencesUploadButton'), videoState.referenceImageUrls || []);
+  const button = document.getElementById('videoReferencesUploadButton');
+  renderUploadPreviewOnButton(button, videoState.referenceImageUrls || []);
+  if (!button) return;
+  let badge = button.querySelector(':scope > .video-reference-control-badge');
+  if (videoState.inputVideo || videoState.videoUrl) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'video-reference-control-badge';
+      button.insertBefore(badge, button.firstChild);
+    }
+    badge.textContent = 'VID';
+    button.classList.add('has-video-reference');
+  } else {
+    if (badge) badge.remove();
+    button.classList.remove('has-video-reference');
+  }
 }
 
 function renderVideoInputPreviews() {
@@ -2068,6 +2084,19 @@ function applyUploadedMediaToTarget(url) {
 
 function addVideoReferenceImage(url) {
   applyUploadToTarget(url, UPLOAD_TARGETS.VIDEO_REFERENCES);
+}
+
+function applyVideoReferenceToState(url) {
+  if (!url) return;
+  videoState.inputVideo = url;
+  videoState.videoUrl = url;
+  if (videoState.section === 'motion' || currentVideoConfig().motion_control) {
+    videoState.generationMode = 'motion_control';
+    videoState.mode = 'motion_control';
+  }
+  renderVideoReferencesPreview();
+  renderUploadedPhotoGrid();
+  updateSendButton();
 }
 
 function setCurrentUploadImages(urls, targetOverride) {
@@ -4615,10 +4644,15 @@ function imageModelButton(model) {
 
     if (isVideoMode()) {
       if (kind === 'video') {
-        videoState.videoUrl = url;
-        videoState.inputVideo = url;
-        videoState.generationMode = 'video_edit';
-        videoState.mode = 'video_edit';
+        const config = currentVideoConfig() || {};
+        if (getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES || videoState.section === 'motion' || config.motion_control) {
+          applyVideoReferenceToState(url);
+        } else {
+          videoState.videoUrl = url;
+          videoState.inputVideo = url;
+          videoState.generationMode = 'video_edit';
+          videoState.mode = 'video_edit';
+        }
       } else {
         applyUploadToTarget(url, getUploadTarget());
       }
@@ -4852,12 +4886,19 @@ function imageModelButton(model) {
     }).join('');
   }
 
-  function uploadPhotoButtonHtml() {
+function uploadPhotoButtonHtml() {
   const uploadImages = currentUploadImages();
-  if (uploadImages.length >= uploadLimitForTarget()) return '';
+  const target = getUploadTarget();
+  const isVideoReferences = target === UPLOAD_TARGETS.VIDEO_REFERENCES;
+  if (uploadImages.length >= uploadLimitForTarget()) {
+    return (isVideoReferences && !(videoState.inputVideo || videoState.videoUrl))
+      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Загрузить видео"><span class="upload-photo-add-icon" aria-hidden="true">▶</span></button>'
+      : '';
+  }
+  const uploadKind = isVideoReferences ? 'image' : 'image';
 
   if (!uploadImages.length) {
-    return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'image\')">'
+    return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + uploadKind + '\')">'
       + '<span class="upload-photo-center-icon" aria-hidden="true">'
       + '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
       + '<rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>'
@@ -4867,13 +4908,21 @@ function imageModelButton(model) {
       + '</span>'
       + '<span class="upload-photo-center-title">Загрузить фото</span>'
       + '<span class="upload-photo-center-sub">из файлов или галереи</span>'
-      + '</button>';
+      + '</button>'
+      + (isVideoReferences ? '<button class="upload-photo-center-btn upload-video-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')">'
+        + '<span class="upload-photo-center-icon" aria-hidden="true">▶</span>'
+        + '<span class="upload-photo-center-title">Загрузить видео</span>'
+        + '<span class="upload-photo-center-sub">MP4 или MOV для Motion Control</span>'
+        + '</button>' : '');
   }
 
   return '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'image\')" aria-label="Загрузить фото">'
     + '<span class="upload-photo-add-icon" aria-hidden="true">＋</span>'
     + '<span class="upload-photo-add-text">Загрузить</span>'
-    + '</button>';
+    + '</button>'
+    + (isVideoReferences && !(videoState.inputVideo || videoState.videoUrl)
+      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Загрузить видео"><span class="upload-photo-add-icon" aria-hidden="true">▶</span></button>'
+      : '');
 }
 
   function renderUploadedPhotoGrid() {
@@ -4881,13 +4930,15 @@ function imageModelButton(model) {
     if (!grid) return;
 
     const uploadImages = currentUploadImages();
+    const hasVideoReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES && Boolean(videoState.inputVideo || videoState.videoUrl);
+    const hasUploads = uploadImages.length > 0 || hasVideoReference;
 
-    grid.classList.toggle('empty', uploadImages.length === 0);
+    grid.classList.toggle('empty', !hasUploads);
 
     const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
-    if (chooseBtn) chooseBtn.hidden = uploadImages.length === 0;
+    if (chooseBtn) chooseBtn.hidden = !hasUploads;
     const clearBtn = document.getElementById('uploadClearPhotosBtn');
-    if (clearBtn) clearBtn.hidden = uploadImages.length === 0;
+    if (clearBtn) clearBtn.hidden = !hasUploads;
 
     const selectedUrl = currentSelectedUploadImage();
     const items = uploadImages.map((url, index) => {
@@ -4899,6 +4950,13 @@ function imageModelButton(model) {
         + '<span class="upload-photo-remove" onclick="SYLVEX.removeUploadedPhoto(event,' + index + ')">×</span>'
         + '</button>';
     });
+    if (hasVideoReference) {
+      items.unshift('<button class="upload-photo-thumb upload-video-thumb selected" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Заменить видео">'
+        + '<span class="upload-photo-add-icon" aria-hidden="true">▶</span>'
+        + '<span class="upload-thumb-check">✓</span>'
+        + '<span class="upload-photo-remove" onclick="SYLVEX.clearVideoReference(event)">×</span>'
+        + '</button>');
+    }
 
     const addButton = uploadPhotoButtonHtml();
     if (addButton) items.push(addButton);
@@ -4948,9 +5006,25 @@ function imageModelButton(model) {
     }
     const target = getUploadTarget();
     setCurrentUploadImages([], target);
+    if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
+      videoState.inputVideo = '';
+      videoState.videoUrl = '';
+    }
     renderUploadPanelImages();
     renderUploadPreviewForTarget(target);
     toast('Очищено');
+  }
+
+  function clearVideoReference(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    videoState.inputVideo = '';
+    videoState.videoUrl = '';
+    renderUploadedPhotoGrid();
+    renderVideoReferencesPreview();
+    updateSendButton();
   }
 
     function confirmUploadedPhotos(e) {
@@ -5448,6 +5522,20 @@ function closeUploadPanel(e) {
     inp.click();
   }
 
+  async function uploadProStudioMediaFile(file, kind) {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image'), {
+      method: 'POST',
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !data.url) {
+      throw new Error(data.error || 'Не удалось загрузить файл');
+    }
+    return String(data.url || '');
+  }
+
   function attach(kind, target, e) {
     if (target && target.preventDefault) {
       e = target;
@@ -5465,8 +5553,35 @@ function closeUploadPanel(e) {
   function onAttachFile(e) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    // Limit ~10MB.
-    if (f.size > 10 * 1024 * 1024) { toast('File too large (max 10 MB)'); return; }
+    const pendingKind = pendingAttachAccept || 'file';
+    const maxSize = pendingKind === 'video' ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
+    if (f.size > maxSize) {
+      toast(pendingKind === 'video' ? 'Видео слишком большое (макс. 200 MB)' : 'Файл слишком большой (макс. 50 MB)');
+      return;
+    }
+    if (pendingKind === 'video' && isVideoMode()) {
+      uploadProStudioMediaFile(f, 'video')
+        .then((url) => {
+          const target = getUploadTarget();
+          const config = currentVideoConfig() || {};
+          if (target === UPLOAD_TARGETS.VIDEO_REFERENCES || videoState.section === 'motion' || config.motion_control) {
+            applyVideoReferenceToState(url);
+            toast('Видео добавлено как референс');
+          } else {
+            videoState.inputVideo = url;
+            videoState.videoUrl = url;
+            videoState.generationMode = 'video_edit';
+            videoState.mode = 'video_edit';
+            renderVideoReferencesPreview();
+            toast('Видео загружено');
+          }
+          updateSendButton();
+        })
+        .catch((err) => {
+          toast((err && err.message) || 'Не удалось загрузить видео');
+        });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || '');
@@ -5486,14 +5601,6 @@ function closeUploadPanel(e) {
         toast('Фото загружено');
       } else {
         setCurrentModeAttachment(attachment);
-      }
-
-      if ((pendingAttachAccept || '') === 'video' && result && isVideoMode()) {
-        videoState.inputVideo = result;
-        videoState.videoUrl = result;
-        videoState.generationMode = 'video_edit';
-        videoState.mode = 'video_edit';
-        toast('Видео загружено');
       }
 
       if ((isMusicMode() || isVoiceMode()) && result && (pendingAttachAccept || '') !== 'image') {
@@ -8148,7 +8255,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
