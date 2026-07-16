@@ -16,8 +16,8 @@ from services.prompt_optimizer import optimize_prompt_for_model
 
 
 VIDEO_MODEL_CONFIG = {
-    "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
+    "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "seedance_1_5_pro": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
     "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
@@ -1468,15 +1468,27 @@ def _telegram_caption(model_id: str, provider: str, payload: dict):
 
 
 def _call_seedance(model_id: str, prompt: str, payload: dict):
-    api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_ARK_API_KEY")
+    api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "BYTEPLUS_ARK_API_KEY", "ARK_API_KEY")
     if not api_key:
-        return _provider_error("seedance", model_id, "Provider API key is missing: BYTEDANCE_API_KEY")
+        return _provider_error("seedance", model_id, "Provider API key is missing: BYTEDANCE_API_KEY / BYTEPLUS_API_KEY / BYTEPLUS_ARK_API_KEY / ARK_API_KEY")
     body = _seedance_body(model_id, prompt, payload)
     if not body:
         return _unknown_seedance_video_model_response(model_id)
     try:
         endpoint = _seedance_submit_endpoint()
         headers = _seedance_headers(api_key)
+        print("SEEDANCE VIDEO SUBMIT DEBUG:", {
+            "endpoint": endpoint,
+            "model": model_id,
+            "provider_model": body.get("model"),
+            "duration": body.get("duration"),
+            "ratio": body.get("ratio"),
+            "resolution": body.get("resolution"),
+            "generate_audio": body.get("generate_audio"),
+            "content_types": [item.get("type") for item in body.get("content", []) if isinstance(item, dict)],
+            "has_image_refs": any(isinstance(item, dict) and item.get("type") == "image_url" for item in body.get("content", [])),
+            "has_video_refs": any(isinstance(item, dict) and item.get("type") == "video_url" for item in body.get("content", [])),
+        })
         response = _request_json(
             endpoint,
             headers,
@@ -1484,6 +1496,13 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
         )
         data = _safe_provider_json_response(response, "bytedance", endpoint)
         status = getattr(response, "status_code", None) or 0
+        print("SEEDANCE VIDEO SUBMIT RESPONSE:", {
+            "http_status": status,
+            "response_keys": sorted(list(data.keys())) if isinstance(data, dict) else [],
+            "task_id": _task_id_from_response(data) if isinstance(data, dict) else None,
+            "status": _seedance_status(data) if isinstance(data, dict) else "",
+            "has_video_url": bool(_normalize_video_urls(data)),
+        })
         if status not in (200, 201, 202) or data.get("ok") is False:
             return _provider_parse_error("bytedance", model_id, data)
         video_urls = _normalize_video_urls(data)
