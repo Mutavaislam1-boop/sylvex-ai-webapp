@@ -7040,52 +7040,9 @@ function closeUploadPanel(e) {
   // JAVASCRIPT-БЛОК: maybeShowVideoTemplateIntro
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  function maybeShowVideoTemplateIntro(force) {
-    if (!isVideoMode() || videoState.section !== 'generate') return;
-    let seen = false;
-    try { seen = sessionStorage.getItem(VIDEO_TEMPLATE_INTRO_KEY) === '1'; } catch {}
-    if ((!force && seen) || document.getElementById('videoTemplateIntro')) return;
-    try { sessionStorage.setItem(VIDEO_TEMPLATE_INTRO_KEY, '1'); } catch {}
-    const intro = document.createElement('div');
-    intro.id = 'videoTemplateIntro';
-    intro.className = 'video-template-intro';
-    intro.innerHTML = '<button type="button">' + S.escapeHtml(videoTemplateText('video')) + '</button>';
-    const btn = intro.querySelector('button');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        closeVideoTemplateIntro();
-        openVideoTemplatesCatalog();
-      });
-    }
-    document.body.appendChild(intro);
-    if (force) {
-      const trigger = document.querySelector('[data-studio-mode-btn="video"]');
-      if (trigger) {
-        const rect = trigger.getBoundingClientRect();
-        intro.classList.add('anchored');
-        intro.style.left = (rect.left + rect.width / 2) + 'px';
-        intro.style.top = (rect.bottom + 8) + 'px';
-        intro.style.bottom = 'auto';
-      }
-      setTimeout(() => {
-        // =====================================================
-        // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeOnOutside
-        // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
-        // =====================================================
-        const closeOnOutside = (event) => {
-          if (!intro.contains(event.target) && !event.target.closest('[data-studio-mode-btn="video"]')) {
-            closeVideoTemplateIntro();
-            document.removeEventListener('pointerdown', closeOnOutside, true);
-          }
-        };
-        // =====================================================
-        // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
-        // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
-        // =====================================================
-        document.addEventListener('pointerdown', closeOnOutside, true);
-      }, 0);
-    }
-  }
+function maybeShowVideoTemplateIntro(force) {
+  return;
+}
 
   // =====================================================
   // JAVASCRIPT-БЛОК: loadVideoTemplates
@@ -7570,9 +7527,6 @@ function closeUploadPanel(e) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
     updateComposerMode(tabKey || kind);
-    if (kind === 'video' && !tabKey) {
-      setTimeout(() => maybeShowVideoTemplateIntro(true), 0);
-    }
     const labels = { image:'Generate Image', video:'Generate Video', music:'Generate Music', voice:'Generate Voiceover' };
     toast(labels[kind] || kind);
   }
