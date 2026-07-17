@@ -4,9 +4,13 @@
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
 import asyncio
+import base64
 import json
 import os
+import pathlib
+import wave
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -17,6 +21,10 @@ from services.prompt_optimizer import optimize_prompt_for_model
 AUDIO_API_BASE_URL = os.getenv("AUDIO_API_BASE_URL", "https://udioapi.pro/api").rstrip("/")
 AUDIO_GENERATE_ENDPOINT = os.getenv("AUDIO_API_GENERATE_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/generate")
 AUDIO_FEED_ENDPOINT = os.getenv("AUDIO_API_FEED_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/feed")
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+WEBAPP_DIR = BASE_DIR / "webapp"
+GENERATED_AUDIO_DIR = WEBAPP_DIR / "generated" / "audio"
+GEMINI_TTS_ENDPOINT = os.getenv("GEMINI_TTS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")
 
 SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_3_5": "chirp-v3-5",
@@ -24,6 +32,15 @@ SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_4_5": "chirp-v4-5",
     "suno_chirp_5": "chirp-v5",
     "suno_chirp_5_5": "chirp-v5-5",
+}
+
+GEMINI_TTS_MODEL_MAP = {
+    "gemini_3_1_flash_tts_preview": "gemini-3.1-flash-tts-preview",
+    "gemini_2_5_flash_preview_tts": "gemini-2.5-flash-preview-tts",
+    "gemini_2_5_pro_preview_tts": "gemini-2.5-pro-preview-tts",
+    "gemini-3.1-flash-tts-preview": "gemini-3.1-flash-tts-preview",
+    "gemini-2.5-flash-preview-tts": "gemini-2.5-flash-preview-tts",
+    "gemini-2.5-pro-preview-tts": "gemini-2.5-pro-preview-tts",
 }
 
 
@@ -232,6 +249,84 @@ def _music_model_mapping(frontend_model: str) -> str:
 
 
 # =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _gemini_tts_model_mapping
+# Сопоставляет название модели из Mini App с официальным ID Gemini TTS.
+# =====================================================
+def _gemini_tts_model_mapping(frontend_model: str) -> str:
+    value = (frontend_model or "").strip()
+    return GEMINI_TTS_MODEL_MAP.get(value) or GEMINI_TTS_MODEL_MAP.get(value.lower()) or ""
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _save_gemini_tts_wav
+# Сохраняет PCM-аудио Gemini TTS в WAV-файл, который Mini App и Telegram могут открыть по URL.
+# =====================================================
+def _save_gemini_tts_wav(pcm: bytes) -> str:
+    if not pcm:
+        return ""
+    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}.wav"
+    path = GENERATED_AUDIO_DIR / filename
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(pcm)
+    return f"/webapp/generated/audio/{filename}"
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _extract_gemini_output_audio
+# Достаёт base64-аудио из ответа Interactions API независимо от вложенности полей.
+# =====================================================
+def _extract_gemini_output_audio(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    output_audio = data.get("output_audio")
+    if isinstance(output_audio, dict) and output_audio.get("data"):
+        return str(output_audio.get("data") or "")
+    for key in ("audio", "outputAudio"):
+        value = data.get(key)
+        if isinstance(value, dict) and value.get("data"):
+            return str(value.get("data") or "")
+    for value in data.values():
+        if isinstance(value, dict):
+            nested = _extract_gemini_output_audio(value)
+            if nested:
+                return nested
+        elif isinstance(value, list):
+            for item in value:
+                nested = _extract_gemini_output_audio(item)
+                if nested:
+                    return nested
+    return ""
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _gemini_tts_payload
+# Собирает официальный payload Gemini Interactions API для single-speaker или multi-speaker TTS.
+# =====================================================
+def _gemini_tts_payload(payload: dict, provider_model: str) -> dict:
+    voice_options = payload.get("voice_options") or {}
+    prompt = (payload.get("prompt") or voice_options.get("prompt") or "").strip()
+    voice = voice_options.get("voice") or voice_options.get("voice_name") or "Kore"
+    speaker_mode = str(voice_options.get("speaker_mode") or voice_options.get("speakerMode") or "single").lower()
+    if speaker_mode in {"multi", "multispeaker", "multi_speaker"}:
+        speech_config = [
+            {"speaker": voice_options.get("speaker1") or "Speaker1", "voice": voice},
+            {"speaker": voice_options.get("speaker2") or "Speaker2", "voice": voice_options.get("second_voice") or voice_options.get("secondVoice") or "Puck"},
+        ]
+    else:
+        speech_config = [{"voice": voice}]
+    return {
+        "model": provider_model,
+        "input": prompt,
+        "response_format": {"type": "audio"},
+        "generation_config": {"speech_config": speech_config},
+    }
+
+
+# =====================================================
 # PYTHON-БЛОК: _music_option_value
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -328,16 +423,23 @@ async def _send_generated_audio_to_telegram(
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
-            audio_response = await client.get(audio_url)
-            if audio_response.status_code >= 400 or not audio_response.content:
-                print("TELEGRAM AUDIO SEND:", {
-                    "telegram_id": telegram_id,
-                    "has_audio_url": True,
-                    "error": f"download failed: {audio_response.status_code}",
-                })
+            if str(audio_url).startswith("/webapp/"):
+                local_path = WEBAPP_DIR / str(audio_url).replace("/webapp/", "", 1)
+                audio_content = local_path.read_bytes() if local_path.exists() else b""
+                content_type = "audio/wav" if local_path.suffix.lower() == ".wav" else "audio/mpeg"
+            else:
+                audio_response = await client.get(audio_url)
+                if audio_response.status_code >= 400 or not audio_response.content:
+                    print("TELEGRAM AUDIO SEND:", {
+                        "telegram_id": telegram_id,
+                        "has_audio_url": True,
+                        "error": f"download failed: {audio_response.status_code}",
+                    })
+                    return False
+                audio_content = audio_response.content
+                content_type = audio_response.headers.get("content-type") or "audio/mpeg"
+            if not audio_content:
                 return False
-
-            content_type = audio_response.headers.get("content-type") or "audio/mpeg"
             filename = "sylvex-audio.mp3"
             if "wav" in content_type:
                 filename = "sylvex-audio.wav"
@@ -349,7 +451,7 @@ async def _send_generated_audio_to_telegram(
                 "caption": caption,
                 "title": "SYLVEX Pro Studio",
             }
-            files = {"audio": (filename, audio_response.content, content_type)}
+            files = {"audio": (filename, audio_content, content_type)}
             tg_response = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/sendAudio",
                 data=data,
@@ -384,6 +486,10 @@ async def _send_generated_audio_to_telegram(
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def audio_generation(payload: dict) -> dict:
+    mode = str(payload.get("mode") or payload.get("category") or "").lower()
+    if mode == "voice":
+        return await voice_generation(payload)
+
     api_key = _get_env("AUDIO_API_KEY")
     provider = "suno"
     frontend_model = (
@@ -524,6 +630,104 @@ async def audio_generation(payload: dict) -> dict:
             "poll_url": f"{AUDIO_FEED_ENDPOINT}?workId={work_id}",
             "response": last_data,
         }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: voice_generation
+# Подключает раздел «Озвучка» Mini App к Gemini TTS Interactions API.
+# Получает текст пользователя, выбранную модель и голос, возвращает готовый audio_url.
+# =====================================================
+async def voice_generation(payload: dict) -> dict:
+    provider = "gemini"
+    voice_options = payload.get("voice_options") or {}
+    frontend_model = (
+        payload.get("model")
+        or voice_options.get("model")
+        or "gemini_3_1_flash_tts_preview"
+    )
+    provider_model = _gemini_tts_model_mapping(frontend_model)
+    api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE-GEMINI-API-KEY")
+    prompt_report = optimize_prompt_for_model(
+        payload.get("prompt") or voice_options.get("prompt") or "",
+        model=frontend_model,
+        provider=provider,
+        mode="voice",
+    )
+    print("GEMINI TTS PROMPT OPTIMIZER:", {
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "prompt_length": prompt_report.get("original_length"),
+        "model_limit": prompt_report.get("limit"),
+        "optimized": prompt_report.get("optimized"),
+        "new_length": prompt_report.get("optimized_length"),
+    })
+    if (payload.get("prompt") or voice_options.get("prompt")) and not prompt_report.get("ok"):
+        return _audio_error(provider, frontend_model, provider_model, "Prompt optimization failed to reach limit")
+    if prompt_report.get("optimized"):
+        payload["prompt"] = prompt_report.get("prompt") or payload.get("prompt") or ""
+        payload["prompt_optimization"] = prompt_report
+
+    if not provider_model:
+        return _audio_error(provider, frontend_model, "", "Unknown Gemini TTS model mapping", frontend_model=frontend_model)
+    if not api_key:
+        return _audio_error(provider, frontend_model, provider_model, "GEMINI_API_KEY is not configured")
+    if not (payload.get("prompt") or "").strip():
+        return _audio_error(provider, frontend_model, provider_model, "Voice prompt is empty")
+
+    request_body = _gemini_tts_payload(payload, provider_model)
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+    print("GEMINI TTS REQUEST:", {
+        "endpoint": GEMINI_TTS_ENDPOINT,
+        "frontend_model": frontend_model,
+        "provider_model": provider_model,
+        "voice": (voice_options.get("voice") or voice_options.get("voice_name") or "Kore"),
+        "speaker_mode": voice_options.get("speaker_mode") or voice_options.get("speakerMode") or "single",
+        "has_prompt": bool(request_body.get("input")),
+    })
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            response = await client.post(GEMINI_TTS_ENDPOINT, headers=headers, json=request_body)
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, exc, endpoint=GEMINI_TTS_ENDPOINT, details=repr(exc))
+    data = await safe_audio_json_response(response, provider, GEMINI_TTS_ENDPOINT)
+    if response.status_code >= 400:
+        return _audio_error(provider, frontend_model, provider_model, data, endpoint=GEMINI_TTS_ENDPOINT, status_code=response.status_code, response=data)
+
+    audio_data = _extract_gemini_output_audio(data)
+    if not audio_data:
+        return _audio_error(provider, frontend_model, provider_model, "Gemini TTS returned no output_audio", endpoint=GEMINI_TTS_ENDPOINT, response=data)
+    try:
+        audio_bytes = base64.b64decode(audio_data)
+    except Exception as exc:
+        return _audio_error(provider, frontend_model, provider_model, f"Gemini TTS audio decode failed: {exc}", response=data)
+    audio_url = _save_gemini_tts_wav(audio_bytes)
+    if not audio_url:
+        return _audio_error(provider, frontend_model, provider_model, "Gemini TTS audio save failed", response=data)
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = await _send_generated_audio_to_telegram(
+        telegram_id=telegram_id,
+        audio_url=audio_url,
+        caption="SYLVEX Pro Studio\nОзвучка готова ✅",
+    )
+    return {
+        "ok": True,
+        "type": "voice",
+        "provider": provider,
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "status": "completed",
+        "audio_url": audio_url,
+        "audios": [audio_url],
+        "voice": voice_options.get("voice") or voice_options.get("voice_name") or "Kore",
+        "voice_options": voice_options,
+        "response": data,
+        "sent_to_telegram": sent_to_telegram,
+        "text": "Озвучка готова ✅\n" + audio_url,
+    }
 
 
 # =====================================================

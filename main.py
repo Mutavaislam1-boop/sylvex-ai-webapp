@@ -9222,13 +9222,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="audio_generation")
             result = await audio_generation(payload)
         elif mode == "voice":
-            result = {
-                "ok": False,
-                "type": "voice",
-                "provider": selected_provider or "voice",
-                "model": selected_model,
-                "error": "Voice router is not connected yet",
-            }
+            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_generation")
+            result = await audio_generation(payload)
         elif mode in text_modes:
             if not selected_model or is_internal_ui_model(selected_model):
                 payload["model"] = "gpt-4o-mini"

@@ -152,14 +152,22 @@ let musicState = {
 };
 
 let voiceState = {
-  modelId: 'voice-default',
+  modelId: 'gemini_3_1_flash_tts_preview',
   uploads: [],
   attachment: null,
   genre: '',
   duration: '',
   style: '',
-  voice: '',
-  audioSettings: {},
+  voice: 'Kore',
+  secondVoice: 'Puck',
+  speakerMode: 'single',
+  speaker1: 'Speaker1',
+  speaker2: 'Speaker2',
+  audioSettings: {
+    style: 'auto',
+    pace: 'auto',
+    tone: 'auto',
+  },
 };
 
 let textState = {
@@ -816,6 +824,30 @@ const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno' },
 ];
 
+const VOICE_MODEL_LIST = [
+  { id:'gemini_3_1_flash_tts_preview', label:'Gemini 3.1 Flash TTS Preview', providerModel:'gemini-3.1-flash-tts-preview', desc:'Single speaker и multi-speaker TTS', icon:'gemini' },
+  { id:'gemini_2_5_flash_preview_tts', label:'Gemini 2.5 Flash Preview TTS', providerModel:'gemini-2.5-flash-preview-tts', desc:'Gemini TTS preview', icon:'gemini' },
+  { id:'gemini_2_5_pro_preview_tts', label:'Gemini 2.5 Pro Preview TTS', providerModel:'gemini-2.5-pro-preview-tts', desc:'Gemini Pro TTS preview', icon:'gemini' },
+];
+
+const GEMINI_TTS_VOICES = [
+  ['Zephyr', 'Bright'], ['Puck', 'Upbeat'], ['Charon', 'Informative'],
+  ['Kore', 'Firm'], ['Fenrir', 'Excitable'], ['Leda', 'Youthful'],
+  ['Orus', 'Firm'], ['Aoede', 'Breezy'], ['Callirrhoe', 'Easy-going'],
+  ['Autonoe', 'Bright'], ['Enceladus', 'Breathy'], ['Iapetus', 'Clear'],
+  ['Umbriel', 'Easy-going'], ['Algieba', 'Smooth'], ['Despina', 'Smooth'],
+  ['Erinome', 'Clear'], ['Algenib', 'Gravelly'], ['Rasalgethi', 'Informative'],
+  ['Laomedeia', 'Upbeat'], ['Achernar', 'Soft'], ['Alnilam', 'Firm'],
+  ['Schedar', 'Even'], ['Gacrux', 'Mature'], ['Pulcherrima', 'Forward'],
+  ['Achird', 'Friendly'], ['Zubenelgenubi', 'Casual'], ['Vindemiatrix', 'Gentle'],
+  ['Sadachbia', 'Lively'], ['Sadaltager', 'Knowledgeable'], ['Sulafat', 'Warm'],
+].map(([id, label]) => ({ id, label: id + ' · ' + label }));
+
+const VOICE_SPEAKER_MODES = [
+  { id:'single', label:'Один голос' },
+  { id:'multi', label:'Два голоса' },
+];
+
 const MUSIC_GENRES = [
   ['auto', 'Auto'],
   ['pop', 'Pop'],
@@ -1354,6 +1386,7 @@ function currentComposerModelList() {
   if (isImageMode()) return IMAGE_MODEL_LIST;
   if (isVideoMode()) return VIDEO_MODELS;
   if (isMusicMode()) return MUSIC_MODEL_LIST;
+  if (isVoiceMode()) return VOICE_MODEL_LIST;
   return [];
 }
 
@@ -1406,6 +1439,57 @@ function musicOptionsPayload() {
     theme: musicState.settings.theme || 'auto',
     vocal: musicState.settings.vocal || 'auto',
   };
+}
+
+// =====================================================
+// АУДИОПЛЕЕР: ensureVoiceSettings
+// Готовит параметры раздела «Озвучка» перед показом кнопок и отправкой Gemini TTS.
+// =====================================================
+function ensureVoiceSettings() {
+  if (!voiceState.audioSettings || typeof voiceState.audioSettings !== 'object') voiceState.audioSettings = {};
+  if (!voiceState.modelId) voiceState.modelId = 'gemini_3_1_flash_tts_preview';
+  if (!voiceState.voice) voiceState.voice = 'Kore';
+  if (!voiceState.secondVoice) voiceState.secondVoice = 'Puck';
+  if (!voiceState.speakerMode) voiceState.speakerMode = 'single';
+  if (!voiceState.speaker1) voiceState.speaker1 = 'Speaker1';
+  if (!voiceState.speaker2) voiceState.speaker2 = 'Speaker2';
+  ['style', 'pace', 'tone'].forEach((key) => {
+    if (!voiceState.audioSettings[key]) voiceState.audioSettings[key] = 'auto';
+  });
+}
+
+// =====================================================
+// АУДИОПЛЕЕР: voiceOptionsPayload
+// Собирает параметры озвучки для backend: модель Gemini TTS, голос и режим single/multi speaker.
+// =====================================================
+function voiceOptionsPayload() {
+  ensureVoiceSettings();
+  return {
+    model: voiceState.modelId,
+    voice: voiceState.voice,
+    secondVoice: voiceState.secondVoice,
+    speaker_mode: voiceState.speakerMode,
+    speaker1: voiceState.speaker1,
+    speaker2: voiceState.speaker2,
+    audioSettings: Object.assign({}, voiceState.audioSettings || {}),
+  };
+}
+
+// =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVoiceControls
+// Обновляет подписи кнопок «Озвучка»: выбранная модель, голос, режим и настройки.
+// =====================================================
+function renderVoiceControls() {
+  ensureVoiceSettings();
+  const model = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || VOICE_MODEL_LIST[0];
+  const modelEl = document.getElementById('modelValComposer');
+  if (modelEl && isVoiceMode() && model) modelEl.textContent = model.label || model.name || model.id;
+  const voiceVal = document.getElementById('voiceVoiceVal');
+  if (voiceVal) voiceVal.textContent = voiceState.voice || 'Kore';
+  const modeVal = document.getElementById('voiceModeVal');
+  if (modeVal) modeVal.textContent = voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос';
+  const settingsVal = document.getElementById('voiceSettingsVal');
+  if (settingsVal) settingsVal.textContent = 'Настройки';
 }
 
 // =====================================================
@@ -1606,7 +1690,7 @@ const MODEL_ICON_SVG = {
       return videoState.modelId || 'seedance_2_fast';
     }
     if (studioMode === 'music') return musicState.modelId || 'suno_chirp_5';
-    if (studioMode === 'voice') return voiceState.modelId || 'voice-default';
+    if (studioMode === 'voice') return voiceState.modelId || 'gemini_3_1_flash_tts_preview';
     return textState.modelId || 'gpt-4o-mini';
   }
 
@@ -1626,6 +1710,7 @@ const MODEL_ICON_SVG = {
     if (/qwen/i.test(model)) return 'qwen';
     if (/microsoft|mai/i.test(model)) return 'microsoft';
     if (/krea/i.test(model)) return 'krea';
+    if (/gemini.*tts|tts.*gemini|flash_tts|preview_tts/i.test(model)) return 'gemini';
     if (/suno|chirp/i.test(model)) return 'suno';
     if (/musicgen/i.test(model)) return 'music';
     if (/voice/i.test(model)) return 'voice';
@@ -1947,7 +2032,7 @@ function localizedGreeting() {
 
     const models = currentComposerModelList();
 
-    if ((isImageMode() || isVideoMode() || isMusicMode()) && models.length) {
+    if ((isImageMode() || isVideoMode() || isMusicMode() || isVoiceMode()) && models.length) {
       el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
         + '<div class="image-model-sheet-list">'
         + models.map(imageModelButton).join('')
@@ -3686,7 +3771,7 @@ function imageModelDescription(model) {
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
-    : (isMusicMode() ? musicState.modelId : videoState.modelId);
+    : (isMusicMode() ? musicState.modelId : (isVoiceMode() ? voiceState.modelId : videoState.modelId));
 
   const id = String(model && model.id ? model.id : '');
   const active = activeId === id;
@@ -3918,6 +4003,89 @@ function imageModelButton(model) {
 
     if (isImageMode() && kind === 'objects') {
       openImageStylePanel(e, 'object');
+      return;
+    }
+
+    if (isVoiceMode()) {
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+      ensureVoiceSettings();
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.style.cssText = '';
+
+      const openVoiceSheet = (title, items, optionKind, activeValue) => {
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+        el.classList.add('image-size-floating-pop');
+        el.style.position = 'fixed';
+        el.style.left = '8px';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+        el.style.width = '72vw';
+        el.style.maxWidth = '350px';
+        el.style.minWidth = '250px';
+        el.style.maxHeight = '68vh';
+        el.style.overflowY = 'auto';
+        el.style.zIndex = '999999';
+        el.innerHTML = '<div class="image-size-sheet-title">' + S.escapeHtml(title) + '</div>'
+          + '<div class="image-size-sheet-list">'
+          + items.map((item) => {
+            const id = String(item.id || '');
+            const active = String(activeValue || '') === id;
+            return '<button class="image-size-row no-ratio-icon ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+              + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>'
+              + '<span class="image-size-check">✓</span>'
+              + '</button>';
+          }).join('')
+          + '</div>';
+        el.classList.add('show');
+        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+        S.haptic && S.haptic.impact && S.haptic.impact('light');
+      };
+
+      if (kind === 'voice') {
+        openVoiceSheet('Голос озвучки', GEMINI_TTS_VOICES, 'voice', voiceState.voice || 'Kore');
+        return;
+      }
+      if (kind === 'duration' || kind === 'speaker_mode') {
+        openVoiceSheet('Режим озвучки', VOICE_SPEAKER_MODES, 'speakerMode', voiceState.speakerMode || 'single');
+        return;
+      }
+      if (kind === 'settings') {
+        const secondVoiceRow = voiceState.speakerMode === 'multi'
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;second_voice&quot;)"><span class="image-size-label">Второй голос</span><span class="image-size-check">' + S.escapeHtml(voiceState.secondVoice || 'Puck') + '</span></button>'
+          : '';
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+        el.classList.add('image-size-floating-pop');
+        el.classList.add('music-settings-pop');
+        el.style.position = 'fixed';
+        el.style.left = '8px';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+        el.style.width = '78vw';
+        el.style.maxWidth = '380px';
+        el.style.minWidth = '275px';
+        el.style.maxHeight = '70vh';
+        el.style.overflowY = 'auto';
+        el.style.zIndex = '999999';
+        el.innerHTML = '<div class="image-size-sheet-title">Настройки озвучки</div>'
+          + '<div class="image-size-sheet-list">'
+          + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(voiceState.voice || 'Kore') + '</span></button>'
+          + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Режим</span><span class="image-size-check">' + (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос') + '</span></button>'
+          + secondVoiceRow
+          + '</div>';
+        el.classList.add('show');
+        return;
+      }
+      if (kind === 'second_voice') {
+        openVoiceSheet('Второй голос', GEMINI_TTS_VOICES, 'secondVoice', voiceState.secondVoice || 'Puck');
+        return;
+      }
       return;
     }
 
@@ -4377,6 +4545,42 @@ function imageModelButton(model) {
   }
 
   // =====================================================
+  // АУДИОПЛЕЕР: pickVoiceOption
+  // Выбирает модель/голос/режим озвучки и обновляет кнопки Gemini TTS в разделе «Озвучка».
+  // =====================================================
+  function pickVoiceOption(e, kind, value) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    ensureVoiceSettings();
+    if (kind === 'voice') {
+      voiceState.voice = value || 'Kore';
+    } else if (kind === 'secondVoice') {
+      voiceState.secondVoice = value || 'Puck';
+    } else if (kind === 'speakerMode') {
+      voiceState.speakerMode = value || 'single';
+    } else if (kind === 'model') {
+      const model = VOICE_MODEL_LIST.find((item) => item.id === value);
+      if (model) voiceState.modelId = model.id;
+    }
+    renderVoiceControls();
+    renderModelPop();
+    const el = document.getElementById('modelPop');
+    if (el && kind !== 'speakerMode') {
+      el.classList.remove('show');
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.style.cssText = '';
+    } else if (kind === 'speakerMode') {
+      openImageOptionMenu(e, 'settings');
+    }
+    S.haptic && S.haptic.select && S.haptic.select();
+  }
+
+  // =====================================================
   // АУДИОПЛЕЕР: resetMusicSettings
   // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
   // =====================================================
@@ -4443,11 +4647,19 @@ function imageModelButton(model) {
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
+      } else if (isVoiceMode()) {
+        const model = VOICE_MODEL_LIST.find((item) => item.id === value);
+        if (model) {
+          voiceState.modelId = model.id;
+          const mvc = document.getElementById('modelValComposer');
+          if (mvc) mvc.textContent = model.label || model.name || model.id;
+        }
       }
     }
 
-    if (isMusicMode()) {
-      renderMusicControls();
+    if (isMusicMode() || isVoiceMode()) {
+      if (isMusicMode()) renderMusicControls();
+      if (isVoiceMode()) renderVoiceControls();
       renderModelPop();
       const el = document.getElementById('modelPop');
       if (el) {
@@ -7331,8 +7543,9 @@ function closeUploadPanel(e) {
         if (isMusic) {
           renderMusicControls();
         } else {
-          mvc.textContent = 'Voice Generator';
+          renderVoiceControls();
         }
+        renderModelPop();
         renderUploadedPhotoGrid();
         updateImageUploadButtonPreview();
       } else {
@@ -7412,8 +7625,9 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     : null;
   const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
   const voiceOptions = isVoiceMode()
-    ? Object.assign({}, voiceState, {
+    ? Object.assign(voiceOptionsPayload(), {
         uploads: (voiceState.uploads || []).slice(),
+        attachment: voiceState.attachment || null,
       })
     : null;
 
@@ -9820,7 +10034,7 @@ async function waitGeneration(jobId, options) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
@@ -9843,6 +10057,7 @@ async function waitGeneration(jobId, options) {
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
+  window.pickVoiceOption = pickVoiceOption;
   window.onImageSeedInput = onImageSeedInput;
   window.toggleImageSeedTooltip = toggleImageSeedTooltip;
   window.resetImageSettings = resetImageSettings;
@@ -9908,6 +10123,7 @@ async function waitGeneration(jobId, options) {
   S.saveVisualCreateDraft = saveVisualCreateDraft;
   S.pickImageOption = pickImageOption;
   S.pickMusicOption = pickMusicOption;
+  S.pickVoiceOption = pickVoiceOption;
   S.resetMusicSettings = resetMusicSettings;
   S.openTelegramBot = openTelegramBot;
   S.openGeneratedContent = openGeneratedContent;
