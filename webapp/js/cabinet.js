@@ -14,12 +14,13 @@
   let chatMessages = [];
   let currentConvId = null;
   let conversationsCache = [];
-  const CHAT_SPACE_TYPES = ['image', 'video', 'music', 'voice'];
+  const CHAT_SPACE_TYPES = ['image', 'video', 'music', 'voice', 'text'];
   const chatSpaces = {
     image: { activeChatId: null, conversationId: null, messages: [] },
     video: { activeChatId: null, conversationId: null, messages: [] },
     music: { activeChatId: null, conversationId: null, messages: [] },
     voice: { activeChatId: null, conversationId: null, messages: [] },
+    text: { activeChatId: null, conversationId: null, messages: [] },
   };
   const chatCollections = {
     image: [],
@@ -7473,12 +7474,20 @@ function maybeShowVideoTemplateIntro(force) {
       document.activeElement.blur();
     }
     const isImage = studioMode === 'image';
+    const isText = studioMode === 'text';
     const isMusic = isMusicMode();
     const isVoice = isVoiceMode();
     const isAudio = isMusic || isVoice;
     pendingAttachment = currentModeAttachment();
     const composer = document.getElementById('studioComposer');
-    if (composer) composer.dataset.composerMode = isImage ? 'image' : isVoice ? 'voice' : isMusic ? 'music' : 'video';
+    if (composer) {
+      composer.dataset.composerMode =
+        isImage ? 'image' :
+        isText ? 'text' :
+        isVoice ? 'voice' :
+        isMusic ? 'music' :
+        'video';
+    }
     document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
       const modeBtn = btn.dataset.studioModeBtn;
       const isActive = isVideoSection
@@ -7487,11 +7496,24 @@ function maybeShowVideoTemplateIntro(force) {
       btn.classList.toggle('active', isActive);
     });
     document.querySelectorAll('.studio-mini-tab').forEach((btn) => btn.classList.remove('active'));
-    const miniIndex = kind === 'image' ? 0 : isMusic ? 2 : isVoice ? 3 : 1;
+    const miniIndex =
+      kind === 'image' ? 0 :
+      kind === 'video' ? 1 :
+      isMusic ? 2 :
+      isVoice ? 3 :
+      isText ? 4 :
+      1;
     const minis = document.querySelectorAll('.studio-mini-tab');
     if (minis[miniIndex]) minis[miniIndex].classList.add('active');
     const ta = document.getElementById('chatInput');
-    if (ta) ta.placeholder = isImage ? 'Describe your image' : isVoice ? 'Describe your voiceover' : isMusic ? 'Describe your music' : 'Describe your video';
+    if (ta) {
+      ta.placeholder =
+        isImage ? 'Describe your image' :
+        isText ? 'Describe your text' :
+        isVoice ? 'Describe your voiceover' :
+        isMusic ? 'Describe your music' :
+        'Describe your video';
+    }
     const mvc = document.getElementById('modelValComposer');
     if (isImage) {
       if (!imageState.modelId && IMAGE_MODEL_LIST.length) imageState.modelId = IMAGE_MODEL_LIST[0].id;
@@ -7499,6 +7521,10 @@ function maybeShowVideoTemplateIntro(force) {
       renderUploadedPhotoGrid();
       updateImageUploadButtonPreview();
       renderModelPop();
+    } else if (isText) {
+      renderModelPop();
+      renderUploadedPhotoGrid();
+      updateImageUploadButtonPreview();
     } else if (mvc) {
       if (isAudio) {
         if (isMusic) {
