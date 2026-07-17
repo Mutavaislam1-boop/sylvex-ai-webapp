@@ -261,34 +261,6 @@ HTML-страница Mini App. Комментарии подписывают э
               <button class="studio-mini-tab" id="voiceBtn" type="button" onclick="SYLVEX.genAction('voice')" aria-label="Озвучка">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2m3-6v12m3-9v6m3-10v14m3-7h2"/></svg>
               </button>
-              <!-- ==================================================
-              HTML-ЭЛЕМЕНТ: textBtn
-              Новый режим генерации: Текст
-              =================================================== -->
-              <button class="studio-mini-tab" id="textBtn" type="button" aria-label="Текст">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="3"/>
-                  <path d="M8 8h8M8 12h6M8 16h4"/>
-                </svg>
-              </button>
-            <!-- ==================================================
-            HTML-ЭЛЕМЕНТ: studio-mode-tab text-only
-            Новый топ-левел режим генерации: Текст
-            =================================================== -->
-            <button class="studio-mode-tab text-only" type="button" data-studio-mode-btn="text">
-              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="3"/>
-                <path d="M8 8h8M8 12h6M8 16h4"/>
-              </svg>
-              <span>Генератор текста</span>
-            </button>
-            <!-- ==================================================
-            HTML-ЭЛЕМЕНТ: studio-media-column studio-text-tools text-only
-            Новый блок управления для генерации текста
-            =================================================== -->
-            <div class="studio-media-column studio-text-tools text-only" aria-hidden="true">
-              <!-- Здесь будут размещены дополнительные текстовые элементы управления -->
-            </div>
             </div>
             <!-- ==================================================
             HTML-ЭЛЕМЕНТ: studio-mode-tab music-only
@@ -1596,70 +1568,3 @@ CSS-класс задаёт внешний вид и расположение: s
     </div>
   </div>
 </div>
-
-            <!-- ==================================================
-            HTML-ЭЛЕМЕНТ: studio-prompt-column text-only
-            Новый блок управления для генерации текста
-            =================================================== -->
-            <div class="studio-prompt-column text-only">
-              <div class="text-visual-grid">
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: studio-text-tool
-                Placeholder для выбора модели генерации текста
-                =================================================== -->
-                <button class="studio-text-tool" type="button">
-                  <span class="studio-frame-ico">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="3" y="3" width="18" height="18" rx="3"/>
-                      <path d="M8 8h8M8 12h6M8 16h4"/>
-                    </svg>
-                  </span>
-                  <span id="textModelVal">Модель</span>
-                </button>
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: studio-text-tool
-                Placeholder для выбора дополнительных настроек текста
-                =================================================== -->
-                <button class="studio-text-tool" type="button">
-                  <span class="studio-frame-ico">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/>
-                    </svg>
-                  </span>
-                  <span id="textSettingsVal">Настройки</span>
-                </button>
-              </div>
-              <!-- ==================================================
-              HTML-ЭЛЕМЕНТ: textInput
-              Placeholder для текстового ввода
-              =================================================== -->
-              <textarea id="textInput" rows="3" placeholder="Введите ваш запрос для генерации текста"></textarea>
-              <!-- ==================================================
-              HTML-ЭЛЕМЕНТ: studio-control-row
-              CSS-класс задаёт внешний вид и расположение: studio-control-row
-              =================================================== -->
-              <div class="studio-control-row">
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: studio-select-pill wide
-                Placeholder для выбора текстовой модели
-                =================================================== -->
-                <button class="studio-select-pill wide" type="button">
-                  <span class="pill-meter"></span>
-                  <span id="textModelValComposer">ChatGPT 4 Turbo</span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-                </button>
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: studio-select-pill text-settings-pill text-only
-                Placeholder для дополнительных текстовых настроек
-                =================================================== -->
-                <button class="studio-select-pill text-settings-pill text-only" type="button" aria-label="Настройки">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
-                  <span id="textSettingsValComposer" class="sr-only">Настройки</span>
-                </button>
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: Сгенерировать
-                Placeholder для кнопки генерации текста
-                =================================================== -->
-                <button class="studio-generate text-only" id="textSendBtn" type="button" disabled>Сгенерировать</button>
-              </div>
-            </div>
