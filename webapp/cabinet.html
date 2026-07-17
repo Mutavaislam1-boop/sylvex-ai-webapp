@@ -314,12 +314,38 @@ HTML-страница Mini App. Комментарии подписывают э
             </button>
           </div>
 
-           <!-- ==================================================
-              HTML-ЭЛЕМЕНТ: studio-mini-tab active
-              При нажатии вызывает: SYLVEX.genAction('video')
-              CSS-класс задаёт внешний вид и расположение: studio-mini-tab active
-              =================================================== -->
-            <!-- Insert the "Видео" button after "Управление движением" and before the closing div of studio-mode-tabs -->
+          <!-- ==================================================
+                    HTML-ЭЛЕМЕНТ: studio-mode-tab video-only
+                    При нажатии вызывает: SYLVEX.genAction('video')
+                    CSS-класс задаёт внешний вид и расположение: studio-mode-tab video-only
+                    =================================================== -->
+            <button class="studio-mode-tab video-only"
+
+                  type="button"
+
+                  data-studio-mode-btn="video-home"
+
+                  onclick="SYLVEX.showVideoModelPicker(event)">
+
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none"
+
+                stroke="currentColor" stroke-width="1.9"
+
+                stroke-linecap="round" stroke-linejoin="round">
+
+              <rect x="4" y="4" width="14" height="14" rx="3"/>
+
+              <path d="M18 9l3-2v10l-3-2"/>
+
+            </svg>
+
+            <span>Видео</span>
+
+          </button>
+
+          </div>
+
+          <div class="studio-video-panel">
 
           <!-- ==================================================
           HTML-ЭЛЕМЕНТ: studio-video-panel
@@ -1564,20 +1590,4 @@ CSS-класс задаёт внешний вид и расположение: s
   </div>
 </div>
 
-          <!-- ==================================================
-          HTML-ЭЛЕМЕНТ: studio-mode-tab video-only
-          При нажатии вызывает: SYLVEX.genAction('video')
-          CSS-класс задаёт внешний вид и расположение: studio-mode-tab video-only
-          =================================================== -->
-          <button class="studio-mode-tab video-only"
-                  type="button"
-                  data-studio-mode-btn="video-home"
-                  onclick="SYLVEX.genAction('video')">
-            <svg width="21" height="21" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="1.9"
-                stroke-linecap="round" stroke-linejoin="round">
-              <rect x="4" y="4" width="14" height="14" rx="3"/>
-              <path d="M18 9l3-2v10l-3-2"/>
-            </svg>
-            <span>Видео</span>
-          </button>
+       
