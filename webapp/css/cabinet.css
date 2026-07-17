@@ -827,10 +827,6 @@ CSS-БЛОК: .studio-frame-preview
 }
 .studio-frame-preview,
 .studio-frame-preview video,
-/* =====================================================
-CSS-БЛОК: .studio-frame-preview img
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .studio-frame-preview img{
   width:100%;
   height:100%;
@@ -838,10 +834,6 @@ CSS-БЛОК: .studio-frame-preview img
 }
 
 .studio-frame-preview video,
-/* =====================================================
-CSS-БЛОК: .studio-frame-preview img
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .studio-frame-preview img{
   object-fit:cover;
 }
@@ -1060,10 +1052,6 @@ CSS-БЛОК: .studio-control-row
   .studio-control-row .studio-select-pill,
   .studio-control-row .image-count-pill,
   .studio-control-row .image-settings-pill,
-/* =====================================================
-CSS-БЛОК: .studio-control-row .studio-generate
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .studio-control-row .studio-generate{
     flex:0 0 auto;
     min-height:34px;
@@ -1087,10 +1075,6 @@ CSS-БЛОК: .studio-control-row .studio-select-pill.wide
     margin-right:0;
   }
   .studio-control-row .studio-select-pill svg,
-/* =====================================================
-CSS-БЛОК: .studio-control-row .image-settings-pill svg
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .studio-control-row .image-settings-pill svg{
     width:16px;
     height:16px;
@@ -1326,10 +1310,6 @@ CSS-БЛОК: .gen-telegram-btn
 }
 .gen-action-btn:active{transform:scale(.98)}
 .gen-video,
-/* =====================================================
-CSS-БЛОК: .gen-audio
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .gen-audio{
   display:block;
   width:100%;
@@ -1579,10 +1559,6 @@ CSS-БЛОК: .sub-card-gold .sub-cd-val
 
 /* ===== Shop image safety fix ===== */
 .view[data-view="shop"] img,
-/* =====================================================
-CSS-БЛОК: .view[data-view="pay"] img
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="pay"] img{
   display:block;
   max-width:100%;
@@ -1591,20 +1567,12 @@ CSS-БЛОК: .view[data-view="pay"] img
 }
 
 .view[data-view="shop"] .avatar,
-/* =====================================================
-CSS-БЛОК: .view[data-view="pay"] .avatar
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="pay"] .avatar{
   overflow:hidden;
   flex:0 0 auto;
 }
 
 .view[data-view="shop"] .avatar img,
-/* =====================================================
-CSS-БЛОК: .view[data-view="pay"] .avatar img
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="pay"] .avatar img{
   width:100%;
   height:100%;
@@ -1618,10 +1586,6 @@ CSS-БЛОК: .view[data-view="pay"] .avatar img
 .view[data-view="shop"] .shop-balance img,
 .view[data-view="shop"] .sub-card img,
 .view[data-view="shop"] .tok-card img,
-/* =====================================================
-CSS-БЛОК: .view[data-view="pay"] .pay-user img
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="pay"] .pay-user img{
   max-height:120px;
   object-fit:cover;
@@ -1851,10 +1815,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop button.image-model-row
 .view[data-view="tools"].active .model-pop button.image-model-row:hover,
 .view[data-view="tools"].active .model-pop button.image-model-row:active,
 .view[data-view="tools"].active .model-pop button.image-model-row.active,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop button.image-model-row.sel
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .model-pop button.image-model-row.sel{
   background:#24262b;
 }
@@ -1931,10 +1891,6 @@ CSS-БЛОК: .image-model-check
 }
 
 .image-model-row.active .image-model-check,
-/* =====================================================
-CSS-БЛОК: .image-model-row.sel .image-model-check
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .image-model-row.sel .image-model-check{
   opacity:1;
 }
@@ -1954,10 +1910,6 @@ CSS-БЛОК: .view[data-view="tools"].active .sb-brand
 }
 
 .view[data-view="tools"].active .sb-brand:hover,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .sb-brand:active
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .sb-brand:active{
   background:transparent !important;
   transform:none !important;
@@ -1998,10 +1950,6 @@ CSS-БЛОК: .view[data-view="tools"].active .studio::after
 body.ai-generating .view[data-view="tools"].active .studio::before,
 .view[data-view="tools"].active .studio.is-generating::before,
 .view[data-view="tools"].active .studio.generating::before,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .studio:has(.typing)::before
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .studio:has(.typing)::before{
   opacity:.52 !important;
   animation:aiParticlesMove 10s linear infinite, aiParticlesGlow 2.2s ease-in-out infinite !important;
@@ -2011,10 +1959,6 @@ CSS-БЛОК: .view[data-view="tools"].active .studio:has(.typing)::before
 body.ai-generating .view[data-view="tools"].active .studio::after,
 .view[data-view="tools"].active .studio.is-generating::after,
 .view[data-view="tools"].active .studio.generating::after,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .studio:has(.typing)::after
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .studio:has(.typing)::after{
   opacity:.22 !important;
   animation:aiNetworkDrift 14s linear infinite !important;
@@ -2023,10 +1967,6 @@ CSS-БЛОК: .view[data-view="tools"].active .studio:has(.typing)::after
 @media(max-width:560px){
   body > #modelPop.image-model-floating-pop,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list){
     position:fixed !important;
     left:8px !important;
@@ -2051,10 +1991,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop::before,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop::before,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)::before
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)::before{
     display:none !important;
     content:none !important;
@@ -2062,10 +1998,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-sheet-title,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-sheet-title,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-sheet-title
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-sheet-title{
     position:sticky !important;
     top:0 !important;
@@ -2084,10 +2016,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-sheet-list,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-sheet-list,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-sheet-list
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-sheet-list{
     display:flex !important;
     flex-direction:column !important;
@@ -2096,10 +2024,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop button.image-model-row,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row{
     width:100% !important;
     min-height:auto !important;
@@ -2117,10 +2041,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
   .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.active,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop button.image-model-row.sel,
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row.active,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row.sel
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) button.image-model-row.sel{
     margin:0 4px !important;
     width:calc(100% - 8px) !important;
@@ -2130,10 +2050,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-icon,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-icon
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-icon{
     width:32px !important;
     height:32px !important;
@@ -2145,10 +2061,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-icon svg,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-icon svg,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-icon svg
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-icon svg{
     width:28px !important;
     height:28px !important;
@@ -2157,10 +2069,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-text,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-text,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-text
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-text{
     flex:1 !important;
     min-width:0 !important;
@@ -2171,10 +2079,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-name,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-name,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-name
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-name{
     font-size:11px !important;
     line-height:1.15 !important;
@@ -2185,10 +2089,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-desc,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-desc,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-desc
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-desc{
     display:block !important;
     overflow:visible !important;
@@ -2205,10 +2105,6 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 
   body > #modelPop.image-model-floating-pop .image-model-check,
   .view[data-view="tools"].active .model-pop.image-model-floating-pop .image-model-check,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-check
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list) .image-model-check{
     width:18px !important;
     height:18px !important;
@@ -2221,19 +2117,11 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
 .view[data-view="tools"].active .studio-control-row .studio-select-pill.wide .pill-meter,
 .view[data-view="tools"].active .studio-control-row .studio-select-pill.wide > svg,
 .view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide .pill-meter,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide > svg
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide > svg{
   display:none !important;
 }
 
 .view[data-view="tools"].active .studio-control-row .studio-select-pill.wide,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .studio-video-composer .studio-select-pill.wide{
   padding-left:12px !important;
   gap:0 !important;
@@ -2325,10 +2213,6 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop button.image-size-row
   }
 
   body > #modelPop.image-size-floating-pop button.image-size-row.active,
-/* =====================================================
-CSS-БЛОК: body > #modelPop.image-size-floating-pop button.image-size-row.sel
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   body > #modelPop.image-size-floating-pop button.image-size-row.sel{
     background:rgba(255,255,255,.12) !important;
   }
@@ -2423,10 +2307,6 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-check
   }
 
   body > #modelPop.image-size-floating-pop button.image-size-row.active .image-size-check,
-/* =====================================================
-CSS-БЛОК: body > #modelPop.image-size-floating-pop button.image-size-row.sel .image-size-check
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   body > #modelPop.image-size-floating-pop button.image-size-row.sel .image-size-check{
     opacity:1 !important;
   }
@@ -2627,10 +2507,6 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-rat
   }
 
   body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="3:4"],
-/* =====================================================
-CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]{
     width:15px !important;
     height:20px !important;
@@ -2770,10 +2646,6 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-rat
   }
 
   body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="3:4"],
-/* =====================================================
-CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
   body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:5"]{
     width:12px !important;
     height:16px !important;
@@ -2830,10 +2702,6 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-rat
 /* Отключаем старые опасные слои точек */
 .view[data-view="tools"].active .studio::before,
 .view[data-view="tools"].active .studio::after,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .chat-area::before
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .chat-area::before{
   content:none !important;
   display:none !important;
@@ -2857,10 +2725,6 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area
 
 /* При генерации только фон двигается, блоки не трогаем */
 body.ai-generating .view[data-view="tools"].active .chat-area,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .chat-area:has(.typing)
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .chat-area:has(.typing){
   background-image:
     radial-gradient(circle,rgba(255,255,255,.85) 0 .65px,transparent 1.25px),
@@ -2979,10 +2843,6 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area
 }
 
 body.ai-generating .view[data-view="tools"].active .studio,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .studio:has(.typing)
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .studio:has(.typing){
   background-image:
     radial-gradient(circle,rgba(255,255,255,.85) 0 .7px,transparent 1.35px),
@@ -3616,10 +3476,6 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
 }
 
 .view[data-view="tools"].active .msg.user .bubble > img,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble img.gen-img
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .msg.user .bubble img.gen-img{
   width:auto !important;
   max-width:170px !important;
@@ -3767,10 +3623,6 @@ CSS-БЛОК: .image-viewer-close
 /* Uploaded image previews are displayed only inside the Upload button background */
 #composerImageDraft,
 .composer-image-draft,
-/* =====================================================
-CSS-БЛОК: .composer-image-draft.show
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .composer-image-draft.show {
   display: none !important;
 }
@@ -4000,21 +3852,17 @@ CSS-БЛОК: .model-brand-logo.svg-current
 }
 
 .dots,
-/* =====================================================
-CSS-БЛОК: .dot-i
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .dot-i{
   display:none !important;
 }
 /* Hide homepage carousel dots */
-.hero-carousel .dots,
-.hero-carousel .dot-i,
-.dots,
 /* =====================================================
 CSS-БЛОК: .dot-i
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
+.hero-carousel .dots,
+.hero-carousel .dot-i,
+.dots,
 .dot-i{
   display:none !important;
   opacity:0 !important;
@@ -4026,10 +3874,6 @@ CSS-БЛОК: .dot-i
 .studio .typing,
 .studio .typing span,
 .msg.ai .typing,
-/* =====================================================
-CSS-БЛОК: .msg.ai .typing span
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .msg.ai .typing span{
   display:none !important;
   opacity:0 !important;
@@ -4045,10 +3889,6 @@ body.ai-generating .view[data-view="tools"].active .studio,
 .view[data-view="tools"].active .studio:has(.typing),
 .view[data-view="tools"].active .chat-area,
 body.ai-generating .view[data-view="tools"].active .chat-area,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .chat-area:has(.typing)
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .chat-area:has(.typing){
   background-image:none !important;
   animation:none !important;
@@ -4057,10 +3897,6 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area:has(.typing)
 .view[data-view="tools"].active .studio::before,
 .view[data-view="tools"].active .studio::after,
 .view[data-view="tools"].active .chat-area::before,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .chat-area::after
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .chat-area::after{
   content:none !important;
   display:none !important;
@@ -4070,10 +3906,6 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area::after
 
 /* Pro Studio image generation compact UX */
 .generation-loading-msg,
-/* =====================================================
-CSS-БЛОК: .generation-result-msg
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .generation-result-msg{
   max-width:78% !important;
 }
@@ -4578,10 +4410,6 @@ body > #modelPop.music-settings-pop .music-setting-chip{
 }
 
 body > #modelPop.music-settings-pop .music-setting-chip.active,
-/* =====================================================
-CSS-БЛОК: body > #modelPop.music-settings-pop .music-setting-chip.sel
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 body > #modelPop.music-settings-pop .music-setting-chip.sel{
   background:rgba(255,255,255,.16);
   color:#fff;
@@ -4631,10 +4459,6 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-select-pill.video-sound-di
 
 /* Pro Studio: gray chat background and transparent generated content */
 .view[data-view="tools"].active .studio,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .chat-area
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .chat-area{
   background:#202020 !important;
 }
@@ -4643,10 +4467,6 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area
 .view[data-view="tools"].active .gen-media-card,
 .view[data-view="tools"].active .gen-img-grid,
 .view[data-view="tools"].active .gen-media-list,
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .gen-file-card
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .view[data-view="tools"].active .gen-file-card{
   background:transparent !important;
   border:0 !important;
@@ -4721,10 +4541,6 @@ CSS-БЛОК: .image-visual-grid .studio-image-tool
 }
 
 .image-visual-grid .studio-image-tool span:last-child,
-/* =====================================================
-CSS-БЛОК: .image-visual-grid .studio-image-tool span
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .image-visual-grid .studio-image-tool span{
     text-align:left;
 }
@@ -4877,10 +4693,6 @@ CSS-БЛОК: .video-templates-panel
   -webkit-backdrop-filter:blur(18px);
 }
 .video-templates-close,
-/* =====================================================
-CSS-БЛОК: .video-template-modal-close
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .video-template-modal-close{
   position:fixed;
   right:18px;
@@ -5108,10 +4920,6 @@ CSS-БЛОК: .video-template-preview-fallback
 }
 
 .video-template-preview video:not([src]),
-/* =====================================================
-CSS-БЛОК: .video-template-preview video[src=""]
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
 .video-template-preview video[src=""]{
   display:none;
 }
