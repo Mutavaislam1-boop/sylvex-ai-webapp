@@ -7488,6 +7488,29 @@ function maybeShowVideoTemplateIntro(force) {
         isMusic ? 'music' :
         'video';
     }
+    // Show only controls for the active generation mode.
+    const modeClasses = ['image-only', 'video-only', 'music-only', 'voice-only', 'text-only'];
+
+    modeClasses.forEach(cls => {
+      document.querySelectorAll('.' + cls).forEach(el => {
+        el.hidden = true;
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
+      });
+    });
+
+    const activeClass =
+      isImage ? 'image-only' :
+      isText ? 'text-only' :
+      isVoice ? 'voice-only' :
+      isMusic ? 'music-only' :
+      'video-only';
+
+    document.querySelectorAll('.' + activeClass).forEach(el => {
+      el.hidden = false;
+      el.style.display = '';
+      el.setAttribute('aria-hidden', 'false');
+    });
     document.querySelectorAll('[data-studio-mode-btn]').forEach((btn) => {
       const modeBtn = btn.dataset.studioModeBtn;
       const isActive = isVideoSection
