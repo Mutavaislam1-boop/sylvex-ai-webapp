@@ -6038,25 +6038,20 @@ function uploadPhotoButtonHtml() {
       ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Загрузить видео"><span class="upload-photo-add-icon" aria-hidden="true">▶</span></button>'
       : '';
   }
-  const uploadKind = isVideoReferences ? 'image' : 'image';
 
   if (!uploadImages.length) {
-    return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + uploadKind + '\')">'
+    return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'media\')">'
       + '<span class="upload-photo-center-icon" aria-hidden="true">'
       + '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
       + '<rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>'
       + '<path d="M7 16L10.2 12.8C10.8 12.2 11.7 12.2 12.3 12.8L14 14.5L15.2 13.3C15.8 12.7 16.7 12.7 17.3 13.3L20 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
       + '<circle cx="8.7" cy="9.3" r="1.3" fill="currentColor"/>'
+      + '<path d="M18 7l3 2-3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
       + '</svg>'
       + '</span>'
-      + '<span class="upload-photo-center-title">Загрузить фото</span>'
-      + '<span class="upload-photo-center-sub">из файлов или галереи</span>'
-      + '</button>'
-      + (isVideoReferences ? '<button class="upload-photo-center-btn upload-video-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')">'
-        + '<span class="upload-photo-center-icon" aria-hidden="true">▶</span>'
-        + '<span class="upload-photo-center-title">Загрузить видео</span>'
-        + '<span class="upload-photo-center-sub">MP4 или MOV для Motion Control</span>'
-        + '</button>' : '');
+      + '<span class="upload-photo-center-title">Загрузить фото или видео</span>'
+      + '<span class="upload-photo-center-sub">Выберите изображение или видео</span>'
+      + '</button>';
   }
 
   return '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'image\')" aria-label="Загрузить фото">'
@@ -6790,7 +6785,8 @@ function closeUploadPanel(e) {
     if (sheet) sheet.classList.remove('show');
     const inp = document.getElementById('attachInput');
     if (!inp) return;
-    if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
+    if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
+    else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
     else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
     inp.value = '';
@@ -6844,7 +6840,15 @@ function closeUploadPanel(e) {
   function onAttachFile(e) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    const pendingKind = pendingAttachAccept || 'file';
+    let pendingKind = pendingAttachAccept || 'file';
+    // Handle 'media' kind: treat as image or video depending on file type
+    if (pendingKind === 'media') {
+      if (f.type && f.type.startsWith('video/')) {
+        pendingKind = 'video';
+      } else {
+        pendingKind = 'image';
+      }
+    }
     const maxSize = pendingKind === 'video' ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
     if (f.size > maxSize) {
       toast(pendingKind === 'video' ? 'Видео слишком большое (макс. 200 MB)' : 'Файл слишком большой (макс. 50 MB)');
@@ -6878,12 +6882,12 @@ function closeUploadPanel(e) {
       const result = String(reader.result || '');
       const b64 = result.split(',')[1] || '';
       const attachment = {
-        kind: pendingAttachAccept || 'file',
+        kind: pendingKind,
         mime: f.type || 'application/octet-stream',
         name: f.name,
         dataBase64: b64,
       };
-      if ((pendingAttachAccept || '') === 'image' && result) {
+      if (pendingKind === 'image' && result) {
         const target = getUploadTarget();
         if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
         applyUploadToTarget(result, target);
@@ -6894,11 +6898,11 @@ function closeUploadPanel(e) {
         setCurrentModeAttachment(attachment);
       }
 
-      if ((isMusicMode() || isVoiceMode()) && result && (pendingAttachAccept || '') !== 'image') {
+      if ((isMusicMode() || isVoiceMode()) && result && pendingKind !== 'image') {
         const state = currentAudioState();
         state.uploads = (state.uploads || []).filter((item) => item.url !== result);
         state.uploads.push({
-          kind: (pendingAttachAccept || 'file') === 'video' ? 'audio' : (pendingAttachAccept || 'file'),
+          kind: pendingKind === 'video' ? 'audio' : pendingKind,
           url: result,
           name: f.name,
           mime: f.type || 'application/octet-stream',
