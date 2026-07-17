@@ -240,6 +240,18 @@ HTML-страница Mini App. Комментарии подписывают э
                 <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="3"/><path d="M16 10l5-3v10l-5-3z"/></svg>
               </button>
               <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: textBtn
+              При нажатии вызывает: SYLVEX.genAction('text')
+              ID используется JavaScript/CSS как точка подключения: textBtn
+              CSS-класс задаёт внешний вид и расположение: studio-mini-tab
+              =================================================== -->
+              <button class="studio-mini-tab" id="textBtn" type="button" onclick="SYLVEX.genAction('text')" aria-label="Текст">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="4" y="4" width="16" height="16" rx="3"/>
+                  <path d="M8 8h8M8 12h8M8 16h4"/>
+                </svg>
+              </button>
+              <!-- ==================================================
               HTML-ЭЛЕМЕНТ: musicBtn
               При нажатии вызывает: SYLVEX.genAction('music')
               ID используется JavaScript/CSS как точка подключения: musicBtn
@@ -263,6 +275,18 @@ HTML-страница Mini App. Комментарии подписывают э
               </button>
             </div>
             <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-mode-tab text-only
+            При нажатии вызывает: SYLVEX.genAction('text')
+            CSS-класс задаёт внешний вид и расположение: studio-mode-tab text-only
+            =================================================== -->
+            <button class="studio-mode-tab text-only" type="button" data-studio-mode-btn="text" onclick="SYLVEX.genAction('text')">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="3"/>
+                <path d="M8 8h8M8 12h8M8 16h4"/>
+              </svg>
+              <span>Генерация текста</span>
+            </button>
+            <!-- ==================================================
             HTML-ЭЛЕМЕНТ: studio-mode-tab music-only
             При нажатии вызывает: SYLVEX.genAction('music')
             CSS-класс задаёт внешний вид и расположение: studio-mode-tab music-only
@@ -271,6 +295,13 @@ HTML-страница Mini App. Комментарии подписывают э
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
               <span>Генератор музыки</span>
             </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-media-column studio-text-tools text-only
+            CSS-класс задаёт внешний вид и расположение: studio-media-column studio-text-tools text-only
+            =================================================== -->
+            <div class="studio-media-column studio-text-tools text-only" aria-hidden="true">
+              <!-- Placeholder for future text tools -->
+            </div>
             <!-- ==================================================
             HTML-ЭЛЕМЕНТ: studio-mode-tab voice-only
             При нажатии вызывает: SYLVEX.genAction('voice')
@@ -1568,3 +1599,62 @@ CSS-класс задаёт внешний вид и расположение: s
     </div>
   </div>
 </div>
+
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studio-prompt-column text-only
+            CSS-класс задаёт внешний вид и расположение: studio-prompt-column text-only
+            =================================================== -->
+            <div class="studio-prompt-column text-only" style="display:none">
+              <div class="text-visual-grid text-only">
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-text-tool
+                При нажатии вызывает: SYLVEX.openTextOptionMenu(event,'model')
+                CSS-класс задаёт внешний вид и расположение: studio-text-tool
+                =================================================== -->
+                <button class="studio-text-tool" type="button" onclick="SYLVEX.openTextOptionMenu(event,'model')">
+                  <span class="studio-frame-ico">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
+                  </span>
+                  <span id="textModelVal">Модель</span>
+                </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-text-tool
+                При нажатии вызывает: SYLVEX.openTextOptionMenu(event,'option')
+                CSS-класс задаёт внешний вид и расположение: studio-text-tool
+                =================================================== -->
+                <button class="studio-text-tool" type="button" onclick="SYLVEX.openTextOptionMenu(event,'option')">
+                  <span class="studio-frame-ico">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                  </span>
+                  <span id="textOptionVal">Опция</span>
+                </button>
+                <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: studio-text-tool
+                При нажатии вызывает: SYLVEX.openTextOptionMenu(event,'settings')
+                CSS-класс задаёт внешний вид и расположение: studio-text-tool
+                =================================================== -->
+                <button class="studio-text-tool" type="button" onclick="SYLVEX.openTextOptionMenu(event,'settings')">
+                  <span class="studio-frame-ico">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
+                  </span>
+                  <span id="textSettingsVal">Настройки</span>
+                </button>
+              </div>
+              <textarea id="textInput" rows="3" placeholder="Опишите ваш текст" oninput="autoGrow(this)"></textarea>
+              <div class="studio-control-row">
+                <button class="studio-select-pill wide text-only" type="button" onclick="SYLVEX.openTextOptionMenu(event,'model')">
+                  <span class="pill-meter"></span>
+                  <span id="textModelValComposer">Text Model</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <button class="studio-select-pill text-only" type="button" onclick="SYLVEX.openTextOptionMenu(event,'option')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+                  <span id="textOptionValComposer">Опция</span>
+                </button>
+                <button class="studio-select-pill image-settings-pill text-only" type="button" aria-label="Настройки" onclick="SYLVEX.openTextOptionMenu(event,'settings')">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
+                  <span id="textSettingsValComposer" class="sr-only">Настройки</span>
+                </button>
+                <button class="studio-generate text-only" id="textSendBtn" type="button" onclick="SYLVEX.sendText()" disabled>Сгенерировать текст</button>
+              </div>
+            </div>
