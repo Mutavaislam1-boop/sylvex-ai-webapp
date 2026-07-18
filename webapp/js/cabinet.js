@@ -212,7 +212,7 @@ const AI_LOGOS = {
   seedance: LOBE_ICON_BASE + '/bytedance.svg',
   wan: LOBE_ICON_BASE + '/qwen.svg',
   veo: LOBE_ICON_BASE + '/gemini.svg',
-  heygen: LOBE_ICON_BASE + '/heygen.svg',
+  heygen: '/webapp/assets/logos/heygen-symbol-black-logo.svg',
   suno: LOBE_ICON_BASE + '/suno.svg',
   nanoBanana: 'custom-banana',
 };
@@ -954,31 +954,38 @@ const VIDEO_MODELS = [
   { id:'heygen_avatar_iii', label:'HeyGen Avatar III', desc:'HeyGen avatar engine', icon:'heygen' },
   { id:'heygen_image_video', label:'HeyGen Image Video', desc:'HeyGen image to avatar video', icon:'heygen' },
   { id:'heygen_cinematic_avatar', label:'HeyGen Cinematic Avatar', desc:'HeyGen cinematic avatar generation', icon:'heygen' },
+
   { id:'luma_ray_v3_2', label:'Luma Ray v3.2', desc:'Luma AI video model', icon:'luma' },
   { id:'luma_dream_machine', label:'Luma Dream Machine', desc:'Luma Dream Machine', icon:'dreamMachine' },
-  { id:'minimax_hailuo_2_3', label:'Минимакс Хайлуо 2.3', desc:'MiniMax Hailuo video', icon:'hailuo' },
+
+  { id:'minimax_hailuo_2_3', label:'MiniMax Hailuo 2.3', desc:'MiniMax Hailuo video', icon:'hailuo' },
+
   { id:'pixverse_v6', label:'PixVerse v6', desc:'PixVerse video model', icon:'pixverse' },
 
-  { id:'sora_2_pro', label:'Sora 2 Про', desc:'OpenAI Sora video', icon:'sora' },
-  { id:'wan_2_7', label:'Ван 2.7', desc:'Alibaba Wan video model', icon:'wan' },
-  { id:'veo_3_1', label:'Veo 3.1', desc:'Google Veo video model', icon:'veo', badge:'РЕКОМЕНДУЕМЫЙ', badgeClass:'pink' },
-  { id:'grok_video_edit', label:'Видеомонтаж Grok', desc:'xAI Grok video editing', icon:'grok' },
-  { id:'wan_2_7_edit', label:'WAN 2.7 Редактировать', desc:'Wan video editing model', icon:'wan' },
+  { id:'sora_2', label:'Sora 2', desc:'OpenAI Sora video', icon:'sora' },
+  { id:'sora_2_pro', label:'Sora 2 Pro', desc:'OpenAI Sora video', icon:'sora' },
+
+  { id:'wan_2_6', label:'Wan 2.6', desc:'Alibaba Wan video model', icon:'wan' },
+  { id:'wan_2_7', label:'Wan 2.7', desc:'Alibaba Wan video model', icon:'wan' },
+  { id:'wan_2_7_edit', label:'Wan 2.7 Edit', desc:'Wan video editing model', icon:'wan' },
+
+  { id:'veo_3_1', label:'Veo 3.1', desc:'Google Veo video model', icon:'veo', badge:'RECOMMENDED', badgeClass:'pink' },
+  { id:'veo_3_1_fast', label:'Veo 3.1 Fast', desc:'Google Veo fast video', icon:'veo', badge:'FAST', badgeClass:'yellow' },
+
+  { id:'grok_video', label:'Grok Video', desc:'xAI Grok video model', icon:'grok', badge:'BUDGET', badgeClass:'green' },
+  { id:'grok_video_edit', label:'Grok Video Edit', desc:'xAI Grok video editing', icon:'grok' },
 
   { id:'runway_gen4_5', label:'Runway Gen-4.5', desc:'Runway text/image to video model', icon:'runway' },
   { id:'runway_gen4_turbo', label:'Runway Gen-4 Turbo', desc:'Runway image to video model', icon:'runway' },
   { id:'runway_aleph2', label:'Runway Aleph 2.0', desc:'Runway video to video editing model', icon:'runway' },
   { id:'runway_aleph', label:'Runway Gen-4 Aleph', desc:'Runway deprecated video edit model', icon:'runway' },
   { id:'runway_gen3a_turbo', label:'Runway Gen-3 Alpha Turbo', desc:'Runway deprecated image to video model', icon:'runway' },
-  { id:'runway_seedance2', label:'Runway Seedance 2.0', desc:'Seedance via Runway API', icon:'runway' },
-  { id:'runway_seedance2_fast', label:'Runway Seedance 2.0 Fast', desc:'Seedance Fast via Runway API', icon:'runway' },
-  { id:'runway_seedance2_mini', label:'Runway Seedance 2.0 Mini', desc:'Seedance Mini via Runway API', icon:'runway' },
   { id:'runway_happyhorse_1_0', label:'Runway HappyHorse 1.0', desc:'HappyHorse via Runway API', icon:'runway' },
-  { id:'runway_veo3', label:'Runway Veo 3', desc:'Veo via Runway API', icon:'runway' },
-  { id:'runway_veo3_1', label:'Runway Veo 3.1', desc:'Veo 3.1 via Runway API', icon:'runway' },
-  { id:'runway_veo3_1_fast', label:'Runway Veo 3.1 Fast', desc:'Veo 3.1 Fast via Runway API', icon:'runway' },
-  { id:'runway_gemini_omni_flash', label:'Runway Gemini Omni Flash', desc:'Gemini Omni via Runway API', icon:'runway' },
+
   { id:'kling_3_0_turbo', label:'Kling 3.0 Turbo', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_3_0', label:'Kling 3.0', desc:'Kling video model', icon:'kling', badge:'DISCOUNT', badgeClass:'green' },
+  { id:'kling_o3_omni', label:'Kling 3.0 Omni', desc:'Kling Omni video model', icon:'kling', badge:'HOT', badgeClass:'red' },
+  { id:'kling_o3_edit', label:'Kling 3.0 Omni Edit', desc:'Kling Omni video editing model', icon:'kling' },
   { id:'kling_motion_2_6', label:'Kling Motion 2.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_motion_3_0', label:'Kling Motion 3.0', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_o1', label:'Kling O1', desc:'Kling AI video model', icon:'kling' },
@@ -990,19 +997,12 @@ const VIDEO_MODELS = [
   { id:'kling_1_6', label:'Kling 1.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_1_5', label:'Kling 1.5', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_1_0', label:'Kling 1.0', desc:'Kling AI video model', icon:'kling' },
+
   { id:'seedance_1_5_pro', label:'Seedance 1.5 Pro', desc:'ByteDance Seedance video', icon:'seedance' },
-  { id:'wan_2_6', label:'Ван 2.6', desc:'Alibaba Wan video model', icon:'wan' },
+  { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'FAST', badgeClass:'yellow' },
+  { id:'seedance_2_0', label:'Seedance 2.0', desc:'ByteDance Seedance video', icon:'seedance', badge:'TRENDING', badgeClass:'pink' },
 
-  { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
-  { id:'seedance_2_0', label:'Seedance 2.0', desc:'ByteDance Seedance video', icon:'seedance', badge:'В ТРЕНДЕ', badgeClass:'pink' },
-  { id:'kling_o3_omni', label:'Kling 3.0 Omni', desc:'Kling Omni video model', icon:'kling', badge:'ГОРЯЧИЙ', badgeClass:'red' },
-  { id:'gemini_omni_flash', label:'Gemini Omni Flash', desc:'Google Gemini video model', icon:'gemini' },
-  { id:'sora_2', label:'Sora 2', desc:'OpenAI Sora video', icon:'sora' },
-
-  { id:'grok_video', label:'Грок', desc:'xAI Grok video model', icon:'grok', badge:'БЮДЖЕТНЫЙ', badgeClass:'green' },
-  { id:'veo_3_1_fast', label:'Veo 3.1 Fast', desc:'Google Veo fast video', icon:'veo', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
-  { id:'runway_gen', label:'Runway Gen-4 Turbo', desc:'Runway generation model', icon:'runway' },
-  { id:'kling_3_0', label:'Kling 3.0', desc:'Kling video model', icon:'kling', badge:'СКИДКА', badgeClass:'green' }
+  { id:'gemini_omni_flash', label:'Gemini Omni Flash', desc:'Google Gemini video model', icon:'gemini' }
 ];
 
 const VIDEO_MODEL_CONFIG = {
