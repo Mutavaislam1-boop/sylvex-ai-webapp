@@ -282,6 +282,10 @@ def _save_gemini_tts_wav(pcm: bytes) -> str:
 def _extract_gemini_output_audio(data: Any) -> str:
     if not isinstance(data, dict):
         return ""
+    mime_type = str(data.get("mime_type") or data.get("mimeType") or data.get("type") or "").lower()
+    inline_data = data.get("data")
+    if inline_data and "audio" in mime_type:
+        return str(inline_data or "")
     output_audio = data.get("output_audio")
     if isinstance(output_audio, dict) and output_audio.get("data"):
         return str(output_audio.get("data") or "")
