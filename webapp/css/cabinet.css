@@ -4489,6 +4489,62 @@ body > #modelPop.music-settings-pop .music-settings-clear{
 }
 
 /* =====================================================
+CSS-БЛОК: .voice-preview-row
+Строка выбора Gemini TTS голоса с отдельной кнопкой прослушивания.
+Позволяет послушать голос прямо в Mini App перед выбором.
+===================================================== */
+body > #modelPop.image-size-floating-pop .voice-preview-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  background:rgba(255,255,255,.045);
+}
+
+body > #modelPop.image-size-floating-pop .voice-preview-row.active,
+body > #modelPop.image-size-floating-pop .voice-preview-row.sel{
+  border-color:rgba(96,165,250,.55);
+  background:rgba(96,165,250,.12);
+}
+
+body > #modelPop.image-size-floating-pop .voice-preview-pick{
+  flex:1;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:44px;
+  padding:10px 12px;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  text-align:left;
+}
+
+body > #modelPop.image-size-floating-pop .voice-preview-play{
+  width:36px;
+  height:36px;
+  flex:0 0 36px;
+  margin-right:6px;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:50%;
+  background:rgba(255,255,255,.08);
+  color:#fff;
+  font-size:13px;
+  line-height:1;
+}
+
+body > #modelPop.image-size-floating-pop .voice-preview-play:disabled{
+  opacity:.7;
+}
+
+/* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .studio-select-pill.video-sound-on
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */

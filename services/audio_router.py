@@ -43,6 +43,14 @@ GEMINI_TTS_MODEL_MAP = {
     "gemini-2.5-pro-preview-tts": "gemini-2.5-pro-preview-tts",
 }
 
+GEMINI_TTS_VOICE_NAMES = {
+    "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda",
+    "Orus", "Aoede", "Callirrhoe", "Autonoe", "Enceladus", "Iapetus",
+    "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi",
+    "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima",
+    "Achird", "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
+}
+
 
 # =====================================================
 # PYTHON-БЛОК: safe_audio_json_response
@@ -748,6 +756,82 @@ async def voice_generation(payload: dict) -> dict:
         "response": data,
         "sent_to_telegram": sent_to_telegram,
         "text": "Озвучка готова ✅\n" + audio_url,
+    }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: gemini_tts_voice_preview
+# Генерирует короткий пример выбранного голоса Gemini TTS без создания Job.
+# Mini App использует этот endpoint только для прослушивания голоса перед выбором.
+# =====================================================
+async def gemini_tts_voice_preview(payload: dict) -> dict:
+    provider = "gemini"
+    frontend_model = payload.get("model") or "gemini_3_1_flash_tts_preview"
+    provider_model = _gemini_tts_model_mapping(frontend_model)
+    api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE-GEMINI-API-KEY")
+    voice = str(payload.get("voice") or "Kore").strip()
+    if voice not in GEMINI_TTS_VOICE_NAMES:
+        return _audio_error(provider, frontend_model, provider_model, f"Unsupported Gemini TTS voice: {voice}")
+    if not provider_model:
+        return _audio_error(provider, frontend_model, "", "Unknown Gemini TTS model mapping", frontend_model=frontend_model)
+    if not api_key:
+        return _audio_error(provider, frontend_model, provider_model, "GEMINI_API_KEY is not configured")
+
+    sample_text = (payload.get("text") or "Привет! Это пример голоса в SYLVEX.").strip()[:220]
+    request_payload = {
+        "prompt": sample_text,
+        "voice_options": {
+            "model": frontend_model,
+            "voice": voice,
+            "speaker_mode": "single",
+        },
+    }
+    request_body = _gemini_tts_payload(request_payload, provider_model)
+    request_body.pop("_debug_effective_speaker_mode", None)
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+    print("GEMINI TTS VOICE PREVIEW REQUEST:", {
+        "endpoint": GEMINI_TTS_ENDPOINT,
+        "frontend_model": frontend_model,
+        "provider_model": provider_model,
+        "voice": voice,
+        "text_length": len(sample_text),
+    })
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            response = await client.post(GEMINI_TTS_ENDPOINT, headers=headers, json=request_body)
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, exc, endpoint=GEMINI_TTS_ENDPOINT, details=repr(exc))
+    data = await safe_audio_json_response(response, provider, GEMINI_TTS_ENDPOINT)
+    print("GEMINI TTS VOICE PREVIEW RESPONSE:", {
+        "status_code": response.status_code,
+        "has_output_audio": bool(_extract_gemini_output_audio(data)),
+        "body_preview": json.dumps(data, ensure_ascii=False)[:900] if isinstance(data, (dict, list)) else str(data)[:900],
+    })
+    if response.status_code >= 400:
+        return _audio_error(provider, frontend_model, provider_model, data, endpoint=GEMINI_TTS_ENDPOINT, status_code=response.status_code, response=data)
+    audio_data = _extract_gemini_output_audio(data)
+    if not audio_data:
+        return _audio_error(provider, frontend_model, provider_model, "Gemini TTS preview returned no output_audio", endpoint=GEMINI_TTS_ENDPOINT, response=data)
+    try:
+        audio_bytes = base64.b64decode(audio_data)
+    except Exception as exc:
+        return _audio_error(provider, frontend_model, provider_model, f"Gemini TTS preview audio decode failed: {exc}", response=data)
+    audio_url = _save_gemini_tts_wav(audio_bytes)
+    if not audio_url:
+        return _audio_error(provider, frontend_model, provider_model, "Gemini TTS preview audio save failed", response=data)
+    return {
+        "ok": True,
+        "success": True,
+        "type": "voice_preview",
+        "provider": provider,
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "voice": voice,
+        "audio_url": audio_url,
+        "audios": [audio_url],
     }
 
 

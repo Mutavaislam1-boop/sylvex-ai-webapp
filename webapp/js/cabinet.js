@@ -170,6 +170,8 @@ let voiceState = {
     tone: 'auto',
   },
 };
+const geminiVoicePreviewCache = {};
+let geminiVoicePreviewAudio = null;
 
 let textState = {
   modelId: 'gpt-4o-mini',
@@ -4060,10 +4062,14 @@ function imageModelButton(model) {
           + items.map((item) => {
             const id = String(item.id || '');
             const active = String(activeValue || '') === id;
-            return '<button class="image-size-row no-ratio-icon ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+            const safeId = S.escapeHtml(id);
+            return '<div class="image-size-row no-ratio-icon voice-preview-row ' + (active ? 'active sel' : '') + '">'
+              + '<button class="voice-preview-pick" type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
               + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>'
               + '<span class="image-size-check">✓</span>'
-              + '</button>';
+              + '</button>'
+              + '<button class="voice-preview-play" type="button" aria-label="Прослушать ' + safeId + '" data-voice-id="' + safeId + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
+              + '</div>';
           }).join('')
           + '</div>';
         el.classList.add('show');
@@ -4573,6 +4579,63 @@ function imageModelButton(model) {
   // АУДИОПЛЕЕР: pickVoiceOption
   // Выбирает модель/голос/режим озвучки и обновляет кнопки Gemini TTS в разделе «Озвучка».
   // =====================================================
+  async function previewGeminiVoice(e, voiceId) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    ensureVoiceSettings();
+    const voice = String(voiceId || voiceState.voice || 'Kore').trim();
+    if (!voice) return;
+    const btn = e && e.currentTarget ? e.currentTarget : null;
+    const oldText = btn ? btn.textContent : '';
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '…';
+      }
+      const cacheKey = (voiceState.modelId || 'gemini_3_1_flash_tts_preview') + ':' + voice;
+      let audioUrl = geminiVoicePreviewCache[cacheKey] || '';
+      if (!audioUrl) {
+        const res = await fetch('/api/public/prostudio/voice-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            telegram_id: getTelegramId(),
+            model: voiceState.modelId || 'gemini_3_1_flash_tts_preview',
+            voice,
+            text: 'Привет! Это пример голоса в SYLVEX.',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false || data.success === false) {
+          throw new Error(data.error || data.message || 'Не удалось прослушать голос');
+        }
+        audioUrl = data.audio_url || (Array.isArray(data.audios) ? data.audios[0] : '') || '';
+        if (!audioUrl) throw new Error('Не удалось получить audio_url');
+        geminiVoicePreviewCache[cacheKey] = audioUrl;
+      }
+      if (!geminiVoicePreviewAudio) {
+        geminiVoicePreviewAudio = new Audio();
+        geminiVoicePreviewAudio.preload = 'auto';
+      }
+      geminiVoicePreviewAudio.pause();
+      geminiVoicePreviewAudio.src = audioUrl;
+      geminiVoicePreviewAudio.currentTime = 0;
+      await geminiVoicePreviewAudio.play();
+      if (btn) btn.textContent = '❚❚';
+      geminiVoicePreviewAudio.onended = () => {
+        if (btn) btn.textContent = oldText || '▶';
+      };
+    } catch (err) {
+      console.warn('Gemini voice preview failed', err);
+      toast((err && err.message) || 'Не удалось прослушать голос');
+      if (btn) btn.textContent = oldText || '▶';
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function pickVoiceOption(e, kind, value) {
     if (e) {
       e.preventDefault();
@@ -10157,7 +10220,7 @@ async function waitGeneration(jobId, options) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
@@ -10181,6 +10244,7 @@ async function waitGeneration(jobId, options) {
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
   window.pickVoiceOption = pickVoiceOption;
+  window.previewGeminiVoice = previewGeminiVoice;
   window.onImageSeedInput = onImageSeedInput;
   window.toggleImageSeedTooltip = toggleImageSeedTooltip;
   window.resetImageSettings = resetImageSettings;
