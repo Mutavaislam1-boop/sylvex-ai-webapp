@@ -311,11 +311,20 @@ def _gemini_tts_payload(payload: dict, provider_model: str) -> dict:
     prompt = (payload.get("prompt") or voice_options.get("prompt") or "").strip()
     voice = voice_options.get("voice") or voice_options.get("voice_name") or "Kore"
     speaker_mode = str(voice_options.get("speaker_mode") or voice_options.get("speakerMode") or "single").lower()
+    effective_mode = "single"
     if speaker_mode in {"multi", "multispeaker", "multi_speaker"}:
-        speech_config = [
-            {"speaker": voice_options.get("speaker1") or "Speaker1", "voice": voice},
-            {"speaker": voice_options.get("speaker2") or "Speaker2", "voice": voice_options.get("second_voice") or voice_options.get("secondVoice") or "Puck"},
-        ]
+        speaker1 = voice_options.get("speaker1") or "Speaker1"
+        speaker2 = voice_options.get("speaker2") or "Speaker2"
+        has_speaker1 = f"{speaker1}:" in prompt
+        has_speaker2 = f"{speaker2}:" in prompt
+        if has_speaker1 and has_speaker2:
+            effective_mode = "multi"
+            speech_config = [
+                {"speaker": speaker1, "voice": voice},
+                {"speaker": speaker2, "voice": voice_options.get("second_voice") or voice_options.get("secondVoice") or "Puck"},
+            ]
+        else:
+            speech_config = [{"voice": voice}]
     else:
         speech_config = [{"voice": voice}]
     return {
@@ -323,6 +332,7 @@ def _gemini_tts_payload(payload: dict, provider_model: str) -> dict:
         "input": prompt,
         "response_format": {"type": "audio"},
         "generation_config": {"speech_config": speech_config},
+        "_debug_effective_speaker_mode": effective_mode,
     }
 
 
@@ -675,6 +685,7 @@ async def voice_generation(payload: dict) -> dict:
         return _audio_error(provider, frontend_model, provider_model, "Voice prompt is empty")
 
     request_body = _gemini_tts_payload(payload, provider_model)
+    effective_speaker_mode = request_body.pop("_debug_effective_speaker_mode", "single")
     headers = {
         "x-goog-api-key": api_key,
         "Content-Type": "application/json",
@@ -685,6 +696,7 @@ async def voice_generation(payload: dict) -> dict:
         "provider_model": provider_model,
         "voice": (voice_options.get("voice") or voice_options.get("voice_name") or "Kore"),
         "speaker_mode": voice_options.get("speaker_mode") or voice_options.get("speakerMode") or "single",
+        "effective_speaker_mode": effective_speaker_mode,
         "has_prompt": bool(request_body.get("input")),
     })
     async with httpx.AsyncClient(timeout=180.0) as client:
@@ -693,6 +705,11 @@ async def voice_generation(payload: dict) -> dict:
         except Exception as exc:
             return _audio_error(provider, frontend_model, provider_model, exc, endpoint=GEMINI_TTS_ENDPOINT, details=repr(exc))
     data = await safe_audio_json_response(response, provider, GEMINI_TTS_ENDPOINT)
+    print("GEMINI TTS RESPONSE:", {
+        "status_code": response.status_code,
+        "has_output_audio": bool(_extract_gemini_output_audio(data)),
+        "body_preview": json.dumps(data, ensure_ascii=False)[:1200] if isinstance(data, (dict, list)) else str(data)[:1200],
+    })
     if response.status_code >= 400:
         return _audio_error(provider, frontend_model, provider_model, data, endpoint=GEMINI_TTS_ENDPOINT, status_code=response.status_code, response=data)
 
