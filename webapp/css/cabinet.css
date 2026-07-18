@@ -4089,6 +4089,20 @@ CSS-БЛОК: .generation-result-voice-card
 .generation-info-inline-audio{
   margin:0 0 14px;
 }
+
+.generation-info-media-player{
+  display:block;
+  width:100%;
+  max-height:260px;
+  margin:0 0 14px;
+  border-radius:16px;
+  background:#141518;
+  border:1px solid rgba(255,255,255,.10);
+}
+
+.generation-info-preview-button{
+  cursor:pointer;
+}
 /* =====================================================
 CSS-БЛОК: .generation-result-thumb
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -4365,7 +4379,8 @@ CSS-БЛОК: .generation-info-row
 CSS-БЛОК: .generation-info-actions button
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-.generation-info-actions button{
+.generation-info-actions button,
+.generation-info-actions a{
   min-height:40px;
   border-radius:12px;
   border:1px solid rgba(255,255,255,.10);
@@ -4373,6 +4388,12 @@ CSS-БЛОК: .generation-info-actions button
   color:#0b0b0d;
   font-weight:750;
   cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+  font-family:inherit;
+  font-size:13px;
 }
 
 /* Pro Studio video option rows without ratio icons */
