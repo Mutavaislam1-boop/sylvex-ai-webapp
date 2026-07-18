@@ -2734,8 +2734,30 @@ def heygen_headers() -> dict:
 
     return {
         "x-api-key": HEYGEN_API_KEY,
+        "Authorization": f"Bearer {HEYGEN_API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
+    }
+
+# =====================================================
+# PYTHON-БЛОК: fetch_heygen_brand_kits
+# Загружает список Brand Kits из HeyGen через официальный GET /v3/brand-kits.
+# Возвращает только данные, нужные Mini App для выбора brand_kit_id.
+# =====================================================
+def fetch_heygen_brand_kits() -> dict:
+    response = requests.get(
+        f"{HEYGEN_BASE_URL}/brand-kits",
+        headers=heygen_headers(),
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(response.text)
+    data = response.json()
+    kits = data.get("data") if isinstance(data.get("data"), list) else []
+    return {
+        "brand_kits": kits,
+        "has_more": bool(data.get("has_more")),
+        "default_brand_kit_id": (kits[0] or {}).get("brand_kit_id") if kits else "",
     }
 
 # =====================================================
@@ -3135,6 +3157,28 @@ async def heygen_voice_bootstrap(telegram_id: int = 0):
         "warnings": warnings,
         "api_available": not warnings,
     }
+
+# =====================================================
+# API ENDPOINT: heygen_brand_kits
+# Возвращает Brand Kits HeyGen для дальнейшей передачи brand_kit_id в генерацию.
+# Маршрут использует официальный запрос HeyGen GET /v3/brand-kits.
+# =====================================================
+@app.get("/api/public/heygen/brand-kits")
+async def heygen_brand_kits():
+    try:
+        data = fetch_heygen_brand_kits()
+        return {"success": True, **data}
+    except Exception as exc:
+        print("HEYGEN BRAND KITS LOAD FAILED:", exc)
+        return JSONResponse(
+            {
+                "success": False,
+                "error": "Не удалось загрузить HeyGen Brand Kits",
+                "brand_kits": [],
+                "default_brand_kit_id": "",
+            },
+            status_code=502,
+        )
 
 # =====================================================
 # API ENDPOINT: save_heygen_voice_settings

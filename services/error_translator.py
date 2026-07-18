@@ -58,6 +58,9 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
     low = text.lower()
     provider_low = (provider or "").lower()
 
+    if re.search(r"[а-яё]", text, re.I) and not re.search(r"provider|request|response|traceback|exception|stack|json|http|badrequest|internal server|unknown parameter", low):
+        return text
+
     if re.search(r"prompt.*size.*between.*0.*3072|prompt.*3072|size must be between", low):
         if provider_low == "kling" or "kling" in low:
             return "Описание слишком длинное для выбранной модели.\nМаксимальная длина текста для Kling — 3072 символа.\nСократите описание и попробуйте снова."

@@ -212,7 +212,7 @@ const AI_LOGOS = {
   seedance: LOBE_ICON_BASE + '/bytedance.svg',
   wan: LOBE_ICON_BASE + '/qwen.svg',
   veo: LOBE_ICON_BASE + '/gemini.svg',
-  heygen: LOBE_ICON_BASE + '/runway.svg',
+  heygen: LOBE_ICON_BASE + '/heygen.svg',
   suno: LOBE_ICON_BASE + '/suno.svg',
   nanoBanana: 'custom-banana',
 };
@@ -965,7 +965,19 @@ const VIDEO_MODELS = [
   { id:'grok_video_edit', label:'Видеомонтаж Grok', desc:'xAI Grok video editing', icon:'grok' },
   { id:'wan_2_7_edit', label:'WAN 2.7 Редактировать', desc:'Wan video editing model', icon:'wan' },
 
-  { id:'runway_aleph', label:'Взлетно-посадочная полоса Aleph', desc:'Runway video model', icon:'runway' },
+  { id:'runway_gen4_5', label:'Runway Gen-4.5', desc:'Runway text/image to video model', icon:'runway' },
+  { id:'runway_gen4_turbo', label:'Runway Gen-4 Turbo', desc:'Runway image to video model', icon:'runway' },
+  { id:'runway_aleph2', label:'Runway Aleph 2.0', desc:'Runway video to video editing model', icon:'runway' },
+  { id:'runway_aleph', label:'Runway Gen-4 Aleph', desc:'Runway deprecated video edit model', icon:'runway' },
+  { id:'runway_gen3a_turbo', label:'Runway Gen-3 Alpha Turbo', desc:'Runway deprecated image to video model', icon:'runway' },
+  { id:'runway_seedance2', label:'Runway Seedance 2.0', desc:'Seedance via Runway API', icon:'runway' },
+  { id:'runway_seedance2_fast', label:'Runway Seedance 2.0 Fast', desc:'Seedance Fast via Runway API', icon:'runway' },
+  { id:'runway_seedance2_mini', label:'Runway Seedance 2.0 Mini', desc:'Seedance Mini via Runway API', icon:'runway' },
+  { id:'runway_happyhorse_1_0', label:'Runway HappyHorse 1.0', desc:'HappyHorse via Runway API', icon:'runway' },
+  { id:'runway_veo3', label:'Runway Veo 3', desc:'Veo via Runway API', icon:'runway' },
+  { id:'runway_veo3_1', label:'Runway Veo 3.1', desc:'Veo 3.1 via Runway API', icon:'runway' },
+  { id:'runway_veo3_1_fast', label:'Runway Veo 3.1 Fast', desc:'Veo 3.1 Fast via Runway API', icon:'runway' },
+  { id:'runway_gemini_omni_flash', label:'Runway Gemini Omni Flash', desc:'Gemini Omni via Runway API', icon:'runway' },
   { id:'kling_3_0_turbo', label:'Kling 3.0 Turbo', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_motion_2_6', label:'Kling Motion 2.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_motion_3_0', label:'Kling Motion 3.0', desc:'Kling AI video model', icon:'kling' },
@@ -989,7 +1001,7 @@ const VIDEO_MODELS = [
 
   { id:'grok_video', label:'Грок', desc:'xAI Grok video model', icon:'grok', badge:'БЮДЖЕТНЫЙ', badgeClass:'green' },
   { id:'veo_3_1_fast', label:'Veo 3.1 Fast', desc:'Google Veo fast video', icon:'veo', badge:'БЫСТРЫЙ', badgeClass:'yellow' },
-  { id:'runway_gen', label:'Взлетно-посадочная полоса Gen', desc:'Runway generation model', icon:'runway' },
+  { id:'runway_gen', label:'Runway Gen-4 Turbo', desc:'Runway generation model', icon:'runway' },
   { id:'kling_3_0', label:'Kling 3.0', desc:'Kling video model', icon:'kling', badge:'СКИДКА', badgeClass:'green' }
 ];
 
@@ -1009,7 +1021,19 @@ const VIDEO_MODEL_CONFIG = {
   veo_3_1: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video_edit: { provider:'grok', modes:['video_edit'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
   wan_2_7_edit: { provider:'wan', modes:['video_edit'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:false, end_image:false, video_upload:true, video_edit:true },
-  runway_aleph: { provider:'runway', modes:['video_edit','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  runway_gen4_5: { provider:'runway', modes:['text_to_video','image_to_video'], durations:[2,3,4,5,6,7,8,9,10], ratios:['16:9','9:16','1:1','4:3','3:4','21:9'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  runway_gen4_turbo: { provider:'runway', modes:['image_to_video'], durations:[2,3,4,5,6,7,8,9,10], ratios:['16:9','21:9','4:3','9:16','3:4','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  runway_aleph2: { provider:'runway', modes:['video_edit'], durations:[2,3,4,5,6,7,8,9,10,11,12,13,14,15,20,25,30], ratios:['match_input','16:9','9:16','1:1','4:3','3:4','21:9'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:true, video_edit:true },
+  runway_aleph: { provider:'runway', modes:['video_edit'], durations:[5,10], ratios:['16:9','21:9','4:3','9:16','3:4','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:true, video_edit:true },
+  runway_gen3a_turbo: { provider:'runway', modes:['image_to_video'], durations:[5,10], ratios:['16:9','9:16'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  runway_seedance2: { provider:'runway', modes:['text_to_video','image_to_video','video_edit'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['480p','720p','1080p','4K'], sound:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  runway_seedance2_fast: { provider:'runway', modes:['text_to_video','image_to_video','video_edit'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['480p','720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  runway_seedance2_mini: { provider:'runway', modes:['text_to_video','image_to_video','video_edit'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['480p','720p'], sound:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
+  runway_happyhorse_1_0: { provider:'runway', modes:['text_to_video','image_to_video'], durations:[3,4,5,6,7,8,9,10,11,12,13,14,15], ratios:['16:9','9:16','1:1','4:3','3:4'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  runway_veo3: { provider:'runway', modes:['image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  runway_veo3_1: { provider:'runway', modes:['image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  runway_veo3_1_fast: { provider:'runway', modes:['image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
+  runway_gemini_omni_flash: { provider:'runway', modes:['text_to_video','image_to_video','video_edit'], durations:[3,4,5,6,7,8,9,10], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:true, video_edit:true },
   seedance_1_5_pro: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12], ratios:['adaptive','16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['720p','480p','1080p'], sound:true, start_image:true, end_image:false, video_input:true, video_upload:true, video_edit:false },
   wan_2_6: { provider:'wan', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   seedance_2_fast: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['adaptive','16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['720p','480p'], sound:true, start_image:true, end_image:false, video_input:true, video_upload:true, video_edit:false },
@@ -1018,7 +1042,7 @@ const VIDEO_MODEL_CONFIG = {
   sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video: { provider:'grok', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
   veo_3_1_fast: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
-  runway_gen: { provider:'runway', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false }
+  runway_gen: { provider:'runway', modes:['image_to_video'], durations:[2,3,4,5,6,7,8,9,10], ratios:['16:9','21:9','4:3','9:16','3:4','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false }
 };
 
 const KLING_VIDEO_BASE_RATIOS = ['16:9','9:16','1:1'];
