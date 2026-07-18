@@ -22,7 +22,7 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from services.audio_router import audio_generation, _send_generated_audio_to_telegram
+from services.audio_router import audio_generation, gemini_tts_voice_preview, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram
@@ -3123,6 +3123,18 @@ async def elevenlabs_preview(request: Request):
         media_type=content_type.split(";")[0] if content_type else "audio/mpeg",
         headers={"Cache-Control": "no-store"}
     )
+
+# =====================================================
+# API ENDPOINT: public_prostudio_voice_preview
+# Генерирует короткий preview выбранного Gemini TTS голоса для Mini App.
+# Не создаёт job, не пишет историю генераций и не списывает баланс.
+# =====================================================
+@app.post("/api/public/prostudio/voice-preview")
+async def public_prostudio_voice_preview(request: Request):
+    data = await request.json()
+    result = await gemini_tts_voice_preview(data)
+    status_code = 200 if result.get("ok") or result.get("success") else 502
+    return JSONResponse(result, status_code=status_code)
 
 # =====================================================
 # API ENDPOINT: heygen_voice_bootstrap
