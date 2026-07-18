@@ -5169,7 +5169,7 @@ function imageModelButton(model) {
       return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>';
     }
     if (kind === 'audio' || kind === 'music') {
-      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playMusicTrack(event)">Открыть музыку</button>';
+      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playMusicTrack(event)">Воспроизвести</button>';
     }
     const dataAttr = kind === 'image' ? 'data-image-url' : 'data-result-url';
     const handler = kind === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)';
@@ -5484,23 +5484,7 @@ function imageModelButton(model) {
     const media = thumb
       ? previewImgHtml(thumb, 'generated result', type === 'image' ? fallbackUrl : '')
       : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
-    const audioUrl = m.audioUrl || meta.audio_url || meta.result_url || ((meta.audios || [])[0]) || '';
-    if (type === 'voice') {
-      const safeAudioUrl = S.escapeHtml(audioUrl);
-      return '<div class="generation-result-mini-card generation-result-voice-card">'
-        + '<span class="generation-result-thumb">' + media + '</span>'
-        + '<span class="generation-result-meta">'
-        + '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Озвучка готова') + '</span>'
-        + '<span class="generation-result-sub">' + safeModel + '</span>'
-        + '<audio class="generation-result-inline-audio" src="' + safeAudioUrl + '" controls preload="metadata" controlsList="nodownload"></audio>'
-        + '<button class="gen-action-btn generation-result-play-btn" type="button" data-audio-url="' + safeAudioUrl + '" data-result-url="' + safeAudioUrl + '" data-result-kind="voice" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>'
-        + '</span>'
-        + '</div>';
-    }
-    const handler = type === 'music'
-      ? 'SYLVEX.playMusicTrackFromMessage(event,' + index + ')'
-      : 'SYLVEX.openGenerationInfoDrawer(event,' + index + ')';
-    return '<button class="generation-result-mini-card" type="button" onclick="' + handler + '">'
+    return '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
       + '<span class="generation-result-thumb">' + media + '</span>'
       + '<span class="generation-result-meta">'
       + '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
@@ -6503,6 +6487,34 @@ function playVoiceInCard(e) {
 }
 
 // =====================================================
+// ВИДЕОПЛЕЕР: playVideoInGenerationCard
+// Запускает видео прямо внутри большой карточки информации о генерации.
+// Используется вместо перехода по внешней ссылке.
+// =====================================================
+function playVideoInGenerationCard(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const url = btn && btn.dataset ? (btn.dataset.videoUrl || btn.dataset.resultUrl || '') : '';
+  if (!url) return;
+  const card = btn.closest && btn.closest('.generation-info-drawer');
+  const video = card && card.querySelector ? card.querySelector('video') : null;
+  if (!video) return;
+  if (video.getAttribute('src') !== url) {
+    video.src = url;
+    video.load();
+  }
+  if (video.paused) {
+    const promise = video.play();
+    if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+  } else {
+    video.pause();
+  }
+}
+
+// =====================================================
 // АУДИОПЛЕЕР: playMusicTrack
 // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
 // =====================================================
@@ -6691,7 +6703,7 @@ function openGenerationInfoDrawer(e, index) {
   const body = document.getElementById('generationInfoBody');
   if (!body) return;
 
-  const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? 'music' : 'image'));
+  const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? (currentChatType() === 'voice' ? 'voice' : 'music') : 'image'));
   if (type === 'image') restoreImageStateFromGenerationMetadata(meta);
   const imageUrl = meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
@@ -6714,11 +6726,12 @@ function openGenerationInfoDrawer(e, index) {
   if (titleEl) titleEl.textContent = titleMap[type] || 'Result';
   const videoThumb = imagePreviewUrl(meta, '');
   const previewHtml = type === 'image' && imageUrl
-    ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</div>'
+    ? '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>'
     : type === 'video' && videoUrl
-      ? '<div class="generation-info-preview generation-info-video-preview">' + (videoThumb ? previewImgHtml(videoThumb, 'video thumbnail') : '<span>VID</span>') + '</div>'
-      : type === 'music' && imageUrl
-        ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated cover') + '</div>'
+      ? '<video class="generation-info-media-player generation-info-video-player" src="' + S.escapeHtml(videoUrl) + '" controls playsinline preload="metadata"></video>'
+      : type === 'music' && audioUrl
+        ? (imageUrl ? '<div class="generation-info-preview">' + previewImgHtml(previewUrl, 'generated cover') + '</div>' : '<div class="generation-info-preview generation-info-audio-preview"><span>♪</span></div>')
+          + '<audio class="generation-result-inline-audio generation-info-inline-audio" src="' + S.escapeHtml(audioUrl) + '" controls preload="metadata" controlsList="nodownload"></audio>'
       : type === 'voice' && audioUrl
         ? '<div class="generation-info-preview generation-info-audio-preview"><span>VO</span></div><audio class="generation-result-inline-audio generation-info-inline-audio" src="' + S.escapeHtml(audioUrl) + '" controls preload="metadata" controlsList="nodownload"></audio>'
       : audioUrl
@@ -6727,13 +6740,15 @@ function openGenerationInfoDrawer(e, index) {
   let actionHtml = '';
   if (resultUrl) {
     if (type === 'music') {
-      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-cover-url="' + S.escapeHtml(previewUrl || imageUrl || meta.cover_url || '') + '" data-title="' + S.escapeHtml(meta.title || 'SYLVEX Music') + '" data-result-kind="music" onclick="SYLVEX.playMusicTrack(event)">Открыть музыку</button>';
+      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="music" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>';
     } else if (type === 'voice') {
       actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="voice" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>';
+    } else if (type === 'video') {
+      actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">Воспроизвести</button>';
     } else {
-      actionHtml += '<button type="button" ' + (type === 'image' ? 'data-image-url' : 'data-result-url') + '="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="' + (type === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)') + '">Открыть</button>';
+      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">Открыть</button>';
     }
-    actionHtml += '<button type="button" data-result-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openTelegramBot(event)">Перейти в Telegram</button>';
+    actionHtml += '<a href="' + S.escapeHtml(resultUrl) + '" download target="_blank" rel="noopener">Скачать</a>';
     if (type === 'image') {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">Оживить фото</button>';
     } else if (type === 'video') {
@@ -10130,7 +10145,7 @@ async function waitGeneration(jobId, options) {
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     initAudioPlayer,
     openAudioPlayer,
     PlayerManager,
@@ -10166,6 +10181,7 @@ async function waitGeneration(jobId, options) {
   window.playMusicTrack = playMusicTrack;
   window.playMusicTrackFromMessage = playMusicTrackFromMessage;
   window.playVoiceInCard = playVoiceInCard;
+  window.playVideoInGenerationCard = playVideoInGenerationCard;
   window.toggleStudioAudioPlayer = toggleStudioAudioPlayer;
   window.PlayerManager = PlayerManager;
   window.animateGeneratedImage = animateGeneratedImage;
@@ -10216,6 +10232,7 @@ async function waitGeneration(jobId, options) {
   S.playMusicTrack = playMusicTrack;
   S.playMusicTrackFromMessage = playMusicTrackFromMessage;
   S.playVoiceInCard = playVoiceInCard;
+  S.playVideoInGenerationCard = playVideoInGenerationCard;
   S.toggleStudioAudioPlayer = toggleStudioAudioPlayer;
   S.PlayerManager = PlayerManager;
   S.audioPlayer = {
