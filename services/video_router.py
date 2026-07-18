@@ -35,8 +35,20 @@ VIDEO_MODEL_CONFIG = {
     "heygen_cinematic_avatar": {"provider": "heygen", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
     "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video", "video_edit", "video_reframe"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "runway_aleph": {"provider": "runway", "modes": ["video_edit", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
-    "runway_gen": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "runway_gen4_5": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [2, 3, 4, 5, 6, 7, 8, 9, 10], "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "runway_gen4_turbo": {"provider": "runway", "modes": ["image_to_video"], "durations": [2, 3, 4, 5, 6, 7, 8, 9, 10], "ratios": ["16:9", "21:9", "4:3", "9:16", "3:4", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "runway_aleph2": {"provider": "runway", "modes": ["video_edit"], "durations": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30], "ratios": ["match_input", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
+    "runway_aleph": {"provider": "runway", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "21:9", "4:3", "9:16", "3:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
+    "runway_gen3a_turbo": {"provider": "runway", "modes": ["image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "runway_gen": {"provider": "runway", "modes": ["image_to_video"], "durations": [2, 3, 4, 5, 6, 7, 8, 9, 10], "ratios": ["16:9", "21:9", "4:3", "9:16", "3:4", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "runway_seedance2": {"provider": "runway", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["480p", "720p", "1080p", "4K"], "sound": True, "start_image": True, "end_image": True, "video_input": True, "video_upload": True, "video_edit": True},
+    "runway_seedance2_fast": {"provider": "runway", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["480p", "720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_input": True, "video_upload": True, "video_edit": True},
+    "runway_seedance2_mini": {"provider": "runway", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["480p", "720p"], "sound": True, "start_image": True, "end_image": True, "video_input": True, "video_upload": True, "video_edit": True},
+    "runway_happyhorse_1_0": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "runway_veo3": {"provider": "runway", "modes": ["image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "runway_veo3_1": {"provider": "runway", "modes": ["image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "runway_veo3_1_fast": {"provider": "runway", "modes": ["image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
+    "runway_gemini_omni_flash": {"provider": "runway", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [3, 4, 5, 6, 7, 8, 9, 10], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": True},
     "minimax_hailuo_2_3": {"provider": "minimax", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "pixverse_v6": {"provider": "pixverse", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "sora_2": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -105,7 +117,19 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL", "wan2.1-vace-plus"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
-    "runway_aleph": {"provider": "runway", "provider_model": os.getenv("RUNWAY_ALEPH_MODEL", "act_two"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
+    "runway_gen4_5": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_5_MODEL", "gen4.5"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_gen4_turbo": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_TURBO_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_aleph2": {"provider": "runway", "provider_model": os.getenv("RUNWAY_ALEPH2_MODEL", "aleph2"), "endpoint": os.getenv("RUNWAY_VIDEO_TO_VIDEO_ENDPOINT", "https://api.dev.runwayml.com/v1/video_to_video")},
+    "runway_aleph": {"provider": "runway", "provider_model": os.getenv("RUNWAY_ALEPH_MODEL", "gen4_aleph"), "endpoint": os.getenv("RUNWAY_VIDEO_TO_VIDEO_ENDPOINT", "https://api.dev.runwayml.com/v1/video_to_video")},
+    "runway_gen3a_turbo": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN3A_TURBO_MODEL", "gen3a_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_seedance2": {"provider": "runway", "provider_model": os.getenv("RUNWAY_SEEDANCE2_MODEL", "seedance2"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_seedance2_fast": {"provider": "runway", "provider_model": os.getenv("RUNWAY_SEEDANCE2_FAST_MODEL", "seedance2_fast"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_seedance2_mini": {"provider": "runway", "provider_model": os.getenv("RUNWAY_SEEDANCE2_MINI_MODEL", "seedance2_mini"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_happyhorse_1_0": {"provider": "runway", "provider_model": os.getenv("RUNWAY_HAPPYHORSE_1_0_MODEL", "happyhorse_1_0"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_veo3": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_MODEL", "veo3"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_veo3_1": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_1_MODEL", "veo3.1"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_veo3_1_fast": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_1_FAST_MODEL", "veo3.1_fast"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
+    "runway_gemini_omni_flash": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEMINI_OMNI_FLASH_MODEL", "gemini_omni_flash"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": _seedance_1_5_pro_model and os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL", "wan2.6-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
@@ -114,7 +138,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
     "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
-    "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")},
+    "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
 }
 
 VIDEO_PROVIDER_MODEL_MAP.update({
@@ -546,9 +570,46 @@ def _pixverse_upload_image(api_key: str, image_url: str, model_id: str):
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def _runway_ratio(ratio: str, resolution: str):
-    size = _size_for_video(ratio, resolution)
-    return size.replace("x", ":")
+def _runway_ratio(ratio: str, resolution: str, model_id: str = "", has_image: bool = False):
+    value = str(ratio or "16:9").lower()
+    model = str(model_id or "").lower()
+    if value in {"match_input", "auto", "adaptive"}:
+        return None
+    if model in {"runway_gen3a_turbo"}:
+        return "768:1280" if value == "9:16" else "1280:768"
+    if model in {"runway_happyhorse_1_0"} and has_image:
+        return None
+    gen45_image = model in {"runway_gen4_5"} and has_image
+    if model in {"runway_gen4_turbo", "runway_gen"} or gen45_image:
+        return {
+            "16:9": "1280:720",
+            "21:9": "1584:672",
+            "4:3": "1104:832",
+            "9:16": "720:1280",
+            "3:4": "832:1104",
+            "1:1": "960:960",
+        }.get(value, "1280:720")
+    if model in {"runway_aleph", "runway_aleph2"}:
+        return {
+            "16:9": "1280:720",
+            "21:9": "1584:672",
+            "4:3": "1104:832",
+            "9:16": "720:1280",
+            "3:4": "832:1104",
+            "1:1": "960:960",
+        }.get(value)
+    if model in {"runway_seedance2", "runway_seedance2_fast", "runway_seedance2_mini", "runway_happyhorse_1_0"}:
+        return {
+            "16:9": "1280:720",
+            "21:9": "1584:672",
+            "4:3": "1104:832",
+            "9:16": "720:1280",
+            "3:4": "832:1104",
+            "1:1": "960:960",
+        }.get(value, "1280:720")
+    if model in {"runway_veo3", "runway_veo3_1", "runway_veo3_1_fast", "runway_gemini_omni_flash"}:
+        return "720:1280" if value == "9:16" else "1280:720"
+    return "720:1280" if value == "9:16" else "1280:720"
 
 
 # =====================================================
@@ -2429,6 +2490,32 @@ async def poll_video_generation(result: dict) -> dict:
         if not api_key:
             return _provider_error("luma", model_id, "Provider API key is missing: LUMA_AGENTS_API_KEY")
         return _luma_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    if provider == "runway":
+        api_key = _get_env("RUNWAY_API_KEY")
+        if not api_key:
+            return _provider_error("runway", model_id, "Provider API key is missing: RUNWAY_API_KEY")
+        endpoint = str(result.get("poll_url") or f"https://api.dev.runwayml.com/v1/tasks/{task_id}")
+        try:
+            response = _request_get(endpoint, {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Runway-Version": os.getenv("RUNWAY_API_VERSION", "2024-11-06"),
+            })
+            data = _safe_provider_json_response(response, "runway", endpoint)
+            _log_provider_response("runway", "POLL_TASK", endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("runway", model_id, data)
+            urls = _normalize_video_urls(data)
+            status = str(data.get("status") or data.get("state") or "").lower()
+            if status in {"succeeded", "success", "completed", "done"} and urls:
+                completed = _provider_success("runway", model_id, urls, status="completed", task_id=str(task_id))
+                completed["provider_response"] = data
+                return completed
+            if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+                return _provider_parse_error("runway", model_id, data)
+            return _provider_success("runway", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+        except Exception as exc:
+            return _provider_error("runway", model_id, f"Provider polling failed: {exc}")
     if provider == "pixverse":
         api_key = _get_env("PIXVERSE_API_KEY")
         if not api_key:
@@ -2986,10 +3073,23 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
     provider_model = _provider_model_for_video(model_id)
     endpoint = _video_model_mapping(model_id).get("endpoint") or f"{_heygen_base_url()}/v3/videos"
     request_body = {}
+    print("HEYGEN DIRECT DEBUG START:", {
+        "model_id": model_id,
+        "provider_model": provider_model,
+        "endpoint": endpoint,
+        "prompt_length": len(prompt or ""),
+        "mode": raw_options.get("mode") or body.get("mode"),
+        "has_avatar_id": bool(raw_options.get("avatar_id") or raw_options.get("avatar_ids") or raw_options.get("heygen_avatar_id") or os.getenv("HEYGEN_AVATAR_ID")),
+        "has_voice_id": bool(raw_options.get("voice_id") or raw_options.get("heygen_voice_id") or os.getenv("HEYGEN_VOICE_ID")),
+        "files_count": len(_heygen_files_from_payload(body, payload)),
+        "has_start_image": bool(body.get("start_image") or body.get("image_url") or raw_options.get("image_url")),
+        "has_input_video": bool(body.get("input_video") or raw_options.get("input_video") or raw_options.get("video_url")),
+    })
 
     if provider_model in {"avatar_iv", "avatar_v", "avatar_iii"}:
         avatar_id = raw_options.get("avatar_id") or raw_options.get("heygen_avatar_id") or os.getenv("HEYGEN_AVATAR_ID")
         if not avatar_id:
+            print("HEYGEN DIRECT LOCAL ERROR:", {"model_id": model_id, "reason": "missing_avatar_id"})
             return _provider_error("heygen", model_id, "Для HeyGen Avatar нужно указать avatar_id")
         request_body = {
             "type": "avatar",
@@ -3013,6 +3113,7 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
         image_source = body.get("start_image") or body.get("image_url") or raw_options.get("image_url") or ""
         image_asset = _heygen_asset_input(image_source)
         if not image_asset:
+            print("HEYGEN DIRECT LOCAL ERROR:", {"model_id": model_id, "reason": "missing_image"})
             return _provider_error("heygen", model_id, "Для HeyGen Image Video нужно загрузить изображение")
         request_body = {
             "type": "image",
@@ -3032,6 +3133,7 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
         if isinstance(avatar_ids, str):
             avatar_ids = [item.strip() for item in avatar_ids.split(",") if item.strip()]
         if not isinstance(avatar_ids, list) or not avatar_ids:
+            print("HEYGEN DIRECT LOCAL ERROR:", {"model_id": model_id, "reason": "missing_cinematic_avatar_id"})
             return _provider_error("heygen", model_id, "Для HeyGen Cinematic Avatar нужно указать 1–3 avatar_id")
         request_body = {
             "type": "cinematic_avatar",
@@ -3055,6 +3157,12 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
     if provider_model != "cinematic_avatar":
         _heygen_direct_common_fields(request_body, body, raw_options, payload)
     try:
+        print("HEYGEN DIRECT REQUEST:", {
+            "endpoint": endpoint,
+            "model_id": model_id,
+            "provider_model": provider_model,
+            "request_body": request_body,
+        })
         headers = _heygen_headers(api_key)
         idempotency_key = payload.get("job_id") or payload.get("generation_id") or ""
         if idempotency_key:
@@ -3694,17 +3802,41 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         return _unknown_video_model_mapping_response(model_id, "runway")
     body = _build_video_payload(model_id, prompt, payload)
     try:
-        endpoint = os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")
+        mapping = _video_model_mapping(model_id)
+        endpoint = mapping.get("endpoint") or os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video")
+        input_video = body.get("input_video") or body.get("video_url") or body.get("reference_video") or body.get("template_video_url") or ""
+        prompt_image = body.get("start_image") or body.get("image_url") or ""
+        video_to_video_models = {"aleph2", "gen4_aleph", "seedance2", "seedance2_fast", "seedance2_mini", "gemini_omni_flash"}
+        is_video_to_video = provider_model in {"aleph2", "gen4_aleph"} or endpoint.endswith("/video_to_video") or (bool(input_video) and provider_model in video_to_video_models)
+        if is_video_to_video and not endpoint.endswith("/video_to_video"):
+            endpoint = os.getenv("RUNWAY_VIDEO_TO_VIDEO_ENDPOINT", "https://api.dev.runwayml.com/v1/video_to_video")
         runway_body = {
             "model": provider_model,
             "promptText": prompt,
-            "ratio": _runway_ratio(body.get("ratio"), body.get("resolution")),
             "duration": int(body.get("duration") or 5),
         }
-        if body.get("start_image"):
-            runway_body["promptImage"] = body.get("start_image")
-        if body.get("input_video"):
-            runway_body["videoUri"] = body.get("input_video")
+        ratio = _runway_ratio(body.get("ratio"), body.get("resolution"), model_id=model_id, has_image=bool(prompt_image))
+        if ratio:
+            runway_body["ratio"] = ratio
+        if is_video_to_video:
+            if not input_video:
+                return _provider_error("runway", model_id, "Для Runway Aleph нужно загрузить исходное видео")
+            runway_body["videoUri"] = _public_input_url(input_video)
+        else:
+            if model_id in {"runway_gen4_turbo", "runway_gen", "runway_gen3a_turbo"} and not prompt_image:
+                return _provider_error("runway", model_id, "Для этой модели Runway нужно загрузить начальное изображение")
+            if prompt_image:
+                runway_body["promptImage"] = _public_input_url(prompt_image)
+        print("RUNWAY REQUEST DEBUG:", {
+            "endpoint": endpoint,
+            "model_id": model_id,
+            "provider_model": provider_model,
+            "is_video_to_video": is_video_to_video,
+            "has_prompt_image": bool(runway_body.get("promptImage")),
+            "has_video_uri": bool(runway_body.get("videoUri")),
+            "ratio": runway_body.get("ratio"),
+            "duration": runway_body.get("duration"),
+        })
         response = _request_json(
             endpoint,
             {
@@ -3714,7 +3846,18 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
             },
             runway_body,
         )
-        return _provider_result_from_response("runway", model_id, response, endpoint)
+        data = _safe_provider_json_response(response, "runway", endpoint)
+        _log_provider_response("runway", "CREATE_TASK", endpoint, runway_body, response, data)
+        status = getattr(response, "status_code", 0) or 0
+        if status >= 400 or data.get("ok") is False:
+            return _provider_parse_error("runway", model_id, data)
+        urls = _normalize_video_urls(data)
+        if urls:
+            return _provider_success("runway", model_id, urls, status="completed")
+        task_id = _task_id_from_response(data)
+        if not task_id:
+            return _provider_error("runway", model_id, "Runway task id not found")
+        return _provider_success("runway", model_id, [], status="processing", task_id=task_id, poll_url=f"https://api.dev.runwayml.com/v1/tasks/{task_id}")
     except Exception as exc:
         return _provider_error("runway", model_id, f"Provider request failed: {exc}")
 
