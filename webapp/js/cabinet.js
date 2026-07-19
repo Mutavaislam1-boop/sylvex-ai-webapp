@@ -161,6 +161,9 @@ let voiceState = {
   style: '',
   voice: 'Kore',
   runwayVoice: 'Maya',
+  runwayTool: 'text_to_speech',
+  runwayTargetLanguage: 'en',
+  runwayDuration: 5,
   secondVoice: 'Puck',
   speakerMode: 'single',
   speaker1: 'Speaker1',
@@ -858,6 +861,38 @@ const RUNWAY_TTS_VOICES = [
 
 let runwayVoiceList = RUNWAY_TTS_VOICES.slice();
 
+const RUNWAY_AUDIO_TOOLS = [
+  { id:'text_to_speech', label:'Text to Speech' },
+  { id:'sound_effect', label:'Sound Effect' },
+  { id:'speech_to_speech', label:'Speech to Speech' },
+  { id:'voice_dubbing', label:'Voice Dubbing' },
+  { id:'voice_isolation', label:'Voice Isolation' },
+];
+
+const RUNWAY_DUBBING_LANGUAGES = [
+  { id:'en', label:'English' },
+  { id:'ru', label:'Русский' },
+  { id:'es', label:'Español' },
+  { id:'fr', label:'Français' },
+  { id:'de', label:'Deutsch' },
+  { id:'it', label:'Italiano' },
+  { id:'pt', label:'Português' },
+  { id:'tr', label:'Türkçe' },
+  { id:'ar', label:'العربية' },
+  { id:'hi', label:'Hindi' },
+  { id:'ja', label:'日本語' },
+  { id:'ko', label:'한국어' },
+  { id:'zh', label:'中文' },
+];
+
+const RUNWAY_SOUND_DURATIONS = [
+  { id:'3', label:'3 сек' },
+  { id:'5', label:'5 сек' },
+  { id:'10', label:'10 сек' },
+  { id:'15', label:'15 сек' },
+  { id:'30', label:'30 сек' },
+];
+
 const VOICE_SPEAKER_MODES = [
   { id:'single', label:'Один голос' },
   { id:'multi', label:'Два голоса' },
@@ -870,6 +905,15 @@ const VOICE_SPEAKER_MODES = [
 function isRunwayVoiceModel(modelId) {
   const model = VOICE_MODEL_LIST.find((item) => item.id === modelId);
   return String(modelId || '').indexOf('runway_') === 0 || String((model && model.providerModel) || '') === 'eleven_multilingual_v2';
+}
+
+// =====================================================
+// АУДИОПЛЕЕР: runwayToolLabel
+// Возвращает человекочитаемое название выбранного инструмента Runway для кнопок Mini App.
+// =====================================================
+function runwayToolLabel(toolId) {
+  const item = RUNWAY_AUDIO_TOOLS.find((tool) => tool.id === toolId);
+  return (item && item.label) || 'Text to Speech';
 }
 
 // =====================================================
@@ -1532,6 +1576,9 @@ function ensureVoiceSettings() {
   if (!voiceState.modelId) voiceState.modelId = 'gemini_3_1_flash_tts_preview';
   if (!voiceState.voice) voiceState.voice = 'Kore';
   if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
+  if (!voiceState.runwayTool) voiceState.runwayTool = 'text_to_speech';
+  if (!voiceState.runwayTargetLanguage) voiceState.runwayTargetLanguage = 'en';
+  if (!voiceState.runwayDuration) voiceState.runwayDuration = 5;
   if (!voiceState.secondVoice) voiceState.secondVoice = 'Puck';
   if (!voiceState.speakerMode) voiceState.speakerMode = 'single';
   if (!voiceState.speaker1) voiceState.speaker1 = 'Speaker1';
@@ -1553,6 +1600,9 @@ function voiceOptionsPayload() {
     provider: runwayModel ? 'runway' : 'gemini',
     voice: runwayModel ? (voiceState.runwayVoice || 'Maya') : voiceState.voice,
     runway_voice: voiceState.runwayVoice || 'Maya',
+    runway_tool: voiceState.runwayTool || 'text_to_speech',
+    target_language: voiceState.runwayTargetLanguage || 'en',
+    duration: Number(voiceState.runwayDuration || 5),
     secondVoice: voiceState.secondVoice,
     speaker_mode: voiceState.speakerMode,
     speaker1: voiceState.speaker1,
@@ -1573,7 +1623,7 @@ function renderVoiceControls() {
   const voiceVal = document.getElementById('voiceVoiceVal');
   if (voiceVal) voiceVal.textContent = isRunwayVoiceModel(voiceState.modelId) ? (voiceState.runwayVoice || 'Maya') : (voiceState.voice || 'Kore');
   const modeVal = document.getElementById('voiceModeVal');
-  if (modeVal) modeVal.textContent = voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос';
+  if (modeVal) modeVal.textContent = isRunwayVoiceModel(voiceState.modelId) ? runwayToolLabel(voiceState.runwayTool || 'text_to_speech') : (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос');
   const settingsVal = document.getElementById('voiceSettingsVal');
   if (settingsVal) settingsVal.textContent = 'Настройки';
 }
@@ -4122,12 +4172,15 @@ function imageModelButton(model) {
             const id = String(item.id || '');
             const active = String(activeValue || '') === id;
             const safeId = S.escapeHtml(id);
+            const previewButton = ['voice', 'runwayVoice', 'secondVoice'].includes(optionKind)
+              ? '<button class="voice-preview-play" type="button" aria-label="Прослушать ' + safeId + '" data-voice-id="' + safeId + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
+              : '';
             return '<div class="image-size-row no-ratio-icon voice-preview-row ' + (active ? 'active sel' : '') + '">'
               + '<button class="voice-preview-pick" type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
               + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>'
               + '<span class="image-size-check">✓</span>'
               + '</button>'
-              + '<button class="voice-preview-play" type="button" aria-label="Прослушать ' + safeId + '" data-voice-id="' + safeId + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
+              + previewButton
               + '</div>';
           }).join('')
           + '</div>';
@@ -4151,12 +4204,29 @@ function imageModelButton(model) {
         return;
       }
       if (kind === 'duration' || kind === 'speaker_mode') {
+        if (isRunwayVoiceModel(voiceState.modelId)) {
+          openVoiceSheet('Инструмент Runway', RUNWAY_AUDIO_TOOLS, 'runwayTool', voiceState.runwayTool || 'text_to_speech');
+          return;
+        }
         openVoiceSheet('Режим озвучки', VOICE_SPEAKER_MODES, 'speakerMode', voiceState.speakerMode || 'single');
         return;
       }
       if (kind === 'settings') {
         const isRunway = isRunwayVoiceModel(voiceState.modelId);
         const activeVoiceLabel = isRunway ? (voiceState.runwayVoice || 'Maya') : (voiceState.voice || 'Kore');
+        const runwayTool = voiceState.runwayTool || 'text_to_speech';
+        const runwayToolRow = isRunway
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Инструмент Runway</span><span class="image-size-check">' + S.escapeHtml(runwayToolLabel(runwayTool)) + '</span></button>'
+          : '';
+        const runwayLanguageRow = isRunway && runwayTool === 'voice_dubbing'
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_language&quot;)"><span class="image-size-label">Язык дубляжа</span><span class="image-size-check">' + S.escapeHtml(voiceState.runwayTargetLanguage || 'en') + '</span></button>'
+          : '';
+        const runwayDurationRow = isRunway && runwayTool === 'sound_effect'
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_duration&quot;)"><span class="image-size-label">Длительность</span><span class="image-size-check">' + S.escapeHtml(String(voiceState.runwayDuration || 5)) + ' сек</span></button>'
+          : '';
+        const runwayVoiceRow = isRunway && !['voice_dubbing', 'voice_isolation', 'sound_effect'].includes(runwayTool)
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
+          : '';
         const secondVoiceRow = (!isRunway && voiceState.speakerMode === 'multi')
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;second_voice&quot;)"><span class="image-size-label">Второй голос</span><span class="image-size-check">' + S.escapeHtml(voiceState.secondVoice || 'Puck') + '</span></button>'
           : '';
@@ -4177,11 +4247,22 @@ function imageModelButton(model) {
         el.style.zIndex = '999999';
         el.innerHTML = '<div class="image-size-sheet-title">Настройки озвучки</div>'
           + '<div class="image-size-sheet-list">'
-          + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
+          + runwayToolRow
+          + (isRunway ? runwayVoiceRow : '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>')
+          + runwayLanguageRow
+          + runwayDurationRow
           + modeRow
           + secondVoiceRow
           + '</div>';
         el.classList.add('show');
+        return;
+      }
+      if (kind === 'runway_language') {
+        openVoiceSheet('Язык дубляжа', RUNWAY_DUBBING_LANGUAGES, 'runwayTargetLanguage', voiceState.runwayTargetLanguage || 'en');
+        return;
+      }
+      if (kind === 'runway_duration') {
+        openVoiceSheet('Длительность эффекта', RUNWAY_SOUND_DURATIONS, 'runwayDuration', String(voiceState.runwayDuration || 5));
         return;
       }
       if (kind === 'second_voice') {
@@ -4718,6 +4799,14 @@ function imageModelButton(model) {
       voiceState.voice = value || 'Kore';
     } else if (kind === 'runwayVoice') {
       voiceState.runwayVoice = value || 'Maya';
+    } else if (kind === 'runwayTool') {
+      voiceState.runwayTool = value || 'text_to_speech';
+      if (voiceState.runwayTool !== 'text_to_speech') voiceState.speakerMode = 'single';
+    } else if (kind === 'runwayTargetLanguage') {
+      voiceState.runwayTargetLanguage = value || 'en';
+    } else if (kind === 'runwayDuration') {
+      const duration = Number(value || 5);
+      voiceState.runwayDuration = Number.isFinite(duration) ? Math.max(1, Math.min(30, duration)) : 5;
     } else if (kind === 'secondVoice') {
       voiceState.secondVoice = value || 'Puck';
     } else if (kind === 'speakerMode') {
@@ -4738,14 +4827,14 @@ function imageModelButton(model) {
     renderVoiceControls();
     renderModelPop();
     const el = document.getElementById('modelPop');
-    if (el && kind !== 'speakerMode') {
+    if (el && !['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration'].includes(kind)) {
       el.classList.remove('show');
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
       el.classList.remove('music-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
-    } else if (kind === 'speakerMode') {
+    } else if (['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration'].includes(kind)) {
       openImageOptionMenu(e, 'settings');
     }
     S.haptic && S.haptic.select && S.haptic.select();
@@ -7900,9 +7989,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
   const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
+  const audioUploadsOverride = generationOptions && Array.isArray(generationOptions.audioUploads)
+    ? generationOptions.audioUploads.slice()
+    : null;
   const voiceOptions = isVoiceMode()
     ? Object.assign(voiceOptionsPayload(), {
-        uploads: (voiceState.uploads || []).slice(),
+        uploads: audioUploadsOverride || (voiceState.uploads || []).slice(),
         attachment: voiceState.attachment || null,
       })
     : null;
@@ -8335,6 +8427,7 @@ async function waitGeneration(jobId, options) {
         videoOptionsSnapshot,
         {
           onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+          audioUploads,
         }
       );
       renderChat();

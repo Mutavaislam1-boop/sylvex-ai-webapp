@@ -51,6 +51,29 @@ RUNWAY_VOICE_MODEL_MAP = {
     "eleven_multilingual_v2": "eleven_multilingual_v2",
 }
 
+RUNWAY_AUDIO_TOOLS = {
+    "text_to_speech": {
+        "model": "eleven_multilingual_v2",
+        "endpoint": "/v1/text_to_speech",
+    },
+    "sound_effect": {
+        "model": "eleven_text_to_sound_v2",
+        "endpoint": "/v1/sound_effect",
+    },
+    "speech_to_speech": {
+        "model": "eleven_multilingual_sts_v2",
+        "endpoint": "/v1/speech_to_speech",
+    },
+    "voice_dubbing": {
+        "model": "eleven_voice_dubbing",
+        "endpoint": "/v1/voice_dubbing",
+    },
+    "voice_isolation": {
+        "model": "eleven_voice_isolation",
+        "endpoint": "/v1/voice_isolation",
+    },
+}
+
 RUNWAY_VOICE_FALLBACKS = [
     {"voice_id": "Maya", "name": "Maya", "provider": "runway", "type": "runway-preset"},
     {"voice_id": "Noah", "name": "Noah", "provider": "runway", "type": "runway-preset"},
@@ -300,6 +323,17 @@ def _runway_voice_model_mapping(frontend_model: str) -> str:
 
 
 # =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_audio_tool
+# Определяет выбранный инструмент Runway Audio и возвращает безопасное значение по умолчанию.
+# =====================================================
+def _runway_audio_tool(payload: dict) -> str:
+    voice_options = payload.get("voice_options") or {}
+    tool = _runway_audio_tool(payload)
+    tool = str(voice_options.get("runway_tool") or voice_options.get("runwayTool") or "text_to_speech").strip().lower()
+    return tool if tool in RUNWAY_AUDIO_TOOLS else "text_to_speech"
+
+
+# =====================================================
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: _is_runway_voice_model
 # Проверяет, должна ли выбранная модель озвучки идти через Runway, а не через Gemini.
 # =====================================================
@@ -415,6 +449,50 @@ async def _download_runway_audio(client: httpx.AsyncClient, audio_url: str) -> s
         return ""
     ext = _audio_extension_from_response(audio_url, response.headers.get("content-type") or "")
     return _save_audio_file(response.content, ext)
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _absolute_public_url
+# Превращает локальную ссылку Mini App в абсолютную ссылку, если задан публичный домен приложения.
+# =====================================================
+def _absolute_public_url(url: str) -> str:
+    value = str(url or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://")):
+        return value
+    public_base = _get_env("PUBLIC_BASE_URL", "APP_BASE_URL", "WEBAPP_PUBLIC_URL", "MINIAPP_PUBLIC_URL").rstrip("/")
+    if public_base and value.startswith("/"):
+        return f"{public_base}{value}"
+    return value
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _runway_input_media_url
+# Достаёт первый audio/video файл из voice upload state для Runway STS, dubbing и isolation.
+# =====================================================
+def _runway_input_media_url(payload: dict) -> str:
+    voice_options = payload.get("voice_options") or {}
+    candidates: list[Any] = []
+    for key in ("uploads", "uploadedAudioUrls", "audio_urls", "audioUrls", "media_urls", "mediaUrls"):
+        value = voice_options.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+        elif value:
+            candidates.append(value)
+    for key in ("attachment",):
+        value = voice_options.get(key) or payload.get(key)
+        if value:
+            candidates.append(value)
+    for item in candidates:
+        if isinstance(item, str) and item.strip():
+            return _absolute_public_url(item)
+        if isinstance(item, dict):
+            for key in ("url", "audio_url", "audioUrl", "video_url", "videoUrl", "file_url", "fileUrl", "result_url"):
+                value = item.get(key)
+                if value:
+                    return _absolute_public_url(str(value))
+    return ""
 
 
 # =====================================================
@@ -798,6 +876,7 @@ async def audio_generation(payload: dict) -> dict:
 # =====================================================
 def _runway_voice_payload(payload: dict, provider_model: str) -> dict[str, Any]:
     voice_options = payload.get("voice_options") or {}
+    tool = _runway_audio_tool(payload)
     prompt = (payload.get("prompt") or voice_options.get("prompt") or "").strip()
     voice_id = (
         voice_options.get("runway_voice")
@@ -805,6 +884,48 @@ def _runway_voice_payload(payload: dict, provider_model: str) -> dict[str, Any]:
         or voice_options.get("voice_name")
         or "Maya"
     )
+    if tool == "sound_effect":
+        body = {
+            "model": provider_model,
+            "promptText": prompt,
+        }
+        duration = voice_options.get("duration") or voice_options.get("runway_duration") or voice_options.get("runwayDuration")
+        try:
+            duration_value = float(duration)
+        except Exception:
+            duration_value = 5
+        body["duration"] = max(1, min(30, duration_value))
+        return body
+
+    if tool == "speech_to_speech":
+        media_url = _runway_input_media_url(payload)
+        return {
+            "model": provider_model,
+            "media": {
+                "type": "audio",
+                "uri": media_url,
+            },
+            "voice": {
+                "type": "runway-preset",
+                "presetId": str(voice_id or "Maya"),
+            },
+        }
+
+    if tool == "voice_dubbing":
+        media_url = _runway_input_media_url(payload)
+        return {
+            "model": provider_model,
+            "audioUri": media_url,
+            "targetLanguage": str(voice_options.get("target_language") or voice_options.get("targetLanguage") or "en"),
+        }
+
+    if tool == "voice_isolation":
+        media_url = _runway_input_media_url(payload)
+        return {
+            "model": provider_model,
+            "audioUri": media_url,
+        }
+
     return {
         "model": provider_model,
         "promptText": prompt,
@@ -829,6 +950,7 @@ async def _completed_runway_voice_response(
     provider_response: Any,
 ) -> dict:
     voice_options = payload.get("voice_options") or {}
+    tool = _runway_audio_tool(payload)
     voice = (
         voice_options.get("runway_voice")
         or voice_options.get("voice")
@@ -851,6 +973,7 @@ async def _completed_runway_voice_response(
         "provider_model": provider_model,
         "status": "completed",
         "task_id": task_id,
+        "runway_tool": tool,
         "audio_url": audio_url,
         "audios": [audio_url],
         "voice": voice,
@@ -931,12 +1054,14 @@ async def _poll_runway_voice_task(
 async def runway_voice_generation(payload: dict) -> dict:
     provider = "runway"
     voice_options = payload.get("voice_options") or {}
+    tool = _runway_audio_tool(payload)
+    tool_config = RUNWAY_AUDIO_TOOLS.get(tool) or RUNWAY_AUDIO_TOOLS["text_to_speech"]
     frontend_model = (
         payload.get("model")
         or voice_options.get("model")
         or "runway_eleven_multilingual_v2"
     )
-    provider_model = _runway_voice_model_mapping(frontend_model)
+    provider_model = tool_config["model"]
     api_key = _get_env("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY")
     prompt_report = optimize_prompt_for_model(
         payload.get("prompt") or voice_options.get("prompt") or "",
@@ -947,32 +1072,37 @@ async def runway_voice_generation(payload: dict) -> dict:
     print("RUNWAY TTS PROMPT OPTIMIZER:", {
         "model": frontend_model,
         "provider_model": provider_model,
+        "tool": tool,
         "prompt_length": prompt_report.get("original_length"),
         "model_limit": prompt_report.get("limit"),
         "optimized": prompt_report.get("optimized"),
         "new_length": prompt_report.get("optimized_length"),
     })
+    needs_prompt = tool in {"text_to_speech", "sound_effect"}
+    needs_media = tool in {"speech_to_speech", "voice_dubbing", "voice_isolation"}
     if (payload.get("prompt") or voice_options.get("prompt")) and not prompt_report.get("ok"):
         return _audio_error(provider, frontend_model, provider_model, "Prompt optimization failed to reach limit", type="voice")
     if prompt_report.get("optimized"):
         payload["prompt"] = prompt_report.get("prompt") or payload.get("prompt") or ""
         payload["prompt_optimization"] = prompt_report
 
-    if not provider_model:
-        return _audio_error(provider, frontend_model, "", "Unknown Runway TTS model mapping", type="voice", frontend_model=frontend_model)
     if not api_key:
         return _audio_error(provider, frontend_model, provider_model, "RUNWAY_API_KEY is not configured", type="voice")
-    if not (payload.get("prompt") or "").strip():
+    if needs_prompt and not (payload.get("prompt") or "").strip():
         return _audio_error(provider, frontend_model, provider_model, "Voice prompt is empty", type="voice")
+    if needs_media and not _runway_input_media_url(payload):
+        return _audio_error(provider, frontend_model, provider_model, "Runway audio tool requires uploaded audio or video file", type="voice", tool=tool)
 
-    endpoint = f"{RUNWAY_API_BASE_URL}/v1/text_to_speech"
+    endpoint = f"{RUNWAY_API_BASE_URL}{tool_config['endpoint']}"
     request_body = _runway_voice_payload(payload, provider_model)
     print("RUNWAY TTS REQUEST:", {
         "endpoint": endpoint,
         "frontend_model": frontend_model,
         "provider_model": provider_model,
+        "tool": tool,
         "voice": (request_body.get("voice") or {}).get("presetId"),
         "has_prompt": bool(request_body.get("promptText")),
+        "has_media": bool((request_body.get("media") or {}).get("uri") or request_body.get("audioUri")),
     })
 
     async with httpx.AsyncClient(timeout=180.0) as client:
