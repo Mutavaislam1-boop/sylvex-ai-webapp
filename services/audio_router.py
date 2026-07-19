@@ -55,16 +55,26 @@ ELEVENLABS_VOICE_MODEL_MAP = {
     "elevenlabs_multilingual_v2": "eleven_multilingual_v2",
     "elevenlabs_flash_v2_5": "eleven_flash_v2_5",
     "elevenlabs_flash_v2": "eleven_flash_v2",
+    "elevenlabs_turbo_v2_5": "eleven_turbo_v2_5",
+    "elevenlabs_turbo_v2": "eleven_turbo_v2",
+    "elevenlabs_english_sts_v2": "eleven_english_sts_v2",
+    "elevenlabs_multilingual_sts_v2": "eleven_multilingual_sts_v2",
     "eleven_v3": "eleven_v3",
     "eleven_multilingual_v2": "eleven_multilingual_v2",
     "eleven_flash_v2_5": "eleven_flash_v2_5",
     "eleven_flash_v2": "eleven_flash_v2",
+    "eleven_turbo_v2_5": "eleven_turbo_v2_5",
+    "eleven_turbo_v2": "eleven_turbo_v2",
+    "eleven_english_sts_v2": "eleven_english_sts_v2",
+    "eleven_multilingual_sts_v2": "eleven_multilingual_sts_v2",
 }
 
 ELEVENLABS_AUDIO_TOOLS = {
     "text_to_speech": "text_to_speech",
     "speech_to_speech": "speech_to_speech",
     "dialogue": "dialogue",
+    "dubbing": "dubbing",
+    "voice_design": "voice_design",
 }
 
 ELEVENLABS_VOICE_FALLBACKS = [
@@ -1029,6 +1039,90 @@ def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[s
 
 
 # =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _extract_elevenlabs_voice_design_preview
+# Достаёт первый preview из ответа ElevenLabs Voice Design и возвращает audio bytes + generated_voice_id.
+# =====================================================
+def _extract_elevenlabs_voice_design_preview(data: Any) -> tuple[bytes, str, Any]:
+    previews = []
+    if isinstance(data, dict):
+        raw_previews = data.get("previews") or data.get("voices") or data.get("data") or []
+        if isinstance(raw_previews, list):
+            previews = raw_previews
+    for preview in previews:
+        if not isinstance(preview, dict):
+            continue
+        audio_base64 = preview.get("audio_base_64") or preview.get("audio_base64") or preview.get("audio") or ""
+        generated_voice_id = preview.get("generated_voice_id") or preview.get("generatedVoiceId") or preview.get("voice_id") or ""
+        if audio_base64:
+            try:
+                return base64.b64decode(str(audio_base64)), str(generated_voice_id or ""), preview
+            except Exception:
+                continue
+    return b"", "", None
+
+
+# =====================================================
+# POLLING-ПРОЦЕСС: _poll_elevenlabs_dubbing
+# Ждёт завершения ElevenLabs Dubbing и скачивает готовый дубляж по target language.
+# =====================================================
+async def _poll_elevenlabs_dubbing(
+    client: httpx.AsyncClient,
+    dubbing_id: str,
+    target_lang: str,
+    frontend_model: str,
+    provider_model: str,
+    payload: dict,
+    initial_response: Any,
+) -> dict:
+    attempts = int(os.getenv("ELEVENLABS_DUBBING_POLL_ATTEMPTS", "120"))
+    interval = float(os.getenv("ELEVENLABS_DUBBING_POLL_INTERVAL", "5"))
+    status_url = f"{ELEVENLABS_BASE_URL}/v1/dubbing/{dubbing_id}"
+    audio_url = f"{ELEVENLABS_BASE_URL}/v1/dubbing/{dubbing_id}/audio/{target_lang}"
+    last_data = initial_response
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = await client.get(status_url, headers=_elevenlabs_headers(None))
+            data = await safe_audio_json_response(response, "elevenlabs", status_url)
+        except Exception as exc:
+            return _audio_error("elevenlabs", frontend_model, provider_model, exc, type="voice", endpoint=status_url, dubbing_id=dubbing_id, details=repr(exc))
+
+        last_data = data
+        status = str((data or {}).get("status") or "").lower() if isinstance(data, dict) else ""
+        print("ELEVENLABS DUBBING POLL:", {
+            "attempt": attempt,
+            "dubbing_id": dubbing_id,
+            "status": status,
+            "status_code": response.status_code,
+        })
+
+        if response.status_code >= 400:
+            return _audio_error("elevenlabs", frontend_model, provider_model, data, type="voice", endpoint=status_url, status_code=response.status_code, response=data, dubbing_id=dubbing_id)
+
+        if status in {"dubbed", "done", "completed", "complete", "succeeded", "success"}:
+            audio_response = await client.get(audio_url, headers={"xi-api-key": _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"), "Accept": "audio/mpeg"})
+            if audio_response.status_code >= 400 or not audio_response.content:
+                return _audio_error("elevenlabs", frontend_model, provider_model, await safe_audio_json_response(audio_response, "elevenlabs", audio_url), type="voice", endpoint=audio_url, status_code=audio_response.status_code, dubbing_id=dubbing_id)
+            return await _completed_elevenlabs_voice_response(
+                payload,
+                frontend_model,
+                provider_model,
+                "dubbing",
+                audio_response.content,
+                audio_response.headers.get("content-type") or "audio/mpeg",
+                {"dubbing_id": dubbing_id, "status": status, "response": data},
+            )
+
+        if status in {"failed", "error", "errored"} or (isinstance(data, dict) and data.get("error")):
+            return _audio_error("elevenlabs", frontend_model, provider_model, data, type="voice", endpoint=status_url, status=status, response=data, dubbing_id=dubbing_id)
+
+        if attempt < attempts:
+            await asyncio.sleep(interval)
+
+    return _audio_error("elevenlabs", frontend_model, provider_model, "ElevenLabs dubbing polling timed out", type="voice", endpoint=status_url, response=last_data, dubbing_id=dubbing_id)
+
+
+# =====================================================
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: _completed_elevenlabs_voice_response
 # Формирует единый успешный ответ ElevenLabs для Job, Mini App, истории и Telegram.
 # =====================================================
@@ -1168,6 +1262,65 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
+            if tool == "dubbing":
+                media_url = _runway_input_media_url(payload)
+                target_lang = str(voice_options.get("target_language") or voice_options.get("targetLanguage") or "en")
+                endpoint = f"{ELEVENLABS_BASE_URL}/v1/dubbing"
+                form_data = {
+                    "name": str(voice_options.get("name") or "SYLVEX dubbing"),
+                    "source_lang": str(voice_options.get("source_language") or voice_options.get("sourceLanguage") or "auto"),
+                    "target_lang": target_lang,
+                    "num_speakers": str(int(voice_options.get("num_speakers") or voice_options.get("numSpeakers") or 0)),
+                    "watermark": "false",
+                    "drop_background_audio": str(bool(voice_options.get("drop_background_audio", voice_options.get("dropBackgroundAudio", False)))).lower(),
+                    "disable_voice_cloning": str(bool(voice_options.get("disable_voice_cloning", voice_options.get("disableVoiceCloning", False)))).lower(),
+                    "mode": "automatic",
+                }
+                files = None
+                if media_url:
+                    media_bytes, filename, content_type = await _load_provider_media(client, media_url)
+                    if media_bytes:
+                        files = {"file": (filename, media_bytes, content_type)}
+                    elif media_url.startswith(("http://", "https://")):
+                        form_data["source_url"] = media_url
+                if not files and not form_data.get("source_url"):
+                    return _audio_error(provider, frontend_model, provider_model, "ElevenLabs Dubbing requires uploaded audio/video or source URL", type="voice", tool=tool)
+                print("ELEVENLABS DUBBING REQUEST:", {"endpoint": endpoint, "target_lang": target_lang, "has_file": bool(files), "has_source_url": bool(form_data.get("source_url"))})
+                response = await client.post(
+                    endpoint,
+                    headers={"xi-api-key": api_key},
+                    data=form_data,
+                    files=files,
+                )
+                data = await safe_audio_json_response(response, provider, endpoint)
+                if response.status_code >= 400:
+                    return _audio_error(provider, frontend_model, provider_model, data, type="voice", endpoint=endpoint, status_code=response.status_code, response=data, tool=tool)
+                dubbing_id = str((data or {}).get("dubbing_id") or "")
+                if not dubbing_id:
+                    return _audio_error(provider, frontend_model, provider_model, "ElevenLabs Dubbing did not return dubbing_id", type="voice", endpoint=endpoint, response=data, tool=tool)
+                return await _poll_elevenlabs_dubbing(client, dubbing_id, target_lang, frontend_model, provider_model, payload, data)
+
+            if tool == "voice_design":
+                if not prompt:
+                    return _audio_error(provider, frontend_model, provider_model, "Voice Design prompt is empty", type="voice", tool=tool)
+                endpoint = f"{ELEVENLABS_BASE_URL}/v1/text-to-voice/design"
+                request_body = {
+                    "model_id": "eleven_multilingual_ttv_v2",
+                    "voice_description": prompt[:1000],
+                    "text": str(voice_options.get("preview_text") or voice_options.get("previewText") or "Hello, this is a SYLVEX voice preview.").strip()[:1000],
+                }
+                print("ELEVENLABS VOICE DESIGN REQUEST:", {"endpoint": endpoint, "description_length": len(request_body["voice_description"]), "text_length": len(request_body["text"])})
+                response = await client.post(endpoint, headers=_elevenlabs_headers(), json=request_body)
+                data = await safe_audio_json_response(response, provider, endpoint)
+                if response.status_code >= 400:
+                    return _audio_error(provider, frontend_model, provider_model, data, type="voice", endpoint=endpoint, status_code=response.status_code, response=data, tool=tool)
+                preview_bytes, generated_voice_id, preview = _extract_elevenlabs_voice_design_preview(data)
+                if not preview_bytes:
+                    return _audio_error(provider, frontend_model, provider_model, "ElevenLabs Voice Design returned no preview audio", type="voice", endpoint=endpoint, response=data, tool=tool)
+                result = await _completed_elevenlabs_voice_response(payload, frontend_model, "eleven_multilingual_ttv_v2", tool, preview_bytes, "audio/mpeg", {"generated_voice_id": generated_voice_id, "preview": preview})
+                result["generated_voice_id"] = generated_voice_id
+                return result
+
             if tool == "speech_to_speech":
                 media_url = _runway_input_media_url(payload)
                 if not media_url:

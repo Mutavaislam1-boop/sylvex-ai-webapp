@@ -167,6 +167,7 @@ let voiceState = {
   elevenlabsVoice: '21m00Tcm4TlvDq8ikWAM',
   elevenlabsSecondVoice: '21m00Tcm4TlvDq8ikWAM',
   elevenlabsTool: 'text_to_speech',
+  elevenlabsTargetLanguage: 'en',
   secondVoice: 'Puck',
   speakerMode: 'single',
   speaker1: 'Speaker1',
@@ -845,6 +846,10 @@ const VOICE_MODEL_LIST = [
   { id:'elevenlabs_multilingual_v2', label:'ElevenLabs Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Stable multilingual ElevenLabs TTS', icon:'elevenlabs' },
   { id:'elevenlabs_flash_v2_5', label:'ElevenLabs Flash v2.5', providerModel:'eleven_flash_v2_5', desc:'Low-latency ElevenLabs TTS', icon:'elevenlabs' },
   { id:'elevenlabs_flash_v2', label:'ElevenLabs Flash v2', providerModel:'eleven_flash_v2', desc:'Low-latency ElevenLabs TTS', icon:'elevenlabs' },
+  { id:'elevenlabs_turbo_v2_5', label:'ElevenLabs Turbo v2.5', providerModel:'eleven_turbo_v2_5', desc:'Fast ElevenLabs TTS', icon:'elevenlabs' },
+  { id:'elevenlabs_turbo_v2', label:'ElevenLabs Turbo v2', providerModel:'eleven_turbo_v2', desc:'Fast ElevenLabs TTS', icon:'elevenlabs' },
+  { id:'elevenlabs_english_sts_v2', label:'ElevenLabs English STS v2', providerModel:'eleven_english_sts_v2', desc:'English speech to speech', icon:'elevenlabs' },
+  { id:'elevenlabs_multilingual_sts_v2', label:'ElevenLabs Multilingual STS v2', providerModel:'eleven_multilingual_sts_v2', desc:'Multilingual speech to speech', icon:'elevenlabs' },
   { id:'runway_eleven_multilingual_v2', label:'Runway Eleven Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Runway text to speech', icon:'runway' },
 ];
 
@@ -880,6 +885,8 @@ const ELEVENLABS_AUDIO_TOOLS = [
   { id:'text_to_speech', label:'Text to Speech' },
   { id:'speech_to_speech', label:'Speech to Speech' },
   { id:'dialogue', label:'Dialogue' },
+  { id:'dubbing', label:'Dubbing / Translate' },
+  { id:'voice_design', label:'Voice Design' },
 ];
 
 const RUNWAY_AUDIO_TOOLS = [
@@ -1656,6 +1663,7 @@ function ensureVoiceSettings() {
   if (!voiceState.elevenlabsVoice) voiceState.elevenlabsVoice = '21m00Tcm4TlvDq8ikWAM';
   if (!voiceState.elevenlabsSecondVoice) voiceState.elevenlabsSecondVoice = voiceState.elevenlabsVoice;
   if (!voiceState.elevenlabsTool) voiceState.elevenlabsTool = 'text_to_speech';
+  if (!voiceState.elevenlabsTargetLanguage) voiceState.elevenlabsTargetLanguage = 'en';
   if (!voiceState.secondVoice) voiceState.secondVoice = 'Puck';
   if (!voiceState.speakerMode) voiceState.speakerMode = 'single';
   if (!voiceState.speaker1) voiceState.speaker1 = 'Speaker1';
@@ -1684,6 +1692,7 @@ function voiceOptionsPayload() {
     elevenlabs_voice: voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM',
     elevenlabs_second_voice: voiceState.elevenlabsSecondVoice || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM',
     elevenlabs_tool: voiceState.elevenlabsTool || 'text_to_speech',
+    target_language: voiceState.elevenlabsTargetLanguage || 'en',
     secondVoice: voiceState.secondVoice,
     speaker_mode: voiceState.speakerMode,
     speaker1: voiceState.speaker1,
@@ -4311,11 +4320,14 @@ function imageModelButton(model) {
         const elevenlabsToolRow = isElevenLabs
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Инструмент ElevenLabs</span><span class="image-size-check">' + S.escapeHtml(elevenlabsToolLabel(elevenlabsTool)) + '</span></button>'
           : '';
-        const elevenlabsVoiceRow = isElevenLabs && elevenlabsTool !== 'voice_design'
+        const elevenlabsVoiceRow = isElevenLabs && !['voice_design', 'dubbing'].includes(elevenlabsTool)
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
           : '';
         const elevenlabsSecondVoiceRow = isElevenLabs && elevenlabsTool === 'dialogue'
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;second_voice&quot;)"><span class="image-size-label">Второй голос</span><span class="image-size-check">ElevenLabs Voice</span></button>'
+          : '';
+        const elevenlabsLanguageRow = isElevenLabs && elevenlabsTool === 'dubbing'
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;elevenlabs_language&quot;)"><span class="image-size-label">Язык перевода</span><span class="image-size-check">' + S.escapeHtml(voiceState.elevenlabsTargetLanguage || 'en') + '</span></button>'
           : '';
         const runwayTool = voiceState.runwayTool || 'text_to_speech';
         const runwayToolRow = isRunway
@@ -4353,6 +4365,7 @@ function imageModelButton(model) {
           + elevenlabsToolRow
           + elevenlabsVoiceRow
           + elevenlabsSecondVoiceRow
+          + elevenlabsLanguageRow
           + runwayToolRow
           + (isRunway ? runwayVoiceRow : (isElevenLabs ? '' : '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'))
           + runwayLanguageRow
@@ -4365,6 +4378,10 @@ function imageModelButton(model) {
       }
       if (kind === 'runway_language') {
         openVoiceSheet('Язык дубляжа', RUNWAY_DUBBING_LANGUAGES, 'runwayTargetLanguage', voiceState.runwayTargetLanguage || 'en');
+        return;
+      }
+      if (kind === 'elevenlabs_language') {
+        openVoiceSheet('Язык перевода', RUNWAY_DUBBING_LANGUAGES, 'elevenlabsTargetLanguage', voiceState.elevenlabsTargetLanguage || 'en');
         return;
       }
       if (kind === 'runway_duration') {
@@ -4921,6 +4938,8 @@ function imageModelButton(model) {
     } else if (kind === 'elevenlabsTool') {
       voiceState.elevenlabsTool = value || 'text_to_speech';
       voiceState.speakerMode = 'single';
+    } else if (kind === 'elevenlabsTargetLanguage') {
+      voiceState.elevenlabsTargetLanguage = value || 'en';
     } else if (kind === 'runwayVoice') {
       voiceState.runwayVoice = value || 'Maya';
     } else if (kind === 'runwayTool') {
@@ -4956,14 +4975,14 @@ function imageModelButton(model) {
     renderVoiceControls();
     renderModelPop();
     const el = document.getElementById('modelPop');
-    if (el && !['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool'].includes(kind)) {
+    if (el && !['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind)) {
       el.classList.remove('show');
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
       el.classList.remove('music-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
-    } else if (['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool'].includes(kind)) {
+    } else if (['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind)) {
       openImageOptionMenu(e, 'settings');
     }
     S.haptic && S.haptic.select && S.haptic.select();
