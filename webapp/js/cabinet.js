@@ -160,6 +160,7 @@ let voiceState = {
   duration: '',
   style: '',
   voice: 'Kore',
+  runwayVoice: 'Maya',
   secondVoice: 'Puck',
   speakerMode: 'single',
   speaker1: 'Speaker1',
@@ -172,6 +173,7 @@ let voiceState = {
 };
 const geminiVoicePreviewCache = {};
 let geminiVoicePreviewAudio = null;
+let runwayVoiceListLoaded = false;
 
 let textState = {
   modelId: 'gpt-4o-mini',
@@ -831,6 +833,7 @@ const VOICE_MODEL_LIST = [
   { id:'gemini_3_1_flash_tts_preview', label:'Gemini 3.1 Flash TTS Preview', providerModel:'gemini-3.1-flash-tts-preview', desc:'Single speaker и multi-speaker TTS', icon:'gemini' },
   { id:'gemini_2_5_flash_preview_tts', label:'Gemini 2.5 Flash Preview TTS', providerModel:'gemini-2.5-flash-preview-tts', desc:'Gemini TTS preview', icon:'gemini' },
   { id:'gemini_2_5_pro_preview_tts', label:'Gemini 2.5 Pro Preview TTS', providerModel:'gemini-2.5-pro-preview-tts', desc:'Gemini Pro TTS preview', icon:'gemini' },
+  { id:'runway_eleven_multilingual_v2', label:'Runway Eleven Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Runway text to speech', icon:'runway' },
 ];
 
 const GEMINI_TTS_VOICES = [
@@ -846,10 +849,62 @@ const GEMINI_TTS_VOICES = [
   ['Sadachbia', 'Lively'], ['Sadaltager', 'Knowledgeable'], ['Sulafat', 'Warm'],
 ].map(([id, label]) => ({ id, label: id + ' · ' + label }));
 
+const RUNWAY_TTS_VOICES = [
+  ['Maya', 'Runway preset'],
+  ['Noah', 'Runway preset'],
+  ['Bernard', 'Runway preset'],
+  ['Arjun', 'Runway preset'],
+].map(([id, label]) => ({ id, label: id + ' · ' + label }));
+
+let runwayVoiceList = RUNWAY_TTS_VOICES.slice();
+
 const VOICE_SPEAKER_MODES = [
   { id:'single', label:'Один голос' },
   { id:'multi', label:'Два голоса' },
 ];
+
+// =====================================================
+// АУДИОПЛЕЕР: isRunwayVoiceModel
+// Проверяет, относится ли выбранная модель озвучки к Runway, чтобы открыть правильные голоса и payload.
+// =====================================================
+function isRunwayVoiceModel(modelId) {
+  const model = VOICE_MODEL_LIST.find((item) => item.id === modelId);
+  return String(modelId || '').indexOf('runway_') === 0 || String((model && model.providerModel) || '') === 'eleven_multilingual_v2';
+}
+
+// =====================================================
+// АУДИОПЛЕЕР: normalizeRunwayVoiceItems
+// Приводит список голосов Runway API к формату шторки Mini App.
+// =====================================================
+function normalizeRunwayVoiceItems(items) {
+  const list = Array.isArray(items) ? items : [];
+  const mapped = list.map((item) => {
+    const id = String(item.voice_id || item.voiceId || item.id || item.name || '').trim();
+    const name = String(item.name || item.label || id).trim();
+    if (!id) return null;
+    return { id, label: name || id, previewUrl: item.preview_url || item.previewUrl || '' };
+  }).filter(Boolean);
+  return mapped.length ? mapped : RUNWAY_TTS_VOICES.slice();
+}
+
+// =====================================================
+// АУДИОПЛЕЕР: loadRunwayVoices
+// Загружает реальные голоса Runway для выбора и прослушивания в Mini App.
+// =====================================================
+async function loadRunwayVoices(force) {
+  if (runwayVoiceListLoaded && !force) return runwayVoiceList;
+  try {
+    const res = await fetch('/api/public/prostudio/runway-voices', { method: 'GET' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.ok || data.success)) {
+      runwayVoiceList = normalizeRunwayVoiceItems(data.voices || []);
+      runwayVoiceListLoaded = true;
+    }
+  } catch (err) {
+    console.warn('[SYLVEX] runway voices failed', err);
+  }
+  return runwayVoiceList;
+}
 
 const MUSIC_GENRES = [
   ['auto', 'Auto'],
@@ -1476,6 +1531,7 @@ function ensureVoiceSettings() {
   if (!voiceState.audioSettings || typeof voiceState.audioSettings !== 'object') voiceState.audioSettings = {};
   if (!voiceState.modelId) voiceState.modelId = 'gemini_3_1_flash_tts_preview';
   if (!voiceState.voice) voiceState.voice = 'Kore';
+  if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
   if (!voiceState.secondVoice) voiceState.secondVoice = 'Puck';
   if (!voiceState.speakerMode) voiceState.speakerMode = 'single';
   if (!voiceState.speaker1) voiceState.speaker1 = 'Speaker1';
@@ -1491,9 +1547,12 @@ function ensureVoiceSettings() {
 // =====================================================
 function voiceOptionsPayload() {
   ensureVoiceSettings();
+  const runwayModel = isRunwayVoiceModel(voiceState.modelId);
   return {
     model: voiceState.modelId,
-    voice: voiceState.voice,
+    provider: runwayModel ? 'runway' : 'gemini',
+    voice: runwayModel ? (voiceState.runwayVoice || 'Maya') : voiceState.voice,
+    runway_voice: voiceState.runwayVoice || 'Maya',
     secondVoice: voiceState.secondVoice,
     speaker_mode: voiceState.speakerMode,
     speaker1: voiceState.speaker1,
@@ -1512,7 +1571,7 @@ function renderVoiceControls() {
   const modelEl = document.getElementById('modelValComposer');
   if (modelEl && isVoiceMode() && model) modelEl.textContent = model.label || model.name || model.id;
   const voiceVal = document.getElementById('voiceVoiceVal');
-  if (voiceVal) voiceVal.textContent = voiceState.voice || 'Kore';
+  if (voiceVal) voiceVal.textContent = isRunwayVoiceModel(voiceState.modelId) ? (voiceState.runwayVoice || 'Maya') : (voiceState.voice || 'Kore');
   const modeVal = document.getElementById('voiceModeVal');
   if (modeVal) modeVal.textContent = voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос';
   const settingsVal = document.getElementById('voiceSettingsVal');
@@ -4079,7 +4138,16 @@ function imageModelButton(model) {
       };
 
       if (kind === 'voice') {
-        openVoiceSheet('Голос озвучки', GEMINI_TTS_VOICES, 'voice', voiceState.voice || 'Kore');
+        if (isRunwayVoiceModel(voiceState.modelId)) {
+          loadRunwayVoices(true).then(() => {
+            if (isVoiceMode() && isRunwayVoiceModel(voiceState.modelId)) {
+              openVoiceSheet('Голос Runway', runwayVoiceList, 'runwayVoice', voiceState.runwayVoice || 'Maya');
+            }
+          });
+          openVoiceSheet('Голос Runway', runwayVoiceList, 'runwayVoice', voiceState.runwayVoice || 'Maya');
+        } else {
+          openVoiceSheet('Голос озвучки', GEMINI_TTS_VOICES, 'voice', voiceState.voice || 'Kore');
+        }
         return;
       }
       if (kind === 'duration' || kind === 'speaker_mode') {
@@ -4087,9 +4155,12 @@ function imageModelButton(model) {
         return;
       }
       if (kind === 'settings') {
-        const secondVoiceRow = voiceState.speakerMode === 'multi'
+        const isRunway = isRunwayVoiceModel(voiceState.modelId);
+        const activeVoiceLabel = isRunway ? (voiceState.runwayVoice || 'Maya') : (voiceState.voice || 'Kore');
+        const secondVoiceRow = (!isRunway && voiceState.speakerMode === 'multi')
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;second_voice&quot;)"><span class="image-size-label">Второй голос</span><span class="image-size-check">' + S.escapeHtml(voiceState.secondVoice || 'Puck') + '</span></button>'
           : '';
+        const modeRow = isRunway ? '' : '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Режим</span><span class="image-size-check">' + (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос') + '</span></button>';
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
         el.classList.add('music-settings-pop');
@@ -4106,8 +4177,8 @@ function imageModelButton(model) {
         el.style.zIndex = '999999';
         el.innerHTML = '<div class="image-size-sheet-title">Настройки озвучки</div>'
           + '<div class="image-size-sheet-list">'
-          + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(voiceState.voice || 'Kore') + '</span></button>'
-          + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;speaker_mode&quot;)"><span class="image-size-label">Режим</span><span class="image-size-check">' + (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос') + '</span></button>'
+          + '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
+          + modeRow
           + secondVoiceRow
           + '</div>';
         el.classList.add('show');
@@ -4585,7 +4656,8 @@ function imageModelButton(model) {
       e.stopPropagation();
     }
     ensureVoiceSettings();
-    const voice = String(voiceId || voiceState.voice || 'Kore').trim();
+    const runwayModel = isRunwayVoiceModel(voiceState.modelId);
+    const voice = String(voiceId || (runwayModel ? voiceState.runwayVoice : voiceState.voice) || (runwayModel ? 'Maya' : 'Kore')).trim();
     if (!voice) return;
     const btn = e && e.currentTarget ? e.currentTarget : null;
     const oldText = btn ? btn.textContent : '';
@@ -4644,13 +4716,24 @@ function imageModelButton(model) {
     ensureVoiceSettings();
     if (kind === 'voice') {
       voiceState.voice = value || 'Kore';
+    } else if (kind === 'runwayVoice') {
+      voiceState.runwayVoice = value || 'Maya';
     } else if (kind === 'secondVoice') {
       voiceState.secondVoice = value || 'Puck';
     } else if (kind === 'speakerMode') {
       voiceState.speakerMode = value || 'single';
     } else if (kind === 'model') {
       const model = VOICE_MODEL_LIST.find((item) => item.id === value);
-      if (model) voiceState.modelId = model.id;
+      if (model) {
+        voiceState.modelId = model.id;
+        if (isRunwayVoiceModel(model.id)) {
+          if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
+          voiceState.speakerMode = 'single';
+          loadRunwayVoices();
+        } else if (!voiceState.voice) {
+          voiceState.voice = 'Kore';
+        }
+      }
     }
     renderVoiceControls();
     renderModelPop();
@@ -4739,6 +4822,13 @@ function imageModelButton(model) {
         const model = VOICE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           voiceState.modelId = model.id;
+          if (isRunwayVoiceModel(model.id)) {
+            if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
+            voiceState.speakerMode = 'single';
+            loadRunwayVoices();
+          } else if (!voiceState.voice) {
+            voiceState.voice = 'Kore';
+          }
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
