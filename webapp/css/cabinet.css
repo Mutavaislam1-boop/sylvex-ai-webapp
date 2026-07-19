@@ -728,6 +728,83 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
+.studio-video-composer[data-composer-mode="voice"] .studio-control-row{flex-wrap:wrap;overflow-x:visible}
+.studio-video-composer[data-composer-mode="voice"] .voice-tool-panel{display:grid}
+
+/* =====================================================
+СТИЛИ БЛОКА ОЗВУЧКИ ELEVENLABS
+Панель добавляет видео для дубляжа, аудио для копирования голоса и запись микрофона.
+Блок живёт только в разделе «Озвучка» и повторяет тёмный стиль Pro Studio.
+===================================================== */
+.voice-tool-panel{
+  flex:1 0 100%;
+  grid-column:1 / -1;
+  display:none;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:10px;
+  width:100%;
+}
+.voice-tool-panel[hidden]{display:none!important}
+.voice-tool-card{
+  min-width:0;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  background:rgba(255,255,255,.045);
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.voice-tool-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.voice-tool-copy b{font-size:13px;color:#f4f4f4;line-height:1.25}
+.voice-tool-copy span{font-size:12px;color:#a9a9a9;line-height:1.35}
+.voice-tool-files{display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center}
+.voice-tool-file,.voice-tool-empty{
+  max-width:100%;
+  border-radius:999px;
+  padding:7px 10px;
+  background:rgba(255,255,255,.08);
+  color:#e6e6e6;
+  font-size:12px;
+  line-height:1;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.voice-tool-empty{color:#9b9b9b}
+.voice-tool-actions{display:flex;gap:8px;align-items:center}
+.voice-tool-actions-wrap{flex-wrap:wrap}
+.voice-tool-actions button{
+  min-height:36px;
+  border:0;
+  border-radius:999px;
+  padding:0 12px;
+  background:#333;
+  color:#f4f4f4;
+  font:inherit;
+  font-size:12px;
+  font-weight:800;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  cursor:pointer;
+}
+.voice-tool-actions button:first-child{background:#2a61aa}
+.voice-tool-actions button.recording{background:#a63434}
+.voice-tool-actions button:disabled{opacity:.42;cursor:not-allowed}
+.voice-tool-input{
+  width:100%;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  background:#202020;
+  color:#f4f4f4;
+  padding:10px 12px;
+  font:inherit;
+  font-size:13px;
+  outline:0;
+}
+.voice-tool-audio{width:100%;height:34px}
 
 /* =====================================================
 CSS-БЛОК: .studio-video-panel

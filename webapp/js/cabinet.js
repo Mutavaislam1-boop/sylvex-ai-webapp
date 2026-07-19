@@ -182,6 +182,12 @@ const geminiVoicePreviewCache = {};
 let geminiVoicePreviewAudio = null;
 let runwayVoiceListLoaded = false;
 let elevenlabsVoiceListLoaded = false;
+let voiceCloneRecorder = null;
+let voiceCloneStream = null;
+let voiceCloneChunks = [];
+let voiceCloneBlob = null;
+let voiceClonePreviewUrl = '';
+let voiceCloneSubmitting = false;
 
 let textState = {
   modelId: 'gpt-4o-mini',
@@ -1687,12 +1693,13 @@ function voiceOptionsPayload() {
     voice: elevenlabsModel ? (voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM') : (runwayModel ? (voiceState.runwayVoice || 'Maya') : voiceState.voice),
     runway_voice: voiceState.runwayVoice || 'Maya',
     runway_tool: voiceState.runwayTool || 'text_to_speech',
-    target_language: voiceState.runwayTargetLanguage || 'en',
+    runway_target_language: voiceState.runwayTargetLanguage || 'en',
     duration: Number(voiceState.runwayDuration || 5),
     elevenlabs_voice: voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM',
     elevenlabs_second_voice: voiceState.elevenlabsSecondVoice || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM',
     elevenlabs_tool: voiceState.elevenlabsTool || 'text_to_speech',
-    target_language: voiceState.elevenlabsTargetLanguage || 'en',
+    elevenlabs_target_language: voiceState.elevenlabsTargetLanguage || 'en',
+    target_language: elevenlabsModel ? (voiceState.elevenlabsTargetLanguage || 'en') : (voiceState.runwayTargetLanguage || 'en'),
     secondVoice: voiceState.secondVoice,
     speaker_mode: voiceState.speakerMode,
     speaker1: voiceState.speaker1,
@@ -1716,6 +1723,73 @@ function renderVoiceControls() {
   if (modeVal) modeVal.textContent = isElevenLabsVoiceModel(voiceState.modelId) ? elevenlabsToolLabel(voiceState.elevenlabsTool || 'text_to_speech') : (isRunwayVoiceModel(voiceState.modelId) ? runwayToolLabel(voiceState.runwayTool || 'text_to_speech') : (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос'));
   const settingsVal = document.getElementById('voiceSettingsVal');
   if (settingsVal) settingsVal.textContent = 'Настройки';
+  renderVoiceToolPanel();
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: renderVoiceToolPanel
+// Показывает отдельную панель для дубляжа видео, копирования голоса и записи собственного голоса.
+// Панель использует уже существующий state озвучки и не влияет на фото, видео или музыку.
+// =====================================================
+function renderVoiceToolPanel() {
+  const panel = document.getElementById('voiceToolPanel');
+  if (!panel) return;
+  const isElevenLabs = isVoiceMode() && isElevenLabsVoiceModel(voiceState.modelId);
+  const tool = voiceState.elevenlabsTool || 'text_to_speech';
+  const needsMedia = isElevenLabs && (tool === 'dubbing' || tool === 'speech_to_speech');
+  const showClone = isElevenLabs;
+  if (!needsMedia && !showClone) {
+    panel.hidden = true;
+    panel.innerHTML = '';
+    return;
+  }
+  panel.hidden = false;
+  const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
+  const uploadTitle = tool === 'dubbing'
+    ? 'Видео или аудио для дубляжа'
+    : 'Голос для копирования';
+  const uploadHint = tool === 'dubbing'
+    ? 'Загрузите видео/аудио, которое нужно перевести и озвучить.'
+    : 'Загрузите аудио, стиль которого нужно перенести на выбранный голос.';
+  const uploadItems = uploads.length
+    ? uploads.map((item, index) => '<span class="voice-tool-file">' + S.escapeHtml(item.name || item.kind || ('Файл ' + (index + 1))) + '</span>').join('')
+    : '<span class="voice-tool-empty">Файл не выбран</span>';
+  const mediaBlock = needsMedia ? `
+    <div class="voice-tool-card">
+      <div class="voice-tool-copy">
+        <b>${S.escapeHtml(uploadTitle)}</b>
+        <span>${S.escapeHtml(uploadHint)}</span>
+      </div>
+      <div class="voice-tool-files">${uploadItems}</div>
+      <div class="voice-tool-actions">
+        <button type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+          Загрузить
+        </button>
+        <button type="button" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length ? '' : 'disabled'}>Очистить</button>
+      </div>
+    </div>` : '';
+  const recordButtonLabel = voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'Остановить запись' : 'Записать голос';
+  const cloneSubmitLabel = voiceCloneSubmitting ? 'Создаём...' : 'Создать голос';
+  const cloneBlock = showClone ? `
+    <div class="voice-tool-card">
+      <div class="voice-tool-copy">
+        <b>Создать свой голос</b>
+        <span>Запишите голос, прослушайте запись и отправьте её для создания нового голоса ElevenLabs.</span>
+      </div>
+      <input class="voice-tool-input" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off">
+      <div class="voice-tool-actions voice-tool-actions-wrap">
+        <button type="button" onclick="SYLVEX.toggleVoiceCloneRecording(event)" class="${voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'recording' : ''}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2Z"/></svg>
+          ${S.escapeHtml(recordButtonLabel)}
+        </button>
+        <button type="button" onclick="SYLVEX.playVoiceCloneRecording(event)" ${voiceClonePreviewUrl ? '' : 'disabled'}>Прослушать</button>
+        <button type="button" onclick="SYLVEX.sendVoiceCloneRecording(event)" ${voiceCloneBlob && !voiceCloneSubmitting ? '' : 'disabled'}>${S.escapeHtml(cloneSubmitLabel)}</button>
+        <button type="button" onclick="SYLVEX.clearVoiceCloneRecording(event)" ${voiceCloneBlob && !voiceCloneSubmitting ? '' : 'disabled'}>Удалить</button>
+      </div>
+      ${voiceClonePreviewUrl ? '<audio class="voice-tool-audio" src="' + S.escapeHtml(voiceClonePreviewUrl) + '" controls preload="metadata"></audio>' : ''}
+    </div>` : '';
+  panel.innerHTML = mediaBlock + cloneBlock;
 }
 
 // =====================================================
@@ -7297,7 +7371,9 @@ function closeUploadPanel(e) {
     if (sheet) sheet.classList.remove('show');
     const inp = document.getElementById('attachInput');
     if (!inp) return;
-    if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
+    if (kind === 'voice_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
     else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
@@ -7360,6 +7436,8 @@ function closeUploadPanel(e) {
       } else {
         pendingKind = 'image';
       }
+    } else if (pendingKind === 'voice_media') {
+      pendingKind = (f.type && f.type.startsWith('video/')) ? 'video' : 'audio';
     }
     const maxSize = pendingKind === 'video' ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
     if (f.size > maxSize) {
@@ -7414,13 +7492,14 @@ function closeUploadPanel(e) {
         const state = currentAudioState();
         state.uploads = (state.uploads || []).filter((item) => item.url !== result);
         state.uploads.push({
-          kind: pendingKind === 'video' ? 'audio' : pendingKind,
+          kind: pendingKind,
           url: result,
           name: f.name,
           mime: f.type || 'application/octet-stream',
         });
         state.uploads = state.uploads.slice(0, 4);
         toast('Файл загружен');
+        if (isVoiceMode()) renderVoiceToolPanel();
       }
 
       try { updateSendButton(); } catch {}
@@ -7434,6 +7513,38 @@ function closeUploadPanel(e) {
   function clearAttachment() {
     setCurrentModeAttachment(null);
     try { updateSendButton(); } catch {}
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoiceMediaPicker
+  // Открывает выбор видео или аудио для инструментов ElevenLabs «Дубляж» и «Копирование голоса».
+  // Загруженный файл сохраняется только в voiceState.uploads.
+  // =====================================================
+  function openVoiceMediaPicker(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!isVoiceMode()) return;
+    const tool = voiceState.elevenlabsTool || 'text_to_speech';
+    openNativeFilePicker(tool === 'speech_to_speech' ? 'voice_audio' : 'voice_media');
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: clearVoiceUploads
+  // Очищает только файлы озвучки: видео для дубляжа или аудио для speech-to-speech.
+  // Не затрагивает upload-зоны фото и видео.
+  // =====================================================
+  function clearVoiceUploads(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    voiceState.uploads = [];
+    voiceState.attachment = null;
+    renderVoiceToolPanel();
+    updateSendButton();
+    toast('Файлы озвучки очищены');
   }
 
   // =====================================================
@@ -8561,6 +8672,7 @@ async function waitGeneration(jobId, options) {
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
+    if (isVoiceMode()) renderVoiceToolPanel();
     if (!photoMode) {
       loadingIndex = chatMessages.push({
         generationLoading: true,
@@ -8733,6 +8845,133 @@ async function waitGeneration(jobId, options) {
       renderChat();
     });
 }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: toggleVoiceCloneRecording
+  // Записывает голос пользователя для создания собственного ElevenLabs-голоса.
+  // Запись не отправляется сразу: сначала её можно прослушать внутри Mini App.
+  // =====================================================
+  async function toggleVoiceCloneRecording(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (voiceCloneRecorder && voiceCloneRecorder.state === 'recording') {
+      voiceCloneRecorder.stop();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Микрофон не поддерживается');
+      return;
+    }
+    try {
+      voiceCloneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast('Нет доступа к микрофону');
+      return;
+    }
+    const mime = ['audio/webm', 'audio/mp4'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    try {
+      voiceCloneRecorder = mime ? new MediaRecorder(voiceCloneStream, { mimeType: mime }) : new MediaRecorder(voiceCloneStream);
+    } catch {
+      voiceCloneRecorder = new MediaRecorder(voiceCloneStream);
+    }
+    voiceCloneChunks = [];
+    voiceCloneRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) voiceCloneChunks.push(ev.data);
+    };
+    voiceCloneRecorder.onstop = () => {
+      try { voiceCloneStream && voiceCloneStream.getTracks().forEach((track) => track.stop()); } catch {}
+      const blob = new Blob(voiceCloneChunks, { type: voiceCloneRecorder.mimeType || 'audio/webm' });
+      if (voiceClonePreviewUrl) URL.revokeObjectURL(voiceClonePreviewUrl);
+      voiceCloneBlob = blob.size >= 800 ? blob : null;
+      voiceClonePreviewUrl = voiceCloneBlob ? URL.createObjectURL(voiceCloneBlob) : '';
+      if (!voiceCloneBlob) toast('Запись слишком короткая');
+      renderVoiceToolPanel();
+    };
+    voiceCloneRecorder.start();
+    renderVoiceToolPanel();
+    S.haptic && S.haptic.impact && S.haptic.impact('light');
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: playVoiceCloneRecording
+  // Воспроизводит локальную запись голоса перед отправкой на создание собственного голоса.
+  // =====================================================
+  function playVoiceCloneRecording(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!voiceClonePreviewUrl) return;
+    const audio = new Audio(voiceClonePreviewUrl);
+    audio.play().catch(() => toast('Не удалось воспроизвести запись'));
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: clearVoiceCloneRecording
+  // Удаляет локальную запись голоса и очищает preview, не затрагивая остальные файлы озвучки.
+  // =====================================================
+  function clearVoiceCloneRecording(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (voiceClonePreviewUrl) URL.revokeObjectURL(voiceClonePreviewUrl);
+    voiceCloneBlob = null;
+    voiceClonePreviewUrl = '';
+    voiceCloneChunks = [];
+    renderVoiceToolPanel();
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: sendVoiceCloneRecording
+  // Отправляет записанный голос на backend, backend создаёт голос в ElevenLabs и возвращает voice_id.
+  // Новый голос сразу выбирается в Pro Studio и появляется в списке голосов после обновления.
+  // =====================================================
+  async function sendVoiceCloneRecording(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!voiceCloneBlob) {
+      toast('Сначала запишите голос');
+      return;
+    }
+    if (voiceCloneSubmitting) return;
+    const nameInput = document.getElementById('voiceCloneNameInput');
+    const voiceName = (nameInput && nameInput.value ? nameInput.value : '').trim() || 'SYLVEX Voice';
+    const fd = new FormData();
+    const ext = (voiceCloneBlob.type || '').includes('mp4') ? 'mp4' : 'webm';
+    fd.append('file', voiceCloneBlob, 'sylvex-voice.' + ext);
+    fd.append('name', voiceName);
+    fd.append('telegram_id', String(getTelegramId() || ''));
+    fd.append('description', 'Created in SYLVEX Mini App');
+    voiceCloneSubmitting = true;
+    renderVoiceToolPanel();
+    try {
+      const res = await fetch('/api/public/prostudio/elevenlabs/voice-clone', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.voice_id) {
+        throw new Error(translateGenerationError(data, 'Не удалось создать голос. Попробуйте ещё раз.'));
+      }
+      voiceState.elevenlabsVoice = data.voice_id;
+      voiceState.elevenlabsSecondVoice = data.voice_id;
+      elevenlabsVoiceListLoaded = false;
+      await loadElevenLabsVoices(true).catch(() => {});
+      clearVoiceCloneRecording();
+      renderVoiceControls();
+      toast('Голос создан и выбран');
+    } catch (err) {
+      toast(translateGenerationError(err, 'Не удалось создать голос. Попробуйте ещё раз.'));
+    } finally {
+      voiceCloneSubmitting = false;
+      renderVoiceToolPanel();
+    }
+  }
 
   /* ===== Voice (mic) recording → Whisper ===== */
   // =====================================================
@@ -10558,7 +10797,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -10592,6 +10831,12 @@ async function waitGeneration(jobId, options) {
   window.openVideoEndUpload = openVideoEndUpload;
   window.openVideoReferencesUpload = openVideoReferencesUpload;
   window.openNativeFilePicker = openNativeFilePicker;
+  window.openVoiceMediaPicker = openVoiceMediaPicker;
+  window.clearVoiceUploads = clearVoiceUploads;
+  window.toggleVoiceCloneRecording = toggleVoiceCloneRecording;
+  window.playVoiceCloneRecording = playVoiceCloneRecording;
+  window.clearVoiceCloneRecording = clearVoiceCloneRecording;
+  window.sendVoiceCloneRecording = sendVoiceCloneRecording;
   window.addMediaLink = addMediaLink;
   window.autoGrow       = autoGrow;
   window.sendChat       = sendChat;

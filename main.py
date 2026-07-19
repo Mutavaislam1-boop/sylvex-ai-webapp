@@ -22,7 +22,7 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from services.audio_router import audio_generation, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _send_generated_audio_to_telegram
+from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram
@@ -9546,6 +9546,38 @@ async def public_prostudio_transcribe(request: Request):
     if response.status_code >= 400:
         return JSONResponse({"ok": False, "error": response.text}, status_code=502)
     return {"ok": True, "text": response.json().get("text", "")}
+
+# =====================================================
+# API ENDPOINT: public_prostudio_elevenlabs_voice_clone
+# Принимает запись микрофона из Mini App и создаёт новый голос ElevenLabs.
+# Возвращает voice_id, чтобы пользователь мог сразу выбрать созданный голос в разделе «Озвучка».
+# =====================================================
+@app.post("/api/public/prostudio/elevenlabs/voice-clone")
+async def public_prostudio_elevenlabs_voice_clone(request: Request):
+    form = await request.form()
+    file = form.get("file")
+    if not file or not hasattr(file, "read"):
+        return JSONResponse({"ok": False, "error": "File is required"}, status_code=400)
+
+    content = await file.read()
+    if not content:
+        return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
+
+    try:
+        telegram_id = int(form.get("telegram_id") or 0)
+    except Exception:
+        telegram_id = 0
+    result = await elevenlabs_clone_voice_from_audio(
+        file_content=content,
+        filename=getattr(file, "filename", None) or "sylvex-voice.webm",
+        content_type=getattr(file, "content_type", None) or "audio/webm",
+        name=str(form.get("name") or "SYLVEX Voice"),
+        description=str(form.get("description") or "Created in SYLVEX Mini App"),
+        telegram_id=telegram_id,
+    )
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=502)
+    return result
 
 # =====================================================
 # API ENDPOINT: get_cabinet
