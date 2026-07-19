@@ -22,7 +22,7 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from services.audio_router import audio_generation, gemini_tts_voice_preview, _send_generated_audio_to_telegram
+from services.audio_router import audio_generation, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram
@@ -3126,13 +3126,28 @@ async def elevenlabs_preview(request: Request):
 
 # =====================================================
 # API ENDPOINT: public_prostudio_voice_preview
-# Генерирует короткий preview выбранного Gemini TTS голоса для Mini App.
+# Генерирует короткий preview выбранного Gemini TTS или Runway TTS голоса для Mini App.
 # Не создаёт job, не пишет историю генераций и не списывает баланс.
 # =====================================================
 @app.post("/api/public/prostudio/voice-preview")
 async def public_prostudio_voice_preview(request: Request):
     data = await request.json()
-    result = await gemini_tts_voice_preview(data)
+    model = str(data.get("model") or "")
+    if model.startswith("runway_") or model in {"eleven_multilingual_v2"}:
+        result = await runway_voice_preview(data)
+    else:
+        result = await gemini_tts_voice_preview(data)
+    status_code = 200 if result.get("ok") or result.get("success") else 502
+    return JSONResponse(result, status_code=status_code)
+
+
+# =====================================================
+# API ENDPOINT: public_prostudio_runway_voices
+# Возвращает список голосов Runway для шторки выбора озвучки в Mini App.
+# =====================================================
+@app.get("/api/public/prostudio/runway-voices")
+async def public_prostudio_runway_voices():
+    result = await fetch_runway_voices()
     status_code = 200 if result.get("ok") or result.get("success") else 502
     return JSONResponse(result, status_code=status_code)
 

@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import pathlib
+import mimetypes
 import wave
 from typing import Any
 from uuid import uuid4
@@ -25,6 +26,8 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 GENERATED_AUDIO_DIR = WEBAPP_DIR / "generated" / "audio"
 GEMINI_TTS_ENDPOINT = os.getenv("GEMINI_TTS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")
+RUNWAY_API_BASE_URL = os.getenv("RUNWAY_API_BASE_URL", "https://api.dev.runwayml.com").rstrip("/")
+RUNWAY_API_VERSION = os.getenv("RUNWAY_API_VERSION", "2024-11-06")
 
 SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_3_5": "chirp-v3-5",
@@ -42,6 +45,18 @@ GEMINI_TTS_MODEL_MAP = {
     "gemini-2.5-flash-preview-tts": "gemini-2.5-flash-preview-tts",
     "gemini-2.5-pro-preview-tts": "gemini-2.5-pro-preview-tts",
 }
+
+RUNWAY_VOICE_MODEL_MAP = {
+    "runway_eleven_multilingual_v2": "eleven_multilingual_v2",
+    "eleven_multilingual_v2": "eleven_multilingual_v2",
+}
+
+RUNWAY_VOICE_FALLBACKS = [
+    {"voice_id": "Maya", "name": "Maya", "provider": "runway", "type": "runway-preset"},
+    {"voice_id": "Noah", "name": "Noah", "provider": "runway", "type": "runway-preset"},
+    {"voice_id": "Bernard", "name": "Bernard", "provider": "runway", "type": "runway-preset"},
+    {"voice_id": "Arjun", "name": "Arjun", "provider": "runway", "type": "runway-preset"},
+]
 
 GEMINI_TTS_VOICE_NAMES = {
     "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda",
@@ -137,6 +152,16 @@ def _audio_headers(api_key: str) -> dict[str, str]:
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_headers
+# Готовит заголовки официального Runway API для генерации озвучки и списка голосов.
+# =====================================================
+def _runway_headers(api_key: str) -> dict[str, str]:
+    headers = _audio_headers(api_key)
+    headers["X-Runway-Version"] = RUNWAY_API_VERSION
+    return headers
 
 
 # =====================================================
@@ -266,6 +291,23 @@ def _gemini_tts_model_mapping(frontend_model: str) -> str:
 
 
 # =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_voice_model_mapping
+# Сопоставляет модель озвучки Runway из Mini App с официальным ID Runway API.
+# =====================================================
+def _runway_voice_model_mapping(frontend_model: str) -> str:
+    value = (frontend_model or "").strip()
+    return RUNWAY_VOICE_MODEL_MAP.get(value) or RUNWAY_VOICE_MODEL_MAP.get(value.lower()) or ""
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _is_runway_voice_model
+# Проверяет, должна ли выбранная модель озвучки идти через Runway, а не через Gemini.
+# =====================================================
+def _is_runway_voice_model(frontend_model: str) -> bool:
+    return bool(_runway_voice_model_mapping(frontend_model))
+
+
+# =====================================================
 # ЗАГРУЗКА ФАЙЛОВ: _save_gemini_tts_wav
 # Сохраняет PCM-аудио Gemini TTS в WAV-файл, который Mini App и Telegram могут открыть по URL.
 # =====================================================
@@ -281,6 +323,98 @@ def _save_gemini_tts_wav(pcm: bytes) -> str:
         wf.setframerate(24000)
         wf.writeframes(pcm)
     return f"/webapp/generated/audio/{filename}"
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _save_audio_file
+# Сохраняет готовое аудио от Runway в локальную папку Mini App, чтобы карточка озвучки открывалась внутри приложения.
+# =====================================================
+def _save_audio_file(content: bytes, ext: str = ".mp3") -> str:
+    if not content:
+        return ""
+    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    safe_ext = ext if ext.startswith(".") and len(ext) <= 8 else ".mp3"
+    filename = f"{uuid4().hex}{safe_ext}"
+    path = GENERATED_AUDIO_DIR / filename
+    path.write_bytes(content)
+    return f"/webapp/generated/audio/{filename}"
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _audio_extension_from_response
+# Определяет расширение аудиофайла по URL или Content-Type ответа провайдера.
+# =====================================================
+def _audio_extension_from_response(url: str = "", content_type: str = "") -> str:
+    guessed = mimetypes.guess_extension((content_type or "").split(";", 1)[0].strip()) if content_type else ""
+    if guessed:
+        return ".mp3" if guessed == ".mpga" else guessed
+    suffix = pathlib.PurePosixPath(str(url or "").split("?", 1)[0]).suffix.lower()
+    if suffix in {".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"}:
+        return suffix
+    return ".mp3"
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_task_id
+# Извлекает task_id из ответа Runway после создания задачи.
+# =====================================================
+def _runway_task_id(data: Any) -> str:
+    value = _first_value(data, ("id", "task_id", "taskId"))
+    return str(value or "")
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_status
+# Приводит статус задачи Runway к единому виду для polling-процесса SYLVEX.
+# =====================================================
+def _runway_status(data: Any) -> str:
+    return str(_first_value(data, ("status", "state")) or "").lower()
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_audio_urls
+# Находит ссылки на готовое аудио в ответе Runway независимо от вложенности результата.
+# =====================================================
+def _runway_audio_urls(data: Any) -> list[str]:
+    urls: list[str] = []
+
+    def walk(value: Any):
+        if isinstance(value, dict):
+            for key in ("audio_url", "audioUrl", "url", "uri", "output_url", "outputUrl", "result_url", "resultUrl"):
+                item = value.get(key)
+                if isinstance(item, str) and item.startswith(("http://", "https://", "/webapp/")):
+                    urls.append(item)
+            for key in ("output", "outputs", "result", "results", "artifacts", "data"):
+                if key in value:
+                    walk(value.get(key))
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, str) and value.startswith(("http://", "https://", "/webapp/")):
+            urls.append(value)
+
+    walk(data)
+    deduped = []
+    for url in urls:
+        if url not in deduped:
+            deduped.append(url)
+    return deduped
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _download_runway_audio
+# Скачивает финальный audio URL от Runway и возвращает локальный URL для Mini App и Telegram.
+# =====================================================
+async def _download_runway_audio(client: httpx.AsyncClient, audio_url: str) -> str:
+    if not audio_url:
+        return ""
+    if str(audio_url).startswith("/webapp/"):
+        return str(audio_url)
+    response = await client.get(audio_url)
+    if response.status_code >= 400 or not response.content:
+        return ""
+    ext = _audio_extension_from_response(audio_url, response.headers.get("content-type") or "")
+    return _save_audio_file(response.content, ext)
 
 
 # =====================================================
@@ -510,6 +644,10 @@ async def _send_generated_audio_to_telegram(
 async def audio_generation(payload: dict) -> dict:
     mode = str(payload.get("mode") or payload.get("category") or "").lower()
     if mode == "voice":
+        voice_options = payload.get("voice_options") or {}
+        frontend_model = payload.get("model") or voice_options.get("model") or ""
+        if _is_runway_voice_model(frontend_model):
+            return await runway_voice_generation(payload)
         return await voice_generation(payload)
 
     api_key = _get_env("AUDIO_API_KEY")
@@ -652,6 +790,307 @@ async def audio_generation(payload: dict) -> dict:
             "poll_url": f"{AUDIO_FEED_ENDPOINT}?workId={work_id}",
             "response": last_data,
         }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_voice_payload
+# Собирает официальный payload Runway Text to Speech: текст пользователя и выбранный голос.
+# =====================================================
+def _runway_voice_payload(payload: dict, provider_model: str) -> dict[str, Any]:
+    voice_options = payload.get("voice_options") or {}
+    prompt = (payload.get("prompt") or voice_options.get("prompt") or "").strip()
+    voice_id = (
+        voice_options.get("runway_voice")
+        or voice_options.get("voice")
+        or voice_options.get("voice_name")
+        or "Maya"
+    )
+    return {
+        "model": provider_model,
+        "promptText": prompt,
+        "voice": {
+            "type": "runway-preset",
+            "presetId": str(voice_id or "Maya"),
+        },
+    }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _completed_runway_voice_response
+# Формирует единый успешный ответ озвучки Runway для Job, Mini App, истории и Telegram.
+# =====================================================
+async def _completed_runway_voice_response(
+    payload: dict,
+    frontend_model: str,
+    provider_model: str,
+    task_id: str,
+    status: str,
+    audio_url: str,
+    provider_response: Any,
+) -> dict:
+    voice_options = payload.get("voice_options") or {}
+    voice = (
+        voice_options.get("runway_voice")
+        or voice_options.get("voice")
+        or voice_options.get("voice_name")
+        or "Maya"
+    )
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if not payload.get("skip_telegram"):
+        sent_to_telegram = await _send_generated_audio_to_telegram(
+            telegram_id=telegram_id,
+            audio_url=audio_url,
+            caption="SYLVEX Pro Studio\nОзвучка Runway готова ✅",
+        )
+    return {
+        "ok": True,
+        "type": "voice",
+        "provider": "runway",
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "status": "completed",
+        "task_id": task_id,
+        "audio_url": audio_url,
+        "audios": [audio_url],
+        "voice": voice,
+        "voice_options": voice_options,
+        "response": provider_response,
+        "sent_to_telegram": sent_to_telegram,
+        "text": "Озвучка готова ✅\n" + audio_url,
+    }
+
+
+# =====================================================
+# POLLING-ПРОЦЕСС: _poll_runway_voice_task
+# Проверяет статус задачи Runway до готового аудио или ошибки и останавливается сразу после финального состояния.
+# =====================================================
+async def _poll_runway_voice_task(
+    client: httpx.AsyncClient,
+    api_key: str,
+    frontend_model: str,
+    provider_model: str,
+    task_id: str,
+    payload: dict,
+    initial_response: Any,
+) -> dict:
+    task_url = f"{RUNWAY_API_BASE_URL}/v1/tasks/{task_id}"
+    attempts = int(os.getenv("RUNWAY_AUDIO_POLL_ATTEMPTS", "90"))
+    interval = float(os.getenv("RUNWAY_AUDIO_POLL_INTERVAL", "2"))
+    last_data = initial_response
+
+    for attempt in range(1, attempts + 1):
+        try:
+            response = await client.get(task_url, headers=_runway_headers(api_key))
+            data = await safe_audio_json_response(response, "runway", task_url)
+        except Exception as exc:
+            return _audio_error("runway", frontend_model, provider_model, exc, type="voice", endpoint=task_url, task_id=task_id, details=repr(exc))
+
+        last_data = data
+        status = _runway_status(data)
+        audio_urls = _runway_audio_urls(data)
+        print("RUNWAY TTS POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": status,
+            "has_audio_url": bool(audio_urls),
+            "status_code": response.status_code,
+        })
+
+        if response.status_code >= 400:
+            return _audio_error("runway", frontend_model, provider_model, data, type="voice", endpoint=task_url, status_code=response.status_code, response=data, task_id=task_id)
+
+        if status in {"succeeded", "success", "completed", "complete", "done"} and audio_urls:
+            local_audio_url = await _download_runway_audio(client, audio_urls[0])
+            if not local_audio_url:
+                return _audio_error("runway", frontend_model, provider_model, "Runway TTS audio download failed", type="voice", endpoint=task_url, response=data, task_id=task_id)
+            return await _completed_runway_voice_response(
+                payload,
+                frontend_model,
+                provider_model,
+                task_id,
+                status,
+                local_audio_url,
+                data,
+            )
+
+        if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+            return _audio_error("runway", frontend_model, provider_model, data, type="voice", endpoint=task_url, status=status, response=data, task_id=task_id)
+
+        if attempt < attempts:
+            await asyncio.sleep(interval)
+
+    return _audio_error("runway", frontend_model, provider_model, "Runway TTS polling timed out", type="voice", endpoint=task_url, response=last_data, task_id=task_id)
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: runway_voice_generation
+# Подключает раздел «Озвучка» Mini App к официальному Runway Text to Speech API.
+# Получает текст, выбранный голос Runway, создаёт задачу, ждёт результат и возвращает audio_url.
+# =====================================================
+async def runway_voice_generation(payload: dict) -> dict:
+    provider = "runway"
+    voice_options = payload.get("voice_options") or {}
+    frontend_model = (
+        payload.get("model")
+        or voice_options.get("model")
+        or "runway_eleven_multilingual_v2"
+    )
+    provider_model = _runway_voice_model_mapping(frontend_model)
+    api_key = _get_env("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY")
+    prompt_report = optimize_prompt_for_model(
+        payload.get("prompt") or voice_options.get("prompt") or "",
+        model=frontend_model,
+        provider=provider,
+        mode="voice",
+    )
+    print("RUNWAY TTS PROMPT OPTIMIZER:", {
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "prompt_length": prompt_report.get("original_length"),
+        "model_limit": prompt_report.get("limit"),
+        "optimized": prompt_report.get("optimized"),
+        "new_length": prompt_report.get("optimized_length"),
+    })
+    if (payload.get("prompt") or voice_options.get("prompt")) and not prompt_report.get("ok"):
+        return _audio_error(provider, frontend_model, provider_model, "Prompt optimization failed to reach limit", type="voice")
+    if prompt_report.get("optimized"):
+        payload["prompt"] = prompt_report.get("prompt") or payload.get("prompt") or ""
+        payload["prompt_optimization"] = prompt_report
+
+    if not provider_model:
+        return _audio_error(provider, frontend_model, "", "Unknown Runway TTS model mapping", type="voice", frontend_model=frontend_model)
+    if not api_key:
+        return _audio_error(provider, frontend_model, provider_model, "RUNWAY_API_KEY is not configured", type="voice")
+    if not (payload.get("prompt") or "").strip():
+        return _audio_error(provider, frontend_model, provider_model, "Voice prompt is empty", type="voice")
+
+    endpoint = f"{RUNWAY_API_BASE_URL}/v1/text_to_speech"
+    request_body = _runway_voice_payload(payload, provider_model)
+    print("RUNWAY TTS REQUEST:", {
+        "endpoint": endpoint,
+        "frontend_model": frontend_model,
+        "provider_model": provider_model,
+        "voice": (request_body.get("voice") or {}).get("presetId"),
+        "has_prompt": bool(request_body.get("promptText")),
+    })
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            response = await client.post(endpoint, headers=_runway_headers(api_key), json=request_body)
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, exc, type="voice", endpoint=endpoint, details=repr(exc))
+        data = await safe_audio_json_response(response, provider, endpoint)
+        print("RUNWAY TTS RESPONSE:", {
+            "status_code": response.status_code,
+            "task_id": _runway_task_id(data),
+            "status": _runway_status(data),
+            "has_audio_url": bool(_runway_audio_urls(data)),
+            "body_preview": json.dumps(data, ensure_ascii=False)[:1200] if isinstance(data, (dict, list)) else str(data)[:1200],
+        })
+        if response.status_code >= 400:
+            return _audio_error(provider, frontend_model, provider_model, data, type="voice", endpoint=endpoint, status_code=response.status_code, response=data)
+
+        audio_urls = _runway_audio_urls(data)
+        if audio_urls:
+            local_audio_url = await _download_runway_audio(client, audio_urls[0])
+            if not local_audio_url:
+                return _audio_error(provider, frontend_model, provider_model, "Runway TTS audio download failed", type="voice", endpoint=endpoint, response=data)
+            return await _completed_runway_voice_response(payload, frontend_model, provider_model, _runway_task_id(data), _runway_status(data), local_audio_url, data)
+
+        task_id = _runway_task_id(data)
+        if not task_id:
+            return _audio_error(provider, frontend_model, provider_model, "Runway TTS did not return task id", type="voice", endpoint=endpoint, response=data)
+
+        return await _poll_runway_voice_task(client, api_key, frontend_model, provider_model, task_id, payload, data)
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: fetch_runway_voices
+# Загружает список голосов Runway для Mini App. Если API недоступен, возвращает безопасный локальный список.
+# =====================================================
+async def fetch_runway_voices() -> dict:
+    api_key = _get_env("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY")
+    if not api_key:
+        return {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True}
+
+    endpoint = f"{RUNWAY_API_BASE_URL}/v1/voices"
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.get(endpoint, headers=_runway_headers(api_key))
+            data = await safe_audio_json_response(response, "runway", endpoint)
+        except Exception as exc:
+            print("RUNWAY VOICES FAILED:", repr(exc))
+            return {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True}
+
+    if response.status_code >= 400:
+        print("RUNWAY VOICES ERROR:", {
+            "status_code": response.status_code,
+            "body_preview": json.dumps(data, ensure_ascii=False)[:900] if isinstance(data, (dict, list)) else str(data)[:900],
+        })
+        return {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True}
+
+    source = data
+    if isinstance(data, dict):
+        for key in ("voices", "data", "items", "results"):
+            if isinstance(data.get(key), list):
+                source = data.get(key)
+                break
+    voices = []
+    if isinstance(source, list):
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            voice_id = (
+                item.get("id")
+                or item.get("voice_id")
+                or item.get("voiceId")
+                or item.get("presetId")
+                or item.get("preset_id")
+                or item.get("name")
+            )
+            if not voice_id:
+                continue
+            name = item.get("name") or item.get("displayName") or item.get("label") or voice_id
+            voices.append({
+                "voice_id": str(voice_id),
+                "name": str(name),
+                "provider": "runway",
+                "type": str(item.get("type") or "runway-preset"),
+                "preview_url": str(item.get("preview_url") or item.get("previewUrl") or item.get("sample_url") or ""),
+                "raw": item,
+            })
+    if not voices:
+        voices = RUNWAY_VOICE_FALLBACKS
+    return {"ok": True, "success": True, "provider": "runway", "voices": voices, "response": data}
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: runway_voice_preview
+# Генерирует короткий пример выбранного голоса Runway без создания Job.
+# Используется только кнопкой прослушивания голоса в Mini App.
+# =====================================================
+async def runway_voice_preview(payload: dict) -> dict:
+    frontend_model = payload.get("model") or "runway_eleven_multilingual_v2"
+    voice = str(payload.get("voice") or "Maya").strip() or "Maya"
+    sample_text = (payload.get("text") or "Привет! Это пример голоса в SYLVEX.").strip()[:220]
+    request_payload = {
+        "mode": "voice",
+        "model": frontend_model,
+        "prompt": sample_text,
+        "skip_telegram": True,
+        "voice_options": {
+            "model": frontend_model,
+            "voice": voice,
+            "runway_voice": voice,
+        },
+    }
+    result = await runway_voice_generation(request_payload)
+    if not result.get("ok"):
+        return result
+    result["success"] = True
+    result["type"] = "voice_preview"
+    return result
 
 
 # =====================================================
