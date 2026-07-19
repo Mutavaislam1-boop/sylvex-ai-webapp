@@ -728,7 +728,6 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
-.studio-video-composer[data-composer-mode="voice"] .studio-control-row{flex-wrap:wrap;overflow-x:visible}
 .studio-video-composer[data-composer-mode="voice"] .voice-tool-panel{display:grid}
 
 /* =====================================================
@@ -737,7 +736,6 @@ CSS-БЛОК: .studio-mode-tab
 Блок живёт только в разделе «Озвучка» и повторяет тёмный стиль Pro Studio.
 ===================================================== */
 .voice-tool-panel{
-  flex:1 0 100%;
   grid-column:1 / -1;
   display:none;
   grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
