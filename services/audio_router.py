@@ -1220,6 +1220,77 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
 
 
 # =====================================================
+# ELEVENLABS — СОЗДАНИЕ СОБСТВЕННОГО ГОЛОСА
+# Получает аудиозапись из Mini App и отправляет её в официальный endpoint instant voice cloning.
+# Возвращает voice_id, который frontend сразу выбирает в разделе «Озвучка».
+# =====================================================
+async def elevenlabs_clone_voice_from_audio(
+    file_content: bytes,
+    filename: str = "sylvex-voice.webm",
+    content_type: str = "audio/webm",
+    name: str = "",
+    description: str = "",
+    telegram_id: int = 0,
+) -> dict:
+    provider = "elevenlabs"
+    frontend_model = "elevenlabs_voice_clone"
+    api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
+    if not api_key:
+        return _audio_error(provider, frontend_model, "", "ELEVENLABS_API_KEY is not configured", type="voice")
+    if not file_content:
+        return _audio_error(provider, frontend_model, "", "Voice sample is empty", type="voice")
+
+    endpoint = f"{ELEVENLABS_BASE_URL}/v1/voices/add"
+    safe_name = (name or "SYLVEX Voice").strip()[:80] or "SYLVEX Voice"
+    form_data = {
+        "name": safe_name,
+        "description": (description or "Created in SYLVEX Mini App").strip()[:500],
+        "labels": json.dumps({
+            "source": "sylvex_prostudio",
+            "telegram_id": str(telegram_id or ""),
+        }, ensure_ascii=False),
+    }
+    print("ELEVENLABS VOICE CLONE REQUEST:", {
+        "endpoint": endpoint,
+        "filename": filename,
+        "content_type": content_type,
+        "bytes": len(file_content),
+        "name": safe_name,
+        "telegram_id": telegram_id,
+    })
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            response = await client.post(
+                endpoint,
+                headers={"xi-api-key": api_key, "Accept": "application/json"},
+                data=form_data,
+                files={"files": (filename or "sylvex-voice.webm", file_content, content_type or "audio/webm")},
+            )
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, "", exc, type="voice", details=repr(exc))
+
+    data = await safe_audio_json_response(response, provider, endpoint)
+    print("ELEVENLABS VOICE CLONE RESPONSE:", {
+        "status_code": response.status_code,
+        "data_keys": list(data.keys()) if isinstance(data, dict) else [],
+    })
+    if response.status_code >= 400:
+        return _audio_error(provider, frontend_model, "", data, type="voice", endpoint=endpoint, status_code=response.status_code, response=data)
+    voice_id = str((data or {}).get("voice_id") or (data or {}).get("voiceId") or "")
+    if not voice_id:
+        return _audio_error(provider, frontend_model, "", "ElevenLabs did not return voice_id", type="voice", endpoint=endpoint, response=data)
+    return {
+        "ok": True,
+        "success": True,
+        "provider": provider,
+        "type": "voice",
+        "voice_id": voice_id,
+        "name": safe_name,
+        "response": data,
+    }
+
+
+# =====================================================
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: elevenlabs_voice_generation
 # Подключает Pro Studio «Озвучка» к официальным ElevenLabs TTS, STS и Dialogue API.
 # =====================================================
