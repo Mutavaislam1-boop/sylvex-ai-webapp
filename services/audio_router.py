@@ -28,6 +28,10 @@ GENERATED_AUDIO_DIR = WEBAPP_DIR / "generated" / "audio"
 GEMINI_TTS_ENDPOINT = os.getenv("GEMINI_TTS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")
 RUNWAY_API_BASE_URL = os.getenv("RUNWAY_API_BASE_URL", "https://api.dev.runwayml.com").rstrip("/")
 RUNWAY_API_VERSION = os.getenv("RUNWAY_API_VERSION", "2024-11-06")
+ELEVENLABS_BASE_URL = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
+ELEVENLABS_DEFAULT_VOICE_ID = os.getenv("ELEVENLABS_DEFAULT_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+ELEVENLABS_DEFAULT_VOICE_NAME = os.getenv("ELEVENLABS_DEFAULT_VOICE_NAME", "Rachel")
+ELEVENLABS_DEFAULT_OUTPUT_FORMAT = os.getenv("ELEVENLABS_DEFAULT_OUTPUT_FORMAT", "mp3_44100_128")
 
 SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_3_5": "chirp-v3-5",
@@ -45,6 +49,33 @@ GEMINI_TTS_MODEL_MAP = {
     "gemini-2.5-flash-preview-tts": "gemini-2.5-flash-preview-tts",
     "gemini-2.5-pro-preview-tts": "gemini-2.5-pro-preview-tts",
 }
+
+ELEVENLABS_VOICE_MODEL_MAP = {
+    "elevenlabs_eleven_v3": "eleven_v3",
+    "elevenlabs_multilingual_v2": "eleven_multilingual_v2",
+    "elevenlabs_flash_v2_5": "eleven_flash_v2_5",
+    "elevenlabs_flash_v2": "eleven_flash_v2",
+    "eleven_v3": "eleven_v3",
+    "eleven_multilingual_v2": "eleven_multilingual_v2",
+    "eleven_flash_v2_5": "eleven_flash_v2_5",
+    "eleven_flash_v2": "eleven_flash_v2",
+}
+
+ELEVENLABS_AUDIO_TOOLS = {
+    "text_to_speech": "text_to_speech",
+    "speech_to_speech": "speech_to_speech",
+    "dialogue": "dialogue",
+}
+
+ELEVENLABS_VOICE_FALLBACKS = [
+    {
+        "voice_id": ELEVENLABS_DEFAULT_VOICE_ID,
+        "name": ELEVENLABS_DEFAULT_VOICE_NAME,
+        "provider": "elevenlabs",
+        "type": "premade",
+        "preview_url": "",
+    }
+]
 
 RUNWAY_VOICE_MODEL_MAP = {
     "runway_eleven_multilingual_v2": "eleven_multilingual_v2",
@@ -188,6 +219,20 @@ def _runway_headers(api_key: str) -> dict[str, str]:
 
 
 # =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _elevenlabs_headers
+# Готовит заголовки официального ElevenLabs API для TTS, STS, Dialogue и списка голосов.
+# =====================================================
+def _elevenlabs_headers(content_type: str = "application/json") -> dict[str, str]:
+    headers = {
+        "xi-api-key": _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"),
+        "Accept": "application/json",
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
+
+
+# =====================================================
 # PYTHON-БЛОК: _first_value
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -311,6 +356,33 @@ def _music_model_mapping(frontend_model: str) -> str:
 def _gemini_tts_model_mapping(frontend_model: str) -> str:
     value = (frontend_model or "").strip()
     return GEMINI_TTS_MODEL_MAP.get(value) or GEMINI_TTS_MODEL_MAP.get(value.lower()) or ""
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _elevenlabs_voice_model_mapping
+# Сопоставляет модель озвучки ElevenLabs из Mini App с официальным model_id ElevenLabs.
+# =====================================================
+def _elevenlabs_voice_model_mapping(frontend_model: str) -> str:
+    value = (frontend_model or "").strip()
+    return ELEVENLABS_VOICE_MODEL_MAP.get(value) or ELEVENLABS_VOICE_MODEL_MAP.get(value.lower()) or ""
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _is_elevenlabs_voice_model
+# Проверяет, должна ли выбранная модель озвучки идти через ElevenLabs.
+# =====================================================
+def _is_elevenlabs_voice_model(frontend_model: str) -> bool:
+    return bool(_elevenlabs_voice_model_mapping(frontend_model))
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _elevenlabs_audio_tool
+# Определяет выбранный инструмент ElevenLabs и возвращает безопасное значение по умолчанию.
+# =====================================================
+def _elevenlabs_audio_tool(payload: dict) -> str:
+    voice_options = payload.get("voice_options") or {}
+    tool = str(voice_options.get("elevenlabs_tool") or voice_options.get("elevenlabsTool") or "text_to_speech").strip().lower()
+    return tool if tool in ELEVENLABS_AUDIO_TOOLS else "text_to_speech"
 
 
 # =====================================================
@@ -449,6 +521,29 @@ async def _download_runway_audio(client: httpx.AsyncClient, audio_url: str) -> s
         return ""
     ext = _audio_extension_from_response(audio_url, response.headers.get("content-type") or "")
     return _save_audio_file(response.content, ext)
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _load_provider_media
+# Загружает локальный или удалённый audio/video файл для multipart-запросов ElevenLabs Speech-to-Speech.
+# =====================================================
+async def _load_provider_media(client: httpx.AsyncClient, media_url: str) -> tuple[bytes, str, str]:
+    value = str(media_url or "").strip()
+    if not value:
+        return b"", "input-audio.mp3", "audio/mpeg"
+    if value.startswith("/webapp/"):
+        local_path = WEBAPP_DIR / value.replace("/webapp/", "", 1)
+        if not local_path.exists():
+            return b"", "input-audio.mp3", "audio/mpeg"
+        content = local_path.read_bytes()
+        content_type = mimetypes.guess_type(str(local_path))[0] or "audio/mpeg"
+        return content, local_path.name or "input-audio.mp3", content_type
+    response = await client.get(value)
+    if response.status_code >= 400 or not response.content:
+        return b"", "input-audio.mp3", "audio/mpeg"
+    content_type = response.headers.get("content-type") or mimetypes.guess_type(value)[0] or "audio/mpeg"
+    suffix = _audio_extension_from_response(value, content_type)
+    return response.content, f"input-audio{suffix}", content_type
 
 
 # =====================================================
@@ -724,6 +819,8 @@ async def audio_generation(payload: dict) -> dict:
     if mode == "voice":
         voice_options = payload.get("voice_options") or {}
         frontend_model = payload.get("model") or voice_options.get("model") or ""
+        if _is_elevenlabs_voice_model(frontend_model):
+            return await elevenlabs_voice_generation(payload)
         if _is_runway_voice_model(frontend_model):
             return await runway_voice_generation(payload)
         return await voice_generation(payload)
@@ -868,6 +965,314 @@ async def audio_generation(payload: dict) -> dict:
             "poll_url": f"{AUDIO_FEED_ENDPOINT}?workId={work_id}",
             "response": last_data,
         }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _elevenlabs_voice_settings
+# Собирает voice_settings ElevenLabs: стабильность, похожесть, стиль, скорость и speaker boost.
+# =====================================================
+def _elevenlabs_voice_settings(voice_options: dict) -> dict[str, Any]:
+    audio_settings = voice_options.get("audioSettings") or voice_options.get("audio_settings") or {}
+
+    def number_value(*keys: str, fallback: float) -> float:
+        for key in keys:
+            value = voice_options.get(key)
+            if value is None:
+                value = audio_settings.get(key)
+            if value in (None, "", "auto"):
+                continue
+            try:
+                return float(value)
+            except Exception:
+                continue
+        return fallback
+
+    return {
+        "stability": max(0, min(1, number_value("stability", fallback=0.5))),
+        "similarity_boost": max(0, min(1, number_value("similarity_boost", "similarityBoost", fallback=0.75))),
+        "style": max(0, min(1, number_value("style", fallback=0.0))),
+        "speed": max(0.7, min(1.2, number_value("speed", fallback=1.0))),
+        "use_speaker_boost": bool(voice_options.get("speaker_boost", voice_options.get("speakerBoost", True))),
+    }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _elevenlabs_dialogue_inputs
+# Превращает текст пользователя в inputs для официального ElevenLabs Text to Dialogue API.
+# =====================================================
+def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[str, str]]:
+    primary = str(voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID)
+    secondary = str(voice_options.get("elevenlabs_second_voice") or voice_options.get("secondVoice") or primary)
+    inputs = []
+    for raw_line in str(prompt or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        voice_id = primary
+        text = line
+        for prefix in ("speaker2:", "speaker 2:", "b:", "персонаж 2:", "герой 2:"):
+            if lower.startswith(prefix):
+                voice_id = secondary
+                text = line[len(prefix):].strip()
+                break
+        for prefix in ("speaker1:", "speaker 1:", "a:", "персонаж 1:", "герой 1:"):
+            if lower.startswith(prefix):
+                voice_id = primary
+                text = line[len(prefix):].strip()
+                break
+        if text:
+            inputs.append({"text": text, "voice_id": voice_id})
+    if not inputs and prompt:
+        inputs.append({"text": str(prompt).strip(), "voice_id": primary})
+    return inputs[:20]
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: _completed_elevenlabs_voice_response
+# Формирует единый успешный ответ ElevenLabs для Job, Mini App, истории и Telegram.
+# =====================================================
+async def _completed_elevenlabs_voice_response(
+    payload: dict,
+    frontend_model: str,
+    provider_model: str,
+    tool: str,
+    audio_bytes: bytes,
+    content_type: str,
+    provider_response: Any = None,
+) -> dict:
+    voice_options = payload.get("voice_options") or {}
+    audio_url = _save_audio_file(audio_bytes, _audio_extension_from_response("", content_type or "audio/mpeg"))
+    if not audio_url:
+        return _audio_error("elevenlabs", frontend_model, provider_model, "ElevenLabs audio save failed", type="voice")
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if not payload.get("skip_telegram"):
+        sent_to_telegram = await _send_generated_audio_to_telegram(
+            telegram_id=telegram_id,
+            audio_url=audio_url,
+            caption="SYLVEX Pro Studio\nОзвучка ElevenLabs готова ✅",
+        )
+    return {
+        "ok": True,
+        "type": "voice",
+        "provider": "elevenlabs",
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "status": "completed",
+        "elevenlabs_tool": tool,
+        "audio_url": audio_url,
+        "audios": [audio_url],
+        "voice": voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID,
+        "voice_options": voice_options,
+        "response": provider_response or {"content_type": content_type, "bytes": len(audio_bytes or b"")},
+        "sent_to_telegram": sent_to_telegram,
+        "text": "Озвучка готова ✅\n" + audio_url,
+    }
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: fetch_elevenlabs_prostudio_voices
+# Загружает список голосов ElevenLabs для шторки Pro Studio; при ошибке возвращает Rachel fallback.
+# =====================================================
+async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
+    api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
+    if not api_key:
+        return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True}
+    voices = []
+    next_page_token = ""
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        while len(voices) < limit:
+            params = {"page_size": min(100, limit - len(voices))}
+            if next_page_token:
+                params["next_page_token"] = next_page_token
+            try:
+                response = await client.get(f"{ELEVENLABS_BASE_URL}/v2/voices", headers=_elevenlabs_headers(None), params=params)
+                data = await safe_audio_json_response(response, "elevenlabs", f"{ELEVENLABS_BASE_URL}/v2/voices")
+            except Exception as exc:
+                print("ELEVENLABS VOICES FAILED:", repr(exc))
+                return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True}
+            if response.status_code >= 400:
+                print("ELEVENLABS VOICES ERROR:", json.dumps(data, ensure_ascii=False)[:900] if isinstance(data, (dict, list)) else str(data)[:900])
+                return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True}
+            page_voices = data.get("voices") if isinstance(data, dict) else []
+            if isinstance(page_voices, list):
+                voices.extend(page_voices)
+            next_page_token = data.get("next_page_token") or data.get("next_cursor") if isinstance(data, dict) else ""
+            if not next_page_token:
+                break
+    normalized = []
+    seen = set()
+    for item in voices[:limit]:
+        if not isinstance(item, dict):
+            continue
+        voice_id = item.get("voice_id") or item.get("voiceId") or item.get("id")
+        if not voice_id or voice_id in seen:
+            continue
+        seen.add(voice_id)
+        labels = item.get("labels") or {}
+        normalized.append({
+            "voice_id": str(voice_id),
+            "name": str(item.get("name") or "Voice"),
+            "provider": "elevenlabs",
+            "type": str(item.get("category") or labels.get("category") or "voice"),
+            "language": str(labels.get("language") or labels.get("accent") or item.get("language") or "multilingual"),
+            "preview_url": str(item.get("preview_url") or item.get("sample_url") or ""),
+            "raw": item,
+        })
+    if not normalized:
+        normalized = ELEVENLABS_VOICE_FALLBACKS
+    return {"ok": True, "success": True, "provider": "elevenlabs", "voices": normalized}
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: elevenlabs_voice_generation
+# Подключает Pro Studio «Озвучка» к официальным ElevenLabs TTS, STS и Dialogue API.
+# =====================================================
+async def elevenlabs_voice_generation(payload: dict) -> dict:
+    provider = "elevenlabs"
+    voice_options = payload.get("voice_options") or {}
+    tool = _elevenlabs_audio_tool(payload)
+    frontend_model = payload.get("model") or voice_options.get("model") or "elevenlabs_multilingual_v2"
+    provider_model = _elevenlabs_voice_model_mapping(frontend_model)
+    api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
+    prompt_report = optimize_prompt_for_model(
+        payload.get("prompt") or voice_options.get("prompt") or "",
+        model=frontend_model,
+        provider=provider,
+        mode="voice",
+    )
+    print("ELEVENLABS VOICE PROMPT OPTIMIZER:", {
+        "model": frontend_model,
+        "provider_model": provider_model,
+        "tool": tool,
+        "prompt_length": prompt_report.get("original_length"),
+        "model_limit": prompt_report.get("limit"),
+        "optimized": prompt_report.get("optimized"),
+        "new_length": prompt_report.get("optimized_length"),
+    })
+    if (payload.get("prompt") or voice_options.get("prompt")) and not prompt_report.get("ok"):
+        return _audio_error(provider, frontend_model, provider_model, "Prompt optimization failed to reach limit", type="voice")
+    if prompt_report.get("optimized"):
+        payload["prompt"] = prompt_report.get("prompt") or payload.get("prompt") or ""
+        payload["prompt_optimization"] = prompt_report
+    if not provider_model:
+        return _audio_error(provider, frontend_model, "", "Unknown ElevenLabs model mapping", type="voice", frontend_model=frontend_model)
+    if not api_key:
+        return _audio_error(provider, frontend_model, provider_model, "ELEVENLABS_API_KEY is not configured", type="voice")
+
+    prompt = (payload.get("prompt") or voice_options.get("prompt") or "").strip()
+    voice_id = str(voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID)
+    output_format = str(voice_options.get("output_format") or voice_options.get("outputFormat") or ELEVENLABS_DEFAULT_OUTPUT_FORMAT)
+    voice_settings = _elevenlabs_voice_settings(voice_options)
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            if tool == "speech_to_speech":
+                media_url = _runway_input_media_url(payload)
+                if not media_url:
+                    return _audio_error(provider, frontend_model, provider_model, "ElevenLabs Speech-to-Speech requires uploaded audio file", type="voice", tool=tool)
+                audio_bytes, filename, content_type = await _load_provider_media(client, media_url)
+                if not audio_bytes:
+                    return _audio_error(provider, frontend_model, provider_model, "Could not load audio file for ElevenLabs Speech-to-Speech", type="voice", tool=tool)
+                endpoint = f"{ELEVENLABS_BASE_URL}/v1/speech-to-speech/{voice_id}"
+                form_data = {
+                    "model_id": provider_model,
+                    "voice_settings": json.dumps(voice_settings, ensure_ascii=False),
+                    "remove_background_noise": str(bool(voice_options.get("remove_background_noise", voice_options.get("removeBackgroundNoise", False)))).lower(),
+                }
+                print("ELEVENLABS STS REQUEST:", {"endpoint": endpoint, "model": provider_model, "voice_id": voice_id, "file": filename})
+                response = await client.post(
+                    endpoint,
+                    headers={"xi-api-key": api_key},
+                    params={"output_format": output_format},
+                    data=form_data,
+                    files={"audio": (filename, audio_bytes, content_type)},
+                )
+            elif tool == "dialogue":
+                if not prompt:
+                    return _audio_error(provider, frontend_model, provider_model, "Dialogue prompt is empty", type="voice", tool=tool)
+                endpoint = f"{ELEVENLABS_BASE_URL}/v1/text-to-dialogue"
+                request_body = {
+                    "inputs": _elevenlabs_dialogue_inputs(prompt, voice_options),
+                    "model_id": provider_model,
+                }
+                print("ELEVENLABS DIALOGUE REQUEST:", {"endpoint": endpoint, "model": provider_model, "inputs": len(request_body["inputs"])})
+                response = await client.post(
+                    endpoint,
+                    headers=_elevenlabs_headers(),
+                    params={"output_format": output_format},
+                    json=request_body,
+                )
+            else:
+                if not prompt:
+                    return _audio_error(provider, frontend_model, provider_model, "Voice prompt is empty", type="voice")
+                endpoint = f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}"
+                request_body = {
+                    "text": prompt,
+                    "model_id": provider_model,
+                    "voice_settings": voice_settings,
+                }
+                language_code = voice_options.get("language_code") or voice_options.get("languageCode")
+                if language_code:
+                    request_body["language_code"] = str(language_code)
+                seed = voice_options.get("seed")
+                if seed not in (None, ""):
+                    try:
+                        request_body["seed"] = int(seed)
+                    except Exception:
+                        pass
+                print("ELEVENLABS TTS REQUEST:", {"endpoint": endpoint, "model": provider_model, "voice_id": voice_id, "text_length": len(prompt)})
+                response = await client.post(
+                    endpoint,
+                    headers=_elevenlabs_headers(),
+                    params={"output_format": output_format},
+                    json=request_body,
+                )
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, exc, type="voice", details=repr(exc), tool=tool)
+
+    content_type = response.headers.get("content-type") or "audio/mpeg"
+    print("ELEVENLABS VOICE RESPONSE:", {
+        "status_code": response.status_code,
+        "content_type": content_type,
+        "bytes": len(response.content or b""),
+        "tool": tool,
+    })
+    if response.status_code >= 400:
+        error_data = await safe_audio_json_response(response, provider, getattr(response, "url", ""))
+        return _audio_error(provider, frontend_model, provider_model, error_data, type="voice", status_code=response.status_code, response=error_data, tool=tool)
+    if not response.content or ("audio" not in content_type and "octet-stream" not in content_type):
+        return _audio_error(provider, frontend_model, provider_model, "ElevenLabs returned non-audio response", type="voice", status_code=response.status_code, body_preview=(response.text or "")[:1000], tool=tool)
+    return await _completed_elevenlabs_voice_response(payload, frontend_model, provider_model, tool, response.content, content_type, {"status_code": response.status_code, "content_type": content_type})
+
+
+# =====================================================
+# ЗАПРОС К AI-ПРОВАЙДЕРУ: elevenlabs_voice_preview
+# Генерирует короткий JSON-preview ElevenLabs для общей кнопки прослушивания голосов Pro Studio.
+# =====================================================
+async def elevenlabs_voice_preview(payload: dict) -> dict:
+    frontend_model = payload.get("model") or "elevenlabs_multilingual_v2"
+    voice = str(payload.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID).strip() or ELEVENLABS_DEFAULT_VOICE_ID
+    sample_text = (payload.get("text") or "Привет! Это пример голоса в SYLVEX.").strip()[:220]
+    request_payload = {
+        "mode": "voice",
+        "model": frontend_model,
+        "prompt": sample_text,
+        "skip_telegram": True,
+        "voice_options": {
+            "model": frontend_model,
+            "voice": voice,
+            "elevenlabs_voice": voice,
+            "elevenlabs_tool": "text_to_speech",
+        },
+    }
+    result = await elevenlabs_voice_generation(request_payload)
+    if not result.get("ok"):
+        return result
+    result["success"] = True
+    result["type"] = "voice_preview"
+    return result
 
 
 # =====================================================
