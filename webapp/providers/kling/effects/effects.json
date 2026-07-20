@@ -1,4 +1,17 @@
 {
   "ok": true,
-  "effects": []
+  "effects": [
+    {
+      "id": "hug",
+      "name": "Hug"
+    },
+    {
+      "id": "kiss",
+      "name": "Kiss"
+    },
+    {
+      "id": "handshake",
+      "name": "Handshake"
+    }
+  ]
 }
