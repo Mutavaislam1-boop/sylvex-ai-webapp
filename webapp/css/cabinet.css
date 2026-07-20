@@ -1374,13 +1374,13 @@ CSS-БЛОК: .studio-generate
 @media(max-width:900px){
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
-  .studio-modes{
+  .studio-mode-tabs{
     overflow-x:auto;
     overflow-y:hidden;
     -webkit-overflow-scrolling:touch;
     scrollbar-width:none;
   }
-  .studio-modes::-webkit-scrollbar{display:none}
+  .studio-mode-tabs::-webkit-scrollbar{display:none}
   .studio-mode-tab{
     flex:0 0 auto;
     white-space:nowrap;
@@ -5455,4 +5455,303 @@ max-height:88vh;
 
 .studio-video-composer[data-composer-mode="voice"] .studio-panel-divider{
   display:none;
+}
+
+/* =====================================================
+АДАПТИВ PRO STUDIO ПО ШИРИНЕ САМОГО БЛОКА
+Mini App может быть узким внутри широкого окна браузера.
+Этот слой повторяет мобильную логику видео/фото/озвучки не по viewport,
+а по реальной ширине composer-блока, чтобы кнопки перестраивались вовремя.
+===================================================== */
+.studio-video-composer{
+  container-type:inline-size;
+}
+
+@container (max-width:900px){
+  .studio-mode-tabs{
+    overflow-x:auto;
+    overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+    gap:6px !important;
+  }
+
+  .studio-mode-tabs::-webkit-scrollbar{display:none}
+
+  .studio-mode-tab{
+    flex:0 0 auto;
+    height:46px;
+    padding:0 14px;
+    font-size:13px;
+    white-space:nowrap;
+  }
+
+  .studio-mini-tab{
+    width:44px;
+    height:38px;
+  }
+
+  .studio-video-panel{
+    grid-template-columns:1fr !important;
+    padding:14px !important;
+    border-radius:22px;
+    gap:12px;
+  }
+
+  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column{
+    display:flex !important;
+    grid-template-columns:none !important;
+    grid-template-areas:none !important;
+    gap:0;
+    border-left:0;
+    padding-left:0;
+  }
+
+  .studio-video-composer[data-composer-mode="image"] .image-visual-grid{
+    grid-area:auto !important;
+    margin:0 0 14px;
+  }
+
+  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column textarea,
+  .studio-video-composer[data-composer-mode="image"] .studio-control-row{
+    grid-area:auto !important;
+  }
+
+  .studio-prompt-column{
+    border-left:0 !important;
+    border-top:1px solid rgba(255,255,255,.10);
+    padding-left:0 !important;
+    padding-top:12px;
+  }
+
+  .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{
+    border-top:0;
+    padding-top:0;
+  }
+
+  .image-visual-grid,
+  .studio-frame-row,
+  .vgen-actions{
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  }
+
+  .studio-frame-card,
+  .vgen-btn{
+    min-height:74px;
+  }
+
+  .studio-links-btn,
+  .vgen-upload-row{
+    min-height:58px;
+  }
+
+  .studio-image-tool{
+    min-height:54px;
+    padding:8px 9px;
+    border-radius:12px;
+  }
+
+  .studio-image-tool span:last-child,
+  .vgen-btn-lbl{
+    font-size:11px;
+  }
+
+  .studio-control-row{
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    overflow-y:hidden;
+    gap:8px;
+    padding-top:10px;
+    padding-bottom:2px;
+    -webkit-overflow-scrolling:touch;
+    scroll-snap-type:x proximity;
+  }
+
+  .studio-control-row::-webkit-scrollbar{display:none}
+
+  .studio-control-row .studio-select-pill,
+  .studio-control-row .image-count-pill,
+  .studio-control-row .image-settings-pill,
+  .studio-control-row .studio-generate{
+    flex:0 0 auto;
+    min-height:34px;
+    height:34px;
+    padding:0 14px;
+    font-size:11px;
+    line-height:1;
+    gap:5px;
+    white-space:nowrap;
+    scroll-snap-align:start;
+  }
+
+  .studio-control-row .studio-select-pill.wide{
+    order:0;
+    width:auto;
+    min-width:auto;
+    justify-content:center;
+    margin-right:0;
+  }
+
+  .studio-control-row .image-settings-pill{
+    width:34px;
+    min-width:34px;
+    padding:0;
+    justify-content:center;
+  }
+
+  .studio-control-row .studio-generate{
+    margin-left:0;
+    border-radius:999px;
+  }
+
+  .view[data-view="tools"].active .studio-video-composer textarea{
+    min-height:86px;
+    font-size:15px;
+  }
+}
+
+/* =====================================================
+FALLBACK ДЛЯ АДАПТИВА PRO STUDIO
+JavaScript добавляет класс is-compact, когда сам composer уже узкий.
+Это страхует Telegram WebView и desktop-режим, где viewport шире Mini App.
+===================================================== */
+.studio-video-composer.is-compact .studio-mode-tabs{
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  gap:6px !important;
+}
+
+.studio-video-composer.is-compact .studio-mode-tabs::-webkit-scrollbar{display:none}
+
+.studio-video-composer.is-compact .studio-mode-tab{
+  flex:0 0 auto;
+  height:46px;
+  padding:0 14px;
+  font-size:13px;
+  white-space:nowrap;
+}
+
+.studio-video-composer.is-compact .studio-mini-tab{
+  width:44px;
+  height:38px;
+}
+
+.studio-video-composer.is-compact .studio-video-panel{
+  grid-template-columns:1fr !important;
+  padding:14px !important;
+  border-radius:22px;
+  gap:12px;
+}
+
+.studio-video-composer.is-compact[data-composer-mode="image"] .studio-prompt-column{
+  display:flex !important;
+  grid-template-columns:none !important;
+  grid-template-areas:none !important;
+  gap:0;
+  border-left:0;
+  padding-left:0;
+}
+
+.studio-video-composer.is-compact[data-composer-mode="image"] .image-visual-grid{
+  grid-area:auto !important;
+  margin:0 0 14px;
+}
+
+.studio-video-composer.is-compact[data-composer-mode="image"] .studio-prompt-column textarea,
+.studio-video-composer.is-compact[data-composer-mode="image"] .studio-control-row{
+  grid-area:auto !important;
+}
+
+.studio-video-composer.is-compact .studio-prompt-column{
+  border-left:0 !important;
+  border-top:1px solid rgba(255,255,255,.10);
+  padding-left:0 !important;
+  padding-top:12px;
+}
+
+.studio-video-composer.is-compact[data-composer-mode="music"] .studio-prompt-column{
+  border-top:0;
+  padding-top:0;
+}
+
+.studio-video-composer.is-compact .image-visual-grid,
+.studio-video-composer.is-compact .studio-frame-row,
+.studio-video-composer.is-compact .vgen-actions{
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+}
+
+.studio-video-composer.is-compact .studio-frame-card,
+.studio-video-composer.is-compact .vgen-btn{
+  min-height:74px;
+}
+
+.studio-video-composer.is-compact .studio-links-btn,
+.studio-video-composer.is-compact .vgen-upload-row{
+  min-height:58px;
+}
+
+.studio-video-composer.is-compact .studio-image-tool{
+  min-height:54px;
+  padding:8px 9px;
+  border-radius:12px;
+}
+
+.studio-video-composer.is-compact .studio-image-tool span:last-child,
+.studio-video-composer.is-compact .vgen-btn-lbl{
+  font-size:11px;
+}
+
+.studio-video-composer.is-compact .studio-control-row{
+  flex-wrap:nowrap;
+  overflow-x:auto;
+  overflow-y:hidden;
+  gap:8px;
+  padding-top:10px;
+  padding-bottom:2px;
+  -webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity;
+}
+
+.studio-video-composer.is-compact .studio-control-row::-webkit-scrollbar{display:none}
+
+.studio-video-composer.is-compact .studio-control-row .studio-select-pill,
+.studio-video-composer.is-compact .studio-control-row .image-count-pill,
+.studio-video-composer.is-compact .studio-control-row .image-settings-pill,
+.studio-video-composer.is-compact .studio-control-row .studio-generate{
+  flex:0 0 auto;
+  min-height:34px;
+  height:34px;
+  padding:0 14px;
+  font-size:11px;
+  line-height:1;
+  gap:5px;
+  white-space:nowrap;
+  scroll-snap-align:start;
+}
+
+.studio-video-composer.is-compact .studio-control-row .studio-select-pill.wide{
+  order:0;
+  width:auto;
+  min-width:auto;
+  justify-content:center;
+  margin-right:0;
+}
+
+.studio-video-composer.is-compact .studio-control-row .image-settings-pill{
+  width:34px;
+  min-width:34px;
+  padding:0;
+  justify-content:center;
+}
+
+.studio-video-composer.is-compact .studio-control-row .studio-generate{
+  margin-left:0;
+  border-radius:999px;
+}
+
+.view[data-view="tools"].active .studio-video-composer.is-compact textarea{
+  min-height:86px;
+  font-size:15px;
 }
