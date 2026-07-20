@@ -188,6 +188,7 @@ let voiceCloneChunks = [];
 let voiceCloneBlob = null;
 let voiceClonePreviewUrl = '';
 let voiceCloneSubmitting = false;
+let activeVoicePanelSection = '';
 
 let textState = {
   modelId: 'gpt-4o-mini',
@@ -1734,62 +1735,149 @@ function renderVoiceControls() {
 function renderVoiceToolPanel() {
   const panel = document.getElementById('voiceToolPanel');
   if (!panel) return;
-  const isElevenLabs = isVoiceMode() && isElevenLabsVoiceModel(voiceState.modelId);
-  const tool = voiceState.elevenlabsTool || 'text_to_speech';
-  const needsMedia = isElevenLabs && (tool === 'dubbing' || tool === 'speech_to_speech');
-  const showClone = isElevenLabs;
-  if (!needsMedia && !showClone) {
+  if (!isVoiceMode()) {
     panel.hidden = true;
     panel.innerHTML = '';
     return;
   }
+  const isElevenLabs = isElevenLabsVoiceModel(voiceState.modelId);
+  const isRunway = isRunwayVoiceModel(voiceState.modelId);
+  const tool = voiceState.elevenlabsTool || 'text_to_speech';
   panel.hidden = false;
   const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
-  const uploadTitle = tool === 'dubbing'
-    ? 'Видео или аудио для дубляжа'
-    : 'Голос для копирования';
-  const uploadHint = tool === 'dubbing'
-    ? 'Загрузите видео/аудио, которое нужно перевести и озвучить.'
-    : 'Загрузите аудио, стиль которого нужно перенести на выбранный голос.';
-  const uploadItems = uploads.length
-    ? uploads.map((item, index) => '<span class="voice-tool-file">' + S.escapeHtml(item.name || item.kind || ('Файл ' + (index + 1))) + '</span>').join('')
-    : '<span class="voice-tool-empty">Файл не выбран</span>';
-  const mediaBlock = needsMedia ? `
-    <div class="voice-tool-card">
-      <div class="voice-tool-copy">
-        <b>${S.escapeHtml(uploadTitle)}</b>
-        <span>${S.escapeHtml(uploadHint)}</span>
+  const active = activeVoicePanelSection || '';
+  const uploadLabel = uploads.length ? uploads.map((item) => item.name || item.kind || 'Файл').join(', ') : 'Загрузит';
+  const base = `
+    <div class="voice-workspace-base">
+      <button class="voice-workspace-tile ${active === 'create' ? 'active' : ''}" type="button" onclick="SYLVEX.openVoicePanelSection(event,'create')">
+        <span>Создать голос</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0"/></svg>
+      </button>
+      <button class="voice-workspace-tile ${active === 'voices' ? 'active' : ''}" type="button" onclick="SYLVEX.openVoicePanelSection(event,'voices')">
+        <span>Список голосов</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <button class="voice-workspace-upload ${active === 'upload' ? 'active' : ''}" type="button" onclick="SYLVEX.openVoicePanelSection(event,'upload')">
+        <b>${S.escapeHtml(uploadLabel)}</b>
+        <span>
+          <i onclick="SYLVEX.openVoicePanelSection(event,'upload')">⇩</i>
+          <i onclick="SYLVEX.openVoicePanelSection(event,'upload')">▤</i>
+          <i onclick="SYLVEX.openVoicePanelSection(event,'create')">♬</i>
+          <i onclick="SYLVEX.openVoiceMediaPicker(event)">▣</i>
+        </span>
+      </button>
+    </div>`;
+  let body = '';
+  if (active === 'voices') body = renderVoiceListPanel();
+  if (active === 'create') body = renderVoiceCreatePanel();
+  if (active === 'upload') body = renderVoiceUploadPanel();
+  panel.innerHTML = base + body;
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: currentVoiceListForPanel
+// Возвращает список голосов для текущей AI-модели, чтобы карточка «Список голосов» работала в одном месте.
+// =====================================================
+function currentVoiceListForPanel() {
+  if (isElevenLabsVoiceModel(voiceState.modelId)) return elevenlabsVoiceList || ELEVENLABS_TTS_VOICES;
+  if (isRunwayVoiceModel(voiceState.modelId)) return runwayVoiceList || RUNWAY_TTS_VOICES;
+  return GEMINI_TTS_VOICES;
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: renderVoiceListPanel
+// Рисует список голосов как на макете: название слева, кнопка прослушивания справа.
+// =====================================================
+function renderVoiceListPanel() {
+  const optionKind = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabsVoice' : (isRunwayVoiceModel(voiceState.modelId) ? 'runwayVoice' : 'voice');
+  const activeVoice = optionKind === 'elevenlabsVoice' ? voiceState.elevenlabsVoice : (optionKind === 'runwayVoice' ? voiceState.runwayVoice : voiceState.voice);
+  const items = currentVoiceListForPanel();
+  return `
+    <div class="voice-workspace-sheet voice-list-sheet">
+      <div class="voice-sheet-title">Список голосов</div>
+      <div class="voice-list-rows">
+        ${items.map((item) => {
+          const id = String(item.id || item.voice_id || '');
+          const label = String(item.label || item.name || id);
+          const safeId = S.escapeHtml(id);
+          return '<div class="voice-list-row ' + (String(activeVoice || '') === id ? 'active' : '') + '">'
+            + '<button type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">' + S.escapeHtml(label) + '</button>'
+            + '<button class="voice-list-play" type="button" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
+            + '</div>';
+        }).join('')}
       </div>
-      <div class="voice-tool-files">${uploadItems}</div>
-      <div class="voice-tool-actions">
-        <button type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
-          Загрузить
-        </button>
-        <button type="button" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length ? '' : 'disabled'}>Очистить</button>
-      </div>
-    </div>` : '';
+    </div>`;
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: renderVoiceCreatePanel
+// Рисует экран создания голоса: название, запись/загрузка семпла, настройки речи и preview записи.
+// =====================================================
+function renderVoiceCreatePanel() {
   const recordButtonLabel = voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'Остановить запись' : 'Записать голос';
   const cloneSubmitLabel = voiceCloneSubmitting ? 'Создаём...' : 'Создать голос';
-  const cloneBlock = showClone ? `
-    <div class="voice-tool-card">
-      <div class="voice-tool-copy">
-        <b>Создать свой голос</b>
-        <span>Запишите голос, прослушайте запись и отправьте её для создания нового голоса ElevenLabs.</span>
+  return `
+    <div class="voice-workspace-sheet voice-create-sheet">
+      <div class="voice-create-head">
+        <h3>Создай свой голос</h3>
+        <p>Запишите голос или загрузите пример. После проверки создайте собственный голос для озвучки.</p>
       </div>
-      <input class="voice-tool-input" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off">
-      <div class="voice-tool-actions voice-tool-actions-wrap">
-        <button type="button" onclick="SYLVEX.toggleVoiceCloneRecording(event)" class="${voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'recording' : ''}">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2Z"/></svg>
-          ${S.escapeHtml(recordButtonLabel)}
-        </button>
-        <button type="button" onclick="SYLVEX.playVoiceCloneRecording(event)" ${voiceClonePreviewUrl ? '' : 'disabled'}>Прослушать</button>
-        <button type="button" onclick="SYLVEX.sendVoiceCloneRecording(event)" ${voiceCloneBlob && !voiceCloneSubmitting ? '' : 'disabled'}>${S.escapeHtml(cloneSubmitLabel)}</button>
-        <button type="button" onclick="SYLVEX.clearVoiceCloneRecording(event)" ${voiceCloneBlob && !voiceCloneSubmitting ? '' : 'disabled'}>Удалить</button>
+      <div class="voice-create-grid">
+        <div class="voice-create-fields">
+          <input class="voice-tool-input" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off">
+          <select class="voice-tool-input" aria-label="Пол">
+            <option>Пол</option>
+            <option>Мужской</option>
+            <option>Женский</option>
+            <option>Нейтральный</option>
+          </select>
+        </div>
+        <div class="voice-create-recorder">
+          <button type="button" class="${voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'recording' : ''}" onclick="SYLVEX.toggleVoiceCloneRecording(event)">●</button>
+          <button type="button" onclick="SYLVEX.openVoiceCloneFilePicker(event)">+</button>
+        </div>
       </div>
-      ${voiceClonePreviewUrl ? '<audio class="voice-tool-audio" src="' + S.escapeHtml(voiceClonePreviewUrl) + '" controls preload="metadata"></audio>' : ''}
-    </div>` : '';
-  panel.innerHTML = mediaBlock + cloneBlock;
+      <div class="voice-speech-settings">
+        <b>Настройка речи</b>
+        ${['Скорость', 'Высота', 'Интонация', 'Выразительность'].map((label, index) => `
+          <label><span>${label}</span><input type="range" min="0" max="100" value="${index === 0 ? 35 : index === 1 ? 40 : 38}"><em>${index === 0 ? '1.0x' : index === 1 ? '0%' : index === 2 ? '50%' : '75%'}</em></label>
+        `).join('')}
+        <select class="voice-tool-input" aria-label="Эмоция"><option>Нейтральная</option><option>Радостная</option><option>Спокойная</option><option>Энергичная</option></select>
+      </div>
+      <div class="voice-preview-block">
+        <b>Предосмотр</b>
+        ${voiceClonePreviewUrl ? '<audio class="voice-tool-audio" src="' + S.escapeHtml(voiceClonePreviewUrl) + '" controls preload="metadata"></audio>' : '<div class="voice-preview-placeholder">Запись появится здесь</div>'}
+        <div class="voice-tool-actions voice-tool-actions-wrap">
+          <button type="button" onclick="SYLVEX.toggleVoiceCloneRecording(event)">${S.escapeHtml(recordButtonLabel)}</button>
+          <button type="button" onclick="SYLVEX.playVoiceCloneRecording(event)" ${voiceClonePreviewUrl ? '' : 'disabled'}>Прослушать</button>
+          <button type="button" onclick="SYLVEX.sendVoiceCloneRecording(event)" ${voiceCloneBlob && !voiceCloneSubmitting ? '' : 'disabled'}>${S.escapeHtml(cloneSubmitLabel)}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: renderVoiceUploadPanel
+// Рисует экран загрузки медиа для дубляжа, speech-to-speech и остальных инструментов ElevenLabs/Runway.
+// =====================================================
+function renderVoiceUploadPanel() {
+  const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
+  const isElevenLabs = isElevenLabsVoiceModel(voiceState.modelId);
+  const toolLabel = isElevenLabs ? elevenlabsToolLabel(voiceState.elevenlabsTool || 'text_to_speech') : (isRunwayVoiceModel(voiceState.modelId) ? runwayToolLabel(voiceState.runwayTool || 'text_to_speech') : 'Озвучка');
+  return `
+    <div class="voice-workspace-sheet voice-upload-sheet">
+      <h3>Загрузить</h3>
+      <p>Загрузите медиа для дубляжа, копирования голоса или обработки аудио.</p>
+      <button class="voice-tool-input voice-upload-select" type="button" onclick="SYLVEX.openImageOptionMenu(event,'speaker_mode')">${S.escapeHtml(toolLabel)}</button>
+      <button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
+        <span>+</span>
+        <b>${uploads.length ? S.escapeHtml(uploads[0].name || 'Файл выбран') : 'Выбрать файл'}</b>
+      </button>
+      <div class="voice-tool-actions">
+        <button type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Выбрать</button>
+        <button type="button" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length ? '' : 'disabled'}>Очистить</button>
+      </div>
+    </div>`;
 }
 
 // =====================================================
@@ -7531,6 +7619,55 @@ function closeUploadPanel(e) {
   }
 
   // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoicePanelSection
+  // Переключает внутренние экраны блока «Озвучка»: список голосов, создание голоса или загрузка.
+  // При открытии списка дополнительно подтягивает реальные голоса провайдера.
+  // =====================================================
+  function openVoicePanelSection(e, section) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    activeVoicePanelSection = activeVoicePanelSection === section ? '' : (section || '');
+    renderVoiceToolPanel();
+    if (activeVoicePanelSection === 'voices') {
+      if (isElevenLabsVoiceModel(voiceState.modelId)) {
+        loadElevenLabsVoices(true).then(renderVoiceToolPanel).catch(() => {});
+      } else if (isRunwayVoiceModel(voiceState.modelId)) {
+        loadRunwayVoices(true).then(renderVoiceToolPanel).catch(() => {});
+      }
+    }
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoiceCloneFilePicker
+  // Позволяет добавить готовый аудиофайл вместо записи с микрофона для создания собственного голоса.
+  // Файл остаётся только в локальном preview до нажатия «Создать голос».
+  // =====================================================
+  function openVoiceCloneFilePicker(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.onchange = () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > 50 * 1024 * 1024) {
+        toast('Файл слишком большой (макс. 50 MB)');
+        return;
+      }
+      if (voiceClonePreviewUrl) URL.revokeObjectURL(voiceClonePreviewUrl);
+      voiceCloneBlob = file;
+      voiceClonePreviewUrl = URL.createObjectURL(file);
+      renderVoiceToolPanel();
+    };
+    input.click();
+  }
+
+  // =====================================================
   // БЛОК ОЗВУЧКИ: clearVoiceUploads
   // Очищает только файлы озвучки: видео для дубляжа или аудио для speech-to-speech.
   // Не затрагивает upload-зоны фото и видео.
@@ -8957,6 +9094,9 @@ async function waitGeneration(jobId, options) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok || !data.voice_id) {
         throw new Error(translateGenerationError(data, 'Не удалось создать голос. Попробуйте ещё раз.'));
+      }
+      if (!isElevenLabsVoiceModel(voiceState.modelId)) {
+        voiceState.modelId = 'elevenlabs_multilingual_v2';
       }
       voiceState.elevenlabsVoice = data.voice_id;
       voiceState.elevenlabsSecondVoice = data.voice_id;
@@ -10797,7 +10937,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -10832,6 +10972,8 @@ async function waitGeneration(jobId, options) {
   window.openVideoReferencesUpload = openVideoReferencesUpload;
   window.openNativeFilePicker = openNativeFilePicker;
   window.openVoiceMediaPicker = openVoiceMediaPicker;
+  window.openVoicePanelSection = openVoicePanelSection;
+  window.openVoiceCloneFilePicker = openVoiceCloneFilePicker;
   window.clearVoiceUploads = clearVoiceUploads;
   window.toggleVoiceCloneRecording = toggleVoiceCloneRecording;
   window.playVoiceCloneRecording = playVoiceCloneRecording;
