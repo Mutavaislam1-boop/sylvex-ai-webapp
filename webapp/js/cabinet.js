@@ -10221,6 +10221,19 @@ async function waitGeneration(jobId, options) {
     renderDots();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updateStudioComposerCompact
+  // Следит за реальной шириной панели Pro Studio.
+  // Если Mini App открыт узко внутри широкого окна, добавляет CSS-класс
+  // для мобильного расположения кнопок фото, видео и озвучки.
+  // =====================================================
+  function updateStudioComposerCompact() {
+    const composer = document.getElementById('studioComposer');
+    if (!composer) return;
+    const width = composer.getBoundingClientRect ? composer.getBoundingClientRect().width : composer.clientWidth;
+    composer.classList.toggle('is-compact', Number(width || 0) <= 900);
+  }
+
   /* ===== Wire up DOM ===== */
   // =====================================================
   // JAVASCRIPT-БЛОК: bindEvents
@@ -10230,6 +10243,13 @@ async function waitGeneration(jobId, options) {
     // Force bottom composer model button to open the image model picker.
     const composerModelVal = document.getElementById('modelValComposer');
     const composerRoot = document.getElementById('studioComposer');
+    updateStudioComposerCompact();
+    if (composerRoot && 'ResizeObserver' in window) {
+      const studioComposerResizeObserver = new ResizeObserver(updateStudioComposerCompact);
+      studioComposerResizeObserver.observe(composerRoot);
+    }
+    window.addEventListener('resize', updateStudioComposerCompact);
+    window.addEventListener('orientationchange', updateStudioComposerCompact);
     const composerModelBtn = composerModelVal
       ? composerModelVal.closest('button')
       : (composerRoot ? composerRoot.querySelector('.studio-control-row .studio-select-pill.wide') : null);
