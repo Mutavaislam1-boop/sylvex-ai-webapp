@@ -367,7 +367,17 @@ HTML-страница Mini App. Комментарии подписывают э
                   <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceMediaPicker(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"></rect><path d="M17 10l4-2v8l-4-2"></path></svg></span>
                 </div>
               </div>
-              <div class="voice-tool-panel" id="voiceToolPanel" hidden></div>
+              <div class="voice-tool-panel" id="voiceToolPanel">
+                <div class="image-style-panel-card" onclick="event.stopPropagation()">
+                  <div class="image-style-panel-head">
+                    <div class="image-style-panel-title">
+                      <span id="voicePanelTitle">Список голосов</span>
+                    </div>
+                    <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeVoiceList(event)">×</button>
+                  </div>
+                  <div id="voicePanelGrid" class="image-style-panel-grid"></div>
+                </div>
+              </div>
             </section>
             <div class="studio-divider voice-only" aria-hidden="true"></div>
             <!-- ==================================================
