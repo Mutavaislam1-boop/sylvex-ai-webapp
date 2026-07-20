@@ -1745,33 +1745,24 @@ function renderVoiceToolPanel() {
   const tool = voiceState.elevenlabsTool || 'text_to_speech';
   panel.hidden = false;
   const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
+  const uploadLabelEl = document.getElementById('voiceUploadLabel');
+  if (uploadLabelEl) {
+    uploadLabelEl.textContent = uploads.length ? (uploads[0].name || 'Файл выбран') : 'Загрузить';
+  }
   const active = activeVoicePanelSection || '';
-  const uploadLabel = uploads.length ? uploads.map((item) => item.name || item.kind || 'Файл').join(', ') : 'Загрузит';
-  const base = `
-    <div class="voice-workspace-base">
-      <button class="voice-workspace-tile ${active === 'create' ? 'active' : ''}" type="button" onclick="SYLVEX.openVoicePanelSection(event,'create')">
-        <span>Создать голос</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0"/></svg>
-      </button>
-      <button class="voice-workspace-tile ${active === 'voices' ? 'active' : ''}" type="button" onclick="SYLVEX.openVoicePanelSection(event,'voices')">
-        <span>Список голосов</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-      </button>
-      <button class="voice-workspace-upload ${active === 'upload' ? 'active' : ''}" type="button" onclick="SYLVEX.openVoicePanelSection(event,'upload')">
-        <b>${S.escapeHtml(uploadLabel)}</b>
-        <span>
-          <i onclick="SYLVEX.openVoicePanelSection(event,'upload')">⇩</i>
-          <i onclick="SYLVEX.openVoicePanelSection(event,'upload')">▤</i>
-          <i onclick="SYLVEX.openVoicePanelSection(event,'create')">♬</i>
-          <i onclick="SYLVEX.openVoiceMediaPicker(event)">▣</i>
-        </span>
-      </button>
-    </div>`;
   let body = '';
   if (active === 'voices') body = renderVoiceListPanel();
   if (active === 'create') body = renderVoiceCreatePanel();
   if (active === 'upload') body = renderVoiceUploadPanel();
-  panel.innerHTML = base + body;
+  panel.innerHTML = body;
+  document.querySelectorAll('.vgen-btn, .vgen-upload-row').forEach((item) => item.classList.remove('active'));
+  const activeSelector = active === 'create'
+    ? '.vgen-btn[onclick*="openVoiceCreate"]'
+    : (active === 'voices' ? '.vgen-btn[onclick*="openVoiceList"]' : (active === 'upload' ? '.vgen-upload-row' : ''));
+  if (activeSelector) {
+    const activeEl = document.querySelector(activeSelector);
+    if (activeEl) activeEl.classList.add('active');
+  }
 }
 
 // =====================================================
@@ -7640,6 +7631,30 @@ function closeUploadPanel(e) {
   }
 
   // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoiceCreate
+  // Открывает экран создания собственного голоса из кнопки «Создать голос».
+  // =====================================================
+  function openVoiceCreate(e) {
+    openVoicePanelSection(e, 'create');
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoiceList
+  // Открывает список голосов текущего провайдера из кнопки «Список голосов».
+  // =====================================================
+  function openVoiceList(e) {
+    openVoicePanelSection(e, 'voices');
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoiceUpload
+  // Открывает экран загрузки медиа для дубляжа, копирования голоса и обработки аудио.
+  // =====================================================
+  function openVoiceUpload(e) {
+    openVoicePanelSection(e, 'upload');
+  }
+
+  // =====================================================
   // БЛОК ОЗВУЧКИ: openVoiceCloneFilePicker
   // Позволяет добавить готовый аудиофайл вместо записи с микрофона для создания собственного голоса.
   // Файл остаётся только в локальном preview до нажатия «Создать голос».
@@ -10937,7 +10952,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, openVoiceList, openVoiceUpload, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -10973,6 +10988,9 @@ async function waitGeneration(jobId, options) {
   window.openNativeFilePicker = openNativeFilePicker;
   window.openVoiceMediaPicker = openVoiceMediaPicker;
   window.openVoicePanelSection = openVoicePanelSection;
+  window.openVoiceCreate = openVoiceCreate;
+  window.openVoiceList = openVoiceList;
+  window.openVoiceUpload = openVoiceUpload;
   window.openVoiceCloneFilePicker = openVoiceCloneFilePicker;
   window.clearVoiceUploads = clearVoiceUploads;
   window.toggleVoiceCloneRecording = toggleVoiceCloneRecording;
