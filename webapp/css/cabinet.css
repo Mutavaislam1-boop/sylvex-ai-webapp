@@ -692,7 +692,7 @@ CSS-БЛОК: .sr-only
 }
 .studio-emoji-icon{font-size:19px;line-height:1;display:inline-grid;place-items:center}
 .studio-mini-tab.active{background:#f4f4f4;color:#111}
-.studio-mini-tab:active,.studio-mode-tab:active,.studio-frame-card:active,.studio-select-pill:active{transform:scale(.98)}
+.studio-mini-tab:active,.studio-mode-tab:active,.studio-frame-card:active,.studio-select-pill:active,.vgen-btn:active,.vgen-upload-row:active{transform:scale(.98)}
 /* =====================================================
 CSS-БЛОК: .studio-mode-tab
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -727,11 +727,15 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{
-  grid-template-columns:1fr;
-  padding:28px 24px 24px;
+  grid-template-columns:clamp(220px,28vw,430px) minmax(0,1fr);
+  padding:18px 24px 24px;
 }
-.studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
+.studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{
+  border-left:1px solid rgba(255,255,255,.10);
+  padding-left:24px;
+}
 .studio-video-composer[data-composer-mode="voice"] .voice-tool-panel{display:grid}
+.studio-video-composer[data-composer-mode="voice"] .studio-divider{display:none}
 
 /* =====================================================
 СТИЛИ ОСНОВНОЙ ПАНЕЛИ «ОЗВУЧКА»
@@ -739,10 +743,10 @@ CSS-БЛОК: .studio-mode-tab
 Каждая кнопка открывает свой раздел: создание голоса, список голосов или загрузку файла.
 ===================================================== */
 .studio-voice-full{
-  grid-column:1 / -1;
   display:none;
   flex-direction:column;
   gap:8px;
+  min-width:0;
 }
 .studio-video-composer[data-composer-mode="voice"] .studio-voice-full{display:flex}
 .vgen-actions{
@@ -768,6 +772,12 @@ CSS-БЛОК: .studio-mode-tab
 }
 .vgen-btn.active{border-color:rgba(255,255,255,.28);background:#343434}
 .vgen-btn-ico{display:grid;place-items:center;color:#d8d8d8;flex:0 0 auto}
+.vgen-btn-lbl{
+  align-self:center;
+  font-size:13px;
+  line-height:1.15;
+  font-weight:500;
+}
 .vgen-upload-row{
   min-height:92px;
   border:0;
@@ -1415,16 +1425,20 @@ CSS-БЛОК: .studio-control-row .studio-select-pill.wide
   .studio-control-row .image-settings-pill{width:34px;min-width:34px;padding:0;justify-content:center}
   .studio-control-row .studio-generate{margin-left:0;border-radius:999px}
   .studio-video-panel{grid-template-columns:1fr;padding:14px;border-radius:22px;gap:12px}
-  .studio-video-composer[data-composer-mode="music"] .studio-video-panel,
-  .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{padding:18px 14px}
+  .studio-video-composer[data-composer-mode="music"] .studio-video-panel{padding:18px 14px}
   .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
-  .studio-video-composer[data-composer-mode="music"] .studio-prompt-column,
-  .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-top:0;padding-top:0}
+  .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-top:0;padding-top:0}
+  .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{
+    border-left:0;
+    border-top:1px solid rgba(255,255,255,.10);
+    padding-left:0;
+    padding-top:12px;
+  }
   .view[data-view="tools"].active .studio-video-composer textarea{min-height:86px;font-size:15px}
-  .studio-frame-card{min-height:74px}
+  .studio-frame-card,.vgen-btn{min-height:74px}
   .studio-image-tool{min-height:54px;padding:8px 9px;border-radius:12px}
   .studio-image-tool span:last-child{font-size:11px}
-  .studio-links-btn{min-height:58px}
+  .studio-links-btn,.vgen-upload-row{min-height:58px}
   .studio-audio-player{gap:7px;padding:8px 10px;overflow:visible;border-radius:18px;flex-wrap:wrap;min-height:78px}
   .studio-track-art{width:34px;height:34px}
   .studio-track-title{min-width:0;max-width:none;flex:1 1 90px;font-size:13px}
@@ -5426,5 +5440,5 @@ max-height:88vh;
 }
 
 .studio-video-composer[data-composer-mode="voice"] .studio-panel-divider{
-  display:block;
+  display:none;
 }
