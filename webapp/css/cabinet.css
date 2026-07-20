@@ -769,16 +769,18 @@ CSS-БЛОК: .studio-mode-tab
 .vgen-btn.active{border-color:rgba(255,255,255,.28);background:#343434}
 .vgen-btn-ico{display:grid;place-items:center;color:#d8d8d8;flex:0 0 auto}
 .vgen-upload-row{
-  min-height:34px;
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:8px;
-  background:#333;
-  color:#f4f4f4;
+  min-height:92px;
+  border:0;
+  border-radius:16px;
+  background:#2c2c2c;
+  color:#f0f0f0;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:10px;
-  padding:0 9px 0 13px;
+  gap:8px;
+  padding:12px 14px;
+  font-family:inherit;
+  font-size:14px;
   cursor:pointer;
 }
 .vgen-upload-row.active{border-color:rgba(255,255,255,.26)}
@@ -790,15 +792,24 @@ CSS-БЛОК: .studio-mode-tab
   font-size:13px;
   font-weight:800;
 }
-.vgen-upload-icons{display:flex;align-items:center;gap:5px;flex:0 0 auto}
+.vgen-upload-icons{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
 .vgen-uico{
-  width:27px;
-  height:27px;
+  width:34px;
+  height:34px;
   border-radius:50%;
-  background:#4b4b4b;
+  background:#444;
+  border:3px solid #3a3a3a;
   display:grid;
   place-items:center;
-  color:#dcdcdc;
+  color:#e6e6e6;
+  margin-left:-8px;
+}
+.vgen-uico:first-child{
+  margin-left:0;
 }
 .voice-tool-panel{
   grid-column:1 / -1;
