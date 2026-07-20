@@ -168,6 +168,11 @@ let voiceState = {
   elevenlabsSecondVoice: '21m00Tcm4TlvDq8ikWAM',
   elevenlabsTool: 'text_to_speech',
   elevenlabsTargetLanguage: 'en',
+  uploadPurpose: 'voiceover',
+  sourceLanguage: 'auto',
+  targetLanguage: 'en',
+  numSpeakers: 1,
+  speakerVoices: ['Kore', 'Puck', 'Zephyr'],
   secondVoice: 'Puck',
   speakerMode: 'single',
   speaker1: 'Speaker1',
@@ -928,6 +933,24 @@ const RUNWAY_SOUND_DURATIONS = [
   { id:'30', label:'30 сек' },
 ];
 
+const VOICE_UPLOAD_PURPOSES = [
+  { id:'voiceover', label:'Озвучка', hint:'Озвучить текст или сценарий', accept:'audio/*,video/*', gemini:true, elevenlabs:true, runway:true, elevenlabsTool:'text_to_speech', runwayTool:'text_to_speech', needsFile:false, speakers:true, languages:false },
+  { id:'translate_voiceover', label:'Перевести и озвучить', hint:'Перевести текст и озвучить выбранным голосом', accept:'audio/*,video/*', gemini:false, elevenlabs:true, runway:true, elevenlabsTool:'dubbing', runwayTool:'voice_dubbing', needsFile:true, speakers:false, languages:true },
+  { id:'dub_video', label:'Озвучить видео', hint:'Дубляж загруженного видео', accept:'video/*', gemini:false, elevenlabs:true, runway:false, elevenlabsTool:'dubbing', runwayTool:'voice_dubbing', needsFile:true, speakers:false, languages:true },
+  { id:'translate_audio', label:'Перевести аудио', hint:'Дубляж или перевод аудиофайла', accept:'audio/*', gemini:false, elevenlabs:true, runway:true, elevenlabsTool:'dubbing', runwayTool:'voice_dubbing', needsFile:true, speakers:false, languages:true },
+  { id:'speech_to_speech', label:'Копировать голос', hint:'Преобразовать аудио в выбранный голос', accept:'audio/*', gemini:false, elevenlabs:true, runway:true, elevenlabsTool:'speech_to_speech', runwayTool:'speech_to_speech', needsFile:true, speakers:true, languages:false },
+  { id:'isolate_voice', label:'Очистить голос', hint:'Отделить голос от шума или музыки', accept:'audio/*,video/*', gemini:false, elevenlabs:false, runway:true, elevenlabsTool:'speech_to_speech', runwayTool:'voice_isolation', needsFile:true, speakers:false, languages:false },
+  { id:'sound_effect', label:'Звуковой эффект', hint:'Создать звуковой эффект по описанию', accept:'', gemini:false, elevenlabs:false, runway:true, elevenlabsTool:'text_to_speech', runwayTool:'sound_effect', needsFile:false, speakers:false, languages:false },
+  { id:'document_voiceover', label:'Озвучить документ', hint:'Требуется отдельное извлечение текста из документа', accept:'.txt,.pdf,.doc,.docx', gemini:false, elevenlabs:false, runway:false, elevenlabsTool:'text_to_speech', runwayTool:'text_to_speech', needsFile:true, speakers:true, languages:false },
+  { id:'document_translate_voiceover', label:'Перевести документ и озвучить', hint:'Требуется отдельный перевод и извлечение текста', accept:'.txt,.pdf,.doc,.docx', gemini:false, elevenlabs:false, runway:false, elevenlabsTool:'dubbing', runwayTool:'voice_dubbing', needsFile:true, speakers:true, languages:true },
+];
+
+const VOICE_SPEAKER_COUNT_OPTIONS = [
+  { id:'1', label:'1 диктор' },
+  { id:'2', label:'2 диктора' },
+  { id:'3', label:'3 диктора' },
+];
+
 const VOICE_SPEAKER_MODES = [
   { id:'single', label:'Один голос' },
   { id:'multi', label:'Два голоса' },
@@ -967,6 +990,75 @@ function runwayToolLabel(toolId) {
 function elevenlabsToolLabel(toolId) {
   const item = ELEVENLABS_AUDIO_TOOLS.find((tool) => tool.id === toolId);
   return (item && item.label) || 'Text to Speech';
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: voiceProviderKey
+// Возвращает активного провайдера озвучки, чтобы показывать только доступные цели загрузки.
+// =====================================================
+function voiceProviderKey(modelId) {
+  if (isElevenLabsVoiceModel(modelId || voiceState.modelId)) return 'elevenlabs';
+  if (isRunwayVoiceModel(modelId || voiceState.modelId)) return 'runway';
+  return 'gemini';
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: voiceUploadPurposeMeta
+// Достаёт описание цели загрузки: дубляж, перевод, speech-to-speech, очистка голоса и т.д.
+// =====================================================
+function voiceUploadPurposeMeta(purposeId) {
+  return VOICE_UPLOAD_PURPOSES.find((item) => item.id === purposeId) || VOICE_UPLOAD_PURPOSES[0];
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: isVoicePurposeSupported
+// Проверяет, поддерживает ли выбранная модель цель загрузки.
+// Неподдерживаемые цели остаются в списке, но становятся некликабельными.
+// =====================================================
+function isVoicePurposeSupported(purpose, modelId) {
+  const meta = typeof purpose === 'string' ? voiceUploadPurposeMeta(purpose) : purpose;
+  const provider = voiceProviderKey(modelId);
+  return !!(meta && meta[provider]);
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: applyVoiceUploadPurpose
+// Сохраняет выбранную цель загрузки и синхронизирует её с реальными tool-параметрами provider API.
+// =====================================================
+function applyVoiceUploadPurpose(purposeId) {
+  const meta = voiceUploadPurposeMeta(purposeId);
+  if (!isVoicePurposeSupported(meta)) return false;
+  voiceState.uploadPurpose = meta.id;
+  if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsTool = meta.elevenlabsTool || voiceState.elevenlabsTool || 'text_to_speech';
+  if (isRunwayVoiceModel(voiceState.modelId)) voiceState.runwayTool = meta.runwayTool || voiceState.runwayTool || 'text_to_speech';
+  if (meta.languages) {
+    if (!voiceState.targetLanguage) voiceState.targetLanguage = voiceState.elevenlabsTargetLanguage || voiceState.runwayTargetLanguage || 'en';
+    voiceState.elevenlabsTargetLanguage = voiceState.targetLanguage;
+    voiceState.runwayTargetLanguage = voiceState.targetLanguage;
+  }
+  if (!meta.speakers) {
+    voiceState.numSpeakers = 1;
+    voiceState.speakerMode = 'single';
+  }
+  return true;
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: voiceSpeakerVoiceValue
+// Возвращает голос конкретного диктора для панели загрузки и payload.
+// =====================================================
+function voiceSpeakerVoiceValue(index) {
+  const voices = Array.isArray(voiceState.speakerVoices) ? voiceState.speakerVoices : [];
+  if (index === 0) {
+    if (isElevenLabsVoiceModel(voiceState.modelId)) return voiceState.elevenlabsVoice || voices[0] || '21m00Tcm4TlvDq8ikWAM';
+    if (isRunwayVoiceModel(voiceState.modelId)) return voiceState.runwayVoice || voices[0] || 'Maya';
+    return voiceState.voice || voices[0] || 'Kore';
+  }
+  if (index === 1) {
+    if (isElevenLabsVoiceModel(voiceState.modelId)) return voiceState.elevenlabsSecondVoice || voices[1] || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM';
+    return voiceState.secondVoice || voices[1] || 'Puck';
+  }
+  return voices[index] || 'Zephyr';
 }
 
 // =====================================================
@@ -1685,6 +1777,17 @@ function ensureVoiceSettings() {
   if (!voiceState.speakerMode) voiceState.speakerMode = 'single';
   if (!voiceState.speaker1) voiceState.speaker1 = 'Speaker1';
   if (!voiceState.speaker2) voiceState.speaker2 = 'Speaker2';
+  if (!voiceState.uploadPurpose) voiceState.uploadPurpose = 'voiceover';
+  if (!voiceState.sourceLanguage) voiceState.sourceLanguage = 'auto';
+  if (!voiceState.targetLanguage) voiceState.targetLanguage = voiceState.elevenlabsTargetLanguage || voiceState.runwayTargetLanguage || 'en';
+  if (!voiceState.numSpeakers) voiceState.numSpeakers = voiceState.speakerMode === 'multi' ? 2 : 1;
+  voiceState.numSpeakers = Math.max(1, Math.min(3, Number(voiceState.numSpeakers || 1)));
+  if (!Array.isArray(voiceState.speakerVoices)) voiceState.speakerVoices = ['Kore', 'Puck', 'Zephyr'];
+  while (voiceState.speakerVoices.length < 3) voiceState.speakerVoices.push(['Kore', 'Puck', 'Zephyr'][voiceState.speakerVoices.length] || 'Kore');
+  if (!isVoicePurposeSupported(voiceState.uploadPurpose)) {
+    const supportedPurpose = VOICE_UPLOAD_PURPOSES.find((item) => isVoicePurposeSupported(item)) || VOICE_UPLOAD_PURPOSES[0];
+    applyVoiceUploadPurpose(supportedPurpose.id);
+  }
   ['style', 'pace', 'tone'].forEach((key) => {
     if (!voiceState.audioSettings[key]) voiceState.audioSettings[key] = 'auto';
   });
@@ -1698,23 +1801,38 @@ function voiceOptionsPayload() {
   ensureVoiceSettings();
   const runwayModel = isRunwayVoiceModel(voiceState.modelId);
   const elevenlabsModel = isElevenLabsVoiceModel(voiceState.modelId);
+  const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
+  const speakerCount = Math.max(1, Math.min(3, Number(voiceState.numSpeakers || 1)));
+  const speakerVoices = (Array.isArray(voiceState.speakerVoices) ? voiceState.speakerVoices : []).slice(0, speakerCount);
+  const targetLanguage = voiceState.targetLanguage || (elevenlabsModel ? voiceState.elevenlabsTargetLanguage : voiceState.runwayTargetLanguage) || 'en';
+  const runwayTool = runwayModel ? (purpose.runwayTool || voiceState.runwayTool || 'text_to_speech') : (voiceState.runwayTool || 'text_to_speech');
+  const elevenlabsTool = elevenlabsModel ? (purpose.elevenlabsTool || voiceState.elevenlabsTool || 'text_to_speech') : (voiceState.elevenlabsTool || 'text_to_speech');
   return {
     model: voiceState.modelId,
     provider: elevenlabsModel ? 'elevenlabs' : (runwayModel ? 'runway' : 'gemini'),
     voice: elevenlabsModel ? (voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM') : (runwayModel ? (voiceState.runwayVoice || 'Maya') : voiceState.voice),
     runway_voice: voiceState.runwayVoice || 'Maya',
-    runway_tool: voiceState.runwayTool || 'text_to_speech',
-    runway_target_language: voiceState.runwayTargetLanguage || 'en',
+    runway_tool: runwayTool,
+    runway_target_language: targetLanguage,
     duration: Number(voiceState.runwayDuration || 5),
     elevenlabs_voice: voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM',
     elevenlabs_second_voice: voiceState.elevenlabsSecondVoice || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM',
-    elevenlabs_tool: voiceState.elevenlabsTool || 'text_to_speech',
-    elevenlabs_target_language: voiceState.elevenlabsTargetLanguage || 'en',
-    target_language: elevenlabsModel ? (voiceState.elevenlabsTargetLanguage || 'en') : (voiceState.runwayTargetLanguage || 'en'),
+    elevenlabs_tool: elevenlabsTool,
+    elevenlabs_target_language: targetLanguage,
+    target_language: targetLanguage,
+    source_language: voiceState.sourceLanguage || 'auto',
+    upload_purpose: purpose.id,
+    uploadPurpose: purpose.id,
+    num_speakers: speakerCount,
+    numSpeakers: speakerCount,
+    speaker_count: speakerCount,
+    speaker_voices: speakerVoices,
+    speakerVoices: speakerVoices,
     secondVoice: voiceState.secondVoice,
-    speaker_mode: voiceState.speakerMode,
+    speaker_mode: speakerCount > 1 ? 'multi' : (voiceState.speakerMode || 'single'),
     speaker1: voiceState.speaker1,
     speaker2: voiceState.speaker2,
+    speaker3: voiceState.speaker3 || 'Speaker3',
     audioSettings: Object.assign({}, voiceState.audioSettings || {}),
   };
 }
@@ -1931,16 +2049,44 @@ function renderVoiceCreatePanel() {
 // =====================================================
 function renderVoiceUploadPanel() {
   const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
-  const isElevenLabs = isElevenLabsVoiceModel(voiceState.modelId);
-  const toolLabel = isElevenLabs ? elevenlabsToolLabel(voiceState.elevenlabsTool || 'text_to_speech') : (isRunwayVoiceModel(voiceState.modelId) ? runwayToolLabel(voiceState.runwayTool || 'text_to_speech') : 'Озвучка');
+  const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
+  const targetLanguage = voiceState.targetLanguage || voiceState.elevenlabsTargetLanguage || voiceState.runwayTargetLanguage || 'en';
+  const language = RUNWAY_DUBBING_LANGUAGES.find((item) => item.id === targetLanguage) || RUNWAY_DUBBING_LANGUAGES.find((item) => item.id === 'en') || { id:'en', label:'English' };
+  const speakerCount = Math.max(1, Math.min(3, Number(voiceState.numSpeakers || 1)));
+  const speakerRows = purpose.speakers ? Array.from({ length: speakerCount }).map((_, index) => {
+    const value = voiceSpeakerVoiceValue(index);
+    return '<button class="voice-upload-speaker-btn" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_' + (index + 1) + '\')">'
+      + '<span>Диктор ' + (index + 1) + '</span>'
+      + '<b>' + S.escapeHtml(value) + '</b>'
+      + '</button>';
+  }).join('') : '';
+  const languageControls = purpose.languages
+    ? '<button class="voice-upload-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_upload_language\')"><span>Язык</span><b>' + S.escapeHtml(language.label || language.id) + '</b></button>'
+    : '<button class="voice-upload-chip disabled" type="button" disabled><span>Язык</span><b>Не требуется</b></button>';
+  const speakerControls = purpose.speakers
+    ? '<button class="voice-upload-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_count\')"><span>Дикторы</span><b>' + speakerCount + '</b></button>'
+    : '<button class="voice-upload-chip disabled" type="button" disabled><span>Дикторы</span><b>1</b></button>';
   return `
     <div class="voice-workspace-sheet voice-upload-sheet">
-      <h3>Загрузить</h3>
-      <p>Загрузите медиа для дубляжа, копирования голоса или обработки аудио.</p>
-      <button class="voice-tool-input voice-upload-select" type="button" onclick="SYLVEX.openImageOptionMenu(event,'speaker_mode')">${S.escapeHtml(toolLabel)}</button>
+      <div class="voice-upload-head">
+        <div>
+          <h3>Загрузить</h3>
+          <p>Выберите, для чего нужен файл. Доступность режимов зависит от выбранной модели.</p>
+        </div>
+      </div>
+      <button class="voice-tool-input voice-upload-select voice-upload-purpose-btn" type="button" onclick="SYLVEX.openImageOptionMenu(event,'voice_upload_purpose')">
+        <span>${S.escapeHtml(purpose.label)}</span>
+        <small>${S.escapeHtml(purpose.hint || '')}</small>
+      </button>
+      <div class="voice-upload-controls">
+        ${languageControls}
+        ${speakerControls}
+      </div>
+      ${speakerRows ? '<div class="voice-upload-speakers">' + speakerRows + '</div>' : ''}
       <button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
         <span>+</span>
         <b>${uploads.length ? S.escapeHtml(uploads[0].name || 'Файл выбран') : 'Выбрать файл'}</b>
+        <small>${S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта')}</small>
       </button>
       <div class="voice-tool-actions">
         <button type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Выбрать</button>
@@ -4493,13 +4639,14 @@ function imageModelButton(model) {
             const id = String(item.id || '');
             const active = String(activeValue || '') === id;
             const safeId = S.escapeHtml(id);
-            const previewButton = ['voice', 'runwayVoice', 'secondVoice', 'elevenlabsVoice', 'elevenlabsSecondVoice'].includes(optionKind)
+            const disabled = !!item.disabled || item.available === false;
+            const previewButton = !disabled && ['voice', 'runwayVoice', 'secondVoice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'voiceSpeaker1', 'voiceSpeaker2', 'voiceSpeaker3'].includes(optionKind)
               ? '<button class="voice-preview-play" type="button" aria-label="Прослушать ' + safeId + '" data-voice-id="' + safeId + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
               : '';
-            return '<div class="image-size-row no-ratio-icon voice-preview-row ' + (active ? 'active sel' : '') + '">'
-              + '<button class="voice-preview-pick" type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
+            return '<div class="image-size-row no-ratio-icon voice-preview-row ' + (active ? 'active sel ' : '') + (disabled ? 'disabled ' : '') + '">'
+              + '<button class="voice-preview-pick" type="button" ' + (disabled ? 'disabled aria-disabled="true"' : 'onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')"') + '>'
               + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>'
-              + '<span class="image-size-check">✓</span>'
+              + '<span class="image-size-check">' + (disabled ? '—' : '✓') + '</span>'
               + '</button>'
               + previewButton
               + '</div>';
@@ -4511,6 +4658,44 @@ function imageModelButton(model) {
         S.haptic && S.haptic.impact && S.haptic.impact('light');
       };
 
+      if (kind === 'voice_upload_purpose') {
+        const items = VOICE_UPLOAD_PURPOSES.map((item) => {
+          const supported = isVoicePurposeSupported(item);
+          return Object.assign({}, item, {
+            label: item.label + (supported ? '' : ' · недоступно'),
+            disabled: !supported,
+          });
+        });
+        openVoiceSheet('Цель загрузки', items, 'voiceUploadPurpose', voiceState.uploadPurpose || 'voiceover');
+        return;
+      }
+      if (kind === 'voice_upload_language') {
+        openVoiceSheet('Язык перевода', RUNWAY_DUBBING_LANGUAGES, 'voiceTargetLanguage', voiceState.targetLanguage || 'en');
+        return;
+      }
+      if (kind === 'voice_speaker_count') {
+        const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 3 : 2;
+        const items = VOICE_SPEAKER_COUNT_OPTIONS.map((item) => Object.assign({}, item, { disabled: Number(item.id) > maxSpeakers }));
+        openVoiceSheet('Количество дикторов', items, 'voiceSpeakerCount', String(voiceState.numSpeakers || 1));
+        return;
+      }
+      if (/^voice_speaker_[123]$/.test(kind)) {
+        const index = Math.max(0, Number(kind.slice(-1)) - 1);
+        const optionKind = 'voiceSpeaker' + (index + 1);
+        const activeVoice = voiceSpeakerVoiceValue(index);
+        const openSpeakerSheet = () => openVoiceSheet('Диктор ' + (index + 1), currentVoiceListForPanel(), optionKind, activeVoice);
+        if (isElevenLabsVoiceModel(voiceState.modelId)) {
+          loadElevenLabsVoices(true).then(() => {
+            if (isVoiceMode()) openSpeakerSheet();
+          });
+        } else if (isRunwayVoiceModel(voiceState.modelId)) {
+          loadRunwayVoices(true).then(() => {
+            if (isVoiceMode()) openSpeakerSheet();
+          });
+        }
+        openSpeakerSheet();
+        return;
+      }
       if (kind === 'voice') {
         if (isElevenLabsVoiceModel(voiceState.modelId)) {
           loadElevenLabsVoices(true).then(() => {
@@ -5171,6 +5356,7 @@ function imageModelButton(model) {
       voiceState.speakerMode = 'single';
     } else if (kind === 'elevenlabsTargetLanguage') {
       voiceState.elevenlabsTargetLanguage = value || 'en';
+      voiceState.targetLanguage = voiceState.elevenlabsTargetLanguage;
     } else if (kind === 'runwayVoice') {
       voiceState.runwayVoice = value || 'Maya';
     } else if (kind === 'runwayTool') {
@@ -5178,13 +5364,39 @@ function imageModelButton(model) {
       if (voiceState.runwayTool !== 'text_to_speech') voiceState.speakerMode = 'single';
     } else if (kind === 'runwayTargetLanguage') {
       voiceState.runwayTargetLanguage = value || 'en';
+      voiceState.targetLanguage = voiceState.runwayTargetLanguage;
     } else if (kind === 'runwayDuration') {
       const duration = Number(value || 5);
       voiceState.runwayDuration = Number.isFinite(duration) ? Math.max(1, Math.min(30, duration)) : 5;
+    } else if (kind === 'voiceUploadPurpose') {
+      applyVoiceUploadPurpose(value || 'voiceover');
+    } else if (kind === 'voiceTargetLanguage') {
+      voiceState.targetLanguage = value || 'en';
+      voiceState.elevenlabsTargetLanguage = voiceState.targetLanguage;
+      voiceState.runwayTargetLanguage = voiceState.targetLanguage;
+    } else if (kind === 'voiceSpeakerCount') {
+      const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 3 : 2;
+      const count = Math.max(1, Math.min(maxSpeakers, Number(value || 1)));
+      voiceState.numSpeakers = count;
+      voiceState.speakerMode = count > 1 ? 'multi' : 'single';
+    } else if (/^voiceSpeaker[123]$/.test(kind)) {
+      const index = Math.max(0, Number(kind.slice(-1)) - 1);
+      if (!Array.isArray(voiceState.speakerVoices)) voiceState.speakerVoices = ['Kore', 'Puck', 'Zephyr'];
+      voiceState.speakerVoices[index] = value || voiceSpeakerVoiceValue(index);
+      if (index === 0) {
+        if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsVoice = voiceState.speakerVoices[index];
+        else if (isRunwayVoiceModel(voiceState.modelId)) voiceState.runwayVoice = voiceState.speakerVoices[index];
+        else voiceState.voice = voiceState.speakerVoices[index];
+      }
+      if (index === 1) {
+        if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsSecondVoice = voiceState.speakerVoices[index];
+        else voiceState.secondVoice = voiceState.speakerVoices[index];
+      }
     } else if (kind === 'secondVoice') {
       voiceState.secondVoice = value || 'Puck';
     } else if (kind === 'speakerMode') {
       voiceState.speakerMode = value || 'single';
+      voiceState.numSpeakers = voiceState.speakerMode === 'multi' ? 2 : 1;
     } else if (kind === 'model') {
       const model = VOICE_MODEL_LIST.find((item) => item.id === value);
       if (model) {
@@ -5201,6 +5413,11 @@ function imageModelButton(model) {
         } else if (!voiceState.voice) {
           voiceState.voice = 'Kore';
         }
+        if (!isVoicePurposeSupported(voiceState.uploadPurpose, model.id)) {
+          const supportedPurpose = VOICE_UPLOAD_PURPOSES.find((item) => isVoicePurposeSupported(item, model.id)) || VOICE_UPLOAD_PURPOSES[0];
+          voiceState.uploadPurpose = supportedPurpose.id;
+          applyVoiceUploadPurpose(supportedPurpose.id);
+        }
       }
     }
     if (['voice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'runwayVoice'].includes(kind)) {
@@ -5209,15 +5426,21 @@ function imageModelButton(model) {
     renderVoiceControls();
     renderModelPop();
     const el = document.getElementById('modelPop');
-    if (el && !['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind)) {
+    const keepVoiceSheetOpen = ['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind);
+    const closeVoiceUploadPicker = ['voiceUploadPurpose', 'voiceTargetLanguage', 'voiceSpeakerCount', 'voiceSpeaker1', 'voiceSpeaker2', 'voiceSpeaker3'].includes(kind);
+    if (el && !keepVoiceSheetOpen) {
       el.classList.remove('show');
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
       el.classList.remove('music-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
-    } else if (['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind)) {
+    } else if (keepVoiceSheetOpen) {
       openImageOptionMenu(e, 'settings');
+    }
+    if (closeVoiceUploadPicker) {
+      activeVoicePanelSection = 'upload';
+      renderVoiceToolPanel();
     }
     S.haptic && S.haptic.select && S.haptic.select();
   }
@@ -6400,7 +6623,7 @@ function imageModelButton(model) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
 
-    const raw = window.prompt(kind === 'video' ? 'Video URL' : 'Image URL');
+    const raw = window.prompt(kind === 'video' ? 'Video URL' : (kind === 'audio' ? 'Audio URL' : 'Image URL'));
     const url = String(raw || '').trim();
     if (!url) return;
 
@@ -6426,10 +6649,11 @@ function imageModelButton(model) {
     if (isMusicMode() || isVoiceMode()) {
       const state = currentAudioState();
       state.uploads = (state.uploads || []).filter((item) => item.url !== url);
-      state.uploads.push({ kind: kind === 'video' ? 'audio' : kind, url });
+      state.uploads.push({ kind: isVoiceMode() ? kind : (kind === 'video' ? 'audio' : kind), url });
       state.uploads = state.uploads.slice(0, 4);
       updateSendButton();
       toast('Ссылка добавлена');
+      if (isVoiceMode()) renderVoiceToolPanel();
       return;
     }
 
@@ -7532,6 +7756,8 @@ function closeUploadPanel(e) {
     const inp = document.getElementById('attachInput');
     if (!inp) return;
     if (kind === 'voice_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
@@ -7598,6 +7824,8 @@ function closeUploadPanel(e) {
       }
     } else if (pendingKind === 'voice_media') {
       pendingKind = (f.type && f.type.startsWith('video/')) ? 'video' : 'audio';
+    } else if (pendingKind === 'voice_document') {
+      pendingKind = 'file';
     }
     const maxSize = pendingKind === 'video' ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
     if (f.size > maxSize) {
@@ -7686,8 +7914,12 @@ function closeUploadPanel(e) {
       e.stopPropagation();
     }
     if (!isVoiceMode()) return;
-    const tool = voiceState.elevenlabsTool || 'text_to_speech';
-    openNativeFilePicker(tool === 'speech_to_speech' ? 'voice_audio' : 'voice_media');
+    ensureVoiceSettings();
+    const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
+    if (purpose.accept === 'video/*') openNativeFilePicker('voice_video');
+    else if (purpose.accept === 'audio/*') openNativeFilePicker('voice_audio');
+    else if (String(purpose.accept || '').includes('.pdf')) openNativeFilePicker('voice_document');
+    else openNativeFilePicker('voice_media');
   }
 
   // =====================================================
