@@ -726,7 +726,11 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-left:0;padding-left:0}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
-.studio-video-composer[data-composer-mode="voice"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
+.studio-video-composer[data-composer-mode="voice"] .studio-video-panel{
+  grid-template-columns:1fr;
+  padding:28px 24px 24px;
+  border-top:1px solid rgba(255,255,255,.10);
+}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
 .studio-video-composer[data-composer-mode="voice"] .voice-tool-panel{display:grid}
 
