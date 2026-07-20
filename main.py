@@ -8932,7 +8932,7 @@ import json
 
 @app.get("/api/public/prostudio/kling/effects")
 async def public_prostudio_kling_effects():
-    effects_file = BASE_DIR / "providers" / "kling" / "effects" / "effects.json"
+    effects_file = BASE_DIR / "webapp" / "providers" / "kling" / "effects" / "effects.json"
 
     print("BASE_DIR =", BASE_DIR)
     print("EFFECTS_FILE =", effects_file)
