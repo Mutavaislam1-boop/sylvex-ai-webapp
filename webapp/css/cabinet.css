@@ -1054,7 +1054,65 @@ CSS-БЛОК: .studio-mode-tab
   color:#d6d6d6;
   font-size:11px;
 }
+.voice-upload-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .voice-upload-select{text-align:left;cursor:pointer;margin-bottom:12px}
+.voice-upload-purpose-btn{
+  min-height:48px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:3px;
+  white-space:normal;
+}
+.voice-upload-purpose-btn span{font-size:13px;font-weight:800;color:#f5f5f5}
+.voice-upload-purpose-btn small{font-size:10px;line-height:1.25;color:#aaa;font-weight:500}
+.voice-upload-controls{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  margin-bottom:10px;
+}
+.voice-upload-chip,.voice-upload-speaker-btn{
+  min-width:0;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:12px;
+  background:rgba(255,255,255,.07);
+  color:#f2f2f2;
+  min-height:42px;
+  padding:8px 10px;
+  font:inherit;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:2px;
+  cursor:pointer;
+}
+.voice-upload-chip span,.voice-upload-speaker-btn span{
+  color:#a9a9a9;
+  font-size:10px;
+  line-height:1.1;
+}
+.voice-upload-chip b,.voice-upload-speaker-btn b{
+  max-width:100%;
+  color:#fff;
+  font-size:12px;
+  line-height:1.15;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.voice-upload-chip.disabled,.voice-upload-chip:disabled{
+  opacity:.52;
+  cursor:not-allowed;
+}
+.voice-upload-speakers{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  margin-bottom:10px;
+}
 .voice-upload-drop{
   width:100%;
   min-height:128px;
@@ -1079,6 +1137,26 @@ CSS-БЛОК: .studio-mode-tab
   font-weight:300;
 }
 .voice-upload-drop b{font-size:12px;color:#dcdcdc}
+.voice-upload-drop small{
+  max-width:85%;
+  color:#999;
+  font-size:10px;
+  line-height:1.25;
+  text-align:center;
+}
+.voice-preview-row.disabled{
+  opacity:.48;
+  cursor:not-allowed;
+}
+.voice-preview-row.disabled .voice-preview-pick{
+  cursor:not-allowed;
+}
+@media(max-width:560px){
+  .voice-upload-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .voice-upload-speakers{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .voice-upload-speaker-btn{min-height:40px;padding:7px 8px}
+  .voice-upload-drop{min-height:108px}
+}
 .voice-tool-card{
   min-width:0;
   border:1px solid rgba(255,255,255,.10);
