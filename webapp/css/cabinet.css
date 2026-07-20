@@ -1371,9 +1371,20 @@ CSS-БЛОК: .studio-generate
 .studio-generate:not(:disabled){background:#2f6fbd;color:#fff}
 .studio-generate:disabled{cursor:not-allowed;opacity:.9}
 
-@media(max-width:560px){
+@media(max-width:900px){
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
+  .studio-modes{
+    overflow-x:auto;
+    overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .studio-modes::-webkit-scrollbar{display:none}
+  .studio-mode-tab{
+    flex:0 0 auto;
+    white-space:nowrap;
+  }
 /* =====================================================
 CSS-БЛОК: .studio-control-row
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -1425,6 +1436,9 @@ CSS-БЛОК: .studio-control-row .studio-select-pill.wide
   .studio-control-row .image-settings-pill{width:34px;min-width:34px;padding:0;justify-content:center}
   .studio-control-row .studio-generate{margin-left:0;border-radius:999px}
   .studio-video-panel{grid-template-columns:1fr;padding:14px;border-radius:22px;gap:12px}
+  .image-visual-grid,
+  .studio-frame-row,
+  .vgen-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
   .studio-video-composer[data-composer-mode="music"] .studio-video-panel{padding:18px 14px}
   .studio-prompt-column{border-left:0;border-top:1px solid rgba(255,255,255,.10);padding-left:0;padding-top:12px}
   .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-top:0;padding-top:0}
@@ -5010,7 +5024,7 @@ CSS-БЛОК: .studio-prompt-column textarea
     margin-top:0;
 }
 
-@media(min-width:561px){
+@media(min-width:901px){
 /* =====================================================
 CSS-БЛОК: .studio-video-composer[data-composer-mode="image"] .studio-prompt-column
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
