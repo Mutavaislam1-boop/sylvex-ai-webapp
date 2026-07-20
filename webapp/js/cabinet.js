@@ -979,7 +979,12 @@ function normalizeRunwayVoiceItems(items) {
     const id = String(item.voice_id || item.voiceId || item.id || item.name || '').trim();
     const name = String(item.name || item.label || id).trim();
     if (!id) return null;
-    return { id, label: name || id, previewUrl: item.preview_url || item.previewUrl || '' };
+    return {
+      id,
+      label: name || id,
+      previewUrl: item.preview_url || item.previewUrl || '',
+      gender: item.gender || item.sex || '',
+    };
   }).filter(Boolean);
   return mapped.length ? mapped : RUNWAY_TTS_VOICES.slice();
 }
@@ -1014,7 +1019,12 @@ function normalizeElevenLabsVoiceItems(items) {
     const name = String(item.name || item.label || id).trim();
     const meta = [item.language, item.type || item.category].filter(Boolean).join(' · ');
     if (!id) return null;
-    return { id, label: name + (meta ? ' · ' + meta : ''), previewUrl: item.preview_url || item.previewUrl || '' };
+    return {
+      id,
+      label: name + (meta ? ' · ' + meta : ''),
+      previewUrl: item.preview_url || item.previewUrl || '',
+      gender: item.gender || item.labels && item.labels.gender || item.voice_gender || '',
+    };
   }).filter(Boolean);
   return mapped.length ? mapped : ELEVENLABS_TTS_VOICES.slice();
 }
@@ -1737,13 +1747,14 @@ function renderVoiceToolPanel() {
   if (!panel) return;
   if (!isVoiceMode()) {
     panel.hidden = true;
+    panel.classList.remove('voice-list-open');
+    panel.onclick = null;
     panel.innerHTML = '';
     return;
   }
   const isElevenLabs = isElevenLabsVoiceModel(voiceState.modelId);
   const isRunway = isRunwayVoiceModel(voiceState.modelId);
   const tool = voiceState.elevenlabsTool || 'text_to_speech';
-  panel.hidden = false;
   const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
   const uploadLabelEl = document.getElementById('voiceUploadLabel');
   if (uploadLabelEl) {
@@ -1754,6 +1765,9 @@ function renderVoiceToolPanel() {
   if (active === 'voices') body = renderVoiceListPanel();
   if (active === 'create') body = renderVoiceCreatePanel();
   if (active === 'upload') body = renderVoiceUploadPanel();
+  panel.hidden = !body;
+  panel.classList.toggle('voice-list-open', active === 'voices');
+  panel.onclick = active === 'voices' ? closeVoiceList : null;
   panel.innerHTML = body;
   document.querySelectorAll('.vgen-btn, .vgen-upload-row').forEach((item) => item.classList.remove('active'));
   const activeSelector = active === 'create'
@@ -1776,26 +1790,90 @@ function currentVoiceListForPanel() {
 }
 
 // =====================================================
+// БЛОК ОЗВУЧКИ: voiceGenderForPanel
+// Определяет раздел списка голосов: мужской или женский.
+// Если провайдер прислал gender, используем его; для встроенных голосов есть локальная карта.
+// =====================================================
+function voiceGenderForPanel(item) {
+  const rawGender = String((item && (item.gender || item.sex || item.voice_gender)) || '').toLowerCase();
+  if (/female|woman|жен|ж/i.test(rawGender)) return 'female';
+  if (/male|man|муж|м/i.test(rawGender)) return 'male';
+  const id = String((item && (item.id || item.voice_id || item.name)) || '').toLowerCase();
+  const label = String((item && item.label) || '').toLowerCase();
+  const text = id + ' ' + label;
+  const femaleVoices = [
+    'zephyr', 'leda', 'aoede', 'callirrhoe', 'autonoe', 'despina', 'erinome',
+    'laomedeia', 'achernar', 'schedar', 'gacrux', 'pulcherrima', 'achird',
+    'vindemiatrix', 'sadachbia', 'sulafat', 'maya', 'rachel'
+  ];
+  const maleVoices = [
+    'puck', 'charon', 'kore', 'fenrir', 'orus', 'enceladus', 'iapetus',
+    'umbriel', 'algieba', 'algenib', 'rasalgethi', 'alnilam',
+    'zubenelgenubi', 'sadaltager', 'noah', 'bernard', 'arjun'
+  ];
+  if (femaleVoices.some((name) => text.includes(name))) return 'female';
+  if (maleVoices.some((name) => text.includes(name))) return 'male';
+  return 'female';
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: closeVoiceList
+// Закрывает нижний sheet списка голосов, не меняя выбранную модель и настройки озвучки.
+// =====================================================
+function closeVoiceList(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (activeVoicePanelSection === 'voices') {
+    activeVoicePanelSection = '';
+    renderVoiceToolPanel();
+  }
+}
+
+// =====================================================
 // БЛОК ОЗВУЧКИ: renderVoiceListPanel
-// Рисует список голосов как на макете: название слева, кнопка прослушивания справа.
+// Рисует список голосов на базе того же визуального компонента, что и блок «Стили» в генерации фото.
 // =====================================================
 function renderVoiceListPanel() {
+  injectImageStyleSheetCss();
   const optionKind = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabsVoice' : (isRunwayVoiceModel(voiceState.modelId) ? 'runwayVoice' : 'voice');
   const activeVoice = optionKind === 'elevenlabsVoice' ? voiceState.elevenlabsVoice : (optionKind === 'runwayVoice' ? voiceState.runwayVoice : voiceState.voice);
   const items = currentVoiceListForPanel();
+  const groups = [
+    { id: 'male', title: 'Мужские', items: items.filter((item) => voiceGenderForPanel(item) === 'male') },
+    { id: 'female', title: 'Женские', items: items.filter((item) => voiceGenderForPanel(item) === 'female') },
+  ];
+  const renderCard = (item) => {
+    const id = String(item.id || item.voice_id || '');
+    const label = String(item.label || item.name || id);
+    const safeId = S.escapeHtml(id);
+    const selected = String(activeVoice || '') === id;
+    const initial = S.escapeHtml((label || id || '?').trim().slice(0, 1).toUpperCase());
+    return '<div class="image-style-card voice-style-card ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
+      + '<span class="image-style-thumb is-placeholder voice-style-thumb">'
+      + '<span class="image-style-placeholder-icon">' + initial + '</span>'
+      + '<button class="voice-style-play" type="button" aria-label="Прослушать ' + S.escapeHtml(label) + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
+      + '</span>'
+      + '<span class="image-style-label">' + S.escapeHtml(label) + '</span>'
+      + '<span class="image-style-check">✓</span>'
+      + '</div>';
+  };
   return `
-    <div class="voice-workspace-sheet voice-list-sheet">
-      <div class="voice-sheet-title">Список голосов</div>
-      <div class="voice-list-rows">
-        ${items.map((item) => {
-          const id = String(item.id || item.voice_id || '');
-          const label = String(item.label || item.name || id);
-          const safeId = S.escapeHtml(id);
-          return '<div class="voice-list-row ' + (String(activeVoice || '') === id ? 'active' : '') + '">'
-            + '<button type="button" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">' + S.escapeHtml(label) + '</button>'
-            + '<button class="voice-list-play" type="button" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
-            + '</div>';
-        }).join('')}
+    <div class="image-style-panel-card voice-style-panel-card" onclick="event.stopPropagation()">
+      <div class="image-style-panel-head">
+        <div class="image-style-panel-title">Список голосов</div>
+        <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeVoiceList(event)">×</button>
+      </div>
+      <div class="voice-style-groups">
+        ${groups.map((group) => group.items.length ? `
+          <section class="voice-style-group" aria-label="${S.escapeHtml(group.title)}">
+            <div class="voice-style-group-title">${S.escapeHtml(group.title)}</div>
+            <div class="image-style-panel-grid voice-style-grid">
+              ${group.items.map(renderCard).join('')}
+            </div>
+          </section>
+        ` : '').join('')}
       </div>
     </div>`;
 }
@@ -5124,6 +5202,9 @@ function imageModelButton(model) {
           voiceState.voice = 'Kore';
         }
       }
+    }
+    if (['voice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'runwayVoice'].includes(kind)) {
+      activeVoicePanelSection = '';
     }
     renderVoiceControls();
     renderModelPop();
@@ -10972,7 +11053,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, openVoiceList, openVoiceUpload, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -11010,6 +11091,7 @@ async function waitGeneration(jobId, options) {
   window.openVoicePanelSection = openVoicePanelSection;
   window.openVoiceCreate = openVoiceCreate;
   window.openVoiceList = openVoiceList;
+  window.closeVoiceList = closeVoiceList;
   window.openVoiceUpload = openVoiceUpload;
   window.openVoiceCloneFilePicker = openVoiceCloneFilePicker;
   window.clearVoiceUploads = clearVoiceUploads;
