@@ -726,16 +726,78 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="music"] .studio-prompt-column{border-left:0;padding-left:0}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="voice"] .voice-only.studio-select-pill{display:flex}
-.studio-video-composer[data-composer-mode="voice"] .voice-legacy-pill{display:none!important}
 .studio-video-composer[data-composer-mode="voice"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column{border-left:0;padding-left:0}
 .studio-video-composer[data-composer-mode="voice"] .voice-tool-panel{display:grid}
 
 /* =====================================================
-СТИЛИ БЛОКА ОЗВУЧКИ ELEVENLABS
-Панель добавляет видео для дубляжа, аудио для копирования голоса и запись микрофона.
-Блок живёт только в разделе «Озвучка» и повторяет тёмный стиль Pro Studio.
+СТИЛИ ОСНОВНОЙ ПАНЕЛИ «ОЗВУЧКА»
+Повторяет структуру из HTML-кода: две кнопки сверху и строка загрузки снизу.
+Каждая кнопка открывает свой раздел: создание голоса, список голосов или загрузку файла.
 ===================================================== */
+.studio-voice-full{
+  grid-column:1 / -1;
+  display:none;
+  flex-direction:column;
+  gap:8px;
+}
+.studio-video-composer[data-composer-mode="voice"] .studio-voice-full{display:flex}
+.vgen-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.vgen-btn{
+  min-width:0;
+  min-height:48px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  background:#2b2b2b;
+  color:#f4f4f4;
+  font:inherit;
+  font-size:13px;
+  font-weight:800;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:0 13px;
+  cursor:pointer;
+}
+.vgen-btn.active{border-color:rgba(255,255,255,.28);background:#343434}
+.vgen-btn-ico{display:grid;place-items:center;color:#d8d8d8;flex:0 0 auto}
+.vgen-upload-row{
+  min-height:34px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:8px;
+  background:#333;
+  color:#f4f4f4;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:0 9px 0 13px;
+  cursor:pointer;
+}
+.vgen-upload-row.active{border-color:rgba(255,255,255,.26)}
+.vgen-upload-lbl{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:800;
+}
+.vgen-upload-icons{display:flex;align-items:center;gap:5px;flex:0 0 auto}
+.vgen-uico{
+  width:27px;
+  height:27px;
+  border-radius:50%;
+  background:#4b4b4b;
+  display:grid;
+  place-items:center;
+  color:#dcdcdc;
+}
 .voice-tool-panel{
   grid-column:1 / -1;
   display:none;
