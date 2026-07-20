@@ -8926,6 +8926,36 @@ def prostudio_builtin_video_template_slots() -> list:
         })
     return templates
 
+from fastapi.responses import JSONResponse
+from pathlib import Path
+import json
+
+@app.get("/api/public/prostudio/kling/effects")
+async def public_prostudio_kling_effects():
+    effects_file = Path(__file__).parent / "providers" / "kling" / "effects" / "effects.json"
+
+    if not effects_file.exists():
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "effects.json not found"
+            }
+        )
+
+    try:
+        with open(effects_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": str(e)
+            }
+        )
+
+
 # =====================================================
 # API ENDPOINT: public_prostudio_video_templates
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
