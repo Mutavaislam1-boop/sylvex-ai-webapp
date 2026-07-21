@@ -8053,6 +8053,34 @@ function closeUploadPanel(e) {
       toast(pendingKind === 'video' ? 'Видео слишком большое (макс. 200 MB)' : 'Файл слишком большой (макс. 50 MB)');
       return;
     }
+    if (isVoiceMode() && (pendingKind === 'video' || pendingKind === 'audio')) {
+      uploadProStudioMediaFile(f, pendingKind)
+        .then((url) => {
+          voiceState.uploads = (voiceState.uploads || []).filter((item) => item.url !== url);
+          voiceState.uploads.push({
+            kind: pendingKind,
+            url,
+            name: f.name,
+            mime: f.type || (pendingKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+            size: f.size || 0,
+          });
+          voiceState.uploads = voiceState.uploads.slice(0, 4);
+          voiceState.attachment = {
+            kind: pendingKind,
+            url,
+            name: f.name,
+            mime: f.type || (pendingKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+            size: f.size || 0,
+          };
+          renderVoiceToolPanel();
+          updateSendButton();
+          toast(pendingKind === 'video' ? 'Видео загружено' : 'Аудио загружено');
+        })
+        .catch((err) => {
+          toast((err && err.message) || (pendingKind === 'video' ? 'Не удалось загрузить видео' : 'Не удалось загрузить аудио'));
+        });
+      return;
+    }
     if (pendingKind === 'video' && isVideoMode()) {
       uploadProStudioMediaFile(f, 'video')
         .then((url) => {
