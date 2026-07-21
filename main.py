@@ -4962,7 +4962,13 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     suffix = pathlib.Path(filename).suffix.lower()
     content_type = (file.content_type or "").lower()
     is_video = media_kind == "video" or content_type.startswith("video/")
-    allowed_exts = {".mp4", ".mov"} if is_video else {".jpg", ".jpeg", ".png", ".webp"}
+    is_audio = media_kind == "audio" or content_type.startswith("audio/")
+    if is_video:
+        allowed_exts = {".mp4", ".mov", ".m4v", ".webm"}
+    elif is_audio:
+        allowed_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".webm", ".flac"}
+    else:
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
     max_bytes = 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024
 
     if suffix not in allowed_exts:
@@ -4983,7 +4989,7 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     base = (WEBAPP_URL or "").rstrip("/")
     public_url = f"{base}{public_path}" if base else public_path
     print("PROSTUDIO MEDIA UPLOAD:", {
-        "kind": "video" if is_video else "image",
+        "kind": "video" if is_video else ("audio" if is_audio else "image"),
         "filename": filename,
         "content_type": content_type,
         "bytes": len(content),
@@ -4991,7 +4997,7 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     })
     return {
         "ok": True,
-        "kind": "video" if is_video else "image",
+        "kind": "video" if is_video else ("audio" if is_audio else "image"),
         "url": public_url,
         "path": public_path,
         "content_type": content_type,

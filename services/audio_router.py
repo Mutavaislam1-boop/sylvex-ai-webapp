@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import mimetypes
+import urllib.parse
 import wave
 from typing import Any
 from uuid import uuid4
@@ -541,8 +542,9 @@ async def _load_provider_media(client: httpx.AsyncClient, media_url: str) -> tup
     value = str(media_url or "").strip()
     if not value:
         return b"", "input-audio.mp3", "audio/mpeg"
-    if value.startswith("/webapp/"):
-        local_path = WEBAPP_DIR / value.replace("/webapp/", "", 1)
+    parsed_path = urllib.parse.urlparse(value).path if value.startswith(("http://", "https://")) else value
+    if parsed_path.startswith("/webapp/"):
+        local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
         if not local_path.exists():
             return b"", "input-audio.mp3", "audio/mpeg"
         content = local_path.read_bytes()
