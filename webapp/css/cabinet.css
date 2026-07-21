@@ -2067,24 +2067,25 @@ CSS-БЛОК: .studio-link-icons span
   text-align:center;
   cursor:pointer;
 }
-.studio-video-edit-upload-icon{
-  display:grid;
-  place-items:center;
-  color:#fff;
+ .studio-video-edit-upload-icon{
+   display:grid;
+   place-items:center;
+   color:#fff;
+   transform:scale(.72);
 }
 .studio-video-edit-upload b{
   position:relative;
   z-index:2;
-  font-size:20px;
-  line-height:1.12;
-  font-weight:900;
+  font-size:14px;
+  line-height:1.2;
+  font-weight:700;
   color:#fff;
 }
 .studio-video-edit-upload small{
   position:relative;
   z-index:2;
-  color:#d9d9d9;
-  font-size:13px;
+  color:#cfcfcf;
+  font-size:11px;
   line-height:1.2;
 }
 .studio-video-edit-preview{
@@ -2126,28 +2127,25 @@ CSS-БЛОК: .studio-link-icons span
   z-index:2;
 }
 .studio-video-composer[data-video-section="edit"] .studio-links-btn{
-  min-height:84px;
-  border-radius:22px;
+  min-height:68px;
+  border-radius:18px;
   background:#2c2c2c;
-  padding:14px 18px;
-  font-size:19px;
-  font-weight:900;
-}
-.studio-video-composer[data-video-section="edit"] .studio-link-icons{
-  gap:0;
+  padding:10px 14px;
+  font-size:14px;
+  font-weight:700;
 }
 .studio-video-composer[data-video-section="edit"] .studio-link-icons span{
-  width:48px;
-  height:48px;
+  width:36px;
+  height:36px;
   border-radius:50%;
   background:#444;
-  border:4px solid #3a3a3a;
+  border:3px solid #3a3a3a;
   color:#f1f1f1;
-  margin-left:-8px;
+  margin-left:-6px;
 }
 .studio-video-composer[data-video-section="edit"] .studio-link-icons svg{
-  width:22px;
-  height:22px;
+  width:16px;
+  height:16px;
 }
 .studio-music-tools{display:none}
 /* =====================================================
