@@ -1,17 +1,127 @@
 {
   "ok": true,
+  "source": "kling_video_effects_official_api_effect_scene",
+  "note": "Официальная публичная схема Kling Video Effects принимает effect_scene в POST /v1/videos/effects. Публичный endpoint для автоматического получения полного каталога эффектов в документации не найден.",
   "effects": [
     {
+      "id": "fuzzyfuzzy",
+      "name": "Fuzzy Fuzzy",
+      "description": "Single-image Kling video effect.",
+      "aspect_ratio": "1:1",
+      "ratios": ["1:1", "9:16", "16:9"],
+      "input_count": 1,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
+      "id": "squish",
+      "name": "Squish",
+      "description": "Single-image Kling video effect.",
+      "aspect_ratio": "1:1",
+      "ratios": ["1:1", "9:16", "16:9"],
+      "input_count": 1,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
+      "id": "expansion",
+      "name": "Expansion",
+      "description": "Single-image Kling video effect.",
+      "aspect_ratio": "16:9",
+      "ratios": ["16:9", "1:1", "9:16"],
+      "input_count": 1,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
+      "id": "dizzydizzy",
+      "name": "Dizzy Dizzy",
+      "description": "Single-image Kling video effect.",
+      "aspect_ratio": "9:16",
+      "ratios": ["9:16", "1:1", "16:9"],
+      "input_count": 1,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
+      "id": "bloombloom",
+      "name": "Bloom Bloom",
+      "description": "Single-image Kling video effect.",
+      "aspect_ratio": "9:16",
+      "ratios": ["9:16", "1:1", "16:9"],
+      "input_count": 1,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
+      "id": "balloon_parade",
+      "name": "Balloon Parade",
+      "description": "Single-image Kling video effect.",
+      "aspect_ratio": "9:16",
+      "ratios": ["9:16", "1:1", "16:9"],
+      "input_count": 1,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
       "id": "hug",
-      "name": "Hug"
+      "name": "Hug",
+      "description": "Two-person interaction Kling video effect.",
+      "aspect_ratio": "9:16",
+      "ratios": ["9:16", "1:1", "16:9"],
+      "input_count": 2,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
     },
     {
       "id": "kiss",
-      "name": "Kiss"
+      "name": "Kiss",
+      "description": "Two-person interaction Kling video effect.",
+      "aspect_ratio": "9:16",
+      "ratios": ["9:16", "1:1", "16:9"],
+      "input_count": 2,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
+    },
+    {
+      "id": "heart_gesture",
+      "name": "Heart Gesture",
+      "description": "Two-person interaction Kling video effect.",
+      "aspect_ratio": "9:16",
+      "ratios": ["9:16", "1:1", "16:9"],
+      "input_count": 2,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
     },
     {
       "id": "handshake",
-      "name": "Handshake"
+      "name": "Handshake",
+      "description": "Two-person interaction Kling video effect.",
+      "aspect_ratio": "16:9",
+      "ratios": ["16:9", "1:1", "9:16"],
+      "input_count": 2,
+      "duration": 5,
+      "mode": "std",
+      "model_name": "kling-v1-6",
+      "cost_credits": 95
     }
   ]
 }
