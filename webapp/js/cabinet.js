@@ -899,6 +899,16 @@ const TEXT_MODEL_LIST = [
   { id:'gpt-4.1-mini', label:'GPT-4.1 mini', providerModel:'gpt-4.1-mini', desc:'Быстрая генерация текста и промптов', icon:'openai' },
   { id:'gpt-4o', label:'GPT-4o', providerModel:'gpt-4o', desc:'Универсальная текстовая модель', icon:'openai' },
   { id:'gpt-4o-mini', label:'GPT-4o mini', providerModel:'gpt-4o-mini', desc:'Легкая модель для быстрых текстов', icon:'openai' },
+  { id:'gemini_3_1_pro', label:'Gemini 3.1 Pro', providerModel:'gemini-3.1-pro', desc:'Google Gemini для документов, промптов и структурирования', icon:'gemini' },
+  { id:'gemini_3_1_flash', label:'Gemini 3.1 Flash', providerModel:'gemini-3.1-flash', desc:'Быстрая Gemini-модель для текста и диалогов', icon:'gemini' },
+  { id:'gemini_2_5_pro', label:'Gemini 2.5 Pro', providerModel:'gemini-2.5-pro', desc:'Gemini Pro для сложных текстовых задач', icon:'gemini' },
+  { id:'gemini_2_5_flash', label:'Gemini 2.5 Flash', providerModel:'gemini-2.5-flash', desc:'Быстрая Gemini-модель для текстов и конспектов', icon:'gemini' },
+  { id:'grok_4_1', label:'Grok 4.1', providerModel:'grok-4.1', desc:'xAI Grok для текстов, промптов и анализа', icon:'grok' },
+  { id:'grok_4_fast', label:'Grok 4 Fast', providerModel:'grok-4-fast-reasoning', desc:'Быстрый Grok для генерации и структурирования', icon:'grok' },
+  { id:'grok_3', label:'Grok 3', providerModel:'grok-3', desc:'Grok для универсальных текстовых задач', icon:'grok' },
+  { id:'qwen_plus', label:'Qwen Plus', providerModel:'qwen-plus', desc:'Qwen для документов, промптов и диалогов', icon:'qwen' },
+  { id:'qwen_turbo', label:'Qwen Turbo', providerModel:'qwen-turbo', desc:'Быстрый Qwen для текстов и конспектов', icon:'qwen' },
+  { id:'qwen_max', label:'Qwen Max', providerModel:'qwen-max', desc:'Сильная Qwen-модель для длинных задач', icon:'qwen' },
 ];
 
 const TEXT_TOOL_OPTIONS = [

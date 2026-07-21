@@ -7041,6 +7041,35 @@ TEXT_MODEL_ALIASES = {
     "gpt-4.1-mini": "gpt-4.1-mini",
     "gpt-4o": "gpt-4o",
     "gpt-4o-mini": "gpt-4o-mini",
+    "gemini_3_1_pro": "gemini_3_1_pro",
+    "gemini_3_1_flash": "gemini_3_1_flash",
+    "gemini_2_5_pro": "gemini_2_5_pro",
+    "gemini_2_5_flash": "gemini_2_5_flash",
+    "grok_4_1": "grok_4_1",
+    "grok_4_fast": "grok_4_fast",
+    "grok_3": "grok_3",
+    "qwen_plus": "qwen_plus",
+    "qwen_turbo": "qwen_turbo",
+    "qwen_max": "qwen_max",
+}
+
+TEXT_MODEL_VARIANTS = {
+    "gpt-5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT5_MODEL", default="gpt-5")},
+    "gpt-5-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT5_MINI_MODEL", default="gpt-5-mini")},
+    "gpt-4.1": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT41_MODEL", default="gpt-4.1")},
+    "gpt-4.1-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT41_MINI_MODEL", default="gpt-4.1-mini")},
+    "gpt-4o": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT4O_MODEL", default="gpt-4o")},
+    "gpt-4o-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT4O_MINI_MODEL", default="gpt-4o-mini")},
+    "gemini_3_1_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_PRO_MODEL", "GEMINI-TEXT-PRO-MODEL", default="gemini-3.1-pro")},
+    "gemini_3_1_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_FLASH_MODEL", "GEMINI-TEXT-FLASH-MODEL", default="gemini-3.1-flash")},
+    "gemini_2_5_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_PRO_MODEL", "GEMINI-TEXT-25-PRO-MODEL", default="gemini-2.5-pro")},
+    "gemini_2_5_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_FLASH_MODEL", "GEMINI-TEXT-25-FLASH-MODEL", default="gemini-2.5-flash")},
+    "grok_4_1": {"provider": "grok", "provider_model": env_value("GROK_TEXT_4_1_MODEL", "XAI_TEXT_4_1_MODEL", default="grok-4.1")},
+    "grok_4_fast": {"provider": "grok", "provider_model": env_value("GROK_TEXT_FAST_MODEL", "XAI_TEXT_FAST_MODEL", default="grok-4-fast-reasoning")},
+    "grok_3": {"provider": "grok", "provider_model": env_value("GROK_TEXT_3_MODEL", "XAI_TEXT_3_MODEL", default="grok-3")},
+    "qwen_plus": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_PLUS_MODEL", "QWEN-TEXT-PLUS-MODEL", default="qwen-plus")},
+    "qwen_turbo": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_TURBO_MODEL", "QWEN-TEXT-TURBO-MODEL", default="qwen-turbo")},
+    "qwen_max": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_MAX_MODEL", "QWEN-TEXT-MAX-MODEL", default="qwen-max")},
 }
 
 
@@ -7210,6 +7239,90 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
     )
 
 
+def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list) -> tuple[bool, str, dict]:
+    if not api_key:
+        return False, f"{provider.upper()} API key is not configured", {}
+    endpoint = endpoint_base.rstrip("/") + "/chat/completions"
+    response = requests.post(
+        endpoint,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        data=json.dumps({"model": provider_model, "messages": messages}),
+        timeout=120,
+    )
+    try:
+        data = response.json() if response.content else {}
+    except Exception:
+        data = {"raw": response.text}
+    if response.status_code >= 400:
+        return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
+    text = ""
+    if isinstance(data, dict):
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return True, text, data if isinstance(data, dict) else {}
+
+
+def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
+    api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
+    if not api_key:
+        return False, "GEMINI_API_KEY is not configured", {}
+    system_text = "\n\n".join(str(item.get("content") or "") for item in messages if item.get("role") == "system")
+    contents = []
+    for item in messages:
+        role = item.get("role")
+        if role == "system":
+            continue
+        contents.append({
+            "role": "model" if role == "assistant" else "user",
+            "parts": [{"text": str(item.get("content") or "")}],
+        })
+    endpoint_base = env_value("GEMINI_TEXT_ENDPOINT", "GEMINI-GENERATE-CONTENT-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/models").rstrip("/")
+    endpoint = f"{endpoint_base}/{provider_model}:generateContent"
+    request_payload = {"contents": contents}
+    if system_text:
+        request_payload["systemInstruction"] = {"parts": [{"text": system_text}]}
+    response = requests.post(
+        endpoint,
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+        data=json.dumps(request_payload),
+        timeout=120,
+    )
+    try:
+        data = response.json() if response.content else {}
+    except Exception:
+        data = {"raw": response.text}
+    if response.status_code >= 400:
+        return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
+    text_parts = []
+    for candidate in (data.get("candidates") or []) if isinstance(data, dict) else []:
+        for part in ((candidate.get("content") or {}).get("parts") or []):
+            if isinstance(part, dict) and part.get("text"):
+                text_parts.append(str(part.get("text")))
+    return True, "\n".join(text_parts).strip(), data if isinstance(data, dict) else {}
+
+
+def call_text_provider(model: str, messages: list) -> dict:
+    cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-4o-mini"]
+    provider = cfg.get("provider") or "openai"
+    provider_model = cfg.get("provider_model") or model
+    if provider == "gemini":
+        ok, text, data = gemini_text_request(provider_model, messages)
+    elif provider in {"grok", "xai"}:
+        api_key = env_value("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
+        endpoint_base = env_value("XAI_API_BASE", "GROK_API_BASE", default="https://api.x.ai/v1")
+        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, messages)
+        provider = "grok"
+    elif provider == "qwen":
+        api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
+        endpoint_base = env_value("QWEN_TEXT_API_BASE", "DASHSCOPE_COMPATIBLE_API_BASE", default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+        ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, messages)
+    else:
+        ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, messages)
+        provider = "openai"
+    if not ok:
+        return {"ok": False, "error": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
+    return {"ok": True, "text": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
+
+
 # =====================================================
 # PYTHON-БЛОК: text_generation
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -7250,21 +7363,10 @@ def text_generation(payload: dict) -> dict:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
-    if not OPENAI_API_KEY:
-        text = "SYLVEX Pro Studio Text AI is connected. Add OPENAI_API_KEY to enable live generation.\n\nPrompt: " + prompt
-        pdf_url = save_text_pdf(text, "SYLVEX Text") if output_format == "pdf" else ""
-        return {"ok": True, "type": "text", "text": text, "document_url": pdf_url, "files": [pdf_url] if pdf_url else []}
-
-    response = requests.post(
-        f"{OPENAI_API_BASE}/chat/completions",
-        headers=openai_headers(),
-        data=json.dumps({"model": model, "messages": messages}),
-        timeout=120,
-    )
-    if response.status_code >= 400:
-        return {"ok": False, "error": response.text}
-    data = response.json()
-    text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    generated = call_text_provider(model, messages)
+    if not generated.get("ok"):
+        return generated
+    text = generated.get("text") or ""
     pdf_url = save_text_pdf(text, "SYLVEX Text") if output_format == "pdf" else ""
     if pdf_url:
         text = (text or "").rstrip() + "\n\nPDF: " + pdf_url
@@ -7272,14 +7374,16 @@ def text_generation(payload: dict) -> dict:
         "ok": True,
         "type": "text",
         "text": text,
-        "provider": "openai",
+        "provider": generated.get("provider") or "openai",
         "model": model,
+        "provider_model": generated.get("provider_model") or model,
         "tool": tool,
         "format": output_format,
         "document_url": pdf_url,
         "file_url": pdf_url,
         "files": [pdf_url] if pdf_url else [],
         "transcript": transcript,
+        "metadata": generated.get("metadata") or {},
     }
 
 # =====================================================
