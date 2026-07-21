@@ -1231,6 +1231,9 @@ async def elevenlabs_clone_voice_from_audio(
     name: str = "",
     description: str = "",
     telegram_id: int = 0,
+    gender: str = "neutral",
+    emotion: str = "neutral",
+    settings: dict | None = None,
 ) -> dict:
     provider = "elevenlabs"
     frontend_model = "elevenlabs_voice_clone"
@@ -1242,12 +1245,19 @@ async def elevenlabs_clone_voice_from_audio(
 
     endpoint = f"{ELEVENLABS_BASE_URL}/v1/voices/add"
     safe_name = (name or "SYLVEX Voice").strip()[:80] or "SYLVEX Voice"
+    voice_settings = settings if isinstance(settings, dict) else {}
     form_data = {
         "name": safe_name,
         "description": (description or "Created in SYLVEX Mini App").strip()[:500],
         "labels": json.dumps({
             "source": "sylvex_prostudio",
             "telegram_id": str(telegram_id or ""),
+            "gender": str(gender or voice_settings.get("gender") or "neutral"),
+            "emotion": str(emotion or voice_settings.get("emotion") or "neutral"),
+            "speed": str(voice_settings.get("speed", 50)),
+            "pitch": str(voice_settings.get("pitch", 50)),
+            "intonation": str(voice_settings.get("intonation", 50)),
+            "expressiveness": str(voice_settings.get("expressiveness", 50)),
         }, ensure_ascii=False),
     }
     print("ELEVENLABS VOICE CLONE REQUEST:", {
@@ -1286,6 +1296,7 @@ async def elevenlabs_clone_voice_from_audio(
         "type": "voice",
         "voice_id": voice_id,
         "name": safe_name,
+        "settings": voice_settings,
         "response": data,
     }
 

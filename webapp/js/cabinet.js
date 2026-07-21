@@ -194,6 +194,25 @@ let voiceCloneChunks = [];
 let voiceCloneBlob = null;
 let voiceClonePreviewUrl = '';
 let voiceCloneSubmitting = false;
+let voiceCloneDraft = {
+  name: '',
+  gender: 'neutral',
+  emotion: 'neutral',
+  speed: 50,
+  pitch: 50,
+  intonation: 50,
+  expressiveness: 50,
+  source: '',
+};
+let voiceCloneCountdown = 0;
+let voiceCloneCountdownTimer = null;
+let voiceCloneRecordStartedAt = 0;
+let voiceCloneRecordElapsed = 0;
+let voiceCloneRecordTimer = null;
+let voiceClonePreviewAudio = null;
+let voiceClonePreviewPlaying = false;
+let voiceClonePreviewTime = 0;
+let voiceClonePreviewDuration = 0;
 let activeVoicePanelSection = '';
 
 let textState = {
@@ -2027,8 +2046,55 @@ function renderVoiceListPanel() {
 // Рисует экран создания голоса: название, запись/загрузка семпла, настройки речи и preview записи.
 // =====================================================
 function renderVoiceCreatePanel() {
-  const recordButtonLabel = voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'Остановить запись' : 'Записать голос';
   const cloneSubmitLabel = voiceCloneSubmitting ? 'Создаём...' : 'Создать голос';
+  const isRecording = voiceCloneRecorder && voiceCloneRecorder.state === 'recording';
+  const hasAudio = Boolean(voiceCloneBlob && voiceClonePreviewUrl);
+  const canSubmit = Boolean((voiceCloneDraft.name || '').trim() && hasAudio && !voiceCloneSubmitting);
+  const genderOptions = [
+    { id: 'neutral', label: 'Нейтральный' },
+    { id: 'male', label: 'Мужской' },
+    { id: 'female', label: 'Женский' },
+  ];
+  const emotionOptions = [
+    { id: 'neutral', label: 'Нейтральная' },
+    { id: 'joy', label: 'Радость' },
+    { id: 'calm', label: 'Спокойная' },
+    { id: 'energy', label: 'Энергичная' },
+  ];
+  const dropdown = (kind, label, options, value) => {
+    const selected = options.find((item) => item.id === value) || options[0];
+    return `
+      <div class="voice-select" data-voice-select="${S.escapeHtml(kind)}">
+        <button class="voice-select-btn" type="button" onclick="SYLVEX.toggleVoiceCloneDropdown(event,'${S.escapeHtml(kind)}')">
+          <span>${S.escapeHtml(label)}</span>
+          <b>${S.escapeHtml(selected.label)}</b>
+          <i>∨</i>
+        </button>
+        <div class="voice-select-menu">
+          ${options.map((item) => '<button type="button" class="' + (item.id === selected.id ? 'active' : '') + '" onclick="SYLVEX.selectVoiceCloneOption(event,\'' + S.escapeHtml(kind) + '\',\'' + S.escapeHtml(item.id) + '\')">' + S.escapeHtml(item.label) + '</button>').join('')}
+        </div>
+      </div>`;
+  };
+  const settings = [
+    { id: 'speed', label: 'Скорость', min: 0, max: 100 },
+    { id: 'pitch', label: 'Высота', min: 0, max: 100 },
+    { id: 'intonation', label: 'Интонация', min: 0, max: 100 },
+    { id: 'expressiveness', label: 'Выразительность', min: 0, max: 100 },
+  ];
+  const formatTime = (seconds) => {
+    const value = Math.max(0, Number(seconds || 0));
+    const mm = Math.floor(value / 60);
+    const ss = Math.floor(value % 60);
+    return mm + ':' + String(ss).padStart(2, '0');
+  };
+  const audioLabel = voiceCloneDraft.source === 'upload' ? 'Аудиофайл загружен' : 'Запись создана';
+  const audioInfo = voiceCloneBlob
+    ? ((voiceCloneBlob.name || (voiceCloneDraft.source === 'upload' ? 'audio file' : 'recording')) + ' · ' + Math.max(1, Math.round(voiceCloneBlob.size / 1024)) + ' KB')
+    : '';
+  const waveform = Array.from({ length: 32 }).map((_, index) => {
+    const level = 22 + ((index * 17) % 44) + (index % 5) * 3;
+    return '<span style="height:' + Math.min(76, level) + '%"></span>';
+  }).join('');
   return `
     <div class="voice-workspace-sheet voice-create-sheet" onclick="event.stopPropagation()">
       <button class="upload-panel-close voice-create-close" type="button" onclick="SYLVEX.closeVoiceCreate(event)">×</button>
@@ -2038,34 +2104,47 @@ function renderVoiceCreatePanel() {
       </div>
       <div class="voice-create-grid">
         <div class="voice-create-fields">
-          <input class="voice-tool-input" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off">
-          <select class="voice-tool-input" aria-label="Пол">
-            <option>Пол</option>
-            <option>Мужской</option>
-            <option>Женский</option>
-            <option>Нейтральный</option>
-          </select>
+          <input class="voice-tool-input voice-clone-field" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off" value="${S.escapeHtml(voiceCloneDraft.name || '')}" oninput="SYLVEX.setVoiceCloneField(event,'name',this.value)">
+          ${dropdown('gender', 'Пол', genderOptions, voiceCloneDraft.gender || 'neutral')}
         </div>
-        <div class="voice-create-recorder">
-          <button type="button" class="${voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'recording' : ''}" onclick="SYLVEX.toggleVoiceCloneRecording(event)">●</button>
-          <button type="button" onclick="SYLVEX.openVoiceCloneFilePicker(event)">+</button>
+        <div class="voice-create-recorder ${isRecording || voiceCloneCountdown ? 'recording-mode' : ''} ${hasAudio ? 'has-audio' : ''}">
+          ${hasAudio ? `
+            <div class="voice-audio-file-card">
+              <span class="voice-file-icon">♪</span>
+              <div><b>${S.escapeHtml(audioLabel)}</b><small>${S.escapeHtml(audioInfo)}</small></div>
+              <button class="voice-trash-btn" type="button" aria-label="Удалить" onclick="SYLVEX.clearVoiceCloneRecording(event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button>
+            </div>
+          ` : `
+            <button class="voice-rec-round ${isRecording ? 'recording' : ''}" type="button" aria-label="Запись голоса" onclick="SYLVEX.toggleVoiceCloneRecording(event)">${voiceCloneCountdown ? S.escapeHtml(String(voiceCloneCountdown)) : '●'}</button>
+            <button class="voice-upload-round" type="button" aria-label="Добавить аудио" onclick="SYLVEX.openVoiceCloneFilePicker(event)">+</button>
+            ${isRecording ? '<div class="voice-record-live"><span></span><span></span><span></span><span></span><b>' + S.escapeHtml(formatTime(voiceCloneRecordElapsed)) + '</b></div>' : ''}
+          `}
         </div>
       </div>
       <div class="voice-speech-settings">
         <b>Настройка речи</b>
-        ${['Скорость', 'Высота', 'Интонация', 'Выразительность'].map((label, index) => `
-          <label><span>${label}</span><input type="range" min="0" max="100" value="${index === 0 ? 35 : index === 1 ? 40 : 38}"><em>${index === 0 ? '1.0x' : index === 1 ? '0%' : index === 2 ? '50%' : '75%'}</em></label>
+        ${settings.map((item) => `
+          <label class="voice-param-row">
+            <span>${S.escapeHtml(item.label)}</span>
+            <input type="range" min="${item.min}" max="${item.max}" value="${Number(voiceCloneDraft[item.id] ?? 50)}" oninput="SYLVEX.setVoiceCloneSetting(event,'${item.id}',this.value)">
+            <input class="voice-param-number" type="number" min="${item.min}" max="${item.max}" value="${Number(voiceCloneDraft[item.id] ?? 50)}" oninput="SYLVEX.setVoiceCloneSetting(event,'${item.id}',this.value)">
+          </label>
         `).join('')}
-        <select class="voice-tool-input" aria-label="Эмоция"><option>Нейтральная</option><option>Радостная</option><option>Спокойная</option><option>Энергичная</option></select>
+        ${dropdown('emotion', 'Эмоция', emotionOptions, voiceCloneDraft.emotion || 'neutral')}
       </div>
       <div class="voice-preview-block">
         <b>Предосмотр</b>
-        ${voiceClonePreviewUrl ? '<audio class="voice-tool-audio" src="' + S.escapeHtml(voiceClonePreviewUrl) + '" controls preload="metadata"></audio>' : '<div class="voice-preview-placeholder">Запись появится здесь</div>'}
-        <div class="voice-tool-actions voice-tool-actions-wrap">
-          <button type="button" onclick="SYLVEX.toggleVoiceCloneRecording(event)">${S.escapeHtml(recordButtonLabel)}</button>
-          <button type="button" onclick="SYLVEX.playVoiceCloneRecording(event)" ${voiceClonePreviewUrl ? '' : 'disabled'}>Прослушать</button>
-          <button type="button" onclick="SYLVEX.sendVoiceCloneRecording(event)" ${voiceCloneBlob && !voiceCloneSubmitting ? '' : 'disabled'}>${S.escapeHtml(cloneSubmitLabel)}</button>
-        </div>
+        ${voiceClonePreviewUrl ? `
+          <div class="voice-wave-player">
+            <button type="button" onclick="SYLVEX.playVoiceCloneRecording(event)">${voiceClonePreviewPlaying ? 'Ⅱ' : '▶'}</button>
+            <div class="voice-waveform">${waveform}</div>
+            <time>${S.escapeHtml(formatTime(voiceClonePreviewTime))}</time>
+            <time>${S.escapeHtml(formatTime(voiceClonePreviewDuration))}</time>
+          </div>
+        ` : '<div class="voice-preview-placeholder">Запись или аудиофайл появится здесь</div>'}
+      </div>
+      <div class="voice-create-footer">
+        <button class="voice-create-submit" type="button" onclick="SYLVEX.sendVoiceCloneRecording(event)" ${canSubmit ? '' : 'disabled'}>${S.escapeHtml(cloneSubmitLabel)}</button>
       </div>
     </div>`;
 }
@@ -8004,6 +8083,7 @@ function closeUploadPanel(e) {
       e.preventDefault();
       e.stopPropagation();
     }
+    if (voiceCloneRecorder && voiceCloneRecorder.state === 'recording') return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'audio/*';
@@ -8016,10 +8096,132 @@ function closeUploadPanel(e) {
       }
       if (voiceClonePreviewUrl) URL.revokeObjectURL(voiceClonePreviewUrl);
       voiceCloneBlob = file;
+      voiceCloneDraft.source = 'upload';
       voiceClonePreviewUrl = URL.createObjectURL(file);
+      setupVoiceClonePreviewAudio();
       renderVoiceToolPanel();
     };
     input.click();
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: setVoiceCloneField
+  // Сохраняет значения формы создания голоса без перерисовки всего окна.
+  // =====================================================
+  function setVoiceCloneField(e, field, value) {
+    if (e) e.stopPropagation();
+    voiceCloneDraft[field] = String(value || '').slice(0, field === 'name' ? 80 : 40);
+    updateVoiceCloneSubmitState();
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: toggleVoiceCloneDropdown
+  // Открывает фирменный выпадающий список внутри окна создания голоса.
+  // =====================================================
+  function toggleVoiceCloneDropdown(e, kind) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const root = e && e.target && e.target.closest ? e.target.closest('.voice-select') : null;
+    document.querySelectorAll('.voice-select.open').forEach((item) => {
+      if (item !== root) item.classList.remove('open');
+    });
+    if (root) root.classList.toggle('open');
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: selectVoiceCloneOption
+  // Выбирает значение кастомного dropdown и сразу применяет его к preview.
+  // =====================================================
+  function selectVoiceCloneOption(e, kind, value) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    voiceCloneDraft[kind] = value || (kind === 'gender' ? 'neutral' : 'neutral');
+    applyVoiceClonePreviewSettings();
+    renderVoiceToolPanel();
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: setVoiceCloneSetting
+  // Синхронизирует ползунок и цифровое поле настройки речи.
+  // =====================================================
+  function setVoiceCloneSetting(e, key, value) {
+    if (e) e.stopPropagation();
+    const clamped = Math.max(0, Math.min(100, Number(value || 0)));
+    voiceCloneDraft[key] = clamped;
+    const row = e && e.target && e.target.closest ? e.target.closest('.voice-param-row') : null;
+    if (row) {
+      row.querySelectorAll('input').forEach((input) => {
+        if (Number(input.value) !== clamped) input.value = clamped;
+      });
+    }
+    applyVoiceClonePreviewSettings();
+  }
+
+  function updateVoiceCloneSubmitState() {
+    const btn = document.querySelector('.voice-create-submit');
+    if (!btn) return;
+    btn.disabled = !((voiceCloneDraft.name || '').trim() && voiceCloneBlob && !voiceCloneSubmitting);
+  }
+
+  function voiceClonePlaybackRate() {
+    const speed = Number(voiceCloneDraft.speed ?? 50);
+    const pitch = Number(voiceCloneDraft.pitch ?? 50);
+    const intonation = Number(voiceCloneDraft.intonation ?? 50);
+    const expressiveness = Number(voiceCloneDraft.expressiveness ?? 50);
+    const emotionBoost = voiceCloneDraft.emotion === 'joy' || voiceCloneDraft.emotion === 'energy' ? .06 : (voiceCloneDraft.emotion === 'calm' ? -.05 : 0);
+    const tonalBoost = ((pitch - 50) * .0025) + ((intonation - 50) * .0015) + ((expressiveness - 50) * .001);
+    return Math.max(.5, Math.min(1.8, .65 + (speed / 100) * .7 + emotionBoost + tonalBoost));
+  }
+
+  function setupVoiceClonePreviewAudio() {
+    if (voiceClonePreviewAudio) {
+      try { voiceClonePreviewAudio.pause(); } catch {}
+      voiceClonePreviewAudio = null;
+    }
+    voiceClonePreviewPlaying = false;
+    voiceClonePreviewTime = 0;
+    voiceClonePreviewDuration = 0;
+    if (!voiceClonePreviewUrl) return;
+    voiceClonePreviewAudio = new Audio(voiceClonePreviewUrl);
+    voiceClonePreviewAudio.preload = 'metadata';
+    applyVoiceClonePreviewSettings();
+    voiceClonePreviewAudio.onloadedmetadata = () => {
+      voiceClonePreviewDuration = Number.isFinite(voiceClonePreviewAudio.duration) ? voiceClonePreviewAudio.duration : 0;
+      renderVoiceToolPanel();
+    };
+    voiceClonePreviewAudio.ontimeupdate = () => {
+      voiceClonePreviewTime = voiceClonePreviewAudio.currentTime || 0;
+      const current = document.querySelector('.voice-wave-player time:first-of-type');
+      if (current) {
+        const mm = Math.floor(voiceClonePreviewTime / 60);
+        const ss = Math.floor(voiceClonePreviewTime % 60);
+        current.textContent = mm + ':' + String(ss).padStart(2, '0');
+      }
+    };
+    voiceClonePreviewAudio.onended = () => {
+      voiceClonePreviewPlaying = false;
+      voiceClonePreviewTime = 0;
+      renderVoiceToolPanel();
+    };
+  }
+
+  function applyVoiceClonePreviewSettings() {
+    voiceState.audioSettings = Object.assign({}, voiceState.audioSettings || {}, {
+      clone_gender: voiceCloneDraft.gender || 'neutral',
+      clone_emotion: voiceCloneDraft.emotion || 'neutral',
+      speed: Number(voiceCloneDraft.speed ?? 50),
+      pitch: Number(voiceCloneDraft.pitch ?? 50),
+      intonation: Number(voiceCloneDraft.intonation ?? 50),
+      expressiveness: Number(voiceCloneDraft.expressiveness ?? 50),
+    });
+    if (voiceClonePreviewAudio) {
+      voiceClonePreviewAudio.playbackRate = voiceClonePlaybackRate();
+      voiceClonePreviewAudio.preservesPitch = false;
+    }
   }
 
   // =====================================================
@@ -9399,18 +9601,41 @@ async function waitGeneration(jobId, options) {
       e.preventDefault();
       e.stopPropagation();
     }
+    if (voiceCloneCountdownTimer) return;
     if (voiceCloneRecorder && voiceCloneRecorder.state === 'recording') {
       voiceCloneRecorder.stop();
       return;
     }
+    voiceCloneCountdown = 3;
+    renderVoiceToolPanel();
+    voiceCloneCountdownTimer = setInterval(() => {
+      voiceCloneCountdown -= 1;
+      if (voiceCloneCountdown > 0) {
+        renderVoiceToolPanel();
+        return;
+      }
+      clearInterval(voiceCloneCountdownTimer);
+      voiceCloneCountdownTimer = null;
+      voiceCloneCountdown = 0;
+      startVoiceCloneRecording();
+    }, 700);
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: startVoiceCloneRecording
+  // Запускает реальную запись после визуального обратного отсчёта.
+  // =====================================================
+  async function startVoiceCloneRecording() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       toast('Микрофон не поддерживается');
+      renderVoiceToolPanel();
       return;
     }
     try {
       voiceCloneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       toast('Нет доступа к микрофону');
+      renderVoiceToolPanel();
       return;
     }
     const mime = ['audio/webm', 'audio/mp4'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
@@ -9425,14 +9650,26 @@ async function waitGeneration(jobId, options) {
     };
     voiceCloneRecorder.onstop = () => {
       try { voiceCloneStream && voiceCloneStream.getTracks().forEach((track) => track.stop()); } catch {}
+      if (voiceCloneRecordTimer) {
+        clearInterval(voiceCloneRecordTimer);
+        voiceCloneRecordTimer = null;
+      }
       const blob = new Blob(voiceCloneChunks, { type: voiceCloneRecorder.mimeType || 'audio/webm' });
       if (voiceClonePreviewUrl) URL.revokeObjectURL(voiceClonePreviewUrl);
       voiceCloneBlob = blob.size >= 800 ? blob : null;
+      voiceCloneDraft.source = voiceCloneBlob ? 'record' : '';
       voiceClonePreviewUrl = voiceCloneBlob ? URL.createObjectURL(voiceCloneBlob) : '';
+      setupVoiceClonePreviewAudio();
       if (!voiceCloneBlob) toast('Запись слишком короткая');
       renderVoiceToolPanel();
     };
     voiceCloneRecorder.start();
+    voiceCloneRecordStartedAt = Date.now();
+    voiceCloneRecordElapsed = 0;
+    voiceCloneRecordTimer = setInterval(() => {
+      voiceCloneRecordElapsed = Math.floor((Date.now() - voiceCloneRecordStartedAt) / 1000);
+      renderVoiceToolPanel();
+    }, 1000);
     renderVoiceToolPanel();
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
@@ -9447,8 +9684,21 @@ async function waitGeneration(jobId, options) {
       e.stopPropagation();
     }
     if (!voiceClonePreviewUrl) return;
-    const audio = new Audio(voiceClonePreviewUrl);
-    audio.play().catch(() => toast('Не удалось воспроизвести запись'));
+    if (!voiceClonePreviewAudio) setupVoiceClonePreviewAudio();
+    if (!voiceClonePreviewAudio) return;
+    applyVoiceClonePreviewSettings();
+    if (!voiceClonePreviewAudio.paused) {
+      voiceClonePreviewAudio.pause();
+      voiceClonePreviewPlaying = false;
+      renderVoiceToolPanel();
+      return;
+    }
+    voiceClonePreviewAudio.play()
+      .then(() => {
+        voiceClonePreviewPlaying = true;
+        renderVoiceToolPanel();
+      })
+      .catch(() => toast('Не удалось воспроизвести запись'));
   }
 
   // =====================================================
@@ -9460,10 +9710,28 @@ async function waitGeneration(jobId, options) {
       e.preventDefault();
       e.stopPropagation();
     }
+    if (voiceCloneCountdownTimer) {
+      clearInterval(voiceCloneCountdownTimer);
+      voiceCloneCountdownTimer = null;
+    }
+    if (voiceCloneRecordTimer) {
+      clearInterval(voiceCloneRecordTimer);
+      voiceCloneRecordTimer = null;
+    }
+    if (voiceClonePreviewAudio) {
+      try { voiceClonePreviewAudio.pause(); } catch {}
+      voiceClonePreviewAudio = null;
+    }
     if (voiceClonePreviewUrl) URL.revokeObjectURL(voiceClonePreviewUrl);
     voiceCloneBlob = null;
     voiceClonePreviewUrl = '';
     voiceCloneChunks = [];
+    voiceCloneDraft.source = '';
+    voiceCloneCountdown = 0;
+    voiceCloneRecordElapsed = 0;
+    voiceClonePreviewPlaying = false;
+    voiceClonePreviewTime = 0;
+    voiceClonePreviewDuration = 0;
     renderVoiceToolPanel();
   }
 
@@ -9483,13 +9751,30 @@ async function waitGeneration(jobId, options) {
     }
     if (voiceCloneSubmitting) return;
     const nameInput = document.getElementById('voiceCloneNameInput');
-    const voiceName = (nameInput && nameInput.value ? nameInput.value : '').trim() || 'SYLVEX Voice';
+    if (nameInput) voiceCloneDraft.name = String(nameInput.value || '').trim();
+    const voiceName = (voiceCloneDraft.name || '').trim();
+    if (!voiceName) {
+      toast('Введите название голоса');
+      updateVoiceCloneSubmitState();
+      return;
+    }
+    applyVoiceClonePreviewSettings();
     const fd = new FormData();
     const ext = (voiceCloneBlob.type || '').includes('mp4') ? 'mp4' : 'webm';
     fd.append('file', voiceCloneBlob, 'sylvex-voice.' + ext);
     fd.append('name', voiceName);
     fd.append('telegram_id', String(getTelegramId() || ''));
     fd.append('description', 'Created in SYLVEX Mini App');
+    fd.append('gender', voiceCloneDraft.gender || 'neutral');
+    fd.append('emotion', voiceCloneDraft.emotion || 'neutral');
+    fd.append('settings', JSON.stringify({
+      gender: voiceCloneDraft.gender || 'neutral',
+      emotion: voiceCloneDraft.emotion || 'neutral',
+      speed: Number(voiceCloneDraft.speed ?? 50),
+      pitch: Number(voiceCloneDraft.pitch ?? 50),
+      intonation: Number(voiceCloneDraft.intonation ?? 50),
+      expressiveness: Number(voiceCloneDraft.expressiveness ?? 50),
+    }));
     voiceCloneSubmitting = true;
     renderVoiceToolPanel();
     try {
@@ -11363,7 +11648,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
