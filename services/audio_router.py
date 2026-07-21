@@ -10,8 +10,10 @@ import os
 import pathlib
 import mimetypes
 import urllib.parse
+import shutil
+import subprocess
 import wave
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 import httpx
@@ -26,6 +28,7 @@ AUDIO_FEED_ENDPOINT = os.getenv("AUDIO_API_FEED_ENDPOINT", f"{AUDIO_API_BASE_URL
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 GENERATED_AUDIO_DIR = WEBAPP_DIR / "generated" / "audio"
+GENERATED_VIDEO_DIR = WEBAPP_DIR / "generated" / "videos"
 GEMINI_TTS_ENDPOINT = os.getenv("GEMINI_TTS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")
 RUNWAY_API_BASE_URL = os.getenv("RUNWAY_API_BASE_URL", "https://api.dev.runwayml.com").rstrip("/")
 RUNWAY_API_VERSION = os.getenv("RUNWAY_API_VERSION", "2024-11-06")
@@ -458,6 +461,90 @@ def _save_audio_file(content: bytes, ext: str = ".mp3") -> str:
 
 
 # =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _save_video_file
+# Сохраняет готовое видео с заменённой озвучкой в локальную папку Mini App.
+# =====================================================
+def _save_video_file(content: bytes, ext: str = ".mp4") -> str:
+    if not content:
+        return ""
+    GENERATED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    safe_ext = ext if ext.startswith(".") and len(ext) <= 8 else ".mp4"
+    filename = f"{uuid4().hex}{safe_ext}"
+    path = GENERATED_VIDEO_DIR / filename
+    path.write_bytes(content)
+    return f"/webapp/generated/videos/{filename}"
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _local_webapp_path_from_url
+# Превращает локальный /webapp URL или абсолютный URL этого же файла в путь на диске.
+# =====================================================
+def _local_webapp_path_from_url(url: str) -> Optional[pathlib.Path]:
+    value = str(url or "").strip()
+    if not value:
+        return None
+    parsed_path = urllib.parse.urlparse(value).path if value.startswith(("http://", "https://")) else value
+    if not parsed_path.startswith("/webapp/"):
+        return None
+    local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
+    return local_path if local_path.exists() else None
+
+
+# =====================================================
+# ВИДЕО: _ffmpeg_binary
+# Находит ffmpeg: системный бинарник или бинарник из imageio-ffmpeg, если пакет установлен.
+# =====================================================
+def _ffmpeg_binary() -> str:
+    binary = shutil.which("ffmpeg")
+    if binary:
+        return binary
+    try:
+        import imageio_ffmpeg
+        return str(imageio_ffmpeg.get_ffmpeg_exe() or "")
+    except Exception:
+        return ""
+
+
+# =====================================================
+# ВИДЕО: _mux_video_with_audio
+# Собирает исходное видео и готовую озвучку в новый MP4 с заменённой аудиодорожкой.
+# =====================================================
+def _mux_video_with_audio(video_url: str, audio_url: str) -> str:
+    video_path = _local_webapp_path_from_url(video_url)
+    audio_path = _local_webapp_path_from_url(audio_url)
+    ffmpeg = _ffmpeg_binary()
+    if not ffmpeg or not video_path or not audio_path:
+        return ""
+    GENERATED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = GENERATED_VIDEO_DIR / f"{uuid4().hex}.mp4"
+    command = [
+        ffmpeg,
+        "-y",
+        "-i", str(video_path),
+        "-i", str(audio_path),
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-shortest",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    try:
+        completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600, check=False)
+    except Exception as exc:
+        print("ELEVENLABS DUBBING VIDEO MUX ERROR:", {"error": repr(exc)})
+        return ""
+    if completed.returncode != 0 or not output_path.exists() or output_path.stat().st_size <= 0:
+        print("ELEVENLABS DUBBING VIDEO MUX ERROR:", {
+            "returncode": completed.returncode,
+            "stderr": (completed.stderr or b"").decode("utf-8", "ignore")[-1000:],
+        })
+        return ""
+    return f"/webapp/generated/videos/{output_path.name}"
+
+
+# =====================================================
 # ЗАГРУЗКА ФАЙЛОВ: _audio_extension_from_response
 # Определяет расширение аудиофайла по URL или Content-Type ответа провайдера.
 # =====================================================
@@ -600,6 +687,33 @@ def _runway_input_media_url(payload: dict) -> str:
                 if value:
                     return _absolute_public_url(str(value))
     return ""
+
+
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: _voice_input_media_is_video
+# Проверяет, что входной файл для дубляжа был именно видео, чтобы вернуть видео с новой озвучкой.
+# =====================================================
+def _voice_input_media_is_video(payload: dict) -> bool:
+    voice_options = payload.get("voice_options") or {}
+    candidates: list[Any] = []
+    uploads = voice_options.get("uploads")
+    if isinstance(uploads, list):
+        candidates.extend(uploads)
+    attachment = voice_options.get("attachment") or payload.get("attachment")
+    if attachment:
+        candidates.append(attachment)
+    for item in candidates:
+        if isinstance(item, dict):
+            kind = str(item.get("kind") or item.get("type") or "").lower()
+            mime = str(item.get("mime") or item.get("content_type") or item.get("contentType") or "").lower()
+            url = str(item.get("url") or item.get("video_url") or item.get("videoUrl") or item.get("file_url") or item.get("fileUrl") or "").lower()
+            if kind == "video" or mime.startswith("video/") or pathlib.PurePosixPath(url.split("?", 1)[0]).suffix in {".mp4", ".mov", ".m4v", ".webm"}:
+                return True
+        elif isinstance(item, str):
+            suffix = pathlib.PurePosixPath(item.split("?", 1)[0]).suffix.lower()
+            if suffix in {".mp4", ".mov", ".m4v", ".webm"}:
+                return True
+    return False
 
 
 # =====================================================
@@ -1141,6 +1255,38 @@ async def _completed_elevenlabs_voice_response(
     audio_url = _save_audio_file(audio_bytes, _audio_extension_from_response("", content_type or "audio/mpeg"))
     if not audio_url:
         return _audio_error("elevenlabs", frontend_model, provider_model, "ElevenLabs audio save failed", type="voice")
+    if tool == "dubbing" and _voice_input_media_is_video(payload):
+        input_video_url = _runway_input_media_url(payload)
+        video_url = _mux_video_with_audio(input_video_url, audio_url)
+        if not video_url:
+            return _audio_error(
+                "elevenlabs",
+                frontend_model,
+                provider_model,
+                "Видео переведено, но не удалось собрать MP4 с новой озвучкой. Проверьте наличие ffmpeg в окружении.",
+                type="video",
+                tool=tool,
+                audio_url=audio_url,
+                input_video_url=input_video_url,
+            )
+        return {
+            "ok": True,
+            "type": "video",
+            "provider": "elevenlabs",
+            "model": frontend_model,
+            "provider_model": provider_model,
+            "status": "completed",
+            "elevenlabs_tool": tool,
+            "video_url": video_url,
+            "videos": [video_url],
+            "audio_url": audio_url,
+            "audios": [audio_url],
+            "voice": voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID,
+            "voice_options": voice_options,
+            "response": provider_response or {"content_type": content_type, "bytes": len(audio_bytes or b"")},
+            "sent_to_telegram": False,
+            "text": "Видео с переводом и озвучкой готово ✅\n" + video_url,
+        }
     telegram_id = int(payload.get("telegram_id") or 0)
     sent_to_telegram = False
     if not payload.get("skip_telegram"):

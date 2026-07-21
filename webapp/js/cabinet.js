@@ -157,6 +157,8 @@ let voiceState = {
   modelId: 'gemini_3_1_flash_tts_preview',
   uploads: [],
   attachment: null,
+  uploading: null,
+  uploadPreviewUrl: '',
   genre: '',
   duration: '',
   style: '',
@@ -1911,10 +1913,11 @@ function renderVoiceToolPanel() {
   const uploadLabelEl = document.getElementById('voiceUploadLabel');
   if (uploadLabelEl) {
     const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
-    const fileName = uploads.length ? (uploads[0].name || 'Файл выбран') : '';
+    const uploading = voiceState.uploading || null;
+    const fileName = uploading ? (uploading.name || 'Загрузка файла') : (uploads.length ? (uploads[0].name || 'Файл выбран') : '');
     const model = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || {};
     const modelLabel = model.label || model.name || voiceState.modelId || '';
-    uploadLabelEl.textContent = fileName ? [purpose.label, modelLabel, fileName].filter(Boolean).join(' · ') : 'Загрузить';
+    uploadLabelEl.textContent = uploading ? ('Загрузка · ' + fileName) : (fileName ? [purpose.label, modelLabel, fileName].filter(Boolean).join(' · ') : 'Загрузить');
   }
   const active = activeVoicePanelSection || '';
   let body = '';
@@ -2211,6 +2214,8 @@ function renderVoiceCreatePanel() {
 // =====================================================
 function renderVoiceUploadPanel() {
   const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
+  const activeUpload = uploads[0] || null;
+  const uploading = voiceState.uploading || null;
   const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
   const currentModel = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || VOICE_MODEL_LIST[0] || {};
   const supportedPurposes = VOICE_UPLOAD_PURPOSES.filter((item) => isVoicePurposeSupported(item, voiceState.modelId));
@@ -2253,7 +2258,23 @@ function renderVoiceUploadPanel() {
     desc: item.hint || '',
     active: item.id === purpose.id,
   }));
-  const canStart = !purpose.needsFile || uploads.length > 0;
+  const canStart = !uploading && (!purpose.needsFile || uploads.length > 0);
+  const previewUrl = S.escapeHtml((activeUpload && (activeUpload.previewUrl || voiceState.uploadPreviewUrl || activeUpload.url)) || (uploading && uploading.previewUrl) || '');
+  const uploadKind = String((activeUpload && activeUpload.kind) || (uploading && uploading.kind) || '').toLowerCase();
+  const uploadName = S.escapeHtml((activeUpload && activeUpload.name) || (uploading && uploading.name) || 'Файл выбран');
+  const uploadSize = Number((activeUpload && activeUpload.size) || (uploading && uploading.size) || 0);
+  const uploadSizeLabel = uploadSize ? (uploadSize >= 1024 * 1024 ? Math.round(uploadSize / 1024 / 1024) + ' MB' : Math.max(1, Math.round(uploadSize / 1024)) + ' KB') : '';
+  const uploadPreview = uploading
+    ? '<div class="voice-upload-preview loading"><div class="voice-upload-loader"></div><b>Загружаем файл</b><small>' + uploadName + (uploadSizeLabel ? ' · ' + S.escapeHtml(uploadSizeLabel) : '') + '</small></div>'
+    : (activeUpload
+        ? '<div class="voice-upload-preview ' + (uploadKind === 'video' ? 'is-video' : 'is-audio') + '">'
+          + (uploadKind === 'video'
+            ? '<video src="' + previewUrl + '" controls playsinline preload="metadata"></video>'
+            : '<div class="voice-upload-audio-box"><span>♪</span><audio src="' + previewUrl + '" controls preload="metadata"></audio></div>')
+          + '<div class="voice-upload-preview-meta"><b>' + uploadName + '</b><small>' + S.escapeHtml([purpose.label, uploadSizeLabel].filter(Boolean).join(' · ')) + '</small></div>'
+          + '<button class="voice-upload-replace" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Заменить</button>'
+          + '</div>'
+        : '<button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)"><span>+</span><b>Выбрать файл</b><small>' + S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта') + '</small></button>');
   return `
     <div class="voice-workspace-sheet voice-upload-sheet" onclick="event.stopPropagation()">
       <button class="upload-panel-close voice-upload-close" type="button" onclick="SYLVEX.closeVoicePanel(event)">×</button>
@@ -2273,15 +2294,11 @@ function renderVoiceUploadPanel() {
       </div>
       ${speakerRows ? '<div class="voice-upload-speakers">' + speakerRows + '</div>' : ''}
       <div class="voice-upload-file-row">
-        <button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
-          <span>+</span>
-          <b>${uploads.length ? S.escapeHtml(uploads[0].name || 'Файл выбран') : 'Выбрать файл'}</b>
-          <small>${S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта')}</small>
-        </button>
+        ${uploadPreview}
       </div>
       <div class="voice-upload-actions">
         <button class="voice-upload-primary" type="button" onclick="SYLVEX.confirmVoiceUpload(event)" ${canStart ? '' : 'disabled'}>Начать</button>
-        <button class="voice-trash-btn voice-upload-clear" type="button" aria-label="Очистить" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length ? '' : 'disabled'}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button>
+        <button class="voice-trash-btn voice-upload-clear" type="button" aria-label="Очистить" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length && !uploading ? '' : 'disabled'}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button>
       </div>
       <div class="voice-upload-note">
         <b>${S.escapeHtml(purpose.label)}</b>
@@ -6408,10 +6425,13 @@ function imageModelButton(model) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function generationResultMetadata(type, prompt, result, referenceImages, optionsSnapshot) {
+    if (result && ['image', 'video', 'music', 'voice'].includes(String(result.type || ''))) {
+      type = String(result.type || type);
+    }
     if (type === 'image') return imageGenerationMetadata(prompt, referenceImages, result);
     const videoUrls = result ? generatedUrlsFromResponse(result, 'video') : [];
     const audioUrls = result ? generatedUrlsFromResponse(result, 'audio') : [];
-    const options = optionsSnapshot || (type === 'video' ? videoState : (type === 'music' ? musicOptionsPayload() : voiceState));
+    const options = optionsSnapshot || (result && (result.video_options || result.voice_options || result.music_options)) || (type === 'video' ? videoState : (type === 'music' ? musicOptionsPayload() : voiceState));
     const modelId = (options && (options.model || options.modelId)) || pickStudioModel() || '';
     const currentModel = type === 'video' ? currentVideoModel() : null;
     const resultUrl = type === 'video' ? (videoUrls[0] || result.video_url || '') : (audioUrls[0] || musicAudioUrl(result || {}) || '');
@@ -6421,7 +6441,7 @@ function imageModelButton(model) {
       result_url: resultUrl,
       model: modelId,
       model_label: (currentModel && (currentModel.label || currentModel.name)) || modelId,
-      provider: type === 'video' ? currentVideoProvider() : (type === 'music' ? 'suno' : (type === 'voice' ? 'voice' : pickProviderHint())),
+      provider: (result && result.provider) || (type === 'video' ? currentVideoProvider() : (type === 'music' ? 'suno' : (type === 'voice' ? 'voice' : pickProviderHint()))),
       prompt: prompt || '',
       settings: Object.assign({}, options || {}),
       ratio: options && options.ratio,
@@ -8010,6 +8030,14 @@ function closeUploadPanel(e) {
     return String(data.url || '');
   }
 
+  function revokeVoiceUploadPreview() {
+    const url = voiceState.uploadPreviewUrl || '';
+    if (url && url.startsWith('blob:')) {
+      try { URL.revokeObjectURL(url); } catch {}
+    }
+    voiceState.uploadPreviewUrl = '';
+  }
+
   // =====================================================
   // ЗАГРУЗКА В MINI APP: attach
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
@@ -8054,12 +8082,28 @@ function closeUploadPanel(e) {
       return;
     }
     if (isVoiceMode() && (pendingKind === 'video' || pendingKind === 'audio')) {
+      revokeVoiceUploadPreview();
+      const previewUrl = URL.createObjectURL(f);
+      voiceState.uploadPreviewUrl = previewUrl;
+      voiceState.uploading = {
+        kind: pendingKind,
+        name: f.name,
+        mime: f.type || (pendingKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+        size: f.size || 0,
+        previewUrl,
+      };
+      voiceState.uploads = [];
+      voiceState.attachment = null;
+      renderVoiceToolPanel();
+      updateSendButton();
       uploadProStudioMediaFile(f, pendingKind)
         .then((url) => {
+          voiceState.uploading = null;
           voiceState.uploads = (voiceState.uploads || []).filter((item) => item.url !== url);
           voiceState.uploads.push({
             kind: pendingKind,
             url,
+            previewUrl,
             name: f.name,
             mime: f.type || (pendingKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
             size: f.size || 0,
@@ -8068,6 +8112,7 @@ function closeUploadPanel(e) {
           voiceState.attachment = {
             kind: pendingKind,
             url,
+            previewUrl,
             name: f.name,
             mime: f.type || (pendingKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
             size: f.size || 0,
@@ -8077,6 +8122,12 @@ function closeUploadPanel(e) {
           toast(pendingKind === 'video' ? 'Видео загружено' : 'Аудио загружено');
         })
         .catch((err) => {
+          voiceState.uploading = null;
+          voiceState.uploads = [];
+          voiceState.attachment = null;
+          revokeVoiceUploadPreview();
+          renderVoiceToolPanel();
+          updateSendButton();
           toast((err && err.message) || (pendingKind === 'video' ? 'Не удалось загрузить видео' : 'Не удалось загрузить аудио'));
         });
       return;
@@ -8403,6 +8454,8 @@ function closeUploadPanel(e) {
     }
     voiceState.uploads = [];
     voiceState.attachment = null;
+    voiceState.uploading = null;
+    revokeVoiceUploadPreview();
     renderVoiceToolPanel();
     updateSendButton();
     toast('Файлы озвучки очищены');
@@ -9170,8 +9223,17 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     : null;
   const voiceOptions = isVoiceMode()
     ? Object.assign(voiceOptionsPayload(), {
-        uploads: audioUploadsOverride || (voiceState.uploads || []).slice(),
-        attachment: voiceState.attachment || null,
+        uploads: (audioUploadsOverride || (voiceState.uploads || []).slice()).map((item) => {
+          if (!item || typeof item !== 'object') return item;
+          const clean = Object.assign({}, item);
+          delete clean.previewUrl;
+          return clean;
+        }),
+        attachment: voiceState.attachment ? (() => {
+          const clean = Object.assign({}, voiceState.attachment);
+          delete clean.previewUrl;
+          return clean;
+        })() : null,
       })
     : null;
 
@@ -9555,13 +9617,14 @@ async function waitGeneration(jobId, options) {
 
     const photoMode = isImageMode();
     let loadingIndex = -1;
+    const uploadOnlyVoice = isVoiceMode() && !v && audioUploads.length && !attachment && !referenceImages.length;
     if (photoMode) {
       loadingIndex = chatMessages.push({
         role: 'ai',
         generationLoading: true,
         progress: createGenerationProgress(generationKindForCurrentMode()),
       }) - 1;
-    } else {
+    } else if (!uploadOnlyVoice) {
       chatMessages.push({
         role: 'user',
         text: v,
@@ -9580,6 +9643,11 @@ async function waitGeneration(jobId, options) {
       }
     } else if (isMusicMode() || isVoiceMode()) {
       currentAudioState().uploads = [];
+      if (isVoiceMode()) {
+        currentAudioState().uploading = null;
+        revokeVoiceUploadPreview();
+        currentAudioState().attachment = null;
+      }
     }
     renderComposerImageDraft();
     renderUploadedPhotoGrid();
@@ -9631,11 +9699,14 @@ async function waitGeneration(jobId, options) {
       } else {
         chatMessages.splice(loadingIndex, 1);
 
-        const resultType = isVideoMode()
+        const backendResultType = String((j && j.type) || '').toLowerCase();
+        const resultType = backendResultType === 'video' || (j && (j.video_url || (Array.isArray(j.videos) && j.videos.length)))
           ? 'video'
-          : (isMusicMode()
-              ? 'music'
-              : (isVoiceMode() ? 'voice' : 'file'));
+          : (isVideoMode()
+              ? 'video'
+              : (isMusicMode()
+                  ? 'music'
+                  : (isVoiceMode() ? 'voice' : 'file')));
 
         const resultUrls = generatedUrlsFromResponse(
           j,
