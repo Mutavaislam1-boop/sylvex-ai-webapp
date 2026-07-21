@@ -1631,6 +1631,7 @@ function videoOptionLabel(kind, value) {
 // =====================================================
 function renderVideoControls() {
   normalizeVideoStateForModel();
+  injectImageStyleSheetCss();
   const model = currentVideoModel();
   const composer = document.getElementById('studioComposer');
   if (composer) composer.dataset.videoSection = videoState.section || 'generate';
@@ -1678,6 +1679,8 @@ function renderVideoControls() {
 
   const characterVal = document.getElementById('imageCharacterVal');
   if (characterVal) characterVal.textContent = videoOptionLabel('quality', videoState.quality);
+  renderVideoStartPreview();
+  renderVideoEndPreview();
   renderVideoEditPreview();
   renderVideoReferencesPreview();
 }
@@ -1877,15 +1880,19 @@ function voiceOptionsPayload() {
 // =====================================================
 function renderVoiceControls() {
   ensureVoiceSettings();
+  injectImageStyleSheetCss();
   const model = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || VOICE_MODEL_LIST[0];
   const modelEl = document.getElementById('modelValComposer');
   if (modelEl && isVoiceMode() && model) modelEl.textContent = model.label || model.name || model.id;
   const voiceVal = document.getElementById('voiceVoiceVal');
-  if (voiceVal) voiceVal.textContent = isElevenLabsVoiceModel(voiceState.modelId) ? 'ElevenLabs Voice' : (isRunwayVoiceModel(voiceState.modelId) ? (voiceState.runwayVoice || 'Maya') : (voiceState.voice || 'Kore'));
+  if (voiceVal) voiceVal.textContent = currentVoiceButtonLabel();
   const modeVal = document.getElementById('voiceModeVal');
   if (modeVal) modeVal.textContent = isElevenLabsVoiceModel(voiceState.modelId) ? elevenlabsToolLabel(voiceState.elevenlabsTool || 'text_to_speech') : (isRunwayVoiceModel(voiceState.modelId) ? runwayToolLabel(voiceState.runwayTool || 'text_to_speech') : (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос'));
   const settingsVal = document.getElementById('voiceSettingsVal');
-  if (settingsVal) settingsVal.textContent = 'Настройки';
+  if (settingsVal) {
+    settingsVal.classList.remove('sr-only');
+    settingsVal.textContent = voiceSettingsSummary();
+  }
   renderVoiceToolPanel();
 }
 
@@ -1895,6 +1902,7 @@ function renderVoiceControls() {
 // Панель использует уже существующий state озвучки и не влияет на фото, видео или музыку.
 // =====================================================
 function renderVoiceToolPanel() {
+  injectImageStyleSheetCss();
   const panel = document.getElementById('voiceToolPanel');
   if (!panel) return;
   if (!isVoiceMode()) {
@@ -1919,6 +1927,7 @@ function renderVoiceToolPanel() {
     const modelLabel = model.label || model.name || voiceState.modelId || '';
     uploadLabelEl.textContent = uploading ? ('Загрузка · ' + fileName) : (fileName ? [purpose.label, modelLabel, fileName].filter(Boolean).join(' · ') : 'Загрузить');
   }
+  renderVoiceUploadButtonPreview();
   const active = activeVoicePanelSection || '';
   let body = '';
   if (active === 'voices') body = renderVoiceListPanel();
@@ -1940,6 +1949,29 @@ function renderVoiceToolPanel() {
   }
 }
 
+function renderVoiceUploadButtonPreview() {
+  const row = document.querySelector('.vgen-upload-row');
+  if (!row) return;
+  const uploading = voiceState.uploading || null;
+  const upload = uploading || (Array.isArray(voiceState.uploads) ? voiceState.uploads[0] : null);
+  const kind = String((upload && upload.kind) || '').toLowerCase();
+  const previewUrl = upload && (upload.previewUrl || upload.url);
+  renderUploadPreviewOnButton(row, kind === 'video' && previewUrl ? [{ url: previewUrl, type: 'video' }] : []);
+  let badge = row.querySelector(':scope > .voice-upload-control-badge');
+  if (!upload) {
+    if (badge) badge.remove();
+    row.classList.remove('has-voice-upload');
+    return;
+  }
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'voice-upload-control-badge';
+    row.insertBefore(badge, row.firstChild);
+  }
+  badge.textContent = uploading ? '...' : (kind === 'video' ? 'VID' : (kind === 'audio' ? 'AUD' : 'FILE'));
+  row.classList.add('has-voice-upload');
+}
+
 // =====================================================
 // БЛОК ОЗВУЧКИ: currentVoiceListForPanel
 // Возвращает список голосов для текущей AI-модели, чтобы карточка «Список голосов» работала в одном месте.
@@ -1948,6 +1980,32 @@ function currentVoiceListForPanel() {
   if (isElevenLabsVoiceModel(voiceState.modelId)) return elevenlabsVoiceList || ELEVENLABS_TTS_VOICES;
   if (isRunwayVoiceModel(voiceState.modelId)) return runwayVoiceList || RUNWAY_TTS_VOICES;
   return GEMINI_TTS_VOICES;
+}
+
+function voiceOptionDisplayLabel(id, fallback) {
+  const value = String(id || '');
+  const item = currentVoiceListForPanel().find((option) => String(option.id) === value);
+  const label = item ? String(item.label || item.name || item.id || '') : '';
+  return (label.split(' · ')[0] || value || fallback || '').trim();
+}
+
+function currentVoiceButtonLabel() {
+  if (isElevenLabsVoiceModel(voiceState.modelId)) return voiceOptionDisplayLabel(voiceState.elevenlabsVoice, 'ElevenLabs Voice');
+  if (isRunwayVoiceModel(voiceState.modelId)) return voiceOptionDisplayLabel(voiceState.runwayVoice, 'Maya');
+  return voiceOptionDisplayLabel(voiceState.voice, 'Kore');
+}
+
+function voiceSettingsSummary() {
+  const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
+  const language = voiceState.targetLanguage || voiceState.elevenlabsTargetLanguage || voiceState.runwayTargetLanguage || 'en';
+  const speakers = Math.max(1, Math.min(3, Number(voiceState.numSpeakers || 1)));
+  if (isElevenLabsVoiceModel(voiceState.modelId) && (voiceState.elevenlabsTool || '') === 'dubbing') {
+    return [purpose.label, language].filter(Boolean).join(' · ');
+  }
+  if (isRunwayVoiceModel(voiceState.modelId) && (voiceState.runwayTool || '') === 'voice_dubbing') {
+    return [purpose.label, language].filter(Boolean).join(' · ');
+  }
+  return speakers > 1 ? (speakers + ' диктора') : 'Настройки';
 }
 
 // =====================================================
@@ -3176,7 +3234,15 @@ function localizedGreeting() {
 // =====================================================
 function renderUploadPreviewOnButton(button, urls) {
   if (!button) return;
-  const clean = (urls || []).filter(Boolean).slice(0, 4);
+  const clean = (urls || []).map((item) => {
+    if (!item) return null;
+    if (typeof item === 'object') {
+      const url = item.url || item.video_url || item.image_url || item.src || '';
+      if (!url) return null;
+      return { url, type: item.type || item.kind || '' };
+    }
+    return { url: String(item), type: '' };
+  }).filter(Boolean).slice(0, 4);
   let bg = button.querySelector(':scope > .image-upload-control-bg');
   if (!clean.length) {
     if (bg) bg.remove();
@@ -3189,7 +3255,14 @@ function renderUploadPreviewOnButton(button, urls) {
     button.insertBefore(bg, button.firstChild);
   }
   bg.dataset.count = String(clean.length);
-  bg.innerHTML = clean.map((url) => '<span class="image-upload-control-bg-cell"><img src="' + S.escapeHtml(url) + '" alt="" decoding="async" /></span>').join('');
+  bg.innerHTML = clean.map((item) => {
+    const url = S.escapeHtml(item.url || '');
+    const type = String(item.type || '').toLowerCase();
+    const isVideo = type === 'video' || /\.(mp4|mov|m4v|webm)(\?|$)/i.test(item.url || '');
+    return '<span class="image-upload-control-bg-cell">' + (isVideo
+      ? '<video src="' + url + '" muted playsinline preload="metadata"></video><em>VID</em>'
+      : '<img src="' + url + '" alt="" decoding="async" />') + '</span>';
+  }).join('');
   button.classList.add('has-upload-preview');
 }
 
@@ -3227,7 +3300,10 @@ function renderImageUploadPreview() {
 // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
 // =====================================================
 function renderVideoStartPreview() {
-  setFramePreview(document.getElementById('videoStartUploadButton'), videoState.startImage || '', 'start image');
+  const button = document.getElementById('videoStartUploadButton') || document.getElementById('videoStartFrameCard');
+  setFramePreview(button, videoState.startImage || '', 'start image');
+  const label = button && button.querySelector(':scope > span:last-child');
+  if (label) label.textContent = videoState.startImage ? 'Начальное изображение выбрано' : 'Начальное изображение';
 }
 
 // =====================================================
@@ -3235,7 +3311,10 @@ function renderVideoStartPreview() {
 // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
 // =====================================================
 function renderVideoEndPreview() {
-  setFramePreview(document.getElementById('videoEndUploadButton'), videoState.endImage || '', 'end image');
+  const button = document.getElementById('videoEndUploadButton') || document.getElementById('videoEndFrameCard');
+  setFramePreview(button, videoState.endImage || '', 'end image');
+  const label = button && button.querySelector(':scope > span:last-child');
+  if (label) label.textContent = videoState.endImage ? 'Конечный образ выбран' : 'Конечный образ';
 }
 
 // =====================================================
@@ -3244,10 +3323,19 @@ function renderVideoEndPreview() {
 // =====================================================
 function renderVideoReferencesPreview() {
   const button = document.getElementById('videoReferencesUploadButton');
-  renderUploadPreviewOnButton(button, videoState.referenceImageUrls || []);
+  const media = [];
+  if (videoState.inputVideo || videoState.videoUrl) media.push({ url: videoState.inputVideo || videoState.videoUrl, type: 'video' });
+  (videoState.referenceImageUrls || []).forEach((url) => media.push({ url, type: 'image' }));
+  renderUploadPreviewOnButton(button, media);
   if (!button) return;
   const label = document.getElementById('videoReferencesLabel');
-  if (label) label.textContent = videoState.section === 'edit' ? 'Добавить референсы' : 'Добавить ссылки';
+  const refsCount = (videoState.referenceImageUrls || []).length;
+  const hasVideo = !!(videoState.inputVideo || videoState.videoUrl);
+  if (label) {
+    label.textContent = hasVideo
+      ? ('Видео выбрано' + (refsCount ? ' · +' + refsCount : ''))
+      : (refsCount ? ('Референсы · ' + refsCount) : (videoState.section === 'edit' ? 'Добавить референсы' : 'Добавить ссылки'));
+  }
   let badge = button.querySelector(':scope > .video-reference-control-badge');
   if (videoState.inputVideo || videoState.videoUrl) {
     if (!badge) {
@@ -3272,9 +3360,13 @@ function renderVideoEditPreview() {
   if (!button) return;
   const url = videoState.inputVideo || videoState.videoUrl || '';
   let preview = button.querySelector(':scope > .studio-video-edit-preview');
+  const title = button.querySelector('b');
+  const hint = button.querySelector('small');
   if (!url) {
     if (preview) preview.remove();
     button.classList.remove('has-video-edit-preview');
+    if (title) title.textContent = 'Загрузите видео-референс';
+    if (hint) hint.textContent = 'Длительность: 3–10 секунд';
     return;
   }
   if (!preview) {
@@ -3283,6 +3375,8 @@ function renderVideoEditPreview() {
     button.insertBefore(preview, button.firstChild);
   }
   preview.innerHTML = '<video src="' + S.escapeHtml(url) + '" muted playsinline preload="metadata"></video><span>VID</span>';
+  if (title) title.textContent = 'Видео выбрано';
+  if (hint) hint.textContent = 'Нажмите, чтобы заменить файл';
   button.classList.add('has-video-edit-preview');
 }
 
@@ -4059,17 +4153,37 @@ function currentSelectedUploadImage() {
     }
 
     .image-upload-control-bg-cell {
+      position: relative;
       display: block;
       min-width: 0;
       min-height: 0;
       overflow: hidden;
     }
 
-    .image-upload-control-bg-cell img {
+    .image-upload-control-bg-cell img,
+    .image-upload-control-bg-cell video {
       width: 100%;
       height: 100%;
       display: block;
       object-fit: cover;
+    }
+
+    .image-upload-control-bg-cell em {
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      z-index: 2;
+      min-width: 32px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: rgba(22,119,255,.86);
+      color: #fff;
+      font-style: normal;
+      font-size: 10px;
+      font-weight: 900;
     }
 
     .has-upload-preview::before {
@@ -8145,9 +8259,10 @@ function closeUploadPanel(e) {
             videoState.videoUrl = url;
             videoState.generationMode = 'video_edit';
             videoState.mode = 'video_edit';
-            renderVideoReferencesPreview();
+            renderVideoControls();
             toast('Видео загружено');
           }
+          renderVideoReferencesPreview();
           updateSendButton();
         })
         .catch((err) => {
