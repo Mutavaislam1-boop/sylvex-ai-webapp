@@ -75,6 +75,7 @@ VIDEO_MODEL_CONFIG.update({
     "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
+    "kling_effects": {"provider": "kling", "modes": ["video_effects"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_effects": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
     "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_O1_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
@@ -145,6 +146,7 @@ VIDEO_PROVIDER_MODEL_MAP.update({
     "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_effects": {"provider": "kling", "provider_model": os.getenv("KLING_EFFECTS_MODEL", "kling-v1-6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_OMNI_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_EDIT_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o1": {"provider": "kling", "provider_model": os.getenv("KLING_O1_MODEL", "kling-o1"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
@@ -1108,6 +1110,7 @@ def _coerce_supported(value, supported, fallback):
 # =====================================================
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
+    video_template = opts.get("video_template") if isinstance(opts.get("video_template"), dict) else {}
     defaults = _defaults_for_model(model_id)
     config = VIDEO_MODEL_CONFIG.get(model_id, {})
     durations = config.get("durations") or [defaults.get("duration") or 5]
@@ -1151,7 +1154,9 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "preview_video": opts.get("preview_video") or "",
         "image_url": opts.get("image_url") or payload.get("image_url") or "",
         "motion_preset": opts.get("motion_preset") or "",
-        "video_template": opts.get("video_template") or {},
+        "video_template": video_template,
+        "effect_scene": opts.get("effect_scene") or video_template.get("effect_scene") or "",
+        "video_effects": bool(opts.get("video_effects") or opts.get("is_kling_effect") or video_template.get("catalog_type") == "kling_effect"),
         "character_image": opts.get("character_image") or "",
         "seed": opts.get("seed") if opts.get("seed") not in (None, "") else payload.get("seed"),
         "native_audio": bool(opts.get("native_audio")),
@@ -1864,6 +1869,14 @@ def _kling_motion_endpoint(provider_model: str):
 
 
 # =====================================================
+# PYTHON-БЛОК: _kling_effects_endpoint
+# Возвращает официальный endpoint Kling Video Effects для создания задачи по effect_scene.
+# =====================================================
+def _kling_effects_endpoint():
+    return f"{_kling_base_url()}/v1/videos/effects"
+
+
+# =====================================================
 # PYTHON-БЛОК: _kling_resolution
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -2077,6 +2090,14 @@ def _kling_legacy_submit_endpoint(kind: str):
 def _kling_legacy_task_endpoint(task_id: str, kind: str):
     path = "image2video" if kind == "image" else "text2video"
     return f"{_kling_base_url()}/v1/videos/{path}/{task_id}"
+
+
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _kling_effects_task_endpoint
+# Возвращает endpoint проверки задачи Kling Video Effects.
+# =====================================================
+def _kling_effects_task_endpoint(task_id: str):
+    return f"{_kling_base_url()}/v1/videos/effects/{task_id}"
 
 
 # =====================================================

@@ -96,6 +96,7 @@ const UPLOAD_TARGETS = {
 let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let videoTemplatesCache = null;
+let klingEffectsCache = null;
 let activeVideoTemplate = null;
 let videoTemplateUploadUrl = '';
 let videoTemplateRatio = '16:9';
@@ -1279,6 +1280,7 @@ const VIDEO_MODELS = [
   { id:'kling_o3_edit', label:'Kling 3.0 Omni Edit', desc:'Kling Omni video editing model', icon:'kling' },
   { id:'kling_motion_2_6', label:'Kling Motion 2.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_motion_3_0', label:'Kling Motion 3.0', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_effects', label:'Kling Video Effects', desc:'Kling official video effects', icon:'kling' },
   { id:'kling_o1', label:'Kling O1', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_2_6', label:'Kling 2.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_2_5_turbo', label:'Kling 2.5 Turbo', desc:'Kling AI video model', icon:'kling' },
@@ -1348,6 +1350,7 @@ Object.assign(VIDEO_MODEL_CONFIG, {
   kling_3_0_turbo: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   kling_3_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_motion_3_0: { provider:'kling', modes:['motion_control'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, motion_control:true, start_image:true, end_image:false, video_upload:true, video_edit:false },
+  kling_effects: { provider:'kling', modes:['video_effects'], durations:[5,10], ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false, video_effects:true },
   kling_o3_omni: { provider:'kling', modes:['text_to_video','image_to_video','video_edit'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, omni:true, video_input:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
   kling_o3_edit: { provider:'kling', modes:['video_edit'], durations:KLING_VIDEO_LONG_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_FULL_RESOLUTIONS, sound:true, native_audio:true, video_input:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
   kling_o1: { provider:'kling', modes:['text_to_video','image_to_video','video_edit'], durations:KLING_VIDEO_O1_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_input:true, start_image:true, end_image:true, video_upload:true, video_edit:true },
@@ -8021,7 +8024,9 @@ function closeUploadPanel(e) {
     const dict = {
       ru: {
         video: 'Видео',
+        effects: 'Эффекты движения',
         catalogEmpty: 'Видео-шаблоны пока не настроены',
+        effectsEmpty: 'Эффекты Kling пока не настроены',
         uploadTitle: 'Загрузить изображение',
         uploadHint: 'PNG, JPG или вставить из буфера обмена',
         create: 'Создать',
@@ -8031,7 +8036,9 @@ function closeUploadPanel(e) {
       },
       en: {
         video: 'Video',
+        effects: 'Motion Effects',
         catalogEmpty: 'Video templates are not configured yet',
+        effectsEmpty: 'Kling effects are not configured yet',
         uploadTitle: 'Upload image',
         uploadHint: 'PNG, JPG or paste from clipboard',
         create: 'Generate',
@@ -8157,6 +8164,31 @@ function maybeShowVideoTemplateIntro(force) {
   }
 
   // =====================================================
+  // JAVASCRIPT-БЛОК: loadKlingEffects
+  // Загружает библиотеку Kling Video Effects из backend JSON, чтобы Mini App не держал список эффектов в коде.
+  // =====================================================
+  async function loadKlingEffects() {
+    if (Array.isArray(klingEffectsCache)) return klingEffectsCache;
+    try {
+      const res = await fetch('/api/public/prostudio/kling/effects', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      klingEffectsCache = normalizeVideoTemplateList((data.effects || []).map((effect) => Object.assign({}, effect, {
+        catalog_type: 'kling_effect',
+        is_kling_effect: true,
+        id: effect.id || effect.effect_scene,
+        title: effect.title || effect.name || effect.id || effect.effect_scene,
+        prompt: effect.description || effect.title || effect.name || effect.id || '',
+        effect_scene: effect.effect_scene || effect.id,
+        preferred_model: 'kling_effects',
+        models: ['kling_effects'],
+      })), false);
+    } catch {
+      klingEffectsCache = [];
+    }
+    return klingEffectsCache;
+  }
+
+  // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeVideoTemplateModal
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
@@ -8226,9 +8258,9 @@ function maybeShowVideoTemplateIntro(force) {
   // JAVASCRIPT-БЛОК: normalizeVideoTemplateList
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  function normalizeVideoTemplateList(items) {
+  function normalizeVideoTemplateList(items, includeDefaults = true) {
     const incoming = Array.isArray(items) ? items : [];
-    const defaults = defaultVideoTemplateItems();
+    const defaults = includeDefaults ? defaultVideoTemplateItems() : [];
     const byId = new Map();
     defaults.forEach((item) => {
       if (!item || typeof item !== 'object') return;
@@ -8263,15 +8295,17 @@ function maybeShowVideoTemplateIntro(force) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplatesCatalog
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
-  async function openVideoTemplatesCatalog() {
+  async function openVideoTemplatesCatalog(catalogType = 'templates') {
     closeVideoTemplateIntro();
-    const templates = await loadVideoTemplates();
+    const isEffects = catalogType === 'effects';
+    const templates = isEffects ? await loadKlingEffects() : await loadVideoTemplates();
     closeVideoTemplatesCatalog();
     const overlay = document.createElement('div');
     overlay.id = 'videoTemplatesOverlay';
-    overlay.className = 'video-templates-overlay';
+    overlay.className = 'video-templates-overlay ' + (isEffects ? 'kling-effects-overlay' : '');
     overlay.innerHTML = '<div class="video-templates-panel">'
       + '<button class="video-templates-close" type="button" aria-label="Close">×</button>'
+      + '<div class="video-templates-heading">' + S.escapeHtml(videoTemplateText(isEffects ? 'effects' : 'video')) + '</div>'
       + '<div class="video-templates-grid">'
       + (templates.length ? templates.map((template, index) => {
       const id = S.escapeHtml(template.id || String(index));
@@ -8279,14 +8313,15 @@ function maybeShowVideoTemplateIntro(force) {
       const title = S.escapeHtml(template.title || template.id || 'Video');
       const src = S.escapeHtml(videoTemplateReferenceVideo(template));
       const poster = S.escapeHtml(template.poster_url || '');
-      const tall = index % 5 === 0 || String(template.aspect_ratio || '').includes('9:16');
-      return '<button class="video-template-card ' + (tall ? 'tall' : '') + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
+      const ratio = String(template.aspect_ratio || '').trim();
+      const ratioClass = ratio === '16:9' ? 'wide' : (ratio === '1:1' ? 'square' : 'tall');
+      return '<button class="video-template-card ' + ratioClass + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
         + '<span class="video-template-card-poster"><span>▶</span></span>'
         + (src ? '<video src="' + src + '"' + (poster ? ' poster="' + poster + '"' : '') + ' autoplay loop muted playsinline preload="metadata" onerror="this.style.display=\'none\'"></video>' : '')
         + '<span class="video-template-card-shade"></span>'
         + '<span class="video-template-card-title">' + title + '</span>'
         + '</button>';
-      }).join('') : '<div class="video-templates-empty">' + S.escapeHtml(videoTemplateText('catalogEmpty')) + '</div>')
+      }).join('') : '<div class="video-templates-empty">' + S.escapeHtml(videoTemplateText(isEffects ? 'effectsEmpty' : 'catalogEmpty')) + '</div>')
       + '</div></div>';
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) closeVideoTemplatesCatalog();
@@ -8301,13 +8336,26 @@ function maybeShowVideoTemplateIntro(force) {
   }
 
   // =====================================================
+  // ОБРАБОТЧИК ИНТЕРФЕЙСА: openKlingEffectsCatalog
+  // Открывает каталог Kling Video Effects из кнопки «Управление движением».
+  // =====================================================
+  async function openKlingEffectsCatalog(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    genAction('video', 'motion');
+    await openVideoTemplatesCatalog('effects');
+  }
+
+  // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplateFromCatalog
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
   function openVideoTemplateFromCatalog(event, id) {
     if (event) event.stopPropagation();
     try { id = decodeURIComponent(String(id || '')); } catch {}
-    const templates = Array.isArray(videoTemplatesCache) ? videoTemplatesCache : [];
+    const templates = (Array.isArray(klingEffectsCache) ? klingEffectsCache : []).concat(Array.isArray(videoTemplatesCache) ? videoTemplatesCache : []);
     // =====================================================
     // JAVASCRIPT-БЛОК: template
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -8430,12 +8478,13 @@ function maybeShowVideoTemplateIntro(force) {
       toast(videoTemplateText('ratioRequired'));
       return;
     }
+    const isKlingEffect = !!template.is_kling_effect || template.catalog_type === 'kling_effect';
     const referenceVideo = videoTemplateReferenceVideo(template);
-    if (!referenceVideo) {
+    if (!isKlingEffect && !referenceVideo) {
       toast(videoTemplateText('templateVideoRequired'));
       return;
     }
-    const modelId = templatePreferredModel(template);
+    const modelId = isKlingEffect ? 'kling_effects' : templatePreferredModel(template);
     const uploadedImage = videoTemplateUploadUrl;
     const selectedRatio = videoTemplateRatio;
     closeVideoTemplateModal();
@@ -8443,15 +8492,15 @@ function maybeShowVideoTemplateIntro(force) {
     updateComposerMode('video');
     videoState.modelId = modelId;
     videoState.provider = 'kling';
-    videoState.section = 'generate';
-    videoState.generationMode = 'motion_control';
-    videoState.mode = 'motion_control';
+    videoState.section = isKlingEffect ? 'motion' : 'generate';
+    videoState.generationMode = isKlingEffect ? 'video_effects' : 'motion_control';
+    videoState.mode = videoState.generationMode;
     videoState.ratio = selectedRatio;
     videoState.duration = Number(template.duration || 5);
     videoState.resolution = template.resolution || '720p';
     videoState.sound = false;
     videoState.startImage = uploadedImage;
-    videoState.inputVideo = referenceVideo;
+    videoState.inputVideo = isKlingEffect ? '' : referenceVideo;
     videoState.videoUrl = videoState.inputVideo;
     videoState.videoTemplate = {
       id: template.id || '',
@@ -8461,6 +8510,11 @@ function maybeShowVideoTemplateIntro(force) {
       preview_video: template.preview_video || '',
       reference_video: referenceVideo,
       aspect_ratio: selectedRatio,
+      catalog_type: isKlingEffect ? 'kling_effect' : 'video_template',
+      effect_scene: template.effect_scene || template.id || '',
+      input_count: template.input_count || 1,
+      mode: template.mode || 'std',
+      model_name: template.model_name || 'kling-v1-6',
     };
     normalizeVideoStateForModel();
     renderVideoControls();
@@ -11362,6 +11416,7 @@ async function waitGeneration(jobId, options) {
   window.pickVisualCreatePhoto = pickVisualCreatePhoto;
   window.removeVisualCreatePhoto = removeVisualCreatePhoto;
   window.saveVisualCreateDraft = saveVisualCreateDraft;
+  window.openKlingEffectsCatalog = openKlingEffectsCatalog;
 
   S.openImageStylePanel = openImageStylePanel;
   S.closeImageStylePanel = closeImageStylePanel;
@@ -11424,6 +11479,7 @@ async function waitGeneration(jobId, options) {
   S.renderVideoControls = renderVideoControls;
   S.addMediaLink = addMediaLink;
   S.openVideoTemplatesCatalog = openVideoTemplatesCatalog;
+  S.openKlingEffectsCatalog = openKlingEffectsCatalog;
   S.closeVideoTemplatesCatalog = closeVideoTemplatesCatalog;
   S.closeVideoTemplateModal = closeVideoTemplateModal;
   S.openVideoTemplateFromCatalog = openVideoTemplateFromCatalog;

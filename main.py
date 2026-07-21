@@ -8926,38 +8926,77 @@ def prostudio_builtin_video_template_slots() -> list:
         })
     return templates
 
-from fastapi.responses import JSONResponse
-from pathlib import Path
-import json
+def prostudio_kling_effects_library() -> list:
+    effects_file = WEBAPP_DIR / "providers" / "kling" / "effects" / "effects.json"
+    if not effects_file.exists():
+        return []
+    try:
+        raw = json.loads(effects_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        prostudio_error("KLING_EFFECTS_JSON_PARSE_FAILED", exc)
+        return []
+    items = raw.get("effects") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        return []
+
+    effects = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        effect_id = str(item.get("id") or item.get("effect_scene") or item.get("scene") or f"effect_{index + 1}").strip()
+        if not effect_id:
+            continue
+        title = str(item.get("title") or item.get("name") or effect_id).strip()
+        effect_dir = WEBAPP_DIR / "providers" / "kling" / "effects" / effect_id
+        preview_file = effect_dir / "preview.mp4"
+        poster_file = effect_dir / "poster.jpg"
+        preview_video = str(item.get("preview_video") or item.get("previewVideo") or item.get("demo_video") or item.get("video_url") or "").strip()
+        poster_url = str(item.get("poster_url") or item.get("poster") or item.get("thumbnail_url") or item.get("preview_image") or "").strip()
+        if not preview_video and preview_file.exists():
+            preview_video = f"/webapp/providers/kling/effects/{effect_id}/preview.mp4"
+        if not poster_url and poster_file.exists():
+            poster_url = f"/webapp/providers/kling/effects/{effect_id}/poster.jpg"
+        ratios = item.get("ratios") or item.get("aspect_ratios") or [str(item.get("aspect_ratio") or "9:16")]
+        if not isinstance(ratios, list):
+            ratios = [ratios]
+        ratios = [str(r).strip() for r in ratios if str(r or "").strip() in {"16:9", "1:1", "9:16"}]
+        if not ratios:
+            ratios = ["16:9", "1:1", "9:16"]
+        aspect_ratio = str(item.get("aspect_ratio") or item.get("ratio") or ratios[0]).strip()
+        if aspect_ratio not in ratios:
+            aspect_ratio = ratios[0]
+        cost_credits = int(item.get("cost_credits") or item.get("cost") or 0)
+        effects.append({
+            "id": effect_id,
+            "effect_scene": effect_id,
+            "title": title,
+            "name": title,
+            "description": str(item.get("description") or item.get("hint") or "").strip(),
+            "preview_video": preview_video,
+            "poster_url": poster_url,
+            "aspect_ratio": aspect_ratio,
+            "ratios": ratios,
+            "duration": int(item.get("duration") or 5),
+            "resolution": str(item.get("resolution") or "720p"),
+            "mode": str(item.get("mode") or "std"),
+            "model_name": str(item.get("model_name") or "kling-v1-6"),
+            "input_count": int(item.get("input_count") or item.get("images_required") or (2 if effect_id in {"hug", "kiss", "heart_gesture", "handshake"} else 1)),
+            "cost": cost_credits,
+            "cost_credits": cost_credits,
+            "generation_cost": item.get("generation_cost") or (f"{cost_credits} ⚡" if cost_credits else ""),
+            "upload_path": f"webapp/providers/kling/effects/{effect_id}/preview.mp4",
+        })
+    return effects
+
 
 @app.get("/api/public/prostudio/kling/effects")
 async def public_prostudio_kling_effects():
-    effects_file = BASE_DIR / "webapp" / "providers" / "kling" / "effects" / "effects.json"
-
-    print("BASE_DIR =", BASE_DIR)
-    print("EFFECTS_FILE =", effects_file)
-    print("EXISTS =", effects_file.exists())
-
-    if not effects_file.exists():
-        return JSONResponse(
-            status_code=404,
-            content={
-                "ok": False,
-                "error": "effects.json not found"
-            }
-        )
-
-    try:
-        with open(effects_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "ok": False,
-                "error": str(e)
-            }
-        )
+    return {
+        "ok": True,
+        "source": "local_effects_json",
+        "note": "Kling public API exposes Video Effects task creation/query by effect_scene; no public catalog-list endpoint is documented.",
+        "effects": prostudio_kling_effects_library(),
+    }
 
 
 # =====================================================
