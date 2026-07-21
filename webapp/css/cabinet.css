@@ -794,6 +794,10 @@ CSS-БЛОК: .studio-mode-tab
   cursor:pointer;
 }
 .vgen-upload-row.active{border-color:rgba(255,255,255,.26)}
+.vgen-upload-row.has-voice-upload{
+  position:relative;
+  overflow:hidden;
+}
 .vgen-upload-lbl{
   min-width:0;
   overflow:hidden;
@@ -801,6 +805,23 @@ CSS-БЛОК: .studio-mode-tab
   white-space:nowrap;
   font-size:13px;
   font-weight:800;
+}
+.voice-upload-control-badge{
+  position:absolute;
+  left:10px;
+  top:10px;
+  z-index:3;
+  min-width:34px;
+  height:24px;
+  padding:0 8px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:rgba(22,119,255,.86);
+  color:#fff;
+  font-size:11px;
+  font-weight:900;
+  box-shadow:0 6px 18px rgba(0,0,0,.22);
 }
 .vgen-upload-icons{
   display:flex;
@@ -2164,6 +2185,12 @@ CSS-БЛОК: .studio-select-pill
   flex:0 0 auto;min-height:44px;border-radius:999px;background:#202020;color:#eeeeee;
   border:1px solid rgba(255,255,255,.13);display:flex;align-items:center;gap:8px;
   padding:0 14px;font-family:inherit;font-size:15px;white-space:nowrap;cursor:pointer;
+}
+.studio-select-pill.voice-only span{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .studio-select-pill.wide{padding-left:0;min-width:192px;justify-content:center}
 .pill-meter{width:3px;height:24px;border-radius:2px;background:#e8e8e8;box-shadow:5px -4px 0 -1px #e8e8e8,10px 3px 0 -1px #e8e8e8}
