@@ -8590,6 +8590,22 @@ function maybeShowVideoTemplateIntro(force) {
   }
 
   // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateAspectRatio
+  // Определяет форму карточки каталога из явного aspect_ratio или списка ratios.
+  // =====================================================
+  function videoTemplateAspectRatio(template, index) {
+    const direct = String(
+      (template && (template.aspect_ratio || template.aspectRatio || template.ratio || template.format)) || ''
+    ).trim();
+    const normalized = direct.replace(/[×x]/g, ':');
+    if (['16:9', '1:1', '9:16'].includes(normalized)) return normalized;
+    const ratios = videoTemplateRatios(template);
+    const preferred = ratios.find((ratio) => ['16:9', '1:1', '9:16'].includes(String(ratio)));
+    if (preferred) return String(preferred);
+    return index % 3 === 0 ? '9:16' : (index % 3 === 1 ? '16:9' : '1:1');
+  }
+
+  // =====================================================
   // JAVASCRIPT-БЛОК: videoTemplateReferenceVideo
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
@@ -8657,9 +8673,9 @@ function maybeShowVideoTemplateIntro(force) {
       const title = S.escapeHtml(template.title || template.id || 'Video');
       const src = S.escapeHtml(videoTemplateReferenceVideo(template));
       const poster = S.escapeHtml(template.poster_url || '');
-      const ratio = String(template.aspect_ratio || '').trim();
+      const ratio = videoTemplateAspectRatio(template, index);
       const ratioClass = ratio === '16:9' ? 'wide' : (ratio === '1:1' ? 'square' : 'tall');
-      return '<button class="video-template-card ' + ratioClass + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
+      return '<button class="video-template-card ' + ratioClass + '" type="button" data-template-id="' + id + '" data-ratio="' + S.escapeHtml(ratio) + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
         + '<span class="video-template-card-poster"><span>▶</span></span>'
         + (src ? '<video src="' + src + '"' + (poster ? ' poster="' + poster + '"' : '') + ' autoplay loop muted playsinline preload="metadata" onerror="this.style.display=\'none\'"></video>' : '')
         + '<span class="video-template-card-shade"></span>'
