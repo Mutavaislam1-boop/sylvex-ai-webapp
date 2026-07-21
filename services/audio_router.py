@@ -1496,16 +1496,23 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
                 media_url = _runway_input_media_url(payload)
                 target_lang = str(voice_options.get("target_language") or voice_options.get("targetLanguage") or "en")
                 endpoint = f"{ELEVENLABS_BASE_URL}/v1/dubbing"
+                source_lang = str(voice_options.get("source_language") or voice_options.get("sourceLanguage") or "").strip().lower()
+                try:
+                    speaker_count = int(voice_options.get("num_speakers") or voice_options.get("numSpeakers") or 0)
+                except (TypeError, ValueError):
+                    speaker_count = 0
                 form_data = {
                     "name": str(voice_options.get("name") or "SYLVEX dubbing"),
-                    "source_lang": str(voice_options.get("source_language") or voice_options.get("sourceLanguage") or "auto"),
                     "target_lang": target_lang,
-                    "num_speakers": str(int(voice_options.get("num_speakers") or voice_options.get("numSpeakers") or 0)),
-                    "watermark": "false",
-                    "drop_background_audio": str(bool(voice_options.get("drop_background_audio", voice_options.get("dropBackgroundAudio", False)))).lower(),
-                    "disable_voice_cloning": str(bool(voice_options.get("disable_voice_cloning", voice_options.get("disableVoiceCloning", False)))).lower(),
-                    "mode": "automatic",
                 }
+                if source_lang and source_lang != "auto":
+                    form_data["source_lang"] = source_lang
+                if speaker_count > 0:
+                    form_data["num_speakers"] = str(speaker_count)
+                if bool(voice_options.get("drop_background_audio", voice_options.get("dropBackgroundAudio", False))):
+                    form_data["drop_background_audio"] = "true"
+                if bool(voice_options.get("disable_voice_cloning", voice_options.get("disableVoiceCloning", False))):
+                    form_data["disable_voice_cloning"] = "true"
                 files = None
                 if media_url:
                     media_bytes, filename, content_type = await _load_provider_media(client, media_url)
@@ -1515,14 +1522,26 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
                         form_data["source_url"] = media_url
                 if not files and not form_data.get("source_url"):
                     return _audio_error(provider, frontend_model, provider_model, "ElevenLabs Dubbing requires uploaded audio/video or source URL", type="voice", tool=tool)
-                print("ELEVENLABS DUBBING REQUEST:", {"endpoint": endpoint, "target_lang": target_lang, "has_file": bool(files), "has_source_url": bool(form_data.get("source_url"))})
+                print("ELEVENLABS DUBBING REQUEST:", {
+                    "endpoint": endpoint,
+                    "target_lang": target_lang,
+                    "source_lang": form_data.get("source_lang") or "auto-detect",
+                    "num_speakers": form_data.get("num_speakers") or "auto",
+                    "has_file": bool(files),
+                    "has_source_url": bool(form_data.get("source_url")),
+                })
                 response = await client.post(
                     endpoint,
-                    headers={"xi-api-key": api_key},
+                    headers={"xi-api-key": api_key, "Accept": "application/json"},
                     data=form_data,
                     files=files,
                 )
                 data = await safe_audio_json_response(response, provider, endpoint)
+                print("ELEVENLABS DUBBING RESPONSE:", {
+                    "status_code": response.status_code,
+                    "data_keys": list(data.keys()) if isinstance(data, dict) else [],
+                    "error": raw_error_text(data, "")[:700] if response.status_code >= 400 else "",
+                })
                 if response.status_code >= 400:
                     return _audio_error(provider, frontend_model, provider_model, data, type="voice", endpoint=endpoint, status_code=response.status_code, response=data, tool=tool)
                 dubbing_id = str((data or {}).get("dubbing_id") or "")
