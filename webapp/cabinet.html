@@ -385,6 +385,13 @@ HTML-страница Mini App. Комментарии подписывают э
             CSS-класс задаёт внешний вид и расположение: studio-media-column studio-video-tools video-only
             =================================================== -->
             <div class="studio-media-column studio-video-tools video-only">
+              <button class="studio-video-edit-upload video-edit-only" id="videoEditUploadButton" type="button" onclick="SYLVEX.attach('video',event)">
+                <span class="studio-video-edit-upload-icon" aria-hidden="true">
+                  <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 8l5-5 5 5"></path><path d="M5 19h14"></path></svg>
+                </span>
+                <b>Загрузите видео-референс</b>
+                <small>Длительность: 3–10 секунд</small>
+              </button>
               <!-- ==================================================
               HTML-ЭЛЕМЕНТ: studio-frame-row
               CSS-класс задаёт внешний вид и расположение: studio-frame-row
@@ -430,7 +437,7 @@ HTML-страница Mini App. Комментарии подписывают э
               CSS-класс задаёт внешний вид и расположение: studio-links-btn
               =================================================== -->
               <button class="studio-links-btn" id="videoReferencesUploadButton" data-upload-target="video_references" type="button" onclick="SYLVEX.openVideoReferencesUpload(event)">
-                <span>Добавить ссылки</span>
+                <span id="videoReferencesLabel">Добавить ссылки</span>
                 <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: studio-link-icons
                 CSS-класс задаёт внешний вид и расположение: studio-link-icons

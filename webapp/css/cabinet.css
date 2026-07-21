@@ -1840,6 +1840,7 @@ CSS-БЛОК: .studio-video-panel
 .visual-picker-card.selected .visual-picker-thumb{border-color:#f4f4f4;box-shadow:0 0 0 2px rgba(255,255,255,.18)}
 .visual-picker-card.selected .visual-picker-check{display:grid}
 .studio-media-column{display:flex;flex-direction:column;gap:8px;min-width:0}
+.video-edit-only{display:none}
 .studio-frame-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 /* =====================================================
 CSS-БЛОК: .studio-frame-card,.studio-image-tool
@@ -1939,6 +1940,114 @@ CSS-БЛОК: .studio-link-icons span
   background:#444;border:3px solid #3a3a3a;color:#e6e6e6;margin-left:-8px;
 }
 .studio-link-icons span:first-child{margin-left:0}
+.studio-video-composer[data-video-section="edit"] .studio-video-tools{
+  gap:12px;
+}
+.studio-video-composer[data-video-section="edit"] .studio-frame-row{
+  display:none;
+}
+.studio-video-composer[data-video-section="edit"] .video-edit-only{
+  display:flex;
+}
+.studio-video-edit-upload{
+  position:relative;
+  min-height:128px;
+  border:0;
+  border-radius:24px;
+  background:#2c2c2c;
+  color:#f3f3f3;
+  overflow:hidden;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:18px 16px;
+  font:inherit;
+  text-align:center;
+  cursor:pointer;
+}
+.studio-video-edit-upload-icon{
+  display:grid;
+  place-items:center;
+  color:#fff;
+}
+.studio-video-edit-upload b{
+  position:relative;
+  z-index:2;
+  font-size:20px;
+  line-height:1.12;
+  font-weight:900;
+  color:#fff;
+}
+.studio-video-edit-upload small{
+  position:relative;
+  z-index:2;
+  color:#d9d9d9;
+  font-size:13px;
+  line-height:1.2;
+}
+.studio-video-edit-preview{
+  position:absolute;
+  inset:0;
+  z-index:1;
+  display:block;
+  background:#111;
+}
+.studio-video-edit-preview video{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  opacity:.52;
+}
+.studio-video-edit-preview::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg,rgba(0,0,0,.1),rgba(0,0,0,.58));
+}
+.studio-video-edit-preview span{
+  position:absolute;
+  right:12px;
+  top:12px;
+  z-index:2;
+  height:24px;
+  padding:0 8px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  background:rgba(0,0,0,.58);
+  color:#fff;
+  font-size:10px;
+  font-weight:900;
+}
+.studio-video-edit-upload.has-video-edit-preview .studio-video-edit-upload-icon{
+  position:relative;
+  z-index:2;
+}
+.studio-video-composer[data-video-section="edit"] .studio-links-btn{
+  min-height:84px;
+  border-radius:22px;
+  background:#2c2c2c;
+  padding:14px 18px;
+  font-size:19px;
+  font-weight:900;
+}
+.studio-video-composer[data-video-section="edit"] .studio-link-icons{
+  gap:0;
+}
+.studio-video-composer[data-video-section="edit"] .studio-link-icons span{
+  width:48px;
+  height:48px;
+  border-radius:50%;
+  background:#444;
+  border:4px solid #3a3a3a;
+  color:#f1f1f1;
+  margin-left:-8px;
+}
+.studio-video-composer[data-video-section="edit"] .studio-link-icons svg{
+  width:22px;
+  height:22px;
+}
 .studio-music-tools{display:none}
 /* =====================================================
 CSS-БЛОК: .studio-prompt-column
@@ -6459,6 +6568,29 @@ JavaScript добавляет класс is-compact, когда сам composer 
 .studio-video-composer.is-compact .studio-links-btn,
 .studio-video-composer.is-compact .vgen-upload-row{
   min-height:58px;
+}
+
+.studio-video-composer.is-compact[data-video-section="edit"] .studio-video-tools{
+  gap:12px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .studio-video-edit-upload{
+  min-height:128px;
+  border-radius:24px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .studio-video-edit-upload b{
+  font-size:20px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .studio-video-edit-upload small{
+  font-size:13px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .studio-links-btn{
+  min-height:84px;
+  border-radius:22px;
+  font-size:19px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .studio-link-icons span{
+  width:48px;
+  height:48px;
 }
 
 .studio-video-composer.is-compact .studio-image-tool{

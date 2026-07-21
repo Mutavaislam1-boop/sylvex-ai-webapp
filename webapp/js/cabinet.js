@@ -1630,6 +1630,8 @@ function videoOptionLabel(kind, value) {
 function renderVideoControls() {
   normalizeVideoStateForModel();
   const model = currentVideoModel();
+  const composer = document.getElementById('studioComposer');
+  if (composer) composer.dataset.videoSection = videoState.section || 'generate';
 
   const modelEl = document.getElementById('modelValComposer');
   if (modelEl && isVideoMode() && model) {
@@ -1674,6 +1676,8 @@ function renderVideoControls() {
 
   const characterVal = document.getElementById('imageCharacterVal');
   if (characterVal) characterVal.textContent = videoOptionLabel('quality', videoState.quality);
+  renderVideoEditPreview();
+  renderVideoReferencesPreview();
 }
 
 // =====================================================
@@ -3228,6 +3232,8 @@ function renderVideoReferencesPreview() {
   const button = document.getElementById('videoReferencesUploadButton');
   renderUploadPreviewOnButton(button, videoState.referenceImageUrls || []);
   if (!button) return;
+  const label = document.getElementById('videoReferencesLabel');
+  if (label) label.textContent = videoState.section === 'edit' ? 'Добавить референсы' : 'Добавить ссылки';
   let badge = button.querySelector(':scope > .video-reference-control-badge');
   if (videoState.inputVideo || videoState.videoUrl) {
     if (!badge) {
@@ -3244,12 +3250,36 @@ function renderVideoReferencesPreview() {
 }
 
 // =====================================================
+// ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoEditPreview
+// Показывает выбранный видео-референс в отдельном edit-only блоке.
+// =====================================================
+function renderVideoEditPreview() {
+  const button = document.getElementById('videoEditUploadButton');
+  if (!button) return;
+  const url = videoState.inputVideo || videoState.videoUrl || '';
+  let preview = button.querySelector(':scope > .studio-video-edit-preview');
+  if (!url) {
+    if (preview) preview.remove();
+    button.classList.remove('has-video-edit-preview');
+    return;
+  }
+  if (!preview) {
+    preview = document.createElement('span');
+    preview.className = 'studio-video-edit-preview';
+    button.insertBefore(preview, button.firstChild);
+  }
+  preview.innerHTML = '<video src="' + S.escapeHtml(url) + '" muted playsinline preload="metadata"></video><span>VID</span>';
+  button.classList.add('has-video-edit-preview');
+}
+
+// =====================================================
 // ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoInputPreviews
 // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
 // =====================================================
 function renderVideoInputPreviews() {
   renderVideoStartPreview();
   renderVideoEndPreview();
+  renderVideoEditPreview();
 }
 
 // =====================================================
