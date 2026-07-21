@@ -1513,6 +1513,8 @@ function labelItems(values, suffix) {
 function videoOptionsPayload(referenceImagesOverride) {
   normalizeVideoStateForModel();
   const config = currentVideoConfig() || {};
+  const videoTemplate = videoState.videoTemplate || null;
+  const isKlingEffect = !!(videoTemplate && (videoTemplate.catalog_type === 'kling_effect' || videoTemplate.effect_scene));
   const referenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : (videoState.referenceImageUrls || []).slice();
@@ -1533,11 +1535,14 @@ function videoOptionsPayload(referenceImagesOverride) {
     video_url: videoState.videoUrl || '',
     image_url: '',
     motion_preset: videoState.motionPreset || '',
-    video_template: videoState.videoTemplate || null,
+    video_template: videoTemplate,
+    effect_scene: isKlingEffect ? (videoTemplate.effect_scene || videoTemplate.id || '') : '',
+    video_effects: isKlingEffect,
+    is_kling_effect: isKlingEffect,
     character_image: videoState.characterImage || '',
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
-    motion_control: !!config.motion_control,
+    motion_control: !!config.motion_control && !isKlingEffect,
     video_input: !!(config.video_input || config.video_upload || videoState.inputVideo || videoState.videoUrl),
     avatar: !!config.avatar,
     lip_sync: !!config.lip_sync,
@@ -1546,7 +1551,8 @@ function videoOptionsPayload(referenceImagesOverride) {
     video_extension: !!config.video_extension,
     advanced: Object.assign({}, videoState.advanced || {}, {
       native_audio: !!(config.native_audio && videoState.sound),
-      motion_control: !!config.motion_control,
+      motion_control: !!config.motion_control && !isKlingEffect,
+      video_effects: isKlingEffect,
       video_input: !!(config.video_input || config.video_upload || videoState.inputVideo || videoState.videoUrl),
       avatar: !!config.avatar,
       lip_sync: !!config.lip_sync,

@@ -1197,6 +1197,12 @@ KLING_COST_MATRIX = {
             "1080p": {5: 126, 10: 252, 15: 378},
         },
     },
+    "kling_effects": {
+        "video_effects": {
+            "720p": {5: 95, 10: 189, 15: 284},
+            "1080p": {5: 126, 10: 252, 15: 378},
+        },
+    },
     "kling_o3_omni": {
         "standard": {
             "720p": {5: 63, 10: 126, 15: 189},
@@ -1377,6 +1383,8 @@ def _kling_cost_variant(model_id: str, body: dict):
         return "avatar"
     if body.get("motion_control") or mode in {"motion_control", "motion control"} or "motion" in model_id:
         return "motion_control"
+    if body.get("video_effects") or mode in {"video_effects", "video effects"} or model_id == "kling_effects":
+        return "video_effects"
     if body.get("multi_element_editing") or mode in {"multi_element_editing", "multi element editing"}:
         return "multi_element_editing"
     if body.get("video_extension") or mode in {"video_extension", "video extension"}:
@@ -2221,6 +2229,40 @@ def _kling_legacy_poll_until_ready(task_id: str, kind: str, headers: dict):
 
 
 # =====================================================
+# POLLING-ПРОЦЕСС: _kling_effects_poll_until_ready
+# Проверяет статус официальной задачи Kling Video Effects.
+# =====================================================
+def _kling_effects_poll_until_ready(task_id: str, headers: dict):
+    attempts, interval = _kling_poll_attempt_settings(60, 5)
+    last_result = None
+    for attempt in range(1, attempts + 1):
+        endpoint = _kling_effects_task_endpoint(task_id)
+        response = _request_get(endpoint, headers)
+        data = _safe_provider_json_response(response, "kling", endpoint)
+        _log_provider_response("kling", "POLL_EFFECTS", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+        status_code = getattr(response, "status_code", None) or 0
+        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+            return _provider_parse_error("kling", task_id, data)
+        state = _kling_status(data)
+        video_url = _kling_extract_video_url(data)
+        print("KLING EFFECTS VIDEO POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": state,
+            "has_video_url": bool(video_url),
+            "video_url": video_url or "",
+        })
+        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+        if state in {"failed", "error", "cancelled"}:
+            return _provider_parse_error("kling", task_id, data)
+        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
+        if attempt < attempts:
+            time.sleep(interval)
+    return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_effects_task_endpoint(task_id))
+
+
+# =====================================================
 # PYTHON-БЛОК: _luma_base_url
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -2495,6 +2537,9 @@ async def poll_video_generation(result: dict) -> dict:
         api_key = _get_env("KLING_API_KEY", "KLING_ACCESS_KEY")
         if not api_key:
             return _provider_error("kling", model_id, "Provider API key is missing: KLING_API_KEY")
+        poll_url = str(result.get("poll_url") or "")
+        if model_id == "kling_effects" or "/v1/videos/effects/" in poll_url:
+            return _kling_effects_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         return _kling_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
     if provider == "heygen":
         api_key = _get_env("HEYGEN_API_KEY")
@@ -3535,8 +3580,16 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or ""
     ).strip().lower()
 
+    is_video_effects = bool(
+        body.get("video_effects")
+        or video_mode in {"video_effects", "video effects"}
+        or model_id == "kling_effects"
+        or video_template.get("catalog_type") == "kling_effect"
+    )
+
     requires_image = (
         video_mode in {"image_to_video", "image to video", "motion_control", "motion control"}
+        or is_video_effects
         or bool(input_image_content)
     )
     is_official_omni_model = _kling_model_family(provider_model) in {"kling-3.0-omni", "kling-o1"}
@@ -3553,6 +3606,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     print("KLING DEBUG INPUT_VIDEO:", _short_debug_value(input_video))
 
     if requires_image and not input_image_content:
+        if is_video_effects:
+            return _provider_error("kling", model_id, "Для Kling Video Effects нужно загрузить изображение")
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
 
     model_family = _kling_model_family(provider_model)
@@ -3566,7 +3621,37 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     is_legacy_model = _kling_is_legacy_model(model_id)
     legacy_kind = "image" if (input_image_public_url or input_image_content) else "text"
 
-    if is_legacy_model:
+    if is_video_effects:
+        effect_scene = str(
+            body.get("effect_scene")
+            or raw_options.get("effect_scene")
+            or video_template.get("effect_scene")
+            or video_template.get("id")
+            or body.get("motion_preset")
+            or ""
+        ).strip()
+        if not effect_scene:
+            return _provider_error("kling", model_id, "Kling Video Effects effect_scene is missing")
+        model_name = str(video_template.get("model_name") or raw_options.get("model_name") or provider_model or "kling-v1-6").strip()
+        effect_input = {
+            "model_name": model_name,
+            "duration": str(_kling_duration(body.get("duration"), {5, 10})),
+        }
+        effect_mode = str(video_template.get("mode") or raw_options.get("mode") or body.get("quality") or "std").strip()
+        if effect_mode:
+            effect_input["mode"] = effect_mode
+        effect_image = input_image_public_url or input_image_content
+        if int(video_template.get("input_count") or raw_options.get("input_count") or 1) > 1:
+            effect_input["images"] = [effect_image]
+        else:
+            effect_input["image"] = effect_image
+        kling_body = {
+            "effect_scene": effect_scene,
+            "input": effect_input,
+        }
+        if payload.get("job_id"):
+            kling_body["external_task_id"] = str(payload.get("job_id"))
+    elif is_legacy_model:
         legacy_model_name = KLING_LEGACY_MODEL_NAMES.get(model_id) or _kling_motion_provider_model(provider_model)
         kling_body = {
             "model_name": legacy_model_name,
@@ -3644,6 +3729,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         elif settings_for_cost.get("audio") == "off":
             cost_body["sound"] = False
             cost_body["native_audio"] = False
+    if is_video_effects:
+        effect_input_for_cost = kling_body.get("input") if isinstance(kling_body.get("input"), dict) else {}
+        cost_body["duration"] = effect_input_for_cost.get("duration") or cost_body.get("duration")
+        cost_body["resolution"] = body.get("resolution") or "720p"
+        cost_body["video_effects"] = True
     if is_legacy_model:
         cost_body["duration"] = kling_body.get("duration") or cost_body.get("duration")
         legacy_mode = kling_body.get("mode")
@@ -3718,16 +3808,22 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     # =====================================================
     def _kling_prepare_retry_payload(body_payload, suffix):
         retry_payload = copy.deepcopy(body_payload)
-        options_payload = retry_payload.setdefault("options", {})
-        external_id = str(options_payload.get("external_task_id") or payload.get("job_id") or uuid4().hex)
-        options_payload["external_task_id"] = f"{external_id}-{suffix}"[:255]
+        if retry_payload.get("effect_scene"):
+            external_id = str(retry_payload.get("external_task_id") or payload.get("job_id") or uuid4().hex)
+            retry_payload["external_task_id"] = f"{external_id}-{suffix}"[:255]
+        else:
+            options_payload = retry_payload.setdefault("options", {})
+            external_id = str(options_payload.get("external_task_id") or payload.get("job_id") or uuid4().hex)
+            options_payload["external_task_id"] = f"{external_id}-{suffix}"[:255]
         return retry_payload
 
     try:
         endpoint_body = dict(body)
         if input_image_public_url or input_image_content:
             endpoint_body["start_image"] = input_image_public_url or input_image_content
-        if is_legacy_model:
+        if is_video_effects:
+            endpoint = _kling_effects_endpoint()
+        elif is_legacy_model:
             endpoint = _kling_legacy_submit_endpoint(legacy_kind)
         else:
             if is_motion_reference:
@@ -3771,7 +3867,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         task_id = _task_id_from_response(data.get("data") if isinstance(data.get("data"), dict) else data)
         if not task_id:
             return _provider_error("kling", model_id, "Kling task id not found")
-        if is_legacy_model:
+        if is_video_effects:
+            result = _kling_effects_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        elif is_legacy_model:
             result = _kling_legacy_poll_until_ready(task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         else:
             result = _kling_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
@@ -3796,7 +3894,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             else:
                 retry_task_id = _task_id_from_response(retry_data.get("data") if isinstance(retry_data.get("data"), dict) else retry_data)
                 if retry_task_id:
-                    if is_legacy_model:
+                    if is_video_effects:
+                        result = _kling_effects_poll_until_ready(retry_task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                    elif is_legacy_model:
                         result = _kling_legacy_poll_until_ready(retry_task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
                     else:
                         result = _kling_poll_until_ready(retry_task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
