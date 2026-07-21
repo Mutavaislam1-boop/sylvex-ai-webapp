@@ -7239,6 +7239,19 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
     )
 
 
+def quick_text_reply(prompt: str, attachment: dict, history: list, tool: str, output_format: str) -> str:
+    if attachment or history or tool not in {"text", ""} or output_format == "pdf":
+        return ""
+    value = re.sub(r"\s+", " ", str(prompt or "").strip().lower())
+    greetings = {
+        "привет", "здравствуй", "здравствуйте", "салам", "ассаламу алейкум",
+        "hello", "hi", "hey", "добрый день", "добрый вечер", "доброе утро",
+    }
+    if value in greetings:
+        return "Привет! Чем помочь?"
+    return ""
+
+
 def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list) -> tuple[bool, str, dict]:
     if not api_key:
         return False, f"{provider.upper()} API key is not configured", {}
@@ -7247,7 +7260,7 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
         endpoint,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         data=json.dumps({"model": provider_model, "messages": messages}),
-        timeout=120,
+        timeout=45,
     )
     try:
         data = response.json() if response.content else {}
@@ -7284,7 +7297,7 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
         endpoint,
         headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         data=json.dumps(request_payload),
-        timeout=120,
+        timeout=45,
     )
     try:
         data = response.json() if response.content else {}
@@ -7340,6 +7353,18 @@ def text_generation(payload: dict) -> dict:
     tool = str(text_options.get("tool") or "text").strip().lower()
     style = str(text_options.get("style") or "neutral").strip().lower()
     output_format = str(text_options.get("format") or "markdown").strip().lower()
+
+    quick_reply = quick_text_reply(prompt, attachment, history, tool, output_format)
+    if quick_reply:
+        return {
+            "ok": True,
+            "type": "text",
+            "text": quick_reply,
+            "provider": "sylvex-fast",
+            "model": "instant-reply",
+            "tool": tool,
+            "format": output_format,
+        }
 
     transcript = ""
     transcript_error = ""
