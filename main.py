@@ -3920,6 +3920,81 @@ def normalize_generation_status(result: Optional[dict], mode: str = "") -> str:
 
 
 # =====================================================
+# БЛОК ОЗВУЧКИ: is_voice_video_lip_sync_request
+# Определяет режим «Озвучить видео»: это voice UI, но итоговая генерация должна быть видео lip-sync.
+# =====================================================
+def is_voice_video_lip_sync_request(payload: dict) -> bool:
+    voice_options = payload.get("voice_options") if isinstance(payload, dict) else {}
+    if not isinstance(voice_options, dict):
+        return False
+    purpose = str(voice_options.get("upload_purpose") or voice_options.get("uploadPurpose") or "").strip().lower()
+    return purpose in {"dub_video", "lip_sync_video", "video_lip_sync"}
+
+
+# =====================================================
+# БЛОК ОЗВУЧКИ: voice_uploaded_video_url
+# Достаёт URL выбранного пользователем видео из voice upload state.
+# =====================================================
+def voice_uploaded_video_url(payload: dict) -> str:
+    voice_options = payload.get("voice_options") if isinstance(payload, dict) else {}
+    if not isinstance(voice_options, dict):
+        return ""
+    candidates = []
+    uploads = voice_options.get("uploads")
+    if isinstance(uploads, list):
+        candidates.extend(uploads)
+    attachment = voice_options.get("attachment") or payload.get("attachment")
+    if attachment:
+        candidates.append(attachment)
+    for item in candidates:
+        if isinstance(item, str) and item.strip():
+            value = item.strip()
+            if pathlib.PurePosixPath(urllib.parse.urlparse(value).path or value).suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}:
+                return value
+        if isinstance(item, dict):
+            kind = str(item.get("kind") or item.get("type") or "").lower()
+            mime = str(item.get("mime") or item.get("content_type") or item.get("contentType") or "").lower()
+            value = str(item.get("url") or item.get("video_url") or item.get("videoUrl") or item.get("file_url") or item.get("fileUrl") or "").strip()
+            suffix = pathlib.PurePosixPath(urllib.parse.urlparse(value).path or value).suffix.lower()
+            if value and (kind == "video" or mime.startswith("video/") or suffix in {".mp4", ".mov", ".m4v", ".webm"}):
+                return value
+    return ""
+
+
+# =====================================================
+# БЛОК ОЗВУЧКИ: build_voice_video_lip_sync_payload
+# Собирает video payload для Kling Lip Sync после генерации аудио выбранным голосом.
+# =====================================================
+def build_voice_video_lip_sync_payload(payload: dict, audio_result: dict, input_video: str) -> dict:
+    voice_options = payload.get("voice_options") if isinstance(payload.get("voice_options"), dict) else {}
+    audio_url = (
+        audio_result.get("audio_url")
+        or (_json_list(audio_result.get("audios"))[0] if _json_list(audio_result.get("audios")) else "")
+        or audio_result.get("result_url")
+        or audio_result.get("url")
+        or ""
+    )
+    video_payload = json.loads(json.dumps(payload))
+    video_payload["mode"] = "video"
+    video_payload["category"] = "video"
+    video_payload["model"] = "kling_lip_sync"
+    video_payload["provider"] = "kling"
+    video_payload["audio_url"] = audio_url
+    video_payload["video_options"] = {
+        "mode": "lip_sync",
+        "generation_mode": "lip_sync",
+        "lip_sync": True,
+        "input_video": input_video,
+        "video_url": input_video,
+        "audio_url": audio_url,
+        "duration": voice_options.get("duration") or 5,
+        "resolution": "720p",
+        "ratio": "16:9",
+    }
+    return video_payload
+
+
+# =====================================================
 # ОБРАБОТКА ОШИБОК: user_generation_error_text
 # Преобразует техническую ошибку провайдера в понятное сообщение для пользователя и сохраняет диагностические данные для логов.
 # =====================================================
@@ -9386,8 +9461,40 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="audio_generation")
             result = await audio_generation(payload)
         elif mode == "voice":
-            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_generation")
-            result = await audio_generation(payload)
+            if is_voice_video_lip_sync_request(payload):
+                input_video = voice_uploaded_video_url(payload)
+                if not input_video:
+                    result = {"ok": False, "type": "video", "error": "Для режима «Озвучить видео» нужно загрузить видео"}
+                else:
+                    voice_payload = json.loads(json.dumps(payload))
+                    voice_payload["skip_telegram"] = True
+                    voice_options = voice_payload.setdefault("voice_options", {})
+                    voice_options["elevenlabs_tool"] = "text_to_speech"
+                    voice_options["runway_tool"] = "text_to_speech"
+                    voice_options["upload_purpose"] = "voiceover"
+                    voice_options["uploadPurpose"] = "voiceover"
+                    voice_options["uploads"] = []
+                    voice_options["attachment"] = None
+                    prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_video_lip_sync_tts")
+                    audio_result = await audio_generation(voice_payload)
+                    if not isinstance(audio_result, dict) or not audio_result.get("ok"):
+                        result = audio_result if isinstance(audio_result, dict) else {"ok": False, "type": "voice", "error": "Не удалось создать озвучку для видео"}
+                    else:
+                        lip_sync_payload = build_voice_video_lip_sync_payload(payload, audio_result, input_video)
+                        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="kling", model="kling_lip_sync", route="voice_video_lip_sync_video")
+                        result = await video_generation(lip_sync_payload)
+                        if isinstance(result, dict):
+                            audio_url = audio_result.get("audio_url") or (_json_list(audio_result.get("audios"))[0] if _json_list(audio_result.get("audios")) else "")
+                            result["type"] = "video"
+                            result["voice_audio_url"] = audio_url
+                            result["audio_url"] = audio_url
+                            result["audios"] = [audio_url] if audio_url else []
+                            result["voice_options"] = payload.get("voice_options") or {}
+                if isinstance(result, dict):
+                    result["voice_video_lip_sync"] = True
+            else:
+                prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_generation")
+                result = await audio_generation(payload)
         elif mode in text_modes:
             if not selected_model or is_internal_ui_model(selected_model):
                 payload["model"] = "gpt-4o-mini"
