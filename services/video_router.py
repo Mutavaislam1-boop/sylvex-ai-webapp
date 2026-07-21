@@ -76,6 +76,7 @@ VIDEO_MODEL_CONFIG.update({
     "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
+    "kling_lip_sync": {"provider": "kling", "modes": ["lip_sync"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["720p"], "sound": True, "lip_sync": True, "video_input": True, "video_upload": True, "video_edit": True},
     "kling_effects": {"provider": "kling", "modes": ["video_effects"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_effects": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
@@ -147,6 +148,7 @@ VIDEO_PROVIDER_MODEL_MAP.update({
     "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_lip_sync": {"provider": "kling", "provider_model": os.getenv("KLING_LIP_SYNC_MODEL", "kling-v1-6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_effects": {"provider": "kling", "provider_model": os.getenv("KLING_EFFECTS_MODEL", "kling-v1-6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_OMNI_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_edit": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_EDIT_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
@@ -1886,6 +1888,14 @@ def _kling_effects_endpoint():
 
 
 # =====================================================
+# PYTHON-БЛОК: _kling_lip_sync_endpoint
+# Возвращает официальный endpoint Kling Lip Sync для озвучки видео.
+# =====================================================
+def _kling_lip_sync_endpoint():
+    return f"{_kling_base_url()}/v1/videos/lip-sync"
+
+
+# =====================================================
 # PYTHON-БЛОК: _kling_resolution
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -2110,6 +2120,14 @@ def _kling_effects_task_endpoint(task_id: str):
 
 
 # =====================================================
+# ФОНОВАЯ ЗАДАЧА: _kling_lip_sync_task_endpoint
+# Возвращает endpoint проверки задачи Kling Lip Sync.
+# =====================================================
+def _kling_lip_sync_task_endpoint(task_id: str):
+    return f"{_kling_base_url()}/v1/videos/lip-sync/{task_id}"
+
+
+# =====================================================
 # PYTHON-БЛОК: _kling_legacy_mode
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -2261,6 +2279,40 @@ def _kling_effects_poll_until_ready(task_id: str, headers: dict):
         if attempt < attempts:
             time.sleep(interval)
     return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_effects_task_endpoint(task_id))
+
+
+# =====================================================
+# POLLING-ПРОЦЕСС: _kling_lip_sync_poll_until_ready
+# Проверяет статус официальной задачи Kling Lip Sync.
+# =====================================================
+def _kling_lip_sync_poll_until_ready(task_id: str, headers: dict):
+    attempts, interval = _kling_poll_attempt_settings(60, 5)
+    last_result = None
+    for attempt in range(1, attempts + 1):
+        endpoint = _kling_lip_sync_task_endpoint(task_id)
+        response = _request_get(endpoint, headers)
+        data = _safe_provider_json_response(response, "kling", endpoint)
+        _log_provider_response("kling", "POLL_LIP_SYNC", endpoint, {"task_id": task_id, "attempt": attempt}, response, data)
+        status_code = getattr(response, "status_code", None) or 0
+        if status_code >= 400 or data.get("ok") is False or data.get("code") not in (None, 0):
+            return _provider_parse_error("kling", task_id, data)
+        state = _kling_status(data)
+        video_url = _kling_extract_video_url(data)
+        print("KLING LIP SYNC VIDEO POLL:", {
+            "attempt": attempt,
+            "task_id": task_id,
+            "status": state,
+            "has_video_url": bool(video_url),
+            "video_url": video_url or "",
+        })
+        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
+            return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
+        if state in {"failed", "error", "cancelled"}:
+            return _provider_parse_error("kling", task_id, data)
+        last_result = _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=endpoint)
+        if attempt < attempts:
+            time.sleep(interval)
+    return last_result or _provider_success("kling", task_id, [], status="processing", task_id=task_id, poll_url=_kling_lip_sync_task_endpoint(task_id))
 
 
 # =====================================================
@@ -2550,6 +2602,8 @@ async def poll_video_generation(result: dict) -> dict:
         poll_url = str(result.get("poll_url") or "")
         if model_id == "kling_effects" or "/v1/videos/effects/" in poll_url:
             return _kling_effects_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        if model_id == "kling_lip_sync" or "/v1/videos/lip-sync/" in poll_url:
+            return _kling_lip_sync_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         return _kling_poll_until_ready(str(task_id), {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
     if provider == "heygen":
         api_key = _get_env("HEYGEN_API_KEY")
@@ -3596,6 +3650,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or model_id == "kling_effects"
         or video_template.get("catalog_type") == "kling_effect"
     )
+    is_lip_sync = bool(
+        body.get("lip_sync")
+        or video_mode in {"lip_sync", "lip sync"}
+        or model_id == "kling_lip_sync"
+    )
 
     requires_image = (
         video_mode in {"image_to_video", "image to video", "motion_control", "motion control"}
@@ -3619,6 +3678,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         if is_video_effects:
             return _provider_error("kling", model_id, "Для Kling Video Effects нужно загрузить изображение")
         return _provider_error("kling", model_id, "Для Kling Image to Video нужно загрузить изображение")
+    if is_lip_sync and not input_video:
+        return _provider_error("kling", model_id, "Для Kling Lip Sync нужно загрузить видео")
 
     model_family = _kling_model_family(provider_model)
     is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
@@ -3631,7 +3692,34 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     is_legacy_model = _kling_is_legacy_model(model_id)
     legacy_kind = "image" if (input_image_public_url or input_image_content) else "text"
 
-    if is_video_effects:
+    if is_lip_sync:
+        audio_url = _absolute_public_url(
+            body.get("audio_url")
+            or raw_options.get("audio_url")
+            or payload.get("audio_url")
+            or ""
+        )
+        voice_id = str(raw_options.get("voice_id") or raw_options.get("kling_voice_id") or os.getenv("KLING_LIP_SYNC_VOICE_ID") or "girlfriend_1_speech02").strip()
+        voice_language = str(raw_options.get("voice_language") or raw_options.get("language") or payload.get("language") or os.getenv("KLING_LIP_SYNC_LANGUAGE") or "en").strip().lower()
+        if voice_language not in {"zh", "en"}:
+            voice_language = "en"
+        lip_input = {
+            "video_url": input_video,
+            "mode": "audio2video" if audio_url else "text2video",
+        }
+        if audio_url:
+            lip_input["audio_url"] = audio_url
+        else:
+            lip_text = (str(raw_options.get("audio_text") or raw_options.get("tts_text") or prompt or "").strip())[:120]
+            if not lip_text:
+                return _provider_error("kling", model_id, "Для Kling Lip Sync нужен текст озвучки или audio_url")
+            lip_input["text"] = lip_text
+            lip_input["voice_id"] = voice_id
+            lip_input["voice_language"] = voice_language
+        kling_body = {"input": lip_input}
+        if payload.get("job_id"):
+            kling_body["external_task_id"] = str(payload.get("job_id"))
+    elif is_video_effects:
         effect_scene = str(
             body.get("effect_scene")
             or raw_options.get("effect_scene")
@@ -3739,6 +3827,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         elif settings_for_cost.get("audio") == "off":
             cost_body["sound"] = False
             cost_body["native_audio"] = False
+    if is_lip_sync:
+        cost_body["lip_sync"] = True
+        cost_body["resolution"] = "720p"
     if is_video_effects:
         effect_input_for_cost = kling_body.get("input") if isinstance(kling_body.get("input"), dict) else {}
         cost_body["duration"] = effect_input_for_cost.get("duration") or cost_body.get("duration")
@@ -3831,7 +3922,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         endpoint_body = dict(body)
         if input_image_public_url or input_image_content:
             endpoint_body["start_image"] = input_image_public_url or input_image_content
-        if is_video_effects:
+        if is_lip_sync:
+            endpoint = _kling_lip_sync_endpoint()
+        elif is_video_effects:
             endpoint = _kling_effects_endpoint()
         elif is_legacy_model:
             endpoint = _kling_legacy_submit_endpoint(legacy_kind)
@@ -3877,7 +3970,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         task_id = _task_id_from_response(data.get("data") if isinstance(data.get("data"), dict) else data)
         if not task_id:
             return _provider_error("kling", model_id, "Kling task id not found")
-        if is_video_effects:
+        if is_lip_sync:
+            result = _kling_lip_sync_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        elif is_video_effects:
             result = _kling_effects_poll_until_ready(task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         elif is_legacy_model:
             result = _kling_legacy_poll_until_ready(task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
@@ -3904,7 +3999,9 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             else:
                 retry_task_id = _task_id_from_response(retry_data.get("data") if isinstance(retry_data.get("data"), dict) else retry_data)
                 if retry_task_id:
-                    if is_video_effects:
+                    if is_lip_sync:
+                        result = _kling_lip_sync_poll_until_ready(retry_task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                    elif is_video_effects:
                         result = _kling_effects_poll_until_ready(retry_task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
                     elif is_legacy_model:
                         result = _kling_legacy_poll_until_ready(retry_task_id, legacy_kind, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
