@@ -934,6 +934,53 @@ CSS-БЛОК: .studio-mode-tab
   width:100%;
   max-height:74vh;
 }
+.voice-tool-panel.voice-create-open{
+  position:fixed;
+  inset:0;
+  z-index:999998;
+  display:flex!important;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:rgba(0,0,0,.38);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+.voice-tool-panel.voice-create-open[hidden]{display:none!important}
+.voice-tool-panel.voice-create-open .voice-create-sheet{
+  position:relative;
+  width:min(92vw,520px);
+  height:min(78vh,680px);
+  max-width:none;
+  margin:0;
+  border-radius:26px;
+  background:rgba(18,18,20,.88);
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 28px 90px rgba(0,0,0,.75);
+  backdrop-filter:blur(22px) saturate(140%);
+  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  overflow:hidden auto;
+  padding:52px 14px 14px;
+}
+.voice-tool-panel.voice-create-open .voice-create-head{
+  margin:-52px -14px 14px;
+  min-height:52px;
+  padding:9px 56px 9px 18px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.voice-tool-panel.voice-create-open .voice-create-head h3{
+  margin:0;
+  color:#f3f3f3;
+  font-size:14px;
+  font-weight:800;
+  line-height:1.15;
+}
+.voice-tool-panel.voice-create-open .voice-create-head p{
+  display:none;
+}
+.voice-create-close{
+  z-index:2;
+}
 .voice-style-groups{
   max-height:calc(74vh - 70px);
   overflow-y:auto;

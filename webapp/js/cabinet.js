@@ -1875,6 +1875,7 @@ function renderVoiceToolPanel() {
   if (!isVoiceMode()) {
     panel.hidden = true;
     panel.classList.remove('voice-list-open');
+    panel.classList.remove('voice-create-open');
     panel.onclick = null;
     panel.innerHTML = '';
     return;
@@ -1894,7 +1895,8 @@ function renderVoiceToolPanel() {
   if (active === 'upload') body = renderVoiceUploadPanel();
   panel.hidden = !body;
   panel.classList.toggle('voice-list-open', active === 'voices');
-  panel.onclick = active === 'voices' ? closeVoiceList : null;
+  panel.classList.toggle('voice-create-open', active === 'create');
+  panel.onclick = active === 'voices' ? closeVoiceList : (active === 'create' ? closeVoiceCreate : null);
   panel.innerHTML = body;
   document.querySelectorAll('.vgen-btn, .vgen-upload-row').forEach((item) => item.classList.remove('active'));
   const activeSelector = active === 'create'
@@ -1959,6 +1961,21 @@ function closeVoiceList(e) {
 }
 
 // =====================================================
+// БЛОК ОЗВУЧКИ: closeVoiceCreate
+// Закрывает центрированный блок создания голоса.
+// =====================================================
+function closeVoiceCreate(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (activeVoicePanelSection === 'create') {
+    activeVoicePanelSection = '';
+    renderVoiceToolPanel();
+  }
+}
+
+// =====================================================
 // БЛОК ОЗВУЧКИ: renderVoiceListPanel
 // Рисует список голосов на базе того же визуального компонента, что и блок «Стили» в генерации фото.
 // =====================================================
@@ -2013,7 +2030,8 @@ function renderVoiceCreatePanel() {
   const recordButtonLabel = voiceCloneRecorder && voiceCloneRecorder.state === 'recording' ? 'Остановить запись' : 'Записать голос';
   const cloneSubmitLabel = voiceCloneSubmitting ? 'Создаём...' : 'Создать голос';
   return `
-    <div class="voice-workspace-sheet voice-create-sheet">
+    <div class="voice-workspace-sheet voice-create-sheet" onclick="event.stopPropagation()">
+      <button class="upload-panel-close voice-create-close" type="button" onclick="SYLVEX.closeVoiceCreate(event)">×</button>
       <div class="voice-create-head">
         <h3>Создай свой голос</h3>
         <p>Запишите голос или загрузите пример. После проверки создайте собственный голос для озвучки.</p>
@@ -11345,7 +11363,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
