@@ -1895,6 +1895,7 @@ function renderVoiceToolPanel() {
     panel.hidden = true;
     panel.classList.remove('voice-list-open');
     panel.classList.remove('voice-create-open');
+    panel.classList.remove('voice-upload-open');
     panel.onclick = null;
     panel.innerHTML = '';
     return;
@@ -1915,7 +1916,8 @@ function renderVoiceToolPanel() {
   panel.hidden = !body;
   panel.classList.toggle('voice-list-open', active === 'voices');
   panel.classList.toggle('voice-create-open', active === 'create');
-  panel.onclick = active === 'voices' ? closeVoiceList : (active === 'create' ? closeVoiceCreate : null);
+  panel.classList.toggle('voice-upload-open', active === 'upload');
+  panel.onclick = active === 'voices' ? closeVoiceList : ((active === 'create' || active === 'upload') ? closeVoicePanel : null);
   panel.innerHTML = body;
   document.querySelectorAll('.vgen-btn, .vgen-upload-row').forEach((item) => item.classList.remove('active'));
   const activeSelector = active === 'create'
@@ -1990,6 +1992,52 @@ function closeVoiceCreate(e) {
   }
   if (activeVoicePanelSection === 'create') {
     activeVoicePanelSection = '';
+    renderVoiceToolPanel();
+  }
+}
+
+// =====================================================
+// БЛОК ОЗВУЧКИ: closeVoicePanel
+// Закрывает центрированные окна озвучки: создание голоса и загрузка.
+// =====================================================
+function closeVoicePanel(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (activeVoicePanelSection === 'create' || activeVoicePanelSection === 'upload') {
+    activeVoicePanelSection = '';
+    renderVoiceToolPanel();
+  }
+}
+
+function toggleVoiceUploadDropdown(e, kind) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const root = e && e.target && e.target.closest ? e.target.closest('.voice-upload-select-wrap') : null;
+  document.querySelectorAll('.voice-upload-select-wrap.open').forEach((item) => {
+    if (item !== root) item.classList.remove('open');
+  });
+  if (root) root.classList.toggle('open');
+}
+
+function selectVoiceUploadOption(e, kind, value) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (kind === 'model') {
+    pickVoiceOption(e, 'model', value);
+    activeVoicePanelSection = 'upload';
+    renderVoiceToolPanel();
+    return;
+  }
+  if (kind === 'purpose') {
+    applyVoiceUploadPurpose(value);
+    renderVoiceControls();
+    activeVoicePanelSection = 'upload';
     renderVoiceToolPanel();
   }
 }
@@ -2156,6 +2204,8 @@ function renderVoiceCreatePanel() {
 function renderVoiceUploadPanel() {
   const uploads = Array.isArray(voiceState.uploads) ? voiceState.uploads : [];
   const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
+  const currentModel = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || VOICE_MODEL_LIST[0] || {};
+  const supportedPurposes = VOICE_UPLOAD_PURPOSES.filter((item) => isVoicePurposeSupported(item, voiceState.modelId));
   const targetLanguage = voiceState.targetLanguage || voiceState.elevenlabsTargetLanguage || voiceState.runwayTargetLanguage || 'en';
   const language = RUNWAY_DUBBING_LANGUAGES.find((item) => item.id === targetLanguage) || RUNWAY_DUBBING_LANGUAGES.find((item) => item.id === 'en') || { id:'en', label:'English' };
   const speakerCount = Math.max(1, Math.min(3, Number(voiceState.numSpeakers || 1)));
@@ -2172,31 +2222,69 @@ function renderVoiceUploadPanel() {
   const speakerControls = purpose.speakers
     ? '<button class="voice-upload-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_count\')"><span>Дикторы</span><b>' + speakerCount + '</b></button>'
     : '<button class="voice-upload-chip disabled" type="button" disabled><span>Дикторы</span><b>1</b></button>';
+  const dropdown = (kind, label, selectedLabel, options) => `
+    <div class="voice-upload-select-wrap">
+      <button class="voice-upload-select-btn" type="button" onclick="SYLVEX.toggleVoiceUploadDropdown(event,'${S.escapeHtml(kind)}')">
+        <span>${S.escapeHtml(label)}</span>
+        <b>${S.escapeHtml(selectedLabel)}</b>
+        <i>∨</i>
+      </button>
+      <div class="voice-upload-select-menu">
+        ${options.map((item) => '<button type="button" class="' + (item.active ? 'active' : '') + '" onclick="SYLVEX.selectVoiceUploadOption(event,\'' + S.escapeHtml(kind) + '\',\'' + S.escapeHtml(item.id) + '\')"><b>' + S.escapeHtml(item.label) + '</b>' + (item.desc ? '<small>' + S.escapeHtml(item.desc) + '</small>' : '') + '</button>').join('')}
+      </div>
+    </div>`;
+  const modelOptions = VOICE_MODEL_LIST.map((item) => ({
+    id: item.id,
+    label: item.label || item.name || item.id,
+    desc: item.desc || '',
+    active: item.id === voiceState.modelId,
+  }));
+  const purposeOptions = supportedPurposes.map((item) => ({
+    id: item.id,
+    label: item.label,
+    desc: item.hint || '',
+    active: item.id === purpose.id,
+  }));
+  const uploadInfo = uploads.length
+    ? S.escapeHtml(uploads[0].name || 'Файл выбран')
+    : 'Файл не выбран';
   return `
-    <div class="voice-workspace-sheet voice-upload-sheet">
+    <div class="voice-workspace-sheet voice-upload-sheet" onclick="event.stopPropagation()">
+      <button class="upload-panel-close voice-upload-close" type="button" onclick="SYLVEX.closeVoicePanel(event)">×</button>
       <div class="voice-upload-head">
         <div>
           <h3>Загрузить</h3>
           <p>Выберите, для чего нужен файл. Доступность режимов зависит от выбранной модели.</p>
         </div>
       </div>
-      <button class="voice-tool-input voice-upload-select voice-upload-purpose-btn" type="button" onclick="SYLVEX.openImageOptionMenu(event,'voice_upload_purpose')">
-        <span>${S.escapeHtml(purpose.label)}</span>
-        <small>${S.escapeHtml(purpose.hint || '')}</small>
-      </button>
-      <div class="voice-upload-controls">
+      <div class="voice-upload-top-grid">
+        ${dropdown('purpose', 'Тип загрузки', purpose.label, purposeOptions)}
+        ${dropdown('model', 'Модель', currentModel.label || currentModel.name || currentModel.id || 'Модель', modelOptions)}
+      </div>
+      <div class="voice-upload-controls voice-upload-controls-modern">
         ${languageControls}
         ${speakerControls}
       </div>
       ${speakerRows ? '<div class="voice-upload-speakers">' + speakerRows + '</div>' : ''}
-      <button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
-        <span>+</span>
-        <b>${uploads.length ? S.escapeHtml(uploads[0].name || 'Файл выбран') : 'Выбрать файл'}</b>
+      <div class="voice-upload-file-row">
+        <button class="voice-upload-drop" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">
+          <span>+</span>
+          <b>${uploads.length ? S.escapeHtml(uploads[0].name || 'Файл выбран') : 'Выбрать файл'}</b>
+          <small>${S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта')}</small>
+        </button>
+        <div class="voice-upload-file-info">
+          <span class="voice-file-icon">♪</span>
+          <div><b>${uploadInfo}</b>
+          <small>${S.escapeHtml(purpose.hint || '')}</small></div>
+        </div>
+      </div>
+      <div class="voice-upload-actions">
+        <button class="voice-upload-primary" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Выбрать файл</button>
+        <button class="voice-trash-btn voice-upload-clear" type="button" aria-label="Очистить" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length ? '' : 'disabled'}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 15H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button>
+      </div>
+      <div class="voice-upload-note">
+        <b>${S.escapeHtml(purpose.label)}</b>
         <small>${S.escapeHtml(purpose.needsFile ? 'Файл обязателен для выбранного режима' : 'Можно загрузить файл или использовать текст промпта')}</small>
-      </button>
-      <div class="voice-tool-actions">
-        <button type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Выбрать</button>
-        <button type="button" onclick="SYLVEX.clearVoiceUploads(event)" ${uploads.length ? '' : 'disabled'}>Очистить</button>
       </div>
     </div>`;
 }
@@ -11648,7 +11736,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, openVoiceList, closeVoiceList, openVoiceUpload, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
