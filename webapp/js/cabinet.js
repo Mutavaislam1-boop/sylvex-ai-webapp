@@ -1898,8 +1898,8 @@ function renderVoiceToolPanel() {
   panel.innerHTML = body;
   document.querySelectorAll('.vgen-btn, .vgen-upload-row').forEach((item) => item.classList.remove('active'));
   const activeSelector = active === 'create'
-    ? '.vgen-btn[onclick*="openVoiceCreate"]'
-    : (active === 'voices' ? '.vgen-btn[onclick*="openVoiceList"]' : (active === 'upload' ? '.vgen-upload-row' : ''));
+    ? '.vgen-create-row'
+    : (active === 'voices' ? '.vgen-btn[onclick*="openVoiceList"]' : (active === 'upload' ? '.vgen-btn[onclick*="openVoiceUpload"]' : ''));
   if (activeSelector) {
     const activeEl = document.querySelector(activeSelector);
     if (activeEl) activeEl.classList.add('active');
