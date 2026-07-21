@@ -545,6 +545,52 @@ def _mux_video_with_audio(video_url: str, audio_url: str) -> str:
 
 
 # =====================================================
+# ВИДЕО: _extract_audio_from_video_for_dubbing
+# Достаёт аудиодорожку из загруженного видео перед ElevenLabs Dubbing, чтобы провайдер получал стабильный audio-файл.
+# =====================================================
+def _extract_audio_from_video_for_dubbing(video_url: str) -> tuple[bytes, str, str, str]:
+    video_path = _local_webapp_path_from_url(video_url)
+    ffmpeg = _ffmpeg_binary()
+    if not video_path:
+        return b"", "input-audio.m4a", "audio/mp4", "Uploaded video is not available locally"
+    if not ffmpeg:
+        return b"", "input-audio.m4a", "audio/mp4", "ffmpeg is not available"
+
+    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = GENERATED_AUDIO_DIR / f"{uuid4().hex}.m4a"
+    command = [
+        ffmpeg,
+        "-y",
+        "-i", str(video_path),
+        "-vn",
+        "-ac", "2",
+        "-ar", "44100",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        str(output_path),
+    ]
+    try:
+        completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600, check=False)
+    except Exception as exc:
+        print("ELEVENLABS DUBBING AUDIO EXTRACT ERROR:", {"error": repr(exc)})
+        return b"", output_path.name, "audio/mp4", repr(exc)
+    if completed.returncode != 0 or not output_path.exists() or output_path.stat().st_size <= 0:
+        stderr = (completed.stderr or b"").decode("utf-8", "ignore")[-1200:]
+        print("ELEVENLABS DUBBING AUDIO EXTRACT ERROR:", {
+            "returncode": completed.returncode,
+            "stderr": stderr,
+        })
+        try:
+            if output_path.exists():
+                output_path.unlink()
+        except Exception:
+            pass
+        return b"", output_path.name, "audio/mp4", stderr or "Could not extract audio from video"
+
+    return output_path.read_bytes(), output_path.name, "audio/mp4", ""
+
+
+# =====================================================
 # ЗАГРУЗКА ФАЙЛОВ: _audio_extension_from_response
 # Определяет расширение аудиофайла по URL или Content-Type ответа провайдера.
 # =====================================================
@@ -1515,7 +1561,28 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
                     form_data["disable_voice_cloning"] = "true"
                 files = None
                 if media_url:
-                    media_bytes, filename, content_type = await _load_provider_media(client, media_url)
+                    if _voice_input_media_is_video(payload):
+                        media_bytes, filename, content_type, extract_error = _extract_audio_from_video_for_dubbing(media_url)
+                        if media_bytes:
+                            print("ELEVENLABS DUBBING VIDEO AUDIO EXTRACTED:", {
+                                "filename": filename,
+                                "content_type": content_type,
+                                "bytes": len(media_bytes),
+                            })
+                        elif extract_error and _local_webapp_path_from_url(media_url):
+                            return _audio_error(
+                                provider,
+                                frontend_model,
+                                provider_model,
+                                "Не удалось достать аудиодорожку из видео. Проверьте, что в ролике есть звук, и попробуйте другое видео.",
+                                type="video",
+                                tool=tool,
+                                details=extract_error,
+                            )
+                        else:
+                            media_bytes, filename, content_type = await _load_provider_media(client, media_url)
+                    else:
+                        media_bytes, filename, content_type = await _load_provider_media(client, media_url)
                     if media_bytes:
                         files = {"file": (filename, media_bytes, content_type)}
                     elif media_url.startswith(("http://", "https://")):

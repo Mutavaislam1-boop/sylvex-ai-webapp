@@ -73,6 +73,8 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
         return "Выбранное разрешение временно недоступно для этой модели. Измените настройки и попробуйте снова."
     if re.search(r"image too large|file too large|payload too large|413", low):
         return "Размер изображения превышает допустимый лимит.\nУменьшите размер файла и повторите попытку."
+    if re.search(r"couldn.?t extract audio|extract audio from.*uploaded file|no audio stream|audio stream.*not found|does not contain any stream", low):
+        return "Не удалось достать аудиодорожку из видео.\nПроверьте, что в ролике есть звук, или выберите другое видео."
     if re.search(r"invalid image|image.*invalid|cannot process.*image|bad image|unsupported image|get.*contents.*file|contents of the file", low):
         return "Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение."
     if re.search(r"sensitive|safety|policy|moderation|blocked|content.*violat", low):
