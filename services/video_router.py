@@ -11,6 +11,7 @@ import copy
 import base64
 import binascii
 import pathlib
+import mimetypes
 from uuid import uuid4
 import requests
 import httpx
@@ -2332,19 +2333,28 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
     async with httpx.AsyncClient(timeout=120.0) as client:
         for index, video_url in enumerate(videos):
             try:
-                video_response = await client.get(video_url)
-                if video_response.status_code >= 400 or not video_response.content:
-                    print("TELEGRAM VIDEO SEND:", {
-                        "telegram_id": telegram_id,
-                        "has_video_url": bool(video_url),
-                        "error": f"download failed: {video_response.status_code}",
-                    })
+                if str(video_url).startswith("/webapp/"):
+                    local_path = WEBAPP_DIR / str(video_url).replace("/webapp/", "", 1)
+                    video_content = local_path.read_bytes() if local_path.exists() else b""
+                    content_type = "video/mp4" if local_path.suffix.lower() == ".mp4" else (mimetypes.guess_type(str(local_path))[0] or "video/mp4")
+                else:
+                    video_response = await client.get(video_url)
+                    if video_response.status_code >= 400 or not video_response.content:
+                        print("TELEGRAM VIDEO SEND:", {
+                            "telegram_id": telegram_id,
+                            "has_video_url": bool(video_url),
+                            "error": f"download failed: {video_response.status_code}",
+                        })
+                        continue
+                    video_content = video_response.content
+                    content_type = video_response.headers.get("content-type") or "video/mp4"
+                if not video_content:
+                    print("TELEGRAM VIDEO SEND:", {"telegram_id": telegram_id, "has_video_url": bool(video_url), "error": "empty video"})
                     continue
-                content_type = video_response.headers.get("content-type") or "video/mp4"
                 ext = ".mp4" if "mp4" in content_type else ".bin"
                 filename = f"sylvex-video-{index + 1}{ext}"
                 data = {"chat_id": str(telegram_id), "caption": caption if index == 0 else ""}
-                files = {"video": (filename, video_response.content, content_type)}
+                files = {"video": (filename, video_content, content_type)}
                 tg_response = await client.post(
                     f"https://api.telegram.org/bot{bot_token}/sendVideo",
                     data=data,

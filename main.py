@@ -4265,7 +4265,8 @@ async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, pay
         result["telegram_status"] = "not_sent"
         return False
 
-    mode = (mode or result.get("type") or "").lower()
+    result_type = str(result.get("type") or "").lower()
+    mode = (result_type or mode or "").lower()
     model = result.get("model") or payload.get("model") or ""
     provider = result.get("provider") or payload.get("provider") or ""
     caption_lines = ["Готово ✅", "SYLVEX Pro Studio"]
