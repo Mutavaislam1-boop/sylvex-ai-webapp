@@ -3708,6 +3708,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             "mode": "audio2video" if audio_url else "text2video",
         }
         if audio_url:
+            lip_input["audio_type"] = "url"
             lip_input["audio_url"] = audio_url
         else:
             lip_text = (str(raw_options.get("audio_text") or raw_options.get("tts_text") or prompt or "").strip())[:120]
