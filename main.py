@@ -9640,6 +9640,10 @@ async def public_prostudio_elevenlabs_voice_clone(request: Request):
         telegram_id = int(form.get("telegram_id") or 0)
     except Exception:
         telegram_id = 0
+    try:
+        clone_settings = json.loads(str(form.get("settings") or "{}"))
+    except Exception:
+        clone_settings = {}
     result = await elevenlabs_clone_voice_from_audio(
         file_content=content,
         filename=getattr(file, "filename", None) or "sylvex-voice.webm",
@@ -9647,6 +9651,9 @@ async def public_prostudio_elevenlabs_voice_clone(request: Request):
         name=str(form.get("name") or "SYLVEX Voice"),
         description=str(form.get("description") or "Created in SYLVEX Mini App"),
         telegram_id=telegram_id,
+        gender=str(form.get("gender") or clone_settings.get("gender") or "neutral"),
+        emotion=str(form.get("emotion") or clone_settings.get("emotion") or "neutral"),
+        settings=clone_settings if isinstance(clone_settings, dict) else {},
     )
     if not result.get("ok"):
         return JSONResponse(result, status_code=502)
