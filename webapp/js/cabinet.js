@@ -6865,6 +6865,12 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  function renderTextLoadingDots() {
+    return '<div class="text-loading-dots" aria-label="Ожидаем ответ">'
+      + '<span></span><span></span><span></span>'
+      + '</div>';
+  }
+
   // =====================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderInsufficientBalanceCard
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
@@ -6963,6 +6969,11 @@ function imageModelButton(model) {
   function renderChat() {
     const el = document.getElementById('chatArea'); if (!el) return;
     el.innerHTML = chatMessages.map((m, i) => {
+      if (m.textLoading) {
+        return '<div class="msg ai text-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+          + renderTextLoadingDots()
+          + '</div>';
+      }
       if (m.imageLoading || m.generationLoading) {
         return '<div class="msg ai generation-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderGenerationLoadingCard(m)
@@ -10018,11 +10029,13 @@ async function waitGeneration(jobId, options) {
     updateImageUploadButtonPreview();
     if (isVoiceMode()) renderVoiceToolPanel();
     if (!photoMode) {
-      loadingIndex = chatMessages.push({
-        generationLoading: true,
-        role: 'ai',
-        progress: createGenerationProgress(generationKindForCurrentMode()),
-      }) - 1;
+      loadingIndex = chatMessages.push(studioMode === 'text'
+        ? { textLoading: true, role: 'ai' }
+        : {
+            generationLoading: true,
+            role: 'ai',
+            progress: createGenerationProgress(generationKindForCurrentMode()),
+          }) - 1;
     }
     renderChat();
     rememberCurrentChatSpace();
