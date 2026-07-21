@@ -8415,6 +8415,23 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
 # =====================================================
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
+    if mode == "voice" and is_voice_video_lip_sync_request(payload):
+        input_video = voice_uploaded_video_url(payload)
+        cost_payload = json.loads(json.dumps(payload))
+        cost_payload["mode"] = "video"
+        cost_payload["category"] = "video"
+        cost_payload["model"] = "kling_lip_sync"
+        cost_payload["provider"] = "kling"
+        cost_payload["video_options"] = {
+            "mode": "lip_sync",
+            "generation_mode": "lip_sync",
+            "lip_sync": True,
+            "input_video": input_video,
+            "video_url": input_video,
+            "duration": 5,
+            "resolution": "720p",
+        }
+        return estimate_video_generation_cost(cost_payload)
     if mode == "video":
         return estimate_video_generation_cost(payload)
     if mode != "image":
