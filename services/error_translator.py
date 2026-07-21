@@ -79,6 +79,8 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
         return "Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение."
     if re.search(r"sensitive|safety|policy|moderation|blocked|content.*violat", low):
         return "Запрос не может быть обработан из-за ограничений выбранной AI-модели.\nПопробуйте изменить изображение или описание."
+    if re.search(r"account balance not enough|balance.*not enough|insufficient.*balance|not enough.*balance", low):
+        return "На аккаунте провайдера Kling недостаточно средств для Lip Sync.\nПополните баланс Kling API или переключите режим на другую модель."
     if re.search(r"rate limit|too many requests|429|overloaded|busy", low):
         return "Сервис сейчас перегружен большим количеством запросов.\nПовторите попытку через несколько минут."
     if re.search(r"quota|insufficient quota|credit.*exceed|limit.*exceed", low):

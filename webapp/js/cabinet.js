@@ -6604,7 +6604,7 @@ function imageModelButton(model) {
       return model.includes('kling') ? 'kling' : 'video';
     }
     if (isMusicMode()) return 'music';
-    if (isVoiceMode()) return 'voice';
+    if (isVoiceMode()) return voiceState.uploadPurpose === 'dub_video' ? 'kling' : 'voice';
     if (isImageMode()) return 'image';
     return 'text';
   }
@@ -9530,17 +9530,19 @@ function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   const known = !!(S.user && S.user.balance !== undefined && S.user.balance !== null);
   const balance = Number((S.user && S.user.balance) || 0);
   let required = 1;
-  if (isImageMode()) {
-    const modelId = (imageOptionsSnapshot && (imageOptionsSnapshot.modelId || imageOptionsSnapshot.model)) || imageState.modelId || '';
+    if (isImageMode()) {
+      const modelId = (imageOptionsSnapshot && (imageOptionsSnapshot.modelId || imageOptionsSnapshot.model)) || imageState.modelId || '';
     // =====================================================
     // JAVASCRIPT-БЛОК: model
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
     // =====================================================
     const model = IMAGE_MODEL_LIST.find((item) => item.id === modelId) || {};
     const unit = Number(model.costCredits || 0);
-    const count = Number((imageOptionsSnapshot && imageOptionsSnapshot.count) || imageState.count || 1);
-    required = unit > 0 ? unit * Math.max(1, count || 1) : 1;
-  }
+      const count = Number((imageOptionsSnapshot && imageOptionsSnapshot.count) || imageState.count || 1);
+      required = unit > 0 ? unit * Math.max(1, count || 1) : 1;
+    } else if (isVoiceMode() && voiceState.uploadPurpose === 'dub_video') {
+      required = 11;
+    }
   return { balance, required, known };
 }
 
