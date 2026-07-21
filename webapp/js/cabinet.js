@@ -219,6 +219,11 @@ let activeVoicePanelSection = '';
 
 let textState = {
   modelId: 'gpt-4o-mini',
+  tool: 'text',
+  style: 'neutral',
+  format: 'markdown',
+  language: 'auto',
+  attachment: null,
 };
 
 let serverVisualItems = {
@@ -885,6 +890,38 @@ const VOICE_MODEL_LIST = [
   { id:'elevenlabs_english_sts_v2', label:'ElevenLabs English STS v2', providerModel:'eleven_english_sts_v2', desc:'English speech to speech', icon:'elevenlabs' },
   { id:'elevenlabs_multilingual_sts_v2', label:'ElevenLabs Multilingual STS v2', providerModel:'eleven_multilingual_sts_v2', desc:'Multilingual speech to speech', icon:'elevenlabs' },
   { id:'runway_eleven_multilingual_v2', label:'Runway Eleven Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Runway text to speech', icon:'runway' },
+];
+
+const TEXT_MODEL_LIST = [
+  { id:'gpt-5', label:'GPT-5', providerModel:'gpt-5', desc:'Флагманская модель для документов, анализа и промптов', icon:'openai' },
+  { id:'gpt-5-mini', label:'GPT-5 mini', providerModel:'gpt-5-mini', desc:'Быстрый текст, документы и структурирование', icon:'openai' },
+  { id:'gpt-4.1', label:'GPT-4.1', providerModel:'gpt-4.1', desc:'Сильная модель для длинных документов и задач', icon:'openai' },
+  { id:'gpt-4.1-mini', label:'GPT-4.1 mini', providerModel:'gpt-4.1-mini', desc:'Быстрая генерация текста и промптов', icon:'openai' },
+  { id:'gpt-4o', label:'GPT-4o', providerModel:'gpt-4o', desc:'Универсальная текстовая модель', icon:'openai' },
+  { id:'gpt-4o-mini', label:'GPT-4o mini', providerModel:'gpt-4o-mini', desc:'Легкая модель для быстрых текстов', icon:'openai' },
+];
+
+const TEXT_TOOL_OPTIONS = [
+  { id:'text', label:'Текст' },
+  { id:'document', label:'Документ' },
+  { id:'prompt', label:'Промпт' },
+  { id:'structured_dialogue', label:'Диалоги' },
+  { id:'audio_to_text', label:'Аудио → текст' },
+  { id:'video_to_text', label:'Видео → текст' },
+];
+
+const TEXT_STYLE_OPTIONS = [
+  { id:'neutral', label:'Нейтрально' },
+  { id:'business', label:'Бизнес' },
+  { id:'creative', label:'Креатив' },
+  { id:'technical', label:'Технично' },
+  { id:'telegram', label:'Telegram' },
+];
+
+const TEXT_FORMAT_OPTIONS = [
+  { id:'markdown', label:'Markdown' },
+  { id:'plain', label:'Обычный текст' },
+  { id:'pdf', label:'PDF' },
 ];
 
 const GEMINI_TTS_VOICES = [
@@ -1740,6 +1777,7 @@ function currentComposerModelList() {
   if (isVideoMode()) return VIDEO_MODELS;
   if (isMusicMode()) return MUSIC_MODEL_LIST;
   if (isVoiceMode()) return VOICE_MODEL_LIST;
+  if (studioMode === 'text') return TEXT_MODEL_LIST;
   return [];
 }
 
@@ -1755,6 +1793,44 @@ function musicOptionLabel(items, id, fallback) {
   // =====================================================
   const item = (items || []).find((entry) => String(entry.id) === value);
   return item ? (item.label || item.id) : fallback;
+}
+
+function textOptionLabel(items, id, fallback) {
+  const value = String(id || '');
+  const item = (items || []).find((entry) => String(entry.id) === value);
+  return item ? (item.label || item.id) : fallback;
+}
+
+function currentTextModel() {
+  return TEXT_MODEL_LIST.find((item) => item.id === textState.modelId) || TEXT_MODEL_LIST[TEXT_MODEL_LIST.length - 1] || null;
+}
+
+function renderTextControls() {
+  const model = currentTextModel();
+  const modelEl = document.getElementById('modelValComposer');
+  if (modelEl && studioMode === 'text') modelEl.textContent = model ? (model.label || model.id) : 'GPT-4o mini';
+  const toolVal = document.getElementById('textToolVal');
+  if (toolVal) toolVal.textContent = textOptionLabel(TEXT_TOOL_OPTIONS, textState.tool || 'text', 'Текст');
+  const styleVal = document.getElementById('textStyleVal');
+  if (styleVal) styleVal.textContent = textOptionLabel(TEXT_STYLE_OPTIONS, textState.style || 'neutral', 'Стиль');
+  const formatVal = document.getElementById('textFormatVal');
+  if (formatVal) formatVal.textContent = textOptionLabel(TEXT_FORMAT_OPTIONS, textState.format || 'markdown', 'Markdown');
+  const textModelVal = document.getElementById('textModelVal');
+  if (textModelVal) textModelVal.textContent = model ? (model.label || model.id) : 'GPT-4o mini';
+  const uploadVal = document.getElementById('textUploadVal');
+  if (uploadVal) {
+    const att = textState.attachment || pendingAttachment || null;
+    uploadVal.textContent = att && att.name ? att.name : 'Файл';
+  }
+}
+
+function textOptionsPayload() {
+  return {
+    tool: textState.tool || 'text',
+    style: textState.style || 'neutral',
+    format: textState.format || 'markdown',
+    language: textState.language || 'auto',
+  };
 }
 
 // =====================================================
@@ -2905,7 +2981,7 @@ function localizedGreeting() {
 
     const models = currentComposerModelList();
 
-    if ((isImageMode() || isVideoMode() || isMusicMode() || isVoiceMode()) && models.length) {
+    if ((isImageMode() || isVideoMode() || isMusicMode() || isVoiceMode() || studioMode === 'text') && models.length) {
       el.innerHTML = '<div class="image-model-sheet-title">Выберите модель</div>'
         + '<div class="image-model-sheet-list">'
         + models.map(imageModelButton).join('')
@@ -3977,6 +4053,9 @@ function currentModeAttachment() {
   if (isVideoMode()) return videoState.attachment || null;
   if (isMusicMode() || isVoiceMode()) return currentAudioState().attachment || null;
   if (isImageMode()) return imageState.attachment || null;
+  if (studioMode === 'text') {
+    return textState.attachment && !textState.attachment.uploading ? textState.attachment : null;
+  }
   return pendingAttachment;
 }
 
@@ -3991,6 +4070,8 @@ function setCurrentModeAttachment(attachment) {
     currentAudioState().attachment = attachment || null;
   } else if (isImageMode()) {
     imageState.attachment = attachment || null;
+  } else if (studioMode === 'text') {
+    textState.attachment = attachment || null;
   } else {
     pendingAttachment = attachment || null;
   }
@@ -4726,7 +4807,7 @@ function imageModelDescription(model) {
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
-    : (isMusicMode() ? musicState.modelId : (isVoiceMode() ? voiceState.modelId : videoState.modelId));
+    : (isMusicMode() ? musicState.modelId : (isVoiceMode() ? voiceState.modelId : (studioMode === 'text' ? textState.modelId : videoState.modelId)));
 
   const id = String(model && model.id ? model.id : '');
   const active = activeId === id;
@@ -4958,6 +5039,63 @@ function imageModelButton(model) {
 
     if (isImageMode() && kind === 'objects') {
       openImageStylePanel(e, 'object');
+      return;
+    }
+
+    if (studioMode === 'text') {
+      if (kind === 'model' || kind === 'text_model') {
+        showImageModelPicker(e);
+        return;
+      }
+
+      const el = document.getElementById('modelPop');
+      if (!el) return;
+      const openTextSheet = (title, items, optionKind, activeValue) => {
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+        el.classList.remove('image-model-floating-pop');
+        el.classList.remove('music-settings-pop');
+        el.classList.remove('video-option-horizontal-pop');
+        el.classList.add('image-size-floating-pop');
+        el.style.position = 'fixed';
+        el.style.left = '8px';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+        el.style.width = '72vw';
+        el.style.maxWidth = '350px';
+        el.style.minWidth = '250px';
+        el.style.maxHeight = '68vh';
+        el.style.overflowY = 'auto';
+        el.style.zIndex = '999999';
+        el.innerHTML = '<div class="image-size-sheet-title">' + S.escapeHtml(title) + '</div>'
+          + '<div class="image-size-sheet-list">'
+          + items.map((item) => {
+            const id = String(item.id || '');
+            const active = String(activeValue || '') === id;
+            return '<button class="image-size-row no-ratio-icon ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickTextOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
+              + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>'
+              + '<span class="image-size-check">✓</span>'
+              + '</button>';
+          }).join('')
+          + '</div>';
+        el.classList.add('show');
+        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
+        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
+        S.haptic && S.haptic.impact && S.haptic.impact('light');
+      };
+
+      if (kind === 'text_tool') {
+        openTextSheet('Инструмент текста', TEXT_TOOL_OPTIONS, 'tool', textState.tool || 'text');
+        return;
+      }
+      if (kind === 'text_style') {
+        openTextSheet('Стиль текста', TEXT_STYLE_OPTIONS, 'style', textState.style || 'neutral');
+        return;
+      }
+      if (kind === 'text_format') {
+        openTextSheet('Формат результата', TEXT_FORMAT_OPTIONS, 'format', textState.format || 'markdown');
+        return;
+      }
       return;
     }
 
@@ -5690,6 +5828,28 @@ function imageModelButton(model) {
     }
   }
 
+  function pickTextOption(e, kind, value) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (kind === 'tool') textState.tool = value || 'text';
+    if (kind === 'style') textState.style = value || 'neutral';
+    if (kind === 'format') textState.format = value || 'markdown';
+    renderTextControls();
+    const el = document.getElementById('modelPop');
+    if (el) {
+      el.classList.remove('show');
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('image-size-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.style.cssText = '';
+    }
+    updateSendButton();
+    S.haptic && S.haptic.select && S.haptic.select();
+  }
+
   function pickVoiceOption(e, kind, value) {
     if (e) {
       e.preventDefault();
@@ -5883,7 +6043,29 @@ function imageModelButton(model) {
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
+      } else if (studioMode === 'text') {
+        const model = TEXT_MODEL_LIST.find((item) => item.id === value);
+        if (model) {
+          textState.modelId = model.id;
+          const mvc = document.getElementById('modelValComposer');
+          if (mvc) mvc.textContent = model.label || model.name || model.id;
+        }
       }
+    }
+
+    if (studioMode === 'text') {
+      renderTextControls();
+      renderModelPop();
+      const el = document.getElementById('modelPop');
+      if (el) {
+        el.classList.remove('show');
+        el.classList.remove('image-model-floating-pop');
+        el.classList.remove('image-size-floating-pop');
+        el.classList.remove('music-settings-pop');
+        el.classList.remove('video-option-horizontal-pop');
+        el.style.cssText = '';
+      }
+      return;
     }
 
     if (isMusicMode() || isVoiceMode()) {
@@ -8114,6 +8296,10 @@ function closeUploadPanel(e) {
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'text_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'text_media'; }
+    else if (kind === 'text_video') { inp.accept = 'video/*'; pendingAttachAccept = 'text_media'; }
+    else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
+    else if (kind === 'text_media') { inp.accept = 'audio/*,video/*,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
     else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
@@ -8189,8 +8375,14 @@ function closeUploadPanel(e) {
       pendingKind = (f.type && f.type.startsWith('video/')) ? 'video' : 'audio';
     } else if (pendingKind === 'voice_document') {
       pendingKind = 'file';
+    } else if (pendingKind === 'text_media') {
+      if (f.type && f.type.startsWith('video/')) pendingKind = 'text_video';
+      else if (f.type && f.type.startsWith('audio/')) pendingKind = 'text_audio';
+      else pendingKind = 'text_file';
+    } else if (pendingKind === 'text_document') {
+      pendingKind = 'text_file';
     }
-    const maxSize = pendingKind === 'video' ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
+    const maxSize = (pendingKind === 'video' || pendingKind === 'text_video') ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
     if (f.size > maxSize) {
       toast(pendingKind === 'video' ? 'Видео слишком большое (макс. 200 MB)' : 'Файл слишком большой (макс. 50 MB)');
       return;
@@ -8246,6 +8438,43 @@ function closeUploadPanel(e) {
         });
       return;
     }
+    if (studioMode === 'text' && (pendingKind === 'text_video' || pendingKind === 'text_audio')) {
+      const uploadKind = pendingKind === 'text_video' ? 'video' : 'audio';
+      textState.attachment = {
+        kind: uploadKind,
+        name: f.name,
+        mime: f.type || (uploadKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+        size: f.size || 0,
+        uploading: true,
+      };
+      renderTextControls();
+      updateSendButton();
+      toast(uploadKind === 'video' ? 'Загружаем видео…' : 'Загружаем аудио…');
+      uploadProStudioMediaFile(f, uploadKind)
+        .then((url) => {
+          textState.attachment = {
+            kind: uploadKind,
+            url,
+            name: f.name,
+            mime: f.type || (uploadKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+            size: f.size || 0,
+          };
+          pendingAttachment = textState.attachment;
+          if (uploadKind === 'video') textState.tool = 'video_to_text';
+          if (uploadKind === 'audio') textState.tool = 'audio_to_text';
+          renderTextControls();
+          updateSendButton();
+          toast(uploadKind === 'video' ? 'Видео добавлено' : 'Аудио добавлено');
+        })
+        .catch((err) => {
+          textState.attachment = null;
+          pendingAttachment = null;
+          renderTextControls();
+          updateSendButton();
+          toast((err && err.message) || 'Не удалось загрузить файл');
+        });
+      return;
+    }
     if (pendingKind === 'video' && isVideoMode()) {
       uploadProStudioMediaFile(f, 'video')
         .then((url) => {
@@ -8275,7 +8504,7 @@ function closeUploadPanel(e) {
       const result = String(reader.result || '');
       const b64 = result.split(',')[1] || '';
       const attachment = {
-        kind: pendingKind,
+        kind: pendingKind === 'text_file' ? 'file' : pendingKind,
         mime: f.type || 'application/octet-stream',
         name: f.name,
         dataBase64: b64,
@@ -8306,6 +8535,7 @@ function closeUploadPanel(e) {
       }
 
       try { updateSendButton(); } catch {}
+      if (studioMode === 'text') renderTextControls();
     };
     reader.readAsDataURL(f);
   }
@@ -8315,6 +8545,7 @@ function closeUploadPanel(e) {
   // =====================================================
   function clearAttachment() {
     setCurrentModeAttachment(null);
+    if (studioMode === 'text') renderTextControls();
     try { updateSendButton(); } catch {}
   }
 
@@ -9247,6 +9478,7 @@ function maybeShowVideoTemplateIntro(force) {
       updateImageUploadButtonPreview();
       renderModelPop();
     } else if (isText) {
+      renderTextControls();
       renderModelPop();
       renderUploadedPhotoGrid();
       updateImageUploadButtonPreview();
@@ -9333,6 +9565,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
     : null;
   const musicOptions = isMusicMode() ? musicOptionsPayload() : null;
+  const textOptions = studioMode === 'text' ? textOptionsPayload() : null;
   const audioUploadsOverride = generationOptions && Array.isArray(generationOptions.audioUploads)
     ? generationOptions.audioUploads.slice()
     : null;
@@ -9363,6 +9596,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     video_options: videoOptions,
     music_options: musicOptions,
     voice_options: voiceOptions,
+    text_options: textOptions,
     history,
     attachment: attachment || null,
     conversation_id: currentConvId,
@@ -9378,6 +9612,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     video_options: payload.video_options,
     music_options: payload.music_options,
     voice_options: payload.voice_options,
+    text_options: payload.text_options,
   });
 
   const res = await fetch('/api/public/prostudio/generate', {
@@ -9692,6 +9927,10 @@ async function waitGeneration(jobId, options) {
    async function sendChat() {
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
+    if (studioMode === 'text' && textState.attachment && textState.attachment.uploading) {
+      toast('Файл ещё загружается');
+      return;
+    }
     const attachment = currentModeAttachment();
     const referenceImages = isVideoMode()
       ? (videoState.referenceImageUrls || []).slice()
@@ -9839,6 +10078,12 @@ async function waitGeneration(jobId, options) {
               referenceImages,
               resultType === 'video' ? videoOptionsSnapshot : null
             ),
+          });
+        } else if (studioMode === 'text' && j && j.text) {
+          chatMessages.push({
+            role: 'ai',
+            text: j.text,
+            files: Array.isArray(j.files) ? j.files : (j.file_url ? [j.file_url] : []),
           });
         } else {
           chatMessages.push({
@@ -11156,6 +11401,7 @@ async function waitGeneration(jobId, options) {
       : (isImageMode() ? imageState.referenceImageUrls : []);
     const activeAttachment = currentModeAttachment();
     const activeAudioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []) : [];
+    const textUploading = studioMode === 'text' && !!(textState.attachment && textState.attachment.uploading);
     const has = (ta.value || '').trim().length > 0
       || !!activeAttachment
       || !!(activeReferences && activeReferences.length)
@@ -11163,10 +11409,10 @@ async function waitGeneration(jobId, options) {
       || !!(activeAudioUploads && activeAudioUploads.length);
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
-      send.disabled = !has;
+      send.disabled = !has || textUploading;
       send.hidden = false;
     } else {
-      send.hidden = !has;
+      send.hidden = !has || textUploading;
     }
   }
 
@@ -11999,7 +12245,7 @@ async function waitGeneration(jobId, options) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
@@ -12023,6 +12269,7 @@ async function waitGeneration(jobId, options) {
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
   window.pickVoiceOption = pickVoiceOption;
+  window.pickTextOption = pickTextOption;
   window.previewGeminiVoice = previewGeminiVoice;
   window.onImageSeedInput = onImageSeedInput;
   window.toggleImageSeedTooltip = toggleImageSeedTooltip;

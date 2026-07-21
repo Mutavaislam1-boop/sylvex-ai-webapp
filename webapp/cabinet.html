@@ -460,7 +460,14 @@ HTML-страница Mini App. Комментарии подписывают э
             CSS-класс задаёт внешний вид и расположение: studio-media-column studio-music-tools music-only voice-only
             =================================================== -->
             <div class="studio-media-column studio-music-tools music-only voice-only" aria-hidden="true"></div>
-            <div class="studio-media-column studio-text-tools text-only" aria-hidden="true"></div>
+            <div class="studio-media-column studio-text-tools text-only" aria-hidden="true">
+              <button class="studio-image-tool" type="button" onclick="SYLVEX.openNativeFilePicker('text_media')">
+                <span class="studio-frame-ico">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
+                </span>
+                <span id="textUploadVal">Файл</span>
+              </button>
+            </div>
             <!-- ==================================================
             HTML-ЭЛЕМЕНТ: studio-prompt-column
             CSS-класс задаёт внешний вид и расположение: studio-prompt-column
@@ -551,7 +558,11 @@ HTML-страница Mini App. Комментарии подписывают э
                 </button>
                 <button class="studio-select-pill image-settings-pill text-only" type="button" aria-label="Стиль текста" onclick="SYLVEX.openImageOptionMenu(event,'text_style')">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                  <span id="textStyleVal" class="sr-only">Стиль</span>
+                  <span id="textStyleVal">Стиль</span>
+                </button>
+                <button class="studio-select-pill text-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'text_tool')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h16"/></svg>
+                  <span id="textToolVal">Текст</span>
                 </button>
                 <button class="studio-select-pill text-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'text_format')">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>

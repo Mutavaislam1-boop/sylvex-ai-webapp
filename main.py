@@ -22,7 +22,7 @@ import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _mux_video_with_audio, _send_generated_audio_to_telegram
+from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram
@@ -7032,6 +7032,185 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     return result
 
 # =====================================================
+# ТЕКСТОВАЯ ГЕНЕРАЦИЯ: модели, транскрибация и PDF
+# =====================================================
+TEXT_MODEL_ALIASES = {
+    "gpt-5": "gpt-5",
+    "gpt-5-mini": "gpt-5-mini",
+    "gpt-4.1": "gpt-4.1",
+    "gpt-4.1-mini": "gpt-4.1-mini",
+    "gpt-4o": "gpt-4o",
+    "gpt-4o-mini": "gpt-4o-mini",
+}
+
+
+def normalize_text_model(model: str) -> str:
+    raw = str(model or "").strip()
+    if is_internal_ui_model(raw) or raw in {"gpt-image-1", "gpt_image_1", "gpt-image-2", "gpt_image_2"}:
+        return "gpt-4o-mini"
+    return TEXT_MODEL_ALIASES.get(raw, raw or "gpt-4o-mini")
+
+
+def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:
+    if not isinstance(attachment, dict):
+        return b"", "attachment", "application/octet-stream"
+    name = pathlib.Path(str(attachment.get("name") or "attachment")).name
+    mime = str(attachment.get("mime") or attachment.get("content_type") or "application/octet-stream")
+    data_base64 = str(attachment.get("dataBase64") or attachment.get("data_base64") or "")
+    if data_base64:
+        try:
+            return base64.b64decode(data_base64), name, mime
+        except Exception:
+            return b"", name, mime
+    url = str(attachment.get("url") or attachment.get("path") or "").strip()
+    if not url:
+        return b"", name, mime
+    try:
+        if url.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / url.replace("/webapp/", "", 1)
+            return local_path.read_bytes(), name or local_path.name, mime
+        if url.startswith("/generated/"):
+            local_path = WEBAPP_DIR / url.replace("/generated/", "generated/", 1)
+            return local_path.read_bytes(), name or local_path.name, mime
+        response = requests.get(url, timeout=120)
+        response.raise_for_status()
+        return response.content, name, (response.headers.get("content-type") or mime)
+    except Exception as exc:
+        print("TEXT ATTACHMENT LOAD FAILED:", repr(exc))
+        return b"", name, mime
+
+
+def text_attachment_plain_text(attachment: dict) -> str:
+    content, filename, content_type = _text_attachment_bytes(attachment)
+    if not content:
+        return ""
+    suffix = pathlib.Path(filename or "").suffix.lower()
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    if suffix not in {".txt", ".md", ".json", ".csv"} and mime not in {"text/plain", "text/markdown", "application/json", "text/csv"}:
+        return ""
+    for encoding in ("utf-8", "utf-16", "cp1251"):
+        try:
+            text = content.decode(encoding).strip()
+            return text[:60000]
+        except Exception:
+            continue
+    return ""
+
+
+def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, language: str = "") -> tuple[bool, str]:
+    if not content:
+        return False, "Файл пустой или недоступен"
+    if not OPENAI_API_KEY:
+        return False, "OPENAI_API_KEY is not configured"
+    data = {"model": os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")}
+    if language and language not in {"auto", "ru", "en"}:
+        data["language"] = language
+    elif language in {"ru", "en"}:
+        data["language"] = language
+    response = requests.post(
+        f"{OPENAI_API_BASE}/audio/transcriptions",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        files={"file": (filename or "speech.webm", content, content_type or "audio/webm")},
+        data=data,
+        timeout=180,
+    )
+    if response.status_code >= 400:
+        return False, response.text
+    return True, response.json().get("text", "")
+
+
+def text_media_transcript(payload: dict, attachment: dict, tool: str) -> tuple[str, str]:
+    if tool not in {"audio_to_text", "video_to_text", "structured_dialogue"}:
+        return "", ""
+    if not isinstance(attachment, dict):
+        return "", "Для транскрибации нужно загрузить аудио или видео."
+    mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
+    url = str(attachment.get("url") or "").strip()
+    language = str((payload.get("text_options") or {}).get("language") or payload.get("language") or "auto").lower()
+
+    if tool == "video_to_text" or mime.startswith("video/"):
+        if url:
+            audio_bytes, filename, content_type, extract_error = _extract_audio_from_video_for_dubbing(url)
+            if extract_error:
+                return "", "Не удалось извлечь аудио из видео: " + extract_error
+            ok, text = openai_transcribe_bytes(audio_bytes, filename, content_type, language)
+            return (text, "") if ok else ("", text)
+        return "", "Для видео-в-текст нужен загруженный видеофайл."
+
+    content, filename, content_type = _text_attachment_bytes(attachment)
+    ok, text = openai_transcribe_bytes(content, filename, content_type, language)
+    return (text, "") if ok else ("", text)
+
+
+def save_text_pdf(text: str, title: str = "SYLVEX Text") -> str:
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.lib.units import mm
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from xml.sax.saxutils import escape
+
+        out_dir = WEBAPP_DIR / "generated" / "documents"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid4().hex}.pdf"
+        path = out_dir / filename
+        doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
+        styles = getSampleStyleSheet()
+        font_name = "Helvetica"
+        for font_path in (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+        ):
+            if pathlib.Path(font_path).exists():
+                try:
+                    pdfmetrics.registerFont(TTFont("SYLVEXUnicode", font_path))
+                    font_name = "SYLVEXUnicode"
+                    break
+                except Exception:
+                    pass
+        for style_obj in styles.byName.values():
+            style_obj.fontName = font_name
+        story = [Paragraph(escape(title or "SYLVEX Text"), styles["Title"]), Spacer(1, 8)]
+        for block in str(text or "").split("\n"):
+            story.append(Paragraph(escape(block) if block.strip() else "&nbsp;", styles["BodyText"]))
+            story.append(Spacer(1, 4))
+        doc.build(story)
+        return f"/webapp/generated/documents/{filename}"
+    except Exception as exc:
+        print("TEXT PDF SAVE FAILED:", repr(exc))
+        return ""
+
+
+def text_system_prompt(tool: str, style: str, output_format: str) -> str:
+    tool_notes = {
+        "text": "Generate high-quality text for the user's task.",
+        "document": "Create a structured document with clear sections, headings, and final actionable content.",
+        "prompt": "Create production-ready AI prompts with role, goal, context, constraints, output format, and examples when useful.",
+        "structured_dialogue": "Turn the source into a structured dialogue: speakers, timestamps or scenes when available, key points, and clean readable lines.",
+        "audio_to_text": "Transcribe and clean audio into accurate text. Preserve meaning and structure.",
+        "video_to_text": "Transcribe video speech and structure it as scenes, dialogue, summary, and action points.",
+    }
+    style_notes = {
+        "neutral": "Use a neutral professional tone.",
+        "business": "Use a business-ready concise tone.",
+        "creative": "Use a vivid creative tone.",
+        "technical": "Use a precise technical tone.",
+        "telegram": "Use a compact Telegram-friendly tone.",
+    }
+    format_note = "If PDF is selected, still return clean Markdown text; the backend will also create a PDF file."
+    return (
+        "You are SYLVEX Pro Studio Text AI inside a Telegram Mini App. "
+        + tool_notes.get(tool, tool_notes["text"]) + " "
+        + style_notes.get(style, style_notes["neutral"]) + " "
+        + format_note
+        + " Always answer in the user's language unless they request another language."
+    )
+
+
+# =====================================================
 # PYTHON-БЛОК: text_generation
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -7040,21 +7219,28 @@ def text_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     history = payload.get("history") or []
     mode = payload.get("mode") or "text"
-    model = payload.get("model") or "gpt-4o-mini"
-    if is_internal_ui_model(model):
-        model = "gpt-4o-mini"
+    model = normalize_text_model(payload.get("model") or "gpt-4o-mini")
     attachment = payload.get("attachment") or {}
+    text_options = payload.get("text_options") or {}
+    if not isinstance(text_options, dict):
+        text_options = {}
+    tool = str(text_options.get("tool") or "text").strip().lower()
+    style = str(text_options.get("style") or "neutral").strip().lower()
+    output_format = str(text_options.get("format") or "markdown").strip().lower()
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are SYLVEX Pro Studio inside a Telegram Mini App. "
-                "Help users create images, videos, music, voiceovers, text, and plans. "
-                "Be concise, practical, and production-ready."
-            )
-        }
-    ]
+    transcript = ""
+    transcript_error = ""
+    if tool in {"audio_to_text", "video_to_text", "structured_dialogue"} and attachment:
+        transcript, transcript_error = text_media_transcript(payload, attachment, tool)
+        if transcript_error:
+            return {"ok": False, "error": transcript_error}
+        prompt = (prompt + "\n\n" if prompt else "") + "Source transcript:\n" + transcript
+    elif attachment:
+        attachment_text = text_attachment_plain_text(attachment)
+        if attachment_text:
+            prompt = (prompt + "\n\n" if prompt else "") + "Attached document text:\n" + attachment_text
+
+    messages = [{"role": "system", "content": text_system_prompt(tool, style, output_format)}]
     for item in history[-10:]:
         role = item.get("role") if item.get("role") in ("user", "assistant") else "user"
         content = item.get("content")
@@ -7062,28 +7248,38 @@ def text_generation(payload: dict) -> dict:
             messages.append({"role": role, "content": content})
     if attachment:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
-    messages.append({"role": "user", "content": f"Mode: {mode}\nPrompt: {prompt}"})
+    messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
     if not OPENAI_API_KEY:
-        return {
-            "ok": True,
-            "type": "text",
-            "text": "SYLVEX Pro Studio is connected. Add OPENAI_API_KEY to enable live generation.\n\nPrompt: " + prompt
-        }
+        text = "SYLVEX Pro Studio Text AI is connected. Add OPENAI_API_KEY to enable live generation.\n\nPrompt: " + prompt
+        pdf_url = save_text_pdf(text, "SYLVEX Text") if output_format == "pdf" else ""
+        return {"ok": True, "type": "text", "text": text, "document_url": pdf_url, "files": [pdf_url] if pdf_url else []}
 
     response = requests.post(
         f"{OPENAI_API_BASE}/chat/completions",
         headers=openai_headers(),
-        data=json.dumps({"model": model if model != "gpt-image-1" else "gpt-4o-mini", "messages": messages}),
-        timeout=60,
+        data=json.dumps({"model": model, "messages": messages}),
+        timeout=120,
     )
     if response.status_code >= 400:
         return {"ok": False, "error": response.text}
     data = response.json()
+    text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    pdf_url = save_text_pdf(text, "SYLVEX Text") if output_format == "pdf" else ""
+    if pdf_url:
+        text = (text or "").rstrip() + "\n\nPDF: " + pdf_url
     return {
         "ok": True,
         "type": "text",
-        "text": data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        "text": text,
+        "provider": "openai",
+        "model": model,
+        "tool": tool,
+        "format": output_format,
+        "document_url": pdf_url,
+        "file_url": pdf_url,
+        "files": [pdf_url] if pdf_url else [],
+        "transcript": transcript,
     }
 
 # =====================================================
@@ -9719,23 +9915,14 @@ async def public_prostudio_transcribe(request: Request):
     content = await file.read()
     if not content:
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
-    if not OPENAI_API_KEY:
-        return {"ok": False, "error": "OPENAI_API_KEY is not configured"}
-
-    response = requests.post(
-        f"{OPENAI_API_BASE}/audio/transcriptions",
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-        files={"file": (
-            getattr(file, "filename", None) or "voice.webm",
-            content,
-            getattr(file, "content_type", None) or "audio/webm",
-        )},
-        data={"model": os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")},
-        timeout=120,
+    ok, text = openai_transcribe_bytes(
+        content,
+        getattr(file, "filename", None) or "voice.webm",
+        getattr(file, "content_type", None) or "audio/webm",
     )
-    if response.status_code >= 400:
-        return JSONResponse({"ok": False, "error": response.text}, status_code=502)
-    return {"ok": True, "text": response.json().get("text", "")}
+    if not ok:
+        return JSONResponse({"ok": False, "error": text}, status_code=502)
+    return {"ok": True, "text": text}
 
 # =====================================================
 # API ENDPOINT: public_prostudio_elevenlabs_voice_clone
