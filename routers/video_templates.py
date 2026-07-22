@@ -69,7 +69,20 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
     ratio = str(body.get("ratio") or template.get("aspect_ratio") or "16:9")
     if ratio not in {"16:9", "1:1", "9:16"}:
         ratio = "16:9"
-    model = body.get("model") or template.get("preferred_model") or "kling_3_0_turbo"
+    model = "kling_o3_edit"
+    preview_url = str(template.get("reference_video") or template.get("preview_video") or "").strip()
+    if not preview_url and preview_path.exists():
+        try:
+            slot = str(template.get("slot") or template_id).replace("builtin_video_template_", "").zfill(2)
+            preview_url = f"/webapp/assets/video-templates/{slot}/preview.mp4"
+        except Exception:
+            preview_url = str(preview_path)
+    if not preview_url:
+        raise HTTPException(status_code=400, detail="Template video is required")
+    final_prompt = (
+        final_prompt
+        + "\n\nUse the uploaded image as the replacement character or object reference. Keep the catalog video as the main motion, camera, timing, scene, and composition reference. Edit only the character/object identity from the uploaded image while preserving the video template movement and style."
+    )
 
     package = {
         "mode": "video",
@@ -86,18 +99,22 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
         "final_prompt": final_prompt,
         "video_options": {
             "section": "generate",
-            "generation_mode": "image_to_video",
-            "mode": "image_to_video",
+            "generation_mode": "video_edit",
+            "mode": "video_edit",
             "ratio": ratio,
             "resolution": body.get("resolution") or template.get("resolution") or "720p",
             "duration": int(body.get("duration") or template.get("duration") or 5),
             "sound": bool(body.get("sound", False)),
             "start_image": user_photo,
+            "input_video": preview_url,
+            "video_url": preview_url,
+            "video_input": True,
             "video_template": {
                 "id": template_id,
                 "title": template.get("title") or template_id,
                 "prompt": template_prompt,
-                "preview_video": str(preview_path) if preview_path.exists() else "",
+                "preview_video": preview_url,
+                "reference_video": preview_url,
                 "aspect_ratio": ratio,
                 "catalog_type": "video_template",
             },
