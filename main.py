@@ -7051,6 +7051,7 @@ TEXT_MODEL_ALIASES = {
     "qwen_plus": "qwen_plus",
     "qwen_turbo": "qwen_turbo",
     "qwen_max": "qwen_max",
+    "byteplus_seed_2_lite": "byteplus_seed_2_lite",
 }
 
 TEXT_MODEL_VARIANTS = {
@@ -7070,6 +7071,7 @@ TEXT_MODEL_VARIANTS = {
     "qwen_plus": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_PLUS_MODEL", "QWEN-TEXT-PLUS-MODEL", default="qwen-plus")},
     "qwen_turbo": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_TURBO_MODEL", "QWEN-TEXT-TURBO-MODEL", default="qwen-turbo")},
     "qwen_max": {"provider": "qwen", "provider_model": env_value("QWEN_TEXT_MAX_MODEL", "QWEN-TEXT-MAX-MODEL", default="qwen-max")},
+    "byteplus_seed_2_lite": {"provider": "byteplus", "provider_model": env_value("BYTEPLUS_TEXT_SEED_2_LITE_MODEL", "ARK_TEXT_MODEL", default="seed-2-0-lite-260228")},
 }
 
 
@@ -7126,6 +7128,42 @@ def text_attachment_plain_text(attachment: dict) -> str:
     return ""
 
 
+def text_attachment_data_url(attachment: dict) -> str:
+    if not isinstance(attachment, dict):
+        return ""
+    mime = str(attachment.get("mime") or attachment.get("content_type") or "").split(";", 1)[0].strip().lower()
+    if not mime.startswith("image/"):
+        return ""
+    content, _filename, content_type = _text_attachment_bytes(attachment)
+    if not content:
+        return ""
+    mime = (content_type or mime or "image/png").split(";", 1)[0].strip().lower()
+    if not mime.startswith("image/"):
+        mime = "image/png"
+    return "data:" + mime + ";base64," + base64.b64encode(content).decode("utf-8")
+
+
+def with_text_image_attachment(messages: list, attachment: dict, provider: str) -> list:
+    data_url = text_attachment_data_url(attachment)
+    if not data_url or provider not in {"openai", "gemini", "grok"}:
+        return messages
+    patched = list(messages or [])
+    for index in range(len(patched) - 1, -1, -1):
+        item = patched[index]
+        if item.get("role") != "user":
+            continue
+        content = str(item.get("content") or "")
+        patched[index] = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": content},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        }
+        break
+    return patched
+
+
 def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, language: str = "") -> tuple[bool, str]:
     if not content:
         return False, "Файл пустой или недоступен"
@@ -7149,7 +7187,7 @@ def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, la
 
 
 def text_media_transcript(payload: dict, attachment: dict, tool: str) -> tuple[str, str]:
-    if tool not in {"audio_to_text", "video_to_text", "structured_dialogue"}:
+    if tool not in {"audio_to_text", "video_to_text", "structured_dialogue", "translate", "summarize", "extract", "text", "document", "prompt", "rewrite"}:
         return "", ""
     if not isinstance(attachment, dict):
         return "", "Для транскрибации нужно загрузить аудио или видео."
@@ -7219,6 +7257,11 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
         "document": "Create a structured document with clear sections, headings, and final actionable content.",
         "prompt": "Create production-ready AI prompts with role, goal, context, constraints, output format, and examples when useful.",
         "structured_dialogue": "Turn the source into a structured dialogue: speakers, timestamps or scenes when available, key points, and clean readable lines.",
+        "translate": "Translate the supplied text or extracted media/document content. Preserve formatting and meaning, and state the detected source language when helpful.",
+        "summarize": "Create a concise structured summary with key points, decisions, action items, and important quotes when present.",
+        "rewrite": "Rewrite and improve the supplied content while preserving intent. Make it clearer, cleaner, and ready to publish.",
+        "extract": "Extract readable text, facts, entities, tasks, dates, tables, and useful structured information from the supplied content.",
+        "image_prompt": "Analyze the supplied image and create a detailed production-ready prompt. Include subject, style, composition, lighting, camera, mood, details, and negative prompt when useful.",
         "audio_to_text": "Transcribe and clean audio into accurate text. Preserve meaning and structure.",
         "video_to_text": "Transcribe video speech and structure it as scenes, dialogue, summary, and action points.",
     }
@@ -7252,14 +7295,14 @@ def quick_text_reply(prompt: str, attachment: dict, history: list, tool: str, ou
     return ""
 
 
-def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list) -> tuple[bool, str, dict]:
+def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list, extra_body: Optional[dict] = None) -> tuple[bool, str, dict]:
     if not api_key:
         return False, f"{provider.upper()} API key is not configured", {}
     endpoint = endpoint_base.rstrip("/") + "/chat/completions"
     response = requests.post(
         endpoint,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        data=json.dumps({"model": provider_model, "messages": messages}),
+        data=json.dumps({"model": provider_model, "messages": messages, **(extra_body or {})}),
         timeout=45,
     )
     try:
@@ -7284,9 +7327,24 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
         role = item.get("role")
         if role == "system":
             continue
+        raw_content = item.get("content")
+        parts = []
+        if isinstance(raw_content, list):
+            for part in raw_content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    parts.append({"text": str(part.get("text") or "")})
+                elif part.get("type") == "image_url":
+                    image_url = ((part.get("image_url") or {}).get("url") or "")
+                    if image_url.startswith("data:image/") and ";base64," in image_url:
+                        head, data = image_url.split(";base64,", 1)
+                        parts.append({"inline_data": {"mime_type": head.replace("data:", "") or "image/png", "data": data}})
+        else:
+            parts = [{"text": str(raw_content or "")}]
         contents.append({
             "role": "model" if role == "assistant" else "user",
-            "parts": [{"text": str(item.get("content") or "")}],
+            "parts": parts or [{"text": ""}],
         })
     endpoint_base = env_value("GEMINI_TEXT_ENDPOINT", "GEMINI-GENERATE-CONTENT-ENDPOINT", default="https://generativelanguage.googleapis.com/v1beta/models").rstrip("/")
     endpoint = f"{endpoint_base}/{provider_model}:generateContent"
@@ -7313,23 +7371,27 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
     return True, "\n".join(text_parts).strip(), data if isinstance(data, dict) else {}
 
 
-def call_text_provider(model: str, messages: list) -> dict:
+def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None) -> dict:
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-4o-mini"]
     provider = cfg.get("provider") or "openai"
     provider_model = cfg.get("provider_model") or model
+    request_messages = with_text_image_attachment(messages, attachment or {}, provider)
     if provider == "gemini":
-        ok, text, data = gemini_text_request(provider_model, messages)
+        ok, text, data = gemini_text_request(provider_model, request_messages)
     elif provider in {"grok", "xai"}:
         api_key = env_value("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
         endpoint_base = env_value("XAI_API_BASE", "GROK_API_BASE", default="https://api.x.ai/v1")
-        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, messages)
+        ok, text, data = openai_compatible_text_request("grok", endpoint_base, api_key, provider_model, request_messages)
         provider = "grok"
     elif provider == "qwen":
         api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
         endpoint_base = env_value("QWEN_TEXT_API_BASE", "DASHSCOPE_COMPATIBLE_API_BASE", default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
-        ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, messages)
+        ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, request_messages)
+    elif provider == "byteplus":
+        endpoint_base = BYTEPLUS_ARK_ENDPOINT
+        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, messages, {"thinking": {"type": "disabled"}})
     else:
-        ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, messages)
+        ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages)
         provider = "openai"
     if not ok:
         return {"ok": False, "error": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
@@ -7368,7 +7430,13 @@ def text_generation(payload: dict) -> dict:
 
     transcript = ""
     transcript_error = ""
-    if tool in {"audio_to_text", "video_to_text", "structured_dialogue"} and attachment:
+    attachment_mime = str((attachment or {}).get("mime") or (attachment or {}).get("content_type") or "").lower()
+    should_transcribe_media = bool(attachment) and (
+        tool in {"audio_to_text", "video_to_text", "structured_dialogue", "translate", "summarize", "extract"}
+        or attachment_mime.startswith("audio/")
+        or attachment_mime.startswith("video/")
+    )
+    if should_transcribe_media and attachment_mime.startswith(("audio/", "video/")):
         transcript, transcript_error = text_media_transcript(payload, attachment, tool)
         if transcript_error:
             return {"ok": False, "error": transcript_error}
@@ -7388,7 +7456,7 @@ def text_generation(payload: dict) -> dict:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
-    generated = call_text_provider(model, messages)
+    generated = call_text_provider(model, messages, attachment)
     if not generated.get("ok"):
         return generated
     text = generated.get("text") or ""

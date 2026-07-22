@@ -909,6 +909,7 @@ const TEXT_MODEL_LIST = [
   { id:'qwen_plus', label:'Qwen Plus', providerModel:'qwen-plus', desc:'Qwen для документов, промптов и диалогов', icon:'qwen' },
   { id:'qwen_turbo', label:'Qwen Turbo', providerModel:'qwen-turbo', desc:'Быстрый Qwen для текстов и конспектов', icon:'qwen' },
   { id:'qwen_max', label:'Qwen Max', providerModel:'qwen-max', desc:'Сильная Qwen-модель для длинных задач', icon:'qwen' },
+  { id:'byteplus_seed_2_lite', label:'BytePlus Seed 2.0 Lite', providerModel:'seed-2-0-lite-260228', desc:'ModelArk Chat API для структурирования и генерации текста', icon:'bytedance' },
 ];
 
 const TEXT_TOOL_OPTIONS = [
@@ -916,6 +917,11 @@ const TEXT_TOOL_OPTIONS = [
   { id:'document', label:'Документ' },
   { id:'prompt', label:'Промпт' },
   { id:'structured_dialogue', label:'Диалоги' },
+  { id:'translate', label:'Перевод' },
+  { id:'summarize', label:'Конспект' },
+  { id:'rewrite', label:'Рерайт' },
+  { id:'extract', label:'Извлечь текст' },
+  { id:'image_prompt', label:'Промпт по фото' },
   { id:'audio_to_text', label:'Аудио → текст' },
   { id:'video_to_text', label:'Видео → текст' },
 ];
@@ -2659,6 +2665,7 @@ const MODEL_ICON_SVG = {
   // =====================================================
   function providerHintForModel(model) {
     if (/seedream|seedance/i.test(model)) return 'bytedance';
+    if (/byteplus|seed[_-]?2|ark/i.test(model)) return 'byteplus';
     if (/^gpt[_-]?image|openai/i.test(model)) return 'openai';
     if (/sora/i.test(model)) return 'sora';
     if (/grok/i.test(model)) return 'xai';
@@ -8320,7 +8327,7 @@ function closeUploadPanel(e) {
     else if (kind === 'text_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_video') { inp.accept = 'video/*'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
-    else if (kind === 'text_media') { inp.accept = 'audio/*,video/*,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
+    else if (kind === 'text_media') { inp.accept = 'image/*,audio/*,video/*,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
     else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
@@ -8399,6 +8406,7 @@ function closeUploadPanel(e) {
     } else if (pendingKind === 'text_media') {
       if (f.type && f.type.startsWith('video/')) pendingKind = 'text_video';
       else if (f.type && f.type.startsWith('audio/')) pendingKind = 'text_audio';
+      else if (f.type && f.type.startsWith('image/')) pendingKind = 'text_image';
       else pendingKind = 'text_file';
     } else if (pendingKind === 'text_document') {
       pendingKind = 'text_file';
@@ -8459,33 +8467,34 @@ function closeUploadPanel(e) {
         });
       return;
     }
-    if (studioMode === 'text' && (pendingKind === 'text_video' || pendingKind === 'text_audio')) {
-      const uploadKind = pendingKind === 'text_video' ? 'video' : 'audio';
+    if (studioMode === 'text' && (pendingKind === 'text_video' || pendingKind === 'text_audio' || pendingKind === 'text_image')) {
+      const uploadKind = pendingKind === 'text_video' ? 'video' : (pendingKind === 'text_audio' ? 'audio' : 'image');
       textState.attachment = {
         kind: uploadKind,
         name: f.name,
-        mime: f.type || (uploadKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+        mime: f.type || (uploadKind === 'video' ? 'video/mp4' : (uploadKind === 'audio' ? 'audio/mpeg' : 'image/png')),
         size: f.size || 0,
         uploading: true,
       };
       renderTextControls();
       updateSendButton();
-      toast(uploadKind === 'video' ? 'Загружаем видео…' : 'Загружаем аудио…');
+      toast(uploadKind === 'video' ? 'Загружаем видео…' : (uploadKind === 'audio' ? 'Загружаем аудио…' : 'Загружаем фото…'));
       uploadProStudioMediaFile(f, uploadKind)
         .then((url) => {
           textState.attachment = {
             kind: uploadKind,
             url,
             name: f.name,
-            mime: f.type || (uploadKind === 'video' ? 'video/mp4' : 'audio/mpeg'),
+            mime: f.type || (uploadKind === 'video' ? 'video/mp4' : (uploadKind === 'audio' ? 'audio/mpeg' : 'image/png')),
             size: f.size || 0,
           };
           pendingAttachment = textState.attachment;
           if (uploadKind === 'video') textState.tool = 'video_to_text';
           if (uploadKind === 'audio') textState.tool = 'audio_to_text';
+          if (uploadKind === 'image' && textState.tool === 'text') textState.tool = 'image_prompt';
           renderTextControls();
           updateSendButton();
-          toast(uploadKind === 'video' ? 'Видео добавлено' : 'Аудио добавлено');
+          toast(uploadKind === 'video' ? 'Видео добавлено' : (uploadKind === 'audio' ? 'Аудио добавлено' : 'Фото добавлено'));
         })
         .catch((err) => {
           textState.attachment = null;
