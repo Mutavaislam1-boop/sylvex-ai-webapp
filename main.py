@@ -9381,7 +9381,7 @@ def prostudio_video_templates_from_env() -> list:
         if not isinstance(models, list):
             models = [models]
         models = [str(model).strip() for model in models if str(model or "").strip()]
-        preferred_model = "kling_o3_edit"
+        preferred_model = "kling_motion_3_0"
         duration = _template_int(item.get("duration"), 5) or 5
         resolution = str(item.get("resolution") or "720p").strip() or "720p"
         default_ratio = str(item.get("aspect_ratio") or item.get("ratio") or ratios[0]).strip()
@@ -9395,8 +9395,8 @@ def prostudio_video_templates_from_env() -> list:
             "prompt": "",
             "video_options": {
                 "model": preferred_model,
-                "generation_mode": "video_edit",
-                "mode": "video_edit",
+                "generation_mode": "motion_control",
+                "mode": "motion_control",
                 "ratio": default_ratio,
                 "duration": duration,
                 "resolution": resolution,
@@ -9404,6 +9404,8 @@ def prostudio_video_templates_from_env() -> list:
                 "input_video": reference_video,
                 "video_url": reference_video,
                 "video_input": True,
+                "motion_control": True,
+                "character_orientation": "image",
             },
         }
         cost = estimate_video_generation_cost(cost_payload)
@@ -9419,7 +9421,7 @@ def prostudio_video_templates_from_env() -> list:
             "reference_video": reference_video,
             "aspect_ratio": default_ratio,
             "ratios": ratios,
-            "models": ["kling_o3_edit"],
+            "models": ["kling_motion_3_0"],
             "preferred_model": preferred_model,
             "duration": duration,
             "resolution": resolution,

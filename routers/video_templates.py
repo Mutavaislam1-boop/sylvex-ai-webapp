@@ -69,7 +69,7 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
     ratio = str(body.get("ratio") or template.get("aspect_ratio") or "16:9")
     if ratio not in {"16:9", "1:1", "9:16"}:
         ratio = "16:9"
-    model = "kling_o3_edit"
+    model = "kling_motion_3_0"
     preview_url = str(template.get("reference_video") or template.get("preview_video") or "").strip()
     if not preview_url and preview_path.exists():
         try:
@@ -81,7 +81,7 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
         raise HTTPException(status_code=400, detail="Template video is required")
     final_prompt = (
         final_prompt
-        + "\n\nUse the uploaded image as the replacement character or object reference. Keep the catalog video as the main motion, camera, timing, scene, and composition reference. Edit only the character/object identity from the uploaded image while preserving the video template movement and style."
+        + "\n\nUse the uploaded image as the appearance reference. Use the catalog video as the motion reference. Generate the result with the same motion from the video and the character or object appearance from the image."
     )
 
     package = {
@@ -98,9 +98,9 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
         "template_prompt": template_prompt,
         "final_prompt": final_prompt,
         "video_options": {
-            "section": "generate",
-            "generation_mode": "video_edit",
-            "mode": "video_edit",
+            "section": "motion",
+            "generation_mode": "motion_control",
+            "mode": "motion_control",
             "ratio": ratio,
             "resolution": body.get("resolution") or template.get("resolution") or "720p",
             "duration": int(body.get("duration") or template.get("duration") or 5),
@@ -109,6 +109,8 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
             "input_video": preview_url,
             "video_url": preview_url,
             "video_input": True,
+            "motion_control": True,
+            "character_orientation": "image",
             "video_template": {
                 "id": template_id,
                 "title": template.get("title") or template_id,
@@ -117,6 +119,7 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
                 "reference_video": preview_url,
                 "aspect_ratio": ratio,
                 "catalog_type": "video_template",
+                "character_orientation": "image",
             },
             "model": model,
         },
