@@ -5,7 +5,6 @@ from services.video_templates import (
     get_all_templates,
     get_template,
 )
-from services.video_generation import generate_video as generate_video_kling
 
 router = APIRouter(
     prefix="/api/public/video/templates",
