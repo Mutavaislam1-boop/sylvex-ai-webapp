@@ -1589,7 +1589,7 @@ function videoOptionsPayload(referenceImagesOverride) {
   normalizeVideoStateForModel();
   const config = currentVideoConfig() || {};
   const videoTemplate = videoState.videoTemplate || null;
-  const isKlingEffect = !!(videoTemplate && (videoTemplate.catalog_type === 'kling_effect' || videoTemplate.effect_scene));
+  const isKlingEffect = !!(videoTemplate && (videoTemplate.catalog_type === 'kling_effect' || videoState.generationMode === 'video_effects' || videoState.mode === 'video_effects'));
   const referenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : (videoState.referenceImageUrls || []).slice();
@@ -9386,9 +9386,17 @@ function maybeShowVideoTemplateIntro(force) {
     const modelId = isKlingEffect ? 'kling_effects' : templatePreferredModel(template);
     const uploadedImage = videoTemplateUploadUrl;
     const selectedRatio = videoTemplateRatio;
+    const previousStudioMode = studioMode;
+    const previousActiveCat = activeCat;
+    const previousVideoState = Object.assign({}, videoState, {
+      referenceImageUrls: (videoState.referenceImageUrls || []).slice(),
+      uploadedImageUrls: (videoState.uploadedImageUrls || []).slice(),
+      advanced: Object.assign({}, videoState.advanced || {}),
+    });
     closeVideoTemplateModal();
     closeVideoTemplatesCatalog();
-    updateComposerMode('video');
+    studioMode = 'video';
+    activeCat = 'video';
     videoState.modelId = modelId;
     videoState.provider = 'kling';
     videoState.section = isKlingEffect ? 'motion' : 'generate';
@@ -9407,13 +9415,13 @@ function maybeShowVideoTemplateIntro(force) {
       description: template.description || '',
       prompt: template.prompt || template.video_prompt || template.description || template.title || '',
       preview_video: template.preview_video || '',
-      reference_video: referenceVideo,
+      reference_video: isKlingEffect ? referenceVideo : '',
       aspect_ratio: selectedRatio,
       catalog_type: isKlingEffect ? 'kling_effect' : 'video_template',
-      effect_scene: template.effect_scene || template.id || '',
+      effect_scene: isKlingEffect ? (template.effect_scene || template.id || '') : '',
       input_count: template.input_count || 1,
-      mode: template.mode || 'std',
-      model_name: template.model_name || 'kling-v1-6',
+      mode: isKlingEffect ? (template.mode || 'std') : '',
+      model_name: isKlingEffect ? (template.model_name || 'kling-v1-6') : '',
     };
     normalizeVideoStateForModel();
 
@@ -9458,9 +9466,9 @@ function maybeShowVideoTemplateIntro(force) {
       toast(translateGenerationError(err, 'Генерация не прошла'));
     } finally {
       document.body.classList.remove('ai-generating');
-      videoState.videoTemplate = null;
-      videoState.inputVideo = '';
-      videoState.videoUrl = '';
+      videoState = previousVideoState;
+      studioMode = previousStudioMode;
+      activeCat = previousActiveCat;
       renderChat();
       rememberCurrentChatSpace();
     }
