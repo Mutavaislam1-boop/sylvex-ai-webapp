@@ -75,6 +75,8 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
         return "Размер изображения превышает допустимый лимит.\nУменьшите размер файла и повторите попытку."
     if re.search(r"couldn.?t extract audio|extract audio from.*uploaded file|no audio stream|audio stream.*not found|does not contain any stream", low):
         return "Не удалось достать аудиодорожку из видео.\nПроверьте, что в ролике есть звук, или выберите другое видео."
+    if re.search(r"motion control|motion reference video|reference video|selected motion", low):
+        return "Kling не смог обработать выбранное видео как motion reference.\nВыберите MP4/MOV 3–10 секунд, где человек или персонаж хорошо виден в кадре и движение идёт одним непрерывным дублем."
     if re.search(r"invalid image|image.*invalid|cannot process.*image|bad image|unsupported image|get.*contents.*file|contents of the file", low):
         return "Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение."
     if re.search(r"sensitive|safety|policy|moderation|blocked|content.*violat", low):

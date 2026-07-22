@@ -4810,6 +4810,14 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img-row
   margin-top:8px !important;
 }
 
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-video-row{
+  display:flex !important;
+  flex-wrap:wrap !important;
+  justify-content:flex-end !important;
+  gap:8px !important;
+  margin-top:8px !important;
+}
+
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -4840,6 +4848,26 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
   display:block !important;
   margin:0 !important;
   border-radius:0 !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-video{
+  width:180px !important;
+  max-width:54vw !important;
+  aspect-ratio:9/16 !important;
+  flex:0 0 auto !important;
+  border-radius:16px !important;
+  overflow:hidden !important;
+  background:#000 !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  display:block !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-video video{
+  width:100% !important;
+  height:100% !important;
+  object-fit:cover !important;
+  display:block !important;
+  background:#000 !important;
 }
 
 .view[data-view="tools"].active .msg.user .bubble .msg-attachment{

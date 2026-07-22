@@ -4050,6 +4050,12 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                         result = _kling_poll_until_ready(retry_task_id, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
                 else:
                     result = _provider_error("kling", model_id, "Kling retry task id not found")
+        if is_motion_reference and _kling_should_retry_file_content_error(result):
+            result["raw_error"] = (
+                "Kling Motion Control could not process the selected motion reference video. "
+                "The file URL is available, but the video content may not match Kling requirements: "
+                "clear visible full/upper body character, continuous motion, supported mp4/mov, 3-10 seconds for image orientation."
+            )
         result["model"] = model_id
         result["provider_model"] = provider_model
         result.update(cost_info)
