@@ -3721,6 +3721,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         if payload.get("job_id"):
             kling_body["external_task_id"] = str(payload.get("job_id"))
     elif is_video_effects:
+        print("KLING DEBUG EFFECT SOURCES:", {
+            "body_effect_scene": body.get("effect_scene"),
+            "raw_options_effect_scene": raw_options.get("effect_scene"),
+            "video_template_effect_scene": video_template.get("effect_scene"),
+            "video_template": video_template,
+            "is_video_effects": is_video_effects,
+            "video_mode": video_mode,
+        })
         effect_scene = str(
             body.get("effect_scene")
             or raw_options.get("effect_scene")
