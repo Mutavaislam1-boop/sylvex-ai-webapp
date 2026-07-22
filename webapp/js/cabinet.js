@@ -9194,6 +9194,34 @@ function maybeShowVideoTemplateIntro(force) {
     return Array.from(byId.values()).slice(0, 50);
   }
 
+  function hydrateVideoTemplateCardVideos(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const videos = Array.from(scope.querySelectorAll('video[data-template-src]'));
+    if (!videos.length) return;
+    const loadVideo = (video) => {
+      if (!video || video.dataset.loaded === '1') return;
+      const src = video.dataset.templateSrc || '';
+      if (!src) return;
+      video.dataset.loaded = '1';
+      video.src = src;
+      video.load();
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(() => {});
+    };
+    if (!('IntersectionObserver' in window)) {
+      videos.slice(0, 8).forEach(loadVideo);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        loadVideo(entry.target);
+        observer.unobserve(entry.target);
+      });
+    }, { root: scope.querySelector('.video-templates-panel') || null, rootMargin: '220px 0px', threshold: 0.01 });
+    videos.forEach((video) => observer.observe(video));
+  }
+
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplatesCatalog
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -9220,7 +9248,7 @@ function maybeShowVideoTemplateIntro(force) {
       const ratioClass = ratio === '16:9' ? 'wide' : (ratio === '1:1' ? 'square' : 'tall');
       return '<button class="video-template-card ' + ratioClass + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
         + '<span class="video-template-card-poster"><span>▶</span></span>'
-        + (src ? '<video src="' + src + '"' + (poster ? ' poster="' + poster + '"' : '') + ' autoplay loop muted playsinline preload="metadata" onerror="this.style.display=\'none\'"></video>' : '')
+        + (src ? '<video data-template-src="' + src + '"' + (poster ? ' poster="' + poster + '"' : '') + ' loop muted playsinline preload="none" onerror="this.style.display=\'none\'"></video>' : '')
         + '<span class="video-template-card-shade"></span>'
         + '<span class="video-template-card-title">' + title + '</span>'
         + '</button>';
@@ -9236,6 +9264,7 @@ function maybeShowVideoTemplateIntro(force) {
     // =====================================================
     if (closeBtn) closeBtn.addEventListener('click', closeVideoTemplatesCatalog);
     document.body.appendChild(overlay);
+    hydrateVideoTemplateCardVideos(overlay);
   }
 
   // =====================================================
