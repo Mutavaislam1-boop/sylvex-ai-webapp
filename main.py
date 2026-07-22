@@ -9381,11 +9381,8 @@ def prostudio_video_templates_from_env() -> list:
         if not isinstance(models, list):
             models = [models]
         models = [str(model).strip() for model in models if str(model or "").strip()]
-        preferred_model = (
-            "kling_motion_3_0"
-            if (not models or "kling_motion_3_0" in models)
-            else ("kling_motion_2_6" if "kling_motion_2_6" in models else models[0])
-        )
+        image_models = {"kling_3_0_turbo", "kling_3_0", "kling_2_6", "kling_2_5_turbo", "kling_2_1", "kling_1_6", "kling_1_5", "kling_1_0"}
+        preferred_model = next((model for model in models if model in image_models), "kling_3_0_turbo")
         duration = _template_int(item.get("duration"), 5) or 5
         resolution = str(item.get("resolution") or "720p").strip() or "720p"
         default_ratio = str(item.get("aspect_ratio") or item.get("ratio") or ratios[0]).strip()
@@ -9399,15 +9396,12 @@ def prostudio_video_templates_from_env() -> list:
             "prompt": "",
             "video_options": {
                 "model": preferred_model,
-                "generation_mode": "motion_control",
-                "mode": "motion_control",
+                "generation_mode": "image_to_video",
+                "mode": "image_to_video",
                 "ratio": default_ratio,
                 "duration": duration,
                 "resolution": resolution,
                 "start_image": "template-image",
-                "input_video": reference_video,
-                "video_url": reference_video,
-                "motion_control": True,
             },
         }
         cost = estimate_video_generation_cost(cost_payload)
@@ -9423,7 +9417,7 @@ def prostudio_video_templates_from_env() -> list:
             "reference_video": reference_video,
             "aspect_ratio": default_ratio,
             "ratios": ratios,
-            "models": models or ["kling_motion_3_0", "kling_motion_2_6"],
+            "models": [model for model in models if model in image_models] or ["kling_3_0_turbo", "kling_2_6", "kling_2_5_turbo"],
             "preferred_model": preferred_model,
             "duration": duration,
             "resolution": resolution,
