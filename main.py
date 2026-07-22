@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
-from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram
+from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, Response
@@ -7150,9 +7150,33 @@ def text_attachment_data_url(attachment: dict) -> str:
     return "data:" + mime + ";base64," + base64.b64encode(content).decode("utf-8")
 
 
-def with_text_image_attachment(messages: list, attachment: dict, provider: str) -> list:
+def text_attachment_gemini_video_part(attachment: dict) -> dict:
+    if not isinstance(attachment, dict):
+        return {}
+    mime = str(attachment.get("mime") or attachment.get("content_type") or "").split(";", 1)[0].strip().lower()
+    if not mime.startswith("video/"):
+        return {}
+    url = str(attachment.get("url") or "").strip()
+    if not url:
+        return {}
+    api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
+    if not api_key:
+        return {}
+    part = _gemini_upload_file_from_url(url, api_key, "video")
+    if not isinstance(part, dict) or not part.get("uri"):
+        return {}
+    return {
+        "file_data": {
+            "mime_type": part.get("mime_type") or mime or "video/mp4",
+            "file_uri": part.get("uri"),
+        }
+    }
+
+
+def with_text_media_attachment(messages: list, attachment: dict, provider: str) -> list:
     data_url = text_attachment_data_url(attachment)
-    if not data_url or provider not in {"openai", "gemini", "grok"}:
+    gemini_video_part = text_attachment_gemini_video_part(attachment) if provider == "gemini" else {}
+    if provider not in {"openai", "gemini", "grok"} or (not data_url and not gemini_video_part):
         return messages
     patched = list(messages or [])
     for index in range(len(patched) - 1, -1, -1):
@@ -7160,12 +7184,14 @@ def with_text_image_attachment(messages: list, attachment: dict, provider: str) 
         if item.get("role") != "user":
             continue
         content = str(item.get("content") or "")
+        content_parts = [{"type": "text", "text": content}]
+        if data_url:
+            content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+        if gemini_video_part:
+            content_parts.append({"type": "gemini_file", "part": gemini_video_part})
         patched[index] = {
             "role": "user",
-            "content": [
-                {"type": "text", "text": content},
-                {"type": "image_url", "image_url": {"url": data_url}},
-            ],
+            "content": content_parts,
         }
         break
     return patched
@@ -7194,7 +7220,7 @@ def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, la
 
 
 def text_media_transcript(payload: dict, attachment: dict, tool: str) -> tuple[str, str]:
-    if tool not in {"audio_to_text", "video_to_text", "structured_dialogue", "translate", "summarize", "extract", "text", "document", "prompt", "rewrite"}:
+    if tool not in {"audio_to_text", "video_to_text", "video_prompt", "structured_dialogue", "translate", "summarize", "extract", "text", "document", "prompt", "rewrite"}:
         return "", ""
     if not isinstance(attachment, dict):
         return "", "Для транскрибации нужно загрузить аудио или видео."
@@ -7269,6 +7295,7 @@ def text_system_prompt(tool: str, style: str, output_format: str) -> str:
         "rewrite": "Rewrite and improve the supplied content while preserving intent. Make it clearer, cleaner, and ready to publish.",
         "extract": "Extract readable text, facts, entities, tasks, dates, tables, and useful structured information from the supplied content.",
         "image_prompt": "Analyze the supplied image and create a detailed production-ready prompt. Include subject, style, composition, lighting, camera, mood, details, and negative prompt when useful.",
+        "video_prompt": "Analyze the supplied video visually and create a detailed production-ready prompt. Describe subject, scenes, motion, camera, composition, lighting, mood, style, timing, transitions, and negative prompt when useful. If transcript is available, use it as extra context without replacing the visual analysis.",
         "audio_to_text": "Transcribe and clean audio into accurate text. Preserve meaning and structure.",
         "video_to_text": "Transcribe video speech and structure it as scenes, dialogue, summary, and action points.",
     }
@@ -7347,6 +7374,10 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
                     if image_url.startswith("data:image/") and ";base64," in image_url:
                         head, data = image_url.split(";base64,", 1)
                         parts.append({"inline_data": {"mime_type": head.replace("data:", "") or "image/png", "data": data}})
+                elif part.get("type") == "gemini_file":
+                    gemini_part = part.get("part")
+                    if isinstance(gemini_part, dict):
+                        parts.append(gemini_part)
         else:
             parts = [{"text": str(raw_content or "")}]
         contents.append({
@@ -7382,7 +7413,7 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-4o-mini"]
     provider = cfg.get("provider") or "openai"
     provider_model = cfg.get("provider_model") or model
-    request_messages = with_text_image_attachment(messages, attachment or {}, provider)
+    request_messages = with_text_media_attachment(messages, attachment or {}, provider)
     if provider == "gemini":
         ok, text, data = gemini_text_request(provider_model, request_messages)
     elif provider in {"grok", "xai"}:
@@ -7422,6 +7453,14 @@ def text_generation(payload: dict) -> dict:
     tool = str(text_options.get("tool") or "text").strip().lower()
     style = str(text_options.get("style") or "neutral").strip().lower()
     output_format = str(text_options.get("format") or "markdown").strip().lower()
+    model_cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-4o-mini"]
+    model_provider = model_cfg.get("provider") or "openai"
+    attachment_mime = str((attachment or {}).get("mime") or (attachment or {}).get("content_type") or "").lower()
+    if tool == "video_prompt" and attachment_mime.startswith("video/") and model_provider != "gemini":
+        if env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY"):
+            model = "gemini_2_5_flash"
+            model_cfg = TEXT_MODEL_VARIANTS.get(model) or model_cfg
+            model_provider = model_cfg.get("provider") or "gemini"
 
     quick_reply = quick_text_reply(prompt, attachment, history, tool, output_format)
     if quick_reply:
@@ -7437,17 +7476,19 @@ def text_generation(payload: dict) -> dict:
 
     transcript = ""
     transcript_error = ""
-    attachment_mime = str((attachment or {}).get("mime") or (attachment or {}).get("content_type") or "").lower()
+    direct_video_prompt = tool == "video_prompt" and attachment_mime.startswith("video/") and model_provider == "gemini"
     should_transcribe_media = bool(attachment) and (
         tool in {"audio_to_text", "video_to_text", "structured_dialogue", "translate", "summarize", "extract"}
         or attachment_mime.startswith("audio/")
         or attachment_mime.startswith("video/")
-    )
+    ) and not direct_video_prompt
     if should_transcribe_media and attachment_mime.startswith(("audio/", "video/")):
         transcript, transcript_error = text_media_transcript(payload, attachment, tool)
         if transcript_error:
             return {"ok": False, "error": transcript_error}
         prompt = (prompt + "\n\n" if prompt else "") + "Source transcript:\n" + transcript
+    elif direct_video_prompt:
+        prompt = (prompt + "\n\n" if prompt else "") + "Analyze the attached video itself and generate a production-ready prompt from the visible scenes, movement, style, lighting, and pacing."
     elif attachment:
         attachment_text = text_attachment_plain_text(attachment)
         if attachment_text:
