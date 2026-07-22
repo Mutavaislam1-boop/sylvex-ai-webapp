@@ -9011,8 +9011,8 @@ function closeUploadPanel(e) {
       poster_url: '/webapp/assets/video-templates/' + String(index + 1).padStart(2, '0') + '/poster.jpg',
       aspect_ratio: index % 3 === 0 ? '9:16' : (index % 3 === 1 ? '16:9' : '1:1'),
       ratios: ['16:9', '1:1', '9:16'],
-      models: ['kling_motion_3_0', 'kling_motion_2_6'],
-      preferred_model: 'kling_motion_3_0',
+      models: ['kling_3_0_turbo', 'kling_2_6', 'kling_2_5_turbo'],
+      preferred_model: 'kling_3_0_turbo',
       duration: 5,
       resolution: '720p',
       cost_credits: 95,
@@ -9120,9 +9120,11 @@ function maybeShowVideoTemplateIntro(force) {
   // =====================================================
   function templatePreferredModel(template) {
     const models = Array.isArray(template && template.models) ? template.models : [];
-    if ((template && template.preferred_model) === 'kling_motion_3_0' || models.includes('kling_motion_3_0') || !models.length) return 'kling_motion_3_0';
-    if ((template && template.preferred_model) === 'kling_motion_2_6' || models.includes('kling_motion_2_6')) return 'kling_motion_2_6';
-    return String((template && template.preferred_model) || models[0] || 'kling_motion_2_6');
+    const preferred = String((template && template.preferred_model) || '').trim();
+    const imageModels = ['kling_3_0_turbo', 'kling_3_0', 'kling_2_6', 'kling_2_5_turbo', 'kling_2_1', 'kling_1_6', 'kling_1_5', 'kling_1_0'];
+    if (imageModels.includes(preferred)) return preferred;
+    const found = models.find((model) => imageModels.includes(String(model || '').trim()));
+    return found || 'kling_3_0_turbo';
   }
 
   // =====================================================
@@ -9137,6 +9139,13 @@ function maybeShowVideoTemplateIntro(force) {
     // =====================================================
     const clean = ratios.filter((ratio) => ['16:9', '1:1', '9:16'].includes(String(ratio)));
     return clean.length ? clean : ['16:9', '1:1', '9:16'];
+  }
+
+  function videoTemplateRatioLabel(ratio) {
+    const value = String(ratio || '16:9');
+    if (value === '9:16') return 'Вертикальный';
+    if (value === '1:1') return 'Квадрат';
+    return 'Широкий';
   }
 
   // =====================================================
@@ -9321,7 +9330,7 @@ function maybeShowVideoTemplateIntro(force) {
       + '<h3>' + S.escapeHtml(template.title || 'Video') + '</h3>'
       + '<p>' + S.escapeHtml(template.description || '') + '</p>'
       + '<button id="videoTemplateUpload" class="video-template-upload" type="button"></button>'
-      + '<div class="video-template-ratios">' + ratios.map((ratio) => '<button type="button" data-ratio="' + S.escapeHtml(ratio) + '" class="' + (ratio === videoTemplateRatio ? 'active' : '') + '"><span class="image-size-icon" data-ratio="' + S.escapeHtml(ratio) + '"></span>' + S.escapeHtml(ratio) + '</button>').join('') + '</div>'
+      + '<div class="video-template-ratios">' + ratios.map((ratio) => '<button type="button" data-ratio="' + S.escapeHtml(ratio) + '" class="' + (ratio === videoTemplateRatio ? 'active' : '') + '"><span class="video-template-ratio-icon" data-ratio="' + S.escapeHtml(ratio) + '"></span><span><b>' + S.escapeHtml(ratio) + '</b><small>' + S.escapeHtml(videoTemplateRatioLabel(ratio)) + '</small></span></button>').join('') + '</div>'
       + '<button id="videoTemplateGenerate" class="video-template-generate" type="button">' + S.escapeHtml(videoTemplateText('create')) + (cost ? ' ' + S.escapeHtml(cost) : '') + '</button>'
       + '</div>'
       + '<input id="videoTemplateFileInput" type="file" accept="image/png,image/jpeg,image/jpg" hidden />'
@@ -9374,10 +9383,6 @@ function maybeShowVideoTemplateIntro(force) {
     }
     const isKlingEffect = !!template.is_kling_effect || template.catalog_type === 'kling_effect';
     const referenceVideo = videoTemplateReferenceVideo(template);
-    if (!isKlingEffect && !referenceVideo) {
-      toast(videoTemplateText('templateVideoRequired'));
-      return;
-    }
     const modelId = isKlingEffect ? 'kling_effects' : templatePreferredModel(template);
     const uploadedImage = videoTemplateUploadUrl;
     const selectedRatio = videoTemplateRatio;
@@ -9387,14 +9392,14 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.modelId = modelId;
     videoState.provider = 'kling';
     videoState.section = isKlingEffect ? 'motion' : 'generate';
-    videoState.generationMode = isKlingEffect ? 'video_effects' : 'motion_control';
+    videoState.generationMode = isKlingEffect ? 'video_effects' : 'image_to_video';
     videoState.mode = videoState.generationMode;
     videoState.ratio = selectedRatio;
     videoState.duration = Number(template.duration || 5);
     videoState.resolution = template.resolution || '720p';
     videoState.sound = false;
     videoState.startImage = uploadedImage;
-    videoState.inputVideo = isKlingEffect ? '' : referenceVideo;
+    videoState.inputVideo = '';
     videoState.videoUrl = videoState.inputVideo;
     videoState.videoTemplate = {
       id: template.id || '',
@@ -9411,9 +9416,6 @@ function maybeShowVideoTemplateIntro(force) {
       model_name: template.model_name || 'kling-v1-6',
     };
     normalizeVideoStateForModel();
-    renderVideoControls();
-    renderUploadedPhotoGrid();
-    updateImageUploadButtonPreview();
 
     const promptLabel = template.title || 'Video template';
     const promptText = template.prompt || template.video_prompt || template.description || template.title || '';
