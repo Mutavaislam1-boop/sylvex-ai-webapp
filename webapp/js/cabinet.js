@@ -1611,6 +1611,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     image_url: '',
     motion_preset: videoState.motionPreset || '',
     video_template: videoTemplate,
+    character_orientation: (videoTemplate && videoTemplate.character_orientation) || 'image',
     effect_scene: isKlingEffect ? (videoTemplate.effect_scene || '') : '',
     video_effects: isKlingEffect,
     is_kling_effect: isKlingEffect,
@@ -9011,8 +9012,8 @@ function closeUploadPanel(e) {
       poster_url: '/webapp/assets/video-templates/' + String(index + 1).padStart(2, '0') + '/poster.jpg',
       aspect_ratio: index % 3 === 0 ? '9:16' : (index % 3 === 1 ? '16:9' : '1:1'),
       ratios: ['16:9', '1:1', '9:16'],
-      models: ['kling_o3_edit'],
-      preferred_model: 'kling_o3_edit',
+      models: ['kling_motion_3_0'],
+      preferred_model: 'kling_motion_3_0',
       duration: 5,
       resolution: '720p',
       cost_credits: 95,
@@ -9121,9 +9122,9 @@ function maybeShowVideoTemplateIntro(force) {
   function templatePreferredModel(template) {
     const models = Array.isArray(template && template.models) ? template.models : [];
     const preferred = String((template && template.preferred_model) || '').trim();
-    if (preferred === 'kling_o3_edit') return preferred;
-    const found = models.find((model) => String(model || '').trim() === 'kling_o3_edit');
-    return found || 'kling_o3_edit';
+    if (preferred === 'kling_motion_3_0') return preferred;
+    const found = models.find((model) => String(model || '').trim() === 'kling_motion_3_0');
+    return found || 'kling_motion_3_0';
   }
 
   // =====================================================
@@ -9427,8 +9428,8 @@ function maybeShowVideoTemplateIntro(force) {
     activeCat = 'video';
     videoState.modelId = modelId;
     videoState.provider = 'kling';
-    videoState.section = isKlingEffect ? 'motion' : 'edit';
-    videoState.generationMode = isKlingEffect ? 'video_effects' : 'video_edit';
+    videoState.section = 'motion';
+    videoState.generationMode = isKlingEffect ? 'video_effects' : 'motion_control';
     videoState.mode = videoState.generationMode;
     videoState.ratio = selectedRatio;
     videoState.duration = Number(template.duration || 5);
@@ -9448,6 +9449,7 @@ function maybeShowVideoTemplateIntro(force) {
       catalog_type: isKlingEffect ? 'kling_effect' : 'video_template',
       effect_scene: isKlingEffect ? (template.effect_scene || template.id || '') : '',
       input_count: template.input_count || 1,
+      character_orientation: 'image',
       mode: isKlingEffect ? (template.mode || 'std') : '',
       model_name: isKlingEffect ? (template.model_name || 'kling-v1-6') : '',
     };
@@ -9459,7 +9461,7 @@ function maybeShowVideoTemplateIntro(force) {
       ? basePrompt
       : [
           basePrompt,
-          'Use the uploaded image as the replacement character or object reference. Keep the catalog video as the main motion, camera, timing, scene, and composition reference. Edit only the character/object identity from the uploaded image while preserving the video template movement and style.',
+          'Use the uploaded image as the appearance reference. Use the catalog video as the motion reference. Generate the result with the same motion from the video and the character or object appearance from the image.',
         ].filter(Boolean).join('\n\n');
     chatMessages.push({
       role: 'user',
