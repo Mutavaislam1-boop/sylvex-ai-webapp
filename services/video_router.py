@@ -3601,6 +3601,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     input_image = _normalize_kling_image_input(input_image)
     input_image_content = _kling_image_content_value(input_image)
     input_image_public_url = _materialize_data_image_to_public_url(input_image)
+    if input_image_public_url:
+        input_image_content = input_image_public_url
     end_image = (
         body.get("end_image")
         or raw_options.get("end_image")
@@ -3610,6 +3612,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     end_image = _normalize_kling_image_input(end_image)
     end_image_content = _kling_image_content_value(end_image)
     end_image_public_url = _materialize_data_image_to_public_url(end_image)
+    if end_image_public_url:
+        end_image_content = end_image_public_url
 
     video_template = body.get("video_template") if isinstance(body.get("video_template"), dict) else {}
     input_video = (
