@@ -3699,6 +3699,25 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     is_legacy_model = _kling_is_legacy_model(model_id)
     legacy_kind = "image" if (input_image_public_url or input_image_content) else "text"
 
+    # =====================================================
+    # PYTHON-БЛОК: _ensure_kling_omni_prompt_refs
+    # Добавляет явные ссылки на media-id для Kling Omni, чтобы провайдер
+    # точно связал prompt с загруженными image_1/video_1 материалами.
+    # =====================================================
+    def _ensure_kling_omni_prompt_refs(base_prompt, *, has_image=False, has_video=False, base_video=False):
+        text = str(base_prompt or "").strip()
+        additions = []
+        if has_video and "<<<video_1>>>" not in text:
+            if base_video:
+                additions.append("Use <<<video_1>>> as the base video to edit. Preserve its motion, camera, timing, scene, and composition.")
+            else:
+                additions.append("Use <<<video_1>>> as the video reference.")
+        if has_image and "<<<image_1>>>" not in text:
+            additions.append("Use <<<image_1>>> as the character or object reference for the replacement.")
+        if not additions:
+            return text
+        return "\n\n".join([part for part in [text, "\n".join(additions)] if part])
+
     if is_lip_sync:
         audio_url = _absolute_public_url(
             body.get("audio_url")
@@ -3795,9 +3814,15 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         kling_body["contents"].append({"type": "video", "url": input_video})
     elif is_omni_video_reference or is_omni_unified_generation:
         contents = []
+        reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit"} else "feature_video"
+        prompt = _ensure_kling_omni_prompt_refs(
+            prompt,
+            has_image=bool(input_image_url),
+            has_video=bool(input_video),
+            base_video=reference_type == "base_video",
+        )
         if prompt:
             contents.append({"type": "prompt", "text": prompt})
-        reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit"} else "feature_video"
         if input_image_url:
             image_type = "image" if reference_type == "base_video" else "first_frame"
             contents.append({"type": image_type, "url": input_image_url, "id": "image_1"})
