@@ -1836,7 +1836,31 @@ function renderTextControls() {
   const uploadVal = document.getElementById('textUploadVal');
   if (uploadVal) {
     const att = textState.attachment || pendingAttachment || null;
-    uploadVal.textContent = att && att.name ? att.name : 'Файл';
+    const btn = uploadVal.closest ? uploadVal.closest('button') : null;
+    if (btn) {
+      btn.classList.remove('text-upload-has-preview', 'text-upload-file-selected');
+      btn.style.backgroundImage = '';
+      btn.dataset.textUploadKind = '';
+    }
+    if (att && att.uploading) {
+      uploadVal.textContent = 'Загрузка';
+      if (btn) btn.classList.add('text-upload-file-selected');
+    } else if (att) {
+      const kind = String(att.kind || '').toLowerCase();
+      const label = kind === 'image' ? 'Фото выбрано' : (kind === 'video' ? 'Видео выбрано' : (kind === 'audio' ? 'Аудио выбрано' : 'Файл выбран'));
+      uploadVal.textContent = label;
+      if (btn) {
+        btn.dataset.textUploadKind = kind || 'file';
+        btn.classList.add('text-upload-file-selected');
+        const url = attachmentUrl(att);
+        if (kind === 'image' && url) {
+          btn.classList.add('text-upload-has-preview');
+          btn.style.backgroundImage = 'linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.62)),url("' + String(url).replace(/"/g, '%22') + '")';
+        }
+      }
+    } else {
+      uploadVal.textContent = 'Файл';
+    }
   }
 }
 
@@ -6969,6 +6993,36 @@ function imageModelButton(model) {
       + '</div>';
   }
 
+  function attachmentUrl(att) {
+    if (!att || typeof att !== 'object') return '';
+    if (att.url) return String(att.url);
+    if (att.previewUrl) return String(att.previewUrl);
+    if (att.dataBase64) return 'data:' + S.escapeHtml(att.mime || 'application/octet-stream') + ';base64,' + att.dataBase64;
+    return '';
+  }
+
+  function renderMessageAttachment(att) {
+    if (!att || typeof att !== 'object') return '';
+    const url = attachmentUrl(att);
+    const mime = String(att.mime || '');
+    const kind = String(att.kind || '').toLowerCase();
+    const name = S.escapeHtml(att.name || 'Файл');
+    const safeUrl = S.escapeHtml(url);
+    if (!url) return '';
+    if (kind === 'image' || mime.startsWith('image/')) {
+      return '<div class="msg-attachment msg-attachment-image"><img src="' + safeUrl + '" alt="' + name + '" /></div>';
+    }
+    if (kind === 'video' || mime.startsWith('video/')) {
+      return '<div class="msg-attachment msg-attachment-video"><video src="' + safeUrl + '" controls playsinline preload="metadata"></video></div>';
+    }
+    if (kind === 'audio' || mime.startsWith('audio/')) {
+      return '<div class="msg-attachment msg-attachment-audio"><audio src="' + safeUrl + '" controls preload="metadata"></audio></div>';
+    }
+    return '<a class="msg-attachment msg-attachment-file" href="' + safeUrl + '" target="_blank" rel="noopener" download="' + name + '">'
+      + '<span>📎</span><b>' + name + '</b>'
+      + '</a>';
+  }
+
   // =====================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderChat
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
@@ -7006,6 +7060,7 @@ function imageModelButton(model) {
         + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
+      if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (m.referenceImages && m.referenceImages.length) {
         inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
             '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
@@ -8467,25 +8522,25 @@ function closeUploadPanel(e) {
         });
       return;
     }
-    if (studioMode === 'text' && (pendingKind === 'text_video' || pendingKind === 'text_audio' || pendingKind === 'text_image')) {
-      const uploadKind = pendingKind === 'text_video' ? 'video' : (pendingKind === 'text_audio' ? 'audio' : 'image');
+    if (studioMode === 'text' && (pendingKind === 'text_video' || pendingKind === 'text_audio' || pendingKind === 'text_image' || pendingKind === 'text_file')) {
+      const uploadKind = pendingKind === 'text_video' ? 'video' : (pendingKind === 'text_audio' ? 'audio' : (pendingKind === 'text_image' ? 'image' : 'file'));
       textState.attachment = {
         kind: uploadKind,
         name: f.name,
-        mime: f.type || (uploadKind === 'video' ? 'video/mp4' : (uploadKind === 'audio' ? 'audio/mpeg' : 'image/png')),
+        mime: f.type || (uploadKind === 'video' ? 'video/mp4' : (uploadKind === 'audio' ? 'audio/mpeg' : (uploadKind === 'image' ? 'image/png' : 'application/octet-stream'))),
         size: f.size || 0,
         uploading: true,
       };
       renderTextControls();
       updateSendButton();
-      toast(uploadKind === 'video' ? 'Загружаем видео…' : (uploadKind === 'audio' ? 'Загружаем аудио…' : 'Загружаем фото…'));
+      toast(uploadKind === 'video' ? 'Загружаем видео…' : (uploadKind === 'audio' ? 'Загружаем аудио…' : (uploadKind === 'image' ? 'Загружаем фото…' : 'Загружаем файл…')));
       uploadProStudioMediaFile(f, uploadKind)
         .then((url) => {
           textState.attachment = {
             kind: uploadKind,
             url,
             name: f.name,
-            mime: f.type || (uploadKind === 'video' ? 'video/mp4' : (uploadKind === 'audio' ? 'audio/mpeg' : 'image/png')),
+            mime: f.type || (uploadKind === 'video' ? 'video/mp4' : (uploadKind === 'audio' ? 'audio/mpeg' : (uploadKind === 'image' ? 'image/png' : 'application/octet-stream'))),
             size: f.size || 0,
           };
           pendingAttachment = textState.attachment;
@@ -8494,7 +8549,7 @@ function closeUploadPanel(e) {
           if (uploadKind === 'image' && textState.tool === 'text') textState.tool = 'image_prompt';
           renderTextControls();
           updateSendButton();
-          toast(uploadKind === 'video' ? 'Видео добавлено' : (uploadKind === 'audio' ? 'Аудио добавлено' : 'Фото добавлено'));
+          toast(uploadKind === 'video' ? 'Видео добавлено' : (uploadKind === 'audio' ? 'Аудио добавлено' : (uploadKind === 'image' ? 'Фото добавлено' : 'Файл добавлен')));
         })
         .catch((err) => {
           textState.attachment = null;
@@ -10032,6 +10087,7 @@ async function waitGeneration(jobId, options) {
       chatMessages.push({
         role: 'user',
         text: v,
+        attachment: attachment ? Object.assign({}, attachment) : null,
         attachmentName: null,
         referenceImages: referenceImages.length ? referenceImages : null,
       });

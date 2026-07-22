@@ -5049,10 +5049,13 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     content_type = (file.content_type or "").lower()
     is_video = media_kind == "video" or content_type.startswith("video/")
     is_audio = media_kind == "audio" or content_type.startswith("audio/")
+    is_file = media_kind in {"file", "document"} or content_type.startswith(("text/", "application/pdf", "application/json", "application/msword", "application/vnd.openxmlformats-officedocument"))
     if is_video:
         allowed_exts = {".mp4", ".mov", ".m4v", ".webm"}
     elif is_audio:
         allowed_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".webm", ".flac"}
+    elif is_file:
+        allowed_exts = {".txt", ".md", ".json", ".csv", ".pdf", ".doc", ".docx"}
     else:
         allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
     max_bytes = 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024
@@ -5066,16 +5069,18 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     if len(content) > max_bytes:
         return JSONResponse({"ok": False, "error": "File is too large"}, status_code=400)
 
-    upload_dir = WEBAPP_DIR / "generated" / "video-inputs"
+    upload_dir = WEBAPP_DIR / "generated" / ("documents" if is_file else "video-inputs")
     upload_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid4().hex}{suffix}"
     stored_path = upload_dir / stored_name
     stored_path.write_bytes(content)
-    public_path = f"/webapp/generated/video-inputs/{stored_name}"
+    public_folder = "documents" if is_file else "video-inputs"
+    public_path = f"/webapp/generated/{public_folder}/{stored_name}"
     base = (WEBAPP_URL or "").rstrip("/")
     public_url = f"{base}{public_path}" if base else public_path
+    uploaded_kind = "video" if is_video else ("audio" if is_audio else ("file" if is_file else "image"))
     print("PROSTUDIO MEDIA UPLOAD:", {
-        "kind": "video" if is_video else ("audio" if is_audio else "image"),
+        "kind": uploaded_kind,
         "filename": filename,
         "content_type": content_type,
         "bytes": len(content),
@@ -5083,7 +5088,7 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     })
     return {
         "ok": True,
-        "kind": "video" if is_video else ("audio" if is_audio else "image"),
+        "kind": uploaded_kind,
         "url": public_url,
         "path": public_path,
         "content_type": content_type,
@@ -7098,11 +7103,12 @@ def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:
     if not url:
         return b"", name, mime
     try:
-        if url.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / url.replace("/webapp/", "", 1)
+        parsed_path = urllib.parse.urlparse(url).path if url.startswith(("http://", "https://")) else url
+        if parsed_path.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
             return local_path.read_bytes(), name or local_path.name, mime
-        if url.startswith("/generated/"):
-            local_path = WEBAPP_DIR / url.replace("/generated/", "generated/", 1)
+        if parsed_path.startswith("/generated/"):
+            local_path = WEBAPP_DIR / parsed_path.replace("/generated/", "generated/", 1)
             return local_path.read_bytes(), name or local_path.name, mime
         response = requests.get(url, timeout=120)
         response.raise_for_status()
