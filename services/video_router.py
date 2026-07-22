@@ -3790,9 +3790,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         contents = []
         if prompt:
             contents.append({"type": "prompt", "text": prompt})
-        if input_image_content:
-            contents.append({"type": "first_frame", "url": input_image_content, "id": "image_1"})
         reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit"} else "feature_video"
+        if input_image_content:
+            image_type = "image" if reference_type == "base_video" else "first_frame"
+            contents.append({"type": image_type, "url": input_image_content, "id": "image_1"})
         if input_video:
             contents.append({"type": reference_type, "url": input_video, "id": "video_1"})
         if end_image_content and reference_type != "base_video" and input_image_content:

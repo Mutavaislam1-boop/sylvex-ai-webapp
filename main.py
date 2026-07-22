@@ -9381,8 +9381,7 @@ def prostudio_video_templates_from_env() -> list:
         if not isinstance(models, list):
             models = [models]
         models = [str(model).strip() for model in models if str(model or "").strip()]
-        image_models = {"kling_3_0_turbo", "kling_3_0", "kling_2_6", "kling_2_5_turbo", "kling_2_1", "kling_1_6", "kling_1_5", "kling_1_0"}
-        preferred_model = next((model for model in models if model in image_models), "kling_3_0_turbo")
+        preferred_model = "kling_o3_edit"
         duration = _template_int(item.get("duration"), 5) or 5
         resolution = str(item.get("resolution") or "720p").strip() or "720p"
         default_ratio = str(item.get("aspect_ratio") or item.get("ratio") or ratios[0]).strip()
@@ -9396,12 +9395,15 @@ def prostudio_video_templates_from_env() -> list:
             "prompt": "",
             "video_options": {
                 "model": preferred_model,
-                "generation_mode": "image_to_video",
-                "mode": "image_to_video",
+                "generation_mode": "video_edit",
+                "mode": "video_edit",
                 "ratio": default_ratio,
                 "duration": duration,
                 "resolution": resolution,
                 "start_image": "template-image",
+                "input_video": reference_video,
+                "video_url": reference_video,
+                "video_input": True,
             },
         }
         cost = estimate_video_generation_cost(cost_payload)
@@ -9417,7 +9419,7 @@ def prostudio_video_templates_from_env() -> list:
             "reference_video": reference_video,
             "aspect_ratio": default_ratio,
             "ratios": ratios,
-            "models": [model for model in models if model in image_models] or ["kling_3_0_turbo", "kling_2_6", "kling_2_5_turbo"],
+            "models": ["kling_o3_edit"],
             "preferred_model": preferred_model,
             "duration": duration,
             "resolution": resolution,

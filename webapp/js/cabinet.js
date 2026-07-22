@@ -9011,8 +9011,8 @@ function closeUploadPanel(e) {
       poster_url: '/webapp/assets/video-templates/' + String(index + 1).padStart(2, '0') + '/poster.jpg',
       aspect_ratio: index % 3 === 0 ? '9:16' : (index % 3 === 1 ? '16:9' : '1:1'),
       ratios: ['16:9', '1:1', '9:16'],
-      models: ['kling_3_0_turbo', 'kling_2_6', 'kling_2_5_turbo'],
-      preferred_model: 'kling_3_0_turbo',
+      models: ['kling_o3_edit'],
+      preferred_model: 'kling_o3_edit',
       duration: 5,
       resolution: '720p',
       cost_credits: 95,
@@ -9121,10 +9121,9 @@ function maybeShowVideoTemplateIntro(force) {
   function templatePreferredModel(template) {
     const models = Array.isArray(template && template.models) ? template.models : [];
     const preferred = String((template && template.preferred_model) || '').trim();
-    const imageModels = ['kling_3_0_turbo', 'kling_3_0', 'kling_2_6', 'kling_2_5_turbo', 'kling_2_1', 'kling_1_6', 'kling_1_5', 'kling_1_0'];
-    if (imageModels.includes(preferred)) return preferred;
-    const found = models.find((model) => imageModels.includes(String(model || '').trim()));
-    return found || 'kling_3_0_turbo';
+    if (preferred === 'kling_o3_edit') return preferred;
+    const found = models.find((model) => String(model || '').trim() === 'kling_o3_edit');
+    return found || 'kling_o3_edit';
   }
 
   // =====================================================
@@ -9428,15 +9427,15 @@ function maybeShowVideoTemplateIntro(force) {
     activeCat = 'video';
     videoState.modelId = modelId;
     videoState.provider = 'kling';
-    videoState.section = isKlingEffect ? 'motion' : 'generate';
-    videoState.generationMode = isKlingEffect ? 'video_effects' : 'image_to_video';
+    videoState.section = isKlingEffect ? 'motion' : 'edit';
+    videoState.generationMode = isKlingEffect ? 'video_effects' : 'video_edit';
     videoState.mode = videoState.generationMode;
     videoState.ratio = selectedRatio;
     videoState.duration = Number(template.duration || 5);
     videoState.resolution = template.resolution || '720p';
     videoState.sound = false;
     videoState.startImage = uploadedImage;
-    videoState.inputVideo = '';
+    videoState.inputVideo = isKlingEffect ? '' : referenceVideo;
     videoState.videoUrl = videoState.inputVideo;
     videoState.videoTemplate = {
       id: template.id || '',
@@ -9444,7 +9443,7 @@ function maybeShowVideoTemplateIntro(force) {
       description: template.description || '',
       prompt: template.prompt || template.video_prompt || template.description || template.title || '',
       preview_video: template.preview_video || '',
-      reference_video: isKlingEffect ? referenceVideo : '',
+      reference_video: referenceVideo,
       aspect_ratio: selectedRatio,
       catalog_type: isKlingEffect ? 'kling_effect' : 'video_template',
       effect_scene: isKlingEffect ? (template.effect_scene || template.id || '') : '',
@@ -9455,7 +9454,13 @@ function maybeShowVideoTemplateIntro(force) {
     normalizeVideoStateForModel();
 
     const promptLabel = template.title || 'Video template';
-    const promptText = template.prompt || template.video_prompt || template.description || template.title || '';
+    const basePrompt = template.prompt || template.video_prompt || template.description || template.title || '';
+    const promptText = isKlingEffect
+      ? basePrompt
+      : [
+          basePrompt,
+          'Use the uploaded image as the replacement character or object reference. Keep the catalog video as the main motion, camera, timing, scene, and composition reference. Edit only the character/object identity from the uploaded image while preserving the video template movement and style.',
+        ].filter(Boolean).join('\n\n');
     chatMessages.push({
       role: 'user',
       text: promptLabel,
@@ -9961,12 +9966,21 @@ function updateGenerationLoadingProgress(index, completed) {
 // =====================================================
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
+  let transientErrors = 0;
   while (true) {
     if (onProgress) onProgress(false);
-    const res = await fetch(
-      `/api/public/prostudio/job/${jobId}`,
-      { cache: 'no-store' }
-    );
+    let res;
+    try {
+      res = await fetch(
+        `/api/public/prostudio/job/${jobId}`,
+        { cache: 'no-store' }
+      );
+    } catch (err) {
+      transientErrors += 1;
+      if (transientErrors > 80) throw err;
+      await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
+      continue;
+    }
 
     // =====================================================
     // ОЖИДАНИЕ JOB: job
@@ -9974,8 +9988,12 @@ async function waitGeneration(jobId, options) {
     // =====================================================
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
-      throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
+      transientErrors += 1;
+      if (transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
+      await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
+      continue;
     }
+    transientErrors = 0;
 
     if (job.status === 'completed') {
       const result = job.result || {};
