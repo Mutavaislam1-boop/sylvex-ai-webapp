@@ -1959,6 +1959,40 @@ CSS-БЛОК: .studio-frame-card span:last-child,.studio-image-tool span:last-ch
 .studio-frame-card span:last-child,.studio-image-tool span:last-child{
   align-self:center;font-size:13px;line-height:1.15;font-weight:500;
 }
+
+.studio-text-tools .studio-image-tool.text-upload-file-selected{
+  position:relative;
+  color:#fff;
+  border:1px solid rgba(255,255,255,.16);
+}
+
+.studio-text-tools .studio-image-tool.text-upload-has-preview{
+  background-size:cover;
+  background-position:center;
+}
+
+.studio-text-tools .studio-image-tool.text-upload-has-preview > *{
+  position:relative;
+  z-index:1;
+}
+
+.studio-text-tools .studio-image-tool[data-text-upload-kind="video"] .studio-frame-ico::after{
+  content:"▶";
+  font-size:13px;
+  font-weight:900;
+}
+
+.studio-text-tools .studio-image-tool[data-text-upload-kind="audio"] .studio-frame-ico::after{
+  content:"♪";
+  font-size:18px;
+  font-weight:900;
+}
+
+.studio-text-tools .studio-image-tool[data-text-upload-kind="file"] .studio-frame-ico::after{
+  content:"TXT";
+  font-size:10px;
+  font-weight:900;
+}
 /* =====================================================
 CSS-БЛОК: .studio-frame-card.has-frame-preview
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -4775,6 +4809,60 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
   display:block !important;
   margin:0 !important;
   border-radius:0 !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment{
+  display:block;
+  margin-top:8px;
+  overflow:hidden;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.08);
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment-image img{
+  display:block;
+  width:170px;
+  max-width:48vw;
+  max-height:230px;
+  object-fit:cover;
+  border-radius:16px;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment-video video{
+  display:block;
+  width:220px;
+  max-width:58vw;
+  max-height:260px;
+  background:#000;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment-audio{
+  padding:8px;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment-audio audio{
+  display:block;
+  width:230px;
+  max-width:58vw;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment-file{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  color:#fff;
+  text-decoration:none;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-attachment-file b{
+  font-size:12px;
+  line-height:1.2;
+  max-width:190px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 
 .view[data-view="tools"].active .msg.user .bubble > img,
