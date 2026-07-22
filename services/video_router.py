@@ -3662,6 +3662,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         or bool(input_image_content)
     )
     is_official_omni_model = _kling_model_family(provider_model) in {"kling-3.0-omni", "kling-o1"}
+    input_image_url = input_image_public_url or input_image_content
+    end_image_url = end_image_public_url or end_image_content
 
     print("KLING DEBUG MODE:", video_mode)
     print("KLING DEBUG BODY START IMAGE:", _short_debug_value(body.get("start_image")))
@@ -3672,6 +3674,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     print("KLING DEBUG RAW OPTIONS REFERENCES:", _short_debug_value(raw_options.get("reference_images") or raw_options.get("referenceImageUrls")))
     print("KLING DEBUG INPUT_IMAGE:", _short_debug_value(input_image_public_url or input_image_content))
     print("KLING DEBUG INPUT_IMAGE_CONTENT:", _short_debug_value(input_image_content))
+    print("KLING DEBUG INPUT_IMAGE_URL_USED:", _short_debug_value(input_image_url))
     print("KLING DEBUG INPUT_VIDEO:", _short_debug_value(input_video))
 
     if requires_image and not input_image_content:
@@ -3746,7 +3749,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         effect_mode = str(video_template.get("mode") or raw_options.get("mode") or body.get("quality") or "std").strip()
         if effect_mode:
             effect_input["mode"] = effect_mode
-        effect_image = input_image_public_url or input_image_content
+        effect_image = input_image_url
         if int(video_template.get("input_count") or raw_options.get("input_count") or 1) > 1:
             effect_input["images"] = [effect_image]
         else:
@@ -3769,10 +3772,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         }
         if payload.get("job_id"):
             kling_body["external_task_id"] = str(payload.get("job_id"))
-        if input_image_public_url or input_image_content:
-            kling_body["image"] = input_image_public_url or input_image_content
-            if (end_image_public_url or end_image_content) and model_id in {"kling_2_1", "kling_1_6", "kling_1_5"}:
-                kling_body["image_tail"] = end_image_public_url or end_image_content
+        if input_image_url:
+            kling_body["image"] = input_image_url
+            if end_image_url and model_id in {"kling_2_1", "kling_1_6", "kling_1_5"}:
+                kling_body["image_tail"] = end_image_url
         else:
             kling_body["aspect_ratio"] = _kling_aspect_ratio(body.get("ratio"))
     elif is_motion_reference:
@@ -3783,37 +3786,37 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         }
         if prompt:
             kling_body["contents"].append({"type": "prompt", "text": prompt})
-        if input_image_content:
-            kling_body["contents"].append({"type": "image", "url": input_image_content})
+        if input_image_url:
+            kling_body["contents"].append({"type": "image", "url": input_image_url})
         kling_body["contents"].append({"type": "video", "url": input_video})
     elif is_omni_video_reference or is_omni_unified_generation:
         contents = []
         if prompt:
             contents.append({"type": "prompt", "text": prompt})
         reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit"} else "feature_video"
-        if input_image_content:
+        if input_image_url:
             image_type = "image" if reference_type == "base_video" else "first_frame"
-            contents.append({"type": image_type, "url": input_image_content, "id": "image_1"})
+            contents.append({"type": image_type, "url": input_image_url, "id": "image_1"})
         if input_video:
             contents.append({"type": reference_type, "url": input_video, "id": "video_1"})
-        if end_image_content and reference_type != "base_video" and input_image_content:
-            contents.append({"type": "last_frame", "url": end_image_content, "id": "image_2"})
+        if end_image_url and reference_type != "base_video" and input_image_url:
+            contents.append({"type": "last_frame", "url": end_image_url, "id": "image_2"})
         kling_body = {
             "contents": contents,
             "settings": _kling_omni_settings(provider_model, body, has_video=bool(input_video), base_video=reference_type == "base_video" and bool(input_video)),
             "options": _kling_options(payload),
         }
     else:
-        if input_image_content:
+        if input_image_url:
             contents = []
             if prompt:
                 contents.append({"type": "prompt", "text": prompt})
-            contents.append({"type": "first_frame", "url": input_image_content})
-            if end_image_content and _kling_supports_last_frame(provider_model):
-                contents.append({"type": "last_frame", "url": end_image_content})
+            contents.append({"type": "first_frame", "url": input_image_url})
+            if end_image_url and _kling_supports_last_frame(provider_model):
+                contents.append({"type": "last_frame", "url": end_image_url})
             kling_body = {
                 "contents": contents,
-                "settings": _kling_image_settings(provider_model, body, bool(end_image_content and _kling_supports_last_frame(provider_model))),
+                "settings": _kling_image_settings(provider_model, body, bool(end_image_url and _kling_supports_last_frame(provider_model))),
                 "options": _kling_options(payload),
             }
         else:
@@ -3929,8 +3932,8 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
 
     try:
         endpoint_body = dict(body)
-        if input_image_public_url or input_image_content:
-            endpoint_body["start_image"] = input_image_public_url or input_image_content
+        if input_image_url:
+            endpoint_body["start_image"] = input_image_url
         if is_lip_sync:
             endpoint = _kling_lip_sync_endpoint()
         elif is_video_effects:
