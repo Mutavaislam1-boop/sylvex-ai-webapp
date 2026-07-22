@@ -7084,6 +7084,11 @@ function imageModelButton(model) {
             '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
         ).join('') + '</div>';
         }
+      if (m.referenceVideos && m.referenceVideos.length) {
+        inner += '<div class="msg-ref-video-row">' + m.referenceVideos.map((url) =>
+            '<span class="msg-ref-video"><video src="' + S.escapeHtml(url) + '" controls playsinline preload="metadata"></video></span>'
+        ).join('') + '</div>';
+      }
       const imageUrls = generatedUrlsFromMessage(m, 'image');
       const imageThumbs = generatedThumbsFromMessage(m);
       const videoUrls = generatedUrlsFromMessage(m, 'video');
@@ -9467,6 +9472,7 @@ function maybeShowVideoTemplateIntro(force) {
       role: 'user',
       text: promptLabel,
       referenceImages: [uploadedImage],
+      referenceVideos: referenceVideo ? [referenceVideo] : null,
     });
     const loadingIndex = chatMessages.push({
       generationLoading: true,
@@ -10121,8 +10127,11 @@ async function waitGeneration(jobId, options) {
       ? imageOptionsPayload(referenceImages)
       : null;
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
+    const referenceVideos = isVideoMode() && videoOptionsSnapshot
+      ? [videoOptionsSnapshot.input_video || videoOptionsSnapshot.video_url || videoOptionsSnapshot.reference_video || ''].filter(Boolean)
+      : [];
 
-    if (!v && !attachment && !referenceImages.length && !audioUploads.length) return;
+    if (!v && !attachment && !referenceImages.length && !referenceVideos.length && !audioUploads.length) return;
 
     const balanceCheck = estimateFrontendGenerationCredits(imageOptionsSnapshot);
     if (balanceCheck.known && balanceCheck.balance < balanceCheck.required) {
@@ -10166,6 +10175,7 @@ async function waitGeneration(jobId, options) {
         attachment: attachment ? Object.assign({}, attachment) : null,
         attachmentName: null,
         referenceImages: referenceImages.length ? referenceImages : null,
+        referenceVideos: referenceVideos.length ? referenceVideos : null,
       });
     }
     ta.value = ''; autoGrow(ta); updateSendButton();
