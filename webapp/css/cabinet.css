@@ -1976,6 +1976,37 @@ CSS-БЛОК: .studio-frame-card span:last-child,.studio-image-tool span:last-ch
   z-index:1;
 }
 
+.studio-text-tools .studio-image-tool.text-upload-has-video-preview{
+  position:relative;
+  overflow:hidden;
+  color:#fff;
+  background:#191919;
+}
+
+.studio-text-tools .studio-image-tool.text-upload-has-video-preview::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:1;
+  background:linear-gradient(180deg,rgba(0,0,0,.04),rgba(0,0,0,.66));
+  pointer-events:none;
+}
+
+.studio-text-tools .studio-image-tool.text-upload-has-video-preview > *{
+  position:relative;
+  z-index:2;
+}
+
+.studio-text-tools .studio-image-tool .text-upload-video-preview{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  pointer-events:none;
+}
+
 .studio-text-tools .studio-image-tool[data-text-upload-kind="video"] .studio-frame-ico::after{
   content:"▶";
   font-size:13px;

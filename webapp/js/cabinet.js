@@ -922,6 +922,7 @@ const TEXT_TOOL_OPTIONS = [
   { id:'rewrite', label:'Рерайт' },
   { id:'extract', label:'Извлечь текст' },
   { id:'image_prompt', label:'Промпт по фото' },
+  { id:'video_prompt', label:'Промпт по видео' },
   { id:'audio_to_text', label:'Аудио → текст' },
   { id:'video_to_text', label:'Видео → текст' },
 ];
@@ -1838,7 +1839,8 @@ function renderTextControls() {
     const att = textState.attachment || pendingAttachment || null;
     const btn = uploadVal.closest ? uploadVal.closest('button') : null;
     if (btn) {
-      btn.classList.remove('text-upload-has-preview', 'text-upload-file-selected');
+      btn.querySelectorAll('.text-upload-video-preview').forEach((node) => node.remove());
+      btn.classList.remove('text-upload-has-preview', 'text-upload-has-video-preview', 'text-upload-file-selected');
       btn.style.backgroundImage = '';
       btn.dataset.textUploadKind = '';
     }
@@ -1856,6 +1858,21 @@ function renderTextControls() {
         if (kind === 'image' && url) {
           btn.classList.add('text-upload-has-preview');
           btn.style.backgroundImage = 'linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.62)),url("' + String(url).replace(/"/g, '%22') + '")';
+        } else if (kind === 'video' && url) {
+          const video = document.createElement('video');
+          video.className = 'text-upload-video-preview';
+          video.src = url;
+          video.muted = true;
+          video.playsInline = true;
+          video.preload = 'metadata';
+          video.setAttribute('aria-hidden', 'true');
+          video.addEventListener('loadedmetadata', () => {
+            try {
+              if (Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(0.2, video.duration / 3);
+            } catch (_) {}
+          }, { once:true });
+          btn.insertBefore(video, btn.firstChild);
+          btn.classList.add('text-upload-has-video-preview');
         }
       }
     } else {
@@ -8544,7 +8561,7 @@ function closeUploadPanel(e) {
             size: f.size || 0,
           };
           pendingAttachment = textState.attachment;
-          if (uploadKind === 'video') textState.tool = 'video_to_text';
+          if (uploadKind === 'video' && (!textState.tool || textState.tool === 'text')) textState.tool = 'video_prompt';
           if (uploadKind === 'audio') textState.tool = 'audio_to_text';
           if (uploadKind === 'image' && textState.tool === 'text') textState.tool = 'image_prompt';
           renderTextControls();
