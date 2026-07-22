@@ -1611,7 +1611,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     image_url: '',
     motion_preset: videoState.motionPreset || '',
     video_template: videoTemplate,
-    effect_scene: isKlingEffect ? (videoTemplate.effect_scene || videoTemplate.id || '') : '',
+    effect_scene: isKlingEffect ? (videoTemplate.effect_scene || '') : '',
     video_effects: isKlingEffect,
     is_kling_effect: isKlingEffect,
     character_image: videoState.characterImage || '',
