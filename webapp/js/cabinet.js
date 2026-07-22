@@ -9630,6 +9630,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     history,
     attachment: attachment || null,
     conversation_id: currentConvId,
+    client_request_id: 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
     language: uiLang(),
   };
 
@@ -9645,15 +9646,26 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     text_options: payload.text_options,
   });
 
-  const res = await fetch('/api/public/prostudio/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-    },
-    cache: 'no-store',
-    body: JSON.stringify(payload),
-  });
+  const generateRequest = () => fetch('/api/public/prostudio/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+      cache: 'no-store',
+      body: JSON.stringify(payload),
+    });
+  let res;
+  try {
+    res = await generateRequest();
+  } catch (err) {
+    if (studioMode === 'text' && isNetworkLoadError(err)) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      res = await generateRequest();
+    } else {
+      throw err;
+    }
+  }
 
   // =====================================================
   // JAVASCRIPT-БЛОК: j
@@ -9702,6 +9714,11 @@ function errorMessage(value, fallback) {
   return String(value);
 }
 
+function isNetworkLoadError(value) {
+  const text = errorMessage(value, '');
+  return /load failed|failed to fetch|networkerror|network request failed|the internet connection appears to be offline/i.test(String(text || ''));
+}
+
 // =====================================================
 // JAVASCRIPT-БЛОК: translateGenerationError
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -9709,6 +9726,9 @@ function errorMessage(value, fallback) {
 function translateGenerationError(value, fallback) {
   const text = errorMessage(value, fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
   const low = String(text || '').toLowerCase();
+  if (isNetworkLoadError(text)) {
+    return 'Связь с Mini App временно оборвалась. Повторите запрос ещё раз.';
+  }
   if (/prompt.*size.*between.*0.*3072|prompt.*3072|size must be between/.test(low)) {
     return 'Описание слишком длинное для выбранной модели.\nМаксимальная длина текста для Kling — 3072 символа.\nСократите описание и попробуйте снова.';
   }

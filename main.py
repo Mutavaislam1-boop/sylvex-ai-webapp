@@ -55,6 +55,7 @@ PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() no
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
+PROSTUDIO_TEXT_RESPONSE_CACHE = {}
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
 SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=shop")
@@ -9703,12 +9704,20 @@ async def public_prostudio_generate(request: Request):
         worker_enabled=PROSTUDIO_WORKER_ENABLED,
     )
     if mode in text_modes:
+        request_key = str(payload.get("client_request_id") or "").strip()
+        cache_key = f"{int(payload.get('telegram_id') or 0)}:{request_key}" if request_key else ""
+        if cache_key and cache_key in PROSTUDIO_TEXT_RESPONSE_CACHE:
+            return PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key]
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-4o-mini"
         result = text_generation(payload)
         if not result.get("ok"):
             return JSONResponse(result, status_code=502)
         result["conversation_id"] = save_prostudio_message(payload, result)
+        if cache_key:
+            if len(PROSTUDIO_TEXT_RESPONSE_CACHE) > 200:
+                PROSTUDIO_TEXT_RESPONSE_CACHE.clear()
+            PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key] = result
         return result
 
     job_id = create_prostudio_generation_job(payload) if mode in generation_modes else ""
