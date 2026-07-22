@@ -3725,7 +3725,6 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             body.get("effect_scene")
             or raw_options.get("effect_scene")
             or video_template.get("effect_scene")
-            or video_template.get("id")
             or body.get("motion_preset")
             or ""
         ).strip()
