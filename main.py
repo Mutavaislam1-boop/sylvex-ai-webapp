@@ -21,6 +21,7 @@ import requests
 import psycopg2
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse
+from routers.video_templates import router as video_templates_router
 
 from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
@@ -45,7 +46,7 @@ app.mount("/assets", StaticFiles(directory="webapp/assets"), name="assets")
 app.mount("/js", StaticFiles(directory="webapp/js"), name="js")
 app.mount("/css", StaticFiles(directory="webapp/css"), name="css")
 app.mount("/generated", StaticFiles(directory=WEBAPP_DIR / "generated"), name="generated")
-
+app.include_router(video_templates_router)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
