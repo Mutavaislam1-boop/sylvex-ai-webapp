@@ -3469,7 +3469,7 @@ function renderVideoReferencesPreview() {
   if (label) {
     label.textContent = hasVideo
       ? ('Видео выбрано' + (refsCount ? ' · +' + refsCount : ''))
-      : (refsCount ? ('Референсы · ' + refsCount) : (videoState.section === 'edit' ? 'Добавить референсы' : 'Добавить ссылки'));
+      : (refsCount ? ('Референсы · ' + refsCount) : 'Добавить');
   }
   let badge = button.querySelector(':scope > .video-reference-control-badge');
   if (videoState.inputVideo || videoState.videoUrl) {
@@ -7565,7 +7565,7 @@ function uploadPhotoButtonHtml() {
   const isVideoReferences = target === UPLOAD_TARGETS.VIDEO_REFERENCES;
   if (uploadImages.length >= uploadLimitForTarget()) {
     return (isVideoReferences && !(videoState.inputVideo || videoState.videoUrl))
-      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Загрузить видео"><span class="upload-photo-add-icon" aria-hidden="true">▶</span></button>'
+      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'media\')" aria-label="Добавить медиа"><span class="upload-photo-add-icon" aria-hidden="true">＋</span></button>'
       : '';
   }
 
@@ -7584,13 +7584,12 @@ function uploadPhotoButtonHtml() {
       + '</button>';
   }
 
-  return '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'image\')" aria-label="Загрузить фото">'
+  const pickerKind = isVideoReferences ? 'media' : 'image';
+  const ariaLabel = isVideoReferences ? 'Добавить фото или видео' : 'Загрузить фото';
+  return '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + pickerKind + '\')" aria-label="' + ariaLabel + '">'
     + '<span class="upload-photo-add-icon" aria-hidden="true">＋</span>'
-    + '<span class="upload-photo-add-text">Загрузить</span>'
-    + '</button>'
-    + (isVideoReferences && !(videoState.inputVideo || videoState.videoUrl)
-      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Загрузить видео"><span class="upload-photo-add-icon" aria-hidden="true">▶</span></button>'
-      : '');
+    + '<span class="upload-photo-add-text">Добавить</span>'
+    + '</button>';
 }
 
   // =====================================================
@@ -7627,7 +7626,7 @@ function uploadPhotoButtonHtml() {
         + '</button>';
     });
     if (hasVideoReference) {
-      items.unshift('<button class="upload-photo-thumb upload-video-thumb selected" type="button" onclick="SYLVEX.openNativeFilePicker(\'video\')" aria-label="Заменить видео">'
+      items.unshift('<button class="upload-photo-thumb upload-video-thumb selected" type="button" onclick="SYLVEX.openNativeFilePicker(\'media\')" aria-label="Заменить или добавить медиа">'
         + '<span class="upload-photo-add-icon" aria-hidden="true">▶</span>'
         + '<span class="upload-thumb-check">✓</span>'
         + '<span class="upload-photo-remove" onclick="SYLVEX.clearVideoReference(event)">×</span>'
@@ -8393,11 +8392,86 @@ function closeUploadPanel(e) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openNativeFilePicker
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
+  function isKlingMotionUploadContext() {
+    if (!isVideoMode()) return false;
+    const config = currentVideoConfig() || {};
+    const modelId = String(videoState.modelId || '').toLowerCase();
+    return !!config.motion_control && (config.provider === 'kling' || modelId.indexOf('kling_motion') === 0);
+  }
+
+  function klingMotionVideoFileError(file) {
+    if (!file) return 'Видео не выбрано';
+    const name = String(file.name || '').toLowerCase();
+    const mime = String(file.type || '').toLowerCase();
+    const isMp4OrMov = /\.(mp4|mov)$/.test(name) || mime === 'video/mp4' || mime === 'video/quicktime';
+    if (!isMp4OrMov) return 'Для Kling Motion выберите видео MP4 или MOV';
+    if ((file.size || 0) > 100 * 1024 * 1024) return 'Для Kling Motion видео должно быть до 100 MB';
+    return '';
+  }
+
+  function isVideoFileLike(file) {
+    if (!file) return false;
+    const mime = String(file.type || '').toLowerCase();
+    const name = String(file.name || '').toLowerCase();
+    return mime.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/.test(name);
+  }
+
+  function isAudioFileLike(file) {
+    if (!file) return false;
+    const mime = String(file.type || '').toLowerCase();
+    const name = String(file.name || '').toLowerCase();
+    return mime.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|webm|flac)$/.test(name);
+  }
+
+  function isImageFileLike(file) {
+    if (!file) return false;
+    const mime = String(file.type || '').toLowerCase();
+    const name = String(file.name || '').toLowerCase();
+    return mime.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/.test(name);
+  }
+
+  function klingMotionVideoMetadataError(file) {
+    return new Promise((resolve) => {
+      if (!file || !window.URL || !URL.createObjectURL) {
+        resolve('');
+        return;
+      }
+      const url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      let settled = false;
+      const finish = (message) => {
+        if (settled) return;
+        settled = true;
+        try { URL.revokeObjectURL(url); } catch {}
+        resolve(message || '');
+      };
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        const duration = Number(video.duration || 0);
+        const width = Number(video.videoWidth || 0);
+        const height = Number(video.videoHeight || 0);
+        if (duration && (duration < 3 || duration > 10)) {
+          finish('Для Kling Motion выберите видео 3–10 секунд');
+          return;
+        }
+        if ((width && (width < 340 || width > 3850)) || (height && (height < 340 || height > 3850))) {
+          finish('Для Kling Motion размер видео должен быть от 340 до 3850 px по ширине и высоте');
+          return;
+        }
+        finish('');
+      };
+      video.onerror = () => finish('Не удалось прочитать параметры видео');
+      video.src = url;
+      setTimeout(() => finish(''), 2500);
+    });
+  }
+
   function openNativeFilePicker(kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
     const inp = document.getElementById('attachInput');
     if (!inp) return;
+    const klingMotion = isKlingMotionUploadContext();
     if (kind === 'voice_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
@@ -8406,9 +8480,9 @@ function closeUploadPanel(e) {
     else if (kind === 'text_video') { inp.accept = 'video/*'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
     else if (kind === 'text_media') { inp.accept = 'image/*,audio/*,video/*,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
-    else if (kind === 'media') { inp.accept = 'image/*,video/*'; pendingAttachAccept = 'media'; }
+    else if (kind === 'media') { inp.accept = klingMotion ? 'image/*,video/mp4,video/quicktime,.mp4,.mov' : 'image/*,video/*'; pendingAttachAccept = 'media'; }
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
-    else if (kind === 'video') { inp.accept = 'video/*'; pendingAttachAccept = 'video'; }
+    else if (kind === 'video') { inp.accept = klingMotion ? 'video/mp4,video/quicktime,.mp4,.mov' : 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
     inp.value = '';
     inp.click();
@@ -8466,32 +8540,40 @@ function closeUploadPanel(e) {
   // ЗАГРУЗКА В MINI APP: onAttachFile
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
-  function onAttachFile(e) {
+  async function onAttachFile(e) {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     let pendingKind = pendingAttachAccept || 'file';
     // Handle 'media' kind: treat as image or video depending on file type
     if (pendingKind === 'media') {
-      if (f.type && f.type.startsWith('video/')) {
+      if (isVideoFileLike(f)) {
         pendingKind = 'video';
       } else {
         pendingKind = 'image';
       }
     } else if (pendingKind === 'voice_media') {
-      pendingKind = (f.type && f.type.startsWith('video/')) ? 'video' : 'audio';
+      pendingKind = isVideoFileLike(f) ? 'video' : 'audio';
     } else if (pendingKind === 'voice_document') {
       pendingKind = 'file';
     } else if (pendingKind === 'text_media') {
-      if (f.type && f.type.startsWith('video/')) pendingKind = 'text_video';
-      else if (f.type && f.type.startsWith('audio/')) pendingKind = 'text_audio';
-      else if (f.type && f.type.startsWith('image/')) pendingKind = 'text_image';
+      if (isVideoFileLike(f)) pendingKind = 'text_video';
+      else if (isAudioFileLike(f)) pendingKind = 'text_audio';
+      else if (isImageFileLike(f)) pendingKind = 'text_image';
       else pendingKind = 'text_file';
     } else if (pendingKind === 'text_document') {
       pendingKind = 'text_file';
     }
-    const maxSize = (pendingKind === 'video' || pendingKind === 'text_video') ? 200 * 1024 * 1024 : 50 * 1024 * 1024;
+    const isKlingMotionVideo = isKlingMotionUploadContext() && pendingKind === 'video';
+    if (isKlingMotionVideo) {
+      const videoError = klingMotionVideoFileError(f) || await klingMotionVideoMetadataError(f);
+      if (videoError) {
+        toast(videoError);
+        return;
+      }
+    }
+    const maxSize = (pendingKind === 'video' || pendingKind === 'text_video') ? (isKlingMotionVideo ? 100 : 200) * 1024 * 1024 : 50 * 1024 * 1024;
     if (f.size > maxSize) {
-      toast(pendingKind === 'video' ? 'Видео слишком большое (макс. 200 MB)' : 'Файл слишком большой (макс. 50 MB)');
+      toast(pendingKind === 'video' ? 'Видео слишком большое (макс. ' + (isKlingMotionVideo ? '100' : '200') + ' MB)' : 'Файл слишком большой (макс. 50 MB)');
       return;
     }
     if (isVoiceMode() && (pendingKind === 'video' || pendingKind === 'audio')) {
