@@ -4133,6 +4133,8 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
         kind = "character"
     elif kind in {"objects", "object"}:
         kind = "object"
+    elif kind in {"voices", "voice"}:
+        kind = "voice"
     else:
         return {}
     resource_id = resource.get("id") or f"custom_{kind}_{uuid4().hex}"
@@ -4146,6 +4148,9 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
         "previewUrl": preview,
         "referenceImages": photos,
         "type": "custom",
+        "voice_id": resource.get("voice_id") or resource.get("voiceId") or resource.get("id") or "",
+        "provider": resource.get("provider") or "",
+        "model": resource.get("model") or "",
         "status": resource.get("status") or "ready",
         "created_at": resource.get("created_at"),
     }
@@ -4167,6 +4172,7 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
                 metadata_json = EXCLUDED.metadata_json,
                 status = EXCLUDED.status,
                 updated_at = NOW()
+            WHERE prostudio_resources.telegram_id = EXCLUDED.telegram_id
         """, (
             item["id"],
             telegram_id,
@@ -4194,13 +4200,13 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
 # =====================================================
 def load_prostudio_resources(telegram_id: int) -> dict:
     if not DATABASE_URL or not telegram_id:
-        return {"characters": [], "objects": []}
+        return {"characters": [], "objects": [], "voices": []}
     try:
         ensure_prostudio_table()
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, resource_type, name, description, gender, preview_url, photos_json, status, created_at, updated_at
+            SELECT id, resource_type, name, description, gender, preview_url, photos_json, metadata_json, status, created_at, updated_at
             FROM prostudio_resources
             WHERE telegram_id = %s
             ORDER BY updated_at DESC
@@ -4208,9 +4214,10 @@ def load_prostudio_resources(telegram_id: int) -> dict:
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        result = {"characters": [], "objects": []}
-        for resource_id, kind, name, description, gender, preview, photos_json, status, created_at, updated_at in rows:
+        result = {"characters": [], "objects": [], "voices": []}
+        for resource_id, kind, name, description, gender, preview, photos_json, metadata_json, status, created_at, updated_at in rows:
             photos = _json_list(photos_json)
+            metadata = _json_obj(metadata_json)
             item = {
                 "id": resource_id,
                 "name": name or "",
@@ -4227,10 +4234,15 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 result["characters"].append(item)
             elif kind == "object":
                 result["objects"].append(item)
+            elif kind == "voice":
+                item["voice_id"] = metadata.get("voice_id") or metadata.get("voiceId") or resource_id
+                item["provider"] = metadata.get("provider") or "elevenlabs"
+                item["model"] = metadata.get("model") or metadata.get("ai_model") or ""
+                result["voices"].append(item)
         return result
     except Exception as exc:
         print("PROSTUDIO RESOURCE LOAD FAILED:", exc)
-        return {"characters": [], "objects": []}
+        return {"characters": [], "objects": [], "voices": []}
 
 # =====================================================
 # METADATA КАРТОЧКИ ГЕНЕРАЦИИ: build_prostudio_metadata

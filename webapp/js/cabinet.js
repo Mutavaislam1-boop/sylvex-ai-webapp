@@ -288,6 +288,7 @@ let textState = {
 let serverVisualItems = {
   characters: [],
   objects: [],
+  voices: [],
 };
 let serverDrafts = {};
 let draftSaveTimer = null;
@@ -1027,6 +1028,38 @@ const ELEVENLABS_TTS_VOICES = [
 ].map(([id, label]) => ({ id, label }));
 
 let elevenlabsVoiceList = ELEVENLABS_TTS_VOICES.slice();
+
+function userVoiceItems() {
+  const list = serverVisualItems && Array.isArray(serverVisualItems.voices) ? serverVisualItems.voices : [];
+  return list.map((item) => {
+    const voiceId = String((item && (item.voice_id || item.voiceId || item.id)) || '').trim();
+    const resourceId = String((item && item.id) || ('custom_voice_' + voiceId)).trim();
+    const name = String((item && (item.name || item.label)) || voiceId).trim();
+    if (!voiceId) return null;
+    return {
+      id: voiceId,
+      resourceId,
+      label: name,
+      name,
+      provider: 'elevenlabs',
+      type: 'custom',
+      custom: true,
+      gender: item.gender || '',
+      previewUrl: item.previewUrl || item.preview_url || '',
+    };
+  }).filter(Boolean);
+}
+
+function mergeUserVoicesWithProvider(list) {
+  const user = userVoiceItems();
+  const seen = new Set(user.map((item) => String(item.id)));
+  return user.concat((list || []).filter((item) => {
+    const id = String(item && item.id || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  }));
+}
 
 const ELEVENLABS_AUDIO_TOOLS = [
   { id:'text_to_speech', label:'Text to Speech' },
@@ -2181,7 +2214,7 @@ function renderVoiceUploadButtonPreview() {
 // Возвращает список голосов для текущей AI-модели, чтобы карточка «Список голосов» работала в одном месте.
 // =====================================================
 function currentVoiceListForPanel() {
-  if (isElevenLabsVoiceModel(voiceState.modelId)) return elevenlabsVoiceList || ELEVENLABS_TTS_VOICES;
+  if (isElevenLabsVoiceModel(voiceState.modelId)) return mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES);
   if (isRunwayVoiceModel(voiceState.modelId)) return runwayVoiceList || RUNWAY_TTS_VOICES;
   return GEMINI_TTS_VOICES;
 }
@@ -2332,6 +2365,7 @@ function renderVoiceListPanel() {
     const id = String(item.id || item.voice_id || '');
     const label = String(item.label || item.name || id);
     const safeId = S.escapeHtml(id);
+    const resourceId = S.escapeHtml(String(item.resourceId || item.resource_id || item.id || ''));
     const selected = String(activeVoice || '') === id;
     const initial = S.escapeHtml((label || id || '?').trim().slice(0, 1).toUpperCase());
     return '<div class="image-style-card voice-style-card ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
@@ -2341,6 +2375,7 @@ function renderVoiceListPanel() {
       + '</span>'
       + '<span class="image-style-label">' + S.escapeHtml(label) + '</span>'
       + '<span class="image-style-check">✓</span>'
+      + (item.custom ? '<button class="visual-delete-btn" type="button" aria-label="Удалить голос" onclick="SYLVEX.deleteUserVoice(event,\'' + resourceId + '\',\'' + safeId + '\')">×</button>' : '')
       + '</div>';
   };
   return `
@@ -2962,6 +2997,7 @@ function localizedGreeting() {
       const resources = data.resources || {};
       serverVisualItems.characters = Array.isArray(resources.characters) ? resources.characters : [];
       serverVisualItems.objects = Array.isArray(resources.objects) ? resources.objects : [];
+      serverVisualItems.voices = Array.isArray(resources.voices) ? resources.voices : [];
       serverDrafts = data.drafts || {};
       conversationsCache = Array.isArray(data.conversations) ? data.conversations : conversationsCache;
       syncChatCollections(conversationsCache);
@@ -3072,13 +3108,14 @@ function localizedGreeting() {
   async function saveVisualItemToBackend(kind, item) {
     const tg = getTelegramId();
     if (!tg || !item) return item;
+    const resourceType = kind === 'voice' ? 'voice' : (kind === 'character' ? 'character' : 'object');
     try {
       const res = await fetch('/api/public/prostudio/resources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(Object.assign({}, item, {
           telegram_id: tg,
-          resource_type: kind === 'character' ? 'character' : 'object',
+          resource_type: resourceType,
           photos: item.referenceImages || [],
           preview_url: item.previewUrl || '',
         })),
@@ -3915,6 +3952,27 @@ async function deleteVisualItemFromBackend(kind, id) {
   } catch (err) {
     console.warn('[SYLVEX] visual resource delete failed', err);
   }
+}
+
+async function deleteUserVoice(e, resourceId, voiceId) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const id = String(resourceId || '').trim();
+  const voice = String(voiceId || '').trim();
+  if (!id || !id.startsWith('custom_voice_')) return;
+  serverVisualItems.voices = (serverVisualItems.voices || []).filter((item) => {
+    const itemResourceId = String(item.id || item.resourceId || '');
+    const itemVoiceId = String(item.voice_id || item.voiceId || '');
+    return itemResourceId !== id && itemVoiceId !== voice;
+  });
+  if (voiceState.elevenlabsVoice === voice) voiceState.elevenlabsVoice = '21m00Tcm4TlvDq8ikWAM';
+  if (voiceState.elevenlabsSecondVoice === voice) voiceState.elevenlabsSecondVoice = voiceState.elevenlabsVoice;
+  renderVoiceToolPanel();
+  renderVoiceControls();
+  await deleteVisualItemFromBackend('voice', id);
+  toast('Голос удалён');
 }
 
 // =====================================================
@@ -11150,6 +11208,21 @@ async function waitGeneration(jobId, options) {
       if (!isElevenLabsVoiceModel(voiceState.modelId)) {
         voiceState.modelId = 'elevenlabs_multilingual_v2';
       }
+      const voiceResource = {
+        id: 'custom_voice_' + data.voice_id,
+        voice_id: data.voice_id,
+        name: data.name || voiceName,
+        gender: voiceCloneDraft.gender || 'neutral',
+        description: 'Created in SYLVEX Mini App',
+        provider: 'elevenlabs',
+        model: 'elevenlabs_voice_clone',
+        type: 'custom',
+        status: 'ready',
+        created_at: new Date().toISOString(),
+      };
+      const savedVoice = await saveVisualItemToBackend('voice', voiceResource);
+      serverVisualItems.voices = (serverVisualItems.voices || []).filter((item) => (item.voice_id || item.voiceId || item.id) !== data.voice_id);
+      serverVisualItems.voices.unshift(Object.assign({}, voiceResource, savedVoice || {}));
       voiceState.elevenlabsVoice = data.voice_id;
       voiceState.elevenlabsSecondVoice = data.voice_id;
       elevenlabsVoiceListLoaded = false;
@@ -13009,7 +13082,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    pickVisualReference, deleteVisualReference, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -13089,6 +13162,7 @@ async function waitGeneration(jobId, options) {
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
   window.pickVisualReference = pickVisualReference;
   window.deleteVisualReference = deleteVisualReference;
+  window.deleteUserVoice = deleteUserVoice;
   window.openVisualPicker = openVisualPicker;
   window.openVideoVisualPicker = openVideoVisualPicker;
   window.closeVisualPicker = closeVisualPicker;
@@ -13121,6 +13195,7 @@ async function waitGeneration(jobId, options) {
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
   S.deleteVisualReference = deleteVisualReference;
+  S.deleteUserVoice = deleteUserVoice;
   S.openVisualPicker = openVisualPicker;
   S.openVideoVisualPicker = openVideoVisualPicker;
   S.closeVisualPicker = closeVisualPicker;
