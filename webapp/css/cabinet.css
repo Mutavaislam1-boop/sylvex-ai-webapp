@@ -4514,7 +4514,8 @@ CSS-БЛОК: .upload-photo-thumb img
 }
 
 .upload-media-uploading::after,
-.studio-links-btn.is-uploading::after{
+.studio-links-btn.is-uploading::after,
+.studio-video-edit-upload.is-uploading::after{
   content:"" !important;
   position:absolute !important;
   inset:0 !important;
