@@ -3867,11 +3867,13 @@ function closeVisualPicker(e) {
 // =====================================================
 function visualPickerCardHtml(item, kind) {
   const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
-  return '<button class="visual-picker-card ' + (selected ? 'selected' : '') + '" type="button" onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
+  const canDelete = isCustomVisualItem(item);
+  return '<div class="visual-picker-card ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
     + '<span class="visual-picker-thumb"><img src="' + S.escapeHtml(item.previewUrl) + '" alt="' + S.escapeHtml(item.name) + '" loading="lazy" decoding="async" /></span>'
     + '<span class="visual-picker-name">' + S.escapeHtml(item.name) + '</span>'
     + '<span class="visual-picker-check">✓</span>'
-    + '</button>';
+    + (canDelete ? '<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">×</button>' : '')
+    + '</div>';
 }
 
 // =====================================================
@@ -3896,6 +3898,24 @@ function openVideoVisualPicker(e, kind) {
 }
 
 let visualCreateDraft = { kind: '', photos: [] };
+
+function isCustomVisualItem(item) {
+  if (!item || typeof item !== 'object') return false;
+  return item.type === 'custom' || /^custom_/.test(String(item.id || ''));
+}
+
+async function deleteVisualItemFromBackend(kind, id) {
+  const tg = getTelegramId();
+  if (!tg || !id) return;
+  try {
+    await fetch('/api/public/prostudio/resources/' + encodeURIComponent(id) + '?telegram_id=' + encodeURIComponent(tg), {
+      method: 'DELETE',
+      cache: 'no-store',
+    });
+  } catch (err) {
+    console.warn('[SYLVEX] visual resource delete failed', err);
+  }
+}
 
 // =====================================================
 // JAVASCRIPT-БЛОК: visualCreatePhotoSlot
@@ -3928,6 +3948,7 @@ function renderVisualCreateModal() {
   const description = visualCreateDraft.description || '';
   const canSave = visualCreateCanSave();
   const busy = !!visualCreateDraft.saving;
+  const statusText = visualCreateDraft.statusText || '';
   modal.innerHTML = '<div class="visual-create-card">'
     + '<div class="visual-create-head"><button class="visual-create-back" type="button" onclick="SYLVEX.closeVisualCreateModal(event)" ' + (busy ? 'disabled' : '') + ' aria-label="Назад">‹</button><h3>' + title + '</h3></div>'
     + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" ' + (busy ? 'disabled' : '') + ' /></label>'
@@ -3935,11 +3956,23 @@ function renderVisualCreateModal() {
     + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>' : '')
     + '<div class="visual-photo-grid">' + [0, 1, 2].map(visualCreatePhotoSlot).join('') + '</div>'
     + '<p class="visual-create-hint">' + hint + '<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.</p>'
-    + (busy ? '<div class="visual-create-loading"><span></span><b>OpenAI создаёт ' + (isCharacter ? 'персонажа' : 'объект') + '</b></div>' : '')
+    + (busy ? '<div class="visual-create-loading ' + (visualCreateDraft.done ? 'done' : '') + '">' + (visualCreateDraft.done ? '<strong>✓</strong>' : '<span></span>') + '<b>' + S.escapeHtml(statusText || ((isCharacter ? 'Персонаж ' : 'Объект ') + name + ' создаётся')) + '</b></div>' : '')
     + '<button class="visual-create-save" type="button" ' + (canSave && !busy ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (busy ? 'Создаём...' : (isCharacter ? 'Создать персонажа' : 'Создать объект')) + '</button>'
     + '<input id="visualCreateFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />'
     + '</div>';
   modal.classList.add('show');
+}
+
+function visualCreateKindLabel(kind) {
+  return kind === 'character' ? 'Персонаж' : 'Объект';
+}
+
+function visualCreateListLabel(kind) {
+  return kind === 'character' ? 'список персонажей' : 'список объектов';
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // =====================================================
@@ -4109,17 +4142,27 @@ async function saveVisualCreateDraft(e) {
   if (kind === 'character' && !visualCreateDraft.gender) return toast('Выберите пол');
   if (!photos.length) return toast('Добавьте хотя бы одну фотографию');
   if (visualCreateDraft.saving) return;
+  const kindLabel = visualCreateKindLabel(kind);
+  const listLabel = visualCreateListLabel(kind);
   visualCreateDraft.saving = true;
+  visualCreateDraft.done = false;
+  visualCreateDraft.statusText = kindLabel + ' ' + name + ' создаётся';
   renderVisualCreateModal();
+  await wait(900);
   let generatedPreview = '';
   try {
     generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
   } catch (err) {
     console.warn('[SYLVEX] visual resource generation failed', err);
     visualCreateDraft.saving = false;
+    visualCreateDraft.done = false;
+    visualCreateDraft.statusText = '';
     renderVisualCreateModal();
     return toast(translateGenerationError(err, kind === 'character' ? 'Не удалось создать персонажа' : 'Не удалось создать объект'));
   }
+  visualCreateDraft.statusText = kindLabel + ' ' + name + ' сохраняется';
+  renderVisualCreateModal();
+  await wait(900);
   const id = (kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now();
   const references = [generatedPreview].concat(photos).filter(Boolean);
   const item = {
@@ -4162,14 +4205,19 @@ async function saveVisualCreateDraft(e) {
     imageState.objectReferences = item.referenceImages.slice();
     imageState.objects = item.name;
   }
-  closeVisualCreateModal(e);
-  closeVisualPicker(e);
-  closeImageStylePanel(e);
   renderImageReferenceSections();
   renderImageControls();
   renderImageStylePanel();
   renderVideoReferencesPreview();
-  toast(kind === 'character' ? 'Персонаж создан' : 'Объект создан');
+  visualCreateDraft.done = true;
+  visualCreateDraft.statusText = kindLabel + ' ' + name + ' создан и сохранён в ' + listLabel;
+  renderVisualCreateModal();
+  toast(visualCreateDraft.statusText);
+  await wait(2400);
+  visualCreateDraft.saving = false;
+  closeVisualCreateModal(e);
+  closeVisualPicker(e);
+  closeImageStylePanel(e);
 }
 
 function applyVisualReferenceToVideo(item, kind) {
@@ -4190,6 +4238,35 @@ function applyVisualReferenceToVideo(item, kind) {
     previewUrl: item.previewUrl || url,
   };
   renderVideoReferencesPreview();
+}
+
+async function deleteVisualReference(e, kind, id) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const list = kind === 'character' ? imageCharacters() : imageObjects();
+  const item = list.find((entry) => entry && entry.id === id);
+  if (!isCustomVisualItem(item)) return;
+  const storageKind = kind === 'character' ? 'characters' : 'objects';
+  const refs = (item.referenceImages || []).concat(item.previewUrl ? [item.previewUrl] : []).filter(Boolean);
+  if (serverVisualItems[storageKind]) {
+    serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry && entry.id !== id);
+  }
+  const localItems = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== id && isCustomVisualItem(entry));
+  saveCustomVisualItems(storageKind, localItems);
+  if (kind === 'character' && imageState.characterId === id) clearSelectedCharacter();
+  if (kind === 'object' && imageState.objectId === id) clearSelectedObject();
+  if (isVideoMode() && videoState.referenceVisual && videoState.referenceVisual.id === id) {
+    videoState.referenceVisual = null;
+    setCurrentVideoReferenceImages(currentVideoReferenceImages().filter((url) => !refs.includes(url)));
+  }
+  renderImageStylePanel();
+  renderImageReferenceSections();
+  renderImageControls();
+  renderVideoReferencesPreview();
+  await deleteVisualItemFromBackend(kind, id);
+  toast(kind === 'character' ? 'Персонаж удалён' : 'Объект удалён');
 }
 
 // =====================================================
@@ -4810,6 +4887,27 @@ function currentSelectedUploadImage() {
       display: flex;
     }
 
+    .visual-delete-btn {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: rgba(0,0,0,.72);
+      color: #fff;
+      font: 900 18px/1 inherit;
+      cursor: pointer;
+      z-index: 5;
+    }
+
+    .visual-delete-btn:active {
+      transform: scale(.94);
+    }
+
     @media (max-width: 370px) {
       .image-style-panel-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4919,15 +5017,17 @@ function renderImageStylePanel() {
     const label = item.name || item.label || id;
     const preview = item.previewUrl || item.preview_url || ((item.referenceImages || item.photos || [])[0]) || '';
     const selected = selectedId === id;
+    const canDelete = isCustomVisualItem(item);
 
     return `
-      <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">
+      <div class="image-style-card ${selected ? 'selected' : ''}" role="button" tabindex="0" onclick="SYLVEX.pickVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">
         <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
           ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
         </span>
         <span class="image-style-label">${S.escapeHtml(label)}</span>
         <span class="image-style-check">✓</span>
-      </button>
+        ${canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">×</button>` : ''}
+      </div>
     `;
   }).join('');
 }
@@ -12909,7 +13009,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    pickVisualReference, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
+    pickVisualReference, deleteVisualReference, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -12988,6 +13088,7 @@ async function waitGeneration(jobId, options) {
   window.expandHistorySection = expandHistorySection;
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
   window.pickVisualReference = pickVisualReference;
+  window.deleteVisualReference = deleteVisualReference;
   window.openVisualPicker = openVisualPicker;
   window.openVideoVisualPicker = openVideoVisualPicker;
   window.closeVisualPicker = closeVisualPicker;
@@ -13019,6 +13120,7 @@ async function waitGeneration(jobId, options) {
   S.chooseVideoAddObject = chooseVideoAddObject;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
+  S.deleteVisualReference = deleteVisualReference;
   S.openVisualPicker = openVisualPicker;
   S.openVideoVisualPicker = openVideoVisualPicker;
   S.closeVisualPicker = closeVisualPicker;

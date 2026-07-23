@@ -5041,6 +5041,38 @@ async def public_prostudio_save_resource(request: Request):
 
 
 # =====================================================
+# API ENDPOINT: public_prostudio_delete_resource
+# Удаляет только пользовательский ресурс персонажа/объекта из каталога Mini App.
+# =====================================================
+@app.delete("/api/public/prostudio/resources/{resource_id}")
+async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not resource_id or not resource_id.startswith("custom_"):
+        return JSONResponse({"ok": False, "error": "only_custom_resources_can_be_deleted"}, status_code=400)
+    if not DATABASE_URL:
+        return {"ok": True, "deleted": False, "resource_id": resource_id}
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM prostudio_resources WHERE id = %s AND telegram_id = %s",
+            (resource_id, telegram_id),
+        )
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        cursor.close()
+        conn.close()
+        if deleted:
+            log_user_event(telegram_id, "miniapp", "resource", "resource_deleted", {"id": resource_id})
+        return {"ok": True, "deleted": deleted, "resource_id": resource_id}
+    except Exception as exc:
+        prostudio_error("RESOURCE_DELETE_FAILED", exc, resource_id=resource_id, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "resource_delete_failed"}, status_code=500)
+
+
+# =====================================================
 # API ENDPOINT: public_prostudio_upload_media
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
 # Маршрут FastAPI: @app.post("/api/public/prostudio/upload-media")
