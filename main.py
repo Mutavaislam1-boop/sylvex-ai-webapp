@@ -75,6 +75,8 @@ def env_value(*names: str, default: str = "") -> str:
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+RUNWAY_API_BASE_URL = os.getenv("RUNWAY_API_BASE_URL", "https://api.dev.runwayml.com").rstrip("/")
+RUNWAY_API_VERSION = os.getenv("RUNWAY_API_VERSION", "2024-11-06")
 BYTEPLUS_ARK_API_KEY = os.getenv("BYTEPLUS_ARK_API_KEY")
 BYTEPLUS_ARK_ENDPOINT = os.getenv("BYTEPLUS_ARK_ENDPOINT", "https://ark.ap-southeast.bytepluses.com/api/v3").rstrip("/")
 BYTEPLUS_SEEDREAM_MODEL_MAP = {
@@ -4149,6 +4151,7 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
         "referenceImages": photos,
         "type": "custom",
         "voice_id": resource.get("voice_id") or resource.get("voiceId") or resource.get("id") or "",
+        "avatar_id": resource.get("avatar_id") or resource.get("avatarId") or "",
         "provider": resource.get("provider") or "",
         "model": resource.get("model") or "",
         "status": resource.get("status") or "ready",
@@ -4231,6 +4234,9 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 "updated_at": _to_iso(updated_at),
             }
             if kind == "character":
+                item["avatar_id"] = metadata.get("avatar_id") or metadata.get("avatarId") or ""
+                item["provider"] = metadata.get("provider") or metadata.get("ai_provider") or ""
+                item["model"] = metadata.get("model") or metadata.get("ai_model") or ""
                 result["characters"].append(item)
             elif kind == "object":
                 result["objects"].append(item)
@@ -4500,6 +4506,18 @@ def materialize_image_urls(image_urls: list) -> list:
     result = [materialize_data_image_url(url) for url in urls]
     prostudio_debug("IMAGE_MATERIALIZE_DONE", count=len(result), urls=result)
     return result
+
+
+def public_media_url(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    materialized = materialize_data_image_url(raw)
+    if materialized.startswith("http://") or materialized.startswith("https://"):
+        return materialized
+    if materialized.startswith("/"):
+        return (WEBAPP_URL or "").rstrip("/") + materialized
+    return materialized
 
 
 # =====================================================
@@ -5050,6 +5068,91 @@ async def public_prostudio_save_resource(request: Request):
     if not item:
         return JSONResponse({"ok": False, "error": "invalid_resource"}, status_code=400)
     return {"ok": True, "resource": item}
+
+
+@app.post("/api/public/prostudio/runway-avatar")
+async def public_prostudio_runway_avatar(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    name = str(data.get("name") or "").strip()
+    photos = _json_list(data.get("photos")) or _json_list(data.get("referenceImages"))
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if len(name) < 2:
+        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
+    if not photos:
+        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+
+    api_key = env_value("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY")
+    if not api_key:
+        return JSONResponse({"ok": False, "error": "RUNWAY_API_KEY is not configured"}, status_code=500)
+
+    reference_image = public_media_url(photos[0])
+    if not reference_image.startswith("https://"):
+        return JSONResponse({"ok": False, "error": "Runway requires a public HTTPS reference image"}, status_code=400)
+
+    gender = str(data.get("gender") or "").strip()
+    description = str(data.get("description") or "").strip()
+    personality = (
+        f"You are the persistent SYLVEX character named {name}. "
+        "Keep the visual identity from the reference image consistent across sessions and generated media. "
+        "Respond naturally, briefly, and stay in character when used as an avatar."
+    )
+    if gender:
+        personality += f" Gender/style note: {gender}."
+    if description:
+        personality += f" Character description: {description[:1200]}."
+
+    endpoint = f"{RUNWAY_API_BASE_URL}/v1/avatars"
+    body = {
+        "name": name,
+        "referenceImage": reference_image,
+        "voice": {"type": "runway-live-preset", "presetId": "clara"},
+        "personality": personality[:10000],
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Runway-Version": RUNWAY_API_VERSION,
+            },
+            data=json.dumps(body),
+            timeout=120,
+        )
+    except requests.RequestException as exc:
+        prostudio_error("RUNWAY_AVATAR_CREATE_REQUEST_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "Runway avatar request failed", "details": str(exc)[:1000]}, status_code=502)
+
+    payload = safe_provider_json(response, "runway", endpoint)
+    if response.status_code >= 400:
+        prostudio_debug("RUNWAY_AVATAR_CREATE_FAILED", status=response.status_code, body=payload)
+        return JSONResponse({"ok": False, "error": payload.get("error") or payload.get("message") or "Runway avatar creation failed", "response": payload}, status_code=502)
+
+    avatar_id = str(payload.get("id") or payload.get("avatarId") or payload.get("avatar_id") or "")
+    if not avatar_id:
+        return JSONResponse({"ok": False, "error": "Runway returned no avatar id", "response": payload}, status_code=502)
+
+    resource = {
+        "id": f"custom_character_{avatar_id}",
+        "resource_type": "character",
+        "name": name,
+        "gender": gender,
+        "description": description,
+        "previewUrl": reference_image,
+        "referenceImages": [reference_image],
+        "sourceImages": photos,
+        "avatar_id": avatar_id,
+        "provider": "runway",
+        "model": "gwm1_avatars",
+        "ai_provider": "runway",
+        "ai_model": "gwm1_avatars",
+        "type": "custom",
+        "status": "ready",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    return {"ok": True, "resource": resource, "avatar": payload}
 
 
 # =====================================================
