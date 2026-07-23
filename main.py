@@ -4521,6 +4521,57 @@ def public_media_url(url: str) -> str:
     return materialized
 
 
+def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") -> tuple | None:
+    raw = str(url or "").strip()
+    if not raw:
+        return None
+    content = b""
+    mime_type = "image/png"
+    filename = fallback_name or "reference.png"
+    try:
+        if raw.startswith("data:image/") and ";base64," in raw:
+            head, data = raw.split(";base64,", 1)
+            mime_type = head.replace("data:", "") or mime_type
+            ext = mime_type.split("/", 1)[1].replace("jpeg", "jpg") or "png"
+            filename = pathlib.Path(filename).stem + "." + ext
+            content = base64.b64decode(data)
+        elif raw.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            content = local_path.read_bytes()
+            filename = local_path.name or filename
+        elif raw.startswith("/generated/"):
+            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            content = local_path.read_bytes()
+            filename = local_path.name or filename
+        elif raw.startswith("http://") or raw.startswith("https://"):
+            response = requests.get(raw, timeout=90)
+            response.raise_for_status()
+            content = response.content
+            content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+            if content_type.startswith("image/"):
+                mime_type = content_type
+            parsed_name = pathlib.Path(urllib.parse.urlparse(raw).path).name
+            if parsed_name:
+                filename = parsed_name
+        else:
+            return None
+        suffix = pathlib.Path(filename).suffix.lower()
+        if suffix in {".jpg", ".jpeg"}:
+            mime_type = "image/jpeg"
+        elif suffix == ".webp":
+            mime_type = "image/webp"
+        elif suffix == ".gif":
+            mime_type = "image/gif"
+        elif suffix == ".png":
+            mime_type = "image/png"
+        if not content:
+            return None
+        return (filename, content, mime_type)
+    except Exception as exc:
+        prostudio_error("IMAGE_FILE_LOAD_FAILED", exc, source=_sql_text(raw, 180))
+        return None
+
+
 def provider_object_to_dict(value) -> dict:
     if isinstance(value, dict):
         return value
@@ -5106,8 +5157,9 @@ async def public_prostudio_runway_avatar(request: Request):
     if not api_key:
         return JSONResponse({"ok": False, "error": "RUNWAY_API_KEY is not configured"}, status_code=500)
 
-    reference_image = public_media_url(photos[0])
-    if not reference_image.startswith("https://"):
+    preview_image = public_media_url(photos[0])
+    reference_image = preview_image
+    if not preview_image.startswith("https://"):
         return JSONResponse({"ok": False, "error": "Runway requires a public HTTPS reference image"}, status_code=400)
 
     gender = str(data.get("gender") or "").strip()
@@ -5123,14 +5175,6 @@ async def public_prostudio_runway_avatar(request: Request):
         personality += f" Character description: {description[:1200]}."
 
     endpoint = f"{RUNWAY_API_BASE_URL}/v1/avatars"
-    prostudio_debug(
-        "RUNWAY_AVATAR_CREATE_START",
-        telegram_id=telegram_id,
-        reference_image=reference_image,
-        name=name,
-        voice_type="runway-live-preset",
-        preset_id="clara",
-    )
     try:
         from runwayml import RunwayML
 
@@ -5139,6 +5183,21 @@ async def public_prostudio_runway_avatar(request: Request):
             runway_version=RUNWAY_API_VERSION,
             base_url=RUNWAY_API_BASE_URL,
             timeout=120,
+        )
+        file_tuple = image_file_tuple_from_url(photos[0], fallback_name=f"{name or 'character'}.png")
+        if file_tuple:
+            upload = client.uploads.create_ephemeral(file=file_tuple, timeout=240)
+            upload_payload = provider_object_to_dict(upload)
+            reference_image = upload_payload.get("uri") or getattr(upload, "uri", "") or reference_image
+        prostudio_debug(
+            "RUNWAY_AVATAR_CREATE_START",
+            telegram_id=telegram_id,
+            reference_image=reference_image,
+            preview_image=preview_image,
+            name=name,
+            voice_type="runway-live-preset",
+            preset_id="clara",
+            uploaded_to_runway=reference_image.startswith("runway://"),
         )
         avatar = client.avatars.create(
             name=name,
@@ -5149,7 +5208,7 @@ async def public_prostudio_runway_avatar(request: Request):
         )
         payload = provider_object_to_dict(avatar)
     except Exception as exc:
-        prostudio_error("RUNWAY_AVATAR_CREATE_FAILED", exc, telegram_id=telegram_id, endpoint=endpoint, reference_image=reference_image)
+        prostudio_error("RUNWAY_AVATAR_CREATE_FAILED", exc, telegram_id=telegram_id, endpoint=endpoint, reference_image=reference_image, preview_image=preview_image)
         return JSONResponse({
             "ok": False,
             "error": "Runway avatar creation failed",
@@ -5167,8 +5226,8 @@ async def public_prostudio_runway_avatar(request: Request):
         "name": name,
         "gender": gender,
         "description": description,
-        "previewUrl": reference_image,
-        "referenceImages": [reference_image],
+        "previewUrl": preview_image,
+        "referenceImages": [preview_image],
         "sourceImages": photos,
         "avatar_id": avatar_id,
         "provider": "runway",
