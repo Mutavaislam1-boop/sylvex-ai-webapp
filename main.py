@@ -4469,16 +4469,17 @@ def materialize_data_image_url(url: str) -> str:
     if not value.startswith("data:image") or "," not in value:
         return value
     try:
-        import base64
-        import imghdr
-
         header, raw = value.split(",", 1)
         content = base64.b64decode(raw)
-        detected = imghdr.what(None, h=content) or "png"
-        if detected == "jpeg":
+        mime = header.split(";", 1)[0].replace("data:", "").strip().lower()
+        if content.startswith(b"\xff\xd8\xff") or mime == "image/jpeg":
             ext = "jpg"
-        elif detected in {"png", "webp", "gif"}:
-            ext = detected
+        elif content.startswith(b"\x89PNG\r\n\x1a\n") or mime == "image/png":
+            ext = "png"
+        elif (content.startswith(b"RIFF") and content[8:12] == b"WEBP") or mime == "image/webp":
+            ext = "webp"
+        elif content.startswith(b"GIF87a") or content.startswith(b"GIF89a") or mime == "image/gif":
+            ext = "gif"
         else:
             ext = "png"
         image_dir = WEBAPP_DIR / "generated" / "images"
