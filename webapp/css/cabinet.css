@@ -4505,6 +4505,44 @@ CSS-БЛОК: .upload-photo-thumb img
   display:block !important;
 }
 
+.upload-photo-thumb video{
+  width:100% !important;
+  height:100% !important;
+  object-fit:cover !important;
+  display:block !important;
+  background:#111 !important;
+}
+
+.upload-media-uploading::after,
+.studio-links-btn.is-uploading::after{
+  content:"" !important;
+  position:absolute !important;
+  inset:0 !important;
+  background:linear-gradient(90deg, rgba(47,111,189,.12), rgba(47,111,189,.42), rgba(47,111,189,.12)) !important;
+  transform:translateX(-100%) !important;
+  animation:sylvexUploadSweep 1.4s ease-in-out infinite !important;
+  pointer-events:none !important;
+}
+
+.uploading-ring{
+  position:absolute !important;
+  inset:8px !important;
+  border:2px solid rgba(255,255,255,.28) !important;
+  border-top-color:#fff !important;
+  border-radius:999px !important;
+  animation:sylvexUploadSpin .9s linear infinite !important;
+  z-index:3 !important;
+}
+
+@keyframes sylvexUploadSweep{
+  0%{ transform:translateX(-100%); }
+  100%{ transform:translateX(100%); }
+}
+
+@keyframes sylvexUploadSpin{
+  to{ transform:rotate(360deg); }
+}
+
 /* =====================================================
 CSS-БЛОК: .upload-photo-add
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -4823,10 +4861,10 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .view[data-view="tools"].active .msg.user .bubble .msg-ref-img{
-  width:150px !important;
-  height:150px !important;
-  max-width:42vw !important;
-  max-height:180px !important;
+  width:52px !important;
+  height:52px !important;
+  max-width:52px !important;
+  max-height:52px !important;
   flex:0 0 auto !important;
   border-radius:16px !important;
   overflow:hidden !important;
@@ -4851,9 +4889,10 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
 }
 
 .view[data-view="tools"].active .msg.user .bubble .msg-ref-video{
-  width:180px !important;
-  max-width:54vw !important;
-  aspect-ratio:9/16 !important;
+  width:52px !important;
+  height:52px !important;
+  max-width:52px !important;
+  max-height:52px !important;
   flex:0 0 auto !important;
   border-radius:16px !important;
   overflow:hidden !important;

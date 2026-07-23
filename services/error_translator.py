@@ -76,8 +76,10 @@ def translate_provider_error(value: Any, provider: str = "", model: str = "", fa
     if re.search(r"couldn.?t extract audio|extract audio from.*uploaded file|no audio stream|audio stream.*not found|does not contain any stream", low):
         return "Не удалось достать аудиодорожку из видео.\nПроверьте, что в ролике есть звук, или выберите другое видео."
     if re.search(r"motion control|motion reference video|reference video|selected motion", low):
-        return "Kling не смог обработать выбранное видео как motion reference.\nВыберите MP4/MOV 3–10 секунд, где человек или персонаж хорошо виден в кадре и движение идёт одним непрерывным дублем."
-    if re.search(r"invalid image|image.*invalid|cannot process.*image|bad image|unsupported image|get.*contents.*file|contents of the file", low):
+        return "Kling не смог обработать выбранное видео как reference.\nВыберите MP4/MOV с понятным кадром и попробуйте снова."
+    if re.search(r"base_video|feature_video|video reference|contents of the file|get.*contents.*file", low):
+        return "Kling не смог обработать загруженный медиа-пакет.\nПроверьте, что видео MP4/MOV 3–15.5 секунд, фото JPG/PNG, и повторите генерацию."
+    if re.search(r"invalid image|image.*invalid|cannot process.*image|bad image|unsupported image", low):
         return "Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение."
     if re.search(r"sensitive|safety|policy|moderation|blocked|content.*violat", low):
         return "Запрос не может быть обработан из-за ограничений выбранной AI-модели.\nПопробуйте изменить изображение или описание."

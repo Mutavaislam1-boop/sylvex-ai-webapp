@@ -75,10 +75,10 @@ KLING_DURATIONS = [5, 10, 15]
 VIDEO_MODEL_CONFIG.update({
     "kling_3_0_turbo": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "kling_3_0": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
+    "kling_motion_3_0": {"provider": "kling", "modes": ["motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "motion_control": True, "omni": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
     "kling_lip_sync": {"provider": "kling", "modes": ["lip_sync"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": ["720p"], "sound": True, "lip_sync": True, "video_input": True, "video_upload": True, "video_edit": True},
     "kling_effects": {"provider": "kling", "modes": ["video_effects"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_effects": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
+    "kling_o3_omni": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit", "motion_control"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "omni": True, "motion_control": True, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "kling_o3_edit": {"provider": "kling", "modes": ["video_edit"], "durations": KLING_LONG_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_FULL_RESOLUTIONS, "sound": True, "native_audio": True, "video_input": True, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
     "kling_o1": {"provider": "kling", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": KLING_O1_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": False, "video_input": True, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "kling_2_6": {"provider": "kling", "modes": ["text_to_video", "image_to_video"], "durations": KLING_SHORT_DURATIONS, "ratios": KLING_BASE_RATIOS, "resolutions": KLING_STANDARD_RESOLUTIONS, "sound": True, "native_audio": True, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
@@ -147,7 +147,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
 VIDEO_PROVIDER_MODEL_MAP.update({
     "kling_3_0_turbo": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_TURBO_MODEL", "kling-3.0-turbo"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_MODEL", "kling-3.0"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
-    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_MOTION_MODEL", "kling-3.0")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
+    "kling_motion_3_0": {"provider": "kling", "provider_model": os.getenv("KLING_MOTION_3_0_MODEL", os.getenv("KLING_3_0_OMNI_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_lip_sync": {"provider": "kling", "provider_model": os.getenv("KLING_LIP_SYNC_MODEL", "kling-v1-6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_effects": {"provider": "kling", "provider_model": os.getenv("KLING_EFFECTS_MODEL", "kling-v1-6"), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
     "kling_o3_omni": {"provider": "kling", "provider_model": os.getenv("KLING_3_0_OMNI_MODEL", os.getenv("KLING_O3_OMNI_MODEL", "kling-3.0-omni")), "endpoint": os.getenv("KLING_API_ENDPOINT", "https://api-singapore.klingai.com")},
@@ -3689,7 +3689,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         return _provider_error("kling", model_id, "Для Kling Lip Sync нужно загрузить видео")
 
     model_family = _kling_model_family(provider_model)
-    is_motion_reference = video_mode in {"motion_control", "motion control"} and bool(input_video)
+    is_motion_reference = (
+        video_mode in {"motion_control", "motion control"}
+        and bool(input_video)
+        and not is_official_omni_model
+    )
     is_omni_video_reference = (
         is_official_omni_model
         and bool(input_video)
@@ -3707,13 +3711,13 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     def _ensure_kling_omni_prompt_refs(base_prompt, *, has_image=False, has_video=False, base_video=False):
         text = str(base_prompt or "").strip()
         additions = []
-        if has_video and "<<<video_1>>>" not in text:
+        if has_video and "@video_1" not in text:
             if base_video:
-                additions.append("Use <<<video_1>>> as the base video to edit. Preserve its motion, camera, timing, scene, and composition.")
+                additions.append("Use @video_1 as the base video to edit. Preserve its motion, camera, timing, scene, and composition.")
             else:
-                additions.append("Use <<<video_1>>> as the video reference.")
-        if has_image and "<<<image_1>>>" not in text:
-            additions.append("Use <<<image_1>>> as the character or object reference for the replacement.")
+                additions.append("Use @video_1 as the video reference.")
+        if has_image and "@image_1" not in text:
+            additions.append("Use @image_1 as the character or object reference for the replacement.")
         if not additions:
             return text
         return "\n\n".join([part for part in [text, "\n".join(additions)] if part])
@@ -3814,7 +3818,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         kling_body["contents"].append({"type": "video", "url": input_video})
     elif is_omni_video_reference or is_omni_unified_generation:
         contents = []
-        reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit"} else "feature_video"
+        reference_type = "base_video" if video_mode in {"video_edit", "video edit", "edit", "motion_control", "motion control"} else "feature_video"
         prompt = _ensure_kling_omni_prompt_refs(
             prompt,
             has_image=bool(input_image_url),
@@ -3824,7 +3828,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         if prompt:
             contents.append({"type": "prompt", "text": prompt})
         if input_image_url:
-            image_type = "image" if reference_type == "base_video" else "first_frame"
+            image_type = "refer_image" if reference_type == "base_video" else "first_frame"
             contents.append({"type": image_type, "url": input_image_url, "id": "image_1"})
         if input_video:
             contents.append({"type": reference_type, "url": input_video, "id": "video_1"})
