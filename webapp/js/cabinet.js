@@ -10291,6 +10291,8 @@ function updateGenerationLoadingProgress(index, completed) {
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   let transientErrors = 0;
+  const startedAt = Date.now();
+  const networkGraceMs = 15 * 60 * 1000;
   while (true) {
     if (onProgress) onProgress(false);
     let res;
@@ -10301,7 +10303,7 @@ async function waitGeneration(jobId, options) {
       );
     } catch (err) {
       transientErrors += 1;
-      if (transientErrors > 80) throw err;
+      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw err;
       await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
       continue;
     }
@@ -10313,7 +10315,7 @@ async function waitGeneration(jobId, options) {
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
       transientErrors += 1;
-      if (transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
+      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
       await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
       continue;
     }

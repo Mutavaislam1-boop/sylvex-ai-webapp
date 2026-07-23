@@ -2185,7 +2185,7 @@ def _kling_status(data: dict):
 # При completed извлекает результат, при failed возвращает понятную ошибку, при processing продолжает ожидание.
 # =====================================================
 def _kling_poll_until_ready(task_id: str, headers: dict):
-    attempts, interval = _kling_poll_attempt_settings(60, 5)
+    attempts, interval = _kling_poll_attempt_settings(120, 5)
     last_result = None
     for attempt in range(1, attempts + 1):
         endpoint = _kling_task_endpoint(task_id)

@@ -3922,6 +3922,14 @@ def normalize_generation_status(result: Optional[dict], mode: str = "") -> str:
 
 
 # =====================================================
+# PYTHON-БЛОК: run_provider_coroutine_off_loop
+# Запускает blocking-heavy async провайдеры вне основного event loop FastAPI.
+# =====================================================
+async def run_provider_coroutine_off_loop(factory):
+    return await asyncio.to_thread(lambda: asyncio.run(factory()))
+
+
+# =====================================================
 # БЛОК ОЗВУЧКИ: is_voice_video_voiceover_request
 # Определяет режим «Озвучить видео»: voice UI генерирует речь, backend локально накладывает её на видео.
 # =====================================================
@@ -9915,7 +9923,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             result = await image_generation(payload)
         elif mode == "video":
             prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
-            result = await video_generation(payload)
+            result = await run_provider_coroutine_off_loop(lambda: video_generation(payload))
         elif mode == "music":
             prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="audio_generation")
             result = await audio_generation(payload)
@@ -9995,7 +10003,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             )
             while True:
                 await asyncio.sleep(5)
-                poll = await poll_video_generation(result)
+                heartbeat_prostudio_generation_job(job_id)
+                poll = await run_provider_coroutine_off_loop(lambda: poll_video_generation(result))
 
                 if not poll.get("ok"):
                     update_prostudio_generation_job(job_id, "failed", error=poll)
