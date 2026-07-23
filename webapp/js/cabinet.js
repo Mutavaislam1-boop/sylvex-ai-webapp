@@ -3963,10 +3963,55 @@ function openVideoVisualPicker(e, kind) {
 }
 
 let visualCreateDraft = { kind: '', photos: [] };
+let resourceDeleteConfirm = null;
 
 function isCustomVisualItem(item) {
   if (!item || typeof item !== 'object') return false;
   return item.type === 'custom' || /^custom_/.test(String(item.id || ''));
+}
+
+function deleteResourceKindLabel(kind) {
+  if (kind === 'character') return 'персонажа';
+  if (kind === 'object') return 'объект';
+  if (kind === 'voice') return 'озвучку';
+  return 'элемент';
+}
+
+function closeResourceDeleteConfirm(result) {
+  const modal = document.getElementById('resourceDeleteConfirmModal');
+  if (modal) modal.remove();
+  const current = resourceDeleteConfirm;
+  resourceDeleteConfirm = null;
+  if (current && typeof current.resolve === 'function') current.resolve(!!result);
+}
+
+function confirmResourceDelete(kind, name) {
+  if (resourceDeleteConfirm && typeof resourceDeleteConfirm.resolve === 'function') {
+    resourceDeleteConfirm.resolve(false);
+  }
+  const previousModal = document.getElementById('resourceDeleteConfirmModal');
+  if (previousModal) previousModal.remove();
+  const modal = document.createElement('div');
+  modal.id = 'resourceDeleteConfirmModal';
+  modal.className = 'resource-delete-confirm';
+  const kindLabel = deleteResourceKindLabel(kind);
+  const title = 'Удалить ' + kindLabel + '?';
+  const cleanName = String(name || '').trim();
+  modal.innerHTML = '<div class="resource-delete-confirm-card" onclick="event.stopPropagation()">'
+    + '<div class="resource-delete-confirm-title">' + S.escapeHtml(title) + '</div>'
+    + (cleanName ? '<div class="resource-delete-confirm-text">' + S.escapeHtml(cleanName) + '</div>' : '')
+    + '<div class="resource-delete-confirm-actions">'
+    + '<button class="resource-delete-cancel" type="button" onclick="SYLVEX.closeResourceDeleteConfirm(false)">Отмена</button>'
+    + '<button class="resource-delete-action" type="button" onclick="SYLVEX.closeResourceDeleteConfirm(true)">Удалить</button>'
+    + '</div>'
+    + '</div>';
+  modal.onclick = () => closeResourceDeleteConfirm(false);
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('show'));
+  S.haptic && S.haptic.impact && S.haptic.impact('light');
+  return new Promise((resolve) => {
+    resourceDeleteConfirm = { resolve };
+  });
 }
 
 async function deleteVisualItemFromBackend(kind, id) {
@@ -3990,6 +4035,13 @@ async function deleteUserVoice(e, resourceId, voiceId) {
   const id = String(resourceId || '').trim();
   const voice = String(voiceId || '').trim();
   if (!id || !id.startsWith('custom_voice_')) return;
+  const voiceItem = (serverVisualItems.voices || []).find((item) => {
+    const itemResourceId = String(item.id || item.resourceId || '');
+    const itemVoiceId = String(item.voice_id || item.voiceId || '');
+    return itemResourceId === id || itemVoiceId === voice;
+  });
+  const confirmed = await confirmResourceDelete('voice', (voiceItem && voiceItem.name) || voice);
+  if (!confirmed) return;
   serverVisualItems.voices = (serverVisualItems.voices || []).filter((item) => {
     const itemResourceId = String(item.id || item.resourceId || '');
     const itemVoiceId = String(item.voice_id || item.voiceId || '');
@@ -4212,6 +4264,27 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   }
 }
 
+async function createRunwayCharacterResource(name, photos, gender, description) {
+  const tg = getTelegramId();
+  if (!tg) throw new Error('telegram_id_required');
+  const res = await fetch('/api/public/prostudio/runway-avatar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      telegram_id: tg,
+      name,
+      gender,
+      description,
+      photos: (photos || []).slice(0, 1),
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || !data.resource) {
+    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа в Runway'));
+  }
+  return normalizeVisualItem(data.resource) || data.resource;
+}
+
 // =====================================================
 // JAVASCRIPT-БЛОК: saveVisualCreateDraft
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -4236,8 +4309,14 @@ async function saveVisualCreateDraft(e) {
   renderVisualCreateModal();
   await wait(900);
   let generatedPreview = '';
+  let providerResource = null;
   try {
-    generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+    if (kind === 'character') {
+      providerResource = await createRunwayCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
+    } else {
+      generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+    }
   } catch (err) {
     console.warn('[SYLVEX] visual resource generation failed', err);
     visualCreateDraft.saving = false;
@@ -4249,9 +4328,9 @@ async function saveVisualCreateDraft(e) {
   visualCreateDraft.statusText = kindLabel + ' ' + name + ' сохраняется';
   renderVisualCreateModal();
   await wait(900);
-  const id = (kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now();
+  const id = (providerResource && providerResource.id) || ((kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now());
   const references = [generatedPreview].concat(photos).filter(Boolean);
-  const item = {
+  const item = Object.assign({
     id,
     name,
     gender: visualCreateDraft.gender || '',
@@ -4259,12 +4338,14 @@ async function saveVisualCreateDraft(e) {
     previewUrl: generatedPreview || photos[0],
     referenceImages: references,
     sourceImages: photos,
-    ai_provider: 'openai',
-    ai_model: 'gpt-image-1',
+    ai_provider: kind === 'character' ? 'runway' : 'openai',
+    ai_model: kind === 'character' ? 'gwm1_avatars' : 'gpt-image-1',
+    provider: kind === 'character' ? 'runway' : 'openai',
+    model: kind === 'character' ? 'gwm1_avatars' : 'gpt-image-1',
     type: 'custom',
     status: 'ready',
     created_at: new Date().toISOString(),
-  };
+  }, providerResource || {});
   const storageKind = kind === 'character' ? 'characters' : 'objects';
   const savedItem = await saveVisualItemToBackend(kind, item);
   Object.assign(item, normalizeVisualItem(savedItem || item) || {});
@@ -4334,6 +4415,8 @@ async function deleteVisualReference(e, kind, id) {
   const list = kind === 'character' ? imageCharacters() : imageObjects();
   const item = list.find((entry) => entry && entry.id === id);
   if (!isCustomVisualItem(item)) return;
+  const confirmed = await confirmResourceDelete(kind === 'object' ? 'object' : 'character', item.name || item.label || id);
+  if (!confirmed) return;
   const storageKind = kind === 'character' ? 'characters' : 'objects';
   const refs = (item.referenceImages || []).concat(item.previewUrl ? [item.previewUrl] : []).filter(Boolean);
   if (serverVisualItems[storageKind]) {
@@ -13111,7 +13194,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    pickVisualReference, deleteVisualReference, deleteUserVoice, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -13192,6 +13275,7 @@ async function waitGeneration(jobId, options) {
   window.pickVisualReference = pickVisualReference;
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
+  window.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
   window.openVisualPicker = openVisualPicker;
   window.openVideoVisualPicker = openVideoVisualPicker;
   window.closeVisualPicker = closeVisualPicker;
@@ -13225,6 +13309,7 @@ async function waitGeneration(jobId, options) {
   S.pickVisualReference = pickVisualReference;
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
+  S.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
   S.openVisualPicker = openVisualPicker;
   S.openVideoVisualPicker = openVideoVisualPicker;
   S.closeVisualPicker = closeVisualPicker;
