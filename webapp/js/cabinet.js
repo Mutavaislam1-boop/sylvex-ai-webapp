@@ -3882,6 +3882,19 @@ function openVisualPicker(e, kind) {
   openImageStylePanel(e, kind === 'object' ? 'object' : 'character');
 }
 
+function openVideoVisualPicker(e, kind) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (!isVideoMode()) return openImageStylePanel(e, kind === 'object' ? 'object' : 'character');
+  activeImageStylePanelKind = kind === 'object' ? 'object' : 'character';
+  const panel = ensureImageStylePanel();
+  renderImageStylePanel();
+  panel.classList.add('show');
+  S.haptic && S.haptic.impact && S.haptic.impact('light');
+}
+
 let visualCreateDraft = { kind: '', photos: [] };
 
 // =====================================================
@@ -3914,14 +3927,16 @@ function renderVisualCreateModal() {
   const gender = visualCreateDraft.gender || '';
   const description = visualCreateDraft.description || '';
   const canSave = visualCreateCanSave();
+  const busy = !!visualCreateDraft.saving;
   modal.innerHTML = '<div class="visual-create-card">'
-    + '<div class="visual-create-head"><button type="button" onclick="SYLVEX.closeVisualCreateModal(event)">← Назад</button><h3>' + title + '</h3></div>'
-    + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" /></label>'
-    + (isCharacter ? '<label class="visual-field"><span>Пол *</span><select id="visualCreateGender" onchange="SYLVEX.updateVisualCreateDraft(event,\'gender\')"><option value="">Выберите пол</option><option value="male" ' + (gender === 'male' ? 'selected' : '') + '>Мужской</option><option value="female" ' + (gender === 'female' ? 'selected' : '') + '>Женский</option></select></label>' : '')
-    + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')">' + S.escapeHtml(description) + '</textarea></label>' : '')
+    + '<div class="visual-create-head"><button class="visual-create-back" type="button" onclick="SYLVEX.closeVisualCreateModal(event)" ' + (busy ? 'disabled' : '') + ' aria-label="Назад">‹</button><h3>' + title + '</h3></div>'
+    + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" ' + (busy ? 'disabled' : '') + ' /></label>'
+    + (isCharacter ? '<label class="visual-field"><span>Пол *</span><select id="visualCreateGender" onchange="SYLVEX.updateVisualCreateDraft(event,\'gender\')" ' + (busy ? 'disabled' : '') + '><option value="">Выберите пол</option><option value="male" ' + (gender === 'male' ? 'selected' : '') + '>Мужской</option><option value="female" ' + (gender === 'female' ? 'selected' : '') + '>Женский</option></select></label>' : '')
+    + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>' : '')
     + '<div class="visual-photo-grid">' + [0, 1, 2].map(visualCreatePhotoSlot).join('') + '</div>'
     + '<p class="visual-create-hint">' + hint + '<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.</p>'
-    + '<button class="visual-create-save" type="button" ' + (canSave ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (isCharacter ? 'Создать персонажа' : 'Создать объект') + '</button>'
+    + (busy ? '<div class="visual-create-loading"><span></span><b>OpenAI создаёт ' + (isCharacter ? 'персонажа' : 'объект') + '</b></div>' : '')
+    + '<button class="visual-create-save" type="button" ' + (canSave && !busy ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (busy ? 'Создаём...' : (isCharacter ? 'Создать персонажа' : 'Создать объект')) + '</button>'
     + '<input id="visualCreateFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />'
     + '</div>';
   modal.classList.add('show');
@@ -3937,7 +3952,7 @@ function openVisualCreateModal(e, kind) {
     e.stopPropagation();
   }
   const caps = getModelCapabilities(imageState.modelId);
-  if ((kind === 'character' && !caps.character) || (kind === 'object' && !caps.object)) {
+  if (!isVideoMode() && ((kind === 'character' && !caps.character) || (kind === 'object' && !caps.object))) {
     imageFeatureUnavailableToast(kind === 'character' ? 'character' : 'object');
     return;
   }
@@ -3954,6 +3969,7 @@ function closeVisualCreateModal(e) {
     e.preventDefault();
     e.stopPropagation();
   }
+  if (visualCreateDraft && visualCreateDraft.saving) return;
   const modal = document.getElementById('visualCreateModal');
   if (modal) modal.classList.remove('show');
 }
@@ -4001,6 +4017,7 @@ function pickVisualCreatePhoto(e, index) {
     e.preventDefault();
     e.stopPropagation();
   }
+  if (visualCreateDraft && visualCreateDraft.saving) return;
   const input = document.getElementById('visualCreateFileInput');
   if (!input) return;
   input.onchange = () => {
@@ -4034,8 +4051,46 @@ function removeVisualCreatePhoto(e, index) {
     e.preventDefault();
     e.stopPropagation();
   }
+  if (visualCreateDraft && visualCreateDraft.saving) return;
   visualCreateDraft.photos.splice(index, 1);
   renderVisualCreateModal();
+}
+
+function visualCreatePrompt(kind, name, gender, description) {
+  if (kind === 'character') {
+    const genderText = gender === 'male' ? 'male' : (gender === 'female' ? 'female' : 'neutral');
+    return 'Create a clean reusable character reference portrait for "' + name + '". Gender: ' + genderText + '. Preserve the uploaded person identity from the reference photos. Make a polished studio character asset, realistic face, clear body/portrait readability, neutral background, premium Mini App visual catalog style. No text, no watermark.';
+  }
+  return 'Create a clean reusable object reference asset for "' + name + '". ' + (description ? 'Object description: ' + description + '. ' : '') + 'Preserve the uploaded object identity from the reference photos. Make a polished studio product/object asset, isolated readable shape, neutral background, premium Mini App visual catalog style. No text, no watermark.';
+}
+
+async function generateVisualResourceWithOpenAI(kind, name, photos, gender, description) {
+  const previousMode = studioMode;
+  const previousModelId = imageState.modelId;
+  const previousProvider = imageState.provider;
+  const previousSize = imageState.size;
+  const previousCount = imageState.count;
+  const previousStyle = imageState.style;
+  studioMode = 'image';
+  imageState.modelId = 'gpt_image_1';
+  imageState.provider = 'openai';
+  imageState.size = '1024x1024';
+  imageState.count = 1;
+  imageState.style = 'auto';
+  try {
+    const prompt = visualCreatePrompt(kind, name, gender, description);
+    const start = await callGenerate(prompt, null, photos, null, {});
+    const result = start && (start.result || start);
+    const urls = generatedUrlsFromResponse(result, 'image');
+    return urls[0] || photos[0] || '';
+  } finally {
+    studioMode = previousMode;
+    imageState.modelId = previousModelId;
+    imageState.provider = previousProvider;
+    imageState.size = previousSize;
+    imageState.count = previousCount;
+    imageState.style = previousStyle;
+  }
 }
 
 // =====================================================
@@ -4053,14 +4108,30 @@ async function saveVisualCreateDraft(e) {
   if (name.length < 2) return toast(kind === 'character' ? 'Введите имя персонажа' : 'Введите название объекта');
   if (kind === 'character' && !visualCreateDraft.gender) return toast('Выберите пол');
   if (!photos.length) return toast('Добавьте хотя бы одну фотографию');
+  if (visualCreateDraft.saving) return;
+  visualCreateDraft.saving = true;
+  renderVisualCreateModal();
+  let generatedPreview = '';
+  try {
+    generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+  } catch (err) {
+    console.warn('[SYLVEX] visual resource generation failed', err);
+    visualCreateDraft.saving = false;
+    renderVisualCreateModal();
+    return toast(translateGenerationError(err, kind === 'character' ? 'Не удалось создать персонажа' : 'Не удалось создать объект'));
+  }
   const id = (kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now();
+  const references = [generatedPreview].concat(photos).filter(Boolean);
   const item = {
     id,
     name,
     gender: visualCreateDraft.gender || '',
     description: visualCreateDraft.description || '',
-    previewUrl: photos[0],
-    referenceImages: photos,
+    previewUrl: generatedPreview || photos[0],
+    referenceImages: references,
+    sourceImages: photos,
+    ai_provider: 'openai',
+    ai_model: 'gpt-image-1',
     type: 'custom',
     status: 'ready',
     created_at: new Date().toISOString(),
@@ -4079,7 +4150,9 @@ async function saveVisualCreateDraft(e) {
   const items = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== item.id);
   items.unshift(item);
   saveCustomVisualItems(storageKind, items);
-  if (kind === 'character') {
+  if (isVideoMode()) {
+    applyVisualReferenceToVideo(item, kind);
+  } else if (kind === 'character') {
     imageState.characterId = item.id;
     imageState.characterName = item.name;
     imageState.characterReferences = item.referenceImages.slice();
@@ -4093,7 +4166,30 @@ async function saveVisualCreateDraft(e) {
   closeVisualPicker(e);
   closeImageStylePanel(e);
   renderImageReferenceSections();
+  renderImageControls();
+  renderImageStylePanel();
+  renderVideoReferencesPreview();
   toast(kind === 'character' ? 'Персонаж создан' : 'Объект создан');
+}
+
+function applyVisualReferenceToVideo(item, kind) {
+  if (!item) return;
+  const refs = (item.referenceImages || [])
+    .concat(item.previewUrl ? [item.previewUrl] : [])
+    .filter(Boolean);
+  const url = refs[0] || '';
+  if (!url) return;
+  const current = currentVideoReferenceImages().filter((entry) => entry && entry !== url);
+  current.unshift(url);
+  setCurrentVideoReferenceImages(current.slice(0, uploadLimitForTarget(UPLOAD_TARGETS.VIDEO_REFERENCES)));
+  videoState.characterImage = kind === 'character' ? url : videoState.characterImage;
+  videoState.referenceVisual = {
+    id: item.id || '',
+    name: item.name || '',
+    kind: kind === 'object' ? 'object' : 'character',
+    previewUrl: item.previewUrl || url,
+  };
+  renderVideoReferencesPreview();
 }
 
 // =====================================================
@@ -4106,8 +4202,8 @@ function pickVisualReference(e, kind, id) {
     e.stopPropagation();
   }
   const caps = getModelCapabilities(imageState.modelId);
-  if (kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
-  if (kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
+  if (!isVideoMode() && kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
+  if (!isVideoMode() && kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
   const list = kind === 'character' ? imageCharacters() : imageObjects();
   // =====================================================
   // JAVASCRIPT-БЛОК: item
@@ -4115,6 +4211,14 @@ function pickVisualReference(e, kind, id) {
   // =====================================================
   const item = list.find((entry) => entry.id === id);
   if (!item) return;
+  if (isVideoMode()) {
+    applyVisualReferenceToVideo(item, kind);
+    closeVisualPicker(e);
+    closeImageStylePanel(e);
+    updateSendButton();
+    toast(kind === 'character' ? 'Персонаж добавлен' : 'Объект добавлен');
+    return;
+  }
   if (kind === 'character') {
     if (imageState.characterId === item.id) {
       clearSelectedCharacter();
@@ -4775,12 +4879,13 @@ function renderImageStylePanel() {
   grid.innerHTML = createCard + items.map((item) => {
     const id = String(item.id || '');
     const label = item.name || item.label || id;
+    const preview = item.previewUrl || item.preview_url || ((item.referenceImages || item.photos || [])[0]) || '';
     const selected = selectedId === id;
 
     return `
       <button class="image-style-card ${selected ? 'selected' : ''}" type="button" onclick="SYLVEX.pickVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">
-        <span class="image-style-thumb is-placeholder" aria-hidden="true">
-          <span class="image-style-placeholder-icon"></span>
+        <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
+          ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
         </span>
         <span class="image-style-label">${S.escapeHtml(label)}</span>
         <span class="image-style-check">✓</span>
@@ -9759,6 +9864,8 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.inputVideo = videoState.editInputVideo;
     videoState.videoUrl = videoState.editInputVideo;
     videoState.referenceVideoUrl = '';
+    // KEEP: working Kling editor catalog flow.
+    // Internal template video + user image + template prompt go directly to Kling O3/Omni edit.
     videoState.videoTemplate = {
       id: template.id || '',
       title: template.title || '',
@@ -12764,7 +12871,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
+    pickVisualReference, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -12800,6 +12907,7 @@ async function waitGeneration(jobId, options) {
   window.openVideoEndUpload = openVideoEndUpload;
   window.openVideoReferencesUpload = openVideoReferencesUpload;
   window.openVideoEditInputUpload = openVideoEditInputUpload;
+  window.openVideoVisualPicker = openVideoVisualPicker;
   window.openNativeFilePicker = openNativeFilePicker;
   window.openVoiceMediaPicker = openVoiceMediaPicker;
   window.confirmVoiceUpload = confirmVoiceUpload;
@@ -12838,6 +12946,7 @@ async function waitGeneration(jobId, options) {
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
   window.pickVisualReference = pickVisualReference;
   window.openVisualPicker = openVisualPicker;
+  window.openVideoVisualPicker = openVideoVisualPicker;
   window.closeVisualPicker = closeVisualPicker;
   window.openVisualCreateModal = openVisualCreateModal;
   window.closeVisualCreateModal = closeVisualCreateModal;
@@ -12863,6 +12972,7 @@ async function waitGeneration(jobId, options) {
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
   S.openVisualPicker = openVisualPicker;
+  S.openVideoVisualPicker = openVideoVisualPicker;
   S.closeVisualPicker = closeVisualPicker;
   S.openVisualCreateModal = openVisualCreateModal;
   S.closeVisualCreateModal = closeVisualCreateModal;

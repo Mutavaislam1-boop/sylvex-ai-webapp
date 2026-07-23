@@ -422,7 +422,7 @@ IMAGE_MODEL_FEATURES = {
     "recraft_v4_1": {"character": False, "object": False, "seed": True},
     "recraft_v3": {"character": False, "object": False, "seed": True},
     "recraft_v4_1_pro": {"character": False, "object": False, "seed": False},
-    "gpt_image_1": {"character": False, "object": False, "seed": False},
+    "gpt_image_1": {"character": True, "object": True, "seed": False},
     "qwen_image": {"character": False, "object": False, "seed": False},
     "qwen_image_2": {"character": False, "object": False, "seed": True},
     "qwen_image_2_pro": {"character": False, "object": False, "seed": True},
@@ -6075,7 +6075,7 @@ def default_image_capabilities() -> list:
                 {"id": "mood_dark", "label": "Dark mood"},
             ],
             "supports_upload": True,
-            "objects_ready": False,
+            "objects_ready": True,
         })
     return models
 
