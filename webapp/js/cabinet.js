@@ -817,7 +817,7 @@ const MODEL_FEATURES = {
   recraft_v4_1: { character: false, object: false, seed: true },
   recraft_v3: { character: false, object: false, seed: true },
   recraft_v4_1_pro: { character: false, object: false, seed: false },
-  gpt_image_1: { character: false, object: false, seed: false },
+  gpt_image_1: { character: true, object: true, seed: false },
   qwen_image: { character: false, object: false, seed: false },
   qwen_image_2: { character: false, object: false, seed: true },
   qwen_image_2_pro: { character: false, object: false, seed: true },
@@ -3237,13 +3237,39 @@ function localizedGreeting() {
     return 'sylvex-prostudio-' + kind + '-' + (getTelegramId() || 'anon');
   }
 
+  function visualPreviewUrl(item) {
+    if (!item || typeof item !== 'object') return '';
+    return item.previewUrl
+      || item.preview_url
+      || item.image_url
+      || item.result_url
+      || item.generatedPreview
+      || ((item.referenceImages || item.reference_images || item.photos || [])[0])
+      || '';
+  }
+
+  function normalizeVisualItem(item) {
+    if (!item || typeof item !== 'object') return item;
+    const refs = Array.isArray(item.referenceImages)
+      ? item.referenceImages.slice()
+      : (Array.isArray(item.reference_images)
+        ? item.reference_images.slice()
+        : (Array.isArray(item.photos) ? item.photos.slice() : []));
+    const preview = visualPreviewUrl(Object.assign({}, item, { referenceImages: refs }));
+    return Object.assign({}, item, {
+      previewUrl: preview,
+      preview_url: item.preview_url || preview,
+      referenceImages: refs.length ? refs : (preview ? [preview] : []),
+    });
+  }
+
   // =====================================================
   // JAVASCRIPT-БЛОК: loadCustomVisualItems
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function loadCustomVisualItems(kind) {
     const serverItems = serverVisualItems && Array.isArray(serverVisualItems[kind])
-      ? serverVisualItems[kind]
+      ? serverVisualItems[kind].map(normalizeVisualItem)
       : [];
     try {
       const raw = localStorage.getItem(customVisualKey(kind));
@@ -3252,7 +3278,7 @@ function localizedGreeting() {
       // JAVASCRIPT-БЛОК: localItems
       // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
       // =====================================================
-      const localItems = Array.isArray(list) ? list.filter((item) => item && item.id && item.previewUrl) : [];
+      const localItems = Array.isArray(list) ? list.map(normalizeVisualItem).filter((item) => item && item.id && visualPreviewUrl(item)) : [];
       const seen = new Set();
       return serverItems.concat(localItems).filter((item) => {
         if (!item || !item.id || seen.has(item.id)) return false;
@@ -3903,10 +3929,12 @@ function closeVisualPicker(e) {
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
 function visualPickerCardHtml(item, kind) {
+  item = normalizeVisualItem(item) || {};
   const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
   const canDelete = isCustomVisualItem(item);
+  const preview = visualPreviewUrl(item);
   return '<div class="visual-picker-card ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">'
-    + '<span class="visual-picker-thumb"><img src="' + S.escapeHtml(item.previewUrl) + '" alt="' + S.escapeHtml(item.name) + '" loading="lazy" decoding="async" /></span>'
+    + '<span class="visual-picker-thumb">' + (preview ? '<img src="' + S.escapeHtml(preview) + '" alt="' + S.escapeHtml(item.name) + '" loading="lazy" decoding="async" />' : '<span class="visual-picker-placeholder">＋</span>') + '</span>'
     + '<span class="visual-picker-name">' + S.escapeHtml(item.name) + '</span>'
     + '<span class="visual-picker-check">✓</span>'
     + (canDelete ? '<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event,\'' + kind + '\',\'' + S.escapeHtml(item.id) + '\')">×</button>' : '')
@@ -4239,7 +4267,7 @@ async function saveVisualCreateDraft(e) {
   };
   const storageKind = kind === 'character' ? 'characters' : 'objects';
   const savedItem = await saveVisualItemToBackend(kind, item);
-  Object.assign(item, savedItem || {});
+  Object.assign(item, normalizeVisualItem(savedItem || item) || {});
   if (serverVisualItems[storageKind]) {
     serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
     serverVisualItems[storageKind].unshift(item);
@@ -5070,10 +5098,11 @@ function renderImageStylePanel() {
     </button>
   `;
 
-  grid.innerHTML = createCard + items.map((item) => {
+  grid.innerHTML = createCard + items.map((rawItem) => {
+    const item = normalizeVisualItem(rawItem) || {};
     const id = String(item.id || '');
     const label = item.name || item.label || id;
-    const preview = item.previewUrl || item.preview_url || ((item.referenceImages || item.photos || [])[0]) || '';
+    const preview = visualPreviewUrl(item);
     const selected = selectedId === id;
     const canDelete = isCustomVisualItem(item);
 
