@@ -69,7 +69,7 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
     ratio = str(body.get("ratio") or template.get("aspect_ratio") or "16:9")
     if ratio not in {"16:9", "1:1", "9:16"}:
         ratio = "16:9"
-    model = "kling_motion_3_0"
+    model = "kling_o3_omni"
     preview_url = str(template.get("reference_video") or template.get("preview_video") or "").strip()
     if not preview_url and preview_path.exists():
         try:
@@ -98,9 +98,9 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
         "template_prompt": template_prompt,
         "final_prompt": final_prompt,
         "video_options": {
-            "section": "motion",
-            "generation_mode": "motion_control",
-            "mode": "motion_control",
+            "section": "edit",
+            "generation_mode": "video_edit",
+            "mode": "video_edit",
             "ratio": ratio,
             "resolution": body.get("resolution") or template.get("resolution") or "720p",
             "duration": int(body.get("duration") or template.get("duration") or 5),
@@ -109,7 +109,8 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
             "input_video": preview_url,
             "video_url": preview_url,
             "video_input": True,
-            "motion_control": True,
+            "motion_control": False,
+            "omni": True,
             "character_orientation": "image",
             "video_template": {
                 "id": template_id,
