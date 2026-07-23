@@ -436,24 +436,32 @@ HTML-страница Mini App. Комментарии подписывают э
               ID используется JavaScript/CSS как точка подключения: videoReferencesUploadButton
               CSS-класс задаёт внешний вид и расположение: studio-links-btn
               =================================================== -->
-              <button class="studio-links-btn" id="videoReferencesUploadButton" data-upload-target="video_references" type="button" onclick="SYLVEX.openVideoReferencesUpload(event)">
-                <span id="videoReferencesLabel">Добавить ссылки</span>
+              <button class="studio-links-btn" id="videoReferencesUploadButton" data-upload-target="video_references" type="button" onclick="SYLVEX.toggleVideoAddMenu(event)">
+                <span id="videoReferencesLabel">Добавить</span>
                 <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: studio-link-icons
                 CSS-класс задаёт внешний вид и расположение: studio-link-icons
                 =================================================== -->
                 <span class="studio-link-icons">
-                  <span onclick="event.stopPropagation();SYLVEX.openVideoReferencesUpload(event)">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg>
-                  </span>
-                  <span onclick="event.stopPropagation();SYLVEX.openVideoVisualPicker(event,'character')">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-                  </span>
-                  <span onclick="event.stopPropagation();SYLVEX.openVideoVisualPicker(event,'object')">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l-1 18H7L6 3z"/><path d="M9 7h6M10 11h4"/></svg>
+                  <span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/></svg>
                   </span>
                 </span>
               </button>
+              <div class="video-add-menu" id="videoAddMenu" hidden>
+                <button type="button" onclick="SYLVEX.chooseVideoAddMedia(event)">
+                  <span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg></span>
+                  <b>Фото / видео</b>
+                </button>
+                <button type="button" onclick="SYLVEX.chooseVideoAddCharacter(event)">
+                  <span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
+                  <b>Персонажи</b>
+                </button>
+                <button type="button" onclick="SYLVEX.chooseVideoAddObject(event)">
+                  <span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l-1 18H7L6 3z"/><path d="M9 7h6M10 11h4"/></svg></span>
+                  <b>Объекты</b>
+                </button>
+              </div>
             </div>
             <!-- ==================================================
             HTML-ЭЛЕМЕНТ: studio-media-column studio-music-tools music-only voice-only
