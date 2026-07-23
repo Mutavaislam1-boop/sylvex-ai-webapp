@@ -6004,6 +6004,10 @@ def openai_headers():
         "Content-Type": "application/json",
     }
 
+
+def openai_auth_headers():
+    return {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+
 # =====================================================
 # PYTHON-БЛОК: image_size
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -7662,6 +7666,60 @@ def image_reference_urls(payload: dict) -> list:
             clean.append(url)
     return clean
 
+
+def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
+    raw = str(url or "").strip()
+    if not raw:
+        return None
+    content = b""
+    mime_type = "image/png"
+    filename = f"reference-{index + 1}.png"
+    try:
+        if raw.startswith("data:image/") and ";base64," in raw:
+            head, data = raw.split(";base64,", 1)
+            mime_type = head.replace("data:", "") or mime_type
+            ext = mime_type.split("/", 1)[1].replace("jpeg", "jpg") or "png"
+            filename = f"reference-{index + 1}.{ext}"
+            content = base64.b64decode(data)
+        elif raw.startswith("/webapp/"):
+            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            content = local_path.read_bytes()
+            filename = local_path.name or filename
+            suffix = local_path.suffix.lower()
+            if suffix in {".jpg", ".jpeg"}:
+                mime_type = "image/jpeg"
+            elif suffix == ".webp":
+                mime_type = "image/webp"
+            elif suffix == ".png":
+                mime_type = "image/png"
+        elif raw.startswith("/generated/"):
+            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            content = local_path.read_bytes()
+            filename = local_path.name or filename
+            suffix = local_path.suffix.lower()
+            if suffix in {".jpg", ".jpeg"}:
+                mime_type = "image/jpeg"
+            elif suffix == ".webp":
+                mime_type = "image/webp"
+            elif suffix == ".png":
+                mime_type = "image/png"
+        else:
+            response = requests.get(raw, timeout=60)
+            response.raise_for_status()
+            content = response.content
+            content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+            if content_type.startswith("image/"):
+                mime_type = content_type
+            parsed_name = pathlib.Path(urllib.parse.urlparse(raw).path).name
+            if parsed_name:
+                filename = parsed_name
+        if not content:
+            return None
+        return ("image[]", (filename, content, mime_type))
+    except Exception as exc:
+        prostudio_error("OPENAI_IMAGE_REFERENCE_LOAD_FAILED", exc, source=_sql_text(raw, 180))
+        return None
+
 # =====================================================
 # PYTHON-БЛОК: validate_image_feature_request
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -9173,12 +9231,60 @@ async def image_generation(payload: dict) -> dict:
     if provider == "openai":
         if not OPENAI_API_KEY:
             return image_error_response(provider, requested_model, api_model, f"{OPENAI_API_BASE}/images/generations", "Provider API key is missing")
-        if image_reference_urls(payload):
-            return image_error_response(provider, requested_model, api_model, f"{OPENAI_API_BASE}/images/generations", "Selected model does not support image-to-image")
-
-        endpoint = f"{OPENAI_API_BASE}/images/generations"
         openai_size = normalize_openai_image_size(size, requested_model, api_model)
         openai_quality = normalize_openai_image_quality(requested_model, api_model, opts)
+        reference_images = image_reference_urls(payload)
+
+        if reference_images:
+            endpoint = f"{OPENAI_API_BASE}/images/edits"
+            files = [
+                file_part
+                for file_part in (
+                    openai_image_reference_file(url, index)
+                    for index, url in enumerate(reference_images[:4])
+                )
+                if file_part
+            ]
+            if not files:
+                return image_error_response(provider, requested_model, api_model, endpoint, "Не удалось обработать загруженное изображение.")
+
+            request_data = {
+                "model": api_model,
+                "prompt": prompt,
+                "size": openai_size,
+                "quality": openai_quality,
+                "n": "1",
+            }
+            if api_model == "gpt-image-1":
+                request_data["input_fidelity"] = "high"
+            try:
+                response = requests.post(
+                    endpoint,
+                    headers=openai_auth_headers(),
+                    data=request_data,
+                    files=files,
+                    timeout=180,
+                )
+            except requests.RequestException as exc:
+                return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+            if response.status_code >= 400:
+                data = safe_provider_json(response, provider, endpoint)
+                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+            data = safe_provider_json(response, provider, endpoint)
+            images = normalize_image_response(data)
+            print("OPENAI IMAGE EDIT PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "references": len(files), "has_image": bool(images)})
+            if images:
+                result = await finalize_image_result(payload, images[:1])
+                result.update(openai_image_cost_info(requested_model, api_model, openai_quality, 1))
+                result["provider"] = "openai"
+                result["model"] = requested_model
+                result["provider_model"] = api_model
+                result["quality"] = openai_quality
+                result["request_payload"] = {**request_data, "image_count": len(files)}
+                return result
+            return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
+
+        endpoint = f"{OPENAI_API_BASE}/images/generations"
         images = []
         last_payload = {}
         for index in range(1, count + 1):
