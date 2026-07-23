@@ -4264,6 +4264,7 @@ function openVideoEndUpload(e) {
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
 // =====================================================
 function openVideoReferencesUpload(e) {
+  closeVideoAddMenu();
   openUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES, e);
 }
 
@@ -4276,6 +4277,42 @@ function openVideoEditInputUpload(e) {
   openNativeFilePicker('video');
 }
 
+function closeVideoAddMenu() {
+  const menu = document.getElementById('videoAddMenu');
+  const button = document.getElementById('videoReferencesUploadButton');
+  if (menu) menu.hidden = true;
+  if (button) button.classList.remove('is-add-menu-open');
+}
+
+function toggleVideoAddMenu(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const menu = document.getElementById('videoAddMenu');
+  const button = document.getElementById('videoReferencesUploadButton');
+  if (!menu) return;
+  const nextOpen = !!menu.hidden;
+  menu.hidden = !nextOpen;
+  if (button) button.classList.toggle('is-add-menu-open', nextOpen);
+  S.haptic && S.haptic.impact && S.haptic.impact('light');
+}
+
+function chooseVideoAddMedia(e) {
+  closeVideoAddMenu();
+  openVideoReferencesUpload(e);
+}
+
+function chooseVideoAddCharacter(e) {
+  closeVideoAddMenu();
+  openVideoVisualPicker(e, 'character');
+}
+
+function chooseVideoAddObject(e) {
+  closeVideoAddMenu();
+  openVideoVisualPicker(e, 'object');
+}
+
 // =====================================================
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: aggressiveUploadTargetClickGuard
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -4283,6 +4320,7 @@ function openVideoEditInputUpload(e) {
 function aggressiveUploadTargetClickGuard(e) {
   const target = e && e.target ? e.target : null;
   if (!target || !target.closest) return;
+  if (!target.closest('#videoAddMenu') && !target.closest('#videoReferencesUploadButton')) closeVideoAddMenu();
   if (target.closest('#uploadPanel')) return;
   if (target.closest('#modelPop')) return;
   if (target.closest('#imageStylePanel')) return;
@@ -12872,7 +12910,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -12908,6 +12946,11 @@ async function waitGeneration(jobId, options) {
   window.openVideoReferencesUpload = openVideoReferencesUpload;
   window.openVideoEditInputUpload = openVideoEditInputUpload;
   window.openVideoVisualPicker = openVideoVisualPicker;
+  window.toggleVideoAddMenu = toggleVideoAddMenu;
+  window.closeVideoAddMenu = closeVideoAddMenu;
+  window.chooseVideoAddMedia = chooseVideoAddMedia;
+  window.chooseVideoAddCharacter = chooseVideoAddCharacter;
+  window.chooseVideoAddObject = chooseVideoAddObject;
   window.openNativeFilePicker = openNativeFilePicker;
   window.openVoiceMediaPicker = openVoiceMediaPicker;
   window.confirmVoiceUpload = confirmVoiceUpload;
@@ -12969,6 +13012,11 @@ async function waitGeneration(jobId, options) {
   S.openVideoEndUpload = openVideoEndUpload;
   S.openVideoReferencesUpload = openVideoReferencesUpload;
   S.openVideoEditInputUpload = openVideoEditInputUpload;
+  S.toggleVideoAddMenu = toggleVideoAddMenu;
+  S.closeVideoAddMenu = closeVideoAddMenu;
+  S.chooseVideoAddMedia = chooseVideoAddMedia;
+  S.chooseVideoAddCharacter = chooseVideoAddCharacter;
+  S.chooseVideoAddObject = chooseVideoAddObject;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
   S.openVisualPicker = openVisualPicker;

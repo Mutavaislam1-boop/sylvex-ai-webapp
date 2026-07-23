@@ -2217,6 +2217,53 @@ CSS-БЛОК: .studio-link-icons span
   width:16px;
   height:16px;
 }
+.video-add-menu{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  padding:8px;
+  border-radius:20px;
+  background:#252525;
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 18px 42px rgba(0,0,0,.28);
+}
+.video-add-menu[hidden]{
+  display:none!important;
+}
+.video-add-menu button{
+  min-height:72px;
+  border:0;
+  border-radius:16px;
+  background:#303030;
+  color:#f4f4f4;
+  font:inherit;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  cursor:pointer;
+}
+.video-add-menu button span{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:#444;
+  border:3px solid #3a3a3a;
+  color:#f1f1f1;
+}
+.video-add-menu button b{
+  font-size:12px;
+  line-height:1.1;
+  font-weight:850;
+  white-space:nowrap;
+}
+.studio-links-btn.is-add-menu-open .studio-link-icons span{
+  background:#505050;
+  transform:rotate(180deg);
+}
 .studio-music-tools{display:none}
 /* =====================================================
 CSS-БЛОК: .studio-prompt-column
@@ -6923,6 +6970,19 @@ JavaScript добавляет класс is-compact, когда сам composer 
 .studio-video-composer.is-compact[data-video-section="edit"] .studio-link-icons span{
   width:48px;
   height:48px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .video-add-menu{
+  gap:8px;
+  padding:8px;
+  border-radius:22px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .video-add-menu button{
+  min-height:76px;
+  border-radius:18px;
+}
+.studio-video-composer.is-compact[data-video-section="edit"] .video-add-menu button span{
+  width:42px;
+  height:42px;
 }
 
 .studio-video-composer.is-compact .studio-image-tool{
