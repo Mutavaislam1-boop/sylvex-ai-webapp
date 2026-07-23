@@ -2056,10 +2056,12 @@ def _kling_omni_settings(provider_model: str, body: dict, has_video=False, base_
     )
     settings = {
         "resolution": _kling_resolution(body.get("resolution"), supported_resolutions),
-        "duration": _kling_duration(body.get("duration"), duration_values),
-        "audio": "original" if has_video and body.get("sound") else "off",
-        "aspect_ratio": _kling_aspect_ratio(body.get("ratio")),
+        "audio": "off" if base_video else ("original" if has_video and body.get("sound") else "off"),
     }
+    if not base_video:
+        settings["duration"] = _kling_duration(body.get("duration"), duration_values)
+    if not has_video:
+        settings["aspect_ratio"] = _kling_aspect_ratio(body.get("ratio"))
     if model == "kling-3.0-omni":
         settings["multi_shot"] = False if base_video else True
     return settings
@@ -3839,6 +3841,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             "settings": _kling_omni_settings(provider_model, body, has_video=bool(input_video), base_video=reference_type == "base_video" and bool(input_video)),
             "options": _kling_options(payload),
         }
+        print("KLING DEBUG OMNI WORKFLOW:", "base_video_edit" if reference_type == "base_video" and input_video else reference_type)
     else:
         if input_image_url:
             contents = []
