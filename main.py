@@ -4521,6 +4521,24 @@ def public_media_url(url: str) -> str:
     return materialized
 
 
+def provider_object_to_dict(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    for method in ("model_dump", "to_dict", "dict"):
+        fn = getattr(value, method, None)
+        if callable(fn):
+            try:
+                data = fn()
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+    try:
+        return json.loads(json.dumps(value, default=lambda obj: getattr(obj, "__dict__", str(obj))))
+    except Exception:
+        return {}
+
+
 # =====================================================
 # PYTHON-БЛОК: create_image_thumbnails
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -5105,31 +5123,39 @@ async def public_prostudio_runway_avatar(request: Request):
         personality += f" Character description: {description[:1200]}."
 
     endpoint = f"{RUNWAY_API_BASE_URL}/v1/avatars"
-    body = {
-        "name": name,
-        "referenceImage": reference_image,
-        "voice": {"type": "runway-live-preset", "presetId": "clara"},
-        "personality": personality[:10000],
-    }
+    prostudio_debug(
+        "RUNWAY_AVATAR_CREATE_START",
+        telegram_id=telegram_id,
+        reference_image=reference_image,
+        name=name,
+        voice_type="runway-live-preset",
+        preset_id="clara",
+    )
     try:
-        response = requests.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "X-Runway-Version": RUNWAY_API_VERSION,
-            },
-            data=json.dumps(body),
+        from runwayml import RunwayML
+
+        client = RunwayML(
+            api_key=api_key,
+            runway_version=RUNWAY_API_VERSION,
+            base_url=RUNWAY_API_BASE_URL,
             timeout=120,
         )
-    except requests.RequestException as exc:
-        prostudio_error("RUNWAY_AVATAR_CREATE_REQUEST_FAILED", exc, telegram_id=telegram_id)
-        return JSONResponse({"ok": False, "error": "Runway avatar request failed", "details": str(exc)[:1000]}, status_code=502)
-
-    payload = safe_provider_json(response, "runway", endpoint)
-    if response.status_code >= 400:
-        prostudio_debug("RUNWAY_AVATAR_CREATE_FAILED", status=response.status_code, body=payload)
-        return JSONResponse({"ok": False, "error": payload.get("error") or payload.get("message") or "Runway avatar creation failed", "response": payload}, status_code=502)
+        avatar = client.avatars.create(
+            name=name,
+            reference_image=reference_image,
+            voice={"type": "runway-live-preset", "preset_id": "clara"},
+            personality=personality[:10000],
+            image_processing="optimize",
+        )
+        payload = provider_object_to_dict(avatar)
+    except Exception as exc:
+        prostudio_error("RUNWAY_AVATAR_CREATE_FAILED", exc, telegram_id=telegram_id, endpoint=endpoint, reference_image=reference_image)
+        return JSONResponse({
+            "ok": False,
+            "error": "Runway avatar creation failed",
+            "details": str(exc)[:1200],
+            "endpoint": endpoint,
+        }, status_code=502)
 
     avatar_id = str(payload.get("id") or payload.get("avatarId") or payload.get("avatar_id") or "")
     if not avatar_id:
