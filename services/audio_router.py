@@ -1397,8 +1397,10 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
         voice_id = item.get("voice_id") or item.get("voiceId") or item.get("id")
         if not voice_id or voice_id in seen:
             continue
-        seen.add(voice_id)
         labels = item.get("labels") or {}
+        if str(labels.get("source") or "").strip().lower() == "sylvex_prostudio":
+            continue
+        seen.add(voice_id)
         normalized.append({
             "voice_id": str(voice_id),
             "name": str(item.get("name") or "Voice"),
