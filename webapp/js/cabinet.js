@@ -77,19 +77,29 @@ let videoState = {
   characterImage: '',
   inputVideo: '',
   videoUrl: '',
+  editInputVideo: '',
+  editVideoUrl: '',
+  referenceVideoUrl: '',
   imageUrl: '',
   motionPreset: '',
   videoTemplate: null,
   referenceImageUrl: '',
   referenceImageUrls: [],
+  referenceImageBuckets: {
+    generate: [],
+    edit: [],
+    motion: [],
+  },
   uploadedImageUrls: [],
   attachment: null,
+  editUploading: null,
   referenceUploading: null,
   advanced: {},
 };
 let videoUploadTarget = 'reference';
 const UPLOAD_TARGETS = {
   IMAGE_UPLOAD: 'image_upload',
+  VIDEO_EDIT_INPUT: 'video_edit_input',
   VIDEO_START: 'video_start',
   VIDEO_END: 'video_end',
   VIDEO_REFERENCES: 'video_references',
@@ -111,7 +121,9 @@ function setUploadTarget(target) {
   activeUploadTarget = Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
   currentUploadTarget = activeUploadTarget;
 
-  if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_START) {
+  if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
+    videoUploadTarget = 'input_video';
+  } else if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_START) {
     videoUploadTarget = 'start';
   } else if (activeUploadTarget === UPLOAD_TARGETS.VIDEO_END) {
     videoUploadTarget = 'end';
@@ -133,6 +145,52 @@ function getUploadTarget() {
   const panel = document.getElementById('uploadPanel');
   const target = (panel && panel.dataset && panel.dataset.uploadTarget) || activeUploadTarget || currentUploadTarget || UPLOAD_TARGETS.IMAGE_UPLOAD;
   return Object.values(UPLOAD_TARGETS).includes(target) ? target : UPLOAD_TARGETS.IMAGE_UPLOAD;
+}
+
+function currentVideoEditInputUrl() {
+  return videoState.editInputVideo || videoState.editVideoUrl || '';
+}
+
+function currentVideoReferenceUrl() {
+  return videoState.referenceVideoUrl || '';
+}
+
+function videoUploadTargetAllowsVideo(targetOverride) {
+  const target = targetOverride || getUploadTarget();
+  if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) return true;
+  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
+    return videoState.section === 'edit' || videoState.section === 'motion';
+  }
+  return false;
+}
+
+function videoReferenceBucketKey() {
+  return videoState.section === 'edit' ? 'edit' : (videoState.section === 'motion' ? 'motion' : 'generate');
+}
+
+function videoReferenceBuckets() {
+  if (!videoState.referenceImageBuckets || typeof videoState.referenceImageBuckets !== 'object') {
+    videoState.referenceImageBuckets = { generate: [], edit: [], motion: [] };
+  }
+  ['generate', 'edit', 'motion'].forEach((key) => {
+    if (!Array.isArray(videoState.referenceImageBuckets[key])) videoState.referenceImageBuckets[key] = [];
+  });
+  return videoState.referenceImageBuckets;
+}
+
+function currentVideoReferenceImages() {
+  const buckets = videoReferenceBuckets();
+  return (buckets[videoReferenceBucketKey()] || []).slice();
+}
+
+function setCurrentVideoReferenceImages(urls) {
+  const clean = (urls || []).filter(Boolean).slice(0, 4);
+  const buckets = videoReferenceBuckets();
+  buckets[videoReferenceBucketKey()] = clean;
+  videoState.referenceImageUrls = clean.slice();
+  videoState.uploadedImageUrls = clean.slice();
+  videoState.referenceImageUrl = clean[0] || '';
+  videoState.imageUrl = videoState.referenceImageUrl;
 }
 let videoModelSettings = {};
 let activeImageStylePanelKind = 'style';
@@ -1603,7 +1661,7 @@ function videoOptionsPayload(referenceImagesOverride) {
   const isKlingEffect = !!(videoTemplate && (videoTemplate.catalog_type === 'kling_effect' || videoState.generationMode === 'video_effects' || videoState.mode === 'video_effects'));
   const referenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
-    : (videoState.referenceImageUrls || []).slice();
+    : currentVideoReferenceImages();
 
   return {
     section: videoState.section || 'generate',
@@ -1617,8 +1675,9 @@ function videoOptionsPayload(referenceImagesOverride) {
     end_image: videoState.endImage || '',
     reference_images: referenceImages,
     referenceImageUrls: referenceImages,
-    input_video: videoState.inputVideo || '',
-    video_url: videoState.videoUrl || '',
+    input_video: currentVideoEditInputUrl() || currentVideoReferenceUrl() || '',
+    video_url: currentVideoEditInputUrl() || currentVideoReferenceUrl() || '',
+    reference_video: currentVideoReferenceUrl() || '',
     image_url: '',
     motion_preset: videoState.motionPreset || '',
     video_template: videoTemplate,
@@ -1630,7 +1689,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
     motion_control: !!config.motion_control && !isKlingEffect,
-    video_input: !!(config.video_input || config.video_upload || videoState.inputVideo || videoState.videoUrl),
+    video_input: !!(config.video_input || config.video_upload || currentVideoEditInputUrl() || currentVideoReferenceUrl()),
     avatar: !!config.avatar,
     lip_sync: !!config.lip_sync,
     multi_image: !!config.multi_image,
@@ -1640,7 +1699,7 @@ function videoOptionsPayload(referenceImagesOverride) {
       native_audio: !!(config.native_audio && videoState.sound),
       motion_control: !!config.motion_control && !isKlingEffect,
       video_effects: isKlingEffect,
-      video_input: !!(config.video_input || config.video_upload || videoState.inputVideo || videoState.videoUrl),
+      video_input: !!(config.video_input || config.video_upload || currentVideoEditInputUrl() || currentVideoReferenceUrl()),
       avatar: !!config.avatar,
       lip_sync: !!config.lip_sync,
       multi_image: !!config.multi_image,
@@ -3471,14 +3530,15 @@ function renderVideoReferencesPreview() {
   const button = document.getElementById('videoReferencesUploadButton');
   const media = [];
   const uploading = videoState.referenceUploading || null;
+  const referenceVideo = currentVideoReferenceUrl();
   if (uploading && uploading.previewUrl) media.push({ url: uploading.previewUrl, type: uploading.kind || 'video' });
-  if (!uploading && (videoState.inputVideo || videoState.videoUrl)) media.push({ url: videoState.inputVideo || videoState.videoUrl, type: 'video' });
-  (videoState.referenceImageUrls || []).forEach((url) => media.push({ url, type: 'image' }));
+  if (!uploading && referenceVideo) media.push({ url: referenceVideo, type: 'video' });
+  currentVideoReferenceImages().forEach((url) => media.push({ url, type: 'image' }));
   renderUploadPreviewOnButton(button, media);
   if (!button) return;
   const label = document.getElementById('videoReferencesLabel');
-  const refsCount = (videoState.referenceImageUrls || []).length;
-  const hasVideo = !!(videoState.inputVideo || videoState.videoUrl);
+  const refsCount = currentVideoReferenceImages().length;
+  const hasVideo = !!referenceVideo;
   if (label) {
     label.textContent = uploading
       ? 'Загрузка медиа...'
@@ -3487,7 +3547,7 @@ function renderVideoReferencesPreview() {
       : (refsCount ? ('Референсы · ' + refsCount) : 'Добавить');
   }
   let badge = button.querySelector(':scope > .video-reference-control-badge');
-  if (videoState.inputVideo || videoState.videoUrl) {
+  if (referenceVideo) {
     if (!badge) {
       badge = document.createElement('span');
       badge.className = 'video-reference-control-badge';
@@ -3509,13 +3569,15 @@ function renderVideoReferencesPreview() {
 function renderVideoEditPreview() {
   const button = document.getElementById('videoEditUploadButton');
   if (!button) return;
-  const url = videoState.inputVideo || videoState.videoUrl || '';
+  const uploading = videoState.editUploading || null;
+  const url = uploading && uploading.previewUrl ? uploading.previewUrl : currentVideoEditInputUrl();
   let preview = button.querySelector(':scope > .studio-video-edit-preview');
   const title = button.querySelector('b');
   const hint = button.querySelector('small');
   if (!url) {
     if (preview) preview.remove();
     button.classList.remove('has-video-edit-preview');
+    button.classList.remove('is-uploading');
     if (title) title.textContent = 'Загрузите видео-референс';
     if (hint) hint.textContent = 'Длительность: 3–10 секунд';
     return;
@@ -3525,10 +3587,11 @@ function renderVideoEditPreview() {
     preview.className = 'studio-video-edit-preview';
     button.insertBefore(preview, button.firstChild);
   }
-  preview.innerHTML = '<video src="' + S.escapeHtml(url) + '" muted playsinline preload="metadata"></video><span>VID</span>';
-  if (title) title.textContent = 'Видео выбрано';
-  if (hint) hint.textContent = 'Нажмите, чтобы заменить файл';
+  preview.innerHTML = '<video src="' + S.escapeHtml(url) + '" autoplay loop muted playsinline preload="auto" webkit-playsinline oncanplay="this.play().catch(()=>{})" onloadeddata="this.play().catch(()=>{})"></video><span>' + (uploading ? '...' : 'VID') + '</span>';
+  if (title) title.textContent = uploading ? 'Видео загружается' : 'Видео выбрано';
+  if (hint) hint.textContent = uploading ? 'Подождите завершения загрузки' : 'Нажмите, чтобы заменить файл';
   button.classList.add('has-video-edit-preview');
+  button.classList.toggle('is-uploading', !!uploading);
 }
 
 // =====================================================
@@ -3587,7 +3650,8 @@ function currentUploadImages(targetOverride) {
   const target = targetOverride || getUploadTarget();
   if (target === UPLOAD_TARGETS.VIDEO_START) return videoState.startImage ? [videoState.startImage] : [];
   if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage ? [videoState.endImage] : [];
-  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return (videoState.referenceImageUrls || []).slice();
+  if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) return [];
+  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return currentVideoReferenceImages();
   return (imageState.uploadedImageUrls || []).slice();
 }
 
@@ -3624,12 +3688,9 @@ function applyUploadToTarget(url, targetOverride) {
     // JAVASCRIPT-БЛОК: refs
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
     // =====================================================
-    const refs = (videoState.referenceImageUrls || []).filter((item) => item && item !== url);
+    const refs = currentVideoReferenceImages().filter((item) => item && item !== url);
     refs.unshift(url);
-    videoState.referenceImageUrls = refs.slice(0, uploadLimitForTarget(target));
-    videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
-    videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
-    videoState.imageUrl = videoState.referenceImageUrl;
+    setCurrentVideoReferenceImages(refs.slice(0, uploadLimitForTarget(target)));
     renderVideoReferencesPreview();
     renderUploadedPhotoGrid();
     updateSendButton();
@@ -3674,17 +3735,26 @@ function addVideoReferenceImage(url) {
 // =====================================================
 function applyVideoReferenceToState(url) {
   if (!url) return;
+  videoState.referenceVideoUrl = url;
+  renderVideoReferencesPreview();
+  renderUploadedPhotoGrid();
+  updateSendButton();
+}
+
+function applyVideoEditInputToState(url) {
+  if (!url) return;
+  videoState.editInputVideo = url;
+  videoState.editVideoUrl = url;
   videoState.inputVideo = url;
   videoState.videoUrl = url;
   if (videoState.section === 'motion') {
     videoState.generationMode = 'motion_control';
     videoState.mode = 'motion_control';
-  } else if (videoState.section === 'edit') {
+  } else {
     videoState.generationMode = 'video_edit';
     videoState.mode = 'video_edit';
   }
-  renderVideoReferencesPreview();
-  renderUploadedPhotoGrid();
+  renderVideoEditPreview();
   updateSendButton();
 }
 
@@ -3702,10 +3772,7 @@ function setCurrentUploadImages(urls, targetOverride) {
     videoState.endImage = clean[0] || '';
     renderVideoEndPreview();
   } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
-    videoState.referenceImageUrls = clean.slice(0, uploadLimitForTarget(target));
-    videoState.uploadedImageUrls = videoState.referenceImageUrls.slice();
-    videoState.referenceImageUrl = videoState.referenceImageUrls[0] || '';
-    videoState.imageUrl = videoState.referenceImageUrl;
+    setCurrentVideoReferenceImages(clean.slice(0, uploadLimitForTarget(target)));
     renderVideoReferencesPreview();
   } else if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
     imageState.uploadedImageUrls = clean.slice(0, uploadLimitForTarget(target));
@@ -4096,6 +4163,15 @@ function openVideoReferencesUpload(e) {
   openUploadTarget(UPLOAD_TARGETS.VIDEO_REFERENCES, e);
 }
 
+function openVideoEditInputUpload(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  setUploadTarget(UPLOAD_TARGETS.VIDEO_EDIT_INPUT);
+  openNativeFilePicker('video');
+}
+
 // =====================================================
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: aggressiveUploadTargetClickGuard
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -4165,7 +4241,8 @@ function currentSelectedUploadImage() {
 
   if (target === UPLOAD_TARGETS.VIDEO_START) return videoState.startImage || '';
   if (target === UPLOAD_TARGETS.VIDEO_END) return videoState.endImage || '';
-  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return videoState.referenceImageUrl || ((videoState.referenceImageUrls || [])[0]) || '';
+  if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) return '';
+  if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) return (currentVideoReferenceImages()[0]) || '';
   if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) return imageState.referenceImageUrl || ((imageState.referenceImageUrls || [])[0]) || '';
 
   const images = currentUploadImages();
@@ -7291,13 +7368,12 @@ function imageModelButton(model) {
 
     if (isVideoMode()) {
       if (kind === 'video') {
-        if (getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES || videoState.section === 'motion') {
+        if (getUploadTarget() === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
+          applyVideoEditInputToState(url);
+        } else if (getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES) {
           applyVideoReferenceToState(url);
         } else {
-          videoState.videoUrl = url;
-          videoState.inputVideo = url;
-          videoState.generationMode = 'video_edit';
-          videoState.mode = 'video_edit';
+          applyVideoEditInputToState(url);
         }
       } else {
         applyUploadToTarget(url, getUploadTarget());
@@ -7581,14 +7657,15 @@ function uploadPhotoButtonHtml() {
   const uploadImages = currentUploadImages();
   const target = getUploadTarget();
   const isVideoReferences = target === UPLOAD_TARGETS.VIDEO_REFERENCES;
+  const allowVideo = videoUploadTargetAllowsVideo(target);
   if (uploadImages.length >= uploadLimitForTarget()) {
-    return (isVideoReferences && !(videoState.inputVideo || videoState.videoUrl))
-      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'media\')" aria-label="Добавить медиа"><span class="upload-photo-add-icon" aria-hidden="true">＋</span></button>'
+    return (isVideoReferences && !currentVideoReferenceUrl())
+      ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + (allowVideo ? 'media' : 'image') + '\')" aria-label="Добавить медиа"><span class="upload-photo-add-icon" aria-hidden="true">＋</span></button>'
       : '';
   }
 
   if (!uploadImages.length) {
-    return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'media\')">'
+    return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + (allowVideo ? 'media' : 'image') + '\')">'
       + '<span class="upload-photo-center-icon" aria-hidden="true">'
       + '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
       + '<rect x="3.5" y="5" width="17" height="14" rx="3" stroke="currentColor" stroke-width="1.8"/>'
@@ -7597,13 +7674,13 @@ function uploadPhotoButtonHtml() {
       + '<path d="M18 7l3 2-3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
       + '</svg>'
       + '</span>'
-      + '<span class="upload-photo-center-title">Загрузить фото или видео</span>'
-      + '<span class="upload-photo-center-sub">Выберите изображение или видео</span>'
+      + '<span class="upload-photo-center-title">' + (allowVideo ? 'Загрузить фото или видео' : 'Загрузить фото') + '</span>'
+      + '<span class="upload-photo-center-sub">' + (allowVideo ? 'Выберите изображение или видео' : 'Выберите изображение') + '</span>'
       + '</button>';
   }
 
-  const pickerKind = isVideoReferences ? 'media' : 'image';
-  const ariaLabel = isVideoReferences ? 'Добавить фото или видео' : 'Загрузить фото';
+  const pickerKind = isVideoReferences && allowVideo ? 'media' : 'image';
+  const ariaLabel = isVideoReferences && allowVideo ? 'Добавить фото или видео' : 'Загрузить фото';
   return '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + pickerKind + '\')" aria-label="' + ariaLabel + '">'
     + '<span class="upload-photo-add-icon" aria-hidden="true">＋</span>'
     + '<span class="upload-photo-add-text">Добавить</span>'
@@ -7620,7 +7697,7 @@ function uploadPhotoButtonHtml() {
 
     const uploadImages = currentUploadImages();
     const uploadingReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES ? (videoState.referenceUploading || null) : null;
-    const hasVideoReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES && Boolean(videoState.inputVideo || videoState.videoUrl);
+    const hasVideoReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES && Boolean(currentVideoReferenceUrl());
     const hasUploads = uploadImages.length > 0 || hasVideoReference || !!uploadingReference;
 
     grid.classList.toggle('empty', !hasUploads);
@@ -7652,7 +7729,7 @@ function uploadPhotoButtonHtml() {
         + '<span class="uploading-ring" aria-hidden="true"></span>'
         + '</button>');
     } else if (hasVideoReference) {
-      const safeVideo = S.escapeHtml(videoState.inputVideo || videoState.videoUrl || '');
+      const safeVideo = S.escapeHtml(currentVideoReferenceUrl());
       items.unshift('<button class="upload-photo-thumb upload-video-thumb selected" type="button" onclick="SYLVEX.openNativeFilePicker(\'media\')" aria-label="Заменить или добавить медиа">'
         + (safeVideo ? '<video src="' + safeVideo + '" muted playsinline preload="metadata"></video>' : '<span class="upload-photo-add-icon" aria-hidden="true">▶</span>')
         + '<span class="upload-thumb-check">✓</span>'
@@ -7728,13 +7805,23 @@ function uploadPhotoButtonHtml() {
     }
     const target = getUploadTarget();
     setCurrentUploadImages([], target);
+    if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
+      if (videoState.editUploading && videoState.editUploading.previewUrl) {
+        try { URL.revokeObjectURL(videoState.editUploading.previewUrl); } catch {}
+      }
+      videoState.editUploading = null;
+      videoState.editInputVideo = '';
+      videoState.editVideoUrl = '';
+      videoState.inputVideo = '';
+      videoState.videoUrl = '';
+      renderVideoEditPreview();
+    }
     if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
       if (videoState.referenceUploading && videoState.referenceUploading.previewUrl) {
         try { URL.revokeObjectURL(videoState.referenceUploading.previewUrl); } catch {}
       }
       videoState.referenceUploading = null;
-      videoState.inputVideo = '';
-      videoState.videoUrl = '';
+      videoState.referenceVideoUrl = '';
     }
     renderUploadPanelImages();
     renderUploadPreviewForTarget(target);
@@ -7754,8 +7841,7 @@ function uploadPhotoButtonHtml() {
       try { URL.revokeObjectURL(videoState.referenceUploading.previewUrl); } catch {}
     }
     videoState.referenceUploading = null;
-    videoState.inputVideo = '';
-    videoState.videoUrl = '';
+    videoState.referenceVideoUrl = '';
     renderUploadedPhotoGrid();
     renderVideoReferencesPreview();
     updateSendButton();
@@ -8199,8 +8285,7 @@ function editGeneratedVideo(e) {
   videoState.generationMode = 'video_edit';
   videoState.mode = 'video_edit';
   videoUploadTarget = 'input_video';
-  videoState.inputVideo = videoUrl;
-  videoState.videoUrl = videoUrl;
+  applyVideoEditInputToState(videoUrl);
   renderVideoControls();
   renderUploadedPhotoGrid();
   renderVideoInputPreviews();
@@ -8567,6 +8652,7 @@ function closeUploadPanel(e) {
     const inp = document.getElementById('attachInput');
     if (!inp) return;
     const klingOmniEdit = isKlingOmniEditUploadContext();
+    const allowVideoForTarget = isVideoMode() ? videoUploadTargetAllowsVideo() : true;
     if (kind === 'voice_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
@@ -8575,7 +8661,12 @@ function closeUploadPanel(e) {
     else if (kind === 'text_video') { inp.accept = 'video/*'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
     else if (kind === 'text_media') { inp.accept = 'image/*,audio/*,video/*,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
-    else if (kind === 'media') { inp.accept = klingOmniEdit ? 'image/jpeg,image/png,video/mp4,video/quicktime,.jpg,.jpeg,.png,.mp4,.mov' : 'image/*,video/*'; pendingAttachAccept = 'media'; }
+    else if (kind === 'media') {
+      inp.accept = !allowVideoForTarget
+        ? 'image/*'
+        : (klingOmniEdit ? 'image/jpeg,image/png,video/mp4,video/quicktime,.jpg,.jpeg,.png,.mp4,.mov' : 'image/*,video/*');
+      pendingAttachAccept = !allowVideoForTarget ? 'image' : 'media';
+    }
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
     else if (kind === 'video') { inp.accept = klingOmniEdit ? 'video/mp4,video/quicktime,.mp4,.mov' : 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
@@ -8623,6 +8714,10 @@ function closeUploadPanel(e) {
       target = '';
     }
     if (kind === 'video') {
+      if (isVideoMode() && videoState.section === 'edit') {
+        openVideoEditInputUpload(e);
+        return;
+      }
       openNativeFilePicker('video');
       return;
     }
@@ -8771,17 +8866,21 @@ function closeUploadPanel(e) {
     }
     if (pendingKind === 'video' && isVideoMode()) {
       const target = getUploadTarget();
-      const showReferenceUploading = target === UPLOAD_TARGETS.VIDEO_REFERENCES || videoState.section === 'motion';
+      const showEditUploading = target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT;
+      const showReferenceUploading = target === UPLOAD_TARGETS.VIDEO_REFERENCES;
       let previewUrl = '';
-      if (showReferenceUploading && window.URL && URL.createObjectURL) {
+      if ((showEditUploading || showReferenceUploading) && window.URL && URL.createObjectURL) {
         previewUrl = URL.createObjectURL(f);
-        videoState.referenceUploading = {
+        const uploadInfo = {
           kind: 'video',
           name: f.name,
           size: f.size || 0,
           mime: f.type || 'video/mp4',
           previewUrl,
         };
+        if (showEditUploading) videoState.editUploading = uploadInfo;
+        if (showReferenceUploading) videoState.referenceUploading = uploadInfo;
+        renderVideoEditPreview();
         renderVideoReferencesPreview();
         renderUploadedPhotoGrid();
       }
@@ -8790,18 +8889,20 @@ function closeUploadPanel(e) {
           if (previewUrl) {
             try { URL.revokeObjectURL(previewUrl); } catch {}
           }
-          videoState.referenceUploading = null;
-          if (target === UPLOAD_TARGETS.VIDEO_REFERENCES || videoState.section === 'motion') {
+          if (showEditUploading) videoState.editUploading = null;
+          if (showReferenceUploading) videoState.referenceUploading = null;
+          if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
+            applyVideoEditInputToState(url);
+            toast('Видео добавлено в редактор');
+          } else if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
             applyVideoReferenceToState(url);
             toast('Видео добавлено как референс');
           } else {
-            videoState.inputVideo = url;
-            videoState.videoUrl = url;
-            videoState.generationMode = 'video_edit';
-            videoState.mode = 'video_edit';
+            applyVideoEditInputToState(url);
             renderVideoControls();
             toast('Видео загружено');
           }
+          renderVideoEditPreview();
           renderVideoReferencesPreview();
           updateSendButton();
         })
@@ -8809,7 +8910,9 @@ function closeUploadPanel(e) {
           if (previewUrl) {
             try { URL.revokeObjectURL(previewUrl); } catch {}
           }
-          videoState.referenceUploading = null;
+          if (showEditUploading) videoState.editUploading = null;
+          if (showReferenceUploading) videoState.referenceUploading = null;
+          renderVideoEditPreview();
           renderVideoReferencesPreview();
           renderUploadedPhotoGrid();
           toast((err && err.message) || 'Не удалось загрузить видео');
@@ -9634,6 +9737,7 @@ function maybeShowVideoTemplateIntro(force) {
     const previousVideoState = Object.assign({}, videoState, {
       referenceImageUrls: (videoState.referenceImageUrls || []).slice(),
       uploadedImageUrls: (videoState.uploadedImageUrls || []).slice(),
+      referenceImageBuckets: JSON.parse(JSON.stringify(videoState.referenceImageBuckets || { generate: [], edit: [], motion: [] })),
       advanced: Object.assign({}, videoState.advanced || {}),
     });
     closeVideoTemplateModal();
@@ -9650,8 +9754,11 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.resolution = template.resolution || '720p';
     videoState.sound = false;
     videoState.startImage = uploadedImage;
-    videoState.inputVideo = isKlingEffect ? '' : referenceVideo;
-    videoState.videoUrl = videoState.inputVideo;
+    videoState.editInputVideo = isKlingEffect ? '' : referenceVideo;
+    videoState.editVideoUrl = videoState.editInputVideo;
+    videoState.inputVideo = videoState.editInputVideo;
+    videoState.videoUrl = videoState.editInputVideo;
+    videoState.referenceVideoUrl = '';
     videoState.videoTemplate = {
       id: template.id || '',
       title: template.title || '',
@@ -9913,7 +10020,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     ? referenceImagesOverride.slice()
     : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
   const videoReferenceImages = isVideoMode()
-    ? (Array.isArray(referenceImagesOverride) ? referenceImagesOverride.slice() : (videoState.referenceImageUrls || []).slice())
+    ? (Array.isArray(referenceImagesOverride) ? referenceImagesOverride.slice() : currentVideoReferenceImages())
     : [];
 
   const history = chatMessages
@@ -10329,7 +10436,7 @@ async function waitGeneration(jobId, options) {
     }
     const attachment = currentModeAttachment();
     const referenceImages = isVideoMode()
-      ? (videoState.referenceImageUrls || []).slice()
+      ? currentVideoReferenceImages()
       : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
     const audioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []).slice() : [];
     const imageOptionsSnapshot = isImageMode()
@@ -10337,7 +10444,10 @@ async function waitGeneration(jobId, options) {
       : null;
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
     const referenceVideos = isVideoMode() && videoOptionsSnapshot
-      ? [videoOptionsSnapshot.input_video || videoOptionsSnapshot.video_url || videoOptionsSnapshot.reference_video || ''].filter(Boolean)
+      ? Array.from(new Set([
+          videoOptionsSnapshot.input_video || videoOptionsSnapshot.video_url || '',
+          videoOptionsSnapshot.reference_video || '',
+        ].filter(Boolean)))
       : [];
 
     if (!v && !attachment && !referenceImages.length && !referenceVideos.length && !audioUploads.length) return;
@@ -10395,6 +10505,9 @@ async function waitGeneration(jobId, options) {
       if (videoState.section !== 'edit') {
         videoState.inputVideo = '';
         videoState.videoUrl = '';
+        videoState.editInputVideo = '';
+        videoState.editVideoUrl = '';
+        videoState.referenceVideoUrl = '';
       }
     } else if (isMusicMode() || isVoiceMode()) {
       currentAudioState().uploads = [];
@@ -11800,7 +11913,7 @@ async function waitGeneration(jobId, options) {
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
     const activeReferences = isVideoMode()
-      ? videoState.referenceImageUrls
+      ? currentVideoReferenceImages()
       : (isImageMode() ? imageState.referenceImageUrls : []);
     const activeAttachment = currentModeAttachment();
     const activeAudioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []) : [];
@@ -11808,7 +11921,7 @@ async function waitGeneration(jobId, options) {
     const has = (ta.value || '').trim().length > 0
       || !!activeAttachment
       || !!(activeReferences && activeReferences.length)
-      || !!(isVideoMode() && videoState.inputVideo)
+      || !!(isVideoMode() && (currentVideoEditInputUrl() || currentVideoReferenceUrl()))
       || !!(activeAudioUploads && activeAudioUploads.length);
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
@@ -12650,7 +12763,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, openVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -12684,6 +12797,7 @@ async function waitGeneration(jobId, options) {
   window.openVideoStartUpload = openVideoStartUpload;
   window.openVideoEndUpload = openVideoEndUpload;
   window.openVideoReferencesUpload = openVideoReferencesUpload;
+  window.openVideoEditInputUpload = openVideoEditInputUpload;
   window.openNativeFilePicker = openNativeFilePicker;
   window.openVoiceMediaPicker = openVoiceMediaPicker;
   window.confirmVoiceUpload = confirmVoiceUpload;
@@ -12743,6 +12857,7 @@ async function waitGeneration(jobId, options) {
   S.openVideoStartUpload = openVideoStartUpload;
   S.openVideoEndUpload = openVideoEndUpload;
   S.openVideoReferencesUpload = openVideoReferencesUpload;
+  S.openVideoEditInputUpload = openVideoEditInputUpload;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
   S.openVisualPicker = openVisualPicker;
