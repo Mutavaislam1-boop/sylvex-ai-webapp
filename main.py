@@ -118,11 +118,12 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
                 prompt = prompt_path.read_text(encoding="utf-8").strip()
             except UnicodeDecodeError:
                 prompt = prompt_path.read_text(errors="ignore").strip()
+        avatar_image = avatar or (references[0] if references else None)
         item = {
             "id": f"{kind}_{folder.name}",
             "name": _catalog_folder_label(folder),
             "prompt": prompt,
-            "avatarUrl": _preset_file_url(avatar) if avatar else "",
+            "avatarUrl": _preset_file_url(avatar_image) if avatar_image else "",
             "referenceImages": [_preset_file_url(image) for image in references],
             "type": "file-preset",
             "status": "ready",
