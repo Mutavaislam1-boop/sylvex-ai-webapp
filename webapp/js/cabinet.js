@@ -868,8 +868,9 @@ function hidesSeedSettings(modelId) {
 }
 
 // =====================================================
-// JAVASCRIPT-БЛОК: presetSvg
-// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// КАТАЛОГ ПЕРСОНАЖЕЙ И ОБЪЕКТОВ
+// Загружает пресеты с backend по тому же принципу, что и каталог видео.
+// Локальные записи ниже используются как резерв, пока backend-каталог недоступен.
 // =====================================================
 function presetSvg(label, hue) {
   const text = String(label || '').slice(0, 2).toUpperCase();
@@ -883,7 +884,49 @@ function presetSvg(label, hue) {
   return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
 }
 
-const PRESET_CHARACTERS = [
+const PRESET_CATALOG_ENDPOINT = '/api/public/prostudio/preset-catalog';
+
+function normalizePresetCatalogItem(item, kind, index) {
+  const source = item && typeof item === 'object' ? item : {};
+  const name = String(source.name || source.label || '').trim();
+  const baseHue = kind === 'character' ? 18 + index * 23 : 190 + index * 17;
+  const avatarUrl = String(
+    source.avatarUrl
+    || source.avatar_url
+    || source.previewUrl
+    || source.preview_url
+    || ''
+  ).trim();
+  const references = source.referenceImages || source.reference_images || [];
+  const referenceImages = Array.isArray(references)
+    ? references.filter(Boolean).map(String)
+    : [];
+
+  return {
+    id: String(source.id || ((kind === 'character' ? 'character_' : 'object_') + name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))),
+    name,
+    gender: kind === 'character' ? String(source.gender || 'neutral') : undefined,
+    description: String(source.description || ''),
+    prompt: String(source.prompt || ''),
+    negativePrompt: String(source.negativePrompt || source.negative_prompt || ''),
+    avatarUrl,
+    previewUrl: avatarUrl || presetSvg(name, baseHue),
+    referenceImages: referenceImages.length
+      ? referenceImages
+      : [
+          presetSvg(name + ' A', baseHue),
+          presetSvg(name + ' B', baseHue + 18),
+          presetSvg(name + ' C', baseHue + 36),
+        ],
+    tags: Array.isArray(source.tags) ? source.tags.filter(Boolean).map(String) : [],
+    provider: String(source.provider || ''),
+    version: String(source.version || '1.0'),
+    type: String(source.type || 'preset'),
+    status: String(source.status || 'ready'),
+  };
+}
+
+const FALLBACK_PRESET_CHARACTERS = [
   ['character_liz', 'Liz', 'female'],
   ['character_noah', 'Noah', 'male'],
   ['character_grace', 'Grace', 'female'],
@@ -899,17 +942,17 @@ const PRESET_CHARACTERS = [
   ['character_luca', 'Luca', 'male'],
   ['character_hiro', 'Hiro', 'male'],
   ['character_sofia', 'Sofia', 'female'],
-].map((item, index) => ({
+].map((item, index) => normalizePresetCatalogItem({
   id: item[0],
   name: item[1],
   gender: item[2],
-  previewUrl: presetSvg(item[1], 18 + index * 23),
-  referenceImages: [presetSvg(item[1] + ' F', 18 + index * 23), presetSvg(item[1] + ' L', 42 + index * 23), presetSvg(item[1] + ' R', 66 + index * 23)],
-  type: 'preset',
-  status: 'ready',
-}));
+  avatarUrl: '',
+  prompt: '',
+  negativePrompt: '',
+  referenceImages: [],
+}, 'character', index));
 
-const PRESET_OBJECTS = [
+const FALLBACK_PRESET_OBJECTS = [
   ['object_moka_pot', 'Moka Pot', 'Classic moka pot'],
   ['object_toaster', 'Toaster', 'Chrome toaster'],
   ['object_book', 'Book', 'Hardcover book'],
@@ -919,15 +962,67 @@ const PRESET_OBJECTS = [
   ['object_stilettos', 'Stilettos', 'Elegant stilettos'],
   ['object_water_bottle', 'Water Bottle', 'Minimal water bottle'],
   ['object_bag', 'Bag', 'Beige canvas tote bag'],
-].map((item, index) => ({
+].map((item, index) => normalizePresetCatalogItem({
   id: item[0],
   name: item[1],
   description: item[2],
-  previewUrl: presetSvg(item[1], 190 + index * 17),
-  referenceImages: [presetSvg(item[1] + ' A', 190 + index * 17), presetSvg(item[1] + ' B', 208 + index * 17), presetSvg(item[1] + ' C', 226 + index * 17)],
-  type: 'preset',
-  status: 'ready',
-}));
+  avatarUrl: '',
+  prompt: '',
+  negativePrompt: '',
+  referenceImages: [],
+}, 'object', index));
+
+let PRESET_CHARACTERS = FALLBACK_PRESET_CHARACTERS.slice();
+let PRESET_OBJECTS = FALLBACK_PRESET_OBJECTS.slice();
+let presetCatalogLoaded = false;
+let presetCatalogLoading = null;
+
+async function loadPresetCatalog(force) {
+  if (presetCatalogLoaded && !force) {
+    return { characters: PRESET_CHARACTERS, objects: PRESET_OBJECTS };
+  }
+  if (presetCatalogLoading && !force) return presetCatalogLoading;
+
+  presetCatalogLoading = (async () => {
+    try {
+      const response = await fetch(PRESET_CATALOG_ENDPOINT, { method: 'GET' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.error || ('HTTP ' + response.status));
+
+      const rawCharacters = Array.isArray(data.characters)
+        ? data.characters
+        : (data.catalog && Array.isArray(data.catalog.characters) ? data.catalog.characters : []);
+      const rawObjects = Array.isArray(data.objects)
+        ? data.objects
+        : (data.catalog && Array.isArray(data.catalog.objects) ? data.catalog.objects : []);
+
+      if (rawCharacters.length) {
+        PRESET_CHARACTERS = rawCharacters.map((item, index) => normalizePresetCatalogItem(item, 'character', index));
+      }
+      if (rawObjects.length) {
+        PRESET_OBJECTS = rawObjects.map((item, index) => normalizePresetCatalogItem(item, 'object', index));
+      }
+
+      presetCatalogLoaded = true;
+      window.dispatchEvent(new CustomEvent('sylvex:preset-catalog-loaded', {
+        detail: {
+          characters: PRESET_CHARACTERS.slice(),
+          objects: PRESET_OBJECTS.slice(),
+        },
+      }));
+    } catch (error) {
+      console.warn('[SYLVEX] preset catalog failed, fallback presets are used', error);
+    } finally {
+      presetCatalogLoading = null;
+    }
+
+    return { characters: PRESET_CHARACTERS, objects: PRESET_OBJECTS };
+  })();
+
+  return presetCatalogLoading;
+}
+
+void loadPresetCatalog(false);
 
 const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_3_5', label:'Suno Chirp v3.5', providerModel:'chirp-v3-5', desc:'Suno music generation', icon:'suno' },
