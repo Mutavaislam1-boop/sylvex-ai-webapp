@@ -38,6 +38,14 @@ app = FastAPI()
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 WEBAPP_DIR = BASE_DIR / "webapp"
+PRESET_CATALOG_DIR = BASE_DIR / "backend" / "preset_catalog"
+PRESET_CHARACTERS_DIR = PRESET_CATALOG_DIR / "characters"
+PRESET_OBJECTS_DIR = PRESET_CATALOG_DIR / "objects"
+VOICE_AVATARS_DIR = PRESET_CATALOG_DIR / "voice_avatars"
+PRESET_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+for catalog_dir in (PRESET_CHARACTERS_DIR, PRESET_OBJECTS_DIR, VOICE_AVATARS_DIR):
+    catalog_dir.mkdir(parents=True, exist_ok=True)
 
 app.mount("/webapp", StaticFiles(directory=WEBAPP_DIR, html=True), name="webapp")
 app.mount("/static", StaticFiles(directory=WEBAPP_DIR), name="static")
@@ -46,6 +54,7 @@ app.mount("/assets", StaticFiles(directory="webapp/assets"), name="assets")
 app.mount("/js", StaticFiles(directory="webapp/js"), name="js")
 app.mount("/css", StaticFiles(directory="webapp/css"), name="css")
 app.mount("/generated", StaticFiles(directory=WEBAPP_DIR / "generated"), name="generated")
+app.mount("/preset_catalog", StaticFiles(directory=PRESET_CATALOG_DIR), name="preset_catalog")
 app.include_router(video_templates_router)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -72,6 +81,122 @@ def env_value(*names: str, default: str = "") -> str:
         if value:
             return value
     return default
+
+def _natural_catalog_key(value: str):
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", str(value or ""))]
+
+def _preset_file_url(path: pathlib.Path) -> str:
+    rel = path.relative_to(PRESET_CATALOG_DIR)
+    return "/preset_catalog/" + "/".join(urllib.parse.quote(part) for part in rel.parts)
+
+def _catalog_folder_label(folder: pathlib.Path) -> str:
+    return re.sub(r"[_-]+", " ", folder.name).strip().title() or folder.name
+
+def _catalog_image_files(folder: pathlib.Path) -> list[pathlib.Path]:
+    if not folder.exists() or not folder.is_dir():
+        return []
+    return sorted(
+        [
+            item for item in folder.iterdir()
+            if item.is_file() and item.suffix.lower() in PRESET_IMAGE_EXTENSIONS
+        ],
+        key=lambda item: _natural_catalog_key(item.name),
+    )
+
+def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[dict]:
+    items = []
+    if not section_dir.exists():
+        return items
+    for folder in sorted([item for item in section_dir.iterdir() if item.is_dir()], key=lambda item: _natural_catalog_key(item.name)):
+        images = _catalog_image_files(folder)
+        avatar = next((item for item in images if item.stem.lower() == "avatar"), None)
+        references = [item for item in images if item != avatar]
+        prompt_path = folder / "prompt.txt"
+        prompt = ""
+        if prompt_path.exists() and prompt_path.is_file():
+            try:
+                prompt = prompt_path.read_text(encoding="utf-8").strip()
+            except UnicodeDecodeError:
+                prompt = prompt_path.read_text(errors="ignore").strip()
+        item = {
+            "id": f"{kind}_{folder.name}",
+            "name": _catalog_folder_label(folder),
+            "prompt": prompt,
+            "avatarUrl": _preset_file_url(avatar) if avatar else "",
+            "referenceImages": [_preset_file_url(image) for image in references],
+            "type": "file-preset",
+            "status": "ready",
+            "sourcePath": str(folder.relative_to(BASE_DIR)),
+        }
+        if kind == "character":
+            item["gender"] = "neutral"
+        else:
+            item["description"] = ""
+        items.append(item)
+    return items
+
+def load_preset_catalog() -> dict:
+    return {
+        "characters": _scan_preset_catalog_section(PRESET_CHARACTERS_DIR, "character"),
+        "objects": _scan_preset_catalog_section(PRESET_OBJECTS_DIR, "object"),
+    }
+
+def load_voice_avatar_catalog() -> dict:
+    avatars = []
+    if VOICE_AVATARS_DIR.exists():
+        folders = [VOICE_AVATARS_DIR]
+        folders.extend([item for item in VOICE_AVATARS_DIR.rglob("*") if item.is_dir()])
+        for folder in sorted(folders, key=lambda item: _natural_catalog_key(str(item.relative_to(VOICE_AVATARS_DIR)))):
+            images = _catalog_image_files(folder)
+            avatar = next((item for item in images if item.stem.lower() == "avatar"), None) or (images[0] if images else None)
+            if not avatar:
+                continue
+            rel_parts = folder.relative_to(VOICE_AVATARS_DIR).parts
+            if not rel_parts:
+                continue
+            provider = rel_parts[0] if len(rel_parts) > 1 else ""
+            voice_id = rel_parts[-1]
+            avatars.append({
+                "id": voice_id,
+                "voice_id": voice_id,
+                "provider": provider,
+                "avatarUrl": _preset_file_url(avatar),
+                "sourcePath": str(folder.relative_to(BASE_DIR)),
+            })
+    return {"avatars": avatars}
+
+def voice_avatar_url_for(voice_id: str, provider: str = "") -> str:
+    raw_voice_id = str(voice_id or "").strip()
+    raw_provider = str(provider or "").strip()
+    if not raw_voice_id:
+        return ""
+    normalized_voice = raw_voice_id.lower()
+    normalized_slug = re.sub(r"[^a-z0-9]+", "_", normalized_voice).strip("_")
+    normalized_provider = raw_provider.lower()
+    for item in load_voice_avatar_catalog().get("avatars", []):
+        item_voice = str(item.get("voice_id") or item.get("id") or "").strip().lower()
+        item_slug = re.sub(r"[^a-z0-9]+", "_", item_voice).strip("_")
+        item_provider = str(item.get("provider") or "").strip().lower()
+        if normalized_provider and item_provider and item_provider != normalized_provider:
+            continue
+        if item_voice == normalized_voice or item_slug == normalized_slug:
+            return str(item.get("avatarUrl") or "")
+    return ""
+
+def attach_voice_avatars(voices: list, provider: str = "") -> list:
+    result = []
+    for item in voices or []:
+        if not isinstance(item, dict):
+            result.append(item)
+            continue
+        voice_id = item.get("voice_id") or item.get("voiceId") or item.get("id") or item.get("name")
+        avatar_url = item.get("avatarUrl") or item.get("avatar_url") or voice_avatar_url_for(str(voice_id or ""), provider or str(item.get("provider") or ""))
+        next_item = dict(item)
+        if avatar_url:
+            next_item["avatarUrl"] = avatar_url
+            next_item["avatar_url"] = avatar_url
+        result.append(next_item)
+    return result
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
@@ -3148,12 +3273,34 @@ async def public_prostudio_voice_preview(request: Request):
 
 
 # =====================================================
+# API ENDPOINT: public_prostudio_preset_catalog
+# Автоматически собирает файловый каталог персонажей и объектов из backend/preset_catalog.
+# =====================================================
+@app.get("/api/public/prostudio/preset-catalog")
+async def public_prostudio_preset_catalog():
+    catalog = load_preset_catalog()
+    return {"ok": True, "catalog": catalog, **catalog}
+
+
+# =====================================================
+# API ENDPOINT: public_prostudio_voice_avatars
+# Возвращает аватарки голосов из backend/preset_catalog/voice_avatars.
+# =====================================================
+@app.get("/api/public/prostudio/voice-avatars")
+async def public_prostudio_voice_avatars():
+    catalog = load_voice_avatar_catalog()
+    return {"ok": True, **catalog}
+
+
+# =====================================================
 # API ENDPOINT: public_prostudio_runway_voices
 # Возвращает список голосов Runway для шторки выбора озвучки в Mini App.
 # =====================================================
 @app.get("/api/public/prostudio/runway-voices")
 async def public_prostudio_runway_voices():
     result = await fetch_runway_voices()
+    if isinstance(result, dict) and isinstance(result.get("voices"), list):
+        result["voices"] = attach_voice_avatars(result["voices"], "runway")
     status_code = 200 if result.get("ok") or result.get("success") else 502
     return JSONResponse(result, status_code=status_code)
 
@@ -3165,6 +3312,8 @@ async def public_prostudio_runway_voices():
 @app.get("/api/public/prostudio/elevenlabs-voices")
 async def public_prostudio_elevenlabs_voices():
     result = await fetch_elevenlabs_prostudio_voices()
+    if isinstance(result, dict) and isinstance(result.get("voices"), list):
+        result["voices"] = attach_voice_avatars(result["voices"], "elevenlabs")
     status_code = 200 if result.get("ok") or result.get("success") else 502
     return JSONResponse(result, status_code=status_code)
 
@@ -4148,6 +4297,7 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
         "gender": resource.get("gender") or "",
         "description": resource.get("description") or "",
         "previewUrl": preview,
+        "avatarUrl": resource.get("avatarUrl") or resource.get("avatar_url") or preview,
         "referenceImages": photos,
         "type": "custom",
         "voice_id": resource.get("voice_id") or resource.get("voiceId") or resource.get("id") or "",
@@ -4244,6 +4394,8 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 item["voice_id"] = metadata.get("voice_id") or metadata.get("voiceId") or resource_id
                 item["provider"] = metadata.get("provider") or "elevenlabs"
                 item["model"] = metadata.get("model") or metadata.get("ai_model") or ""
+                item["avatarUrl"] = metadata.get("avatarUrl") or metadata.get("avatar_url") or preview or voice_avatar_url_for(item["voice_id"], item["provider"])
+                item["avatar_url"] = item["avatarUrl"]
                 result["voices"].append(item)
         return result
     except Exception as exc:

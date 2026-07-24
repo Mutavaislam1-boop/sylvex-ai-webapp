@@ -249,6 +249,9 @@ const geminiVoicePreviewCache = {};
 let geminiVoicePreviewAudio = null;
 let runwayVoiceListLoaded = false;
 let elevenlabsVoiceListLoaded = false;
+let voiceAvatarCatalogLoaded = false;
+let voiceAvatarCatalogLoading = null;
+let voiceAvatarCatalog = {};
 let voiceCloneRecorder = null;
 let voiceCloneStream = null;
 let voiceCloneChunks = [];
@@ -264,6 +267,7 @@ let voiceCloneDraft = {
   intonation: 50,
   expressiveness: 50,
   source: '',
+  avatarUrl: '',
 };
 let voiceCloneCountdown = 0;
 let voiceCloneCountdownTimer = null;
@@ -1130,6 +1134,7 @@ function userVoiceItems() {
     const voiceId = String((item && (item.voice_id || item.voiceId || item.id)) || '').trim();
     const resourceId = String((item && item.id) || ('custom_voice_' + voiceId)).trim();
     const name = String((item && (item.name || item.label)) || voiceId).trim();
+    const avatarUrl = String((item && (item.avatarUrl || item.avatar_url || item.previewUrl || item.preview_url)) || '').trim();
     if (!voiceId) return null;
     return {
       id: voiceId,
@@ -1140,7 +1145,8 @@ function userVoiceItems() {
       type: 'custom',
       custom: true,
       gender: item.gender || '',
-      previewUrl: item.previewUrl || item.preview_url || '',
+      avatarUrl,
+      previewUrl: item.previewUrl || item.preview_url || avatarUrl,
     };
   }).filter(Boolean);
 }
@@ -1155,6 +1161,67 @@ function mergeUserVoicesWithProvider(list) {
     return true;
   }));
 }
+
+function voiceAvatarLookupKeys(value, provider) {
+  const raw = String(value || '').trim();
+  const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const base = [raw.toLowerCase(), slug].filter(Boolean);
+  const providerKey = String(provider || '').trim().toLowerCase();
+  return providerKey ? base.concat(base.map((key) => providerKey + ':' + key)) : base;
+}
+
+function rememberVoiceAvatar(voiceId, provider, avatarUrl) {
+  const url = String(avatarUrl || '').trim();
+  if (!url) return;
+  voiceAvatarLookupKeys(voiceId, provider).forEach((key) => {
+    voiceAvatarCatalog[key] = url;
+  });
+}
+
+function voiceAvatarUrlFor(item, provider) {
+  if (!item || typeof item !== 'object') return '';
+  const own = String(item.avatarUrl || item.avatar_url || item.imageUrl || item.image_url || '').trim();
+  if (own) return own;
+  const id = item.id || item.voice_id || item.voiceId || item.name || '';
+  const itemProvider = provider || item.provider || '';
+  const keys = voiceAvatarLookupKeys(id, itemProvider);
+  for (const key of keys) {
+    if (voiceAvatarCatalog[key]) return voiceAvatarCatalog[key];
+  }
+  return '';
+}
+
+function applyVoiceAvatarsToList(list, provider) {
+  return (Array.isArray(list) ? list : []).map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const avatarUrl = voiceAvatarUrlFor(item, provider);
+    return avatarUrl ? Object.assign({}, item, { avatarUrl, avatar_url: avatarUrl }) : item;
+  });
+}
+
+async function loadVoiceAvatarCatalog(force) {
+  if (voiceAvatarCatalogLoaded && !force) return voiceAvatarCatalog;
+  if (voiceAvatarCatalogLoading && !force) return voiceAvatarCatalogLoading;
+  voiceAvatarCatalogLoading = (async () => {
+    try {
+      const res = await fetch('/api/public/prostudio/voice-avatars', { method: 'GET', cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      const avatars = Array.isArray(data.avatars) ? data.avatars : [];
+      avatars.forEach((item) => {
+        rememberVoiceAvatar(item.voice_id || item.voiceId || item.id, item.provider || '', item.avatarUrl || item.avatar_url);
+      });
+      voiceAvatarCatalogLoaded = true;
+    } catch (err) {
+      console.warn('[SYLVEX] voice avatars failed', err);
+    } finally {
+      voiceAvatarCatalogLoading = null;
+    }
+    return voiceAvatarCatalog;
+  })();
+  return voiceAvatarCatalogLoading;
+}
+
+void loadVoiceAvatarCatalog(false);
 
 const ELEVENLABS_AUDIO_TOOLS = [
   { id:'text_to_speech', label:'Text to Speech' },
@@ -1333,11 +1400,14 @@ function normalizeRunwayVoiceItems(items) {
   const mapped = list.map((item) => {
     const id = String(item.voice_id || item.voiceId || item.id || item.name || '').trim();
     const name = String(item.name || item.label || id).trim();
+    const avatarUrl = item.avatarUrl || item.avatar_url || '';
     if (!id) return null;
+    rememberVoiceAvatar(id, 'runway', avatarUrl);
     return {
       id,
       label: name || id,
       previewUrl: item.preview_url || item.previewUrl || '',
+      avatarUrl,
       gender: item.gender || item.sex || '',
     };
   }).filter(Boolean);
@@ -1373,11 +1443,14 @@ function normalizeElevenLabsVoiceItems(items) {
     const id = String(item.voice_id || item.voiceId || item.id || '').trim();
     const name = String(item.name || item.label || id).trim();
     const meta = [item.language, item.type || item.category].filter(Boolean).join(' · ');
+    const avatarUrl = item.avatarUrl || item.avatar_url || '';
     if (!id) return null;
+    rememberVoiceAvatar(id, 'elevenlabs', avatarUrl);
     return {
       id,
       label: name + (meta ? ' · ' + meta : ''),
       previewUrl: item.preview_url || item.previewUrl || '',
+      avatarUrl,
       gender: item.gender || item.labels && item.labels.gender || item.voice_gender || '',
     };
   }).filter(Boolean);
@@ -2309,9 +2382,9 @@ function renderVoiceUploadButtonPreview() {
 // Возвращает список голосов для текущей AI-модели, чтобы карточка «Список голосов» работала в одном месте.
 // =====================================================
 function currentVoiceListForPanel() {
-  if (isElevenLabsVoiceModel(voiceState.modelId)) return mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES);
-  if (isRunwayVoiceModel(voiceState.modelId)) return runwayVoiceList || RUNWAY_TTS_VOICES;
-  return GEMINI_TTS_VOICES;
+  if (isElevenLabsVoiceModel(voiceState.modelId)) return applyVoiceAvatarsToList(mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES), 'elevenlabs');
+  if (isRunwayVoiceModel(voiceState.modelId)) return applyVoiceAvatarsToList(runwayVoiceList || RUNWAY_TTS_VOICES, 'runway');
+  return applyVoiceAvatarsToList(GEMINI_TTS_VOICES, 'gemini');
 }
 
 function voiceOptionDisplayLabel(id, fallback) {
@@ -2463,9 +2536,10 @@ function renderVoiceListPanel() {
     const resourceId = S.escapeHtml(String(item.resourceId || item.resource_id || item.id || ''));
     const selected = String(activeVoice || '') === id;
     const initial = S.escapeHtml((label || id || '?').trim().slice(0, 1).toUpperCase());
+    const avatarUrl = voiceAvatarUrlFor(item, optionKind === 'elevenlabsVoice' ? 'elevenlabs' : (optionKind === 'runwayVoice' ? 'runway' : 'gemini'));
     return '<div class="image-style-card voice-style-card ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
-      + '<span class="image-style-thumb is-placeholder voice-style-thumb">'
-      + '<span class="image-style-placeholder-icon">' + initial + '</span>'
+      + '<span class="image-style-thumb ' + (avatarUrl ? '' : 'is-placeholder') + ' voice-style-thumb">'
+      + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="' + S.escapeHtml(label) + '" loading="lazy" decoding="async" />' : '<span class="image-style-placeholder-icon">' + initial + '</span>')
       + '<button class="voice-style-play" type="button" aria-label="Прослушать ' + S.escapeHtml(label) + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
       + '</span>'
       + '<span class="image-style-label">' + S.escapeHtml(label) + '</span>'
@@ -2542,6 +2616,7 @@ function renderVoiceCreatePanel() {
   const audioInfo = voiceCloneBlob
     ? ((voiceCloneBlob.name || (voiceCloneDraft.source === 'upload' ? 'audio file' : 'recording')) + ' · ' + Math.max(1, Math.round(voiceCloneBlob.size / 1024)) + ' KB')
     : '';
+  const avatarPreview = String(voiceCloneDraft.avatarUrl || '').trim();
   const waveform = Array.from({ length: 32 }).map((_, index) => {
     const level = 22 + ((index * 17) % 44) + (index % 5) * 3;
     return '<span style="height:' + Math.min(76, level) + '%"></span>';
@@ -2555,8 +2630,15 @@ function renderVoiceCreatePanel() {
       </div>
       <div class="voice-create-grid">
         <div class="voice-create-fields">
-          <input class="voice-tool-input voice-clone-field" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off" value="${S.escapeHtml(voiceCloneDraft.name || '')}" oninput="SYLVEX.setVoiceCloneField(event,'name',this.value)">
-          ${dropdown('gender', 'Пол', genderOptions, voiceCloneDraft.gender || 'neutral')}
+          <div class="voice-clone-profile-row">
+            <button class="voice-clone-avatar-picker ${avatarPreview ? 'has-avatar' : ''}" type="button" aria-label="Выбрать аватарку голоса" onclick="SYLVEX.openVoiceCloneAvatarPicker(event)">
+              ${avatarPreview ? '<img src="' + S.escapeHtml(avatarPreview) + '" alt="" loading="lazy" decoding="async" />' : '<span>+</span>'}
+            </button>
+            <div class="voice-clone-main-fields">
+              <input class="voice-tool-input voice-clone-field" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off" value="${S.escapeHtml(voiceCloneDraft.name || '')}" oninput="SYLVEX.setVoiceCloneField(event,'name',this.value)">
+              ${dropdown('gender', 'Пол', genderOptions, voiceCloneDraft.gender || 'neutral')}
+            </div>
+          </div>
         </div>
         <div class="voice-create-recorder ${isRecording || voiceCloneCountdown ? 'recording-mode' : ''} ${hasAudio ? 'has-audio' : ''}">
           ${hasAudio ? `
@@ -9533,6 +9615,7 @@ function closeUploadPanel(e) {
     activeVoicePanelSection = activeVoicePanelSection === section ? '' : (section || '');
     renderVoiceToolPanel();
     if (activeVoicePanelSection === 'voices') {
+      loadVoiceAvatarCatalog(true).then(renderVoiceToolPanel).catch(() => {});
       if (isElevenLabsVoiceModel(voiceState.modelId)) {
         loadElevenLabsVoices(true).then(renderVoiceToolPanel).catch(() => {});
       } else if (isRunwayVoiceModel(voiceState.modelId)) {
@@ -9592,6 +9675,46 @@ function closeUploadPanel(e) {
       voiceClonePreviewUrl = URL.createObjectURL(file);
       setupVoiceClonePreviewAudio();
       renderVoiceToolPanel();
+    };
+    input.click();
+  }
+
+  // =====================================================
+  // БЛОК ОЗВУЧКИ: openVoiceCloneAvatarPicker
+  // Загружает аватарку для пользовательского голоса и сохраняет её в черновике создания.
+  // =====================================================
+  function openVoiceCloneAvatarPicker(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/webp';
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > 12 * 1024 * 1024) {
+        toast('Аватарка слишком большая (макс. 12 MB)');
+        return;
+      }
+      const localPreview = URL.createObjectURL(file);
+      voiceCloneDraft.avatarUrl = localPreview;
+      renderVoiceToolPanel();
+      try {
+        const fd = new FormData();
+        fd.append('file', file, file.name || 'voice-avatar.png');
+        const res = await fetch('/api/public/prostudio/upload-media?kind=image', { method: 'POST', body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok || !(data.path || data.url)) throw new Error(data.error || 'upload_failed');
+        voiceCloneDraft.avatarUrl = data.path || data.url;
+      } catch (err) {
+        voiceCloneDraft.avatarUrl = '';
+        toast('Не удалось загрузить аватарку');
+      } finally {
+        URL.revokeObjectURL(localPreview);
+        renderVoiceToolPanel();
+      }
     };
     input.click();
   }
@@ -11393,6 +11516,7 @@ async function waitGeneration(jobId, options) {
     fd.append('description', 'Created in SYLVEX Mini App');
     fd.append('gender', voiceCloneDraft.gender || 'neutral');
     fd.append('emotion', voiceCloneDraft.emotion || 'neutral');
+    fd.append('avatar_url', voiceCloneDraft.avatarUrl || '');
     fd.append('settings', JSON.stringify({
       gender: voiceCloneDraft.gender || 'neutral',
       emotion: voiceCloneDraft.emotion || 'neutral',
@@ -11421,6 +11545,9 @@ async function waitGeneration(jobId, options) {
         name: data.name || voiceName,
         gender: voiceCloneDraft.gender || 'neutral',
         description: 'Created in SYLVEX Mini App',
+        avatarUrl: voiceCloneDraft.avatarUrl || '',
+        avatar_url: voiceCloneDraft.avatarUrl || '',
+        previewUrl: voiceCloneDraft.avatarUrl || '',
         provider: 'elevenlabs',
         model: 'elevenlabs_voice_clone',
         type: 'custom',
@@ -11434,6 +11561,7 @@ async function waitGeneration(jobId, options) {
       voiceState.elevenlabsSecondVoice = data.voice_id;
       elevenlabsVoiceListLoaded = false;
       await loadElevenLabsVoices(true).catch(() => {});
+      voiceCloneDraft.avatarUrl = '';
       clearVoiceCloneRecording();
       renderVoiceControls();
       toast('Голос создан и выбран');
@@ -13290,7 +13418,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -13340,6 +13468,7 @@ async function waitGeneration(jobId, options) {
   window.closeVoiceList = closeVoiceList;
   window.openVoiceUpload = openVoiceUpload;
   window.openVoiceCloneFilePicker = openVoiceCloneFilePicker;
+  window.openVoiceCloneAvatarPicker = openVoiceCloneAvatarPicker;
   window.clearVoiceUploads = clearVoiceUploads;
   window.toggleVoiceCloneRecording = toggleVoiceCloneRecording;
   window.playVoiceCloneRecording = playVoiceCloneRecording;
