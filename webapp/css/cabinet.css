@@ -1204,6 +1204,50 @@ CSS-БЛОК: .studio-mode-tab
   gap:12px;
 }
 .voice-create-fields{display:flex;flex-direction:column;gap:10px}
+.voice-clone-profile-row{
+  display:grid;
+  grid-template-columns:82px minmax(0,1fr);
+  gap:10px;
+  align-items:stretch;
+}
+.voice-clone-main-fields{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  min-width:0;
+}
+.voice-clone-avatar-picker{
+  width:82px;
+  min-height:98px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:18px;
+  background:rgba(255,255,255,.055);
+  color:#f4f4f4;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  cursor:pointer;
+}
+.voice-clone-avatar-picker span{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:rgba(59,130,246,.22);
+  color:#bfdbfe;
+  font-size:22px;
+  font-weight:900;
+}
+.voice-clone-avatar-picker img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.voice-clone-avatar-picker.has-avatar{
+  background:#181818;
+}
 .voice-create-recorder{
   min-height:104px;
   border:1px solid rgba(255,255,255,.22);
@@ -1891,6 +1935,13 @@ CSS-БЛОК: .studio-mode-tab
 @media(max-width:560px){
   .voice-tool-panel.voice-create-open .voice-create-grid{
     grid-template-columns:1fr;
+  }
+  .voice-clone-profile-row{
+    grid-template-columns:74px minmax(0,1fr);
+  }
+  .voice-clone-avatar-picker{
+    width:74px;
+    min-height:98px;
   }
   .voice-tool-panel.voice-create-open .voice-create-recorder{
     min-height:92px;
