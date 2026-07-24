@@ -905,6 +905,7 @@ function normalizePresetCatalogItem(item, kind, index) {
   const referenceImages = Array.isArray(references)
     ? references.filter(Boolean).map(String)
     : [];
+  const previewUrl = avatarUrl || referenceImages[0] || '';
 
   return {
     id: String(source.id || ((kind === 'character' ? 'character_' : 'object_') + name.toLowerCase().replace(/[^a-z0-9]+/g, '_'))),
@@ -914,7 +915,7 @@ function normalizePresetCatalogItem(item, kind, index) {
     prompt: String(source.prompt || ''),
     negativePrompt: String(source.negativePrompt || source.negative_prompt || ''),
     avatarUrl,
-    previewUrl: avatarUrl || presetSvg(name, baseHue),
+    previewUrl: previewUrl || presetSvg(name, baseHue),
     referenceImages: referenceImages.length
       ? referenceImages
       : [
@@ -989,7 +990,7 @@ async function loadPresetCatalog(force) {
 
   presetCatalogLoading = (async () => {
     try {
-      const response = await fetch(PRESET_CATALOG_ENDPOINT, { method: 'GET' });
+      const response = await fetch(PRESET_CATALOG_ENDPOINT, { method: 'GET', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || data.error || ('HTTP ' + response.status));
 
@@ -5400,6 +5401,11 @@ function openImageStylePanel(e, kind) {
   const panel = ensureImageStylePanel();
   renderImageStylePanel();
   panel.classList.add('show');
+  if (nextKind === 'character' || nextKind === 'object') {
+    loadPresetCatalog(true).then(() => {
+      if (activeImageStylePanelKind === nextKind && panel.classList.contains('show')) renderImageStylePanel();
+    }).catch(() => {});
+  }
 
   const mp = document.getElementById('modelPop');
   if (mp) mp.classList.remove('show');
