@@ -1,13 +1,16 @@
 IDENTITY PRESET
 
-This preset is an identity filter, not a standalone image prompt.
+This preset is an identity overlay.
+It must behave like an identity mask.
+It never creates a new character.
+It never changes the scene.
+It only replaces the identity of existing human subjects.
 
-Apply this identity to the primary human subject generated from the user's request.
+CORE RULE
 
-Do not generate Liz as a separate person.
-Do not create an additional character.
-
-Instead, transform the primary generated person so that they permanently inherit Liz's identity.
+When a user uploads an image or video, treat it as an identity replacement task.
+Replace only the identity of the selected person with Liz.
+Preserve absolutely everything else.
 
 The user's request determines:
 - scene
@@ -21,39 +24,38 @@ The user's request determines:
 - lighting
 - artistic style
 
-This preset determines:
-- facial identity
-- facial proportions
-- recognizable facial features
-- skin tone
-- eye color
-- eyebrow shape
-- nose
-- lips
-- body proportions
-- overall appearance
+NEVER MODIFY
 
-Only replace these identity characteristics.
-Everything else must follow the user's request.
-
-If the user provides an image or video, preserve the original composition, pose, expression, camera angle, lighting, perspective, movement, framing, and scene while replacing only the person's identity with Liz.
-
-Do not change the number of people.
-Do not add or remove people.
-Do not alter the scene unless requested.
+- composition
+- framing
+- camera
+- perspective
+- lighting
+- colors
+- shadows
+- background
+- environment
+- objects
+- clothing unless requested
+- accessories unless requested
+- body pose
+- hand pose
+- facial expression
+- gaze direction
+- movement
+- video timing
+- video motion
+- cinematography
+- number of people
+- image style
 
 IDENTITY
 
 Liz is approximately 24 years old with a slim, well-proportioned figure and a height of around 170 cm.
-
 She has very fair porcelain skin with neutral cool undertones.
-
 She has a soft oval face, high cheekbones, a delicate jawline, a small straight nose, naturally pink lips, expressive light green-blue almond-shaped eyes, light blonde eyebrows, and shoulder-length platinum blonde hair with soft natural waves.
-
 Her appearance is modern, elegant, and premium fashion editorial.
-
 DEFAULT APPEARANCE
-
 If the user's request does not specify clothing or accessories, use:
 
 • oversized blue denim jacket
@@ -62,17 +64,67 @@ If the user's request does not specify clothing or accessories, use:
 
 Otherwise, always follow the user's requested outfit.
 
+IDENTITY REPLACEMENT RULES
+
+Think of Liz as a facial/body identity layer.
+Overlay Liz's identity onto the existing person.
+Do not regenerate the entire image.
+Do not reinterpret the prompt.
+Do not redesign the scene.
+Do not crop.
+Do not zoom.
+Do not reposition subjects.
+Do not change the environment.
+Only replace identity attributes.
+
+MULTIPLE PEOPLE
+
+If multiple people exist, replace only the person explicitly selected by the application.
+Never duplicate Liz.
+Never replace everyone unless explicitly instructed.
+
+VIDEO PRESERVATION
+
+Preserve every frame.
+Preserve camera movement.
+Preserve body motion.
+Preserve lip sync.
+Preserve animation.
+Preserve timing.
+Only identity changes.
+
 PRESERVATION RULES
 
 Always preserve:
-
-- facial identity
-- facial proportions
-- eye color
-- skin tone
+- composition
+- framing
+- camera
+- perspective
+- lighting
+- colors
+- background
+- objects
+- clothing unless requested
+- accessories unless requested
 - hairstyle unless explicitly changed
-- recognizable appearance
+- pose
+- expression
+- emotion
+- body proportions
+- movement
+- cinematography
+- image style
+- video style
 
-Never replace the user's composition, pose, environment, action, or camera unless requested.
+Change only:
+- facial identity
+- recognizable facial features
+- skin tone
+- eyebrows
+- eyes
+- nose
+- lips
+- facial structure
+- identity-specific body appearance.
 
-Maintain photorealistic quality, realistic anatomy, highly detailed skin, cinematic lighting, and premium editorial realism.
+The output must appear as though the original person naturally has Liz's identity. The transformation must be seamless, photorealistic, identity-only, with no other visible modifications to the original content.
