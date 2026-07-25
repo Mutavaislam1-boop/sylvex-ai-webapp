@@ -2789,12 +2789,16 @@ function renderVoiceUploadPanel() {
 function imageVisualReferenceOptions() {
   const character = selectedImageCharacter();
   const object = selectedImageObject();
+
   return {
     characterId: character ? character.id : null,
     characterName: character ? character.name : '',
+    characterPrompt: character ? (character.prompt || '') : '',
     characterReferences: character ? (character.referenceImages || []).slice() : [],
+
     objectId: object ? object.id : null,
     objectName: object ? object.name : '',
+    objectPrompt: object ? (object.prompt || '') : '',
     objectReferences: object ? (object.referenceImages || []).slice() : [],
   };
 }
