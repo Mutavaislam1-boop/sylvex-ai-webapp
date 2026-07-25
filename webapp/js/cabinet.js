@@ -2006,6 +2006,8 @@ function renderVideoControls() {
 
   const characterVal = document.getElementById('imageCharacterVal');
   if (characterVal) characterVal.textContent = videoOptionLabel('quality', videoState.quality);
+  renderUploadPreviewOnButton(document.getElementById('imageCharacterButton'), []);
+  renderUploadPreviewOnButton(document.getElementById('imageObjectButton'), []);
   renderVideoStartPreview();
   renderVideoEndPreview();
   renderVideoEditPreview();
@@ -3594,6 +3596,10 @@ function localizedGreeting() {
         ? (character ? character.name : 'Персонаж')
         : 'Недоступно для выбранной модели';
       setButtonState(characterVal, !caps.character);
+      renderUploadPreviewOnButton(
+        document.getElementById('imageCharacterButton'),
+        caps.character && character ? [visualPreviewUrl(character)].filter(Boolean) : []
+      );
     }
 
     const objectVal = document.getElementById('imageObjectVal');
@@ -3602,6 +3608,10 @@ function localizedGreeting() {
         ? (object ? object.name : 'Объект')
         : 'Недоступно для выбранной модели';
       setButtonState(objectVal, !caps.object);
+      renderUploadPreviewOnButton(
+        document.getElementById('imageObjectButton'),
+        caps.object && object ? [visualPreviewUrl(object)].filter(Boolean) : []
+      );
     }
   }
 
