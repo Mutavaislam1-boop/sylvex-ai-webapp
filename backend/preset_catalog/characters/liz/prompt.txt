@@ -1,130 +1,59 @@
-IDENTITY PRESET
+Имя пресета: Liz
 
-This preset is an identity overlay.
-It must behave like an identity mask.
-It never creates a new character.
-It never changes the scene.
-It only replaces the identity of existing human subjects.
+Пол:
+Женщина
 
-CORE RULE
+Возраст:
+Около 22–26 лет
 
-When a user uploads an image or video, treat it as an identity replacement task.
-Replace only the identity of the selected person with Liz.
-Preserve absolutely everything else.
+Рост:
+Предположительно 168–173 см
 
-The user's request determines:
-- scene
-- action
-- pose
-- clothing
-- hairstyle (if explicitly changed)
-- environment
-- camera
-- composition
-- lighting
-- artistic style
+Телосложение:
+Стройное, худощавое, пропорциональная фигура, тонкая шея и плечи.
 
-NEVER MODIFY
+Лицо:
+Овальное лицо с мягкими чертами, высокие скулы, аккуратная линия челюсти, небольшой подбородок.
 
-- composition
-- framing
-- camera
-- perspective
-- lighting
-- colors
-- shadows
-- background
-- environment
-- objects
-- clothing unless requested
-- accessories unless requested
-- body pose
-- hand pose
-- facial expression
-- gaze direction
-- movement
-- video timing
-- video motion
-- cinematography
-- number of people
-- image style
+Кожа:
+Очень светлая, светлый бежево-фарфоровый оттенок с нейтрально-холодным подтоном, чистая кожа.
 
-IDENTITY
+Волосы:
+Платиновый блонд, слегка теплый оттенок, средней длины (до плеч), объемные, естественно волнистые, немного растрепанные.
 
-Liz is approximately 24 years old with a slim, well-proportioned figure and a height of around 170 cm.
-She has very fair porcelain skin with neutral cool undertones.
-She has a soft oval face, high cheekbones, a delicate jawline, a small straight nose, naturally pink lips, expressive light green-blue almond-shaped eyes, light blonde eyebrows, and shoulder-length platinum blonde hair with soft natural waves.
-Her appearance is modern, elegant, and premium fashion editorial.
-DEFAULT APPEARANCE
-If the user's request does not specify clothing or accessories, use:
+Брови:
+Светло-русые, средней толщины, естественной формы.
 
-• oversized blue denim jacket
-• light graphic T-shirt
-• thin layered gold necklaces
+Глаза:
+Светло-зелено-голубые, миндалевидные, выразительные.
 
-Otherwise, always follow the user's requested outfit.
+Ресницы:
+Средней длины, натуральные.
 
-IDENTITY REPLACEMENT RULES
+Нос:
+Небольшой, прямой, аккуратный.
 
-Think of Liz as a facial/body identity layer.
-Overlay Liz's identity onto the existing person.
-Do not regenerate the entire image.
-Do not reinterpret the prompt.
-Do not redesign the scene.
-Do not crop.
-Do not zoom.
-Do not reposition subjects.
-Do not change the environment.
-Only replace identity attributes.
+Губы:
+Средней полноты, естественный розовый оттенок.
 
-MULTIPLE PEOPLE
+Макияж:
+Минималистичный, натуральный. Легкий тон лица, нюдовые губы, мягкий макияж глаз.
 
-If multiple people exist, replace only the person explicitly selected by the application.
-Never duplicate Liz.
-Never replace everyone unless explicitly instructed.
+Одежда:
+Синяя джинсовая куртка oversize поверх светлой футболки с графическим принтом.
 
-VIDEO PRESERVATION
+Украшения:
+Несколько тонких золотистых цепочек на шее.
 
-Preserve every frame.
-Preserve camera movement.
-Preserve body motion.
-Preserve lip sync.
-Preserve animation.
-Preserve timing.
-Only identity changes.
+Выражение лица:
+Спокойное, уверенное, слегка задумчивое.
 
-PRESERVATION RULES
+Поза:
+Стоит вполоборота к камере, взгляд направлен прямо в объектив.
 
-Always preserve:
-- composition
-- framing
-- camera
-- perspective
-- lighting
-- colors
-- background
-- objects
-- clothing unless requested
-- accessories unless requested
-- hairstyle unless explicitly changed
-- pose
-- expression
-- emotion
-- body proportions
-- movement
-- cinematography
-- image style
-- video style
+Стиль:
+Современный casual, fashion editorial, естественный городской образ.
 
-Change only:
-- facial identity
-- recognizable facial features
-- skin tone
-- eyebrows
-- eyes
-- nose
-- lips
-- facial structure
-- identity-specific body appearance.
+Prompt (English):
 
-The output must appear as though the original person naturally has Liz's identity. The transformation must be seamless, photorealistic, identity-only, with no other visible modifications to the original content.
+Ultra-realistic young woman, approximately 24 years old, slim build, fair porcelain skin with a neutral-cool undertone, shoulder-length platinum blonde wavy hair with natural volume, light green-blue almond-shaped eyes, soft oval face, high cheekbones, straight delicate nose, natural pink lips, minimal makeup, wearing an oversized blue denim jacket over a light graphic t-shirt, layered gold necklaces, calm confident expression, standing on a quiet city street, soft natural daylight, shallow depth of field, cinematic fashion editorial, highly detailed skin texture, photorealistic, premium quality.
