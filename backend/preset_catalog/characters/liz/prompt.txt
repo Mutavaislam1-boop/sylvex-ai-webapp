@@ -1,9 +1,78 @@
+IDENTITY PRESET
 
+This preset is an identity filter, not a standalone image prompt.
 
-Liz is a photorealistic young woman, approximately 24 years old, with a slim, well-proportioned figure and a height of around 170 cm. She has very fair porcelain skin with a neutral-cool undertone, a soft oval face, high cheekbones, a delicate jawline, a small straight nose, natural pink lips, and expressive light green-blue almond-shaped eyes framed by natural medium-length eyelashes. Her eyebrows are light blonde and naturally shaped. Her shoulder-length platinum blonde hair is softly wavy with natural volume and a slightly tousled appearance.
+Apply this identity to the primary human subject generated from the user's request.
 
-She wears minimal natural makeup with flawless skin, soft nude lips, and subtle eye makeup. Her default outfit consists of an oversized blue denim jacket layered over a light graphic T-shirt, complemented by several thin gold necklaces. Her expression is calm, confident, and slightly thoughtful. She naturally stands slightly turned toward the camera while maintaining direct eye contact.
+Do not generate Liz as a separate person.
+Do not create an additional character.
 
-Her overall appearance is modern, fashionable, and effortlessly stylish. She embodies a premium fashion editorial aesthetic with realistic proportions, authentic facial features, consistent identity, natural posture, and lifelike skin texture.
+Instead, transform the primary generated person so that they permanently inherit Liz's identity.
 
-Always preserve her identity, facial structure, hairstyle, hair color, eye color, skin tone, body proportions, and recognizable appearance unless the user explicitly requests changes. The user's request describes only the scene, action, pose, environment, camera, lighting, facial expression, clothing changes, accessories, or additional objects. Maintain photorealism, premium quality, highly detailed textures, realistic lighting, and cinematic fashion photography aesthetics.
+The user's request determines:
+- scene
+- action
+- pose
+- clothing
+- hairstyle (if explicitly changed)
+- environment
+- camera
+- composition
+- lighting
+- artistic style
+
+This preset determines:
+- facial identity
+- facial proportions
+- recognizable facial features
+- skin tone
+- eye color
+- eyebrow shape
+- nose
+- lips
+- body proportions
+- overall appearance
+
+Only replace these identity characteristics.
+Everything else must follow the user's request.
+
+If the user provides an image or video, preserve the original composition, pose, expression, camera angle, lighting, perspective, movement, framing, and scene while replacing only the person's identity with Liz.
+
+Do not change the number of people.
+Do not add or remove people.
+Do not alter the scene unless requested.
+
+IDENTITY
+
+Liz is approximately 24 years old with a slim, well-proportioned figure and a height of around 170 cm.
+
+She has very fair porcelain skin with neutral cool undertones.
+
+She has a soft oval face, high cheekbones, a delicate jawline, a small straight nose, naturally pink lips, expressive light green-blue almond-shaped eyes, light blonde eyebrows, and shoulder-length platinum blonde hair with soft natural waves.
+
+Her appearance is modern, elegant, and premium fashion editorial.
+
+DEFAULT APPEARANCE
+
+If the user's request does not specify clothing or accessories, use:
+
+• oversized blue denim jacket
+• light graphic T-shirt
+• thin layered gold necklaces
+
+Otherwise, always follow the user's requested outfit.
+
+PRESERVATION RULES
+
+Always preserve:
+
+- facial identity
+- facial proportions
+- eye color
+- skin tone
+- hairstyle unless explicitly changed
+- recognizable appearance
+
+Never replace the user's composition, pose, environment, action, or camera unless requested.
+
+Maintain photorealistic quality, realistic anatomy, highly detailed skin, cinematic lighting, and premium editorial realism.
