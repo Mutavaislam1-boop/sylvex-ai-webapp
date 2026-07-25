@@ -7387,18 +7387,29 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(seedream_frontend_model(requested_model, model)) or {}).get("seed"))
     seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
 
-    reference_images = (
-        opts.get("referenceImageUrls")
-        or opts.get("reference_image_urls")
-        or opts.get("referenceImages")
-        or opts.get("images")
-        or []
-    )
-    if isinstance(reference_images, str):
-        reference_images = [reference_images]
-    reference_images = [u for u in reference_images if isinstance(u, str) and u.strip()]
-    if reference_images:
-        print("BYTEPLUS IMAGE REFERENCES:", len(reference_images))
+    reference_images = []
+
+    for value in (
+        opts.get("referenceImageUrls"),
+        opts.get("reference_image_urls"),
+        opts.get("referenceImages"),
+        opts.get("images"),
+        opts.get("characterReferences"),
+        opts.get("objectReferences"),
+    ):
+        if isinstance(value, str):
+            reference_images.append(value)
+        elif isinstance(value, list):
+            reference_images.extend(value)
+
+    clean_refs = []
+    for url in reference_images:
+        if isinstance(url, str) and url.strip() and url not in clean_refs:
+            clean_refs.append(url)
+
+    reference_images = clean_refs
+
+    print("BYTEPLUS IMAGE REFERENCES:", reference_images)
 
     images = []
     # The public /images/generations examples use a single-output request body.
