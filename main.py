@@ -6701,6 +6701,9 @@ def is_seedream_request(payload: dict) -> bool:
 def build_image_prompt(payload: dict) -> str:
     opts = payload.get("image_options") or {}
 
+    character_prompt = str(opts.get("characterPrompt") or "").strip()
+    object_prompt = str(opts.get("objectPrompt") or "").strip()
+
     base_prompt = (
         payload.get("prompt")
         or payload.get("text")
@@ -6708,7 +6711,16 @@ def build_image_prompt(payload: dict) -> str:
         or ""
     ).strip()
 
-    parts = [base_prompt] if base_prompt else []
+    parts = []
+
+    if character_prompt:
+        parts.append(character_prompt)
+
+    if object_prompt:
+        parts.append(object_prompt)
+
+    if base_prompt:
+        parts.append(base_prompt)
 
     character_name = str(opts.get("characterName") or "").strip()
     object_name = str(opts.get("objectName") or opts.get("objects") or "").strip()
