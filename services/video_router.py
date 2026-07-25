@@ -1111,9 +1111,84 @@ def _coerce_supported(value, supported, fallback):
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+def _clean_url_list(*values) -> list:
+    clean = []
+    for value in values:
+        if isinstance(value, str):
+            items = [value]
+        elif isinstance(value, (list, tuple)):
+            items = value
+        else:
+            items = []
+        for item in items:
+            url = str(item or "").strip()
+            if url and url not in clean:
+                clean.append(url)
+    return clean
+
+
+def _build_video_visual_prompt(prompt: str, payload: dict, opts: dict, video_template=None) -> str:
+    base_prompt = str(prompt or payload.get("prompt") or "").strip()
+    character_prompt = str(opts.get("characterPrompt") or "").strip()
+    object_prompt = str(opts.get("objectPrompt") or "").strip()
+    character_name = str(opts.get("characterName") or "").strip()
+    object_name = str(opts.get("objectName") or opts.get("objects") or "").strip()
+    has_character = bool(character_name or opts.get("characterId") or _clean_url_list(opts.get("characterReferences")))
+    has_object = bool(object_name or opts.get("objectId") or _clean_url_list(opts.get("objectReferences")))
+    template = video_template if isinstance(video_template, dict) else {}
+    has_video_source = bool(
+        opts.get("input_video")
+        or opts.get("video_url")
+        or opts.get("reference_video")
+        or opts.get("template_video_url")
+        or opts.get("preview_video")
+        or template.get("reference_video")
+        or template.get("video_url")
+        or template.get("template_video_url")
+        or template.get("preview_video")
+    )
+
+    parts = []
+    if character_prompt:
+        parts.append(character_prompt)
+    if object_prompt:
+        parts.append(object_prompt)
+
+    if has_video_source and has_character and not base_prompt:
+        parts.append(
+            "Edit the source video by fully replacing the original person with the selected Mini App character"
+            + (f" named {character_name}" if character_name else "")
+            + ". Completely replace the source person's appearance, identity, face, hair, skin tone, body look, clothing style when needed, and recognizable visual identity with the selected character. "
+            "Preserve the original motion, timing, animation, poses, body movement, gestures, camera movement, framing, composition, lighting, background, environment, and all non-person scene elements. "
+            "Do not keep the source person's identity. The result must look like the selected character naturally performing the same actions in the same scene."
+        )
+
+    if has_video_source and has_object:
+        if has_character:
+            parts.append(
+                "Naturally apply the selected object to the selected character according to the object's purpose and physical function throughout the video. "
+                "For wearable objects, place them on the correct body part; for held or carried objects, integrate them into the character's hands or outfit. Preserve realistic scale, contact, shadows, perspective, and temporal consistency."
+            )
+        else:
+            parts.append(
+                "Integrate the selected object directly into the source video according to the object's purpose and physical function. "
+                "Preserve the original motion, camera movement, composition, environment, lighting, and all existing scene elements while adding the object naturally with realistic scale, contact, shadows, perspective, and temporal consistency."
+            )
+
+    if base_prompt:
+        parts.append(base_prompt)
+    if character_name:
+        parts.append(f"Use the selected character references as the target identity: {character_name}.")
+    if object_name:
+        parts.append(f"Use the selected object references as the target object: {object_name}.")
+    return "\n\n".join(part for part in parts if part).strip()
+
+
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
     video_template = opts.get("video_template") if isinstance(opts.get("video_template"), dict) else {}
+    if not payload.get("_visual_prompt_built"):
+        prompt = _build_video_visual_prompt(prompt, payload, opts, video_template)
     defaults = _defaults_for_model(model_id)
     config = VIDEO_MODEL_CONFIG.get(model_id, {})
     durations = config.get("durations") or [defaults.get("duration") or 5]
@@ -1132,9 +1207,14 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         modes,
         modes[0],
     )
-    reference_images = opts.get("reference_images") or opts.get("referenceImageUrls") or []
+    reference_images = _clean_url_list(
+        opts.get("reference_images"),
+        opts.get("referenceImageUrls"),
+        opts.get("characterReferences"),
+        opts.get("objectReferences"),
+    )
     if not reference_images and isinstance(payload.get("reference_images"), list):
-        reference_images = payload.get("reference_images")
+        reference_images = _clean_url_list(payload.get("reference_images"))
     sound = bool(opts.get("sound")) if config.get("sound") else False
     return {
         "model": model_id,
@@ -1161,6 +1241,14 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "effect_scene": opts.get("effect_scene") or video_template.get("effect_scene") or "",
         "video_effects": bool(opts.get("video_effects") or opts.get("is_kling_effect") or video_template.get("catalog_type") == "kling_effect"),
         "character_image": opts.get("character_image") or "",
+        "characterId": opts.get("characterId") or "",
+        "characterName": opts.get("characterName") or "",
+        "characterPrompt": opts.get("characterPrompt") or "",
+        "characterReferences": _clean_url_list(opts.get("characterReferences")),
+        "objectId": opts.get("objectId") or "",
+        "objectName": opts.get("objectName") or opts.get("objects") or "",
+        "objectPrompt": opts.get("objectPrompt") or "",
+        "objectReferences": _clean_url_list(opts.get("objectReferences")),
         "seed": opts.get("seed") if opts.get("seed") not in (None, "") else payload.get("seed"),
         "native_audio": bool(opts.get("native_audio")),
         "motion_control": bool(opts.get("motion_control")),
@@ -4633,6 +4721,12 @@ async def video_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     model_id = (payload.get("model") or "seedance_2_fast").strip()
     provider = (payload.get("provider") or _provider_for_model(model_id) or "sylvex-router").strip().lower()
+    raw_options = payload.get("video_options") or payload.get("options") or {}
+    video_template = raw_options.get("video_template") if isinstance(raw_options.get("video_template"), dict) else {}
+    prompt = _build_video_visual_prompt(prompt, payload, raw_options, video_template)
+    if prompt:
+        payload["prompt"] = prompt
+        payload["_visual_prompt_built"] = True
     prompt_report = optimize_prompt_for_model(prompt, model=model_id, provider=provider, mode="video")
     print("VIDEO PROMPT OPTIMIZER:", {
         "model": model_id,
@@ -4665,7 +4759,6 @@ async def video_generation(payload: dict) -> dict:
         prompt = prompt_report.get("prompt") or prompt
         payload["prompt"] = prompt
 
-    raw_options = payload.get("video_options") or payload.get("options") or {}
     if not prompt:
         return {"ok": False, "type": "video", "model": model_id, "provider": provider, "error": "Prompt is required"}
 

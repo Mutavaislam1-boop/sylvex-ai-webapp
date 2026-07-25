@@ -107,7 +107,11 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
     items = []
     if not section_dir.exists():
         return items
-    for folder in sorted([item for item in section_dir.iterdir() if item.is_dir()], key=lambda item: _natural_catalog_key(item.name)):
+    def catalog_sort_key(item: pathlib.Path):
+        official_rank = 0 if kind == "character" and item.name.lower() == "sylvex" else 1
+        return (official_rank, _natural_catalog_key(item.name))
+
+    for folder in sorted([item for item in section_dir.iterdir() if item.is_dir()], key=catalog_sort_key):
         images = _catalog_image_files(folder)
         avatar = next((item for item in images if item.stem.lower() == "avatar"), None)
         references = [item for item in images if item != avatar]
@@ -131,6 +135,9 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
         }
         if kind == "character":
             item["gender"] = "neutral"
+            if folder.name.lower() == "sylvex":
+                item["official"] = True
+                item["label"] = "Official AI SYLVEX character"
         else:
             item["description"] = ""
         items.append(item)
@@ -4290,7 +4297,13 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
     else:
         return {}
     resource_id = resource.get("id") or f"custom_{kind}_{uuid4().hex}"
-    photos = _json_list(resource.get("photos")) or _json_list(resource.get("referenceImages")) or _json_list(resource.get("reference_images"))
+    photos = (
+        _json_list(resource.get("sourceImages"))
+        or _json_list(resource.get("source_images"))
+        or _json_list(resource.get("photos"))
+        or _json_list(resource.get("referenceImages"))
+        or _json_list(resource.get("reference_images"))
+    )
     preview = resource.get("previewUrl") or resource.get("preview_url") or (photos[0] if photos else "")
     item = {
         "id": resource_id,
@@ -4379,6 +4392,7 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 "gender": gender or "",
                 "previewUrl": preview or (photos[0] if photos else ""),
                 "referenceImages": photos,
+                "sourceImages": photos,
                 "type": "custom",
                 "status": status or "ready",
                 "created_at": _to_iso(created_at),
@@ -6712,6 +6726,17 @@ def build_image_prompt(payload: dict) -> str:
     ).strip()
 
     parts = []
+    character_name = str(opts.get("characterName") or "").strip()
+    object_name = str(opts.get("objectName") or opts.get("objects") or "").strip()
+    uploaded_refs = (
+        _json_list(opts.get("referenceImageUrls"))
+        or _json_list(opts.get("reference_image_urls"))
+        or _json_list(opts.get("referenceImages"))
+        or _json_list(opts.get("images"))
+    )
+    has_uploaded_image = bool(uploaded_refs or payload.get("attachment"))
+    has_character = bool(character_name or opts.get("characterId") or _json_list(opts.get("characterReferences")))
+    has_object = bool(object_name or opts.get("objectId") or _json_list(opts.get("objectReferences")))
 
     if character_prompt:
         parts.append(character_prompt)
@@ -6719,11 +6744,30 @@ def build_image_prompt(payload: dict) -> str:
     if object_prompt:
         parts.append(object_prompt)
 
+    if has_uploaded_image and has_character and not base_prompt:
+        parts.append(
+            "Edit the uploaded image by fully replacing the original person with the selected Mini App character"
+            + (f" named {character_name}" if character_name else "")
+            + ". Completely replace the source person's appearance, identity, face, hair, skin tone, body look, clothing style when needed, and recognizable visual identity with the selected character. "
+            "Preserve the original pose, body position, gesture, camera angle, framing, composition, background, lighting, environment, and every other non-person element of the uploaded image. "
+            "Do not keep the source person's identity. The final image must look like the selected character naturally photographed in the same pose and scene."
+        )
+
+    if has_object and (has_character or has_uploaded_image):
+        if has_character:
+            parts.append(
+                "Naturally apply the selected object to the selected character according to the object's purpose and physical function. "
+                "For wearable objects, place them on the correct body part; for held or carried objects, integrate them into the character's hands or outfit; preserve realistic scale, contact, shadows, and perspective."
+            )
+        else:
+            parts.append(
+                "Integrate the selected object directly into the uploaded image according to the object's purpose and physical function. "
+                "Preserve the uploaded image composition, environment, lighting, camera angle, and all existing elements while adding the object naturally with realistic scale, contact, shadows, and perspective."
+            )
+
     if base_prompt:
         parts.append(base_prompt)
 
-    character_name = str(opts.get("characterName") or "").strip()
-    object_name = str(opts.get("objectName") or opts.get("objects") or "").strip()
     if character_name:
         parts.append(f"Use the selected character reference as the main person: {character_name}. Preserve identity from the provided reference images.")
     if object_name:
@@ -10164,12 +10208,18 @@ async def public_prostudio_generate(request: Request):
     selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
     image_options = payload.get("image_options") or {}
     video_options = payload.get("video_options") or {}
-    reference_images = image_options.get("referenceImageUrls") or []
+    reference_images = (
+        _json_list(image_options.get("referenceImageUrls"))
+        or _json_list(image_options.get("referenceImages"))
+        or _json_list(image_options.get("characterReferences"))
+        or _json_list(image_options.get("objectReferences"))
+    )
     video_references = (
         video_options.get("reference_images")
         or video_options.get("referenceImageUrls")
         or []
     )
+    video_template = video_options.get("video_template") if isinstance(video_options.get("video_template"), dict) else {}
     video_media = (
         video_options.get("start_image")
         or video_options.get("end_image")
@@ -10177,6 +10227,10 @@ async def public_prostudio_generate(request: Request):
         or video_options.get("video_url")
         or video_options.get("image_url")
         or video_options.get("character_image")
+        or video_template.get("reference_video")
+        or video_template.get("video_url")
+        or video_template.get("template_video_url")
+        or video_template.get("preview_video")
     )
 
     print("PRO STUDIO BACKEND ROUTER:", {
@@ -10383,12 +10437,18 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             payload["prompt_optimization"] = prompt_report
         image_options = payload.get("image_options") or {}
         video_options = payload.get("video_options") or {}
-        reference_images = image_options.get("referenceImageUrls") or []
+        reference_images = (
+            _json_list(image_options.get("referenceImageUrls"))
+            or _json_list(image_options.get("referenceImages"))
+            or _json_list(image_options.get("characterReferences"))
+            or _json_list(image_options.get("objectReferences"))
+        )
         video_references = (
             video_options.get("reference_images")
             or video_options.get("referenceImageUrls")
             or []
         )
+        video_template = video_options.get("video_template") if isinstance(video_options.get("video_template"), dict) else {}
         video_media = (
             video_options.get("start_image")
             or video_options.get("end_image")
@@ -10396,6 +10456,10 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             or video_options.get("video_url")
             or video_options.get("image_url")
             or video_options.get("character_image")
+            or video_template.get("reference_video")
+            or video_template.get("video_url")
+            or video_template.get("template_video_url")
+            or video_template.get("preview_video")
         )
         generation_modes = {"image", "video", "music", "voice"}
         text_modes = {"text", "chat", "pro", "lite"}

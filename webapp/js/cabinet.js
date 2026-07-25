@@ -83,6 +83,9 @@ let videoState = {
   imageUrl: '',
   motionPreset: '',
   videoTemplate: null,
+  characterVisual: null,
+  objectVisual: null,
+  referenceVisual: null,
   referenceImageUrl: '',
   referenceImageUrls: [],
   referenceImageBuckets: {
@@ -928,10 +931,12 @@ function normalizePresetCatalogItem(item, kind, index) {
     version: String(source.version || '1.0'),
     type: String(source.type || 'preset'),
     status: String(source.status || 'ready'),
+    official: !!source.official,
   };
 }
 
 const FALLBACK_PRESET_CHARACTERS = [
+  ['character_sylvex', 'Sylvex', 'female', true],
   ['character_liz', 'Liz', 'female'],
   ['character_noah', 'Noah', 'male'],
   ['character_grace', 'Grace', 'female'],
@@ -951,6 +956,7 @@ const FALLBACK_PRESET_CHARACTERS = [
   id: item[0],
   name: item[1],
   gender: item[2],
+  official: !!item[3],
   avatarUrl: '',
   prompt: '',
   negativePrompt: '',
@@ -1861,6 +1867,9 @@ function videoOptionsPayload(referenceImagesOverride) {
   const config = currentVideoConfig() || {};
   const videoTemplate = videoState.videoTemplate || null;
   const isKlingEffect = !!(videoTemplate && (videoTemplate.catalog_type === 'kling_effect' || videoState.generationMode === 'video_effects' || videoState.mode === 'video_effects'));
+  const referenceVisual = videoState.referenceVisual || {};
+  const characterVisual = videoState.characterVisual || (referenceVisual.kind === 'character' ? referenceVisual : {});
+  const objectVisual = videoState.objectVisual || (referenceVisual.kind === 'object' ? referenceVisual : {});
   const referenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : currentVideoReferenceImages();
@@ -1888,6 +1897,14 @@ function videoOptionsPayload(referenceImagesOverride) {
     video_effects: isKlingEffect,
     is_kling_effect: isKlingEffect,
     character_image: videoState.characterImage || '',
+    characterId: characterVisual.id || '',
+    characterName: characterVisual.name || '',
+    characterPrompt: characterVisual.prompt || '',
+    characterReferences: Array.isArray(characterVisual.references) ? characterVisual.references.slice() : [],
+    objectId: objectVisual.id || '',
+    objectName: objectVisual.name || '',
+    objectPrompt: objectVisual.prompt || '',
+    objectReferences: Array.isArray(objectVisual.references) ? objectVisual.references.slice() : [],
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
     motion_control: !!config.motion_control && !isKlingEffect,
@@ -2796,12 +2813,12 @@ function imageVisualReferenceOptions() {
     characterId: character ? character.id : null,
     characterName: character ? character.name : '',
     characterPrompt: character ? (character.prompt || '') : '',
-    characterReferences: character ? (character.referenceImages || []).slice() : [],
+    characterReferences: character ? visualGenerationReferences(character, 'character') : [],
 
     objectId: object ? object.id : null,
     objectName: object ? object.name : '',
     objectPrompt: object ? (object.prompt || '') : '',
-    objectReferences: object ? (object.referenceImages || []).slice() : [],
+    objectReferences: object ? visualGenerationReferences(object, 'object') : [],
   };
 }
 
@@ -3300,7 +3317,7 @@ function localizedGreeting() {
         body: JSON.stringify(Object.assign({}, item, {
           telegram_id: tg,
           resource_type: resourceType,
-          photos: item.referenceImages || [],
+          photos: item.sourceImages || item.source_images || item.referenceImages || [],
           preview_url: item.previewUrl || '',
         })),
       });
@@ -3489,7 +3506,10 @@ function localizedGreeting() {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function imageCharacters() {
-    return loadCustomVisualItems('characters').concat(PRESET_CHARACTERS);
+    const custom = loadCustomVisualItems('characters');
+    const official = PRESET_CHARACTERS.filter((item) => item && (item.official || String(item.id || '').toLowerCase() === 'character_sylvex'));
+    const rest = PRESET_CHARACTERS.filter((item) => !official.includes(item));
+    return official.concat(custom, rest);
   }
 
   // =====================================================
@@ -4162,6 +4182,37 @@ function isCustomVisualItem(item) {
   return item.type === 'custom' || /^custom_/.test(String(item.id || ''));
 }
 
+function visualGenerationReferences(item, kind) {
+  if (!item || typeof item !== 'object') return [];
+  const sourceImages = Array.isArray(item.sourceImages)
+    ? item.sourceImages
+    : (Array.isArray(item.source_images) ? item.source_images : []);
+  const customCharacter = kind === 'character' && isCustomVisualItem(item);
+  const baseRefs = customCharacter
+    ? sourceImages.slice(0, 3)
+    : [item.avatarUrl || item.avatar_url || item.previewUrl || item.preview_url || '']
+        .concat(item.referenceImages || item.reference_images || []);
+  const clean = [];
+  baseRefs.forEach((url) => {
+    const value = String(url || '').trim();
+    if (value && !clean.includes(value)) clean.push(value);
+  });
+  return customCharacter ? clean.slice(0, 3) : clean;
+}
+
+function visualReferencePayload(item, kind) {
+  if (!item || typeof item !== 'object') return {};
+  return {
+    id: item.id || '',
+    name: item.name || '',
+    prompt: item.prompt || '',
+    references: visualGenerationReferences(item, kind),
+    avatarUrl: item.avatarUrl || item.avatar_url || item.previewUrl || item.preview_url || '',
+    type: item.type || '',
+    custom: isCustomVisualItem(item),
+  };
+}
+
 function deleteResourceKindLabel(kind) {
   if (kind === 'character') return 'персонажа';
   if (kind === 'object') return 'объект';
@@ -4581,21 +4632,24 @@ async function saveVisualCreateDraft(e) {
 
 function applyVisualReferenceToVideo(item, kind) {
   if (!item) return;
-  const refs = (item.referenceImages || [])
-    .concat(item.previewUrl ? [item.previewUrl] : [])
-    .filter(Boolean);
+  const refs = visualGenerationReferences(item, kind);
   const url = refs[0] || '';
   if (!url) return;
-  const current = currentVideoReferenceImages().filter((entry) => entry && entry !== url);
-  current.unshift(url);
+  const current = currentVideoReferenceImages().filter((entry) => entry && !refs.includes(entry));
+  refs.slice().reverse().forEach((ref) => current.unshift(ref));
   setCurrentVideoReferenceImages(current.slice(0, uploadLimitForTarget(UPLOAD_TARGETS.VIDEO_REFERENCES)));
   videoState.characterImage = kind === 'character' ? url : videoState.characterImage;
-  videoState.referenceVisual = {
-    id: item.id || '',
-    name: item.name || '',
+  const visual = Object.assign(visualReferencePayload(item, kind), {
     kind: kind === 'object' ? 'object' : 'character',
-    previewUrl: item.previewUrl || url,
-  };
+    previewUrl: item.previewUrl || item.avatarUrl || url,
+  });
+  if (kind === 'object') {
+    videoState.objectVisual = visual;
+  } else {
+    videoState.characterVisual = visual;
+    videoState.characterImage = url;
+  }
+  videoState.referenceVisual = visual;
   renderVideoReferencesPreview();
 }
 
@@ -4618,10 +4672,16 @@ async function deleteVisualReference(e, kind, id) {
   saveCustomVisualItems(storageKind, localItems);
   if (kind === 'character' && imageState.characterId === id) clearSelectedCharacter();
   if (kind === 'object' && imageState.objectId === id) clearSelectedObject();
-  if (isVideoMode() && videoState.referenceVisual && videoState.referenceVisual.id === id) {
-    videoState.referenceVisual = null;
+  if (isVideoMode() && kind === 'character' && videoState.characterVisual && videoState.characterVisual.id === id) {
+    videoState.characterVisual = null;
+    videoState.characterImage = '';
     setCurrentVideoReferenceImages(currentVideoReferenceImages().filter((url) => !refs.includes(url)));
   }
+  if (isVideoMode() && kind === 'object' && videoState.objectVisual && videoState.objectVisual.id === id) {
+    videoState.objectVisual = null;
+    setCurrentVideoReferenceImages(currentVideoReferenceImages().filter((url) => !refs.includes(url)));
+  }
+  if (isVideoMode() && videoState.referenceVisual && videoState.referenceVisual.id === id) videoState.referenceVisual = null;
   renderImageStylePanel();
   renderImageReferenceSections();
   renderImageControls();
