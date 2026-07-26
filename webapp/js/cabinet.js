@@ -4158,6 +4158,7 @@ function closeVisualPicker(e) {
   }
   const modal = document.getElementById('visualPickerModal');
   if (modal) modal.classList.remove('show');
+  closeCharacterDetail();
 }
 
 // =====================================================
@@ -4201,6 +4202,7 @@ function openVideoVisualPicker(e, kind) {
 let visualCreateDraft = { kind: '', photos: [] };
 let resourceDeleteConfirm = null;
 const visualStatsCache = {};
+let activeCharacterDetailId = '';
 
 function visualStatsKey(kind, id) {
   return (kind === 'object' ? 'object' : 'character') + ':' + String(id || '');
@@ -4277,6 +4279,7 @@ async function sendVisualInteraction(kind, id, action, value, e) {
   visualStatsCache[key] = current;
   saveLocalVisualStats(localMap);
   renderImageStylePanel();
+  if (activeCharacterDetailId) renderCharacterDetail();
   try {
     const response = await fetch('/api/public/prostudio/visual-interaction', {
       method: 'POST',
@@ -4294,6 +4297,7 @@ async function sendVisualInteraction(kind, id, action, value, e) {
     if (data && data.stats) {
       visualStatsCache[key] = Object.assign({}, data.stats, { loaded: true });
       renderImageStylePanel();
+      if (activeCharacterDetailId) renderCharacterDetail();
     }
   } catch {}
 }
@@ -4346,58 +4350,130 @@ function compactStatNumber(value) {
   return String(num);
 }
 
-function visualCharacterCardHtml(rawItem, selected) {
+function characterProfileInfo(item) {
+  const prompt = String((item && item.prompt) || '');
+  const name = (item && (item.name || item.label)) || '';
+  const lowerGender = String((item && item.gender) || '').toLowerCase();
+  const ageMatch = prompt.match(/approximately\s+(\d+)\s+years?\s+old/i) || prompt.match(/(\d+)\s+years?\s+old/i);
+  const heightMatch = prompt.match(/height\s+of\s+around\s+(\d+\s*cm)/i) || prompt.match(/around\s+(\d+\s*cm)/i);
+  const eyesMatch = prompt.match(/([a-z -]+?)\s+(?:almond-shaped\s+)?eyes/i);
+  const gender = lowerGender === 'female' ? 'Женский' : (lowerGender === 'male' ? 'Мужской' : 'Не указан');
+  const description = String((item && item.description) || '')
+    || (prompt.split('.').slice(0, 2).join('.').trim() + (prompt ? '.' : ''))
+    || 'Персонаж готов к использованию в генерации.';
+  return {
+    name,
+    description,
+    age: ageMatch ? ageMatch[1] : 'Не указан',
+    height: heightMatch ? heightMatch[1].replace(/\s+/g, ' ') : 'Не указан',
+    eyes: eyesMatch ? eyesMatch[1].replace(/\s+/g, ' ').trim() : 'Не указан',
+    gender,
+  };
+}
+
+function visualCharacterDetailHtml(rawItem, selected) {
   const item = normalizeVisualItem(rawItem) || {};
   const id = String(item.id || '');
   const name = item.name || item.label || id;
   const preview = visualPreviewUrl(item);
-  const refs = visualGenerationReferences(item, 'character').slice(0, 4);
+  const refs = [item.avatarUrl || item.avatar_url || preview].concat(item.referenceImages || []).filter(Boolean).filter((url, index, arr) => arr.indexOf(url) === index).slice(0, 4);
   const stats = currentVisualStats('character', item);
-  const heygenId = visualItemHeygenAvatarId(item);
-  const statusText = (stats.heygen && stats.heygen.status) || item.status || 'ready';
-  const prompt = item.prompt || item.description || 'Character reference is ready for image and video generation.';
-  const canDelete = isCustomVisualItem(item);
-  const rating = Math.max(1, Math.min(10, Math.round((Number(stats.selects || 0) / 10) || (item.official ? 5 : 4))));
+  const profile = characterProfileInfo(item);
+  const rating = Math.max(0, Math.min(10, Math.round((Number(stats.selects || 0) + Number(stats.likes || 0)) / 10)));
   const videoRef = item.videoReferenceUrl || item.video_reference_url || '';
+  const likes = Number(stats.likes || 0) + Number((stats.heygen && (stats.heygen.likes || stats.heygen.likes_count || stats.heygen.like_count)) || 0);
   return `
-    <article class="visual-character-card ${selected ? 'selected' : ''}" data-character-id="${S.escapeHtml(id)}">
-      <div class="visual-character-top">
-        <div class="visual-character-hero">
-          ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>'}
-          ${videoRef ? '<span class="visual-character-play" aria-hidden="true"></span>' : ''}
-          <span class="visual-character-stars">★★★★</span>
+    <div class="visual-character-detail-shell">
+      <div class="visual-character-detail-head">
+        <button class="visual-character-back" type="button" aria-label="Назад" onclick="SYLVEX.closeCharacterDetail(event)">‹</button>
+        <h3>Персонажи</h3>
+      </div>
+      <div class="visual-character-detail-body">
+        <div class="visual-character-media-col">
+          <div class="visual-character-main-media">
+            ${videoRef
+              ? `<video id="visualCharacterVideo" src="${S.escapeHtml(videoRef)}" poster="${S.escapeHtml(preview)}" playsinline preload="metadata"></video><button class="visual-character-play-btn" type="button" aria-label="Play" onclick="SYLVEX.playCharacterReferenceVideo(event)"></button>`
+              : (preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>')}
+          </div>
+          <div class="visual-character-ref-row">
+            ${refs.map((url) => `<span><img src="${S.escapeHtml(url)}" alt="" loading="lazy" decoding="async" /></span>`).join('')}
+          </div>
         </div>
-        <div class="visual-character-copy">
+        <div class="visual-character-info">
+          <div class="visual-character-like-count">♥ ${S.escapeHtml(compactStatNumber(likes))}</div>
           <div class="visual-character-title-row">
             <h3>${S.escapeHtml(name)}</h3>
-            ${item.official ? '<span class="visual-character-official">★</span>' : ''}
+            ${stats.favorite ? '<span class="visual-character-official">★</span>' : ''}
             <span class="visual-character-rating">${rating}/10</span>
           </div>
-          <p>${S.escapeHtml(prompt)}</p>
-          <div class="visual-character-badges">
-            ${heygenId ? `<span>HeyGen ${S.escapeHtml(heygenId.slice(0, 8))}</span>` : '<span>Photo refs</span>'}
-            ${videoRef ? '<span>Video ref</span>' : ''}
-            <span>${S.escapeHtml(statusText)}</span>
+          <p>${S.escapeHtml(profile.description)}</p>
+          <div class="visual-character-specs">
+            <span><b>Возраст</b>${S.escapeHtml(profile.age)}</span>
+            <span><b>Рост</b>${S.escapeHtml(profile.height)}</span>
+            <span><b>Глаза</b>${S.escapeHtml(profile.eyes)}</span>
+            <span><b>Пол</b>${S.escapeHtml(profile.gender)}</span>
           </div>
         </div>
-      </div>
-      <div class="visual-character-refs">
-        ${refs.map((url) => `<span><img src="${S.escapeHtml(url)}" alt="" loading="lazy" decoding="async" /></span>`).join('')}
-      </div>
-      <div class="visual-character-meta">
-        <span>♥ ${S.escapeHtml(compactStatNumber(stats.likes))}</span>
-        <span>Выборы ${S.escapeHtml(compactStatNumber(stats.selects))}</span>
-        ${item.heygenPhotoAvatarId ? `<span>Фото ID ${S.escapeHtml(String(item.heygenPhotoAvatarId).slice(0, 6))}</span>` : ''}
-        ${item.heygenVideoAvatarId ? `<span>Видео ID ${S.escapeHtml(String(item.heygenVideoAvatarId).slice(0, 6))}</span>` : ''}
       </div>
       <div class="visual-character-actions">
         <button class="visual-character-icon-btn ${stats.favorite ? 'active' : ''}" type="button" aria-label="Избранное" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','favorite',undefined,event)">★</button>
         <button class="visual-character-select" type="button" onclick="SYLVEX.pickVisualReference(event,'character','${S.escapeHtml(id)}')">${selected ? 'Выбрано' : 'Выбрать'}</button>
         <button class="visual-character-icon-btn like ${stats.liked ? 'active' : ''}" type="button" aria-label="Лайк" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','like',undefined,event)">♥</button>
       </div>
-      ${canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, 'character', '${S.escapeHtml(id)}')">×</button>` : ''}
-    </article>
+    </div>
   `;
+}
+
+function renderCharacterDetail() {
+  const detail = document.getElementById('visualCharacterDetail');
+  if (!detail || !activeCharacterDetailId) return;
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
+  if (!item) return;
+  const selected = String(imageState.characterId || '') === String(item.id || '');
+  detail.innerHTML = visualCharacterDetailHtml(item, selected);
+}
+
+function openCharacterDetail(e, id) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  activeCharacterDetailId = String(id || '');
+  const panel = ensureImageStylePanel();
+  const detail = document.getElementById('visualCharacterDetail');
+  renderCharacterDetail();
+  if (detail) detail.hidden = false;
+  panel.classList.add('has-character-detail');
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
+  if (item) loadVisualStats('character', item).then(renderCharacterDetail);
+}
+
+function closeCharacterDetail(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  activeCharacterDetailId = '';
+  const detail = document.getElementById('visualCharacterDetail');
+  if (detail) {
+    detail.hidden = true;
+    detail.innerHTML = '';
+  }
+  const panel = document.getElementById('imageStylePanel');
+  if (panel) panel.classList.remove('has-character-detail');
+}
+
+function playCharacterReferenceVideo(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const video = document.getElementById('visualCharacterVideo');
+  if (!video) return;
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  video.play().then(() => {
+    if (btn) btn.hidden = true;
+  }).catch(() => {});
 }
 
 function deleteResourceKindLabel(kind) {
@@ -5280,6 +5356,7 @@ function currentSelectedUploadImage() {
     }
 
     .image-style-panel-card {
+      position: relative;
       width: 100%;
       max-height: 74vh;
       overflow: hidden;
@@ -5518,9 +5595,281 @@ function currentSelectedUploadImage() {
       transform: scale(.94);
     }
 
+    .visual-character-detail {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      padding: 18px 22px calc(20px + env(safe-area-inset-bottom));
+      background: rgba(28,28,28,.98);
+      color: #fff;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .visual-character-detail[hidden] {
+      display: none !important;
+    }
+
+    .visual-character-detail-shell {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .visual-character-detail-head {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .visual-character-back {
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.12);
+      color: #fff;
+      font: 900 42px/1 inherit;
+      cursor: pointer;
+      padding: 0 0 5px;
+    }
+
+    .visual-character-detail-head h3 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .visual-character-detail-body {
+      display: grid;
+      grid-template-columns: minmax(230px, 1fr) minmax(260px, 1.35fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .visual-character-media-col {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .visual-character-main-media {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 5;
+      border-radius: 28px;
+      overflow: hidden;
+      background: #2d2d2d;
+      border: 2px solid rgba(255,255,255,.45);
+    }
+
+    .visual-character-main-media img,
+    .visual-character-main-media video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .visual-character-play-btn {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 78px;
+      height: 78px;
+      transform: translate(-50%, -50%);
+      border: 0;
+      border-radius: 50%;
+      background: rgba(255,255,255,.72);
+      cursor: pointer;
+    }
+
+    .visual-character-play-btn::before {
+      content: "";
+      position: absolute;
+      left: 31px;
+      top: 21px;
+      border-left: 25px solid rgba(30,30,30,.92);
+      border-top: 17px solid transparent;
+      border-bottom: 17px solid transparent;
+    }
+
+    .visual-character-ref-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .visual-character-ref-row span {
+      aspect-ratio: 1;
+      overflow: hidden;
+      background: #333;
+      display: block;
+    }
+
+    .visual-character-ref-row img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .visual-character-info {
+      position: relative;
+      min-height: 250px;
+      border: 2px solid rgba(255,255,255,.34);
+      border-radius: 18px;
+      padding: 12px;
+      background: rgba(255,255,255,.025);
+    }
+
+    .visual-character-like-count {
+      position: absolute;
+      right: 12px;
+      top: -28px;
+      min-width: 54px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-radius: 7px;
+      background: #ff1749;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .visual-character-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .visual-character-title-row h3 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .visual-character-official {
+      color: #ffd45a;
+      font-size: 18px;
+    }
+
+    .visual-character-rating {
+      margin-left: auto;
+      color: rgba(255,255,255,.9);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .visual-character-info p {
+      margin: 10px 0 12px;
+      color: rgba(255,255,255,.86);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .visual-character-specs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .visual-character-specs span {
+      border-radius: 10px;
+      background: rgba(255,255,255,.06);
+      padding: 8px 9px;
+      font-size: 12px;
+      color: #fff;
+    }
+
+    .visual-character-specs b {
+      display: block;
+      margin-bottom: 3px;
+      color: rgba(255,255,255,.55);
+      font-size: 9px;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .visual-character-actions {
+      margin-top: auto;
+      display: grid;
+      grid-template-columns: 50px minmax(150px, 210px) 50px;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
+      padding-top: 18px;
+    }
+
+    .visual-character-icon-btn {
+      width: 48px;
+      height: 48px;
+      border: 0;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.08);
+      color: #f7c84a;
+      font: 900 24px/1 inherit;
+      cursor: pointer;
+    }
+
+    .visual-character-icon-btn.like {
+      color: #ff315f;
+    }
+
+    .visual-character-icon-btn.active {
+      background: #f7c84a;
+      color: #171717;
+    }
+
+    .visual-character-icon-btn.like.active {
+      background: #ff315f;
+      color: #fff;
+    }
+
+    .visual-character-select {
+      height: 48px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #6885ff, #3f61da);
+      color: #fff;
+      font: 900 22px/1 inherit;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(40,80,230,.34);
+    }
+
     @media (max-width: 370px) {
       .image-style-panel-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .visual-character-detail {
+        padding: 18px 18px calc(20px + env(safe-area-inset-bottom));
+      }
+      .visual-character-detail-body {
+        grid-template-columns: 1fr;
+      }
+      .visual-character-detail-head h3 {
+        font-size: 30px;
+      }
+      .visual-character-ref-row {
+        gap: 10px;
+      }
+      .visual-character-actions {
+        grid-template-columns: 46px minmax(140px, 190px) 46px;
       }
     }
   `;
@@ -5558,6 +5907,7 @@ function ensureImageStylePanel() {
         <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeImageStylePanel(event)">×</button>
       </div>
       <div id="imageStylePanelGrid" class="image-style-panel-grid"></div>
+      <div id="visualCharacterDetail" class="visual-character-detail" hidden></div>
     </div>
   `;
 
@@ -5625,10 +5975,24 @@ function renderImageStylePanel() {
 
   if (isCharacter) {
     setTimeout(() => items.slice(0, 12).forEach((item) => loadVisualStats('character', normalizeVisualItem(item) || item)), 0);
-    grid.classList.add('visual-character-grid');
+    grid.classList.remove('visual-character-grid');
     grid.innerHTML = createCard + items.map((rawItem) => {
       const item = normalizeVisualItem(rawItem) || {};
-      return visualCharacterCardHtml(item, selectedId === String(item.id || ''));
+      const id = String(item.id || '');
+      const label = item.name || item.label || id;
+      const preview = visualPreviewUrl(item);
+      const selected = selectedId === id;
+      const canDelete = isCustomVisualItem(item);
+      return `
+        <div class="image-style-card ${selected ? 'selected' : ''}" role="button" tabindex="0" onclick="SYLVEX.openCharacterDetail(event, '${S.escapeHtml(id)}')">
+          <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
+            ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
+          </span>
+          <span class="image-style-label">${S.escapeHtml(label)}</span>
+          <span class="image-style-check">✓</span>
+          ${canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, '${createKind}', '${S.escapeHtml(id)}')">×</button>` : ''}
+        </div>
+      `;
     }).join('');
     return;
   }
@@ -5706,6 +6070,7 @@ function closeImageStylePanel(e) {
   }
 
   hideImageStyleInfo();
+  closeCharacterDetail();
 
   const panel = document.getElementById('imageStylePanel');
   if (panel) panel.classList.remove('show');
@@ -13698,7 +14063,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -13779,6 +14144,9 @@ async function waitGeneration(jobId, options) {
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
   window.pickVisualReference = pickVisualReference;
   window.sendVisualInteraction = sendVisualInteraction;
+  window.openCharacterDetail = openCharacterDetail;
+  window.closeCharacterDetail = closeCharacterDetail;
+  window.playCharacterReferenceVideo = playCharacterReferenceVideo;
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
   window.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
@@ -13814,6 +14182,9 @@ async function waitGeneration(jobId, options) {
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
   S.sendVisualInteraction = sendVisualInteraction;
+  S.openCharacterDetail = openCharacterDetail;
+  S.closeCharacterDetail = closeCharacterDetail;
+  S.playCharacterReferenceVideo = playCharacterReferenceVideo;
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
   S.closeResourceDeleteConfirm = closeResourceDeleteConfirm;

@@ -2956,6 +2956,12 @@ def fetch_heygen_avatar_look(avatar_id: str) -> dict:
     return {}
 
 def visual_stats_payload(resource_id: str, resource_type: str, telegram_id: int = 0, heygen_avatar_id: str = "") -> dict:
+    def stat_int(value) -> int:
+        try:
+            return int(value or 0)
+        except Exception:
+            return 0
+
     stats = {"likes": 0, "selects": 0, "liked": False, "favorite": False, "heygen": {}}
     heygen_avatar_id = str(heygen_avatar_id or "").strip()
     if heygen_avatar_id:
@@ -2968,6 +2974,8 @@ def visual_stats_payload(resource_id: str, resource_type: str, telegram_id: int 
                 "preview_image_url": heygen.get("preview_image_url") or heygen.get("preview_image") or heygen.get("image_url") or "",
                 "preview_video_url": heygen.get("preview_video_url") or heygen.get("preview_video") or heygen.get("video_url") or "",
                 "supported_engines": heygen.get("supported_engines") or heygen.get("engines") or [],
+                "likes": stat_int(heygen.get("likes") or heygen.get("likes_count") or heygen.get("like_count")),
+                "uses": stat_int(heygen.get("uses") or heygen.get("usage_count") or heygen.get("selects_count")),
             }
         except Exception as exc:
             stats["heygen"] = {"id": heygen_avatar_id, "error": str(exc)[:240]}
