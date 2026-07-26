@@ -43,6 +43,12 @@ PRESET_CHARACTERS_DIR = PRESET_CATALOG_DIR / "characters"
 PRESET_OBJECTS_DIR = PRESET_CATALOG_DIR / "objects"
 VOICE_AVATARS_DIR = PRESET_CATALOG_DIR / "voice_avatars"
 PRESET_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+PRESET_CATALOG_CACHE_TTL = 60
+PRESET_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
+VIDEO_TEMPLATE_CATALOG_CACHE_TTL = 60
+VIDEO_TEMPLATE_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
+HEYGEN_AVATAR_LOOK_CACHE_TTL = 300
+HEYGEN_AVATAR_LOOK_CACHE = {}
 
 for catalog_dir in (PRESET_CHARACTERS_DIR, PRESET_OBJECTS_DIR, VOICE_AVATARS_DIR):
     catalog_dir.mkdir(parents=True, exist_ok=True)
@@ -175,10 +181,17 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
     return items
 
 def load_preset_catalog() -> dict:
-    return {
+    now = time.time()
+    cached = PRESET_CATALOG_CACHE.get("value")
+    if cached is not None and now < float(PRESET_CATALOG_CACHE.get("expires_at") or 0):
+        return cached
+    catalog = {
         "characters": _scan_preset_catalog_section(PRESET_CHARACTERS_DIR, "character"),
         "objects": _scan_preset_catalog_section(PRESET_OBJECTS_DIR, "object"),
     }
+    PRESET_CATALOG_CACHE["value"] = catalog
+    PRESET_CATALOG_CACHE["expires_at"] = now + PRESET_CATALOG_CACHE_TTL
+    return catalog
 
 def load_voice_avatar_catalog() -> dict:
     avatars = []
@@ -2943,6 +2956,10 @@ def fetch_heygen_avatar_look(avatar_id: str) -> dict:
     avatar_id = str(avatar_id or "").strip()
     if not avatar_id:
         return {}
+    now = time.time()
+    cached = HEYGEN_AVATAR_LOOK_CACHE.get(avatar_id)
+    if cached and now < float(cached.get("expires_at") or 0):
+        return dict(cached.get("value") or {})
     for ownership in ("private", "public"):
         response = requests.get(
             f"{HEYGEN_BASE_URL}/avatars/looks",
@@ -2954,7 +2971,10 @@ def fetch_heygen_avatar_look(avatar_id: str) -> dict:
             raise RuntimeError(response.text)
         for item in _heygen_data_list(response.json()):
             if str((item or {}).get("id") or "") == avatar_id:
-                return item or {}
+                value = item or {}
+                HEYGEN_AVATAR_LOOK_CACHE[avatar_id] = {"expires_at": now + HEYGEN_AVATAR_LOOK_CACHE_TTL, "value": value}
+                return value
+    HEYGEN_AVATAR_LOOK_CACHE[avatar_id] = {"expires_at": now + HEYGEN_AVATAR_LOOK_CACHE_TTL, "value": {}}
     return {}
 
 def visual_stats_payload(resource_id: str, resource_type: str, telegram_id: int = 0, heygen_avatar_id: str = "") -> dict:
@@ -3461,7 +3481,10 @@ async def public_prostudio_voice_preview(request: Request):
 @app.get("/api/public/prostudio/preset-catalog")
 async def public_prostudio_preset_catalog():
     catalog = load_preset_catalog()
-    return {"ok": True, "catalog": catalog, **catalog}
+    return JSONResponse(
+        {"ok": True, "catalog": catalog, **catalog},
+        headers={"Cache-Control": f"public, max-age={PRESET_CATALOG_CACHE_TTL}"},
+    )
 
 
 # =====================================================
@@ -10322,12 +10345,15 @@ def prostudio_kling_effects_library() -> list:
 
 @app.get("/api/public/prostudio/kling/effects")
 async def public_prostudio_kling_effects():
-    return {
-        "ok": True,
-        "source": "local_effects_json",
-        "note": "Kling public API exposes Video Effects task creation/query by effect_scene; no public catalog-list endpoint is documented.",
-        "effects": prostudio_kling_effects_library(),
-    }
+    return JSONResponse(
+        {
+            "ok": True,
+            "source": "local_effects_json",
+            "note": "Kling public API exposes Video Effects task creation/query by effect_scene; no public catalog-list endpoint is documented.",
+            "effects": prostudio_kling_effects_library(),
+        },
+        headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"},
+    )
 
 
 # =====================================================
@@ -10343,10 +10369,17 @@ async def public_prostudio_kling_effects():
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def public_prostudio_video_templates():
-    return {
+    now = time.time()
+    cached = VIDEO_TEMPLATE_CATALOG_CACHE.get("value")
+    if cached is not None and now < float(VIDEO_TEMPLATE_CATALOG_CACHE.get("expires_at") or 0):
+        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
+    payload = {
         "ok": True,
         "templates": prostudio_video_templates_from_env() + prostudio_builtin_video_template_slots(),
     }
+    VIDEO_TEMPLATE_CATALOG_CACHE["value"] = payload
+    VIDEO_TEMPLATE_CATALOG_CACHE["expires_at"] = now + VIDEO_TEMPLATE_CATALOG_CACHE_TTL
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
 
 # =====================================================
 # API ENDPOINT: download_prostudio_image
