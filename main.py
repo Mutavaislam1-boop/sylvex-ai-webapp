@@ -158,6 +158,8 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
             "heygenPhotoAvatarId": heygen_meta.get("photoAvatarId") or heygen_meta.get("photo_avatar_id") or heygen_meta.get("avatar_id") or "",
             "heygenVideoAvatarId": heygen_meta.get("videoAvatarId") or heygen_meta.get("video_avatar_id") or "",
             "heygenAvatarGroupId": heygen_meta.get("avatarGroupId") or heygen_meta.get("avatar_group_id") or "",
+            "heygenDefaultVoiceId": heygen_meta.get("defaultVoiceId") or heygen_meta.get("default_voice_id") or "",
+            "heygenLooks": heygen_meta.get("looks") if isinstance(heygen_meta.get("looks"), list) else [],
             "type": "file-preset",
             "status": "ready",
             "sourcePath": str(folder.relative_to(BASE_DIR)),
