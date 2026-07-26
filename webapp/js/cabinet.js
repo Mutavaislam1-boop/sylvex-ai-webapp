@@ -2568,11 +2568,7 @@ function renderVoiceListPanel() {
   const optionKind = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabsVoice' : (isRunwayVoiceModel(voiceState.modelId) ? 'runwayVoice' : 'voice');
   const activeVoice = optionKind === 'elevenlabsVoice' ? voiceState.elevenlabsVoice : (optionKind === 'runwayVoice' ? voiceState.runwayVoice : voiceState.voice);
   const items = currentVoiceListForPanel();
-  const groups = [
-    { id: 'male', title: 'Мужские', items: items.filter((item) => voiceGenderForPanel(item) === 'male') },
-    { id: 'female', title: 'Женские', items: items.filter((item) => voiceGenderForPanel(item) === 'female') },
-  ];
-  const renderCard = (item) => {
+  const renderRow = (item) => {
     const id = String(item.id || item.voice_id || '');
     const label = String(item.label || item.name || id);
     const safeId = S.escapeHtml(id);
@@ -2580,14 +2576,14 @@ function renderVoiceListPanel() {
     const selected = String(activeVoice || '') === id;
     const initial = S.escapeHtml((label || id || '?').trim().slice(0, 1).toUpperCase());
     const avatarUrl = voiceAvatarUrlFor(item, optionKind === 'elevenlabsVoice' ? 'elevenlabs' : (optionKind === 'runwayVoice' ? 'runway' : 'gemini'));
-    return '<div class="image-style-card voice-style-card ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
-      + '<span class="image-style-thumb ' + (avatarUrl ? '' : 'is-placeholder') + ' voice-style-thumb">'
+    return '<div class="voice-style-row ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
+      + '<span class="voice-style-row-avatar ' + (avatarUrl ? '' : 'is-placeholder') + '">'
       + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="' + S.escapeHtml(label) + '" loading="lazy" decoding="async" />' : '<span class="image-style-placeholder-icon">' + initial + '</span>')
-      + '<button class="voice-style-play" type="button" aria-label="Прослушать ' + S.escapeHtml(label) + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
       + '</span>'
-      + '<span class="image-style-label">' + S.escapeHtml(label) + '</span>'
-      + '<span class="image-style-check">✓</span>'
+      + '<span class="voice-style-row-name">' + S.escapeHtml(label) + '</span>'
+      + (selected ? '<span class="voice-style-row-check">✓</span>' : '<span class="voice-style-row-check"></span>')
       + (item.custom ? '<button class="visual-delete-btn" type="button" aria-label="Удалить голос" onclick="SYLVEX.deleteUserVoice(event,\'' + resourceId + '\',\'' + safeId + '\')">×</button>' : '')
+      + '<button class="voice-style-row-play" type="button" aria-label="Прослушать ' + S.escapeHtml(label) + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
       + '</div>';
   };
   return `
@@ -2596,15 +2592,8 @@ function renderVoiceListPanel() {
         <div class="image-style-panel-title">Список голосов</div>
         <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeVoiceList(event)">×</button>
       </div>
-      <div class="voice-style-groups">
-        ${groups.map((group) => group.items.length ? `
-          <section class="voice-style-group" aria-label="${S.escapeHtml(group.title)}">
-            <div class="voice-style-group-title">${S.escapeHtml(group.title)}</div>
-            <div class="image-style-panel-grid voice-style-grid">
-              ${group.items.map(renderCard).join('')}
-            </div>
-          </section>
-        ` : '').join('')}
+      <div class="voice-style-rows">
+        ${items.map(renderRow).join('')}
       </div>
     </div>`;
 }
@@ -5865,6 +5854,74 @@ function currentSelectedUploadImage() {
       .image-style-panel-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+    }
+
+    @media (min-width: 641px) {
+      .image-style-panel-backdrop {
+        align-items: center;
+        padding: calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom));
+        background: rgba(0, 0, 0, .56);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+
+      .image-style-panel-card {
+        width: min(720px, calc(100vw - 36px));
+        max-height: min(76vh, 680px);
+        border-radius: 24px;
+        padding: 14px;
+        background: rgba(18,18,24,.88);
+        border: 1px solid rgba(255,255,255,.10);
+        box-shadow: 0 28px 90px rgba(0,0,0,.72);
+        backdrop-filter: blur(22px) saturate(140%);
+        -webkit-backdrop-filter: blur(22px) saturate(140%);
+        animation: imageStylePanelCenter .18s ease both;
+      }
+
+      .image-style-panel-backdrop.has-character-detail .image-style-panel-card {
+        width: min(540px, calc(100vw - 36px));
+        max-height: min(78vh, 680px);
+      }
+
+      .image-style-panel-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        max-height: calc(min(76vh, 680px) - 70px);
+        gap: 8px;
+      }
+
+      .image-style-card {
+        border-radius: 13px;
+        padding: 5px;
+      }
+
+      .image-style-thumb {
+        border-radius: 10px;
+      }
+
+      .visual-character-detail {
+        padding: 14px;
+        border-radius: 24px;
+        background: rgba(18,18,24,.96);
+      }
+
+      .visual-character-detail-shell {
+        min-height: auto;
+      }
+    }
+
+    @media (min-width: 641px) and (max-width: 900px) {
+      .image-style-panel-card {
+        width: min(600px, calc(100vw - 28px));
+      }
+
+      .image-style-panel-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @keyframes imageStylePanelCenter {
+      from { opacity: 0; transform: translateY(14px) scale(.985); }
+      to { opacity: 1; transform: none; }
     }
 
     @media (max-width: 640px) {
