@@ -926,6 +926,8 @@ function normalizePresetCatalogItem(item, kind, index) {
     heygenPhotoAvatarId: String(source.heygenPhotoAvatarId || source.heygen_photo_avatar_id || source.photoAvatarId || source.photo_avatar_id || ''),
     heygenVideoAvatarId: String(source.heygenVideoAvatarId || source.heygen_video_avatar_id || source.videoAvatarId || source.video_avatar_id || ''),
     heygenAvatarGroupId: String(source.heygenAvatarGroupId || source.heygen_avatar_group_id || source.avatarGroupId || source.avatar_group_id || ''),
+    heygenDefaultVoiceId: String(source.heygenDefaultVoiceId || source.heygen_default_voice_id || source.defaultVoiceId || source.default_voice_id || ''),
+    heygenLooks: Array.isArray(source.heygenLooks || source.heygen_looks) ? (source.heygenLooks || source.heygen_looks).slice() : [],
     previewUrl: previewUrl || presetSvg(name, baseHue),
     referenceImages: referenceImages.length
       ? referenceImages
@@ -1919,6 +1921,8 @@ function videoOptionsPayload(referenceImagesOverride) {
     heygen_avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_photo_avatar_id: characterVisual.heygenPhotoAvatarId || '',
     heygen_video_avatar_id: characterVisual.heygenVideoAvatarId || '',
+    heygen_voice_id: characterVisual.heygenDefaultVoiceId || '',
+    voice_id: isHeygenModel ? (characterVisual.heygenDefaultVoiceId || '') : '',
     heygen_files: heygenFiles,
     objectId: objectVisual.id || '',
     objectName: objectVisual.name || '',
@@ -3485,6 +3489,8 @@ function localizedGreeting() {
       heygenPhotoAvatarId: String(item.heygenPhotoAvatarId || item.heygen_photo_avatar_id || item.photoAvatarId || item.photo_avatar_id || ''),
       heygenVideoAvatarId: String(item.heygenVideoAvatarId || item.heygen_video_avatar_id || item.videoAvatarId || item.video_avatar_id || ''),
       heygenAvatarGroupId: String(item.heygenAvatarGroupId || item.heygen_avatar_group_id || item.avatarGroupId || item.avatar_group_id || ''),
+      heygenDefaultVoiceId: String(item.heygenDefaultVoiceId || item.heygen_default_voice_id || item.defaultVoiceId || item.default_voice_id || ''),
+      heygenLooks: Array.isArray(item.heygenLooks) ? item.heygenLooks.slice() : (Array.isArray(item.heygen_looks) ? item.heygen_looks.slice() : []),
     });
   }
 
@@ -4338,6 +4344,8 @@ function visualReferencePayload(item, kind) {
     heygenPhotoAvatarId: item.heygenPhotoAvatarId || item.heygen_photo_avatar_id || '',
     heygenVideoAvatarId: item.heygenVideoAvatarId || item.heygen_video_avatar_id || '',
     heygenAvatarGroupId: item.heygenAvatarGroupId || item.heygen_avatar_group_id || '',
+    heygenDefaultVoiceId: item.heygenDefaultVoiceId || item.heygen_default_voice_id || '',
+    heygenLooks: Array.isArray(item.heygenLooks) ? item.heygenLooks.slice() : (Array.isArray(item.heygen_looks) ? item.heygen_looks.slice() : []),
     type: item.type || '',
     custom: isCustomVisualItem(item),
   };

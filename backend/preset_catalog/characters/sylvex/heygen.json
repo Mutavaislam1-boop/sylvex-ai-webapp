@@ -1,4 +1,42 @@
 {
   "photoAvatarId": "afba3f7b836646c2a9fca9c4cca2c035",
-  "videoAvatarId": "f9cf885ac2594e4c8ab3762e251babec"
+  "videoAvatarId": "f9cf885ac2594e4c8ab3762e251babec",
+  "avatarGroupId": "afba3f7b836646c2a9fca9c4cca2c035",
+  "defaultVoiceId": "58d8914e2c2149e4802f9fa74c97c64b",
+  "looks": [
+    {
+      "id": "089c1935f6c84b109140a6c87960b6dc",
+      "name": "Sylvex -- 7",
+      "type": "digital_twin",
+      "status": "processing"
+    },
+    {
+      "id": "013e4da7ace9488baa397320f1698c5d",
+      "name": "Sylvex in a black turtleneck",
+      "type": "photo_avatar",
+      "status": "completed",
+      "supportedApiEngines": ["avatar_v", "avatar_iv", "avatar_iii"]
+    },
+    {
+      "id": "c8bba2f88ade4bfdbb84533318390cbe",
+      "name": "Photo Avatar",
+      "type": "photo_avatar",
+      "status": "completed",
+      "supportedApiEngines": ["avatar_v", "avatar_iv", "avatar_iii"]
+    },
+    {
+      "id": "8b567cef53044bbb873656fd1fc4fdad",
+      "name": "Photo Avatar",
+      "type": "photo_avatar",
+      "status": "completed",
+      "supportedApiEngines": ["avatar_v", "avatar_iv", "avatar_iii"]
+    },
+    {
+      "id": "afba3f7b836646c2a9fca9c4cca2c035",
+      "name": "Sylvex",
+      "type": "photo_avatar",
+      "status": "completed",
+      "supportedApiEngines": ["avatar_v", "avatar_iv", "avatar_iii"]
+    }
+  ]
 }
