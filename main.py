@@ -103,6 +103,27 @@ def _catalog_image_files(folder: pathlib.Path) -> list[pathlib.Path]:
         key=lambda item: _natural_catalog_key(item.name),
     )
 
+def _catalog_video_files(folder: pathlib.Path) -> list[pathlib.Path]:
+    if not folder.exists() or not folder.is_dir():
+        return []
+    return sorted(
+        [
+            item for item in folder.iterdir()
+            if item.is_file() and item.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}
+        ],
+        key=lambda item: _natural_catalog_key(item.name),
+    )
+
+def _catalog_json_file(folder: pathlib.Path, name: str) -> dict:
+    path = folder / name
+    if not path.exists() or not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
 def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[dict]:
     items = []
     if not section_dir.exists():
@@ -113,8 +134,11 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
 
     for folder in sorted([item for item in section_dir.iterdir() if item.is_dir()], key=catalog_sort_key):
         images = _catalog_image_files(folder)
+        videos = _catalog_video_files(folder)
         avatar = next((item for item in images if item.stem.lower() == "avatar"), None)
         references = [item for item in images if item != avatar]
+        video_reference = next((item for item in videos if item.stem.lower() == "video_reference"), None) or (videos[0] if videos else None)
+        heygen_meta = _catalog_json_file(folder, "heygen.json")
         prompt_path = folder / "prompt.txt"
         prompt = ""
         if prompt_path.exists() and prompt_path.is_file():
@@ -129,6 +153,11 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
             "prompt": prompt,
             "avatarUrl": _preset_file_url(avatar_image) if avatar_image else "",
             "referenceImages": [_preset_file_url(image) for image in references],
+            "videoReferenceUrl": _preset_file_url(video_reference) if video_reference else "",
+            "videoReferences": [_preset_file_url(video) for video in videos],
+            "heygenPhotoAvatarId": heygen_meta.get("photoAvatarId") or heygen_meta.get("photo_avatar_id") or heygen_meta.get("avatar_id") or "",
+            "heygenVideoAvatarId": heygen_meta.get("videoAvatarId") or heygen_meta.get("video_avatar_id") or "",
+            "heygenAvatarGroupId": heygen_meta.get("avatarGroupId") or heygen_meta.get("avatar_group_id") or "",
             "type": "file-preset",
             "status": "ready",
             "sourcePath": str(folder.relative_to(BASE_DIR)),
@@ -2897,6 +2926,141 @@ def fetch_heygen_brand_kits() -> dict:
         "default_brand_kit_id": (kits[0] or {}).get("brand_kit_id") if kits else "",
     }
 
+def _heygen_data_list(data: dict) -> list:
+    raw = data.get("data") if isinstance(data, dict) else {}
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        for key in ("items", "list", "avatar_looks", "looks", "avatars"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                return value
+    return []
+
+def fetch_heygen_avatar_look(avatar_id: str) -> dict:
+    avatar_id = str(avatar_id or "").strip()
+    if not avatar_id:
+        return {}
+    for ownership in ("private", "public"):
+        response = requests.get(
+            f"{HEYGEN_BASE_URL}/avatars/looks",
+            headers=heygen_headers(),
+            params={"ownership": ownership, "limit": 100},
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(response.text)
+        for item in _heygen_data_list(response.json()):
+            if str((item or {}).get("id") or "") == avatar_id:
+                return item or {}
+    return {}
+
+def visual_stats_payload(resource_id: str, resource_type: str, telegram_id: int = 0, heygen_avatar_id: str = "") -> dict:
+    stats = {"likes": 0, "selects": 0, "liked": False, "favorite": False, "heygen": {}}
+    heygen_avatar_id = str(heygen_avatar_id or "").strip()
+    if heygen_avatar_id:
+        try:
+            heygen = fetch_heygen_avatar_look(heygen_avatar_id)
+            stats["heygen"] = {
+                "id": heygen.get("id") or heygen_avatar_id,
+                "name": heygen.get("name") or "",
+                "status": heygen.get("status") or "",
+                "preview_image_url": heygen.get("preview_image_url") or heygen.get("preview_image") or heygen.get("image_url") or "",
+                "preview_video_url": heygen.get("preview_video_url") or heygen.get("preview_video") or heygen.get("video_url") or "",
+                "supported_engines": heygen.get("supported_engines") or heygen.get("engines") or [],
+            }
+        except Exception as exc:
+            stats["heygen"] = {"id": heygen_avatar_id, "error": str(exc)[:240]}
+    if not DATABASE_URL or not resource_id:
+        return stats
+    try:
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT likes_count, selects_count FROM prostudio_visual_stats WHERE resource_id = %s AND resource_type = %s",
+            (resource_id, resource_type),
+        )
+        row = cursor.fetchone()
+        if row:
+            stats["likes"] = int(row[0] or 0)
+            stats["selects"] = int(row[1] or 0)
+        if telegram_id:
+            cursor.execute(
+                "SELECT liked, favorite FROM prostudio_visual_user_state WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
+                (telegram_id, resource_id, resource_type),
+            )
+            user_row = cursor.fetchone()
+            if user_row:
+                stats["liked"] = bool(user_row[0])
+                stats["favorite"] = bool(user_row[1])
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("VISUAL STATS LOAD FAILED:", exc)
+    return stats
+
+def update_visual_interaction(telegram_id: int, resource_id: str, resource_type: str, action: str, value=None) -> dict:
+    resource_type = "character" if resource_type in {"character", "characters"} else "object"
+    action = str(action or "").strip().lower()
+    if not DATABASE_URL or not telegram_id or not resource_id:
+        return {"ok": False, "local_only": True}
+    ensure_prostudio_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO prostudio_visual_user_state (telegram_id, resource_id, resource_type)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (telegram_id, resource_id, resource_type) DO NOTHING
+            """,
+            (telegram_id, resource_id, resource_type),
+        )
+        cursor.execute(
+            """
+            INSERT INTO prostudio_visual_stats (resource_id, resource_type)
+            VALUES (%s, %s)
+            ON CONFLICT (resource_id, resource_type) DO NOTHING
+            """,
+            (resource_id, resource_type),
+        )
+        if action == "like":
+            liked = bool(value)
+            cursor.execute(
+                "SELECT liked FROM prostudio_visual_user_state WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
+                (telegram_id, resource_id, resource_type),
+            )
+            previous = bool((cursor.fetchone() or [False])[0])
+            if previous != liked:
+                cursor.execute(
+                    "UPDATE prostudio_visual_stats SET likes_count = GREATEST(0, likes_count + %s), updated_at = NOW() WHERE resource_id = %s AND resource_type = %s",
+                    (1 if liked else -1, resource_id, resource_type),
+                )
+            cursor.execute(
+                "UPDATE prostudio_visual_user_state SET liked = %s, updated_at = NOW() WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
+                (liked, telegram_id, resource_id, resource_type),
+            )
+        elif action == "favorite":
+            cursor.execute(
+                "UPDATE prostudio_visual_user_state SET favorite = %s, updated_at = NOW() WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
+                (bool(value), telegram_id, resource_id, resource_type),
+            )
+        elif action == "select":
+            cursor.execute(
+                "UPDATE prostudio_visual_stats SET selects_count = selects_count + 1, updated_at = NOW() WHERE resource_id = %s AND resource_type = %s",
+                (resource_id, resource_type),
+            )
+            cursor.execute(
+                "UPDATE prostudio_visual_user_state SET selected_count = selected_count + 1, updated_at = NOW() WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
+                (telegram_id, resource_id, resource_type),
+            )
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    return {"ok": True}
+
 # =====================================================
 # PYTHON-БЛОК: fetch_heygen_voice_page
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -3381,6 +3545,40 @@ async def heygen_brand_kits():
             status_code=502,
         )
 
+
+@app.get("/api/public/prostudio/visual-stats")
+async def public_prostudio_visual_stats(
+    resource_id: str,
+    resource_type: str = "character",
+    telegram_id: int = 0,
+    heygen_avatar_id: str = "",
+):
+    return {
+        "ok": True,
+        "stats": visual_stats_payload(resource_id, resource_type, telegram_id, heygen_avatar_id),
+    }
+
+
+@app.post("/api/public/prostudio/visual-interaction")
+async def public_prostudio_visual_interaction(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    resource_id = str(data.get("resource_id") or "").strip()
+    resource_type = str(data.get("resource_type") or "character").strip()
+    heygen_avatar_id = str(data.get("heygen_avatar_id") or "").strip()
+    result = update_visual_interaction(
+        telegram_id,
+        resource_id,
+        resource_type,
+        data.get("action"),
+        data.get("value"),
+    )
+    return {
+        "ok": True,
+        "result": result,
+        "stats": visual_stats_payload(resource_id, resource_type, telegram_id, heygen_avatar_id),
+    }
+
 # =====================================================
 # API ENDPOINT: save_heygen_voice_settings
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -3648,6 +3846,29 @@ def ensure_prostudio_table():
             cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_prostudio_resources_user_type
             ON prostudio_resources (telegram_id, resource_type, updated_at DESC)
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_visual_stats (
+                resource_id TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                likes_count INTEGER DEFAULT 0,
+                selects_count INTEGER DEFAULT 0,
+                heygen_stats_json JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (resource_id, resource_type)
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_visual_user_state (
+                telegram_id BIGINT NOT NULL,
+                resource_id TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                liked BOOLEAN DEFAULT FALSE,
+                favorite BOOLEAN DEFAULT FALSE,
+                selected_count INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (telegram_id, resource_id, resource_type)
+            )
             """)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS prostudio_generation_jobs (

@@ -908,6 +908,9 @@ function normalizePresetCatalogItem(item, kind, index) {
   const referenceImages = Array.isArray(references)
     ? references.filter(Boolean).map(String)
     : [];
+  const videoReferences = Array.isArray(source.videoReferences || source.video_references)
+    ? (source.videoReferences || source.video_references).filter(Boolean).map(String)
+    : [];
   const previewUrl = avatarUrl || referenceImages[0] || '';
 
   return {
@@ -918,6 +921,11 @@ function normalizePresetCatalogItem(item, kind, index) {
     prompt: String(source.prompt || ''),
     negativePrompt: String(source.negativePrompt || source.negative_prompt || ''),
     avatarUrl,
+    videoReferenceUrl: String(source.videoReferenceUrl || source.video_reference_url || videoReferences[0] || ''),
+    videoReferences,
+    heygenPhotoAvatarId: String(source.heygenPhotoAvatarId || source.heygen_photo_avatar_id || source.photoAvatarId || source.photo_avatar_id || ''),
+    heygenVideoAvatarId: String(source.heygenVideoAvatarId || source.heygen_video_avatar_id || source.videoAvatarId || source.video_avatar_id || ''),
+    heygenAvatarGroupId: String(source.heygenAvatarGroupId || source.heygen_avatar_group_id || source.avatarGroupId || source.avatar_group_id || ''),
     previewUrl: previewUrl || presetSvg(name, baseHue),
     referenceImages: referenceImages.length
       ? referenceImages
@@ -958,6 +966,8 @@ const FALLBACK_PRESET_CHARACTERS = [
   gender: item[2],
   official: !!item[3],
   avatarUrl: '',
+  heygenPhotoAvatarId: item[0] === 'character_sylvex' ? 'afba3f7b836646c2a9fca9c4cca2c035' : '',
+  heygenVideoAvatarId: item[0] === 'character_sylvex' ? 'f9cf885ac2594e4c8ab3762e251babec' : '',
   prompt: '',
   negativePrompt: '',
   referenceImages: [],
@@ -1873,6 +1883,10 @@ function videoOptionsPayload(referenceImagesOverride) {
   const referenceImages = Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : currentVideoReferenceImages();
+  const isHeygenModel = String(videoState.modelId || '').toLowerCase().includes('heygen');
+  const heygenAvatarId = characterVisual.heygenVideoAvatarId || characterVisual.heygenPhotoAvatarId || '';
+  const heygenFiles = [];
+  if (isHeygenModel && characterVisual.videoReferenceUrl) heygenFiles.push(characterVisual.videoReferenceUrl);
 
   return {
     section: videoState.section || 'generate',
@@ -1901,6 +1915,11 @@ function videoOptionsPayload(referenceImagesOverride) {
     characterName: characterVisual.name || '',
     characterPrompt: characterVisual.prompt || '',
     characterReferences: Array.isArray(characterVisual.references) ? characterVisual.references.slice() : [],
+    avatar_id: isHeygenModel ? heygenAvatarId : '',
+    heygen_avatar_id: isHeygenModel ? heygenAvatarId : '',
+    heygen_photo_avatar_id: characterVisual.heygenPhotoAvatarId || '',
+    heygen_video_avatar_id: characterVisual.heygenVideoAvatarId || '',
+    heygen_files: heygenFiles,
     objectId: objectVisual.id || '',
     objectName: objectVisual.name || '',
     objectPrompt: objectVisual.prompt || '',
@@ -3461,6 +3480,11 @@ function localizedGreeting() {
       previewUrl: preview,
       preview_url: item.preview_url || preview,
       referenceImages: refs.length ? refs : (preview ? [preview] : []),
+      videoReferenceUrl: item.videoReferenceUrl || item.video_reference_url || '',
+      videoReferences: Array.isArray(item.videoReferences) ? item.videoReferences.slice() : (Array.isArray(item.video_references) ? item.video_references.slice() : []),
+      heygenPhotoAvatarId: String(item.heygenPhotoAvatarId || item.heygen_photo_avatar_id || item.photoAvatarId || item.photo_avatar_id || ''),
+      heygenVideoAvatarId: String(item.heygenVideoAvatarId || item.heygen_video_avatar_id || item.videoAvatarId || item.video_avatar_id || ''),
+      heygenAvatarGroupId: String(item.heygenAvatarGroupId || item.heygen_avatar_group_id || item.avatarGroupId || item.avatar_group_id || ''),
     });
   }
 
@@ -4176,6 +4200,103 @@ function openVideoVisualPicker(e, kind) {
 
 let visualCreateDraft = { kind: '', photos: [] };
 let resourceDeleteConfirm = null;
+const visualStatsCache = {};
+
+function visualStatsKey(kind, id) {
+  return (kind === 'object' ? 'object' : 'character') + ':' + String(id || '');
+}
+
+function localVisualStats() {
+  try {
+    return JSON.parse(localStorage.getItem('sylvex-visual-stats-' + (getTelegramId() || 'anon')) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalVisualStats(map) {
+  try {
+    localStorage.setItem('sylvex-visual-stats-' + (getTelegramId() || 'anon'), JSON.stringify(map || {}));
+  } catch {}
+}
+
+function visualItemHeygenAvatarId(item) {
+  if (!item || typeof item !== 'object') return '';
+  return String(item.heygenVideoAvatarId || item.heygen_video_avatar_id || item.heygenPhotoAvatarId || item.heygen_photo_avatar_id || '').trim();
+}
+
+function currentVisualStats(kind, item) {
+  const id = item && item.id ? item.id : '';
+  const key = visualStatsKey(kind, id);
+  const local = localVisualStats()[key] || {};
+  return Object.assign({ likes: 0, selects: 0, liked: false, favorite: false, heygen: {} }, local, visualStatsCache[key] || {});
+}
+
+async function loadVisualStats(kind, item) {
+  if (!item || !item.id) return;
+  const key = visualStatsKey(kind, item.id);
+  if (visualStatsCache[key] && visualStatsCache[key].loaded) return;
+  const params = new URLSearchParams({
+    resource_id: item.id,
+    resource_type: kind === 'object' ? 'object' : 'character',
+    telegram_id: String(getTelegramId() || 0),
+    heygen_avatar_id: visualItemHeygenAvatarId(item),
+  });
+  try {
+    const response = await fetch('/api/public/prostudio/visual-stats?' + params.toString(), { method: 'GET', cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (data && data.stats) {
+      visualStatsCache[key] = Object.assign({}, data.stats, { loaded: true });
+      renderImageStylePanel();
+    }
+  } catch {
+    visualStatsCache[key] = Object.assign({}, currentVisualStats(kind, item), { loaded: true });
+  }
+}
+
+async function sendVisualInteraction(kind, id, action, value, e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const item = (kind === 'object' ? imageObjects() : imageCharacters()).find((entry) => entry && entry.id === id);
+  if (!item) return;
+  const key = visualStatsKey(kind, id);
+  const localMap = localVisualStats();
+  const current = Object.assign({ likes: 0, selects: 0, liked: false, favorite: false }, localMap[key] || {}, visualStatsCache[key] || {});
+  if (action === 'like') {
+    const liked = value === undefined ? !current.liked : !!value;
+    current.likes = Math.max(0, Number(current.likes || 0) + (liked === !!current.liked ? 0 : (liked ? 1 : -1)));
+    current.liked = liked;
+  } else if (action === 'favorite') {
+    current.favorite = value === undefined ? !current.favorite : !!value;
+  } else if (action === 'select') {
+    current.selects = Number(current.selects || 0) + 1;
+  }
+  localMap[key] = current;
+  visualStatsCache[key] = current;
+  saveLocalVisualStats(localMap);
+  renderImageStylePanel();
+  try {
+    const response = await fetch('/api/public/prostudio/visual-interaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegram_id: getTelegramId() || 0,
+        resource_id: id,
+        resource_type: kind === 'object' ? 'object' : 'character',
+        action,
+        value: action === 'like' ? current.liked : (action === 'favorite' ? current.favorite : true),
+        heygen_avatar_id: visualItemHeygenAvatarId(item),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (data && data.stats) {
+      visualStatsCache[key] = Object.assign({}, data.stats, { loaded: true });
+      renderImageStylePanel();
+    }
+  } catch {}
+}
 
 function isCustomVisualItem(item) {
   if (!item || typeof item !== 'object') return false;
@@ -4208,9 +4329,75 @@ function visualReferencePayload(item, kind) {
     prompt: item.prompt || '',
     references: visualGenerationReferences(item, kind),
     avatarUrl: item.avatarUrl || item.avatar_url || item.previewUrl || item.preview_url || '',
+    videoReferenceUrl: item.videoReferenceUrl || item.video_reference_url || '',
+    videoReferences: Array.isArray(item.videoReferences) ? item.videoReferences.slice() : (Array.isArray(item.video_references) ? item.video_references.slice() : []),
+    heygenPhotoAvatarId: item.heygenPhotoAvatarId || item.heygen_photo_avatar_id || '',
+    heygenVideoAvatarId: item.heygenVideoAvatarId || item.heygen_video_avatar_id || '',
+    heygenAvatarGroupId: item.heygenAvatarGroupId || item.heygen_avatar_group_id || '',
     type: item.type || '',
     custom: isCustomVisualItem(item),
   };
+}
+
+function compactStatNumber(value) {
+  const num = Number(value || 0);
+  if (num >= 1000000) return (num / 1000000).toFixed(num >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(num >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+  return String(num);
+}
+
+function visualCharacterCardHtml(rawItem, selected) {
+  const item = normalizeVisualItem(rawItem) || {};
+  const id = String(item.id || '');
+  const name = item.name || item.label || id;
+  const preview = visualPreviewUrl(item);
+  const refs = visualGenerationReferences(item, 'character').slice(0, 4);
+  const stats = currentVisualStats('character', item);
+  const heygenId = visualItemHeygenAvatarId(item);
+  const statusText = (stats.heygen && stats.heygen.status) || item.status || 'ready';
+  const prompt = item.prompt || item.description || 'Character reference is ready for image and video generation.';
+  const canDelete = isCustomVisualItem(item);
+  const rating = Math.max(1, Math.min(10, Math.round((Number(stats.selects || 0) / 10) || (item.official ? 5 : 4))));
+  const videoRef = item.videoReferenceUrl || item.video_reference_url || '';
+  return `
+    <article class="visual-character-card ${selected ? 'selected' : ''}" data-character-id="${S.escapeHtml(id)}">
+      <div class="visual-character-top">
+        <div class="visual-character-hero">
+          ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>'}
+          ${videoRef ? '<span class="visual-character-play" aria-hidden="true"></span>' : ''}
+          <span class="visual-character-stars">★★★★</span>
+        </div>
+        <div class="visual-character-copy">
+          <div class="visual-character-title-row">
+            <h3>${S.escapeHtml(name)}</h3>
+            ${item.official ? '<span class="visual-character-official">★</span>' : ''}
+            <span class="visual-character-rating">${rating}/10</span>
+          </div>
+          <p>${S.escapeHtml(prompt)}</p>
+          <div class="visual-character-badges">
+            ${heygenId ? `<span>HeyGen ${S.escapeHtml(heygenId.slice(0, 8))}</span>` : '<span>Photo refs</span>'}
+            ${videoRef ? '<span>Video ref</span>' : ''}
+            <span>${S.escapeHtml(statusText)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="visual-character-refs">
+        ${refs.map((url) => `<span><img src="${S.escapeHtml(url)}" alt="" loading="lazy" decoding="async" /></span>`).join('')}
+      </div>
+      <div class="visual-character-meta">
+        <span>♥ ${S.escapeHtml(compactStatNumber(stats.likes))}</span>
+        <span>Выборы ${S.escapeHtml(compactStatNumber(stats.selects))}</span>
+        ${item.heygenPhotoAvatarId ? `<span>Фото ID ${S.escapeHtml(String(item.heygenPhotoAvatarId).slice(0, 6))}</span>` : ''}
+        ${item.heygenVideoAvatarId ? `<span>Видео ID ${S.escapeHtml(String(item.heygenVideoAvatarId).slice(0, 6))}</span>` : ''}
+      </div>
+      <div class="visual-character-actions">
+        <button class="visual-character-icon-btn ${stats.favorite ? 'active' : ''}" type="button" aria-label="Избранное" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','favorite',undefined,event)">★</button>
+        <button class="visual-character-select" type="button" onclick="SYLVEX.pickVisualReference(event,'character','${S.escapeHtml(id)}')">${selected ? 'Выбрано' : 'Выбрать'}</button>
+        <button class="visual-character-icon-btn like ${stats.liked ? 'active' : ''}" type="button" aria-label="Лайк" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','like',undefined,event)">♥</button>
+      </div>
+      ${canDelete ? `<button class="visual-delete-btn" type="button" aria-label="Удалить" onclick="SYLVEX.deleteVisualReference(event, 'character', '${S.escapeHtml(id)}')">×</button>` : ''}
+    </article>
+  `;
 }
 
 function deleteResourceKindLabel(kind) {
@@ -4711,6 +4898,7 @@ function pickVisualReference(e, kind, id) {
   if (!item) return;
   if (isVideoMode()) {
     applyVisualReferenceToVideo(item, kind);
+    if (kind === 'character') sendVisualInteraction('character', item.id, 'select');
     closeVisualPicker(e);
     closeImageStylePanel(e);
     updateSendButton();
@@ -4724,6 +4912,7 @@ function pickVisualReference(e, kind, id) {
       imageState.characterId = item.id;
       imageState.characterName = item.name;
       imageState.characterReferences = (item.referenceImages || []).slice();
+      sendVisualInteraction('character', item.id, 'select');
     }
   } else {
     if (imageState.objectId === item.id) {
@@ -5399,6 +5588,7 @@ function renderImageStylePanel() {
   const selectedObject = String(imageState.objectId || '');
 
   if (kind === 'style') {
+    grid.classList.remove('visual-character-grid');
     grid.innerHTML = IMAGE_STYLE_SHEET_ITEMS.map((item) => {
       const id = String(item.id || '');
       const label = item.label || id;
@@ -5433,6 +5623,17 @@ function renderImageStylePanel() {
     </button>
   `;
 
+  if (isCharacter) {
+    setTimeout(() => items.slice(0, 12).forEach((item) => loadVisualStats('character', normalizeVisualItem(item) || item)), 0);
+    grid.classList.add('visual-character-grid');
+    grid.innerHTML = createCard + items.map((rawItem) => {
+      const item = normalizeVisualItem(rawItem) || {};
+      return visualCharacterCardHtml(item, selectedId === String(item.id || ''));
+    }).join('');
+    return;
+  }
+
+  grid.classList.remove('visual-character-grid');
   grid.innerHTML = createCard + items.map((rawItem) => {
     const item = normalizeVisualItem(rawItem) || {};
     const id = String(item.id || '');
@@ -13497,7 +13698,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction,
     attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -13577,6 +13778,7 @@ async function waitGeneration(jobId, options) {
   window.expandHistorySection = expandHistorySection;
   window.clearCurrentUploadTarget = clearCurrentUploadTarget;
   window.pickVisualReference = pickVisualReference;
+  window.sendVisualInteraction = sendVisualInteraction;
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
   window.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
@@ -13611,6 +13813,7 @@ async function waitGeneration(jobId, options) {
   S.chooseVideoAddObject = chooseVideoAddObject;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
   S.pickVisualReference = pickVisualReference;
+  S.sendVisualInteraction = sendVisualInteraction;
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
   S.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
