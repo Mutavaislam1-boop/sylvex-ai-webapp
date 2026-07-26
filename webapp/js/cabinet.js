@@ -1008,7 +1008,7 @@ async function loadPresetCatalog(force) {
 
   presetCatalogLoading = (async () => {
     try {
-      const response = await fetch(PRESET_CATALOG_ENDPOINT, { method: 'GET', cache: 'no-store' });
+      const response = await fetch(PRESET_CATALOG_ENDPOINT, { method: 'GET', cache: 'default' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || data.error || ('HTTP ' + response.status));
 
@@ -5982,7 +5982,6 @@ function renderImageStylePanel() {
   `;
 
   if (isCharacter) {
-    setTimeout(() => items.slice(0, 12).forEach((item) => loadVisualStats('character', normalizeVisualItem(item) || item)), 0);
     grid.classList.remove('visual-character-grid');
     grid.innerHTML = createCard + items.map((rawItem) => {
       const item = normalizeVisualItem(rawItem) || {};
@@ -10647,7 +10646,7 @@ function maybeShowVideoTemplateIntro(force) {
   async function loadVideoTemplates() {
     if (Array.isArray(videoTemplatesCache)) return videoTemplatesCache;
     try {
-      const res = await fetch('/api/public/prostudio/video-templates', { cache: 'no-store' });
+      const res = await fetch('/api/public/prostudio/video-templates', { cache: 'default' });
       // =====================================================
       // JAVASCRIPT-БЛОК: data
       // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -10667,7 +10666,7 @@ function maybeShowVideoTemplateIntro(force) {
   async function loadKlingEffects() {
     if (Array.isArray(klingEffectsCache)) return klingEffectsCache;
     try {
-      const res = await fetch('/api/public/prostudio/kling/effects', { cache: 'no-store' });
+      const res = await fetch('/api/public/prostudio/kling/effects', { cache: 'default' });
       const data = await res.json().catch(() => ({}));
       klingEffectsCache = normalizeVideoTemplateList((data.effects || []).map((effect) => Object.assign({}, effect, {
         catalog_type: 'kling_effect',
