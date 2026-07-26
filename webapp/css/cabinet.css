@@ -18,6 +18,8 @@ CSS-БЛОК: :root
   --grad-card:#2f2f2f;
   --shadow-lg:0 12px 32px -12px rgba(0,0,0,.6);
   --radius:22px;--blur:24px;
+  --miniapp-icon-size:18px;
+  --miniapp-icon-box:34px;
 }
 /* =====================================================
 CSS-БЛОК: [data-theme="light"]
@@ -7111,4 +7113,79 @@ JavaScript добавляет класс is-compact, когда сам composer 
 .view[data-view="tools"].active .studio-video-composer.is-compact textarea{
   min-height:86px;
   font-size:15px;
+}
+
+/* =====================================================
+ЕДИНЫЙ РАЗМЕР ИКОНОК MINI APP
+Финальный слой нормализует визуальный размер иконок на desktop и mobile.
+Видео-каталог не включен в эти селекторы намеренно.
+===================================================== */
+.app :where(
+  .icon-btn,
+  .nav-btn,
+  .hsoc,
+  .social,
+  .studio-search,
+  .mode-ico,
+  .msg-actions button,
+  .studio-new,
+  .sb-icon,
+  .studio-mini-tab,
+  .studio-mode-tab,
+  .studio-frame-card,
+  .studio-image-tool,
+  .studio-links-btn,
+  .studio-video-edit-upload,
+  .studio-select-pill,
+  .image-settings-pill,
+  .image-count-pill,
+  .studio-generate,
+  .vgen-btn,
+  .vgen-upload-row,
+  .vgen-uico,
+  .voice-workspace-tile,
+  .voice-workspace-upload,
+  .voice-upload-drop,
+  .voice-upload-chip,
+  .voice-upload-speaker-btn,
+  .voice-trash-btn,
+  .generation-info-close,
+  .studio-player-controls button,
+  .studio-player-icon,
+  .upload-photo-thumb,
+  .upload-photo-add-icon,
+  .upload-photo-center-icon
+) svg,
+.app .tb-stat svg,
+.app .studio-link-icons svg,
+.app .studio-video-edit-upload-icon svg,
+.app .studio-frame-ico svg,
+.app .vgen-btn-ico svg,
+.app .voice-workspace-upload svg,
+.app .voice-trash-btn svg,
+body > #modelPop:not(.video-template-modal) svg,
+body > #modelPop:not(.video-template-modal) .model-brand-logo {
+  width:var(--miniapp-icon-size) !important;
+  height:var(--miniapp-icon-size) !important;
+  max-width:var(--miniapp-icon-size) !important;
+  max-height:var(--miniapp-icon-size) !important;
+  flex:0 0 var(--miniapp-icon-size) !important;
+}
+
+.app :where(.tool .ico,.cat .ci,.chat-head .ico,.ctrl .ci,.row .ico,.mode-ico .mi,.studio-link-icons span,.vgen-uico,.voice-workspace-upload i){
+  width:var(--miniapp-icon-box) !important;
+  height:var(--miniapp-icon-box) !important;
+  min-width:var(--miniapp-icon-box) !important;
+  flex-basis:var(--miniapp-icon-box) !important;
+  font-size:var(--miniapp-icon-size) !important;
+}
+
+.app :where(.studio-emoji-icon,.studio-frame-ico,.vgen-btn-ico,.upload-photo-add-icon,.upload-photo-center-icon,.voice-upload-drop span,.voice-upload-audio-box > span,.generation-info-audio-preview span){
+  font-size:var(--miniapp-icon-size) !important;
+  line-height:1 !important;
+}
+
+.app :where(.studio-player-controls button,.studio-player-icon,.studio-new,.sb-icon,.icon-btn,.image-settings-pill){
+  width:var(--miniapp-icon-box) !important;
+  height:var(--miniapp-icon-box) !important;
 }
