@@ -4408,25 +4408,25 @@ function visualCharacterDetailHtml(rawItem, selected) {
           </div>
         </div>
         <div class="visual-character-info">
-          <div class="visual-character-like-count">♥ ${S.escapeHtml(compactStatNumber(likes))}</div>
           <div class="visual-character-title-row">
             <h3>${S.escapeHtml(name)}</h3>
             ${stats.favorite ? '<span class="visual-character-official">★</span>' : ''}
+            <span class="visual-character-like-count">♥ ${S.escapeHtml(compactStatNumber(likes))}</span>
             <span class="visual-character-rating">${rating}/10</span>
+            <span class="visual-character-specs">
+              <span><b>Возраст</b>${S.escapeHtml(profile.age)}</span>
+              <span><b>Пол</b>${S.escapeHtml(profile.gender)}</span>
+              <span><b>Рост</b>${S.escapeHtml(profile.height)}</span>
+              <span><b>Глаза</b>${S.escapeHtml(profile.eyes)}</span>
+            </span>
           </div>
           <p>${S.escapeHtml(profile.description)}</p>
-          <div class="visual-character-specs">
-            <span><b>Возраст</b>${S.escapeHtml(profile.age)}</span>
-            <span><b>Рост</b>${S.escapeHtml(profile.height)}</span>
-            <span><b>Глаза</b>${S.escapeHtml(profile.eyes)}</span>
-            <span><b>Пол</b>${S.escapeHtml(profile.gender)}</span>
+          <div class="visual-character-actions">
+            <button class="visual-character-icon-btn ${stats.favorite ? 'active' : ''}" type="button" aria-label="Избранное" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','favorite',undefined,event)">★</button>
+            <button class="visual-character-select" type="button" onclick="SYLVEX.pickVisualReference(event,'character','${S.escapeHtml(id)}')">${selected ? 'Выбрано' : 'Выбрать'}</button>
+            <button class="visual-character-icon-btn like ${stats.liked ? 'active' : ''}" type="button" aria-label="Лайк" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','like',undefined,event)">♥</button>
           </div>
         </div>
-      </div>
-      <div class="visual-character-actions">
-        <button class="visual-character-icon-btn ${stats.favorite ? 'active' : ''}" type="button" aria-label="Избранное" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','favorite',undefined,event)">★</button>
-        <button class="visual-character-select" type="button" onclick="SYLVEX.pickVisualReference(event,'character','${S.escapeHtml(id)}')">${selected ? 'Выбрано' : 'Выбрать'}</button>
-        <button class="visual-character-icon-btn like ${stats.liked ? 'active' : ''}" type="button" aria-label="Лайк" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','like',undefined,event)">♥</button>
       </div>
     </div>
   `;
@@ -5622,18 +5622,18 @@ function currentSelectedUploadImage() {
       min-height: 100%;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 10px;
     }
 
     .visual-character-detail-head {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 10px;
     }
 
     .visual-character-back {
-      width: 44px;
-      height: 44px;
+      width: 32px;
+      height: 32px;
       border: 0;
       border-radius: 50%;
       display: grid;
@@ -5642,14 +5642,16 @@ function currentSelectedUploadImage() {
       color: #fff;
       font: 900 42px/1 inherit;
       cursor: pointer;
-      padding: 0 0 5px;
+      padding: 0 0 6px;
     }
 
     .visual-character-detail-head h3 {
       margin: 0;
-      font-size: 32px;
+      font-size: 11px;
       line-height: 1;
       font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
     }
 
     .visual-character-detail-body {
@@ -5733,106 +5735,106 @@ function currentSelectedUploadImage() {
 
     .visual-character-info {
       position: relative;
-      min-height: 250px;
+      min-height: 0;
       border: 2px solid rgba(255,255,255,.34);
       border-radius: 18px;
-      padding: 12px;
+      padding: 9px;
       background: rgba(255,255,255,.025);
     }
 
     .visual-character-like-count {
-      position: absolute;
-      right: 12px;
-      top: -28px;
-      min-width: 54px;
-      height: 24px;
+      min-width: 34px;
+      height: 18px;
+      padding: 0 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      border-radius: 7px;
+      gap: 3px;
+      border-radius: 6px;
       background: #ff1749;
       color: #fff;
-      font-size: 13px;
+      font-size: 10px;
       font-weight: 900;
     }
 
     .visual-character-title-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       min-width: 0;
+      flex-wrap: wrap;
     }
 
     .visual-character-title-row h3 {
       margin: 0;
-      font-size: 24px;
+      font-size: 18px;
       line-height: 1;
       font-weight: 900;
     }
 
     .visual-character-official {
       color: #ffd45a;
-      font-size: 18px;
+      font-size: 13px;
     }
 
     .visual-character-rating {
-      margin-left: auto;
       color: rgba(255,255,255,.9);
-      font-size: 14px;
+      font-size: 10px;
       white-space: nowrap;
     }
 
     .visual-character-info p {
-      margin: 10px 0 12px;
+      margin: 8px 0 8px;
       color: rgba(255,255,255,.86);
-      font-size: 13px;
-      line-height: 1.35;
+      font-size: 11px;
+      line-height: 1.28;
     }
 
     .visual-character-specs {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      min-width: 0;
     }
 
     .visual-character-specs span {
-      border-radius: 10px;
+      border-radius: 999px;
       background: rgba(255,255,255,.06);
-      padding: 8px 9px;
-      font-size: 12px;
+      padding: 3px 6px;
+      font-size: 10px;
       color: #fff;
+      white-space: nowrap;
     }
 
     .visual-character-specs b {
-      display: block;
-      margin-bottom: 3px;
+      display: inline;
+      margin: 0 3px 0 0;
       color: rgba(255,255,255,.55);
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       font-weight: 800;
     }
 
     .visual-character-actions {
-      margin-top: auto;
-      display: grid;
-      grid-template-columns: 50px minmax(150px, 210px) 50px;
-      justify-content: center;
+      margin-top: 4px;
+      display: flex;
+      justify-content: flex-end;
       align-items: center;
-      gap: 14px;
-      padding-top: 18px;
+      gap: 5px;
+      padding-top: 0;
     }
 
     .visual-character-icon-btn {
-      width: 48px;
-      height: 48px;
+      width: 16px;
+      height: 16px;
       border: 0;
       border-radius: 50%;
       display: grid;
       place-items: center;
       background: rgba(255,255,255,.08);
       color: #f7c84a;
-      font: 900 24px/1 inherit;
+      font: 900 9px/1 inherit;
       cursor: pointer;
     }
 
@@ -5851,14 +5853,16 @@ function currentSelectedUploadImage() {
     }
 
     .visual-character-select {
-      height: 48px;
+      height: 16px;
+      min-width: 68px;
+      padding: 0 10px;
       border: 0;
       border-radius: 999px;
       background: linear-gradient(180deg, #6885ff, #3f61da);
       color: #fff;
-      font: 900 22px/1 inherit;
+      font: 900 9px/1 inherit;
       cursor: pointer;
-      box-shadow: 0 8px 18px rgba(40,80,230,.34);
+      box-shadow: 0 4px 9px rgba(40,80,230,.24);
     }
 
     @media (max-width: 370px) {
@@ -5875,13 +5879,10 @@ function currentSelectedUploadImage() {
         grid-template-columns: 1fr;
       }
       .visual-character-detail-head h3 {
-        font-size: 30px;
+        font-size: 11px;
       }
       .visual-character-ref-row {
         gap: 10px;
-      }
-      .visual-character-actions {
-        grid-template-columns: 46px minmax(140px, 190px) 46px;
       }
     }
   `;
