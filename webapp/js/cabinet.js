@@ -5654,7 +5654,7 @@ function currentSelectedUploadImage() {
 
     .visual-character-detail-body {
       display: grid;
-      grid-template-columns: minmax(230px, 1fr) minmax(260px, 1.35fr);
+      grid-template-columns: minmax(118px, 170px) minmax(0, 1fr);
       gap: 14px;
       align-items: start;
     }
@@ -5662,15 +5662,17 @@ function currentSelectedUploadImage() {
     .visual-character-media-col {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
       min-width: 0;
+      width: min(100%, 170px);
     }
 
     .visual-character-main-media {
       position: relative;
       width: 100%;
+      max-width: 170px;
       aspect-ratio: 4 / 5;
-      border-radius: 28px;
+      border-radius: 18px;
       overflow: hidden;
       background: #2d2d2d;
       border: 2px solid rgba(255,255,255,.45);
@@ -5688,8 +5690,8 @@ function currentSelectedUploadImage() {
       position: absolute;
       left: 50%;
       top: 50%;
-      width: 78px;
-      height: 78px;
+      width: 44px;
+      height: 44px;
       transform: translate(-50%, -50%);
       border: 0;
       border-radius: 50%;
@@ -5700,24 +5702,25 @@ function currentSelectedUploadImage() {
     .visual-character-play-btn::before {
       content: "";
       position: absolute;
-      left: 31px;
-      top: 21px;
-      border-left: 25px solid rgba(30,30,30,.92);
-      border-top: 17px solid transparent;
-      border-bottom: 17px solid transparent;
+      left: 18px;
+      top: 12px;
+      border-left: 15px solid rgba(30,30,30,.92);
+      border-top: 10px solid transparent;
+      border-bottom: 10px solid transparent;
     }
 
     .visual-character-ref-row {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 20px;
+      gap: 8px;
     }
 
     .visual-character-ref-row span {
-      aspect-ratio: 1;
+      aspect-ratio: 3 / 4;
       overflow: hidden;
       background: #333;
       display: block;
+      border-radius: 6px;
     }
 
     .visual-character-ref-row img {
@@ -5725,6 +5728,7 @@ function currentSelectedUploadImage() {
       height: 100%;
       display: block;
       object-fit: cover;
+      object-position: center top;
     }
 
     .visual-character-info {
