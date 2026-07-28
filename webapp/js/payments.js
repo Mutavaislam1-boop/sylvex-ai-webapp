@@ -7,6 +7,7 @@
   const S = window.SYLVEX || {};
   const tg = S.tg || (window.Telegram && window.Telegram.WebApp);
   const PAYPAL_PAYMENT_LINKS = {
+    pack_100: "https://www.paypal.com/ncp/payment/BBWGSMRNBPHSS",
     pack_500: "https://www.paypal.com/ncp/payment/QXN7U6RQU7Y8L",
     pack_1000: "https://www.paypal.com/ncp/payment/YRWTDN4D585SL",
     pack_2000: "https://www.paypal.com/ncp/payment/YGGSLURF7ZC8N",
