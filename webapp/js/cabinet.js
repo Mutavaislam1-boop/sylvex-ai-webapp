@@ -4104,6 +4104,82 @@ function openImageUpload(e) {
   openUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD, e);
 }
 
+const selectionButtonTimers = Object.create(null);
+const SELECTION_DOUBLE_PRESS_MS = 320;
+
+function clearSelectionButton(kind) {
+  if (kind === 'style') {
+    imageState.style = 'auto';
+  } else if (kind === 'character') {
+    clearSelectedCharacter();
+  } else if (kind === 'object') {
+    clearSelectedObject();
+  } else if (kind === 'image_upload') {
+    imageState.attachment = null;
+    setCurrentUploadImages([], UPLOAD_TARGETS.IMAGE_UPLOAD);
+  } else if (kind === 'video_start') {
+    setCurrentUploadImages([], UPLOAD_TARGETS.VIDEO_START);
+  } else if (kind === 'video_end') {
+    setCurrentUploadImages([], UPLOAD_TARGETS.VIDEO_END);
+  } else if (kind === 'video_references') {
+    setCurrentUploadImages([], UPLOAD_TARGETS.VIDEO_REFERENCES);
+    videoState.referenceVideoUrl = '';
+    videoState.referenceUploading = null;
+    renderVideoReferencesPreview();
+  } else if (kind === 'video_edit') {
+    videoState.editUploading = null;
+    videoState.editInputVideo = '';
+    videoState.editVideoUrl = '';
+    videoState.inputVideo = '';
+    videoState.videoUrl = '';
+    renderVideoEditPreview();
+  }
+
+  const panel = document.getElementById('imageStylePanel');
+  if (panel) panel.classList.remove('show');
+  const uploadPanel = document.getElementById('uploadPanel');
+  if (uploadPanel) uploadPanel.classList.remove('show');
+  const modelPop = document.getElementById('modelPop');
+  if (modelPop) modelPop.classList.remove('show');
+  closeVideoAddMenu();
+  renderImageControls();
+  renderAllUploadPreviews();
+  renderUploadedPhotoGrid();
+  updateSendButton();
+  toast('Выбор очищен');
+  S.haptic && S.haptic.notify && S.haptic.notify('success');
+}
+
+function openSelectionButton(kind) {
+  if (kind === 'style') return openImageOptionMenu(null, 'style');
+  if (kind === 'character') return openImageOptionMenu(null, 'character');
+  if (kind === 'object') return openImageOptionMenu(null, 'objects');
+  if (kind === 'image_upload') return openImageUpload(null);
+  if (kind === 'video_start') return openVideoStartUpload(null);
+  if (kind === 'video_end') return openVideoEndUpload(null);
+  if (kind === 'video_references') return toggleVideoAddMenu(null);
+  if (kind === 'video_edit') return openVideoEditInputUpload(null);
+}
+
+function handleSelectionButtonClick(e, kind) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const key = String(kind || '');
+  if (!key) return;
+  if (selectionButtonTimers[key]) {
+    clearTimeout(selectionButtonTimers[key]);
+    delete selectionButtonTimers[key];
+    clearSelectionButton(key);
+    return;
+  }
+  selectionButtonTimers[key] = setTimeout(() => {
+    delete selectionButtonTimers[key];
+    openSelectionButton(key);
+  }, SELECTION_DOUBLE_PRESS_MS);
+}
+
 // =====================================================
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageUploadTarget
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -14295,7 +14371,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -14325,6 +14401,7 @@ async function waitGeneration(jobId, options) {
   window.showImageModelPicker = showImageModelPicker;
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
+  window.handleSelectionButtonClick = handleSelectionButtonClick;
   window.openImageUpload = openImageUpload;
   window.openVideoStartUpload = openVideoStartUpload;
   window.openVideoEndUpload = openVideoEndUpload;
