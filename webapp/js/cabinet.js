@@ -4697,24 +4697,40 @@ function pickVisualCreatePhoto(e, index) {
   if (visualCreateDraft && visualCreateDraft.saving) return;
   const input = document.getElementById('visualCreateFileInput');
   if (!input) return;
+  input.multiple = true;
   input.onchange = () => {
-    const file = input.files && input.files[0];
+    const files = Array.from(input.files || []);
     input.value = '';
-    if (!file) return;
-    if (!/^image\/(png|jpeg|webp)$/i.test(file.type || '')) {
-      toast('Поддерживаются только JPG, PNG и WEBP');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast('Файл слишком большой');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      visualCreateDraft.photos[index] = String(reader.result || '');
+    if (!files.length) return;
+    if (visualCreateDraft.photos[index]) visualCreateDraft.photos[index] = '';
+    const available = Math.max(0, 3 - (visualCreateDraft.photos || []).filter(Boolean).length + (visualCreateDraft.photos[index] ? 1 : 0));
+    if (files.length > available) toast('Можно выбрать не больше 3 фотографий');
+    const selected = files.slice(0, available);
+    const valid = selected.filter((file) => {
+      if (!/^image\/(png|jpeg|webp)$/i.test(file.type || '')) {
+        toast('Поддерживаются только JPG, PNG и WEBP');
+        return false;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast('Файл слишком большой');
+        return false;
+      }
+      return true;
+    });
+    Promise.all(valid.map((file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    }))).then((urls) => {
+      let targetIndex = index;
+      urls.filter(Boolean).forEach((url) => {
+        while (targetIndex < 3 && visualCreateDraft.photos[targetIndex]) targetIndex += 1;
+        if (targetIndex >= 3) targetIndex = visualCreateDraft.photos.findIndex((value) => !value);
+        if (targetIndex >= 0 && targetIndex < 3) visualCreateDraft.photos[targetIndex] = url;
+      });
       renderVisualCreateModal();
-    };
-    reader.readAsDataURL(file);
+    });
   };
   input.click();
 }
@@ -9957,7 +9973,8 @@ function closeUploadPanel(e) {
     if (!inp) return;
     const klingOmniEdit = isKlingOmniEditUploadContext();
     const allowVideoForTarget = isVideoMode() ? videoUploadTargetAllowsVideo() : true;
-    if (kind === 'voice_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'voice_media'; }
+    if (kind === 'music_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'audio'; }
+    else if (kind === 'voice_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
@@ -9974,6 +9991,12 @@ function closeUploadPanel(e) {
     else if (kind === 'image') { inp.accept = 'image/*'; pendingAttachAccept = 'image'; }
     else if (kind === 'video') { inp.accept = klingOmniEdit ? 'video/mp4,video/quicktime,.mp4,.mov' : 'video/*'; pendingAttachAccept = 'video'; }
     else { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'file'; }
+    const target = getUploadTarget();
+    const singleTarget = target === UPLOAD_TARGETS.VIDEO_START
+      || target === UPLOAD_TARGETS.VIDEO_END
+      || target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT
+      || /^text_|document|file$/.test(kind);
+    inp.multiple = !singleTarget;
     inp.value = '';
     inp.click();
   }
@@ -10017,6 +10040,10 @@ function closeUploadPanel(e) {
       e = target;
       target = '';
     }
+    if (isMusicMode()) {
+      openNativeFilePicker('music_audio');
+      return;
+    }
     if (kind === 'video') {
       if (isVideoMode() && videoState.section === 'edit') {
         openVideoEditInputUpload(e);
@@ -10035,9 +10062,34 @@ function closeUploadPanel(e) {
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
   async function onAttachFile(e) {
-    const f = e.target.files && e.target.files[0];
+    const files = Array.from((e.target && e.target.files) || []);
+    if (e.target) e.target.value = '';
+    if (!files.length) return;
+    const target = getUploadTarget();
+    const currentCount = uploadUrlsForTarget(target).length;
+    const targetLimit = uploadLimitForTarget(target);
+    const pending = pendingAttachAccept || 'file';
+    const singleSelection = target === UPLOAD_TARGETS.VIDEO_START
+      || target === UPLOAD_TARGETS.VIDEO_END
+      || target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT
+      || /^text_|voice_document|text_document|file$/.test(pending);
+    const audioUploads = (isVoiceMode() || isMusicMode())
+      ? ((currentAudioState().uploads || []).filter(Boolean).length)
+      : 0;
+    const remaining = singleSelection
+      ? 1
+      : ((isVoiceMode() || isMusicMode()) ? Math.max(0, 4 - audioUploads) : Math.max(0, targetLimit - currentCount));
+    if (files.length > remaining) {
+      toast('Можно выбрать не больше ' + (singleSelection ? 1 : targetLimit) + ' файлов');
+    }
+    for (const file of files.slice(0, remaining)) {
+      await processAttachFile(file, pending);
+    }
+  }
+
+  async function processAttachFile(f, requestedKind) {
     if (!f) return;
-    let pendingKind = pendingAttachAccept || 'file';
+    let pendingKind = requestedKind || pendingAttachAccept || 'file';
     // Handle 'media' kind: treat as image or video depending on file type
     if (pendingKind === 'media') {
       if (isVideoFileLike(f)) {
@@ -10090,7 +10142,6 @@ function closeUploadPanel(e) {
         size: f.size || 0,
         previewUrl,
       };
-      voiceState.uploads = [];
       voiceState.attachment = null;
       renderVoiceToolPanel();
       updateSendButton();
@@ -10121,7 +10172,6 @@ function closeUploadPanel(e) {
         })
         .catch((err) => {
           voiceState.uploading = null;
-          voiceState.uploads = [];
           voiceState.attachment = null;
           revokeVoiceUploadPreview();
           renderVoiceToolPanel();
