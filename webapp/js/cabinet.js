@@ -4588,16 +4588,21 @@ function renderVisualCreateModal() {
   const canSave = visualCreateCanSave();
   const busy = !!visualCreateDraft.saving;
   const statusText = visualCreateDraft.statusText || '';
-  modal.innerHTML = '<div class="visual-create-card">'
+  modal.innerHTML = '<div class="visual-create-card ' + (busy ? 'is-busy' : '') + '">'
     + '<div class="visual-create-head"><button class="visual-create-back" type="button" onclick="SYLVEX.closeVisualCreateModal(event)" ' + (busy ? 'disabled' : '') + ' aria-label="Назад">‹</button><h3>' + title + '</h3></div>'
     + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" ' + (busy ? 'disabled' : '') + ' /></label>'
     + (isCharacter ? '<label class="visual-field"><span>Пол *</span><select id="visualCreateGender" onchange="SYLVEX.updateVisualCreateDraft(event,\'gender\')" ' + (busy ? 'disabled' : '') + '><option value="">Выберите пол</option><option value="male" ' + (gender === 'male' ? 'selected' : '') + '>Мужской</option><option value="female" ' + (gender === 'female' ? 'selected' : '') + '>Женский</option></select></label>' : '')
     + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>' : '')
     + '<div class="visual-photo-grid">' + [0, 1, 2].map(visualCreatePhotoSlot).join('') + '</div>'
     + '<p class="visual-create-hint">' + hint + '<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.</p>'
-    + (busy ? '<div class="visual-create-loading ' + (visualCreateDraft.done ? 'done' : '') + '">' + (visualCreateDraft.done ? '<strong>✓</strong>' : '<span></span>') + '<b>' + S.escapeHtml(statusText || ((isCharacter ? 'Персонаж ' : 'Объект ') + name + ' создаётся')) + '</b></div>' : '')
     + '<button class="visual-create-save" type="button" ' + (canSave && !busy ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (busy ? 'Создаём...' : (isCharacter ? 'Создать персонажа' : 'Создать объект')) + '</button>'
     + '<input id="visualCreateFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />'
+    + (busy ? '<div class="visual-create-loading-overlay" role="status" aria-live="polite">'
+      + '<div class="visual-create-loading ' + (visualCreateDraft.done ? 'done' : '') + '">'
+      + (visualCreateDraft.done ? '<strong>✓</strong>' : '<span></span>')
+      + '<b>' + S.escapeHtml(statusText || ((isCharacter ? 'Персонаж ' : 'Объект ') + name + ' создаётся')) + '</b>'
+      + (!visualCreateDraft.done ? '<small>Пожалуйста, не закрывайте окно</small>' : '')
+      + '</div></div>' : '')
     + '</div>';
   modal.classList.add('show');
 }
@@ -11532,7 +11537,7 @@ function translateGenerationError(value, fallback) {
   if (/invalid image|image.*invalid|cannot process.*image|bad image|unsupported image/.test(low)) {
     return 'Не удалось обработать загруженное изображение.\nПопробуйте выбрать другое изображение.';
   }
-  if (/quota|insufficient quota|credit.*exceed|limit.*exceed/.test(low)) {
+  if (/billing hard limit|billing limit|insufficient[_ ]quota|quota|credit.*exceed|limit.*exceed|limit has been reached/.test(low)) {
     return 'Временный лимит генераций исчерпан.\nПовторите попытку позже.';
   }
   if (/rate limit|too many requests|429|overloaded|busy/.test(low)) {

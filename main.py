@@ -5879,7 +5879,15 @@ async def public_prostudio_create_character(request: Request):
         return {"ok": True, "resource": {**resource, **saved}, "heygen": heygen["response"]}
     except Exception as exc:
         prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
-        return JSONResponse({"ok": False, "error": str(exc)[:1200]}, status_code=502)
+        error_text = str(exc)
+        if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
+            return JSONResponse({
+                "ok": False,
+                "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
+                "code": "openai_billing_limit_reached",
+                "provider": "openai",
+            }, status_code=402)
+        return JSONResponse({"ok": False, "error": error_text[:1200]}, status_code=502)
 
 
 # =====================================================
