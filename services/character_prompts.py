@@ -2,79 +2,65 @@
 
 OPERATION_PROMPTS = {
     "text_to_image": (
-        "Create a new image using the selected character exactly as defined. Preserve the "
-        "character's identity, face, hairstyle, hair color, eye color, skin tone, body "
-        "proportions, makeup, clothing, accessories, and overall appearance without any "
-        "changes. Apply only the scene, action, pose, environment, camera, and lighting "
-        "described by the user."
+        "Create a new image using the person shown in the selected avatar and three character "
+        "reference images. Treat those four images as the only source for the character. The "
+        "user request controls only the scene and action."
     ),
     "reference_to_image": (
-        "Integrate the selected character into the uploaded image. If a person is present, "
-        "replace that person with the selected character while preserving the original pose, "
-        "body position, composition, camera angle, objects, clothing placement, lighting, "
-        "shadows, background, and scene structure. Change only the person's identity."
+        "Replace the person in the uploaded image with the person shown in the selected avatar "
+        "and three character reference images. Preserve the uploaded image's pose, clothing, "
+        "background, objects, lighting, framing, and spatial arrangement. Change only the person."
     ),
     "image_to_image_scene": (
-        "Use the uploaded image as the exact scene reference and place the selected character "
-        "into it. Preserve the original composition, environment, objects, perspective, camera "
-        "angle, lighting, and spatial arrangement. Do not redesign or recreate the scene."
+        "Use the uploaded image as the exact scene and place the person shown in the selected "
+        "avatar and three character reference images into it. Preserve the composition, objects, "
+        "perspective, camera, lighting, and spatial arrangement."
     ),
     "character_replace_image": (
-        "Replace the main person in the uploaded image with the selected character. Preserve "
-        "the original pose, gesture, facial direction, body position, framing, clothing shape, "
-        "interaction with objects, background, lighting, and camera perspective. Do not create "
-        "an additional person."
+        "Replace the main person in the uploaded image with the person shown in the selected "
+        "avatar and three character reference images. Preserve pose, expression, clothing, "
+        "framing, objects, background, lighting, and camera. Do not create an additional person."
     ),
     "text_to_video": (
-        "Create a new video using the selected character exactly as defined. Preserve the "
-        "character's identity, face, hairstyle, hair color, eye color, skin tone, body "
-        "proportions, makeup, clothing, and accessories consistently in every frame. Apply only "
-        "the action, scene, camera movement, environment, and lighting described by the user."
+        "Create a new video using the person shown in the selected avatar and three character "
+        "reference images. Treat those four images as the only source for the character in every "
+        "frame. The user request controls only the scene and action."
     ),
     "image_to_video": (
-        "Animate the uploaded image while preserving the selected character's exact identity "
-        "and appearance. Keep the face, hairstyle, hair color, eye color, skin tone, body "
-        "proportions, clothing, accessories, background, composition, and objects consistent. "
-        "Add only the movement described by the user."
+        "Animate the uploaded image using the person shown in the selected avatar and three "
+        "character reference images. Preserve the source image's clothing, background, "
+        "composition, and objects. Add only the requested movement."
     ),
     "reference_to_video": (
-        "Use the uploaded image as the visual reference and create a video with the selected "
-        "character integrated into the same scene. Preserve the original composition, pose, "
-        "objects, clothing placement, environment, camera angle, and lighting. Keep the selected "
-        "character consistent throughout all frames."
+        "Use the uploaded image as the scene and create a video with the person shown in the "
+        "selected avatar and three character reference images. Preserve composition, pose, "
+        "clothing, objects, environment, camera, and lighting throughout all frames."
     ),
     "video_character_replace": (
-        "Replace the main person in the uploaded video with the selected character. Preserve the "
-        "original movement, pose, gestures, facial direction, timing, camera motion, clothing "
-        "behavior, object interaction, lighting, background, and scene composition. Change only "
-        "the person's identity and keep it stable in every frame."
+        "Replace the main person in the uploaded video with the person shown in the selected "
+        "avatar and three character reference images. Preserve movement, expression, pose, "
+        "clothing, timing, camera, background, objects, and their interactions in every frame."
     ),
     "video_scene_transfer": (
-        "Use the uploaded video as the exact motion and composition reference. Replace the main "
-        "person with the selected character while preserving the original movement, timing, pose, "
-        "gestures, camera motion, framing, objects, environment, and lighting. Do not alter the "
-        "scene unless explicitly requested by the user."
+        "Use the uploaded video as the exact motion and composition source. Replace its main "
+        "person with the person shown in the selected avatar and three character reference images. "
+        "Preserve movement, expression, pose, clothing, timing, camera, background, and all objects."
     ),
     "style_change_image": (
-        "Apply the requested visual style to the image while preserving the selected character's "
-        "exact identity, facial structure, hairstyle, hair color, eye color, skin tone, body "
-        "proportions, clothing, accessories, pose, and composition. Change only the artistic style."
+        "Apply only the requested visual style. Use the selected avatar and three character "
+        "reference images as the only source for the person, and preserve pose and composition."
     ),
     "style_change_video": (
-        "Apply the requested visual style to the video while preserving the selected character's "
-        "exact identity, facial structure, hairstyle, hair color, eye color, skin tone, body "
-        "proportions, clothing, movement, timing, and consistency in every frame. Change only the "
-        "artistic style."
+        "Apply only the requested visual style. Use the selected avatar and three character "
+        "reference images as the only source for the person, and preserve movement and timing."
     ),
     "outfit_change_image": (
-        "Keep the selected character's identity, face, hairstyle, hair color, eye color, skin tone, "
-        "body proportions, makeup, pose, and scene unchanged. Replace only the clothing and "
-        "accessories according to the user's request."
+        "Use the selected avatar and three character reference images as the only source for the "
+        "person. Preserve the pose and scene. Change only the clothing requested by the user."
     ),
     "outfit_change_video": (
-        "Keep the selected character's identity, face, hairstyle, hair color, eye color, skin tone, "
-        "body proportions, makeup, movement, pose, and scene unchanged throughout the video. "
-        "Replace only the clothing and accessories according to the user's request."
+        "Use the selected avatar and three character reference images as the only source for the "
+        "person. Preserve movement, pose, and scene. Change only the clothing requested by the user."
     ),
 }
 
@@ -83,9 +69,8 @@ REPLACEMENT_OPERATIONS = {
 }
 
 GLOBAL_CHARACTER_RULE = (
-    "The selected character defines the identity and default appearance. The user prompt controls "
-    "only the scene, action, environment, camera, and lighting unless the user explicitly requests "
-    "a permitted change."
+    "Use only the selected avatar and three character reference images to determine the person. "
+    "Do not infer the person from any textual character description."
 )
 
 
@@ -107,8 +92,8 @@ def infer_character_operation(media: str, requested: str = "", has_source_image:
 
 
 def build_character_prompt(operation: str, character_prompt: str, user_prompt: str) -> str:
-    parts = [OPERATION_PROMPTS.get(operation, ""), str(character_prompt or "").strip(),
-             str(user_prompt or "").strip(), GLOBAL_CHARACTER_RULE]
+    # character_prompt is intentionally ignored for backward compatibility with old clients.
+    parts = [OPERATION_PROMPTS.get(operation, ""), str(user_prompt or "").strip(), GLOBAL_CHARACTER_RULE]
     if operation in REPLACEMENT_OPERATIONS:
         parts.append(
             "Do not create a second character. Do not change the scene unless explicitly requested."

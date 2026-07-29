@@ -4658,7 +4658,7 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 item["avatar_id"] = metadata.get("avatar_id") or metadata.get("avatarId") or ""
                 item["provider"] = metadata.get("provider") or metadata.get("ai_provider") or ""
                 item["model"] = metadata.get("model") or metadata.get("ai_model") or ""
-                item["prompt"] = metadata.get("prompt") or metadata.get("characterPrompt") or description or ""
+                item["prompt"] = ""
                 item["heygenPhotoAvatarId"] = metadata.get("heygenPhotoAvatarId") or metadata.get("heygen_photo_avatar_id") or metadata.get("avatar_id") or ""
                 item["heygenAvatarGroupId"] = metadata.get("heygenAvatarGroupId") or metadata.get("heygen_avatar_group_id") or ""
                 result["characters"].append(item)
@@ -5668,19 +5668,10 @@ async def public_prostudio_runway_avatar(request: Request):
 
 
 def _character_identity_prompt(name: str, gender: str, description: str) -> str:
-    details = str(description or "").strip()
-    return (
-        f"Persistent character identity for {name}. "
-        f"Gender presentation: {gender or 'neutral'}. "
-        f"{details} "
-        "Always preserve this character's exact identity, facial structure, hairstyle, hair color, "
-        "eye color, skin tone, body proportions, makeup, default clothing, accessories, and overall "
-        "appearance. Reference images are authoritative; do not reinterpret or redesign the character."
-    ).strip()
+    return ""
 
 
 async def _generate_openai_character_images(name: str, gender: str, description: str, photos: list) -> list:
-    identity = _character_identity_prompt(name, gender, description)
     shots = [
         "Create the primary square avatar: centered head-and-shoulders studio portrait, neutral expression, clean neutral background.",
         "Create reference 1: front-facing full-body neutral standing pose, complete default outfit visible, clean studio background.",
@@ -5695,8 +5686,8 @@ async def _generate_openai_character_images(name: str, gender: str, description:
             "provider": "openai",
             "model": "gpt_image_2",
             "prompt": (
-                f"{identity}\n\n{shot}\n\nUse all uploaded photos only to establish identity. "
-                "No text, watermark, extra people, collage, or identity variation."
+                f"{shot}\n\nUse the uploaded photos as the only source for the person. "
+                "No text, watermark, extra people, or collage."
             ),
             "image_options": {
                 "modelId": "gpt_image_2",
@@ -5789,7 +5780,7 @@ async def public_prostudio_create_character(request: Request):
             "name": name,
             "gender": gender,
             "description": description,
-            "prompt": identity_prompt,
+            "prompt": "",
             "previewUrl": images[0],
             "avatarUrl": images[0],
             "referenceImages": images[1:4],
@@ -7171,8 +7162,6 @@ def build_image_prompt(payload: dict) -> str:
     if base_prompt:
         parts.append(base_prompt)
 
-    if character_name:
-        parts.append(f"Use the selected character reference as the main person: {character_name}. Preserve identity from the provided reference images.")
     if object_name:
         parts.append(f"Include or naturally integrate the selected object reference: {object_name}. Preserve the object's visual identity from the provided reference images.")
 
@@ -10053,7 +10042,8 @@ async def image_generation(payload: dict) -> dict:
                 file_part
                 for file_part in (
                     openai_image_reference_file(url, index)
-                    for index, url in enumerate(reference_images[:4])
+                    # One scene/source image plus avatar and three character references.
+                    for index, url in enumerate(reference_images[:5])
                 )
                 if file_part
             ]
