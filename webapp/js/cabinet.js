@@ -1915,7 +1915,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     character_image: videoState.characterImage || '',
     characterId: characterVisual.id || '',
     characterName: characterVisual.name || '',
-    characterPrompt: characterVisual.prompt || '',
+    characterPrompt: '',
     characterReferences: Array.isArray(characterVisual.references) ? characterVisual.references.slice() : [],
     avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_avatar_id: isHeygenModel ? heygenAvatarId : '',
@@ -2824,7 +2824,7 @@ function imageVisualReferenceOptions() {
   return {
     characterId: character ? character.id : null,
     characterName: character ? character.name : '',
-    characterPrompt: character ? (character.prompt || '') : '',
+    characterPrompt: '',
     characterReferences: character ? visualGenerationReferences(character, 'character') : [],
 
     objectId: object ? object.id : null,
@@ -4315,7 +4315,7 @@ function visualGenerationReferences(item, kind) {
     const value = String(url || '').trim();
     if (value && !clean.includes(value)) clean.push(value);
   });
-  return customCharacter ? clean.slice(0, 4) : clean;
+  return kind === 'character' ? clean.slice(0, 4) : clean;
 }
 
 function visualReferencePayload(item, kind) {

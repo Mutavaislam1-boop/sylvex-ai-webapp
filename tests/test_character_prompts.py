@@ -22,11 +22,9 @@ class CharacterPromptTests(unittest.TestCase):
         )
 
     def test_assembly_order_and_replacement_guard(self):
-        result = build_character_prompt(
-            "character_replace_image", "IDENTITY", "USER SCENE"
-        )
-        self.assertLess(result.index(OPERATION_PROMPTS["character_replace_image"]), result.index("IDENTITY"))
-        self.assertLess(result.index("IDENTITY"), result.index("USER SCENE"))
+        result = build_character_prompt("character_replace_image", "IDENTITY", "USER SCENE")
+        self.assertNotIn("IDENTITY", result)
+        self.assertLess(result.index(OPERATION_PROMPTS["character_replace_image"]), result.index("USER SCENE"))
         self.assertIn(GLOBAL_CHARACTER_RULE, result)
         self.assertIn("Do not create a second character", result)
 

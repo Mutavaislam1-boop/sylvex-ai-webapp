@@ -1179,8 +1179,6 @@ def _build_video_visual_prompt(prompt: str, payload: dict, opts: dict, video_tem
 
     if base_prompt:
         parts.append(base_prompt)
-    if character_name:
-        parts.append(f"Use the selected character references as the target identity: {character_name}.")
     if object_name:
         parts.append(f"Use the selected object references as the target object: {object_name}.")
     return "\n\n".join(part for part in parts if part).strip()
@@ -1245,7 +1243,7 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "character_image": opts.get("character_image") or "",
         "characterId": opts.get("characterId") or "",
         "characterName": opts.get("characterName") or "",
-        "characterPrompt": opts.get("characterPrompt") or "",
+        "characterPrompt": "",
         "characterReferences": _clean_url_list(opts.get("characterReferences")),
         "objectId": opts.get("objectId") or "",
         "objectName": opts.get("objectName") or opts.get("objects") or "",
