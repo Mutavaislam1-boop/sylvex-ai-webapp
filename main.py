@@ -26,6 +26,7 @@ from routers.video_templates import router as video_templates_router
 from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
+from services.character_prompts import build_character_prompt, infer_character_operation
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
 
 from fastapi import FastAPI, Request, UploadFile, File
@@ -4564,6 +4565,7 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
         "name": resource.get("name") or "",
         "gender": resource.get("gender") or "",
         "description": resource.get("description") or "",
+        "prompt": resource.get("prompt") or resource.get("characterPrompt") or "",
         "previewUrl": preview,
         "avatarUrl": resource.get("avatarUrl") or resource.get("avatar_url") or preview,
         "referenceImages": photos,
@@ -4656,6 +4658,9 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 item["avatar_id"] = metadata.get("avatar_id") or metadata.get("avatarId") or ""
                 item["provider"] = metadata.get("provider") or metadata.get("ai_provider") or ""
                 item["model"] = metadata.get("model") or metadata.get("ai_model") or ""
+                item["prompt"] = metadata.get("prompt") or metadata.get("characterPrompt") or description or ""
+                item["heygenPhotoAvatarId"] = metadata.get("heygenPhotoAvatarId") or metadata.get("heygen_photo_avatar_id") or metadata.get("avatar_id") or ""
+                item["heygenAvatarGroupId"] = metadata.get("heygenAvatarGroupId") or metadata.get("heygen_avatar_group_id") or ""
                 result["characters"].append(item)
             elif kind == "object":
                 result["objects"].append(item)
@@ -5660,6 +5665,152 @@ async def public_prostudio_runway_avatar(request: Request):
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     return {"ok": True, "resource": resource, "avatar": payload}
+
+
+def _character_identity_prompt(name: str, gender: str, description: str) -> str:
+    details = str(description or "").strip()
+    return (
+        f"Persistent character identity for {name}. "
+        f"Gender presentation: {gender or 'neutral'}. "
+        f"{details} "
+        "Always preserve this character's exact identity, facial structure, hairstyle, hair color, "
+        "eye color, skin tone, body proportions, makeup, default clothing, accessories, and overall "
+        "appearance. Reference images are authoritative; do not reinterpret or redesign the character."
+    ).strip()
+
+
+async def _generate_openai_character_images(name: str, gender: str, description: str, photos: list) -> list:
+    identity = _character_identity_prompt(name, gender, description)
+    shots = [
+        "Create the primary square avatar: centered head-and-shoulders studio portrait, neutral expression, clean neutral background.",
+        "Create reference 1: front-facing full-body neutral standing pose, complete default outfit visible, clean studio background.",
+        "Create reference 2: three-quarter full-body view of the exact same person and exact same outfit, clean studio background.",
+        "Create reference 3: side-profile and upper-body identity reference of the exact same person and exact same outfit, clean studio background.",
+    ]
+    results = []
+    for shot in shots:
+        payload = {
+            "mode": "image",
+            "category": "image",
+            "provider": "openai",
+            "model": "gpt_image_2",
+            "prompt": (
+                f"{identity}\n\n{shot}\n\nUse all uploaded photos only to establish identity. "
+                "No text, watermark, extra people, collage, or identity variation."
+            ),
+            "image_options": {
+                "modelId": "gpt_image_2",
+                "size": "1024x1024",
+                "quality": "high",
+                "count": 1,
+                "referenceImageUrls": photos[:3],
+            },
+        }
+        result = await image_generation(payload)
+        if not result.get("ok"):
+            raise RuntimeError(str(result.get("error") or "OpenAI character image generation failed"))
+        urls = materialize_image_urls(_json_list(result.get("images")) or [result.get("image_url")])
+        if not urls:
+            raise RuntimeError("OpenAI returned no character image")
+        results.append(urls[0])
+    return results
+
+
+def _find_provider_id(data, keys: tuple[str, ...]) -> str:
+    if isinstance(data, dict):
+        for key in keys:
+            if data.get(key):
+                return str(data[key])
+        for value in data.values():
+            found = _find_provider_id(value, keys)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for value in data:
+            found = _find_provider_id(value, keys)
+            if found:
+                return found
+    return ""
+
+
+def _create_heygen_character(name: str, avatar_url: str, references: list) -> dict:
+    api_key = env_value("HEYGEN_API_KEY")
+    if not api_key:
+        raise RuntimeError("HEYGEN_API_KEY is not configured")
+    endpoint = env_value(
+        "HEYGEN_PHOTO_AVATAR_CREATE_ENDPOINT",
+        default="https://api.heygen.com/v2/photo_avatar/photo_avatar_group",
+    )
+    body = {
+        "name": name,
+        "image_url": public_media_url(avatar_url),
+        "image_urls": [public_media_url(url) for url in [avatar_url] + references],
+    }
+    response = requests.post(endpoint, headers=heygen_headers(), json=body, timeout=180)
+    data = safe_provider_json(response, "heygen", endpoint)
+    if response.status_code >= 400:
+        detail = data.get("message") or data.get("error") or response.text[:500]
+        raise RuntimeError(f"HeyGen character creation failed: {detail}")
+    photo_avatar_id = _find_provider_id(
+        data, ("photo_avatar_id", "photoAvatarId", "avatar_id", "avatarId", "id")
+    )
+    group_id = _find_provider_id(data, ("avatar_group_id", "avatarGroupId", "group_id", "groupId"))
+    if not photo_avatar_id and not group_id:
+        raise RuntimeError("HeyGen returned no character id")
+    return {
+        "response": data,
+        "photo_avatar_id": photo_avatar_id,
+        "avatar_group_id": group_id,
+    }
+
+
+@app.post("/api/public/prostudio/character")
+async def public_prostudio_create_character(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    name = str(data.get("name") or "").strip()
+    gender = str(data.get("gender") or "").strip()
+    description = str(data.get("description") or "").strip()
+    photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:3]
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if len(name) < 2:
+        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
+    if not photos:
+        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+    try:
+        images = await _generate_openai_character_images(name, gender, description, photos)
+        heygen = await asyncio.to_thread(_create_heygen_character, name, images[0], images[1:4])
+        identity_prompt = _character_identity_prompt(name, gender, description)
+        stable_id = heygen["photo_avatar_id"] or heygen["avatar_group_id"]
+        resource = {
+            "id": f"custom_character_{stable_id}",
+            "resource_type": "character",
+            "name": name,
+            "gender": gender,
+            "description": description,
+            "prompt": identity_prompt,
+            "previewUrl": images[0],
+            "avatarUrl": images[0],
+            "referenceImages": images[1:4],
+            "sourceImages": images[1:4],
+            "originalSourceImages": photos,
+            "avatar_id": heygen["photo_avatar_id"],
+            "heygenPhotoAvatarId": heygen["photo_avatar_id"],
+            "heygenAvatarGroupId": heygen["avatar_group_id"],
+            "provider": "heygen",
+            "ai_provider": "openai+heygen",
+            "model": "gpt-image-2",
+            "ai_model": "gpt-image-2",
+            "type": "custom",
+            "status": "ready",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        saved = save_prostudio_resource(telegram_id, resource)
+        return {"ok": True, "resource": {**resource, **saved}, "heygen": heygen["response"]}
+    except Exception as exc:
+        prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
+        return JSONResponse({"ok": False, "error": str(exc)[:1200]}, status_code=502)
 
 
 # =====================================================
@@ -6992,20 +7143,18 @@ def build_image_prompt(payload: dict) -> str:
     has_character = bool(character_name or opts.get("characterId") or _json_list(opts.get("characterReferences")))
     has_object = bool(object_name or opts.get("objectId") or _json_list(opts.get("objectReferences")))
 
-    if character_prompt:
-        parts.append(character_prompt)
+    if has_character:
+        operation = infer_character_operation(
+            "image",
+            opts.get("characterOperation") or opts.get("operation") or opts.get("generation_mode") or opts.get("mode"),
+            has_source_image=has_uploaded_image,
+            style=opts.get("style"),
+        )
+        parts.append(build_character_prompt(operation, character_prompt, base_prompt))
+        base_prompt = ""
 
     if object_prompt:
         parts.append(object_prompt)
-
-    if has_uploaded_image and has_character and not base_prompt:
-        parts.append(
-            "Edit the uploaded image by fully replacing the original person with the selected Mini App character"
-            + (f" named {character_name}" if character_name else "")
-            + ". Completely replace the source person's appearance, identity, face, hair, skin tone, body look, clothing style when needed, and recognizable visual identity with the selected character. "
-            "Preserve the original pose, body position, gesture, camera angle, framing, composition, background, lighting, environment, and every other non-person element of the uploaded image. "
-            "Do not keep the source person's identity. The final image must look like the selected character naturally photographed in the same pose and scene."
-        )
 
     if has_object and (has_character or has_uploaded_image):
         if has_character:

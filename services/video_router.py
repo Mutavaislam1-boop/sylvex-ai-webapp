@@ -18,6 +18,7 @@ import httpx
 from urllib.parse import urlparse
 
 from services.error_translator import raw_error_text, translate_provider_error
+from services.character_prompts import build_character_prompt, infer_character_operation
 from services.prompt_optimizer import optimize_prompt_for_model
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -1149,19 +1150,20 @@ def _build_video_visual_prompt(prompt: str, payload: dict, opts: dict, video_tem
     )
 
     parts = []
-    if character_prompt:
-        parts.append(character_prompt)
+    if has_character:
+        operation = infer_character_operation(
+            "video",
+            opts.get("characterOperation") or opts.get("operation") or opts.get("generation_mode") or opts.get("mode"),
+            has_source_image=bool(_clean_url_list(
+                opts.get("start_image"), opts.get("reference_images"), opts.get("referenceImageUrls")
+            )),
+            has_source_video=has_video_source,
+            style=opts.get("style"),
+        )
+        parts.append(build_character_prompt(operation, character_prompt, base_prompt))
+        base_prompt = ""
     if object_prompt:
         parts.append(object_prompt)
-
-    if has_video_source and has_character and not base_prompt:
-        parts.append(
-            "Edit the source video by fully replacing the original person with the selected Mini App character"
-            + (f" named {character_name}" if character_name else "")
-            + ". Completely replace the source person's appearance, identity, face, hair, skin tone, body look, clothing style when needed, and recognizable visual identity with the selected character. "
-            "Preserve the original motion, timing, animation, poses, body movement, gestures, camera movement, framing, composition, lighting, background, environment, and all non-person scene elements. "
-            "Do not keep the source person's identity. The result must look like the selected character naturally performing the same actions in the same scene."
-        )
 
     if has_video_source and has_object:
         if has_character:

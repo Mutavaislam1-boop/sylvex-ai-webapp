@@ -4304,12 +4304,10 @@ function isCustomVisualItem(item) {
 
 function visualGenerationReferences(item, kind) {
   if (!item || typeof item !== 'object') return [];
-  const sourceImages = Array.isArray(item.sourceImages)
-    ? item.sourceImages
-    : (Array.isArray(item.source_images) ? item.source_images : []);
   const customCharacter = kind === 'character' && isCustomVisualItem(item);
   const baseRefs = customCharacter
-    ? sourceImages.slice(0, 3)
+    ? [item.avatarUrl || item.avatar_url || item.previewUrl || item.preview_url || '']
+        .concat(item.referenceImages || item.reference_images || [])
     : [item.avatarUrl || item.avatar_url || item.previewUrl || item.preview_url || '']
         .concat(item.referenceImages || item.reference_images || []);
   const clean = [];
@@ -4317,7 +4315,7 @@ function visualGenerationReferences(item, kind) {
     const value = String(url || '').trim();
     if (value && !clean.includes(value)) clean.push(value);
   });
-  return customCharacter ? clean.slice(0, 3) : clean;
+  return customCharacter ? clean.slice(0, 4) : clean;
 }
 
 function visualReferencePayload(item, kind) {
@@ -4767,10 +4765,10 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   }
 }
 
-async function createRunwayCharacterResource(name, photos, gender, description) {
+async function createHeygenCharacterResource(name, photos, gender, description) {
   const tg = getTelegramId();
   if (!tg) throw new Error('telegram_id_required');
-  const res = await fetch('/api/public/prostudio/runway-avatar', {
+  const res = await fetch('/api/public/prostudio/character', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -4778,12 +4776,12 @@ async function createRunwayCharacterResource(name, photos, gender, description) 
       name,
       gender,
       description,
-      photos: (photos || []).slice(0, 1),
+      photos: (photos || []).slice(0, 3),
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok || !data.resource) {
-    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа в Runway'));
+    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа через OpenAI и HeyGen'));
   }
   return normalizeVisualItem(data.resource) || data.resource;
 }
@@ -4815,7 +4813,7 @@ async function saveVisualCreateDraft(e) {
   let providerResource = null;
   try {
     if (kind === 'character') {
-      providerResource = await createRunwayCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      providerResource = await createHeygenCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
       generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
     } else {
       generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
@@ -4841,10 +4839,10 @@ async function saveVisualCreateDraft(e) {
     previewUrl: generatedPreview || photos[0],
     referenceImages: references,
     sourceImages: photos,
-    ai_provider: kind === 'character' ? 'runway' : 'openai',
-    ai_model: kind === 'character' ? 'gwm1_avatars' : 'gpt-image-1',
-    provider: kind === 'character' ? 'runway' : 'openai',
-    model: kind === 'character' ? 'gwm1_avatars' : 'gpt-image-1',
+    ai_provider: kind === 'character' ? 'openai+heygen' : 'openai',
+    ai_model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
+    provider: kind === 'character' ? 'heygen' : 'openai',
+    model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
     type: 'custom',
     status: 'ready',
     created_at: new Date().toISOString(),
