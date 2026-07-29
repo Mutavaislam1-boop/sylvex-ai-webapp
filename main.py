@@ -7458,7 +7458,7 @@ def build_image_prompt(payload: dict) -> str:
 
     refs = [u for u in refs if isinstance(u, str) and u.strip()]
 
-    if refs:
+    if refs and not has_character:
         parts.append(
             "Use the uploaded reference images as visual references. "
             "If the user asks to merge/combine photos, combine the important visual elements from all uploaded reference images."
@@ -7599,7 +7599,9 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
 
     if refs:
-        body["image"] = refs[0]
+        # Seedream accepts one URL or an ordered list of visual inputs. Keep the
+        # source image first, followed by avatar + three character references.
+        body["image"] = refs[0] if len(refs) == 1 else refs[:5]
 
     return body
 
@@ -7612,9 +7614,9 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
     is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
     try:
-        timeout_seconds = int(os.getenv("BYTEPLUS_SEEDREAM_PRO_TIMEOUT" if is_pro_model else "BYTEPLUS_SEEDREAM_TIMEOUT") or (360 if is_pro_model else 120))
+        timeout_seconds = int(os.getenv("BYTEPLUS_SEEDREAM_PRO_TIMEOUT" if is_pro_model else "BYTEPLUS_SEEDREAM_TIMEOUT") or (420 if is_pro_model else 240))
     except Exception:
-        timeout_seconds = 360 if is_pro_model else 120
+        timeout_seconds = 420 if is_pro_model else 240
 
     # =====================================================
     # PYTHON-БЛОК: _send
@@ -7638,26 +7640,13 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     try:
         response = _send(bool(refs))
     except requests.ReadTimeout:
-        if not is_pro_model:
-            return [], "ReadTimeout"
-        print("BYTEPLUS IMAGE PRO TIMEOUT, RETRY ONCE")
+        print("BYTEPLUS IMAGE TIMEOUT, RETRY ONCE WITH THE SAME REFERENCES")
         try:
             response = _send(bool(refs))
         except Exception as exc:
             return [], type(exc).__name__
     except Exception as exc:
         return [], type(exc).__name__
-
-    if response.status_code >= 400 and refs:
-        print(
-            "BYTEPLUS IMAGE REFERENCE REQUEST FAILED, RETRY WITHOUT REFERENCES:",
-            response.status_code,
-            response.text[:500],
-        )
-        try:
-            response = _send(False)
-        except Exception as exc:
-            return [], type(exc).__name__
 
     if response.status_code >= 400:
         return [], f"HTTP {response.status_code}: {response.text[:500]}"
@@ -8449,18 +8438,20 @@ def normalize_openai_image_size(size: str, frontend_model: str = "", provider_mo
 def image_reference_urls(payload: dict) -> list:
     opts = payload.get("image_options") or {}
     refs = []
-    for value in (
+    source_values = (
         opts.get("referenceImageUrls"),
         opts.get("reference_image_urls"),
         opts.get("referenceImages"),
         opts.get("images"),
-        opts.get("characterReferences"),
-        opts.get("objectReferences"),
-    ):
+    )
+    for value in source_values:
         if isinstance(value, str):
             refs.append(value)
         elif isinstance(value, list):
             refs.extend(value)
+    character_refs = _json_list(opts.get("characterReferences"))[:4]
+    refs.extend(character_refs)
+    refs.extend(_json_list(opts.get("objectReferences")))
     clean = []
     for url in refs:
         if isinstance(url, str) and url.strip() and url not in clean:
