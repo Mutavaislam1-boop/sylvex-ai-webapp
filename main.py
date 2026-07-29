@@ -7596,7 +7596,13 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
     if seed is not None:
         body["seed"] = seed
 
-    refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
+    refs = []
+    for value in reference_images or []:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        public_url = public_media_url(value)
+        if public_url and public_url not in refs:
+            refs.append(public_url)
 
     if refs:
         # Seedream accepts one URL or an ordered list of visual inputs. Keep the
