@@ -10170,7 +10170,7 @@ function closeUploadPanel(e) {
     if (e.target) e.target.value = '';
     if (!files.length) return;
     const target = getUploadTarget();
-    const currentCount = uploadUrlsForTarget(target).length;
+    const currentCount = currentUploadImages(target).length;
     const targetLimit = uploadLimitForTarget(target);
     const pending = pendingAttachAccept || 'file';
     const singleSelection = target === UPLOAD_TARGETS.VIDEO_START
@@ -10183,8 +10183,12 @@ function closeUploadPanel(e) {
     const remaining = singleSelection
       ? 1
       : ((isVoiceMode() || isMusicMode()) ? Math.max(0, 4 - audioUploads) : Math.max(0, targetLimit - currentCount));
+    if (remaining <= 0) {
+      toast('Можно загрузить не больше ' + targetLimit + ' фото');
+      return;
+    }
     if (files.length > remaining) {
-      toast('Можно выбрать не больше ' + (singleSelection ? 1 : targetLimit) + ' файлов');
+      toast('Можно выбрать не больше ' + (singleSelection ? 1 : targetLimit) + ' файлов одновременно');
     }
     for (const file of files.slice(0, remaining)) {
       await processAttachFile(file, pending);
@@ -10212,6 +10216,10 @@ function closeUploadPanel(e) {
       else pendingKind = 'text_file';
     } else if (pendingKind === 'text_document') {
       pendingKind = 'text_file';
+    }
+    if (pendingKind === 'image' && !isImageFileLike(f)) {
+      toast('Выберите файл изображения');
+      return;
     }
     const isKlingOmniEdit = isKlingOmniEditUploadContext();
     const isKlingOmniVideo = isKlingOmniEdit && pendingKind === 'video';
