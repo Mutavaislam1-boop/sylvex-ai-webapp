@@ -1,7 +1,7 @@
 {
   "id": "01",
   "name": "Bag Dump",
-  "description": "Заменяет персонажа в видео на человека с загруженной фотографии, сохраняя движения, ракурс и окружение оригинального шаблона.",
+  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
