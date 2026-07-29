@@ -2482,6 +2482,13 @@ CSS-БЛОК: .studio-select-pill
   white-space:nowrap;
 }
 .studio-select-pill.wide{padding-left:0;min-width:192px;justify-content:center}
+.composer-model-icon{
+  width:18px;height:18px;flex:0 0 18px;display:grid;place-items:center;overflow:hidden
+}
+.composer-model-icon .model-brand-logo{
+  width:16px !important;height:16px !important;max-width:16px !important;max-height:16px !important
+}
+.ratio-box[hidden]{display:none !important}
 .pill-meter{width:3px;height:24px;border-radius:2px;background:#e8e8e8;box-shadow:5px -4px 0 -1px #e8e8e8,10px 3px 0 -1px #e8e8e8}
 .ratio-box{width:22px;height:22px;border-radius:5px;border:2px solid #d8d8d8;display:inline-grid;place-items:center;font-size:8px;font-weight:800;line-height:1;color:#d8d8d8}
 .ratio-box::after{content:attr(data-ratio)}
@@ -2592,6 +2599,14 @@ CSS-БЛОК: .image-seed-input
 .image-seed-input:focus{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.07)}
 .image-seed-input:disabled{opacity:.48;cursor:not-allowed}
 .image-seed-disabled-note{margin:-2px 12px 10px;color:rgba(255,255,255,.52);font-size:12px;line-height:1.35}
+body > #modelPop.image-seed-pop{
+  background:#34363b !important;
+  border-color:rgba(255,255,255,.15) !important;
+  box-shadow:0 22px 60px rgba(0,0,0,.40) !important;
+}
+body > #modelPop.image-seed-pop .image-seed-tooltip{
+  background:#44474d;
+}
 .recraft-tool-row{cursor:default}
 .recraft-tool-row .image-size-check{font-size:12px;color:rgba(255,255,255,.72)}
 /* =====================================================
@@ -2893,7 +2908,9 @@ CSS-БЛОК: .gen-action-btn
   font-size:12px;
   font-weight:700;
   cursor:pointer;
+  text-decoration:none;
 }
+.generation-action-icon{width:16px;height:16px;flex:0 0 16px;display:block}
 /* =====================================================
 CSS-БЛОК: .gen-telegram-btn
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -5791,7 +5808,7 @@ CSS-БЛОК: .generation-result-mini-card
   display:flex;
   align-items:center;
   gap:10px;
-  width:220px;
+  width:280px;
   max-width:100%;
   padding:8px;
   border-radius:16px;
@@ -5802,6 +5819,19 @@ CSS-БЛОК: .generation-result-mini-card
   text-align:left;
   font-family:inherit;
 }
+
+.generation-result-card-shell{
+  position:relative;
+  width:280px;
+  max-width:100%;
+}
+.generation-result-card-shell .generation-result-mini-card{width:100%;padding-right:42px}
+.generation-result-share{
+  position:absolute;right:8px;top:8px;z-index:2;width:30px;height:30px;padding:0;
+  display:grid;place-items:center;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.08);color:#f3f3f3;cursor:pointer
+}
+.generation-result-share:active{transform:scale(.94)}
 
 .generation-result-mini-card:active{transform:scale(.98)}
 
@@ -5924,6 +5954,11 @@ CSS-БЛОК: .generation-result-sub
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
+}
+.generation-result-cost{font-size:11px;font-weight:750;color:#8fc4ff}
+.generation-result-prompt{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;
+  font-size:11px;line-height:1.35;color:rgba(255,255,255,.72);white-space:normal
 }
 
 /* =====================================================
@@ -6123,6 +6158,13 @@ CSS-БЛОК: .generation-info-row
 .generation-info-row b{font-weight:650;text-align:right;word-break:break-word}
 .generation-info-label{font-size:11px;color:rgba(255,255,255,.55);margin-bottom:6px}
 .generation-info-text{margin:0;font-size:13px;line-height:1.45;color:#f3f3f3;white-space:pre-wrap}
+.generation-prompt-block:not(.is-expanded) .generation-info-text{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden
+}
+.generation-prompt-toggle{
+  margin-top:8px;padding:0;border:0;background:transparent;color:#78b7ff;
+  font:inherit;font-size:12px;font-weight:750;cursor:pointer
+}
 .generation-info-ref-row{display:flex;gap:8px;overflow-x:auto}
 .generation-info-ref-row img{width:54px;height:54px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,.10)}
 .generation-info-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
@@ -6145,6 +6187,7 @@ CSS-БЛОК: .generation-info-actions button
   text-decoration:none;
   font-family:inherit;
   font-size:13px;
+  gap:8px;
 }
 
 /* Pro Studio video option rows without ratio icons */
@@ -7283,6 +7326,13 @@ body > #modelPop:not(.video-template-modal) .model-brand-logo {
   max-width:var(--miniapp-icon-size) !important;
   max-height:var(--miniapp-icon-size) !important;
   flex:0 0 var(--miniapp-icon-size) !important;
+}
+
+/* Final Pro Studio overrides: keep the Seed sheet in the neutral gray design on every viewport. */
+body > #modelPop.image-size-floating-pop.image-seed-pop,
+body > #modelPop.image-seed-pop{
+  background:#34363b !important;
+  border-color:rgba(255,255,255,.15) !important;
 }
 
 .app :where(.tool .ico,.cat .ci,.chat-head .ico,.ctrl .ci,.row .ico,.mode-ico .mi,.studio-link-icons span,.vgen-uico,.voice-workspace-upload i){
