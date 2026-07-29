@@ -1207,14 +1207,17 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         modes,
         modes[0],
     )
-    reference_images = _clean_url_list(
+    source_reference_images = _clean_url_list(
         opts.get("reference_images"),
         opts.get("referenceImageUrls"),
-        opts.get("characterReferences"),
+    )
+    if not source_reference_images and isinstance(payload.get("reference_images"), list):
+        source_reference_images = _clean_url_list(payload.get("reference_images"))
+    reference_images = _clean_url_list(
+        source_reference_images,
+        _clean_url_list(opts.get("characterReferences"))[:4],
         opts.get("objectReferences"),
     )
-    if not reference_images and isinstance(payload.get("reference_images"), list):
-        reference_images = _clean_url_list(payload.get("reference_images"))
     sound = bool(opts.get("sound")) if config.get("sound") else False
     return {
         "model": model_id,

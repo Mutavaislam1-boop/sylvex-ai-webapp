@@ -4893,9 +4893,6 @@ function applyVisualReferenceToVideo(item, kind) {
   const refs = visualGenerationReferences(item, kind);
   const url = refs[0] || '';
   if (!url) return;
-  const current = currentVideoReferenceImages().filter((entry) => entry && !refs.includes(entry));
-  refs.slice().reverse().forEach((ref) => current.unshift(ref));
-  setCurrentVideoReferenceImages(current.slice(0, uploadLimitForTarget(UPLOAD_TARGETS.VIDEO_REFERENCES)));
   videoState.characterImage = kind === 'character' ? url : videoState.characterImage;
   const visual = Object.assign(visualReferencePayload(item, kind), {
     kind: kind === 'object' ? 'object' : 'character',
