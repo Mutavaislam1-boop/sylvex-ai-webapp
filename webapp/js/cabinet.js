@@ -5409,6 +5409,10 @@ function currentSelectedUploadImage() {
   align-items: center;
 }
 
+.image-style-info-wrap[hidden] {
+  display: none !important;
+}
+
 .image-style-info-mark {
   width: 21px;
   height: 21px;
@@ -6928,7 +6932,7 @@ function imageModelButton(model) {
             const id = String(item.id || '');
             const label = item.label || id;
             const active = String(item.active || '') === id;
-            const icon = optionKind === 'ratio'
+            const icon = optionKind === 'ratio' && id.toLowerCase() !== 'auto'
               ? '<span class="image-size-icon" data-ratio="' + S.escapeHtml(id) + '"></span>'
               : '';
             return '<button class="image-size-row ' + (icon ? 'has-ratio-icon ' : 'no-ratio-icon ') + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'' + optionKind + '\',\'' + S.escapeHtml(id) + '\')">'
@@ -7179,8 +7183,9 @@ function imageModelButton(model) {
           const id = String(item.id || item.ratio || item.label || '');
           const label = item.label || item.ratio || item.id;
           const active = String(selectedSize) === id;
-          return '<button class="image-size-row ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'size\',\'' + S.escapeHtml(id) + '\')">'
-            + '<span class="image-size-icon" data-ratio="' + S.escapeHtml(id) + '"></span>'
+          const showRatioIcon = id.toLowerCase() !== 'auto';
+          return '<button class="image-size-row ' + (showRatioIcon ? 'has-ratio-icon ' : 'no-ratio-icon ') + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'size\',\'' + S.escapeHtml(id) + '\')">'
+            + (showRatioIcon ? '<span class="image-size-icon" data-ratio="' + S.escapeHtml(id) + '"></span>' : '')
             + '<span class="image-size-label">' + S.escapeHtml(label) + '</span>'
             + '<span class="image-size-check">✓</span>'
             + '</button>';

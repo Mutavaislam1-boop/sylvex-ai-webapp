@@ -3943,6 +3943,11 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon
     border-radius:6px !important;
   }
 
+  body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="1:1"]{
+    width:18px !important;
+    height:18px !important;
+  }
+
 /* =====================================================
 CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon[data-ratio="4:3"]
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
