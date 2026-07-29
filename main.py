@@ -5732,7 +5732,18 @@ async def _generate_openai_character_images(name: str, gender: str, description:
         }
         result = await image_generation(payload)
         if not result.get("ok"):
-            raise RuntimeError(str(result.get("error") or "OpenAI character image generation failed"))
+            diagnostic = (
+                result.get("raw_error")
+                or result.get("details")
+                or result.get("body_preview")
+                or result.get("error")
+                or "OpenAI character image generation failed"
+            )
+            raise RuntimeError(
+                f"OpenAI character image generation failed"
+                f" (status={result.get('status_code') or 'unknown'}, model={result.get('provider_model') or 'gpt-image-2'}): "
+                f"{str(diagnostic)[:1200]}"
+            )
         urls = materialize_image_urls(_json_list(result.get("images")) or [result.get("image_url")])
         if not urls:
             raise RuntimeError("OpenAI returned no character image")
@@ -5765,10 +5776,44 @@ def _create_heygen_character(name: str, avatar_url: str, references: list) -> di
         "HEYGEN_PHOTO_AVATAR_CREATE_ENDPOINT",
         default="https://api.heygen.com/v2/photo_avatar/photo_avatar_group",
     )
+    def upload_image(value: str, index: int) -> str:
+        file_tuple = image_file_tuple_from_url(value, fallback_name=f"{name}-{index + 1}.png")
+        if not file_tuple:
+            raise RuntimeError(f"Could not read generated character image {index + 1}")
+        filename, content, mime_type = file_tuple
+        upload_response = requests.post(
+            env_value("HEYGEN_ASSET_UPLOAD_ENDPOINT", default="https://upload.heygen.com/v1/asset"),
+            headers={
+                "X-Api-Key": api_key,
+                "Content-Type": mime_type or "image/png",
+            },
+            data=content,
+            timeout=180,
+        )
+        upload_data = safe_provider_json(
+            upload_response,
+            "heygen",
+            env_value("HEYGEN_ASSET_UPLOAD_ENDPOINT", default="https://upload.heygen.com/v1/asset"),
+        )
+        if upload_response.status_code >= 400:
+            detail = upload_data.get("message") or upload_data.get("error") or upload_response.text[:500]
+            raise RuntimeError(f"HeyGen asset upload failed: {detail}")
+        uploaded_url = _find_provider_id(
+            upload_data,
+            ("url", "asset_url", "assetUrl", "image_url", "imageUrl"),
+        )
+        if not uploaded_url:
+            raise RuntimeError(f"HeyGen asset upload returned no URL for {filename}")
+        return uploaded_url
+
+    uploaded_images = [
+        upload_image(value, index)
+        for index, value in enumerate([avatar_url] + references[:3])
+    ]
     body = {
         "name": name,
-        "image_url": public_media_url(avatar_url),
-        "image_urls": [public_media_url(url) for url in [avatar_url] + references],
+        "image_url": uploaded_images[0],
+        "image_urls": uploaded_images,
     }
     response = requests.post(endpoint, headers=heygen_headers(), json=body, timeout=180)
     data = safe_provider_json(response, "heygen", endpoint)
@@ -10095,19 +10140,44 @@ async def image_generation(payload: dict) -> dict:
                 "size": openai_size,
                 "quality": openai_quality,
                 "n": "1",
+                "input_fidelity": "high",
             }
-            if api_model == "gpt-image-1":
-                request_data["input_fidelity"] = "high"
-            try:
-                response = requests.post(
+            response = None
+            request_exception = None
+            for attempt in range(1, 3):
+                try:
+                    response = requests.post(
+                        endpoint,
+                        headers=openai_auth_headers(),
+                        data=request_data,
+                        files=files,
+                        timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")),
+                    )
+                    if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
+                        break
+                    print("OPENAI IMAGE EDIT TRANSIENT RESPONSE:", {
+                        "attempt": attempt,
+                        "status_code": response.status_code,
+                        "model": api_model,
+                    })
+                except requests.RequestException as exc:
+                    request_exception = exc
+                    print("OPENAI IMAGE EDIT TRANSIENT ERROR:", {
+                        "attempt": attempt,
+                        "error": type(exc).__name__,
+                        "model": api_model,
+                    })
+                if attempt < 2:
+                    time.sleep(2)
+            if response is None:
+                return image_error_response(
+                    provider,
+                    requested_model,
+                    api_model,
                     endpoint,
-                    headers=openai_auth_headers(),
-                    data=request_data,
-                    files=files,
-                    timeout=180,
+                    request_exception or "Provider request failed",
+                    data={"body_preview": str(request_exception or "")[:1000]},
                 )
-            except requests.RequestException as exc:
-                return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
             if response.status_code >= 400:
                 data = safe_provider_json(response, provider, endpoint)
                 return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
