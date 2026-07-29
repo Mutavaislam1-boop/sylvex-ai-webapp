@@ -2003,16 +2003,17 @@ function renderVideoControls() {
   const composer = document.getElementById('studioComposer');
   if (composer) composer.dataset.videoSection = videoState.section || 'generate';
 
-  const modelEl = document.getElementById('modelValComposer');
-  if (modelEl && isVideoMode() && model) {
-    modelEl.textContent = model.label || model.name || model.id;
-  }
+  if (isVideoMode() && model) updateComposerModelDisplay(model);
 
   const sizeVal = document.getElementById('imageSizeVal');
   if (sizeVal) sizeVal.textContent = videoOptionLabel('ratio', videoState.ratio);
 
   const sizeIcon = document.getElementById('imageSizeIcon');
-  if (sizeIcon) sizeIcon.setAttribute('data-ratio', videoState.ratio || '16:9');
+  if (sizeIcon) {
+    const isAutoRatio = ['auto', 'adaptive'].includes(String(videoState.ratio || '').toLowerCase());
+    sizeIcon.hidden = isAutoRatio;
+    if (!isAutoRatio) sizeIcon.setAttribute('data-ratio', videoState.ratio || '16:9');
+  }
 
   const countVal = document.getElementById('imageCountVal');
   if (countVal) countVal.textContent = videoOptionLabel('duration', videoState.duration);
@@ -2139,8 +2140,7 @@ function currentTextModel() {
 
 function renderTextControls() {
   const model = currentTextModel();
-  const modelEl = document.getElementById('modelValComposer');
-  if (modelEl && studioMode === 'text') modelEl.textContent = model ? (model.label || model.id) : 'GPT-4o mini';
+  if (studioMode === 'text' && model) updateComposerModelDisplay(model);
   const toolVal = document.getElementById('textToolVal');
   if (toolVal) toolVal.textContent = textOptionLabel(TEXT_TOOL_OPTIONS, textState.tool || 'text', 'Текст');
   const styleVal = document.getElementById('textStyleVal');
@@ -2330,8 +2330,7 @@ function renderVoiceControls() {
   ensureVoiceSettings();
   injectImageStyleSheetCss();
   const model = VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId) || VOICE_MODEL_LIST[0];
-  const modelEl = document.getElementById('modelValComposer');
-  if (modelEl && isVoiceMode() && model) modelEl.textContent = model.label || model.name || model.id;
+  if (isVoiceMode() && model) updateComposerModelDisplay(model);
   const voiceVal = document.getElementById('voiceVoiceVal');
   if (voiceVal) voiceVal.textContent = currentVoiceButtonLabel();
   const modeVal = document.getElementById('voiceModeVal');
@@ -2841,8 +2840,7 @@ function imageVisualReferenceOptions() {
 function renderMusicControls() {
   ensureMusicSettings();
   const model = currentMusicModel();
-  const modelEl = document.getElementById('modelValComposer');
-  if (modelEl && isMusicMode() && model) modelEl.textContent = model.label || model.name || model.id;
+  if (isMusicMode() && model) updateComposerModelDisplay(model);
 
   const genreVal = document.getElementById('musicGenreVal');
   if (genreVal) genreVal.textContent = musicOptionLabel(MUSIC_GENRES, musicState.genre, 'Auto');
@@ -6270,6 +6268,15 @@ function imageModelIconHtml(model) {
   return '<img class="model-brand-logo" src="' + S.escapeHtml(iconValue) + '" alt="" loading="lazy" decoding="async" />';
 }
 
+function updateComposerModelDisplay(model) {
+  if (!model) return;
+  const label = model.label || model.name || model.id || '';
+  const labelEl = document.getElementById('modelValComposer');
+  const iconEl = document.getElementById('modelIconComposer');
+  if (labelEl) labelEl.textContent = label;
+  if (iconEl) iconEl.innerHTML = imageModelIconHtml(model);
+}
+
 // =====================================================
 // JAVASCRIPT-БЛОК: imageModelDescription
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -6342,8 +6349,7 @@ function imageModelButton(model) {
     const model = currentImageModel();
     if (!model) return;
     syncImageModelOptionDefaults(model);
-    const modelEl = document.getElementById('modelValComposer');
-    if (modelEl && isImageMode()) modelEl.textContent = model.label || model.id;
+    if (isImageMode()) updateComposerModelDisplay(model);
     const sizeOptions = model.sizes && model.sizes.length ? model.sizes : [
       { id:'1:1', label:'1:1', ratio:'1:1' },
       { id:'16:9', label:'16:9', ratio:'16:9' },
@@ -6358,7 +6364,11 @@ function imageModelButton(model) {
     const sizeVal = document.getElementById('imageSizeVal');
     if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
     const sizeIcon = document.getElementById('imageSizeIcon');
-    if (sizeIcon && size) sizeIcon.setAttribute('data-ratio', size.ratio || size.id || '1:1');
+    if (sizeIcon && size) {
+      const isAutoSize = String(size.id || size.ratio || '').toLowerCase() === 'auto';
+      sizeIcon.hidden = isAutoSize;
+      if (!isAutoSize) sizeIcon.setAttribute('data-ratio', size.ratio || size.id || '1:1');
+    }
     const countVal = document.getElementById('imageCountVal');
     if (countVal) countVal.textContent = String(imageState.count || 1);
     const styleVal = document.getElementById('imageStyleVal');
@@ -8040,12 +8050,25 @@ function imageModelButton(model) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedTelegramButton
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
-  function renderGeneratedTelegramButton(url, kind) {
+function renderGeneratedTelegramButton(url, kind) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
     return '<button class="gen-action-btn gen-telegram-btn" type="button" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.openTelegramBot(event)">'
-      + '<span>Перейти в Telegram</span>'
+      + generationActionIcon('telegram') + '<span>Перейти в Telegram</span>'
       + '</button>';
+  }
+
+  function generationActionIcon(kind) {
+    const paths = {
+      open: '<path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
+      play: '<path d="m8 5 11 7-11 7z"/>',
+      download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+      animate: '<rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-3v10l-4-3z"/>',
+      edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/>',
+      share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4"/><path d="m8.6 13.5 6.8 4"/>',
+      telegram: '<path d="m21 4-3 16-6-4-4 3 1-5 9-7-11 6-4-2z"/>',
+    };
+    return '<svg class="generation-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[kind] || paths.open) + '</svg>';
   }
 
   // =====================================================
@@ -8056,14 +8079,14 @@ function imageModelButton(model) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
     if (kind === 'voice') {
-      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>';
+      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playVoiceInCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     }
     if (kind === 'audio' || kind === 'music') {
-      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playMusicTrack(event)">Воспроизвести</button>';
+      return '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.playMusicTrack(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     }
     const dataAttr = kind === 'image' ? 'data-image-url' : 'data-result-url';
     const handler = kind === 'image' ? 'SYLVEX.openImageViewer(event)' : 'SYLVEX.openGeneratedContent(event)';
-    return '<button class="gen-action-btn" type="button" ' + dataAttr + '="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="' + handler + '">Открыть</button>';
+    return '<button class="gen-action-btn" type="button" ' + dataAttr + '="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="' + handler + '">' + generationActionIcon('open') + 'Открыть</button>';
   }
 
   // =====================================================
@@ -8073,11 +8096,12 @@ function imageModelButton(model) {
   function renderGeneratedActions(url, kind) {
     const safeUrl = S.escapeHtml(url);
     let actions = renderGeneratedOpenButton(url, kind) + renderGeneratedTelegramButton(url, kind);
+    actions += '<a class="gen-action-btn" href="' + safeUrl + '" download target="_blank" rel="noopener">' + generationActionIcon('download') + 'Скачать</a>';
     if (kind === 'image') {
-      actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">Оживить фото</button>';
+      actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     }
     if (kind === 'video') {
-      actions += '<button class="gen-action-btn" type="button" data-video-url="' + safeUrl + '" onclick="SYLVEX.editGeneratedVideo(event)">Редактировать видео</button>';
+      actions += '<button class="gen-action-btn" type="button" data-video-url="' + safeUrl + '" onclick="SYLVEX.editGeneratedVideo(event)">' + generationActionIcon('edit') + 'Редактировать видео</button>';
     }
     return '<div class="gen-result-actions">' + actions + '</div>';
   }
@@ -8233,6 +8257,11 @@ function imageModelButton(model) {
       thumbnail_url: type === 'music' ? (coverUrl || ((result && result.thumbnail_url) || '')) : ((result && result.thumbnail_url) || ''),
       thumb_url: type === 'music' ? (coverUrl || ((result && result.thumb_url) || '')) : ((result && result.thumb_url) || ''),
       title: result && result.title ? result.title : '',
+      generation_cost: result && result.generation_cost ? result.generation_cost : '',
+      cost_usd: result && result.cost_usd !== undefined ? result.cost_usd : undefined,
+      unit_cost_usd: result && result.unit_cost_usd !== undefined ? result.unit_cost_usd : undefined,
+      cost_credits: result && result.cost_credits !== undefined ? result.cost_credits : undefined,
+      unit_cost_credits: result && result.unit_cost_credits !== undefined ? result.unit_cost_credits : undefined,
       created_at: new Date().toISOString(),
       sent_to_telegram: !!(result && result.sent_to_telegram),
     };
@@ -8373,6 +8402,14 @@ function imageModelButton(model) {
     const thumb = imagePreviewUrl(meta, '');
     const fallbackUrl = meta.preview_fallback_url || meta.image_url || meta.full_url || meta.result_url || ((meta.result_images || [])[0]) || '';
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
+    const usd = meta.cost_usd !== undefined && meta.cost_usd !== null && meta.cost_usd !== ''
+      ? '$' + Number(meta.cost_usd).toFixed(3)
+      : '';
+    const creditsValue = meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
+      ? String(meta.cost_credits) + ' ⚡️'
+      : '';
+    const cost = [usd, creditsValue].filter(Boolean).join(' / ') || String(meta.generation_cost || '');
+    const prompt = String(meta.prompt || '');
     const titleMap = {
       image: 'Изображение готово',
       video: 'Видео готово',
@@ -8383,13 +8420,17 @@ function imageModelButton(model) {
     const media = thumb
       ? previewImgHtml(thumb, 'generated result', type === 'image' ? fallbackUrl : '')
       : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
-    return '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
+    return '<div class="generation-result-card-shell">'
+      + '<button class="generation-result-share" type="button" aria-label="Поделиться генерацией" title="Поделиться" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + '</button>'
+      + '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
       + '<span class="generation-result-thumb">' + media + '</span>'
       + '<span class="generation-result-meta">'
       + '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
       + '<span class="generation-result-sub">' + safeModel + '</span>'
+      + (cost ? '<span class="generation-result-cost">' + S.escapeHtml(cost) + '</span>' : '')
+      + (prompt ? '<span class="generation-result-prompt">' + S.escapeHtml(prompt) + '</span>' : '')
       + '</span>'
-      + '</button>';
+      + '</button></div>';
   }
 
   // =====================================================
@@ -9652,6 +9693,63 @@ function generationInfoRow(label, value) {
   return '<div class="generation-info-row"><span>' + S.escapeHtml(label) + '</span><b>' + S.escapeHtml(String(value)) + '</b></div>';
 }
 
+function generationCostLabel(meta) {
+  const usd = meta && meta.cost_usd !== undefined && meta.cost_usd !== null && meta.cost_usd !== ''
+    ? '$' + Number(meta.cost_usd).toFixed(3)
+    : '';
+  const credits = meta && meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
+    ? String(meta.cost_credits) + ' ⚡️'
+    : '';
+  return [usd, credits].filter(Boolean).join(' / ') || String((meta && meta.generation_cost) || '');
+}
+
+function toggleGenerationPrompt(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const button = e && e.currentTarget;
+  const block = button && button.closest('.generation-prompt-block');
+  if (!block) return;
+  const expanded = block.classList.toggle('is-expanded');
+  button.textContent = expanded ? 'Свернуть' : 'Развернуть';
+  button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+}
+
+async function shareGenerationCard(e, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const message = chatMessages[index] || {};
+  const meta = message.metadata || {};
+  const resultUrl = meta.result_url || meta.full_url || meta.image_url || meta.video_url || meta.audio_url || message.imageUrl || message.videoUrl || message.audioUrl || '';
+  const pageUrl = new URL(window.location.href);
+  pageUrl.searchParams.set('generation', String(meta.charge_id || meta.job_id || index));
+  const shareUrl = resultUrl || pageUrl.toString();
+  const shareData = {
+    title: 'SYLVEX AI — генерация',
+    text: meta.prompt ? String(meta.prompt).slice(0, 180) : 'Посмотрите мою генерацию в SYLVEX AI',
+    url: shareUrl,
+  };
+  try {
+    if (navigator.share) {
+      await navigator.share(shareData);
+      return;
+    }
+    await navigator.clipboard.writeText(shareUrl);
+    toast('Ссылка на генерацию скопирована');
+  } catch (error) {
+    if (error && error.name === 'AbortError') return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast('Ссылка на генерацию скопирована');
+    } catch {
+      window.prompt('Скопируйте ссылку на генерацию', shareUrl);
+    }
+  }
+}
+
 // =====================================================
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: openGenerationInfoDrawer
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -9678,8 +9776,7 @@ function openGenerationInfoDrawer(e, index) {
   const refImages = meta.reference_images || [];
   const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
   const settings = meta.settings || meta.image_options || meta.video_options || meta.music_options || meta.voice_options || {};
-  const generationCost = meta.generation_cost
-    || (meta.cost_usd !== undefined && meta.cost_usd !== null && meta.cost_usd !== '' ? '$' + Number(meta.cost_usd).toFixed(3) : '');
+  const generationCost = generationCostLabel(meta);
   const titleMap = {
     image: 'Изображение',
     video: 'Видео',
@@ -9704,19 +9801,21 @@ function openGenerationInfoDrawer(e, index) {
   let actionHtml = '';
   if (resultUrl) {
     if (type === 'music') {
-      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="music" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>';
+      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="music" onclick="SYLVEX.playVoiceInCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else if (type === 'voice') {
-      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="voice" onclick="SYLVEX.playVoiceInCard(event)">Воспроизвести</button>';
+      actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="voice" onclick="SYLVEX.playVoiceInCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else if (type === 'video') {
-      actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">Воспроизвести</button>';
+      actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else {
-      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">Открыть</button>';
+      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
-    actionHtml += '<a href="' + S.escapeHtml(resultUrl) + '" download target="_blank" rel="noopener">Скачать</a>';
+    actionHtml += '<a href="' + S.escapeHtml(resultUrl) + '" download target="_blank" rel="noopener">' + generationActionIcon('download') + 'Скачать</a>';
+    actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
+    actionHtml += renderGeneratedTelegramButton(resultUrl, type);
     if (type === 'image') {
-      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">Оживить фото</button>';
+      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     } else if (type === 'video') {
-      actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.editGeneratedVideo(event)">Редактировать видео</button>';
+      actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.editGeneratedVideo(event)">' + generationActionIcon('edit') + 'Редактировать видео</button>';
     }
   }
   body.innerHTML =
@@ -9735,13 +9834,13 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Ratio', meta.ratio)
     + generationInfoRow('Size', meta.size || settings.resolution)
     + (type === 'image' ? generationInfoRow('Seed', (meta.seed === null || meta.seed === undefined || meta.seed === '') ? 'Случайный' : meta.seed) : '')
-    + (type === 'image' ? generationInfoRow('Generation Cost', generationCost) : '')
+    + generationInfoRow('Стоимость генерации', generationCost)
     + generationInfoRow('Duration', meta.duration || settings.duration)
     + generationInfoRow('Count', meta.count)
     + generationInfoRow('Created', created)
     + generationInfoRow('Telegram', meta.sent_to_telegram ? 'sent' : 'not sent')
     + '</div>'
-    + (meta.prompt ? '<div class="generation-info-section"><div class="generation-info-label">Prompt</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p></div>' : '')
+    + (meta.prompt ? '<div class="generation-info-section generation-prompt-block"><div class="generation-info-label">Промт</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p>' + (String(meta.prompt).length > 180 ? '<button class="generation-prompt-toggle" type="button" aria-expanded="false" onclick="SYLVEX.toggleGenerationPrompt(event)">Развернуть</button>' : '') + '</div>' : '')
     + (refImages.length ? '<div class="generation-info-section"><div class="generation-info-label">Reference images</div><div class="generation-info-ref-row">' + refImages.map((url) => '<img src="' + S.escapeHtml(url) + '" alt="reference" />').join('') + '</div></div>' : '')
     + (actionHtml ? '<div class="generation-info-actions">' + actionHtml + '</div>' : '');
 
@@ -14354,6 +14453,8 @@ async function waitGeneration(jobId, options) {
   };
   S.animateGeneratedImage = animateGeneratedImage;
   S.editGeneratedVideo = editGeneratedVideo;
+  S.shareGenerationCard = shareGenerationCard;
+  S.toggleGenerationPrompt = toggleGenerationPrompt;
   S.expandHistorySection = expandHistorySection;
   S.showImageModelPicker = showImageModelPicker;
   S.updateComposerMode = updateComposerMode;
