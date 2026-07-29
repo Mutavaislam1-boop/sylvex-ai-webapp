@@ -9992,7 +9992,7 @@ function closeUploadPanel(e) {
     if (!res.ok || !data.ok || !data.url) {
       throw new Error(data.error || 'Не удалось загрузить файл');
     }
-    return String(data.url || '');
+    return String((kind === 'image' && data.inline_url) || data.url || '');
   }
 
   function revokeVoiceUploadPreview() {
