@@ -1,6 +1,6 @@
 {
-  "id": "01",
-  "name": "Bag Dump",
+  "id": "40",
+  "name": "Outfit Check",
   "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
   "category": "Character Replacement",
   "input": {
@@ -10,7 +10,7 @@
   },
   "output": {
     "type": "video",
-    "duration": 6,
+    "duration": 5,
     "aspect_ratio": "9:16"
   },
   "assets": {
