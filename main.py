@@ -4969,6 +4969,14 @@ def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") ->
             local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
             content = local_path.read_bytes()
             filename = local_path.name or filename
+        elif raw.startswith("/preset_catalog/"):
+            relative_path = urllib.parse.unquote(raw.replace("/preset_catalog/", "", 1))
+            local_path = (PRESET_CATALOG_DIR / relative_path).resolve()
+            catalog_root = PRESET_CATALOG_DIR.resolve()
+            if not str(local_path).startswith(str(catalog_root) + os.sep):
+                return None
+            content = local_path.read_bytes()
+            filename = local_path.name or filename
         elif raw.startswith("http://") or raw.startswith("https://"):
             response = requests.get(raw, timeout=90)
             response.raise_for_status()
@@ -4996,6 +5004,31 @@ def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") ->
     except Exception as exc:
         prostudio_error("IMAGE_FILE_LOAD_FAILED", exc, source=_sql_text(raw, 180))
         return None
+
+
+def byteplus_image_input(value: str, index: int = 0) -> str:
+    """Return an accessible URL or an inline Base64 image for BytePlus."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("data:image/") and ";base64," in raw:
+        head, encoded = raw.split(";base64,", 1)
+        mime_type = head.replace("data:", "").strip().lower() or "image/png"
+        return f"data:{mime_type};base64,{encoded.strip()}"
+    public_base = str(WEBAPP_URL or "").rstrip("/")
+    if public_base and raw.startswith(public_base + "/"):
+        local_public_path = urllib.parse.urlparse(raw).path
+        local_input = byteplus_image_input(local_public_path, index)
+        if local_input:
+            return local_input
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    file_tuple = image_file_tuple_from_url(raw, fallback_name=f"reference-{index + 1}.png")
+    if not file_tuple:
+        return ""
+    _, content, mime_type = file_tuple
+    mime_type = str(mime_type or "image/png").lower()
+    return f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}"
 
 
 def provider_object_to_dict(value) -> dict:
@@ -5896,6 +5929,11 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
         "kind": uploaded_kind,
         "url": public_url,
         "path": public_path,
+        "inline_url": (
+            f"data:{content_type or 'image/png'};base64,{base64.b64encode(content).decode('ascii')}"
+            if uploaded_kind == "image" and len(content) <= 12 * 1024 * 1024
+            else ""
+        ),
         "content_type": content_type,
         "bytes": len(content),
     }
@@ -7597,12 +7635,12 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
         body["seed"] = seed
 
     refs = []
-    for value in reference_images or []:
+    for index, value in enumerate(reference_images or []):
         if not isinstance(value, str) or not value.strip():
             continue
-        public_url = public_media_url(value)
-        if public_url and public_url not in refs:
-            refs.append(public_url)
+        provider_input = byteplus_image_input(value, index)
+        if provider_input and provider_input not in refs:
+            refs.append(provider_input)
 
     if refs:
         # Seedream accepts one URL or an ordered list of visual inputs. Keep the
@@ -7840,7 +7878,11 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
 
     reference_images = clean_refs
 
-    print("BYTEPLUS IMAGE REFERENCES:", reference_images)
+    print("BYTEPLUS IMAGE REFERENCES:", {
+        "count": len(reference_images),
+        "inline": sum(1 for value in reference_images if str(value).startswith("data:image/")),
+        "urls": sum(1 for value in reference_images if str(value).startswith(("http://", "https://"))),
+    })
 
     images = []
     # The public /images/generations examples use a single-output request body.
