@@ -2599,14 +2599,6 @@ CSS-БЛОК: .image-seed-input
 .image-seed-input:focus{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.07)}
 .image-seed-input:disabled{opacity:.48;cursor:not-allowed}
 .image-seed-disabled-note{margin:-2px 12px 10px;color:rgba(255,255,255,.52);font-size:12px;line-height:1.35}
-body > #modelPop.image-seed-pop{
-  background:#34363b !important;
-  border-color:rgba(255,255,255,.15) !important;
-  box-shadow:0 22px 60px rgba(0,0,0,.40) !important;
-}
-body > #modelPop.image-seed-pop .image-seed-tooltip{
-  background:#44474d;
-}
 .recraft-tool-row{cursor:default}
 .recraft-tool-row .image-size-check{font-size:12px;color:rgba(255,255,255,.72)}
 /* =====================================================
@@ -7326,13 +7318,6 @@ body > #modelPop:not(.video-template-modal) .model-brand-logo {
   max-width:var(--miniapp-icon-size) !important;
   max-height:var(--miniapp-icon-size) !important;
   flex:0 0 var(--miniapp-icon-size) !important;
-}
-
-/* Final Pro Studio overrides: keep the Seed sheet in the neutral gray design on every viewport. */
-body > #modelPop.image-size-floating-pop.image-seed-pop,
-body > #modelPop.image-seed-pop{
-  background:#34363b !important;
-  border-color:rgba(255,255,255,.15) !important;
 }
 
 .app :where(.tool .ico,.cat .ci,.chat-head .ico,.ctrl .ci,.row .ico,.mode-ico .mi,.studio-link-icons span,.vgen-uico,.voice-workspace-upload i){
