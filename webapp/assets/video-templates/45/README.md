@@ -10,3 +10,7 @@ Optional poster image:
 
 Optional prompt text:
 - webapp/assets/video-templates/45/prompt.txt
+
+
+Goal Celebration
+A dramatic World Cup goal celebration, featuring a fan leaping up in excitement
