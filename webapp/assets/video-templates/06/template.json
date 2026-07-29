@@ -1,0 +1,22 @@
+{
+  "id": "06",
+  "name": "Skyline Banner",
+  "description": "Replaces the banner in the video with the uploaded image while preserving the original animation, camera movement, composition, and environment of the template.",
+  "category": "Banner Replacement",
+  "input": {
+    "type": "image",
+    "subject": "banner",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 5,
+    "aspect_ratio": "9:16"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}

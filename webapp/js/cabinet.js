@@ -62,6 +62,47 @@ let imageState = {
     seed: null,
   };
 
+const PHOTO_TOOL_CONFIG = {
+  try_on: {
+    title: 'Виртуальная примерка',
+    shortTitle: 'Try‑On',
+    description: 'Загрузите человека первым, затем от одной до трёх фотографий одежды.',
+    min: 2,
+    max: 4,
+    labels: ['Человек', 'Одежда 1', 'Одежда 2', 'Одежда 3'],
+    demo: '/webapp/assets/photo-tools/try-on/demo.mp4',
+  },
+  remove_bg: {
+    title: 'Удаление фона',
+    shortTitle: 'Удаление фона',
+    description: 'Загрузите одно изображение. Объект останется без исходного фона.',
+    min: 1,
+    max: 1,
+    labels: ['Исходное фото'],
+    demo: '/webapp/assets/photo-tools/remove-background/demo.mp4',
+  },
+  replace_character: {
+    title: 'Замена персонажа',
+    shortTitle: 'Замена персонажа',
+    description: 'Первое фото задаёт сцену, второе — персонажа для замены.',
+    min: 2,
+    max: 2,
+    labels: ['Основное фото', 'Новый персонаж'],
+    demo: '/webapp/assets/photo-tools/replace-character/demo.mp4',
+  },
+  enhance: {
+    title: 'Улучшение фото',
+    shortTitle: 'Улучшение фото',
+    description: 'Загрузите одно фото для улучшения качества и детализации.',
+    min: 1,
+    max: 1,
+    labels: ['Фото для улучшения'],
+    demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
+  },
+};
+const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
+let activePhotoTool = '';
+
 let videoState = {
   modelId: 'seedance_2_fast',
   provider: 'bytedance',
@@ -4178,6 +4219,232 @@ function handleSelectionButtonClick(e, kind) {
     delete selectionButtonTimers[key];
     openSelectionButton(key);
   }, SELECTION_DOUBLE_PRESS_MS);
+}
+
+function ensurePhotoToolModal() {
+  let modal = document.getElementById('photoToolModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'photoToolModal';
+  modal.className = 'photo-tool-modal';
+  modal.onclick = closePhotoToolModal;
+  modal.innerHTML = '<section class="photo-tool-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
+    + '<div id="photoToolModalBody"></div>'
+    + '</section>';
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function photoToolDemoHtml(config) {
+  return '<div class="photo-tool-demo">'
+    + '<video src="' + S.escapeHtml(config.demo) + '" autoplay muted loop playsinline preload="metadata" onerror="this.parentElement.classList.add(\'demo-missing\')"></video>'
+    + '<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Добавьте видео demo.mp4 в подготовленную папку</small></div>'
+    + '</div>';
+}
+
+function renderPhotoToolCatalog() {
+  const body = document.getElementById('photoToolModalBody');
+  if (!body) return;
+  body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструменты</small><h3>Что сделать с фотографией?</h3></div>'
+    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    + '<div class="photo-tool-catalog">'
+    + Object.entries(PHOTO_TOOL_CONFIG).map(([key, config]) =>
+      '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
+      + photoToolDemoHtml(config)
+      + '<span><b>' + S.escapeHtml(config.shortTitle) + '</b><small>' + S.escapeHtml(config.description) + '</small></span>'
+      + '</button>'
+    ).join('')
+    + '</div>';
+}
+
+function photoToolStateFor(kind) {
+  return photoToolState[kind] || null;
+}
+
+function renderPhotoToolModal() {
+  const body = document.getElementById('photoToolModalBody');
+  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
+  const state = photoToolStateFor(activePhotoTool);
+  if (!body) return;
+  if (!config || !state) {
+    renderPhotoToolCatalog();
+    return;
+  }
+  const slots = config.labels.map((label, index) => {
+    const file = state.files[index];
+    return '<button class="photo-tool-upload-slot ' + (file ? 'has-file' : '') + '" type="button" onclick="SYLVEX.openPhotoToolFilePicker(event,\'' + activePhotoTool + '\',' + index + ')">'
+      + (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
+      + '<b>' + S.escapeHtml(label) + '</b>'
+      + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>')
+      + '</button>';
+  }).join('');
+  const ready = state.files.filter(Boolean).length >= config.min;
+  body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
+    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    + '<div class="photo-tool-layout">'
+    + '<div class="photo-tool-demo-column">' + photoToolDemoHtml(config) + '<p>' + S.escapeHtml(config.description) + '</p></div>'
+    + '<div class="photo-tool-work-column">'
+    + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
+    + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
+    + '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"></textarea>'
+    + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
+    + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
+    + '</button>'
+    + '</div></div>';
+}
+
+function openPhotoToolModal(e, kind) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  updateComposerMode('image');
+  activePhotoTool = PHOTO_TOOL_CONFIG[kind] ? kind : '';
+  const modal = ensurePhotoToolModal();
+  modal.classList.add('show');
+  renderPhotoToolModal();
+}
+
+function closePhotoToolModal(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const modal = document.getElementById('photoToolModal');
+  if (modal && !(activePhotoTool && photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating)) {
+    modal.classList.remove('show');
+  }
+}
+
+function openPhotoToolFilePicker(e, kind, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  activePhotoTool = kind;
+  const input = document.getElementById('photoToolFileInput');
+  if (!input) return;
+  input.dataset.slot = String(Math.max(0, Number(index) || 0));
+  input.value = '';
+  input.click();
+}
+
+function readPhotoToolFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !String(file.type || '').startsWith('image/')) return reject(new Error('Выберите изображение'));
+    if (file.size > 50 * 1024 * 1024) return reject(new Error('Фото должно быть меньше 50 MB'));
+    const reader = new FileReader();
+    reader.onload = () => resolve({ name: file.name, mime: file.type, url: String(reader.result || '') });
+    reader.onerror = () => reject(new Error('Не удалось прочитать фото'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onPhotoToolFiles(e) {
+  const input = e && e.target;
+  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
+  const state = photoToolStateFor(activePhotoTool);
+  if (!input || !config || !state) return;
+  const start = Math.max(0, Number(input.dataset.slot || 0));
+  const files = Array.from(input.files || []).slice(0, config.max - start);
+  if (!files.length) return;
+  if ((input.files || []).length > files.length) toast('Для этой функции можно выбрать не больше ' + config.max + ' фото');
+  try {
+    const loaded = await Promise.all(files.map(readPhotoToolFile));
+    loaded.forEach((file, offset) => {
+      if (start + offset < config.max) state.files[start + offset] = file;
+    });
+    state.files = state.files.slice(0, config.max);
+    renderPhotoToolModal();
+  } catch (error) {
+    toast((error && error.message) || 'Не удалось загрузить фото');
+  }
+}
+
+function removePhotoToolFile(e, kind, index) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const state = photoToolStateFor(kind);
+  if (!state || state.generating) return;
+  state.files.splice(index, 1);
+  activePhotoTool = kind;
+  renderPhotoToolModal();
+}
+
+function photoToolPrompt(kind, extra) {
+  const suffix = extra ? '\n\nUser request for the operation: ' + extra : '';
+  if (kind === 'try_on') {
+    return 'Virtual try-on operation. The first reference image is the person. Every following reference image is a garment. Dress the person from the first image in the supplied garments. Preserve the person identity, face, body, pose and scene. Use only the supplied garment references; do not create another person.' + suffix;
+  }
+  if (kind === 'remove_bg') {
+    return 'Remove the background from the first reference image. Preserve the foreground subject and all its details exactly. Return a clean isolated subject with a transparent background. Do not add new objects or people.' + suffix;
+  }
+  if (kind === 'replace_character') {
+    return 'Replace the person in the first reference image with the person shown in the second reference image. Preserve the first image pose, clothing, background, objects, lighting, framing and spatial arrangement. Change only the person. Do not create a second person.' + suffix;
+  }
+  return 'Enhance the first reference photo. Improve sharpness, detail, resolution, dynamic range and natural color while preserving the exact subject, identity, composition, objects and scene. Do not add or remove people or objects.' + suffix;
+}
+
+async function generatePhotoTool(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const kind = activePhotoTool;
+  const config = PHOTO_TOOL_CONFIG[kind];
+  const state = photoToolStateFor(kind);
+  if (!config || !state || state.generating) return;
+  const refs = state.files.filter(Boolean).map((item) => item.url);
+  if (refs.length < config.min) {
+    toast('Загрузите необходимые фотографии');
+    return;
+  }
+  const extraEl = document.getElementById('photoToolExtraPrompt');
+  const extra = extraEl ? String(extraEl.value || '').trim() : '';
+  const prompt = photoToolPrompt(kind, extra);
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('image'),
+  }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(prompt, null, refs, null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (images.length) addGeneratedImages(images, thumbs);
+    const options = Object.assign({}, imageOptionsPayload(refs), { photo_tool: kind });
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: imageGenerationMetadata(prompt, refs, result, options),
+    };
+    state.files = [];
+    state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      text: '⚠️ ' + translateGenerationError(error, 'Не удалось обработать фото. Попробуйте ещё раз.'),
+    };
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось обработать фото'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+  }
 }
 
 // =====================================================
@@ -14371,7 +14638,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -14402,6 +14669,12 @@ async function waitGeneration(jobId, options) {
   window.togglePlusPop  = togglePlusPop;
   window.attach         = attach;
   window.handleSelectionButtonClick = handleSelectionButtonClick;
+  window.openPhotoToolModal = openPhotoToolModal;
+  window.closePhotoToolModal = closePhotoToolModal;
+  window.openPhotoToolFilePicker = openPhotoToolFilePicker;
+  window.onPhotoToolFiles = onPhotoToolFiles;
+  window.removePhotoToolFile = removePhotoToolFile;
+  window.generatePhotoTool = generatePhotoTool;
   window.openImageUpload = openImageUpload;
   window.openVideoStartUpload = openVideoStartUpload;
   window.openVideoEndUpload = openVideoEndUpload;
