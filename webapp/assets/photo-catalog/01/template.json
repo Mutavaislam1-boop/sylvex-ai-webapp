@@ -1,0 +1,8 @@
+{
+  "id": "photo_01",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "",
+  "aspect_ratio": "1:1",
+  "model": "seedream_5_0_lite"
+}

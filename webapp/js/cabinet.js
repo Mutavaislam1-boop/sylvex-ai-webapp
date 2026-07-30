@@ -151,6 +151,7 @@ const UPLOAD_TARGETS = {
 let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let videoTemplatesCache = null;
+let photoCatalogCache = null;
 let klingEffectsCache = null;
 let activeVideoTemplate = null;
 let videoTemplateUploadUrl = '';
@@ -4251,26 +4252,33 @@ function ensurePhotoCatalogModal() {
   return modal;
 }
 
-function photoCatalogItems() {
-  const items = [];
-  const seen = new Set();
-  const add = (url, title) => {
-    const clean = String(url || '').trim();
-    if (!clean || seen.has(clean)) return;
-    seen.add(clean);
-    items.push({ url: clean, title: title || 'Фото' });
-  };
-  getGeneratedPhotoHistoryItems().forEach((entry) => add(entry.thumb || entry.url, entry.title || 'Созданное фото'));
-  (IMAGE_STYLE_SHEET_ITEMS || []).forEach((entry) => add(entry.image || entry.preview || '', entry.label || 'Фото'));
-  return items.slice(0, 80);
+async function loadPhotoCatalog(force) {
+  if (!force && Array.isArray(photoCatalogCache)) return photoCatalogCache;
+  try {
+    const res = await fetch('/api/public/prostudio/photo-catalog', { cache: force ? 'reload' : 'default' });
+    const data = await res.json().catch(() => ({}));
+    photoCatalogCache = Array.isArray(data.photos)
+      ? data.photos.map((item) => ({
+          id: String(item.id || ''),
+          url: String(item.image_url || item.url || ''),
+          title: String(item.title || item.name || 'Фото'),
+          prompt: String(item.prompt || ''),
+          model: String(item.model || ''),
+          aspectRatio: String(item.aspect_ratio || item.ratio || ''),
+        })).filter((item) => item.url)
+      : [];
+  } catch {
+    photoCatalogCache = [];
+  }
+  return photoCatalogCache;
 }
 
-function renderPhotoCatalog() {
+function renderPhotoCatalog(itemsOverride) {
   const grid = document.getElementById('photoCatalogGrid');
   if (!grid) return;
-  const items = photoCatalogItems();
+  const items = Array.isArray(itemsOverride) ? itemsOverride : (photoCatalogCache || []);
   if (!items.length) {
-    grid.innerHTML = '<div class="photo-catalog-empty">Каталог пока пуст. Созданные фотографии появятся здесь автоматически.</div>';
+    grid.innerHTML = '<div class="photo-catalog-empty">Каталог пока пуст. Добавьте фотографии в папку разработчика.</div>';
     return;
   }
   grid.innerHTML = items.map((item) => {
@@ -4292,15 +4300,17 @@ function syncPhotoCatalogCardRatio(e) {
   else card.classList.add('square');
 }
 
-function openPhotoCatalog(e) {
+async function openPhotoCatalog(e) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
   updateComposerMode('image');
   const modal = ensurePhotoCatalogModal();
-  renderPhotoCatalog();
   modal.classList.add('show');
+  const grid = document.getElementById('photoCatalogGrid');
+  if (grid) grid.innerHTML = '<div class="photo-catalog-empty">Загружаем каталог…</div>';
+  renderPhotoCatalog(await loadPhotoCatalog(true));
 }
 
 function closePhotoCatalog(e) {
@@ -4318,8 +4328,20 @@ function selectPhotoCatalogItem(e, url) {
     e.stopPropagation();
   }
   if (!url) return;
+  const item = (photoCatalogCache || []).find((entry) => entry.url === url) || null;
+  if (item && item.model && IMAGE_MODEL_LIST.some((model) => model.id === item.model)) {
+    imageState.modelId = item.model;
+  }
+  if (item && item.prompt) {
+    const input = document.getElementById('chatInput');
+    if (input) {
+      input.value = item.prompt;
+      autoGrow(input);
+    }
+  }
   setUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD);
   applyUploadToTarget(url, UPLOAD_TARGETS.IMAGE_UPLOAD);
+  renderImageControls();
   renderImageUploadPreview();
   closePhotoCatalog();
   toast('Фото добавлено в генерацию');
