@@ -6259,16 +6259,24 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-catalog-card>span{display:flex;flex-direction:column;gap:4px;padding:10px 5px 5px}
 .photo-tool-catalog-card>span>b{font-size:15px}
 .photo-tool-catalog-card>span>small{font-size:11px;line-height:1.35;color:rgba(255,255,255,.56)}
-.photo-catalog-dialog{width:min(1040px,calc(100vw - 32px))}
-.photo-catalog-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.photo-catalog-card{
-  min-width:0;padding:7px;border-radius:17px;border:1px solid rgba(255,255,255,.09);
-  background:#111216;color:#f3f3f3;text-align:left;overflow:hidden;cursor:pointer
+.photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:rgba(18,18,24,.18);backdrop-filter:blur(18px)}
+.photo-catalog-grid{
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-flow:dense;
+  grid-auto-rows:112px;gap:8px
 }
-.photo-catalog-card>img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;background:#24262c}
-.photo-catalog-card>span{display:flex;flex-direction:column;gap:3px;padding:9px 5px 5px}
-.photo-catalog-card>span>b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.photo-catalog-card>span>small{font-size:10px;color:rgba(255,255,255,.52)}
+.photo-catalog-card{
+  position:relative;min-width:0;min-height:0;padding:0;border-radius:14px;border:0;
+  background:#191a1f;color:#f3f3f3;text-align:left;overflow:hidden;cursor:pointer;
+  box-shadow:0 10px 30px rgba(0,0,0,.22)
+}
+.photo-catalog-card.square{grid-column:span 1;grid-row:span 1}
+.photo-catalog-card.wide{grid-column:span 2;grid-row:span 1}
+.photo-catalog-card.tall{grid-column:span 1;grid-row:span 2}
+.photo-catalog-card>img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;background:#24262c}
+.photo-catalog-card::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 42%,rgba(0,0,0,.76))}
+.photo-catalog-card>span{position:absolute;z-index:2;left:7px;right:7px;bottom:7px;display:flex;flex-direction:column;gap:2px}
+.photo-catalog-card>span>b{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo-catalog-card>span>small{font-size:8px;color:rgba(255,255,255,.68)}
 .photo-catalog-empty{
   grid-column:1/-1;min-height:220px;border-radius:18px;border:1px dashed rgba(255,255,255,.14);
   display:grid;place-items:center;padding:24px;text-align:center;color:rgba(255,255,255,.55)
@@ -6281,7 +6289,12 @@ CSS-БЛОК: .generation-info-actions button
   .photo-tool-layout{grid-template-columns:1fr}
   .photo-tool-demo-column .photo-tool-demo{aspect-ratio:16/8}
   .photo-tool-catalog{grid-template-columns:1fr}
-  .photo-catalog-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .photo-catalog-dialog{width:calc(100% - 10px);padding:8px;border-radius:18px}
+  .photo-catalog-grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:82px;gap:5px}
+  .photo-catalog-card{border-radius:10px}
+  .photo-catalog-card>span{left:5px;right:5px;bottom:5px}
+  .photo-catalog-card>span>b{font-size:8px}
+  .photo-catalog-card>span>small{display:none}
   .photo-tool-upload-slot{min-height:112px}
   .photo-tool-head h3{font-size:20px}
 }
@@ -6969,7 +6982,7 @@ CSS-БЛОК: .video-template-preview-fallback
 
 @media(max-width:900px){
 .video-templates-panel{width:min(620px,calc(100% - 12px));height:64vh}
-.video-templates-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}
+.video-templates-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 .kling-effects-overlay .video-templates-panel{width:min(560px,calc(100% - 12px));height:62vh}
 .kling-effects-overlay .video-templates-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 /* =====================================================

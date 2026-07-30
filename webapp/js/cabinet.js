@@ -4273,12 +4273,14 @@ function renderPhotoCatalog() {
     grid.innerHTML = '<div class="photo-catalog-empty">Каталог пока пуст. Созданные фотографии появятся здесь автоматически.</div>';
     return;
   }
-  grid.innerHTML = items.map((item) =>
-    '<button class="photo-catalog-card" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.url) + '\')">'
+  grid.innerHTML = items.map((item, index) => {
+    const shapeCycle = ['square', 'tall', 'square', 'wide', 'square', 'square', 'tall', 'square', 'wide', 'square', 'square', 'wide'];
+    const shape = shapeCycle[index % shapeCycle.length];
+    return '<button class="photo-catalog-card ' + shape + '" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.url) + '\')">'
     + '<img src="' + S.escapeHtml(item.url) + '" alt="' + S.escapeHtml(item.title) + '" loading="lazy" decoding="async" />'
     + '<span><b>' + S.escapeHtml(item.title) + '</b><small>Использовать фото</small></span>'
-    + '</button>'
-  ).join('');
+    + '</button>';
+  }).join('');
 }
 
 function openPhotoCatalog(e) {
