@@ -4273,14 +4273,23 @@ function renderPhotoCatalog() {
     grid.innerHTML = '<div class="photo-catalog-empty">Каталог пока пуст. Созданные фотографии появятся здесь автоматически.</div>';
     return;
   }
-  grid.innerHTML = items.map((item, index) => {
-    const shapeCycle = ['square', 'tall', 'square', 'wide', 'square', 'square', 'tall', 'square', 'wide', 'square', 'square', 'wide'];
-    const shape = shapeCycle[index % shapeCycle.length];
-    return '<button class="photo-catalog-card ' + shape + '" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.url) + '\')">'
-    + '<img src="' + S.escapeHtml(item.url) + '" alt="' + S.escapeHtml(item.title) + '" loading="lazy" decoding="async" />'
+  grid.innerHTML = items.map((item) => {
+    return '<button class="photo-catalog-card square" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.url) + '\')">'
+    + '<img src="' + S.escapeHtml(item.url) + '" alt="' + S.escapeHtml(item.title) + '" loading="lazy" decoding="async" onload="SYLVEX.syncPhotoCatalogCardRatio(event)" />'
     + '<span><b>' + S.escapeHtml(item.title) + '</b><small>Использовать фото</small></span>'
     + '</button>';
   }).join('');
+}
+
+function syncPhotoCatalogCardRatio(e) {
+  const image = e && e.currentTarget;
+  const card = image && image.closest ? image.closest('.photo-catalog-card') : null;
+  if (!image || !card) return;
+  const ratio = Number(image.naturalWidth || 0) / Math.max(1, Number(image.naturalHeight || 0));
+  card.classList.remove('square', 'wide', 'tall');
+  if (ratio >= 1.35) card.classList.add('wide');
+  else if (ratio <= .75) card.classList.add('tall');
+  else card.classList.add('square');
 }
 
 function openPhotoCatalog(e) {
@@ -14719,7 +14728,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -14755,6 +14764,7 @@ async function waitGeneration(jobId, options) {
   window.openPhotoCatalog = openPhotoCatalog;
   window.closePhotoCatalog = closePhotoCatalog;
   window.selectPhotoCatalogItem = selectPhotoCatalogItem;
+  window.syncPhotoCatalogCardRatio = syncPhotoCatalogCardRatio;
   window.openPhotoToolFilePicker = openPhotoToolFilePicker;
   window.onPhotoToolFiles = onPhotoToolFiles;
   window.removePhotoToolFile = removePhotoToolFile;
