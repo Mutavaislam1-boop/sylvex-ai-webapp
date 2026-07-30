@@ -1,0 +1,22 @@
+{
+  "id": "08",
+  "name": "Premium Product Unboxing",
+  "description": "Replaces the product inside the box and throughout the video with the item from the uploaded image while preserving the original unboxing sequence, hand movements, camera angles, lighting, and environment of the template.",
+  "category": "Product Replacement",
+  "input": {
+    "type": "image",
+    "subject": "product",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 6,
+    "aspect_ratio": "9:16"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}

@@ -1,0 +1,22 @@
+{
+  "id": "18",
+  "name": "Bigger than Earth",
+  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "category": "Character Replacement",
+  "input": {
+    "type": "image",
+    "subject": "person",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 15,
+    "aspect_ratio": "16:9"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}

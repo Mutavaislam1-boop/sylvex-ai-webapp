@@ -1,0 +1,22 @@
+{
+  "id": "10",
+  "name": "World Cup Lego",
+  "description": "Replaces the LEGO minifigure with a LEGO-style version of the person from the uploaded photo while preserving the World Cup trophy, placement animation, camera movement, and environment of the original template.",
+  "category": "Character Replacement",
+  "input": {
+    "type": "image",
+    "subject": "person",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 5,
+    "aspect_ratio": "9:16"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}

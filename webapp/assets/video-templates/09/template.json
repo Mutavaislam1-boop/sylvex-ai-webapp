@@ -1,0 +1,22 @@
+{
+  "id": "09",
+  "name": "Photobooth Print",
+  "description": "Replaces the portraits on the printed photobooth strip with the person from the uploaded photo while preserving the printing animation, repeated photo layout, camera movement, lighting, and environment of the original template.",
+  "category": "Photo Replacement",
+  "input": {
+    "type": "image",
+    "subject": "person",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 5,
+    "aspect_ratio": "9:16"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}
