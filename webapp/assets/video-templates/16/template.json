@@ -1,0 +1,22 @@
+{
+  "id": "16",
+  "name": "VIP Night Arrival",
+  "description": "Replaces the main person in the video with the person from the uploaded photo while preserving the walking motion, body pose, camera movement, luxury hotel entrance, waiting SUV, lighting, and nighttime atmosphere of the original template.",
+  "category": "Character Replacement",
+  "input": {
+    "type": "image",
+    "subject": "person",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 8,
+    "aspect_ratio": "16:9"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}

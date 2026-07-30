@@ -1,0 +1,22 @@
+{
+  "id": "11",
+  "name": "Roller Coaster Adventure",
+  "description": "Replaces the main rider in the roller coaster video with the person from the uploaded photo while preserving the facial expression, body movement, ride motion, camera angle, friends, colorful carnival atmosphere, and environment of the original template.",
+  "category": "Character Replacement",
+  "input": {
+    "type": "image",
+    "subject": "person",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 4,
+    "aspect_ratio": "9:16"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}

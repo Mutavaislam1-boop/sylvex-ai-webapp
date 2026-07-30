@@ -1,0 +1,22 @@
+{
+  "id": "12",
+  "name": "The Perfect Ramen Bite",
+  "description": "Replaces the main person in the ramen restaurant video with the person from the uploaded photo while preserving the eating action, facial expression, body pose, camera angle, food presentation, lighting, and cozy Japanese restaurant environment of the original template.",
+  "category": "Character Replacement",
+  "input": {
+    "type": "image",
+    "subject": "person",
+    "count": 1
+  },
+  "output": {
+    "type": "video",
+    "duration": 8,
+    "aspect_ratio": "1:1"
+  },
+  "assets": {
+    "preview": "preview.mp4",
+    "poster": "poster.jpg",
+    "prompt": "prompt.txt"
+  },
+  "enabled": true
+}
