@@ -6259,6 +6259,20 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-catalog-card>span{display:flex;flex-direction:column;gap:4px;padding:10px 5px 5px}
 .photo-tool-catalog-card>span>b{font-size:15px}
 .photo-tool-catalog-card>span>small{font-size:11px;line-height:1.35;color:rgba(255,255,255,.56)}
+.photo-catalog-dialog{width:min(1040px,calc(100vw - 32px))}
+.photo-catalog-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.photo-catalog-card{
+  min-width:0;padding:7px;border-radius:17px;border:1px solid rgba(255,255,255,.09);
+  background:#111216;color:#f3f3f3;text-align:left;overflow:hidden;cursor:pointer
+}
+.photo-catalog-card>img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;background:#24262c}
+.photo-catalog-card>span{display:flex;flex-direction:column;gap:3px;padding:9px 5px 5px}
+.photo-catalog-card>span>b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo-catalog-card>span>small{font-size:10px;color:rgba(255,255,255,.52)}
+.photo-catalog-empty{
+  grid-column:1/-1;min-height:220px;border-radius:18px;border:1px dashed rgba(255,255,255,.14);
+  display:grid;place-items:center;padding:24px;text-align:center;color:rgba(255,255,255,.55)
+}
 @keyframes photoToolSpin{to{transform:rotate(360deg)}}
 @keyframes photoToolPulse{50%{transform:scale(.88);opacity:.55}}
 @media(max-width:680px){
@@ -6267,6 +6281,7 @@ CSS-БЛОК: .generation-info-actions button
   .photo-tool-layout{grid-template-columns:1fr}
   .photo-tool-demo-column .photo-tool-demo{aspect-ratio:16/8}
   .photo-tool-catalog{grid-template-columns:1fr}
+  .photo-catalog-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .photo-tool-upload-slot{min-height:112px}
   .photo-tool-head h3{font-size:20px}
 }
