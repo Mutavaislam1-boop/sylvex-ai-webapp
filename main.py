@@ -48,6 +48,8 @@ PRESET_CATALOG_CACHE_TTL = 60
 PRESET_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
 VIDEO_TEMPLATE_CATALOG_CACHE_TTL = 60
 VIDEO_TEMPLATE_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
+PHOTO_CATALOG_CACHE_TTL = 60
+PHOTO_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
 HEYGEN_AVATAR_LOOK_CACHE_TTL = 300
 HEYGEN_AVATAR_LOOK_CACHE = {}
 
@@ -10636,6 +10638,59 @@ async def public_prostudio_video_templates():
     VIDEO_TEMPLATE_CATALOG_CACHE["value"] = payload
     VIDEO_TEMPLATE_CATALOG_CACHE["expires_at"] = now + VIDEO_TEMPLATE_CATALOG_CACHE_TTL
     return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={VIDEO_TEMPLATE_CATALOG_CACHE_TTL}"})
+
+
+def prostudio_photo_catalog_items() -> list:
+    base_dir = WEBAPP_DIR / "assets" / "photo-catalog"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    items = []
+    for slot_dir in sorted((path for path in base_dir.iterdir() if path.is_dir()), key=lambda path: path.name.lower()):
+        metadata = {}
+        metadata_file = slot_dir / "template.json"
+        if metadata_file.exists():
+            try:
+                parsed = json.loads(metadata_file.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    metadata = parsed
+            except Exception as exc:
+                prostudio_error("PHOTO_CATALOG_TEMPLATE_JSON_FAILED", exc, slot=slot_dir.name)
+        image_file = None
+        preferred_names = ("photo.jpg", "photo.jpeg", "photo.png", "photo.webp", "preview.jpg", "preview.png", "preview.webp")
+        for name in preferred_names:
+            candidate = slot_dir / name
+            if candidate.exists():
+                image_file = candidate
+                break
+        if image_file is None:
+            image_file = next((path for path in sorted(slot_dir.iterdir()) if path.is_file() and path.suffix.lower() in image_extensions), None)
+        if image_file is None:
+            continue
+        slot = slot_dir.name
+        image_url = f"/webapp/assets/photo-catalog/{urllib.parse.quote(slot, safe='')}/{urllib.parse.quote(image_file.name, safe='')}"
+        items.append({
+            "id": str(metadata.get("id") or f"photo_{slot}"),
+            "slot": slot,
+            "title": str(metadata.get("title") or metadata.get("name") or f"Фото {slot}"),
+            "description": str(metadata.get("description") or ""),
+            "prompt": str(metadata.get("prompt") or ""),
+            "aspect_ratio": str(metadata.get("aspect_ratio") or metadata.get("ratio") or ""),
+            "image_url": image_url,
+            "model": str(metadata.get("model") or ""),
+        })
+    return items
+
+
+@app.get("/api/public/prostudio/photo-catalog")
+async def public_prostudio_photo_catalog():
+    now = time.time()
+    cached = PHOTO_CATALOG_CACHE.get("value")
+    if cached is not None and now < float(PHOTO_CATALOG_CACHE.get("expires_at") or 0):
+        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
+    payload = {"ok": True, "photos": prostudio_photo_catalog_items()}
+    PHOTO_CATALOG_CACHE["value"] = payload
+    PHOTO_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
 
 # =====================================================
 # API ENDPOINT: download_prostudio_image
