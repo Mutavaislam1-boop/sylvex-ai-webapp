@@ -72,6 +72,7 @@ print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 PROSTUDIO_SCHEMA_LOCK = threading.Lock()
 PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
+SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
@@ -1098,6 +1099,18 @@ def ensure_payment_tables():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS subscription_reminders (
+            id SERIAL PRIMARY KEY,
+            subscription_id INTEGER NOT NULL,
+            telegram_id BIGINT NOT NULL,
+            days_before INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'sending',
+            sent_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(subscription_id, days_before)
+        )
+        """)
         conn.commit()
     finally:
         cursor.close()
@@ -1428,6 +1441,14 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             LIMIT 1
         """, (telegram_id,))
         active_sub = cursor.fetchone()
+        cursor.execute("""
+            SELECT subscription_type, expires_at::timestamp
+            FROM subscriptions
+            WHERE telegram_id = %s
+            ORDER BY expires_at::timestamp DESC NULLS LAST, id DESC
+            LIMIT 1
+        """, (telegram_id,))
+        latest_sub = cursor.fetchone()
 
         if active_sub:
             cursor.execute("""
@@ -1436,26 +1457,21 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                 WHERE telegram_id = %s
             """, (active_sub[0], telegram_id))
             conn.commit()
-        elif (str(user_row[4] or '').lower() == 'active' or _has_subscription_purchase(telegram_id)):
-            restored = _restore_active_subscription(telegram_id)
-            if restored:
-                cursor.execute("""
-                    SELECT subscription_type, expires_at::timestamp
-                    FROM subscriptions
-                    WHERE telegram_id = %s
-                      AND status = 'active'
-                      AND expires_at::timestamp > NOW()
-                    ORDER BY expires_at::timestamp DESC
-                    LIMIT 1
-                """, (telegram_id,))
-                active_sub = cursor.fetchone()
-                if active_sub:
-                    cursor.execute("""
-                        UPDATE users
-                        SET subscription = COALESCE(%s, 'active')
-                        WHERE telegram_id = %s
-                    """, (active_sub[0], telegram_id))
-                    conn.commit()
+        else:
+            cursor.execute("""
+                UPDATE subscriptions
+                SET status = 'expired'
+                WHERE telegram_id = %s
+                  AND status = 'active'
+                  AND expires_at::timestamp <= NOW()
+            """, (telegram_id,))
+            cursor.execute("""
+                UPDATE users
+                SET subscription = NULL
+                WHERE telegram_id = %s
+                  AND subscription IS NOT NULL
+            """, (telegram_id,))
+            conn.commit()
 
         cursor.execute("""
             SELECT COUNT(*)
@@ -1509,6 +1525,8 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
 
     profile = get_user_profile(telegram_id)
     subscription_status = "active" if active_sub else "free"
+    last_subscription_expires_at = _to_iso(latest_sub[1]) if latest_sub and latest_sub[1] else None
+    subscription_expired = bool(latest_sub and latest_sub[1] and not active_sub and latest_sub[1].timestamp() <= time.time())
     result = {
         "telegram_id": user_row[0],
         "username": user_row[1],
@@ -1518,6 +1536,8 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         "subscription_status": subscription_status,
         "subscription_plan": active_sub[0] if active_sub else None,
         "subscription_expires_at": _to_iso(active_sub[1]) if active_sub and active_sub[1] else None,
+        "last_subscription_expires_at": last_subscription_expires_at,
+        "subscription_expired": subscription_expired,
         "display_name": profile.get("display_name"),
         "custom_avatar_url": profile.get("custom_avatar_url"),
         "theme_preference": profile.get("theme_preference") or {},
@@ -1604,6 +1624,14 @@ def get_fast_user_state(telegram_id: int) -> dict:
             LIMIT 1
         """, (telegram_id,))
         active_sub = cursor.fetchone()
+        cursor.execute("""
+            SELECT subscription_type, expires_at::timestamp
+            FROM subscriptions
+            WHERE telegram_id = %s
+            ORDER BY expires_at::timestamp DESC NULLS LAST, id DESC
+            LIMIT 1
+        """, (telegram_id,))
+        latest_sub = cursor.fetchone()
     finally:
         cursor.close()
         conn.close()
@@ -1612,12 +1640,19 @@ def get_fast_user_state(telegram_id: int) -> dict:
     subscription = active_sub[0] if active_sub else None
     subscription_until = _to_iso(active_sub[1]) if active_sub and active_sub[1] else None
     status = "pro" if active_sub else "free"
+    last_subscription_expires_at = _to_iso(latest_sub[1]) if latest_sub and latest_sub[1] else None
+    subscription_expired = bool(latest_sub and latest_sub[1] and not active_sub and latest_sub[1].timestamp() <= time.time())
 
     return {
         "balance": balance or 0,
         "subscription": subscription,
         "subscription_until": subscription_until,
         "status": status,
+        "subscription_status": "active" if active_sub else "free",
+        "subscription_plan": subscription,
+        "subscription_expires_at": subscription_until,
+        "last_subscription_expires_at": last_subscription_expires_at,
+        "subscription_expired": subscription_expired,
     }
 
 
@@ -1661,6 +1696,11 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
     conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        cursor.execute("""
+            DELETE FROM subscription_reminders
+            WHERE status = 'sending'
+              AND created_at < NOW() - INTERVAL '1 hour'
+        """)
         cursor.execute("""
             UPDATE subscriptions
             SET status = 'cancelled'
@@ -6612,19 +6652,7 @@ async def public_telegram_sync(request: Request):
         return JSONResponse({"ok": False, "error": "invalid_init_data", "user": user_data}, status_code=401)
 
     try:
-        user = sync_user_to_db(user_data)
-        log_user_event(
-            telegram_id=user_data.get("telegram_id"),
-            source="mini_app",
-            event_type="sync",
-            event_name="user_sync",
-            payload={
-                "subscription_plan": user.get("subscription_plan"),
-                "subscription_expires_at": user.get("subscription_expires_at"),
-                "status": user.get("status"),
-                "balance": user.get("balance"),
-            },
-        )
+        user = await asyncio.to_thread(sync_user_to_db, user_data)
     except Exception as exc:
         print("USER SYNC FAILED:", exc)
         user = user_data
@@ -6647,7 +6675,7 @@ async def public_telegram_user_state(telegram_id: int = 0):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     try:
-        return get_fast_user_state(int(telegram_id))
+        return await asyncio.to_thread(get_fast_user_state, int(telegram_id))
     except Exception as exc:
         print("USER STATE FAILED:", exc)
         return JSONResponse({"ok": False, "error": "user_state_failed"}, status_code=500)
@@ -11294,6 +11322,141 @@ async def prostudio_generation_worker_loop():
             prostudio_error("WORKER_LOOP_EXCEPTION", exc)
         await asyncio.sleep(PROSTUDIO_WORKER_INTERVAL)
 
+
+def process_subscription_reminders() -> dict:
+    if not DATABASE_URL or not BOT_TOKEN:
+        return {"checked": 0, "sent": 0}
+    ensure_payment_tables()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE subscriptions
+            SET status = 'expired'
+            WHERE status = 'active'
+              AND expires_at IS NOT NULL
+              AND expires_at::timestamp <= NOW()
+        """)
+        cursor.execute("""
+            SELECT s.id, s.telegram_id, s.subscription_type, s.expires_at::timestamp,
+                   EXTRACT(EPOCH FROM (s.expires_at::timestamp - NOW()))
+            FROM subscriptions s
+            WHERE s.status = 'active'
+              AND s.expires_at::timestamp > NOW()
+              AND s.expires_at::timestamp <= NOW() + INTERVAL '8 days'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM subscriptions newer
+                  WHERE newer.telegram_id = s.telegram_id
+                    AND newer.status = 'active'
+                    AND newer.expires_at::timestamp > s.expires_at::timestamp
+              )
+            ORDER BY s.expires_at ASC
+        """)
+        subscriptions = cursor.fetchall()
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+    checked = 0
+    sent = 0
+    for subscription_id, telegram_id, plan, expires_at, remaining_seconds in subscriptions:
+        checked += 1
+        seconds = max(0, float(remaining_seconds or 0))
+        days_before = int((seconds + 86399) // 86400)
+        if days_before not in {7, 5, 2, 1}:
+            continue
+
+        claim_conn = psycopg2.connect(DATABASE_URL)
+        claim_cursor = claim_conn.cursor()
+        try:
+            claim_cursor.execute("""
+                INSERT INTO subscription_reminders
+                    (subscription_id, telegram_id, days_before, status)
+                VALUES (%s, %s, %s, 'sending')
+                ON CONFLICT (subscription_id, days_before) DO NOTHING
+                RETURNING id
+            """, (subscription_id, telegram_id, days_before))
+            claimed = claim_cursor.fetchone()
+            claim_conn.commit()
+        finally:
+            claim_cursor.close()
+            claim_conn.close()
+        if not claimed:
+            continue
+
+        day_word = "день" if days_before == 1 else ("дня" if days_before in {2, 3, 4} else "дней")
+        plan_label = "1 год" if str(plan or "").lower() == "year" else "1 месяц"
+        text = (
+            "⏳ <b>Подписка SYLVEX Pro скоро закончится</b>\n\n"
+            f"До окончания осталось: <b>{days_before} {day_word}</b>\n"
+            f"Текущий план: <b>{plan_label}</b>\n"
+            f"Дата окончания: <b>{expires_at.strftime('%d.%m.%Y %H:%M')}</b>\n\n"
+            "Продлите подписку заранее, чтобы сохранить непрерывный доступ к генерациям."
+        )
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": int(telegram_id),
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                    "reply_markup": {
+                        "inline_keyboard": [[{
+                            "text": "Продлить подписку",
+                            "web_app": {"url": WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=shop"},
+                        }]]
+                    },
+                },
+                timeout=20,
+            )
+            result = response.json() if response.content else {}
+            if response.status_code >= 400 or not result.get("ok"):
+                raise RuntimeError(f"Telegram sendMessage failed: {response.status_code} {result}")
+            update_conn = psycopg2.connect(DATABASE_URL)
+            update_cursor = update_conn.cursor()
+            try:
+                update_cursor.execute("""
+                    UPDATE subscription_reminders
+                    SET status = 'sent', sent_at = NOW()
+                    WHERE id = %s
+                """, (claimed[0],))
+                update_conn.commit()
+            finally:
+                update_cursor.close()
+                update_conn.close()
+            sent += 1
+        except Exception as exc:
+            prostudio_error(
+                "SUBSCRIPTION_REMINDER_FAILED",
+                exc,
+                telegram_id=telegram_id,
+                subscription_id=subscription_id,
+                days_before=days_before,
+            )
+            retry_conn = psycopg2.connect(DATABASE_URL)
+            retry_cursor = retry_conn.cursor()
+            try:
+                retry_cursor.execute("DELETE FROM subscription_reminders WHERE id = %s", (claimed[0],))
+                retry_conn.commit()
+            finally:
+                retry_cursor.close()
+                retry_conn.close()
+    return {"checked": checked, "sent": sent}
+
+
+async def subscription_reminder_worker_loop():
+    while True:
+        try:
+            result = await asyncio.to_thread(process_subscription_reminders)
+            if result.get("sent"):
+                prostudio_debug("SUBSCRIPTION_REMINDERS_SENT", **result)
+        except Exception as exc:
+            prostudio_error("SUBSCRIPTION_REMINDER_WORKER_FAILED", exc)
+        await asyncio.sleep(max(300, SUBSCRIPTION_REMINDER_INTERVAL_SECONDS))
+
 # =====================================================
 # API ENDPOINT: start_prostudio_generation_worker
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -11308,6 +11471,8 @@ async def prostudio_generation_worker_loop():
 async def start_prostudio_generation_worker():
     if PROSTUDIO_WORKER_ENABLED:
         asyncio.create_task(prostudio_generation_worker_loop())
+    if DATABASE_URL and BOT_TOKEN:
+        asyncio.create_task(subscription_reminder_worker_loop())
 
 # =====================================================
 # API ENDPOINT: public_prostudio_transcribe

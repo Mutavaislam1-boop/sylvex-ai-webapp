@@ -6,6 +6,9 @@
 // Real Telegram user data + backend balance/status sync.
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
+  let syncPromise = null;
+  let lastSyncAt = 0;
+  const USER_SYNC_COOLDOWN_MS = 10000;
 
   // =====================================================
   // JAVASCRIPT-БЛОК: initials
@@ -89,6 +92,8 @@
       subscription_status: state.subscription_status || (subscription || status === 'pro' || status === 'active' ? 'active' : 'free'),
       subscription_plan: subscription,
       subscription_expires_at: until,
+      last_subscription_expires_at: state.last_subscription_expires_at || until,
+      subscription_expired: !!state.subscription_expired,
     };
   }
 
@@ -176,6 +181,9 @@
     setText('shopBalanceUsd', usd);
 
     if (S.renderSubscription) S.renderSubscription();
+    if (normalized.subscription_expired && S.showExpiredSubscriptionModal) {
+      S.showExpiredSubscriptionModal(normalized);
+    }
   }
 
   // =====================================================
@@ -231,30 +239,27 @@
   // JAVASCRIPT-БЛОК: syncTelegramUserInBackground
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  function syncTelegramUserInBackground(initData, initDataUnsafe, telegramId) {
-    fetch('/api/public/telegram/sync', {
+  async function syncTelegramUserInBackground(initData, initDataUnsafe) {
+    const res = await fetch('/api/public/telegram/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, initDataUnsafe }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('sync ' + res.status);
-        return res.json();
-      })
-      .then((json) => {
-        if (json && json.user) renderUserState(json.user);
-        if (telegramId) fetchUserState(telegramId);
-      })
-      .catch((err) => {
-        console.warn('[SYLVEX] user sync failed', err);
-      });
+    });
+    if (!res.ok) throw new Error('sync ' + res.status);
+    return res.json();
   }
 
   // =====================================================
   // JAVASCRIPT-БЛОК: syncUser
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  async function syncUser() {
+  async function syncUser(options) {
+    const force = !!(options && options.force);
+    const now = Date.now();
+    if (syncPromise) return syncPromise;
+    if (!force && now - lastSyncAt < USER_SYNC_COOLDOWN_MS) return S.user || {};
+
+    syncPromise = (async () => {
     const tg = S.tg;
     const initData = tg && tg.initData ? tg.initData : '';
     const initDataUnsafe = tg && tg.initDataUnsafe ? tg.initDataUnsafe : null;
@@ -263,13 +268,6 @@
     // Optimistic render from client-side Telegram payload first.
     if (tgUser) {
       renderIdentity(tgUser);
-      renderUserState({
-        balance: (S.user && S.user.balance) || 0,
-        status: tgUser.status,
-        subscription_status: (S.user && S.user.subscription_status) || 'free',
-        subscription_plan: S.user && S.user.subscription_plan,
-        subscription_expires_at: S.user && S.user.subscription_expires_at,
-      });
       // Apply Telegram language code if we support it.
       if (tgUser.language_code && S.setLang) {
         const code = tgUser.language_code.slice(0, 2).toLowerCase();
@@ -280,8 +278,28 @@
     }
 
     const telegramId = (tgUser && tgUser.telegram_id) || (S.user && S.user.telegram_id);
-    fetchUserState(telegramId);
-    syncTelegramUserInBackground(initData, initDataUnsafe, telegramId);
+    try {
+      const json = await syncTelegramUserInBackground(initData, initDataUnsafe);
+      if (json && json.user) {
+        renderUserState(json.user);
+        return json.user;
+      }
+    } catch (err) {
+      console.warn('[SYLVEX] user sync failed', err);
+      if (telegramId) {
+        await fetchUserState(telegramId);
+        return S.user || {};
+      }
+    }
+    return S.user || {};
+    })();
+
+    try {
+      return await syncPromise;
+    } finally {
+      lastSyncAt = Date.now();
+      syncPromise = null;
+    }
   }
 
   S.syncUser = syncUser;
