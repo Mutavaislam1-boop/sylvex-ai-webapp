@@ -13319,6 +13319,8 @@ async function waitGeneration(jobId, options) {
 
   /* ===== Subscription state rendering ===== */
   let _cdTimer = null;
+  let _expirySyncTriggeredFor = '';
+  let _expiredSubscriptionModalShown = false;
   // =====================================================
   // JAVASCRIPT-БЛОК: fmtCountdown
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -13486,11 +13488,101 @@ async function waitGeneration(jobId, options) {
         const ms = new Date(expIso).getTime() - Date.now();
         document.querySelectorAll('[data-sub-cd]').forEach((el) => { el.textContent = fmtCountdown(ms); });
         const sa = document.getElementById('saCountdown'); if (sa) sa.textContent = fmtCountdown(ms);
-        if (ms <= 0 && S.syncUser) S.syncUser();
+        if (ms <= 0) {
+          if (_cdTimer) clearInterval(_cdTimer);
+          _cdTimer = null;
+          S.user = Object.assign({}, S.user || {}, {
+            status: 'free',
+            subscription_status: 'free',
+            subscription_plan: null,
+            subscription_expires_at: null,
+            last_subscription_expires_at: expIso,
+            subscription_expired: true,
+          });
+          renderSubscription();
+          showExpiredSubscriptionModal(S.user);
+          if (_expirySyncTriggeredFor !== expIso && S.syncUser) {
+            _expirySyncTriggeredFor = expIso;
+            S.syncUser({ force: true });
+          }
+        }
       };
       tickCountdown();
       _cdTimer = setInterval(tickCountdown, 1000);
     }
+  }
+
+  function ensureExpiredSubscriptionModal() {
+    let modal = document.getElementById('expiredSubscriptionModal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'expiredSubscriptionModal';
+    modal.className = 'expired-subscription-modal';
+    modal.innerHTML = '<section class="expired-subscription-card" role="dialog" aria-modal="true" aria-labelledby="expiredSubscriptionTitle">'
+      + '<button class="expired-subscription-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeExpiredSubscriptionModal(event)">×</button>'
+      + '<div class="expired-subscription-badge">SYLVEX PRO</div>'
+      + '<h2 id="expiredSubscriptionTitle">Подписка закончилась</h2>'
+      + '<p>Продлите подписку, чтобы продолжить пользоваться всеми возможностями SYLVEX.</p>'
+      + '<div class="expired-subscription-user">'
+      + '<span id="expiredSubscriptionAvatar"></span>'
+      + '<div><b id="expiredSubscriptionName">Пользователь</b><small id="expiredSubscriptionHandle">@user</small><em id="expiredSubscriptionDate"></em></div>'
+      + '</div>'
+      + '<div class="expired-subscription-plans">'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_month\')"><span><b>1 месяц</b><small>SYLVEX Pro</small></span><strong>$5 · 230 ⭐</strong></button>'
+      + '<button type="button" onclick="SYLVEX.openExpiredSubscriptionPurchase(event,\'sub_year\')"><span><b>1 год</b><small>Выгодный план</small></span><strong>$59 · 2751 ⭐</strong></button>'
+      + '</div>'
+      + '</section>';
+    document.body.appendChild(modal);
+    return modal;
+  }
+
+  function showExpiredSubscriptionModal(state) {
+    const info = state || S.user || {};
+    if (!info.subscription_expired || _expiredSubscriptionModalShown) return;
+    const modal = ensureExpiredSubscriptionModal();
+    const user = S.user || {};
+    const fullName = user.display_name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Пользователь';
+    const handle = user.username ? '@' + user.username : '@user';
+    const avatar = modal.querySelector('#expiredSubscriptionAvatar');
+    if (avatar) {
+      avatar.innerHTML = '';
+      const avatarUrl = user.custom_avatar_url || user.photo_url || '';
+      if (avatarUrl) {
+        const img = document.createElement('img');
+        img.src = avatarUrl;
+        img.alt = '';
+        avatar.appendChild(img);
+      } else {
+        avatar.textContent = fullName.slice(0, 2).toUpperCase();
+      }
+    }
+    const nameEl = modal.querySelector('#expiredSubscriptionName');
+    const handleEl = modal.querySelector('#expiredSubscriptionHandle');
+    const dateEl = modal.querySelector('#expiredSubscriptionDate');
+    if (nameEl) nameEl.textContent = fullName;
+    if (handleEl) handleEl.textContent = handle;
+    const expiredAt = info.last_subscription_expires_at || info.subscription_expires_at;
+    if (dateEl) dateEl.textContent = expiredAt ? 'Завершена: ' + fmtDate(expiredAt) : 'Подписка не активна';
+    _expiredSubscriptionModalShown = true;
+    modal.classList.add('show');
+  }
+
+  function closeExpiredSubscriptionModal(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const modal = document.getElementById('expiredSubscriptionModal');
+    if (modal) modal.classList.remove('show');
+  }
+
+  function openExpiredSubscriptionPurchase(e, packId) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    closeExpiredSubscriptionModal();
+    openBuy(packId === 'sub_year' ? 'sub_year' : 'sub_month');
   }
 
   // =====================================================
@@ -14756,7 +14848,7 @@ async function waitGeneration(jobId, options) {
     openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
-    renderSubscription, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
+    renderSubscription, showExpiredSubscriptionModal, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
@@ -14771,6 +14863,9 @@ async function waitGeneration(jobId, options) {
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
+  window.showExpiredSubscriptionModal = showExpiredSubscriptionModal;
+  window.closeExpiredSubscriptionModal = closeExpiredSubscriptionModal;
+  window.openExpiredSubscriptionPurchase = openExpiredSubscriptionPurchase;
   window.pickVoiceOption = pickVoiceOption;
   window.pickTextOption = pickTextOption;
   window.previewGeminiVoice = previewGeminiVoice;
