@@ -13466,7 +13466,7 @@ async function waitGeneration(jobId, options) {
         if (key === 'month' || key === 'year') {
           if (cta) {
             cta.hidden = false;
-            cta.textContent = 'Выбрать оплату';
+            cta.textContent = 'Подписка';
             cta.classList.remove('sub-cta-active');
           }
         }
