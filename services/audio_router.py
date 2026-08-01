@@ -854,6 +854,18 @@ def _style_from_music_options(music_options: dict) -> str:
     return ", ".join(values)
 
 
+def _music_duration_minutes(music_options: dict, provider_model: str) -> Optional[int]:
+    raw = music_options.get("duration_minutes", music_options.get("duration"))
+    if raw is None or str(raw).strip().lower() in {"", "auto", "none"}:
+        return None
+    try:
+        minutes = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    maximum = 2 if provider_model == "chirp-v3-5" else 4
+    return minutes if 1 <= minutes <= maximum else None
+
+
 # =====================================================
 # PYTHON-БЛОК: _audio_payload
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -866,6 +878,8 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
     title = str(music_options.get("title") or payload.get("title") or "").strip()
     vocal = _music_option_value(music_options, "vocal").lower()
     make_instrumental = vocal == "instrumental"
+    duration_minutes = _music_duration_minutes(music_options, provider_model)
+    duration_instruction = f"Target duration: approximately {duration_minutes} minutes." if duration_minutes else ""
 
     custom_payload = os.getenv("AUDIO_API_GENERATE_PAYLOAD_JSON")
     if custom_payload:
@@ -879,10 +893,13 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
             pass
 
     if mode == "custom":
+        style = _style_from_music_options(music_options)
+        if duration_instruction:
+            style = ", ".join(part for part in (style, duration_instruction) if part)
         body = {
             "model": provider_model,
             "prompt": prompt,
-            "style": _style_from_music_options(music_options),
+            "style": style,
             "make_instrumental": make_instrumental,
         }
         if title:
@@ -895,7 +912,7 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
 
     body = {
         "model": provider_model,
-        "gpt_description_prompt": prompt,
+        "gpt_description_prompt": "\n".join(part for part in (prompt, duration_instruction) if part),
         "make_instrumental": make_instrumental,
     }
     if title:

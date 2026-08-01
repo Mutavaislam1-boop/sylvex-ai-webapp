@@ -245,7 +245,7 @@ let musicState = {
   uploads: [],
   attachment: null,
   genre: 'auto',
-  duration: '',
+  duration: 'auto',
   style: '',
   voice: '',
   audioSettings: {},
@@ -256,6 +256,7 @@ let musicState = {
     vocal: 'auto',
   },
 };
+let musicSettingsDraft = null;
 
 let voiceState = {
   modelId: 'gemini_3_1_flash_tts_preview',
@@ -1090,11 +1091,11 @@ async function loadPresetCatalog(force) {
 void loadPresetCatalog(false);
 
 const MUSIC_MODEL_LIST = [
-  { id:'suno_chirp_3_5', label:'Suno Chirp v3.5', providerModel:'chirp-v3-5', desc:'Suno music generation', icon:'suno' },
-  { id:'suno_chirp_4_0', label:'Suno Chirp v4.0', providerModel:'chirp-v4-0', desc:'Suno music generation', icon:'suno' },
-  { id:'suno_chirp_4_5', label:'Suno Chirp v4.5', providerModel:'chirp-v4-5', desc:'Suno music generation', icon:'suno' },
-  { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno' },
-  { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno' },
+  { id:'suno_chirp_3_5', label:'Suno Chirp v3.5', providerModel:'chirp-v3-5', desc:'Suno music generation', icon:'suno', durations:[1,2] },
+  { id:'suno_chirp_4_0', label:'Suno Chirp v4.0', providerModel:'chirp-v4-0', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'suno_chirp_4_5', label:'Suno Chirp v4.5', providerModel:'chirp-v4-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
 ];
 
 const VOICE_MODEL_LIST = [
@@ -2265,6 +2266,12 @@ function ensureMusicSettings() {
     if (!musicState.settings[key]) musicState.settings[key] = 'auto';
   });
   if (!musicState.genre) musicState.genre = 'auto';
+  const model = currentMusicModel();
+  const allowedDurations = model && Array.isArray(model.durations) ? model.durations : [1, 2, 3, 4];
+  if (musicState.duration !== 'auto' && !allowedDurations.includes(Number(musicState.duration))) {
+    musicState.duration = 'auto';
+  }
+  if (!musicState.duration) musicState.duration = 'auto';
   if (!musicState.modelId && MUSIC_MODEL_LIST.length) musicState.modelId = MUSIC_MODEL_LIST[0].id;
 }
 
@@ -2277,6 +2284,8 @@ function musicOptionsPayload() {
   return {
     model: musicState.modelId,
     genre: musicState.genre || 'auto',
+    duration: musicState.duration === 'auto' ? 'auto' : Number(musicState.duration),
+    duration_minutes: musicState.duration === 'auto' ? null : Number(musicState.duration),
     mood: musicState.settings.mood || 'auto',
     tempo: musicState.settings.tempo || 'auto',
     theme: musicState.settings.theme || 'auto',
@@ -2887,8 +2896,8 @@ function renderMusicControls() {
   const genreVal = document.getElementById('musicGenreVal');
   if (genreVal) genreVal.textContent = musicOptionLabel(MUSIC_GENRES, musicState.genre, 'Auto');
 
-  const moodVal = document.getElementById('musicMoodVal');
-  if (moodVal) moodVal.textContent = musicOptionLabel(MUSIC_SETTINGS.mood.items, musicState.settings.mood, 'Авто');
+  const durationVal = document.getElementById('musicDurationVal');
+  if (durationVal) durationVal.textContent = musicState.duration === 'auto' ? 'Auto' : String(musicState.duration) + ' мин';
 
   const settingsVal = document.getElementById('musicSettingsVal');
   if (settingsVal) {
@@ -2897,6 +2906,80 @@ function renderMusicControls() {
       .filter((value) => value && value !== 'auto').length;
     settingsVal.textContent = selected ? 'Настройки ' + selected : 'Настройки';
   }
+}
+
+function ensureMusicSettingsModal() {
+  let modal = document.getElementById('musicSettingsModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'musicSettingsModal';
+  modal.className = 'music-settings-modal';
+  modal.onclick = (event) => {
+    if (event.target === modal) closeMusicSettingsModal(event);
+  };
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function renderMusicSettingsModal() {
+  const modal = ensureMusicSettingsModal();
+  const draft = musicSettingsDraft || Object.assign({}, musicState.settings);
+  modal.innerHTML = '<section class="music-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="musicSettingsTitle" onclick="event.stopPropagation()">'
+    + '<button class="music-settings-close" type="button" aria-label="Закрыть" onclick="SYLVEX.closeMusicSettingsModal(event)">×</button>'
+    + '<header><h3 id="musicSettingsTitle">Настройки музыки</h3><p>Выберите параметры для следующей генерации.</p></header>'
+    + '<div class="music-settings-modal-body">'
+    + Object.keys(MUSIC_SETTINGS).map((settingKey) => {
+      const section = MUSIC_SETTINGS[settingKey];
+      const active = draft[settingKey] || 'auto';
+      return '<section class="music-modal-section"><h4>' + S.escapeHtml(section.title) + '</h4><div class="music-modal-options">'
+        + section.items.map((item) => '<button class="music-modal-chip ' + (String(active) === String(item.id) ? 'active' : '') + '" type="button" onclick="SYLVEX.selectMusicSettingDraft(event,\'' + S.escapeHtml(settingKey) + '\',\'' + S.escapeHtml(String(item.id)) + '\')">' + S.escapeHtml(item.label || item.id) + '</button>').join('')
+        + '</div></section>';
+    }).join('')
+    + '</div><footer><button class="music-settings-reset" type="button" onclick="SYLVEX.resetMusicSettingsDraft(event)">Сбросить</button><button class="music-settings-save" type="button" onclick="SYLVEX.saveMusicSettings(event)">Сохранить</button></footer>'
+    + '</section>';
+}
+
+function openMusicSettingsModal(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  ensureMusicSettings();
+  musicSettingsDraft = Object.assign({}, musicState.settings);
+  const modal = ensureMusicSettingsModal();
+  renderMusicSettingsModal();
+  modal.classList.add('show');
+  S.haptic && S.haptic.impact && S.haptic.impact('light');
+}
+
+function closeMusicSettingsModal(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const modal = document.getElementById('musicSettingsModal');
+  if (modal) modal.classList.remove('show');
+  musicSettingsDraft = null;
+}
+
+function selectMusicSettingDraft(e, kind, value) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (!MUSIC_SETTINGS[kind]) return;
+  if (!musicSettingsDraft) musicSettingsDraft = Object.assign({}, musicState.settings);
+  musicSettingsDraft[kind] = value || 'auto';
+  renderMusicSettingsModal();
+  ensureMusicSettingsModal().classList.add('show');
+}
+
+function resetMusicSettingsDraft(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  musicSettingsDraft = {};
+  Object.keys(MUSIC_SETTINGS).forEach((key) => { musicSettingsDraft[key] = 'auto'; });
+  renderMusicSettingsModal();
+  ensureMusicSettingsModal().classList.add('show');
+}
+
+function saveMusicSettings(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  ensureMusicSettings();
+  musicState.settings = Object.assign({}, musicState.settings, musicSettingsDraft || {});
+  renderMusicControls();
+  closeMusicSettingsModal();
+  S.haptic && S.haptic.select && S.haptic.select();
 }
 
 
@@ -7305,45 +7388,19 @@ function imageModelButton(model) {
         return;
       }
 
+      if (kind === 'music_duration') {
+        const model = currentMusicModel();
+        const durations = model && Array.isArray(model.durations) ? model.durations : [1, 2, 3, 4];
+        const items = [{ id:'auto', label:'Auto' }].concat(durations.map((minutes) => ({
+          id:String(minutes),
+          label:String(minutes) + (minutes === 1 ? ' минута' : ' минуты'),
+        })));
+        openMusicSheet('Длительность', items, 'duration', musicState.duration || 'auto');
+        return;
+      }
+
       if (kind === 'settings') {
-        if (el.parentElement !== document.body) document.body.appendChild(el);
-        el.classList.add('image-size-floating-pop');
-        el.classList.add('music-settings-pop');
-        el.style.position = 'fixed';
-        el.style.left = '8px';
-        el.style.right = 'auto';
-        el.style.top = 'auto';
-        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
-        el.style.width = '78vw';
-        el.style.maxWidth = '380px';
-        el.style.minWidth = '275px';
-        el.style.maxHeight = '70vh';
-        el.style.overflowY = 'auto';
-        el.style.zIndex = '999999';
-        el.innerHTML = '<div class="image-size-sheet-title">Настройки музыки</div>'
-          + '<div class="music-settings-sheet">'
-          + Object.keys(MUSIC_SETTINGS).map((settingKey) => {
-            const section = MUSIC_SETTINGS[settingKey];
-            const active = musicState.settings[settingKey] || 'auto';
-            return '<section class="music-settings-section">'
-              + '<h4>' + S.escapeHtml(section.title) + '</h4>'
-              + '<div class="music-settings-options">'
-              + section.items.map((item) => {
-                const id = String(item.id || '');
-                const selected = String(active) === id;
-                return '<button class="music-setting-chip ' + (selected ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickMusicOption(event,\'' + settingKey + '\',\'' + S.escapeHtml(id) + '\')">'
-                  + S.escapeHtml(item.label || id)
-                  + '</button>';
-              }).join('')
-              + '</div>'
-              + '</section>';
-          }).join('')
-          + '<button class="music-settings-clear" type="button" onclick="SYLVEX.resetMusicSettings(event)">Очистить всё</button>'
-          + '</div>';
-        el.classList.add('show');
-        const pp = document.getElementById('plusPop'); if (pp) pp.classList.remove('show');
-        const sheet = document.getElementById('plusSheet'); if (sheet) sheet.classList.remove('show');
-        S.haptic && S.haptic.impact && S.haptic.impact('light');
+        openMusicSettingsModal(e);
         return;
       }
 
@@ -7688,6 +7745,11 @@ function imageModelButton(model) {
 
     if (kind === 'genre') {
       musicState.genre = value || 'auto';
+    } else if (kind === 'duration') {
+      const model = currentMusicModel();
+      const durations = model && Array.isArray(model.durations) ? model.durations : [1, 2, 3, 4];
+      const parsed = Number(value);
+      musicState.duration = value === 'auto' || !durations.includes(parsed) ? 'auto' : parsed;
     } else if (MUSIC_SETTINGS[kind]) {
       musicState.settings[kind] = value || 'auto';
       renderMusicControls();
@@ -7913,12 +7975,21 @@ function imageModelButton(model) {
     }
     ensureMusicSettings();
     musicState.genre = 'auto';
+    musicState.duration = 'auto';
     Object.keys(MUSIC_SETTINGS).forEach((key) => {
       musicState.settings[key] = 'auto';
     });
     renderMusicControls();
     openImageOptionMenu(e, 'settings');
     S.haptic && S.haptic.impact && S.haptic.impact('light');
+  }
+
+  function resetMusicGenerationOptions() {
+    musicState.genre = 'auto';
+    musicState.duration = 'auto';
+    Object.keys(MUSIC_SETTINGS).forEach((key) => { musicState.settings[key] = 'auto'; });
+    musicSettingsDraft = null;
+    renderMusicControls();
   }
 
   // =====================================================
@@ -7966,6 +8037,8 @@ function imageModelButton(model) {
         const model = MUSIC_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           musicState.modelId = model.id;
+          ensureMusicSettings();
+          renderMusicControls();
           const mvc = document.getElementById('modelValComposer');
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
@@ -12445,6 +12518,7 @@ async function waitGeneration(jobId, options) {
     }
 
     const photoMode = isImageMode();
+    const musicMode = isMusicMode();
     let loadingIndex = -1;
     const uploadOnlyVoice = isVoiceMode() && !v && audioUploads.length && !attachment && !referenceImages.length;
     if (photoMode) {
@@ -12576,6 +12650,7 @@ async function waitGeneration(jobId, options) {
           });
         }
       }
+      if (musicMode) resetMusicGenerationOptions();
       loadConversations(); // refresh sidebar order
       rememberCurrentChatSpace();
     } catch (err) {
@@ -14840,7 +14915,7 @@ async function waitGeneration(jobId, options) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
