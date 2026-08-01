@@ -1339,8 +1339,8 @@ const VOICE_UPLOAD_PURPOSES = [
   { id:'speech_to_speech', label:'Копировать голос', hint:'Преобразовать аудио в выбранный голос', accept:'audio/*', gemini:false, elevenlabs:true, runway:true, elevenlabsTool:'speech_to_speech', runwayTool:'speech_to_speech', needsFile:true, speakers:true, languages:false },
   { id:'isolate_voice', label:'Очистить голос', hint:'Отделить голос от шума или музыки', accept:'audio/*,video/*', gemini:false, elevenlabs:false, runway:true, elevenlabsTool:'speech_to_speech', runwayTool:'voice_isolation', needsFile:true, speakers:false, languages:false },
   { id:'sound_effect', label:'Звуковой эффект', hint:'Создать звуковой эффект по описанию', accept:'', gemini:false, elevenlabs:false, runway:true, elevenlabsTool:'text_to_speech', runwayTool:'sound_effect', needsFile:false, speakers:false, languages:false },
-  { id:'document_voiceover', label:'Озвучить документ', hint:'Требуется отдельное извлечение текста из документа', accept:'.txt,.pdf,.doc,.docx', gemini:false, elevenlabs:false, runway:false, elevenlabsTool:'text_to_speech', runwayTool:'text_to_speech', needsFile:true, speakers:true, languages:false },
-  { id:'document_translate_voiceover', label:'Перевести документ и озвучить', hint:'Требуется отдельный перевод и извлечение текста', accept:'.txt,.pdf,.doc,.docx', gemini:false, elevenlabs:false, runway:false, elevenlabsTool:'dubbing', runwayTool:'voice_dubbing', needsFile:true, speakers:true, languages:true },
+  { id:'document_voiceover', label:'Озвучить документ', hint:'Извлечь текст из TXT, PDF или DOCX и озвучить выбранным голосом', accept:'.txt,.pdf,.docx', gemini:true, elevenlabs:true, runway:true, elevenlabsTool:'text_to_speech', runwayTool:'text_to_speech', needsFile:true, speakers:true, languages:false },
+  { id:'document_translate_voiceover', label:'Перевести документ и озвучить', hint:'Извлечь текст, перевести через OpenAI и озвучить выбранным голосом', accept:'.txt,.pdf,.docx', gemini:true, elevenlabs:true, runway:true, elevenlabsTool:'text_to_speech', runwayTool:'text_to_speech', needsFile:true, speakers:true, languages:true },
 ];
 
 const VOICE_SPEAKER_COUNT_OPTIONS = [
@@ -2410,6 +2410,43 @@ function renderVoiceControls() {
     settingsVal.textContent = voiceSettingsSummary();
   }
   renderVoiceToolPanel();
+  renderVoiceSpeakerComposer();
+}
+
+function renderVoiceSpeakerComposer() {
+  const input = document.getElementById('chatInput');
+  if (!input) return;
+  let bar = document.getElementById('voiceSpeakerComposer');
+  const count = isVoiceMode() ? Math.max(1, Math.min(3, Number(voiceState.numSpeakers || 1))) : 1;
+  if (!isVoiceMode() || count < 2) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'voiceSpeakerComposer';
+    bar.className = 'voice-speaker-composer';
+    input.parentElement.insertBefore(bar, input);
+  }
+  bar.innerHTML = '<span>Добавить реплику:</span>' + Array.from({ length: count }, (_, index) => {
+    return '<button type="button" onclick="SYLVEX.insertVoiceSpeaker(event,' + (index + 1) + ')">Диктор ' + (index + 1) + '</button>';
+  }).join('');
+}
+
+function insertVoiceSpeaker(e, speakerNumber) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const input = document.getElementById('chatInput');
+  if (!input) return;
+  const prefix = 'Speaker' + Math.max(1, Math.min(3, Number(speakerNumber || 1))) + ': ';
+  const start = Number.isFinite(input.selectionStart) ? input.selectionStart : input.value.length;
+  const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : start;
+  const separator = start > 0 && input.value.slice(0, start).trim() ? '\n' : '';
+  input.value = input.value.slice(0, start) + separator + prefix + input.value.slice(end);
+  const caret = start + separator.length + prefix.length;
+  input.focus();
+  input.setSelectionRange(caret, caret);
+  autoGrow(input);
+  updateSendButton();
 }
 
 // =====================================================
@@ -2820,12 +2857,6 @@ function renderVoiceUploadPanel() {
         ${options.map((item) => '<button type="button" class="' + (item.active ? 'active' : '') + '" onclick="SYLVEX.selectVoiceUploadOption(event,\'' + S.escapeHtml(kind) + '\',\'' + S.escapeHtml(item.id) + '\')"><b>' + S.escapeHtml(item.label) + '</b>' + (item.desc ? '<small>' + S.escapeHtml(item.desc) + '</small>' : '') + '</button>').join('')}
       </div>
     </div>`;
-  const modelOptions = VOICE_MODEL_LIST.map((item) => ({
-    id: item.id,
-    label: item.label || item.name || item.id,
-    desc: item.desc || '',
-    active: item.id === voiceState.modelId,
-  }));
   const purposeOptions = supportedPurposes.map((item) => ({
     id: item.id,
     label: item.label,
@@ -2841,10 +2872,12 @@ function renderVoiceUploadPanel() {
   const uploadPreview = uploading
     ? '<div class="voice-upload-preview loading"><div class="voice-upload-loader"></div><b>Загружаем файл</b><small>' + uploadName + (uploadSizeLabel ? ' · ' + S.escapeHtml(uploadSizeLabel) : '') + '</small></div>'
     : (activeUpload
-        ? '<div class="voice-upload-preview ' + (uploadKind === 'video' ? 'is-video' : 'is-audio') + '">'
+        ? '<div class="voice-upload-preview ' + (uploadKind === 'video' ? 'is-video' : (uploadKind === 'file' ? 'is-file' : 'is-audio')) + '">'
           + (uploadKind === 'video'
             ? '<video src="' + previewUrl + '" controls playsinline preload="metadata"></video>'
-            : '<div class="voice-upload-audio-box"><span>♪</span><audio src="' + previewUrl + '" controls preload="metadata"></audio></div>')
+            : (uploadKind === 'file'
+              ? '<div class="voice-upload-audio-box"><span>▤</span><b>Документ готов к обработке</b></div>'
+              : '<div class="voice-upload-audio-box"><span>♪</span><audio src="' + previewUrl + '" controls preload="metadata"></audio></div>'))
           + '<div class="voice-upload-preview-meta"><b>' + uploadName + '</b><small>' + S.escapeHtml([purpose.label, uploadSizeLabel].filter(Boolean).join(' · ')) + '</small></div>'
           + '<button class="voice-upload-replace" type="button" onclick="SYLVEX.openVoiceMediaPicker(event)">Заменить</button>'
           + '</div>'
@@ -2860,7 +2893,6 @@ function renderVoiceUploadPanel() {
       </div>
       <div class="voice-upload-top-grid">
         ${dropdown('purpose', 'Тип загрузки', purpose.label, purposeOptions)}
-        ${dropdown('model', 'Модель', currentModel.label || currentModel.name || currentModel.id || 'Модель', modelOptions)}
       </div>
       <div class="voice-upload-controls voice-upload-controls-modern">
         ${languageControls}
@@ -10927,6 +10959,30 @@ function closeUploadPanel(e) {
         });
       return;
     }
+    if (isVoiceMode() && pendingKind === 'file') {
+      voiceState.uploading = { kind:'file', name:f.name, mime:f.type || 'application/octet-stream', size:f.size || 0 };
+      voiceState.attachment = null;
+      renderVoiceToolPanel();
+      updateSendButton();
+      uploadProStudioMediaFile(f, 'document')
+        .then((url) => {
+          const uploaded = { kind:'file', url, name:f.name, mime:f.type || 'application/octet-stream', size:f.size || 0 };
+          voiceState.uploading = null;
+          voiceState.uploads = [uploaded];
+          voiceState.attachment = uploaded;
+          renderVoiceToolPanel();
+          updateSendButton();
+          toast('Документ загружен');
+        })
+        .catch((err) => {
+          voiceState.uploading = null;
+          voiceState.attachment = null;
+          renderVoiceToolPanel();
+          updateSendButton();
+          toast((err && err.message) || 'Не удалось загрузить документ');
+        });
+      return;
+    }
     if (studioMode === 'text' && (pendingKind === 'text_video' || pendingKind === 'text_audio' || pendingKind === 'text_image' || pendingKind === 'text_file')) {
       const uploadKind = pendingKind === 'text_video' ? 'video' : (pendingKind === 'text_audio' ? 'audio' : (pendingKind === 'text_image' ? 'image' : 'file'));
       textState.attachment = {
@@ -12113,6 +12169,7 @@ function maybeShowVideoTemplateIntro(force) {
         updateImageUploadButtonPreview();
       }
     }
+    renderVoiceSpeakerComposer();
     if (!restoringChatSpace) restoreChatSpace(currentChatType());
     applyCurrentDraft();
     updateSendButton();
@@ -15036,7 +15093,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,

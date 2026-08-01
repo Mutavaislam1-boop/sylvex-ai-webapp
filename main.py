@@ -10811,6 +10811,7 @@ async def public_prostudio_generate(request: Request):
     selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
     image_options = payload.get("image_options") or {}
     video_options = payload.get("video_options") or {}
+    voice_options = payload.get("voice_options") or {}
     reference_images = (
         _json_list(image_options.get("referenceImageUrls"))
         or _json_list(image_options.get("referenceImages"))
@@ -10850,7 +10851,8 @@ async def public_prostudio_generate(request: Request):
     if mode in generation_modes and is_internal_ui_model(selected_model):
         return invalid_generation_model_response(selected_model)
 
-    if not prompt and not payload.get("attachment") and not reference_images and not video_references and not video_media:
+    voice_media = voice_options.get("attachment") or voice_options.get("uploads")
+    if not prompt and not payload.get("attachment") and not voice_media and not reference_images and not video_references and not video_media:
         return JSONResponse({"ok": False, "error": "Prompt or attachment is required"}, status_code=400)
 
     if mode == "image":

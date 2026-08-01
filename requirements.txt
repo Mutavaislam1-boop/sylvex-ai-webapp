@@ -10,3 +10,5 @@ imageio-ffmpeg
 reportlab
 runwayml
 google-genai
+pypdf
+python-docx
