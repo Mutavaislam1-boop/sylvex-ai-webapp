@@ -13,6 +13,7 @@ import urllib.parse
 import shutil
 import subprocess
 import tempfile
+import time
 import wave
 from typing import Any, Optional
 from uuid import uuid4
@@ -133,6 +134,21 @@ RUNWAY_VOICE_FALLBACKS = [
     {"voice_id": "Bernard", "name": "Bernard", "provider": "runway", "type": "runway-preset"},
     {"voice_id": "Arjun", "name": "Arjun", "provider": "runway", "type": "runway-preset"},
 ]
+
+_VOICE_LIST_CACHE: dict[str, tuple[float, dict]] = {}
+VOICE_LIST_CACHE_TTL_SECONDS = 900
+
+
+def _voice_list_cache_get(provider: str) -> Optional[dict]:
+    cached = _VOICE_LIST_CACHE.get(provider)
+    if cached and time.monotonic() - cached[0] < VOICE_LIST_CACHE_TTL_SECONDS:
+        return cached[1]
+    return None
+
+
+def _voice_list_cache_set(provider: str, result: dict) -> dict:
+    _VOICE_LIST_CACHE[provider] = (time.monotonic(), result)
+    return result
 
 GEMINI_TTS_VOICE_NAMES = {
     "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda",
@@ -1710,12 +1726,15 @@ async def _completed_elevenlabs_voice_response(
 # Загружает список голосов ElevenLabs для шторки Pro Studio; при ошибке возвращает Rachel fallback.
 # =====================================================
 async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
+    cached = _voice_list_cache_get("elevenlabs")
+    if cached:
+        return cached
     api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
     if not api_key:
-        return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True}
+        return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True})
     voices = []
     next_page_token = ""
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         while len(voices) < limit:
             params = {"page_size": min(100, limit - len(voices))}
             if next_page_token:
@@ -1725,10 +1744,10 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
                 data = await safe_audio_json_response(response, "elevenlabs", f"{ELEVENLABS_BASE_URL}/v2/voices")
             except Exception as exc:
                 print("ELEVENLABS VOICES FAILED:", repr(exc))
-                return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True}
+                return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True})
             if response.status_code >= 400:
                 print("ELEVENLABS VOICES ERROR:", json.dumps(data, ensure_ascii=False)[:900] if isinstance(data, (dict, list)) else str(data)[:900])
-                return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True}
+                return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True})
             page_voices = data.get("voices") if isinstance(data, dict) else []
             if isinstance(page_voices, list):
                 voices.extend(page_voices)
@@ -1753,13 +1772,16 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
             "provider": "elevenlabs",
             "type": str(item.get("category") or labels.get("category") or "voice"),
             "language": str(labels.get("language") or labels.get("accent") or item.get("language") or "multilingual"),
+            "gender": str(labels.get("gender") or item.get("gender") or ""),
+            "accent": str(labels.get("accent") or item.get("accent") or ""),
+            "description": str(labels.get("description") or labels.get("use_case") or item.get("description") or ""),
             "preview_url": str(item.get("preview_url") or item.get("sample_url") or ""),
             "avatar_url": str(item.get("avatar_url") or item.get("avatarUrl") or item.get("image_url") or item.get("imageUrl") or ""),
             "raw": item,
         })
     if not normalized:
         normalized = ELEVENLABS_VOICE_FALLBACKS
-    return {"ok": True, "success": True, "provider": "elevenlabs", "voices": normalized}
+    return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": normalized})
 
 
 # =====================================================
@@ -2405,25 +2427,28 @@ async def runway_voice_generation(payload: dict) -> dict:
 # Загружает список голосов Runway для Mini App. Если API недоступен, возвращает безопасный локальный список.
 # =====================================================
 async def fetch_runway_voices() -> dict:
+    cached = _voice_list_cache_get("runway")
+    if cached:
+        return cached
     api_key = _get_env("RUNWAY_API_KEY", "RUNWAYML_API_SECRET", "RUNWAYML_API_KEY")
     if not api_key:
-        return {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True}
+        return _voice_list_cache_set("runway", {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True})
 
     endpoint = f"{RUNWAY_API_BASE_URL}/v1/voices"
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             response = await client.get(endpoint, headers=_runway_headers(api_key))
             data = await safe_audio_json_response(response, "runway", endpoint)
         except Exception as exc:
             print("RUNWAY VOICES FAILED:", repr(exc))
-            return {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True}
+            return _voice_list_cache_set("runway", {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True})
 
     if response.status_code >= 400:
         print("RUNWAY VOICES ERROR:", {
             "status_code": response.status_code,
             "body_preview": json.dumps(data, ensure_ascii=False)[:900] if isinstance(data, (dict, list)) else str(data)[:900],
         })
-        return {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True}
+        return _voice_list_cache_set("runway", {"ok": True, "success": True, "provider": "runway", "voices": RUNWAY_VOICE_FALLBACKS, "fallback": True})
 
     source = data
     if isinstance(data, dict):
@@ -2452,13 +2477,16 @@ async def fetch_runway_voices() -> dict:
                 "name": str(name),
                 "provider": "runway",
                 "type": str(item.get("type") or "runway-preset"),
+                "gender": str(item.get("gender") or item.get("sex") or ""),
+                "accent": str(item.get("accent") or ""),
+                "description": str(item.get("description") or item.get("useCase") or item.get("use_case") or ""),
                 "preview_url": str(item.get("preview_url") or item.get("previewUrl") or item.get("sample_url") or ""),
                 "avatar_url": str(item.get("avatar_url") or item.get("avatarUrl") or item.get("image_url") or item.get("imageUrl") or ""),
                 "raw": item,
             })
     if not voices:
         voices = RUNWAY_VOICE_FALLBACKS
-    return {"ok": True, "success": True, "provider": "runway", "voices": voices, "response": data}
+    return _voice_list_cache_set("runway", {"ok": True, "success": True, "provider": "runway", "voices": voices, "response": data})
 
 
 # =====================================================

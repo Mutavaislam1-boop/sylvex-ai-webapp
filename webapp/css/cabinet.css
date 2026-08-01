@@ -953,7 +953,7 @@ CSS-БЛОК: .studio-mode-tab
 .voice-style-row{
   position:relative;
   display:grid;
-  grid-template-columns:34px minmax(0,1fr) 22px 34px;
+  grid-template-columns:40px minmax(0,1fr) 22px 34px;
   align-items:center;
   gap:10px;
   min-height:46px;
@@ -969,15 +969,29 @@ CSS-БЛОК: .studio-mode-tab
   background:rgba(255,255,255,.12);
 }
 .voice-style-row-avatar{
-  width:34px;
-  height:34px;
-  border-radius:11px;
+  width:40px;
+  height:40px;
+  border-radius:13px;
   display:grid;
   place-items:center;
   overflow:hidden;
   background:rgba(255,255,255,.08);
   color:#fff;
 }
+.voice-style-row-avatar.is-generated{
+  position:relative;
+  background:
+    radial-gradient(circle at 22% 18%,color-mix(in srgb,var(--voice-c1) 88%,transparent),transparent 58%),
+    radial-gradient(circle at 82% 26%,color-mix(in srgb,var(--voice-c2) 88%,transparent),transparent 62%),
+    radial-gradient(circle at 48% 92%,color-mix(in srgb,var(--voice-c3) 92%,transparent),transparent 64%),
+    rgba(255,255,255,.13);
+  border:1px solid rgba(255,255,255,.34);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.38),0 6px 18px rgba(0,0,0,.18);
+  backdrop-filter:blur(14px) saturate(145%);
+  -webkit-backdrop-filter:blur(14px) saturate(145%);
+}
+.voice-style-row-avatar.is-generated::after{content:"";position:absolute;inset:1px;border-radius:inherit;background:linear-gradient(145deg,rgba(255,255,255,.34),rgba(255,255,255,.04) 48%,rgba(255,255,255,.13));opacity:.5;pointer-events:none}
+.voice-generated-initials{position:relative;z-index:1;font-size:10px;font-weight:950;letter-spacing:.6px;color:rgba(255,255,255,.94);text-shadow:0 1px 5px rgba(0,0,0,.38)}
 .voice-style-row-avatar img{
   width:100%;
   height:100%;
@@ -992,6 +1006,8 @@ CSS-БЛОК: .studio-mode-tab
   font-size:13px;
   font-weight:850;
 }
+.voice-style-row-copy{display:flex;flex-direction:column;min-width:0;gap:2px}
+.voice-style-row-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.58);font-size:10px;font-weight:600}
 .voice-style-row-check{
   color:#fff;
   font-size:13px;
@@ -6588,6 +6604,9 @@ body > #modelPop.image-size-floating-pop .voice-preview-pick{
   font:inherit;
   text-align:left;
 }
+body > #modelPop.image-size-floating-pop .voice-sheet-avatar{width:34px;height:34px;border-radius:11px;flex:0 0 34px}
+body > #modelPop.image-size-floating-pop .voice-preview-pick .voice-style-row-copy{flex:1}
+body > #modelPop.image-size-floating-pop .voice-preview-pick .voice-style-row-copy b{font-size:12px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 body > #modelPop.image-size-floating-pop .voice-preview-play{
   width:36px;
