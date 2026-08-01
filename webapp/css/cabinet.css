@@ -721,7 +721,6 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="voice"] .music-only.studio-mode-tab{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-select-pill{display:flex}
-.studio-video-composer[data-composer-mode="image"] .studio-image-tools{display:grid}
 .studio-video-composer[data-composer-mode="music"] .music-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="music"] .music-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="music"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
@@ -2065,8 +2064,6 @@ CSS-БЛОК: .studio-video-panel
   padding:18px 24px 24px;border-radius:28px;background:#202020;
   border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 54px -26px rgba(0,0,0,.9);
 }
-.studio-video-composer[data-composer-mode="image"] .studio-video-panel{grid-template-columns:1fr}
-.studio-video-composer[data-composer-mode="image"] .studio-prompt-column{border-left:0;padding-left:0}
 .image-setting-disabled{opacity:.48;cursor:not-allowed!important}
 .image-setting-disabled span:last-child{font-size:11px;line-height:1.15;color:#bdbdbd;white-space:normal}
 .visual-create-modal{position:fixed;inset:0;z-index:999999;background:rgba(8,8,10,.76);backdrop-filter:blur(18px);display:none;color:#f4f4f4;padding:calc(14px + env(safe-area-inset-top)) 12px calc(14px + env(safe-area-inset-bottom))}
@@ -2262,7 +2259,6 @@ CSS-БЛОК: .studio-frame-preview video
   background:#000;
 }
 .studio-frame-ico{color:#cfcfcf;display:flex;align-items:center;justify-content:center}
-.studio-image-tools{grid-template-columns:1fr 1fr;gap:6px}
 .studio-image-tool{min-height:64px;text-align:left;padding:9px 10px 10px;border-radius:13px;gap:6px}
 .studio-image-tool span:last-child{align-self:flex-start;font-size:12px;line-height:1.15}
 .studio-image-tool svg{width:18px;height:18px}
@@ -6618,48 +6614,6 @@ CSS-БЛОК: .studio-prompt-column textarea
     margin-top:0;
 }
 
-@media(min-width:901px){
-/* =====================================================
-CSS-БЛОК: .studio-video-composer[data-composer-mode="image"] .studio-prompt-column
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column{
-    display:grid;
-    grid-template-columns:minmax(180px,260px) minmax(0,1fr);
-    grid-template-areas:
-      "imageTools imagePrompt"
-      "imageTools imageControls";
-    gap:14px 24px;
-    align-items:stretch;
-  }
-
-/* =====================================================
-CSS-БЛОК: .studio-video-composer[data-composer-mode="image"] .image-visual-grid
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-  .studio-video-composer[data-composer-mode="image"] .image-visual-grid{
-    grid-area:imageTools;
-    align-self:start;
-    margin:0;
-  }
-
-/* =====================================================
-CSS-БЛОК: .studio-video-composer[data-composer-mode="image"] .studio-prompt-column textarea
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column textarea{
-    grid-area:imagePrompt;
-  }
-
-/* =====================================================
-CSS-БЛОК: .studio-video-composer[data-composer-mode="image"] .studio-control-row
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
-  .studio-video-composer[data-composer-mode="image"] .studio-control-row{
-    grid-area:imageControls;
-  }
-}
-
 /* ===== Pro Studio video templates ===== */
 /* =====================================================
 CSS-БЛОК: .video-template-intro
@@ -7142,25 +7096,6 @@ Mini App может быть узким внутри широкого окна �
     gap:12px;
   }
 
-  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column{
-    display:flex !important;
-    grid-template-columns:none !important;
-    grid-template-areas:none !important;
-    gap:0;
-    border-left:0;
-    padding-left:0;
-  }
-
-  .studio-video-composer[data-composer-mode="image"] .image-visual-grid{
-    grid-area:auto !important;
-    margin:0 0 14px;
-  }
-
-  .studio-video-composer[data-composer-mode="image"] .studio-prompt-column textarea,
-  .studio-video-composer[data-composer-mode="image"] .studio-control-row{
-    grid-area:auto !important;
-  }
-
   .studio-prompt-column{
     border-left:0 !important;
     border-top:1px solid rgba(255,255,255,.10);
@@ -7287,25 +7222,6 @@ JavaScript добавляет класс is-compact, когда сам composer 
   padding:14px !important;
   border-radius:22px;
   gap:12px;
-}
-
-.studio-video-composer.is-compact[data-composer-mode="image"] .studio-prompt-column{
-  display:flex !important;
-  grid-template-columns:none !important;
-  grid-template-areas:none !important;
-  gap:0;
-  border-left:0;
-  padding-left:0;
-}
-
-.studio-video-composer.is-compact[data-composer-mode="image"] .image-visual-grid{
-  grid-area:auto !important;
-  margin:0 0 14px;
-}
-
-.studio-video-composer.is-compact[data-composer-mode="image"] .studio-prompt-column textarea,
-.studio-video-composer.is-compact[data-composer-mode="image"] .studio-control-row{
-  grid-area:auto !important;
 }
 
 .studio-video-composer.is-compact .studio-prompt-column{
