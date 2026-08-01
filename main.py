@@ -15,6 +15,8 @@ import base64
 import time
 import traceback
 import threading
+import random
+import concurrent.futures
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -43,6 +45,7 @@ PRESET_CATALOG_DIR = BASE_DIR / "backend" / "preset_catalog"
 PRESET_CHARACTERS_DIR = PRESET_CATALOG_DIR / "characters"
 PRESET_OBJECTS_DIR = PRESET_CATALOG_DIR / "objects"
 VOICE_AVATARS_DIR = PRESET_CATALOG_DIR / "voice_avatars"
+VOICE_GENERATED_AVATARS_DIR = WEBAPP_DIR / "generated" / "voice-avatars"
 PRESET_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 PRESET_CATALOG_CACHE_TTL = 60
 PRESET_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
@@ -53,7 +56,7 @@ PHOTO_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
 HEYGEN_AVATAR_LOOK_CACHE_TTL = 300
 HEYGEN_AVATAR_LOOK_CACHE = {}
 
-for catalog_dir in (PRESET_CHARACTERS_DIR, PRESET_OBJECTS_DIR, VOICE_AVATARS_DIR):
+for catalog_dir in (PRESET_CHARACTERS_DIR, PRESET_OBJECTS_DIR, VOICE_AVATARS_DIR, VOICE_GENERATED_AVATARS_DIR):
     catalog_dir.mkdir(parents=True, exist_ok=True)
 
 app.mount("/webapp", StaticFiles(directory=WEBAPP_DIR, html=True), name="webapp")
@@ -219,7 +222,176 @@ def load_voice_avatar_catalog() -> dict:
                 "avatarUrl": _preset_file_url(avatar),
                 "sourcePath": str(folder.relative_to(BASE_DIR)),
             })
-    return {"avatars": avatars}
+    if DATABASE_URL:
+        try:
+            ensure_prostudio_table()
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT provider, voice_id, seed, avatar_key, avatar_path
+                FROM prostudio_voice_avatars WHERE status = 'ready'
+                ORDER BY provider, voice_id
+            """)
+            for provider, voice_id, seed, avatar_key, avatar_path in cursor.fetchall():
+                avatars.append({
+                    "id": voice_id,
+                    "voice_id": voice_id,
+                    "provider": provider,
+                    "seed": seed,
+                    "avatarUrl": avatar_path or f"/api/public/prostudio/voice-avatar/{avatar_key}",
+                })
+            cursor.execute("SELECT COUNT(*) FROM prostudio_voice_avatars WHERE status IN ('pending', 'generating')")
+            pending_count = int(cursor.fetchone()[0] or 0)
+            cursor.close()
+            conn.close()
+            return {"avatars": avatars, "pending_count": pending_count}
+        except Exception as exc:
+            print("VOICE AVATAR CATALOG DB FAILED:", exc)
+    return {"avatars": avatars, "pending_count": 0}
+
+
+VOICE_AVATAR_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=max(1, int(os.getenv("VOICE_AVATAR_GENERATION_WORKERS", "1")))
+)
+VOICE_AVATAR_IN_FLIGHT = set()
+VOICE_AVATAR_IN_FLIGHT_LOCK = threading.Lock()
+
+
+def _voice_avatar_identity(provider: str, voice_id: str) -> tuple[str, int]:
+    # По ТЗ идентичность портрета зависит только от voice_id, а не от порядка выдачи или провайдера.
+    normalized = str(voice_id or "").strip()
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:40], int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
+def _voice_avatar_prompt(provider: str, voice_id: str, seed: int) -> str:
+    rng = random.Random(seed)
+    choices = lambda values: rng.choice(values)
+    attributes = {
+        "gender": choices(["woman", "man", "androgynous adult"]),
+        "age": choices(["young adult", "adult in their thirties", "mature adult in their forties", "mature adult in their fifties"]),
+        "heritage": choices(["East Asian", "South Asian", "Southeast Asian", "Middle Eastern", "North African", "West African", "East African", "Northern European", "Southern European", "Latin American", "Central Asian", "mixed heritage"]),
+        "skin": choices(["porcelain", "fair", "olive", "golden tan", "warm brown", "deep brown", "ebony"]),
+        "eyes": choices(["dark brown", "hazel", "green", "gray", "blue", "amber"]),
+        "face": choices(["oval", "angular", "round", "heart-shaped", "long", "square"]),
+        "nose": choices(["straight", "softly rounded", "aquiline", "wide", "delicate"]),
+        "lips": choices(["full", "defined", "soft", "narrow"]),
+        "hair": choices(["short textured crop", "sleek bob", "long loose waves", "natural curls", "close-cropped hair", "shoulder-length straight hair", "braided hair", "modern swept-back style"]),
+        "hair_color": choices(["black", "dark brown", "chestnut", "copper", "platinum blond", "ash blond", "silver gray"]),
+        "clothes": choices(["minimalist tailored jacket", "premium knit top", "modern high-collar shirt", "understated satin blouse", "clean structured overshirt", "elegant monochrome blazer"]),
+        "clothes_color": choices(["charcoal", "ivory", "navy", "deep burgundy", "forest green", "sand", "muted violet", "cobalt"]),
+        "light": choices(["soft teal rim light", "warm amber edge light", "cool silver rim light", "subtle violet edge light", "soft daylight rim light"]),
+        "background": choices(["warm gray", "cool graphite", "muted blue-gray", "soft beige", "desaturated teal", "subtle lavender-gray"]),
+        "accessory": choices(["no accessories", "small geometric earrings", "a subtle ear cuff", "thin modern eyeglasses", "a minimal necklace"]),
+        "palette": choices(["teal and graphite", "amber and charcoal", "cobalt and silver", "burgundy and warm gray", "forest green and sand", "violet and slate"]),
+    }
+    return (
+        "Create one unique fictional adult voice avatar in the premium SYLVEX visual identity. "
+        "Photorealistic studio portrait, chest-up, looking directly into camera, calm expression, slight torso turn, neutral pose, centered composition, square crop. "
+        f"Subject: {attributes['gender']}, {attributes['age']}, {attributes['heritage']} appearance, {attributes['skin']} skin, {attributes['eyes']} eyes, "
+        f"{attributes['face']} face, {attributes['nose']} nose, {attributes['lips']} lips, {attributes['hair']} in {attributes['hair_color']}. "
+        f"Wardrobe: {attributes['clothes']} in {attributes['clothes_color']}, {attributes['accessory']}. Color palette: {attributes['palette']}. Lighting: soft cinematic key light with {attributes['light']}. "
+        f"Minimal neutral {attributes['background']} studio background. Premium retouching, highly detailed natural skin, contemporary AI editorial style. "
+        "One person only, no text, no letters, no logo, no watermark, no border."
+    )
+
+
+def _generate_voice_avatar_once(provider: str, voice_id: str):
+    key, seed = _voice_avatar_identity(provider, voice_id)
+    try:
+        if not DATABASE_URL or not OPENAI_API_KEY:
+            raise RuntimeError("DATABASE_URL or OPENAI_API_KEY is not configured")
+        ensure_prostudio_table()
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("SELECT status, updated_at FROM prostudio_voice_avatars WHERE avatar_key = %s", (key,))
+        row = cursor.fetchone()
+        if row and row[0] == "ready":
+            cursor.close(); conn.close(); return
+        cursor.execute("UPDATE prostudio_voice_avatars SET status='generating', updated_at=NOW(), error_text='' WHERE avatar_key=%s", (key,))
+        conn.commit(); cursor.close(); conn.close()
+        response = requests.post(
+            f"{OPENAI_API_BASE}/images/generations",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            json={"model": os.getenv("VOICE_AVATAR_IMAGE_MODEL", "gpt-image-2"), "prompt": _voice_avatar_prompt(provider, voice_id, seed), "size": "1024x1024", "quality": os.getenv("VOICE_AVATAR_IMAGE_QUALITY", "medium"), "n": 1},
+            timeout=int(os.getenv("VOICE_AVATAR_IMAGE_TIMEOUT", "180")),
+        )
+        data = response.json()
+        if not response.ok:
+            raise RuntimeError(raw_error_text(data) or f"OpenAI image HTTP {response.status_code}")
+        image_item = (data.get("data") or [{}])[0]
+        if image_item.get("b64_json"):
+            image_bytes = base64.b64decode(image_item["b64_json"])
+        elif image_item.get("url"):
+            download = requests.get(image_item["url"], timeout=120)
+            download.raise_for_status(); image_bytes = download.content
+        else:
+            raise RuntimeError("OpenAI image response has no image")
+        local_path = VOICE_GENERATED_AVATARS_DIR / f"{key}.png"
+        local_path.write_bytes(image_bytes)
+        avatar_path = f"/api/public/prostudio/voice-avatar/{key}"
+        conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE prostudio_voice_avatars SET image_data=%s, content_type='image/png', avatar_path=%s,
+            status='ready', error_text='', updated_at=NOW() WHERE avatar_key=%s
+        """, (psycopg2.Binary(image_bytes), avatar_path, key))
+        conn.commit(); cursor.close(); conn.close()
+    except Exception as exc:
+        print("VOICE AVATAR GENERATION FAILED:", {"provider": provider, "voice_id": voice_id, "error": str(exc)})
+        if DATABASE_URL:
+            try:
+                conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+                cursor.execute("UPDATE prostudio_voice_avatars SET status='failed', error_text=%s, updated_at=NOW() WHERE avatar_key=%s", (str(exc)[:1000], key))
+                conn.commit(); cursor.close(); conn.close()
+            except Exception:
+                pass
+    finally:
+        with VOICE_AVATAR_IN_FLIGHT_LOCK:
+            VOICE_AVATAR_IN_FLIGHT.discard(key)
+
+
+def schedule_voice_avatar(provider: str, voice_id: str) -> str:
+    result = schedule_voice_avatars_batch([{"provider": provider, "voice_id": voice_id}])
+    return result.get(_voice_avatar_identity(provider, voice_id)[0], "")
+
+
+def schedule_voice_avatars_batch(voices: list) -> dict:
+    normalized_items = []
+    for item in voices or []:
+        if not isinstance(item, dict):
+            continue
+        provider = str(item.get("provider") or "unknown").strip().lower()
+        voice_id = str(item.get("voice_id") or item.get("voiceId") or item.get("id") or item.get("name") or "").strip()
+        if voice_id:
+            key, seed = _voice_avatar_identity(provider, voice_id)
+            normalized_items.append((provider, voice_id, key, seed))
+    if not normalized_items or not DATABASE_URL:
+        return {}
+    ensure_prostudio_table()
+    conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+    for provider, voice_id, key, seed in normalized_items:
+        cursor.execute("""
+            INSERT INTO prostudio_voice_avatars (provider, voice_id, seed, avatar_key, avatar_path, status)
+            VALUES (%s,%s,%s,%s,%s,'pending') ON CONFLICT DO NOTHING
+        """, (provider, voice_id, seed, key, f"/api/public/prostudio/voice-avatar/{key}"))
+    keys = list(dict.fromkeys(item[2] for item in normalized_items))
+    cursor.execute("SELECT avatar_key, status, updated_at < NOW() - INTERVAL '1 hour' FROM prostudio_voice_avatars WHERE avatar_key = ANY(%s)", (keys,))
+    rows = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+    conn.commit(); cursor.close(); conn.close()
+    ready = {}
+    for provider, voice_id, key, _seed in normalized_items:
+        row = rows.get(key)
+        if row and row[0] == "ready":
+            ready[key] = f"/api/public/prostudio/voice-avatar/{key}"
+            continue
+        should_retry = bool(row and (row[0] == "pending" or (row[0] in {"failed", "generating"} and row[1])))
+        if should_retry:
+            with VOICE_AVATAR_IN_FLIGHT_LOCK:
+                if key not in VOICE_AVATAR_IN_FLIGHT:
+                    VOICE_AVATAR_IN_FLIGHT.add(key)
+                    VOICE_AVATAR_EXECUTOR.submit(_generate_voice_avatar_once, provider, voice_id)
+    return ready
+
 
 def voice_avatar_url_for(voice_id: str, provider: str = "") -> str:
     raw_voice_id = str(voice_id or "").strip()
@@ -240,18 +412,33 @@ def voice_avatar_url_for(voice_id: str, provider: str = "") -> str:
     return ""
 
 def attach_voice_avatars(voices: list, provider: str = "") -> list:
+    catalog = load_voice_avatar_catalog().get("avatars", [])
+    avatar_lookup = {}
+    for avatar in catalog:
+        avatar_voice = str(avatar.get("voice_id") or avatar.get("id") or "").strip().lower()
+        avatar_provider = str(avatar.get("provider") or "").strip().lower()
+        url = str(avatar.get("avatarUrl") or avatar.get("avatar_url") or "")
+        if avatar_voice and url:
+            avatar_lookup[(avatar_provider, avatar_voice)] = url
+            avatar_lookup.setdefault(("", avatar_voice), url)
     result = []
+    missing = []
     for item in voices or []:
         if not isinstance(item, dict):
             result.append(item)
             continue
         voice_id = item.get("voice_id") or item.get("voiceId") or item.get("id") or item.get("name")
-        avatar_url = item.get("avatarUrl") or item.get("avatar_url") or voice_avatar_url_for(str(voice_id or ""), provider or str(item.get("provider") or ""))
+        resolved_provider = provider or str(item.get("provider") or "")
+        avatar_url = item.get("avatarUrl") or item.get("avatar_url") or avatar_lookup.get((resolved_provider.lower(), str(voice_id or "").strip().lower())) or avatar_lookup.get(("", str(voice_id or "").strip().lower()))
+        if not avatar_url:
+            missing.append({"provider": resolved_provider, "voice_id": voice_id})
         next_item = dict(item)
         if avatar_url:
             next_item["avatarUrl"] = avatar_url
             next_item["avatar_url"] = avatar_url
         result.append(next_item)
+    if missing:
+        schedule_voice_avatars_batch(missing)
     return result
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -3540,6 +3727,41 @@ async def public_prostudio_voice_avatars():
     return {"ok": True, **catalog}
 
 
+@app.post("/api/public/prostudio/voice-avatars/ensure")
+async def public_prostudio_ensure_voice_avatars(request: Request):
+    payload = await request.json()
+    voices = payload.get("voices") if isinstance(payload, dict) else []
+    batch = [item for item in (voices if isinstance(voices, list) else [])[:100] if isinstance(item, dict)]
+    schedule_voice_avatars_batch(batch)
+    scheduled = len(batch)
+    return {"ok": True, "scheduled": scheduled, **load_voice_avatar_catalog()}
+
+
+@app.get("/api/public/prostudio/voice-avatar/{avatar_key}")
+async def public_prostudio_voice_avatar_image(avatar_key: str):
+    safe_key = re.sub(r"[^a-f0-9]", "", str(avatar_key or "").lower())[:40]
+    if len(safe_key) != 40:
+        return Response(status_code=404)
+    local_path = VOICE_GENERATED_AVATARS_DIR / f"{safe_key}.png"
+    if local_path.exists():
+        return FileResponse(local_path, media_type="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    if DATABASE_URL:
+        try:
+            conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+            cursor.execute("SELECT image_data, content_type FROM prostudio_voice_avatars WHERE avatar_key=%s AND status='ready'", (safe_key,))
+            row = cursor.fetchone(); cursor.close(); conn.close()
+            if row and row[0]:
+                image_bytes = bytes(row[0])
+                try:
+                    local_path.write_bytes(image_bytes)
+                except Exception:
+                    pass
+                return Response(content=image_bytes, media_type=row[1] or "image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+        except Exception as exc:
+            print("VOICE AVATAR READ FAILED:", exc)
+    return Response(status_code=404)
+
+
 # =====================================================
 # API ENDPOINT: public_prostudio_runway_voices
 # Возвращает список голосов Runway для шторки выбора озвучки в Mini App.
@@ -3918,6 +4140,26 @@ def ensure_prostudio_table():
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_voice_avatars (
+                provider TEXT NOT NULL,
+                voice_id TEXT NOT NULL,
+                seed BIGINT NOT NULL,
+                avatar_key TEXT UNIQUE NOT NULL,
+                image_data BYTEA,
+                content_type TEXT DEFAULT 'image/png',
+                avatar_path TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                error_text TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (provider, voice_id)
+            )
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prostudio_voice_avatars_status
+            ON prostudio_voice_avatars (status, updated_at)
             """)
             cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_prostudio_resources_user_type

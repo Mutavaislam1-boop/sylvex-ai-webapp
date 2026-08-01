@@ -301,6 +301,9 @@ let elevenlabsVoiceListLoading = null;
 let voiceAvatarCatalogLoaded = false;
 let voiceAvatarCatalogLoading = null;
 let voiceAvatarCatalog = {};
+let voiceAvatarPendingCount = 0;
+let voiceAvatarPollTimer = null;
+let voiceAvatarPollAttempts = 0;
 let voiceCloneRecorder = null;
 let voiceCloneStream = null;
 let voiceCloneChunks = [];
@@ -1317,7 +1320,9 @@ async function loadVoiceAvatarCatalog(force) {
       avatars.forEach((item) => {
         rememberVoiceAvatar(item.voice_id || item.voiceId || item.id, item.provider || '', item.avatarUrl || item.avatar_url);
       });
+      voiceAvatarPendingCount = Math.max(0, Number(data.pending_count || 0));
       voiceAvatarCatalogLoaded = true;
+      if (voiceAvatarPendingCount > 0 && voiceAvatarPollAttempts < 75) scheduleVoiceAvatarCatalogPoll();
     } catch (err) {
       console.warn('[SYLVEX] voice avatars failed', err);
     } finally {
@@ -1326,6 +1331,43 @@ async function loadVoiceAvatarCatalog(force) {
     return voiceAvatarCatalog;
   })();
   return voiceAvatarCatalogLoading;
+}
+
+function scheduleVoiceAvatarCatalogPoll() {
+  if (voiceAvatarPollTimer) return;
+  voiceAvatarPollTimer = window.setTimeout(async () => {
+    voiceAvatarPollTimer = null;
+    voiceAvatarPollAttempts += 1;
+    await loadVoiceAvatarCatalog(true);
+    if (isVoiceMode()) {
+      renderVoiceControls();
+      if (activeVoicePanelSection === 'voices') renderVoiceToolPanel();
+    }
+  }, 4000);
+}
+
+async function ensureGeneratedVoiceAvatars(items) {
+  voiceAvatarPollAttempts = 0;
+  const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
+  const voices = (Array.isArray(items) ? items : []).slice(0, 100).map((item) => ({
+    provider: item.provider || provider,
+    voice_id: item.voice_id || item.voiceId || item.id || item.name,
+  })).filter((item) => item.voice_id);
+  if (!voices.length) return;
+  try {
+    const res = await fetch('/api/public/prostudio/voice-avatars/ensure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voices }),
+    });
+    const data = await res.json().catch(() => ({}));
+    (Array.isArray(data.avatars) ? data.avatars : []).forEach((item) => {
+      rememberVoiceAvatar(item.voice_id || item.voiceId || item.id, item.provider || '', item.avatarUrl || item.avatar_url);
+    });
+    voiceAvatarPendingCount = Math.max(0, Number(data.pending_count || 0));
+    if (voiceAvatarPendingCount > 0) scheduleVoiceAvatarCatalogPoll();
+    renderVoiceControls();
+  } catch (err) {
+    console.warn('[SYLVEX] voice avatar generation scheduling failed', err);
+  }
 }
 
 void loadVoiceAvatarCatalog(false);
@@ -2449,6 +2491,25 @@ function renderVoiceControls() {
   if (isVoiceMode() && model) updateComposerModelDisplay(model);
   const voiceVal = document.getElementById('voiceVoiceVal');
   if (voiceVal) voiceVal.textContent = currentVoiceButtonLabel();
+  const voiceListButton = document.getElementById('voiceListButton');
+  const voiceListButtonLabel = document.getElementById('voiceListButtonLabel');
+  if (voiceListButton && voiceListButtonLabel) {
+    const selectedId = isElevenLabsVoiceModel(voiceState.modelId) ? voiceState.elevenlabsVoice : (isRunwayVoiceModel(voiceState.modelId) ? voiceState.runwayVoice : voiceState.voice);
+    const selectedItem = currentVoiceListForPanel().find((item) => String(item.id || item.voice_id || '') === String(selectedId || '')) || currentVoiceListForPanel()[0];
+    const label = selectedItem ? String(selectedItem.label || selectedItem.name || selectedItem.id || 'Список голосов').split(' · ')[0] : 'Список голосов';
+    const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
+    const avatarUrl = selectedItem ? voiceAvatarUrlFor(selectedItem, provider) : '';
+    const icon = voiceListButton.querySelector('.vgen-btn-ico');
+    voiceListButtonLabel.textContent = label;
+    voiceListButton.classList.toggle('has-selected-voice', Boolean(selectedItem));
+    if (icon && selectedItem) {
+      icon.className = 'vgen-btn-ico voice-list-button-avatar ' + (avatarUrl ? '' : 'is-generated');
+      icon.setAttribute('style', voiceAvatarStyle(selectedItem.id || selectedItem.voice_id || label));
+      icon.innerHTML = avatarUrl
+        ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async">'
+        : '<span>' + S.escapeHtml(voiceInitials(label)) + '</span>';
+    }
+  }
   const modeVal = document.getElementById('voiceModeVal');
   if (modeVal) modeVal.textContent = isElevenLabsVoiceModel(voiceState.modelId) ? elevenlabsToolLabel(voiceState.elevenlabsTool || 'text_to_speech') : (isRunwayVoiceModel(voiceState.modelId) ? runwayToolLabel(voiceState.runwayTool || 'text_to_speech') : (voiceState.speakerMode === 'multi' ? 'Два голоса' : 'Один голос'));
   const settingsVal = document.getElementById('voiceSettingsVal');
@@ -2733,7 +2794,7 @@ function renderVoiceListPanel() {
       + '<span class="voice-style-row-avatar ' + (avatarUrl ? '' : 'is-generated') + '" style="' + S.escapeHtml(voiceAvatarStyle(id || label)) + '">'
       + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="' + S.escapeHtml(label) + '" loading="lazy" decoding="async" />' : '<span class="voice-generated-initials">' + initials + '</span>')
       + '</span>'
-      + '<span class="voice-style-row-copy"><b class="voice-style-row-name">' + S.escapeHtml(label) + '</b><small>' + S.escapeHtml(description) + '</small></span>'
+      + '<span class="voice-style-row-copy"><span class="voice-style-row-name">' + S.escapeHtml(label) + '</span><small>' + S.escapeHtml(description) + '</small></span>'
       + (selected ? '<span class="voice-style-row-check">✓</span>' : '<span class="voice-style-row-check"></span>')
       + (item.custom ? '<button class="visual-delete-btn" type="button" aria-label="Удалить голос" onclick="SYLVEX.deleteUserVoice(event,\'' + resourceId + '\',\'' + safeId + '\')">×</button>' : '')
       + '<button class="voice-style-row-play" type="button" aria-label="Прослушать ' + S.escapeHtml(label) + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
@@ -11236,9 +11297,11 @@ function closeUploadPanel(e) {
     if (activeVoicePanelSection === 'voices') {
       loadVoiceAvatarCatalog(false).then(renderVoiceToolPanel).catch(() => {});
       if (isElevenLabsVoiceModel(voiceState.modelId)) {
-        loadElevenLabsVoices(false).then(renderVoiceToolPanel).catch(() => {});
+        loadElevenLabsVoices(false).then(() => { renderVoiceToolPanel(); return ensureGeneratedVoiceAvatars(currentVoiceListForPanel()); }).catch(() => {});
       } else if (isRunwayVoiceModel(voiceState.modelId)) {
-        loadRunwayVoices(false).then(renderVoiceToolPanel).catch(() => {});
+        loadRunwayVoices(false).then(() => { renderVoiceToolPanel(); return ensureGeneratedVoiceAvatars(currentVoiceListForPanel()); }).catch(() => {});
+      } else {
+        void ensureGeneratedVoiceAvatars(currentVoiceListForPanel());
       }
     }
   }
