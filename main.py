@@ -46,6 +46,7 @@ PRESET_CHARACTERS_DIR = PRESET_CATALOG_DIR / "characters"
 PRESET_OBJECTS_DIR = PRESET_CATALOG_DIR / "objects"
 VOICE_AVATARS_DIR = PRESET_CATALOG_DIR / "voice_avatars"
 VOICE_GENERATED_AVATARS_DIR = WEBAPP_DIR / "generated" / "voice-avatars"
+VOICE_AVATAR_AUTO_GENERATION = os.getenv("VOICE_AVATAR_AUTO_GENERATION", "0").lower() in {"1", "true", "yes"}
 PRESET_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 PRESET_CATALOG_CACHE_TTL = 60
 PRESET_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
@@ -211,18 +212,25 @@ def load_voice_avatar_catalog() -> dict:
             if not avatar:
                 continue
             rel_parts = folder.relative_to(VOICE_AVATARS_DIR).parts
-            if not rel_parts:
+            # Изображения принимаются только из provider/voice_id/, чтобы файл в корне
+            # провайдера случайно не превратился в отдельный голос.
+            if len(rel_parts) < 2:
                 continue
-            provider = rel_parts[0] if len(rel_parts) > 1 else ""
+            provider = rel_parts[0]
             voice_id = rel_parts[-1]
+            metadata = _catalog_json_file(folder, "voice.json")
+            voice_id = str(metadata.get("voice_id") or metadata.get("id") or voice_id)
+            provider = str(metadata.get("provider") or provider)
             avatars.append({
                 "id": voice_id,
                 "voice_id": voice_id,
                 "provider": provider,
+                "name": metadata.get("name") or voice_id,
+                "gender": metadata.get("gender") or "neutral",
                 "avatarUrl": _preset_file_url(avatar),
                 "sourcePath": str(folder.relative_to(BASE_DIR)),
             })
-    if DATABASE_URL:
+    if DATABASE_URL and VOICE_AVATAR_AUTO_GENERATION:
         try:
             ensure_prostudio_table()
             conn = psycopg2.connect(DATABASE_URL)
@@ -365,7 +373,7 @@ def schedule_voice_avatars_batch(voices: list) -> dict:
         if voice_id:
             key, seed = _voice_avatar_identity(provider, voice_id)
             normalized_items.append((provider, voice_id, key, seed))
-    if not normalized_items or not DATABASE_URL:
+    if not normalized_items or not DATABASE_URL or not VOICE_AVATAR_AUTO_GENERATION:
         return {}
     ensure_prostudio_table()
     conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
