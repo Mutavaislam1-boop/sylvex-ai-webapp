@@ -12,6 +12,7 @@ import mimetypes
 import urllib.parse
 import shutil
 import subprocess
+import tempfile
 import wave
 from typing import Any, Optional
 from uuid import uuid4
@@ -1204,6 +1205,97 @@ async def _send_generated_audio_to_telegram(
 
 
 # =====================================================
+# ДОКУМЕНТЫ: извлечение, перевод и подготовка к озвучке
+# =====================================================
+def _document_upload_from_voice_payload(payload: dict) -> tuple[Optional[pathlib.Path], str]:
+    voice_options = payload.get("voice_options") or {}
+    candidates = list(voice_options.get("uploads") or [])
+    attachment = voice_options.get("attachment") or payload.get("attachment")
+    if attachment:
+        candidates.append(attachment)
+    for item in candidates:
+        if isinstance(item, dict):
+            url = str(item.get("url") or item.get("file_url") or item.get("fileUrl") or "")
+            name = str(item.get("name") or item.get("filename") or pathlib.PurePosixPath(url.split("?", 1)[0]).name)
+        else:
+            url, name = str(item or ""), ""
+        suffix = pathlib.PurePosixPath((name or url).split("?", 1)[0]).suffix.lower()
+        if suffix in {".txt", ".md", ".json", ".csv", ".pdf", ".docx"}:
+            return _local_webapp_path_from_url(url), name or pathlib.PurePosixPath(url).name
+    return None, ""
+
+
+def _extract_document_text(path: pathlib.Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".txt", ".md", ".json", ".csv"}:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    if suffix == ".pdf":
+        from pypdf import PdfReader
+        return "\n".join((page.extract_text() or "") for page in PdfReader(str(path)).pages)
+    if suffix == ".docx":
+        from docx import Document
+        return "\n".join(paragraph.text for paragraph in Document(str(path)).paragraphs)
+    return ""
+
+
+async def _openai_translate_document(text: str, target_language: str) -> tuple[str, str]:
+    api_key = _get_env("OPENAI_API_KEY")
+    if not api_key:
+        return "", "OPENAI_API_KEY is not configured"
+    endpoint = f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
+    body = {
+        "model": _get_env("OPENAI_DOCUMENT_TRANSLATION_MODEL") or "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": f"Translate the complete document into {target_language}. Preserve speaker labels, paragraph order, names, numbers and meaning. Return only the translated text."},
+            {"role": "user", "content": text[:120000]},
+        ],
+        "temperature": 0.2,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(endpoint, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=body)
+    except Exception as exc:
+        return "", str(exc)
+    data = await safe_audio_json_response(response, "openai", endpoint)
+    if response.status_code >= 400:
+        return "", raw_error_text(data) or f"OpenAI translation failed ({response.status_code})"
+    try:
+        return str(data["choices"][0]["message"]["content"] or "").strip(), ""
+    except Exception:
+        return "", "OpenAI translation returned no text"
+
+
+async def _prepare_document_voice_payload(payload: dict) -> Optional[dict]:
+    voice_options = payload.get("voice_options") or {}
+    purpose = str(voice_options.get("upload_purpose") or voice_options.get("uploadPurpose") or "").lower()
+    if purpose not in {"document_voiceover", "document_translate_voiceover"}:
+        return None
+    path, filename = _document_upload_from_voice_payload(payload)
+    frontend_model = str(payload.get("model") or voice_options.get("model") or "")
+    if not path or not path.exists():
+        return _audio_error("openai", frontend_model, frontend_model, "Document file is missing", type="voice")
+    try:
+        text = _extract_document_text(path).strip()
+    except Exception as exc:
+        return _audio_error("openai", frontend_model, frontend_model, f"Document text extraction failed: {exc}", type="voice", filename=filename)
+    if not text:
+        return _audio_error("openai", frontend_model, frontend_model, "Document contains no extractable text", type="voice", filename=filename)
+    if purpose == "document_translate_voiceover":
+        target_language = str(voice_options.get("target_language") or voice_options.get("targetLanguage") or "en")
+        translated, error = await _openai_translate_document(text, target_language)
+        if error:
+            return _audio_error("openai", frontend_model, frontend_model, error, type="voice", filename=filename)
+        text = translated
+    payload["prompt"] = text
+    voice_options["elevenlabs_tool"] = "text_to_speech"
+    voice_options["runway_tool"] = "text_to_speech"
+    voice_options["uploads"] = []
+    voice_options["attachment"] = None
+    payload["voice_options"] = voice_options
+    return None
+
+
+# =====================================================
 # PYTHON-БЛОК: audio_generation
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -1212,6 +1304,9 @@ async def audio_generation(payload: dict) -> dict:
     mode = str(payload.get("mode") or payload.get("category") or "").lower()
     if mode == "voice":
         voice_options = payload.get("voice_options") or {}
+        document_result = await _prepare_document_voice_payload(payload)
+        if document_result:
+            return document_result
         frontend_model = payload.get("model") or voice_options.get("model") or ""
         if _is_elevenlabs_voice_model(frontend_model):
             return await elevenlabs_voice_generation(payload)
@@ -1389,11 +1484,21 @@ def _elevenlabs_voice_settings(voice_options: dict) -> dict[str, Any]:
                 continue
         return fallback
 
+    raw_speed = number_value("speed", fallback=50.0)
+    speed = 0.7 + (max(0, min(100, raw_speed)) / 100.0) * 0.5 if raw_speed > 2 else raw_speed
+    raw_style = number_value("style", "expressiveness", fallback=0.0)
+    style = max(0, min(100, raw_style)) / 100.0 if raw_style > 1 else raw_style
+    raw_stability = number_value("stability", fallback=0.5)
+    if raw_stability == 0.5 and audio_settings.get("intonation") not in (None, "", "auto"):
+        try:
+            raw_stability = 1.0 - max(0, min(100, float(audio_settings.get("intonation")))) / 100.0
+        except (TypeError, ValueError):
+            raw_stability = 0.5
     return {
-        "stability": max(0, min(1, number_value("stability", fallback=0.5))),
+        "stability": max(0, min(1, raw_stability)),
         "similarity_boost": max(0, min(1, number_value("similarity_boost", "similarityBoost", fallback=0.75))),
-        "style": max(0, min(1, number_value("style", fallback=0.0))),
-        "speed": max(0.7, min(1.2, number_value("speed", fallback=1.0))),
+        "style": max(0, min(1, style)),
+        "speed": max(0.7, min(1.2, speed)),
         "use_speaker_boost": bool(voice_options.get("speaker_boost", voice_options.get("speakerBoost", True))),
     }
 
@@ -1404,29 +1509,40 @@ def _elevenlabs_voice_settings(voice_options: dict) -> dict[str, Any]:
 # =====================================================
 def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[str, str]]:
     primary = str(voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID)
-    secondary = str(voice_options.get("elevenlabs_second_voice") or voice_options.get("secondVoice") or primary)
+    speaker_voices = voice_options.get("speaker_voices") or voice_options.get("speakerVoices") or []
+    if not isinstance(speaker_voices, list):
+        speaker_voices = []
+    voices = [str(value) for value in speaker_voices[:3] if value]
+    while len(voices) < 3:
+        fallback = voice_options.get("elevenlabs_second_voice") or voice_options.get("secondVoice") or primary
+        voices.append(str(primary if not voices else fallback))
     inputs = []
     for raw_line in str(prompt or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
         lower = line.lower()
-        voice_id = primary
+        voice_id = voices[0]
         text = line
-        for prefix in ("speaker2:", "speaker 2:", "b:", "персонаж 2:", "герой 2:"):
-            if lower.startswith(prefix):
-                voice_id = secondary
-                text = line[len(prefix):].strip()
-                break
-        for prefix in ("speaker1:", "speaker 1:", "a:", "персонаж 1:", "герой 1:"):
-            if lower.startswith(prefix):
-                voice_id = primary
-                text = line[len(prefix):].strip()
+        prefixes = (
+            (("speaker1:", "speaker 1:", "a:", "диктор 1:", "персонаж 1:", "герой 1:"), voices[0]),
+            (("speaker2:", "speaker 2:", "b:", "диктор 2:", "персонаж 2:", "герой 2:"), voices[1]),
+            (("speaker3:", "speaker 3:", "c:", "диктор 3:", "персонаж 3:", "герой 3:"), voices[2]),
+        )
+        matched = False
+        for variants, selected_voice in prefixes:
+            for prefix in variants:
+                if lower.startswith(prefix):
+                    voice_id = selected_voice
+                    text = line[len(prefix):].strip()
+                    matched = True
+                    break
+            if matched:
                 break
         if text:
             inputs.append({"text": text, "voice_id": voice_id})
     if not inputs and prompt:
-        inputs.append({"text": str(prompt).strip(), "voice_id": primary})
+        inputs.append({"text": str(prompt).strip(), "voice_id": voices[0]})
     return inputs[:20]
 
 
@@ -1638,6 +1754,7 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
             "type": str(item.get("category") or labels.get("category") or "voice"),
             "language": str(labels.get("language") or labels.get("accent") or item.get("language") or "multilingual"),
             "preview_url": str(item.get("preview_url") or item.get("sample_url") or ""),
+            "avatar_url": str(item.get("avatar_url") or item.get("avatarUrl") or item.get("image_url") or item.get("imageUrl") or ""),
             "raw": item,
         })
     if not normalized:
@@ -1650,6 +1767,47 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
 # Получает аудиозапись из Mini App и отправляет её в официальный endpoint instant voice cloning.
 # Возвращает voice_id, который frontend сразу выбирает в разделе «Озвучка».
 # =====================================================
+def _prepare_voice_clone_sample(content: bytes, filename: str, content_type: str, settings: dict) -> tuple[bytes, str, str]:
+    ffmpeg = _ffmpeg_binary()
+    if not ffmpeg or not content or not isinstance(settings, dict):
+        return content, filename, content_type
+    try:
+        speed_value = max(0, min(100, float(settings.get("speed", 50))))
+        pitch_value = max(0, min(100, float(settings.get("pitch", 50))))
+        intonation = max(0, min(100, float(settings.get("intonation", 50))))
+        expressiveness = max(0, min(100, float(settings.get("expressiveness", 50))))
+    except Exception:
+        return content, filename, content_type
+    speed_factor = 0.75 + speed_value / 100.0 * 0.5
+    gender = str(settings.get("gender") or "neutral").lower()
+    emotion = str(settings.get("emotion") or "neutral").lower()
+    gender_shift = 1.0 if gender == "female" else (-1.0 if gender == "male" else 0.0)
+    emotion_speed = 1.06 if emotion in {"joy", "energy"} else (0.94 if emotion == "calm" else 1.0)
+    emotion_volume = 1.08 if emotion == "energy" else (0.96 if emotion == "calm" else 1.0)
+    speed_factor *= emotion_speed
+    pitch_semitones = (pitch_value - 50.0) / 50.0 * 4.0 + gender_shift
+    pitch_factor = 2.0 ** (pitch_semitones / 12.0)
+    tempo_after_pitch = max(0.5, min(2.0, speed_factor / pitch_factor))
+    contrast = 1.0 + abs(intonation - 50.0) / 100.0
+    volume = (0.9 + expressiveness / 500.0) * emotion_volume
+    filters = f"asetrate=48000*{pitch_factor:.6f},aresample=48000,atempo={tempo_after_pitch:.6f},acompressor=ratio={contrast:.3f},volume={volume:.3f}"
+    suffix = pathlib.Path(filename or "voice.webm").suffix or ".webm"
+    try:
+        with tempfile.TemporaryDirectory(prefix="sylvex-voice-") as directory:
+            input_path = pathlib.Path(directory) / f"input{suffix}"
+            output_path = pathlib.Path(directory) / "prepared.wav"
+            input_path.write_bytes(content)
+            completed = subprocess.run(
+                [ffmpeg, "-y", "-i", str(input_path), "-vn", "-af", filters, "-ar", "48000", "-ac", "1", str(output_path)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, check=False,
+            )
+            if completed.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+                return output_path.read_bytes(), "sylvex-prepared-voice.wav", "audio/wav"
+    except Exception as exc:
+        print("ELEVENLABS VOICE SAMPLE PREPARE FAILED:", repr(exc))
+    return content, filename, content_type
+
+
 async def elevenlabs_clone_voice_from_audio(
     file_content: bytes,
     filename: str = "sylvex-voice.webm",
@@ -1672,6 +1830,7 @@ async def elevenlabs_clone_voice_from_audio(
     endpoint = f"{ELEVENLABS_BASE_URL}/v1/voices/add"
     safe_name = (name or "SYLVEX Voice").strip()[:80] or "SYLVEX Voice"
     voice_settings = settings if isinstance(settings, dict) else {}
+    file_content, filename, content_type = _prepare_voice_clone_sample(file_content, filename, content_type, voice_settings)
     form_data = {
         "name": safe_name,
         "description": (description or "Created in SYLVEX Mini App").strip()[:500],
@@ -2294,6 +2453,7 @@ async def fetch_runway_voices() -> dict:
                 "provider": "runway",
                 "type": str(item.get("type") or "runway-preset"),
                 "preview_url": str(item.get("preview_url") or item.get("previewUrl") or item.get("sample_url") or ""),
+                "avatar_url": str(item.get("avatar_url") or item.get("avatarUrl") or item.get("image_url") or item.get("imageUrl") or ""),
                 "raw": item,
             })
     if not voices:

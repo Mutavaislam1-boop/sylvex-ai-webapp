@@ -1568,6 +1568,10 @@ CSS-БЛОК: .studio-mode-tab
   gap:8px;
   margin-bottom:10px;
 }
+
+.voice-speaker-composer{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 8px;color:var(--muted,#969ba5);font-size:12px}
+.voice-speaker-composer button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.065);color:inherit;border-radius:999px;padding:6px 10px;font:inherit;cursor:pointer}
+.voice-speaker-composer button:active{transform:scale(.97);background:rgba(255,255,255,.12)}
 .voice-upload-drop{
   width:100%;
   min-height:120px;
