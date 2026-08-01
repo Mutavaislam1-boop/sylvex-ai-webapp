@@ -25,6 +25,8 @@ from services.prompt_optimizer import optimize_prompt_for_model
 AUDIO_API_BASE_URL = os.getenv("AUDIO_API_BASE_URL", "https://udioapi.pro/api").rstrip("/")
 AUDIO_GENERATE_ENDPOINT = os.getenv("AUDIO_API_GENERATE_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/generate")
 AUDIO_FEED_ENDPOINT = os.getenv("AUDIO_API_FEED_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/feed")
+MINIMAX_MUSIC_GENERATE_ENDPOINT = os.getenv("MINIMAX_MUSIC_GENERATE_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/minimax/generate")
+MINIMAX_MUSIC_FEED_ENDPOINT = os.getenv("MINIMAX_MUSIC_FEED_ENDPOINT", f"{AUDIO_API_BASE_URL}/v2/minimax/feed")
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 GENERATED_AUDIO_DIR = WEBAPP_DIR / "generated" / "audio"
@@ -41,8 +43,10 @@ SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_3_5": "chirp-v3-5",
     "suno_chirp_4_0": "chirp-v4-0",
     "suno_chirp_4_5": "chirp-v4-5",
+    "suno_chirp_4_5_plus": "chirp-v4-5-plus",
     "suno_chirp_5": "chirp-v5",
     "suno_chirp_5_5": "chirp-v5-5",
+    "minimax_music_2_5": "minimax-music-2.5",
 }
 
 GEMINI_TTS_MODEL_MAP = {
@@ -282,7 +286,7 @@ def _work_id_from_response(data: Any) -> str:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def _status_from_response(data: Any) -> str:
-    value = _first_value(data, ("type", "status", "state", "task_status", "work_status"))
+    value = _first_value(data, ("status", "state", "task_status", "work_status", "type"))
     return str(value or "").lower()
 
 
@@ -324,12 +328,15 @@ def _response_items(data: Any) -> list[dict]:
 def _extract_audio_result(data: Any) -> dict[str, Any]:
     items = _response_items(data)
     first = items[0] if items else {}
+    minimax_response = data.get("data", {}).get("response") if isinstance(data, dict) and isinstance(data.get("data"), dict) else None
+    minimax_audio_url = next((item for item in (minimax_response or []) if isinstance(item, str) and item.strip()), "") if isinstance(minimax_response, list) else ""
     audio_url = (
         first.get("audio_url")
         or first.get("audioUrl")
         or first.get("source_audio_url")
         or first.get("url")
         or _first_value(data, ("audio_url", "audioUrl", "music_url", "result_url"))
+        or minimax_audio_url
         or ""
     )
     image_url = (
@@ -895,6 +902,23 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
     else:
         duration_instruction = ""
 
+    if provider_model == "minimax-music-2.5":
+        prompt_parts = [prompt, _style_from_music_options(music_options)]
+        if vocal == "instrumental":
+            prompt_parts.append("Instrumental only, no vocals.")
+        elif vocal == "female":
+            prompt_parts.append("Female vocal.")
+        elif vocal == "male":
+            prompt_parts.append("Male vocal.")
+        if duration_instruction:
+            prompt_parts.append(duration_instruction)
+        return {
+            "prompt": ", ".join(part for part in prompt_parts if part),
+            "bitrate": 256000,
+            "sample_rate": 44100,
+            "public": False,
+        }
+
     custom_payload = os.getenv("AUDIO_API_GENERATE_PAYLOAD_JSON")
     if custom_payload:
         try:
@@ -924,13 +948,23 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
             body["gender"] = "male"
         return body
 
+    description_parts = [prompt]
+    style = _style_from_music_options(music_options)
+    if style:
+        description_parts.append(f"Music style: {style}.")
+    if duration_instruction:
+        description_parts.append(duration_instruction)
     body = {
         "model": provider_model,
-        "gpt_description_prompt": "\n".join(part for part in (prompt, duration_instruction) if part),
+        "gpt_description_prompt": "\n".join(part for part in description_parts if part),
         "make_instrumental": make_instrumental,
     }
     if title:
         body["title"] = title
+    if vocal == "female":
+        body["gender"] = "female"
+    elif vocal == "male":
+        body["gender"] = "male"
     return body
 
 
@@ -1036,6 +1070,9 @@ async def audio_generation(payload: dict) -> dict:
         or "suno_chirp_5"
     )
     provider_model = _music_model_mapping(frontend_model)
+    is_minimax = provider_model == "minimax-music-2.5"
+    if is_minimax:
+        provider = "minimax"
     prompt_report = optimize_prompt_for_model(
         payload.get("prompt") or (payload.get("music_options") or {}).get("prompt") or "",
         model=frontend_model,
@@ -1071,8 +1108,10 @@ async def audio_generation(payload: dict) -> dict:
         return _audio_error(provider, frontend_model, provider_model, "AUDIO_API_KEY is not configured")
 
     submit_body = _audio_payload(payload, provider_model)
+    generate_endpoint = MINIMAX_MUSIC_GENERATE_ENDPOINT if is_minimax else AUDIO_GENERATE_ENDPOINT
+    feed_endpoint = MINIMAX_MUSIC_FEED_ENDPOINT if is_minimax else AUDIO_FEED_ENDPOINT
     print("AUDIO API GENERATE REQUEST:", {
-        "endpoint": AUDIO_GENERATE_ENDPOINT,
+        "endpoint": generate_endpoint,
         "frontend_model": frontend_model,
         "provider_model": provider_model,
         "model": submit_body.get("model"),
@@ -1084,14 +1123,14 @@ async def audio_generation(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
             submit_response = await client.post(
-                AUDIO_GENERATE_ENDPOINT,
+                generate_endpoint,
                 headers=_audio_headers(api_key),
                 json=submit_body,
             )
         except Exception as exc:
-            return _audio_error(provider, frontend_model, provider_model, exc, endpoint=AUDIO_GENERATE_ENDPOINT, details=repr(exc))
+            return _audio_error(provider, frontend_model, provider_model, exc, endpoint=generate_endpoint, details=repr(exc))
 
-        submit_data = await safe_audio_json_response(submit_response, provider, AUDIO_GENERATE_ENDPOINT)
+        submit_data = await safe_audio_json_response(submit_response, provider, generate_endpoint)
         work_id = _work_id_from_response(submit_data)
         submit_status = _status_from_response(submit_data)
         print("AUDIO API SUBMIT RESPONSE:", {
@@ -1101,19 +1140,19 @@ async def audio_generation(payload: dict) -> dict:
         })
 
         if submit_response.status_code >= 400:
-            return _audio_error(provider, frontend_model, provider_model, submit_data, endpoint=AUDIO_GENERATE_ENDPOINT, status_code=submit_response.status_code, body_preview=json.dumps(submit_data, ensure_ascii=False)[:1000], response=submit_data)
+            return _audio_error(provider, frontend_model, provider_model, submit_data, endpoint=generate_endpoint, status_code=submit_response.status_code, body_preview=json.dumps(submit_data, ensure_ascii=False)[:1000], response=submit_data)
 
         result = _extract_audio_result(submit_data)
         if result["audio_url"]:
             return await _completed_audio_response(payload, provider, frontend_model, provider_model, work_id, submit_status, result, submit_data)
 
         if not work_id:
-            return _audio_error(provider, frontend_model, provider_model, "Audio API did not return workId", endpoint=AUDIO_GENERATE_ENDPOINT, status_code=submit_response.status_code, response=submit_data)
+            return _audio_error(provider, frontend_model, provider_model, "Audio API did not return workId", endpoint=generate_endpoint, status_code=submit_response.status_code, response=submit_data)
 
         attempts = int(os.getenv("AUDIO_API_POLL_ATTEMPTS", "60"))
         interval = float(os.getenv("AUDIO_API_POLL_INTERVAL", "5"))
         last_data = submit_data
-        feed_url = AUDIO_FEED_ENDPOINT
+        feed_url = feed_endpoint
 
         for attempt in range(1, attempts + 1):
             try:
@@ -1165,7 +1204,7 @@ async def audio_generation(payload: dict) -> dict:
             "status": "processing",
             "workId": work_id,
             "task_id": work_id,
-            "poll_url": f"{AUDIO_FEED_ENDPOINT}?workId={work_id}",
+            "poll_url": f"{feed_endpoint}?workId={work_id}",
             "response": last_data,
         }
 
