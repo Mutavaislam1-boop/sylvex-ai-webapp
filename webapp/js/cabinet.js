@@ -257,6 +257,7 @@ let musicState = {
   },
 };
 let musicSettingsDraft = null;
+let musicDurationDraftSeconds = 0;
 
 let voiceState = {
   modelId: 'gemini_3_1_flash_tts_preview',
@@ -2267,8 +2268,8 @@ function ensureMusicSettings() {
   });
   if (!musicState.genre) musicState.genre = 'auto';
   const model = currentMusicModel();
-  const allowedDurations = model && Array.isArray(model.durations) ? model.durations : [1, 2, 3, 4];
-  if (musicState.duration !== 'auto' && !allowedDurations.includes(Number(musicState.duration))) {
+  const maxDurationSeconds = Math.max(...((model && model.durations) || [1, 2, 3, 4])) * 60;
+  if (musicState.duration !== 'auto' && (!Number.isFinite(Number(musicState.duration)) || Number(musicState.duration) < 1 || Number(musicState.duration) > maxDurationSeconds)) {
     musicState.duration = 'auto';
   }
   if (!musicState.duration) musicState.duration = 'auto';
@@ -2285,7 +2286,8 @@ function musicOptionsPayload() {
     model: musicState.modelId,
     genre: musicState.genre || 'auto',
     duration: musicState.duration === 'auto' ? 'auto' : Number(musicState.duration),
-    duration_minutes: musicState.duration === 'auto' ? null : Number(musicState.duration),
+    duration_seconds: musicState.duration === 'auto' ? null : Number(musicState.duration),
+    duration_minutes: musicState.duration === 'auto' ? null : Number((Number(musicState.duration) / 60).toFixed(2)),
     mood: musicState.settings.mood || 'auto',
     tempo: musicState.settings.tempo || 'auto',
     theme: musicState.settings.theme || 'auto',
@@ -2897,7 +2899,10 @@ function renderMusicControls() {
   if (genreVal) genreVal.textContent = musicOptionLabel(MUSIC_GENRES, musicState.genre, 'Auto');
 
   const durationVal = document.getElementById('musicDurationVal');
-  if (durationVal) durationVal.textContent = musicState.duration === 'auto' ? 'Auto' : String(musicState.duration) + ' мин';
+  if (durationVal) {
+    const total = Number(musicState.duration || 0);
+    durationVal.textContent = musicState.duration === 'auto' ? 'Auto' : Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+  }
 
   const settingsVal = document.getElementById('musicSettingsVal');
   if (settingsVal) {
@@ -2961,8 +2966,13 @@ function selectMusicSettingDraft(e, kind, value) {
   if (!MUSIC_SETTINGS[kind]) return;
   if (!musicSettingsDraft) musicSettingsDraft = Object.assign({}, musicState.settings);
   musicSettingsDraft[kind] = value || 'auto';
+  const modal = ensureMusicSettingsModal();
+  const scrollArea = modal.querySelector('.music-settings-modal-body');
+  const scrollTop = scrollArea ? scrollArea.scrollTop : 0;
   renderMusicSettingsModal();
-  ensureMusicSettingsModal().classList.add('show');
+  modal.classList.add('show');
+  const updatedScrollArea = modal.querySelector('.music-settings-modal-body');
+  if (updatedScrollArea) updatedScrollArea.scrollTop = scrollTop;
 }
 
 function resetMusicSettingsDraft(e) {
@@ -2971,6 +2981,76 @@ function resetMusicSettingsDraft(e) {
   Object.keys(MUSIC_SETTINGS).forEach((key) => { musicSettingsDraft[key] = 'auto'; });
   renderMusicSettingsModal();
   ensureMusicSettingsModal().classList.add('show');
+}
+
+function openMusicDurationWheel(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  ensureMusicSettings();
+  const model = currentMusicModel();
+  const maxMinutes = Math.max(...((model && model.durations) || [1, 2, 3, 4]));
+  musicDurationDraftSeconds = musicState.duration === 'auto' ? 0 : Math.min(maxMinutes * 60, Number(musicState.duration) || 0);
+  const minutes = Math.floor(musicDurationDraftSeconds / 60);
+  const seconds = musicDurationDraftSeconds % 60;
+  const el = document.getElementById('modelPop');
+  if (!el) return;
+  if (el.parentElement !== document.body) document.body.appendChild(el);
+  el.className = 'model-pop image-size-floating-pop music-duration-wheel-pop show';
+  el.style.cssText = '';
+  el.innerHTML = '<div class="music-duration-head"><b>Длительность</b><span id="musicDurationDraftLabel">' + (musicDurationDraftSeconds ? minutes + ':' + String(seconds).padStart(2, '0') : 'Auto') + '</span></div>'
+    + '<div class="music-duration-wheel-labels"><span>Минуты</span><span>Секунды</span></div>'
+    + '<div class="music-duration-wheels">'
+    + '<div class="music-duration-wheel" data-duration-wheel="minutes">' + Array.from({ length:maxMinutes + 1 }, (_, value) => '<button type="button" data-duration-value="' + value + '" class="' + (value === minutes ? 'active' : '') + '" onclick="SYLVEX.setMusicDurationPart(event,\'minutes\',' + value + ')">' + value + '</button>').join('') + '</div>'
+    + '<div class="music-duration-wheel" data-duration-wheel="seconds">' + Array.from({ length:60 }, (_, value) => '<button type="button" data-duration-value="' + value + '" class="' + (value === seconds ? 'active' : '') + '" onclick="SYLVEX.setMusicDurationPart(event,\'seconds\',' + value + ')">' + String(value).padStart(2, '0') + '</button>').join('') + '</div>'
+    + '</div><p class="music-duration-hint">0:00 = Auto · максимум ' + maxMinutes + ':00 для ' + S.escapeHtml((model && model.label) || 'модели') + '</p>'
+    + '<button class="music-duration-save" type="button" onclick="SYLVEX.saveMusicDuration(event)">Сохранить</button>';
+  requestAnimationFrame(() => {
+    el.querySelectorAll('.music-duration-wheel .active').forEach((button) => button.scrollIntoView({ block:'center' }));
+    el.querySelectorAll('.music-duration-wheel').forEach((wheel) => {
+      let timer = null;
+      wheel.addEventListener('scroll', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const buttons = Array.from(wheel.querySelectorAll('button:not(:disabled)'));
+          if (!buttons.length) return;
+          const wheelRect = wheel.getBoundingClientRect();
+          const center = wheelRect.top + wheelRect.height / 2;
+          const nearest = buttons.reduce((best, button) => Math.abs(button.getBoundingClientRect().top + button.offsetHeight / 2 - center) < Math.abs(best.getBoundingClientRect().top + best.offsetHeight / 2 - center) ? button : best, buttons[0]);
+          setMusicDurationPart(null, wheel.dataset.durationWheel, Number(nearest.dataset.durationValue));
+        }, 90);
+      }, { passive:true });
+    });
+  });
+}
+
+function setMusicDurationPart(e, part, value) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const model = currentMusicModel();
+  const maxMinutes = Math.max(...((model && model.durations) || [1, 2, 3, 4]));
+  let minutes = Math.floor(musicDurationDraftSeconds / 60);
+  let seconds = musicDurationDraftSeconds % 60;
+  if (part === 'minutes') minutes = Math.max(0, Math.min(maxMinutes, Number(value) || 0));
+  if (part === 'seconds') seconds = Math.max(0, Math.min(59, Number(value) || 0));
+  if (minutes === maxMinutes) seconds = 0;
+  musicDurationDraftSeconds = Math.min(maxMinutes * 60, minutes * 60 + seconds);
+  const el = document.getElementById('modelPop');
+  if (!el) return;
+  el.querySelectorAll('[data-duration-wheel="minutes"] button').forEach((button) => button.classList.toggle('active', Number(button.dataset.durationValue) === minutes));
+  el.querySelectorAll('[data-duration-wheel="seconds"] button').forEach((button) => {
+    const buttonValue = Number(button.dataset.durationValue);
+    button.disabled = minutes === maxMinutes && buttonValue > 0;
+    button.classList.toggle('active', buttonValue === seconds);
+  });
+  const label = document.getElementById('musicDurationDraftLabel');
+  if (label) label.textContent = musicDurationDraftSeconds ? minutes + ':' + String(seconds).padStart(2, '0') : 'Auto';
+}
+
+function saveMusicDuration(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  musicState.duration = musicDurationDraftSeconds > 0 ? musicDurationDraftSeconds : 'auto';
+  renderMusicControls();
+  const el = document.getElementById('modelPop');
+  if (el) { el.classList.remove('show', 'music-duration-wheel-pop'); el.style.cssText = ''; }
+  S.haptic && S.haptic.select && S.haptic.select();
 }
 
 function saveMusicSettings(e) {
@@ -7389,13 +7469,7 @@ function imageModelButton(model) {
       }
 
       if (kind === 'music_duration') {
-        const model = currentMusicModel();
-        const durations = model && Array.isArray(model.durations) ? model.durations : [1, 2, 3, 4];
-        const items = [{ id:'auto', label:'Auto' }].concat(durations.map((minutes) => ({
-          id:String(minutes),
-          label:String(minutes) + (minutes === 1 ? ' минута' : ' минуты'),
-        })));
-        openMusicSheet('Длительность', items, 'duration', musicState.duration || 'auto');
+        openMusicDurationWheel(e);
         return;
       }
 
@@ -7747,9 +7821,9 @@ function imageModelButton(model) {
       musicState.genre = value || 'auto';
     } else if (kind === 'duration') {
       const model = currentMusicModel();
-      const durations = model && Array.isArray(model.durations) ? model.durations : [1, 2, 3, 4];
+      const maxSeconds = Math.max(...((model && model.durations) || [1, 2, 3, 4])) * 60;
       const parsed = Number(value);
-      musicState.duration = value === 'auto' || !durations.includes(parsed) ? 'auto' : parsed;
+      musicState.duration = value === 'auto' || !Number.isFinite(parsed) || parsed < 1 || parsed > maxSeconds ? 'auto' : parsed;
     } else if (MUSIC_SETTINGS[kind]) {
       musicState.settings[kind] = value || 'auto';
       renderMusicControls();
@@ -14498,6 +14572,7 @@ async function waitGeneration(jobId, options) {
     artEl: null,
     titleEl: null,
     playPauseBtn: null,
+    replayBtn: null,
     prevBtn: null,
     nextBtn: null,
     currentTimeEl: null,
@@ -14530,6 +14605,7 @@ async function waitGeneration(jobId, options) {
           + '<div class="studio-player-controls">'
           + '<button type="button" aria-label="Назад" id="studioPrevTrackBtn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM10 12l9-6v12z"/></svg></button>'
           + '<button type="button" aria-label="Play" id="studioPlayPauseBtn"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>'
+          + '<button type="button" aria-label="Повторить" id="studioReplayTrackBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg></button>'
           + '<button type="button" aria-label="Вперёд" id="studioNextTrackBtn"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM5 18l9-6-9-6z"/></svg></button>'
           + '</div>'
           + '<div class="studio-time" id="studioCurrentTime">00:00</div>'
@@ -14549,6 +14625,7 @@ async function waitGeneration(jobId, options) {
       this.artEl = document.getElementById('studioTrackArtImage');
       this.titleEl = document.getElementById('studioTrackTitle');
       this.playPauseBtn = document.getElementById('studioPlayPauseBtn');
+      this.replayBtn = document.getElementById('studioReplayTrackBtn');
       this.prevBtn = document.getElementById('studioPrevTrackBtn');
       this.nextBtn = document.getElementById('studioNextTrackBtn');
       this.currentTimeEl = document.getElementById('studioCurrentTime');
@@ -14571,6 +14648,7 @@ async function waitGeneration(jobId, options) {
     bind() {
       this.bound = true;
       if (this.playPauseBtn) this.playPauseBtn.onclick = () => this.toggle();
+      if (this.replayBtn) this.replayBtn.onclick = () => this.replay();
       if (this.prevBtn) this.prevBtn.onclick = () => this.previous();
       if (this.nextBtn) this.nextBtn.onclick = () => this.next();
       if (this.closeBtn) this.closeBtn.onclick = () => this.close();
@@ -14650,6 +14728,14 @@ async function waitGeneration(jobId, options) {
       } else {
         this.audioEl.pause();
       }
+      this.updateUi();
+    },
+
+    replay() {
+      if (!this.audioEl || !this.currentTrack) return;
+      this.audioEl.currentTime = 0;
+      const promise = this.audioEl.play();
+      if (promise && typeof promise.catch === 'function') promise.catch(() => {});
       this.updateUi();
     },
 
@@ -14915,7 +15001,7 @@ async function waitGeneration(jobId, options) {
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
-    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
+    openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
