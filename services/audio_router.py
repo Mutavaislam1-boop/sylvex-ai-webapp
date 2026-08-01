@@ -47,6 +47,9 @@ SUNO_MUSIC_MODEL_MAP = {
     "suno_chirp_5": "chirp-v5",
     "suno_chirp_5_5": "chirp-v5-5",
     "minimax_music_2_5": "minimax-music-2.5",
+    "google_lyria_3_clip": "lyria-3-clip-preview",
+    "google_lyria_3_pro": "lyria-3-pro-preview",
+    "google_lyria_realtime": "models/lyria-realtime-exp",
 }
 
 GEMINI_TTS_MODEL_MAP = {
@@ -868,7 +871,9 @@ def _music_duration_minutes(music_options: dict, provider_model: str) -> Optiona
             seconds = int(float(raw_seconds))
         except (TypeError, ValueError):
             return None
-        maximum_seconds = (2 if provider_model == "chirp-v3-5" else 4) * 60
+        if provider_model == "lyria-3-clip-preview":
+            return 0.5
+        maximum_seconds = (2 if provider_model in {"chirp-v3-5", "lyria-3-pro-preview"} else 4) * 60
         if 1 <= seconds <= maximum_seconds:
             return seconds / 60
         return None
@@ -879,8 +884,160 @@ def _music_duration_minutes(music_options: dict, provider_model: str) -> Optiona
         minutes = float(raw)
     except (TypeError, ValueError):
         return None
-    maximum = 2 if provider_model == "chirp-v3-5" else 4
+    if provider_model == "lyria-3-clip-preview":
+        return 0.5
+    maximum = 2 if provider_model in {"chirp-v3-5", "lyria-3-pro-preview"} else 4
     return minutes if 0 < minutes <= maximum else None
+
+
+def _lyria_prompt(payload: dict, provider_model: str) -> str:
+    music_options = payload.get("music_options") or {}
+    prompt = str(payload.get("prompt") or music_options.get("prompt") or "").strip()
+    parts = [prompt]
+    style = _style_from_music_options(music_options)
+    if style:
+        parts.append(f"Genre, mood and style: {style}.")
+    vocal = _music_option_value(music_options, "vocal").lower()
+    if provider_model == "models/lyria-realtime-exp" or vocal == "instrumental":
+        parts.append("Instrumental only, no vocals.")
+    elif vocal == "female":
+        parts.append("Use a female lead vocal.")
+    elif vocal == "male":
+        parts.append("Use a male lead vocal.")
+    duration = _music_duration_minutes(music_options, provider_model)
+    if provider_model == "lyria-3-clip-preview":
+        parts.append("Create a 30-second music clip.")
+    elif duration:
+        total_seconds = int(round(duration * 60))
+        parts.append(f"Target duration: {total_seconds // 60} minutes {total_seconds % 60} seconds.")
+    return "\n".join(part for part in parts if part)
+
+
+def _extract_gemini_output_text(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    if isinstance(data.get("output_text"), str):
+        return data.get("output_text") or ""
+    mime_type = str(data.get("type") or data.get("mime_type") or "").lower()
+    if mime_type == "text" and isinstance(data.get("text"), str):
+        return data.get("text") or ""
+    for value in data.values():
+        if isinstance(value, dict):
+            nested = _extract_gemini_output_text(value)
+            if nested:
+                return nested
+        elif isinstance(value, list):
+            for item in value:
+                nested = _extract_gemini_output_text(item)
+                if nested:
+                    return nested
+    return ""
+
+
+def _save_lyria_realtime_wav(pcm: bytes) -> str:
+    if not pcm:
+        return ""
+    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}.wav"
+    path = GENERATED_AUDIO_DIR / filename
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(48000)
+        wf.writeframes(pcm)
+    return f"/webapp/generated/audio/{filename}"
+
+
+async def lyria_music_generation(payload: dict, frontend_model: str, provider_model: str) -> dict:
+    provider = "google"
+    api_key = _get_env("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE-GEMINI-API-KEY")
+    if not api_key:
+        return _audio_error(provider, frontend_model, provider_model, "GEMINI_API_KEY is not configured")
+    prompt = _lyria_prompt(payload, provider_model)
+    if not prompt:
+        return _audio_error(provider, frontend_model, provider_model, "Music prompt is empty")
+
+    if provider_model == "models/lyria-realtime-exp":
+        try:
+            from google import genai
+            from google.genai import types
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, f"google-genai is not installed: {exc}")
+        music_options = payload.get("music_options") or {}
+        requested_seconds = int(float(music_options.get("duration_seconds") or 30))
+        requested_seconds = max(1, min(240, requested_seconds))
+        target_bytes = requested_seconds * 48000 * 2 * 2
+        chunks: list[bytes] = []
+        received_bytes = 0
+        tempo = _music_option_value(music_options, "tempo").lower()
+        bpm_map = {"slow": 70, "slow_medium": 90, "medium": 110, "medium_fast": 135, "fast": 160}
+        config_kwargs: dict[str, Any] = {"music_generation_mode": types.MusicGenerationMode.QUALITY}
+        if tempo in bpm_map:
+            config_kwargs["bpm"] = bpm_map[tempo]
+        try:
+            async def collect_stream() -> None:
+                nonlocal received_bytes
+                client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+                async with client.aio.live.music.connect(model=provider_model) as session:
+                    await session.set_weighted_prompts(prompts=[types.WeightedPrompt(text=prompt, weight=1.0)])
+                    await session.set_music_generation_config(config=types.LiveMusicGenerationConfig(**config_kwargs))
+                    await session.play()
+                    while received_bytes < target_bytes:
+                        async for message in session.receive():
+                            server_content = getattr(message, "server_content", None)
+                            for chunk in (getattr(server_content, "audio_chunks", None) or []):
+                                data = getattr(chunk, "data", b"") or b""
+                                if isinstance(data, str):
+                                    data = base64.b64decode(data)
+                                if data:
+                                    remaining = target_bytes - received_bytes
+                                    piece = bytes(data[:remaining])
+                                    chunks.append(piece)
+                                    received_bytes += len(piece)
+                                if received_bytes >= target_bytes:
+                                    break
+                            if received_bytes >= target_bytes:
+                                break
+                    await session.stop()
+            await asyncio.wait_for(collect_stream(), timeout=requested_seconds + 90)
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, exc, details=repr(exc))
+        audio_url = _save_lyria_realtime_wav(b"".join(chunks))
+        if not audio_url:
+            return _audio_error(provider, frontend_model, provider_model, "Lyria RealTime returned no audio")
+        return await _completed_audio_response(
+            payload, provider, frontend_model, provider_model, "", "completed",
+            {"audio_url": audio_url, "duration": requested_seconds, "model_name": provider_model, "items": []},
+            {"experimental": True, "format": "pcm16", "sample_rate": 48000},
+        )
+
+    endpoint = _get_env("GEMINI_INTERACTIONS_ENDPOINT") or "https://generativelanguage.googleapis.com/v1beta/interactions"
+    request_body: dict[str, Any] = {"model": provider_model, "input": prompt}
+    if provider_model == "lyria-3-pro-preview":
+        request_body["response_format"] = {"type": "audio"}
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        try:
+            response = await client.post(endpoint, headers={"x-goog-api-key": api_key, "Content-Type": "application/json"}, json=request_body)
+        except Exception as exc:
+            return _audio_error(provider, frontend_model, provider_model, exc, endpoint=endpoint, details=repr(exc))
+    data = await safe_audio_json_response(response, provider, endpoint)
+    if response.status_code >= 400:
+        return _audio_error(provider, frontend_model, provider_model, data, endpoint=endpoint, status_code=response.status_code, response=data)
+    audio_data = _extract_gemini_output_audio(data)
+    if not audio_data:
+        return _audio_error(provider, frontend_model, provider_model, "Lyria returned no audio", endpoint=endpoint, response=data)
+    try:
+        audio_bytes = base64.b64decode(audio_data)
+    except Exception as exc:
+        return _audio_error(provider, frontend_model, provider_model, f"Lyria audio decode failed: {exc}")
+    audio_url = _save_audio_file(audio_bytes, ".mp3")
+    lyrics = _extract_gemini_output_text(data)
+    duration = 30 if provider_model == "lyria-3-clip-preview" else int(round((_music_duration_minutes(payload.get("music_options") or {}, provider_model) or 0) * 60))
+    return await _completed_audio_response(
+        payload, provider, frontend_model, provider_model, "", "completed",
+        {"audio_url": audio_url, "duration": duration, "model_name": provider_model, "items": []},
+        {"lyrics": lyrics},
+    )
 
 
 # =====================================================
@@ -1062,7 +1219,6 @@ async def audio_generation(payload: dict) -> dict:
             return await runway_voice_generation(payload)
         return await voice_generation(payload)
 
-    api_key = _get_env("AUDIO_API_KEY")
     provider = "suno"
     frontend_model = (
         payload.get("model")
@@ -1070,6 +1226,10 @@ async def audio_generation(payload: dict) -> dict:
         or "suno_chirp_5"
     )
     provider_model = _music_model_mapping(frontend_model)
+    if provider_model in {"lyria-3-clip-preview", "lyria-3-pro-preview", "models/lyria-realtime-exp"}:
+        return await lyria_music_generation(payload, frontend_model, provider_model)
+
+    api_key = _get_env("AUDIO_API_KEY")
     is_minimax = provider_model == "minimax-music-2.5"
     if is_minimax:
         provider = "minimax"

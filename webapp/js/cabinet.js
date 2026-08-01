@@ -1099,6 +1099,9 @@ const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
   { id:'minimax_music_2_5', label:'MiniMax Music 2.5', providerModel:'minimax-music-2.5', desc:'MiniMax text-to-music · отдельный API', icon:'minimax', durations:[1,2,3,4], capabilities:{ duration:false } },
+  { id:'google_lyria_3_clip', label:'Google Lyria 3 Clip', providerModel:'lyria-3-clip-preview', desc:'Фиксированный музыкальный клип · 30 секунд · MP3', icon:'gemini', durations:[0.5], fixedDurationSeconds:30, capabilities:{ duration:false } },
+  { id:'google_lyria_3_pro', label:'Google Lyria 3 Pro', providerModel:'lyria-3-pro-preview', desc:'Полноценные композиции · вокал и тексты · MP3', icon:'gemini', durations:[1,2] },
+  { id:'google_lyria_realtime', label:'Google Lyria RealTime', providerModel:'models/lyria-realtime-exp', desc:'Экспериментальная потоковая инструментальная музыка · WAV', icon:'gemini', durations:[1,2,3,4], vocalModes:['auto','instrumental'] },
 ];
 
 const VOICE_MODEL_LIST = [
@@ -2275,6 +2278,9 @@ function ensureMusicSettings() {
   });
   if (!musicState.genre) musicState.genre = 'auto';
   const model = currentMusicModel();
+  if (model && Array.isArray(model.vocalModes) && !model.vocalModes.includes(musicState.settings.vocal)) {
+    musicState.settings.vocal = 'instrumental';
+  }
   const maxDurationSeconds = Math.max(...((model && model.durations) || [1, 2, 3, 4])) * 60;
   if (model && model.capabilities && model.capabilities.duration === false) musicState.duration = 'auto';
   if (musicState.duration !== 'auto' && (!Number.isFinite(Number(musicState.duration)) || Number(musicState.duration) < 1 || Number(musicState.duration) > maxDurationSeconds)) {
@@ -2290,12 +2296,14 @@ function ensureMusicSettings() {
 // =====================================================
 function musicOptionsPayload() {
   ensureMusicSettings();
+  const model = currentMusicModel();
+  const fixedDuration = Number(model && model.fixedDurationSeconds) || 0;
   return {
     model: musicState.modelId,
     genre: musicState.genre || 'auto',
-    duration: musicState.duration === 'auto' ? 'auto' : Number(musicState.duration),
-    duration_seconds: musicState.duration === 'auto' ? null : Number(musicState.duration),
-    duration_minutes: musicState.duration === 'auto' ? null : Number((Number(musicState.duration) / 60).toFixed(2)),
+    duration: fixedDuration || (musicState.duration === 'auto' ? 'auto' : Number(musicState.duration)),
+    duration_seconds: fixedDuration || (musicState.duration === 'auto' ? null : Number(musicState.duration)),
+    duration_minutes: fixedDuration ? Number((fixedDuration / 60).toFixed(2)) : (musicState.duration === 'auto' ? null : Number((Number(musicState.duration) / 60).toFixed(2))),
     mood: musicState.settings.mood || 'auto',
     tempo: musicState.settings.tempo || 'auto',
     theme: musicState.settings.theme || 'auto',
@@ -2908,15 +2916,16 @@ function renderMusicControls() {
 
   const durationVal = document.getElementById('musicDurationVal');
   if (durationVal) {
+    const fixedDuration = Number(model && model.fixedDurationSeconds) || 0;
     const total = Number(musicState.duration || 0);
-    durationVal.textContent = musicState.duration === 'auto' ? 'Auto' : Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+    durationVal.textContent = fixedDuration ? Math.floor(fixedDuration / 60) + ':' + String(fixedDuration % 60).padStart(2, '0') : (musicState.duration === 'auto' ? 'Auto' : Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0'));
   }
   const durationButton = document.getElementById('musicDurationButton');
   if (durationButton) {
     const supported = musicModelSupports('duration');
     durationButton.disabled = !supported;
     durationButton.classList.toggle('image-setting-disabled', !supported);
-    durationButton.title = supported ? '' : 'Точная длительность не поддерживается выбранной моделью';
+    durationButton.title = supported ? '' : ((model && model.fixedDurationSeconds) ? 'У этой модели фиксированная длительность 30 секунд' : 'Точная длительность не поддерживается выбранной моделью');
   }
 
   const settingsVal = document.getElementById('musicSettingsVal');
@@ -2951,8 +2960,12 @@ function renderMusicSettingsModal() {
     + Object.keys(MUSIC_SETTINGS).map((settingKey) => {
       const section = MUSIC_SETTINGS[settingKey];
       const active = draft[settingKey] || 'auto';
+      const model = currentMusicModel();
+      const items = settingKey === 'vocal' && model && Array.isArray(model.vocalModes)
+        ? section.items.filter((item) => model.vocalModes.includes(String(item.id)))
+        : section.items;
       return '<section class="music-modal-section"><h4>' + S.escapeHtml(section.title) + '</h4><div class="music-modal-options">'
-        + section.items.map((item) => '<button class="music-modal-chip ' + (String(active) === String(item.id) ? 'active' : '') + '" type="button" onclick="SYLVEX.selectMusicSettingDraft(event,\'' + S.escapeHtml(settingKey) + '\',\'' + S.escapeHtml(String(item.id)) + '\')">' + S.escapeHtml(item.label || item.id) + '</button>').join('')
+        + items.map((item) => '<button class="music-modal-chip ' + (String(active) === String(item.id) ? 'active' : '') + '" type="button" onclick="SYLVEX.selectMusicSettingDraft(event,\'' + S.escapeHtml(settingKey) + '\',\'' + S.escapeHtml(String(item.id)) + '\')">' + S.escapeHtml(item.label || item.id) + '</button>').join('')
         + '</div></section>';
     }).join('')
     + '</div><footer><button class="music-settings-reset" type="button" onclick="SYLVEX.resetMusicSettingsDraft(event)">Сбросить</button><button class="music-settings-save" type="button" onclick="SYLVEX.saveMusicSettings(event)">Сохранить</button></footer>'
@@ -3251,7 +3264,7 @@ const MODEL_ICON_SVG = {
     if (/^gpt[_-]?image|openai/i.test(model)) return 'openai';
     if (/sora/i.test(model)) return 'sora';
     if (/grok/i.test(model)) return 'xai';
-    if (/nano[_-]?banana|imagen|gemini/i.test(model)) return 'google';
+    if (/nano[_-]?banana|imagen|gemini|lyria/i.test(model)) return 'google';
     if (/flux/i.test(model)) return 'flux';
     if (/ideogram/i.test(model)) return 'ideogram';
     if (/recraft/i.test(model)) return 'recraft';
