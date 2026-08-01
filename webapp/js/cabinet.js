@@ -2876,7 +2876,9 @@ function renderVoiceCreatePanel() {
       <div class="voice-create-grid">
         <div class="voice-create-fields">
           <div class="voice-clone-profile-row">
-            <span class="voice-clone-avatar-picker voice-style-row-avatar is-generated" style="${S.escapeHtml(voiceAvatarStyle(voiceCloneDraft.name || 'Новый голос'))}" aria-hidden="true"><span class="voice-generated-initials">${S.escapeHtml(voiceInitials(voiceCloneDraft.name || 'Голос'))}</span></span>
+            <button class="voice-clone-avatar-picker voice-style-row-avatar ${voiceCloneDraft.avatarUrl ? 'has-avatar' : 'is-generated'}" type="button" style="${S.escapeHtml(voiceAvatarStyle(voiceCloneDraft.name || 'Новый голос'))}" onclick="SYLVEX.openVoiceCloneAvatarPicker(event)" aria-label="Добавить аватарку">
+              ${voiceCloneDraft.avatarUrl ? '<img src="' + S.escapeHtml(voiceCloneDraft.avatarUrl) + '" alt="Аватар голоса">' : '<span class="voice-generated-initials">＋</span>'}
+            </button>
             <div class="voice-clone-main-fields">
               <input class="voice-tool-input voice-clone-field" id="voiceCloneNameInput" type="text" maxlength="80" placeholder="Название голоса" autocomplete="off" value="${S.escapeHtml(voiceCloneDraft.name || '')}" oninput="SYLVEX.setVoiceCloneField(event,'name',this.value)">
               ${dropdown('gender', 'Пол', genderOptions, voiceCloneDraft.gender || 'neutral')}
@@ -11361,6 +11363,38 @@ function closeUploadPanel(e) {
     input.click();
   }
 
+  async function openVoiceCloneAvatarPicker(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (!String(file.type || '').startsWith('image/')) { toast('Выберите изображение'); return; }
+      if (file.size > 12 * 1024 * 1024) { toast('Фото слишком большое (макс. 12 MB)'); return; }
+      const temporaryUrl = URL.createObjectURL(file);
+      voiceCloneDraft.avatarUrl = temporaryUrl;
+      renderVoiceToolPanel();
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/public/prostudio/upload-media?kind=image', { method: 'POST', body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok || !data.url) throw new Error(data.error || 'Не удалось загрузить аватарку');
+        voiceCloneDraft.avatarUrl = String(data.url);
+        toast('Аватарка добавлена');
+      } catch (err) {
+        voiceCloneDraft.avatarUrl = '';
+        toast(translateGenerationError(err, 'Не удалось загрузить аватарку'));
+      } finally {
+        URL.revokeObjectURL(temporaryUrl);
+        renderVoiceToolPanel();
+      }
+    };
+    input.click();
+  }
+
   // =====================================================
   // БЛОК ОЗВУЧКИ: setVoiceCloneField
   // Сохраняет значения формы создания голоса без перерисовки всего окна.
@@ -15176,7 +15210,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
@@ -15240,6 +15274,7 @@ async function waitGeneration(jobId, options) {
   window.closeVoiceList = closeVoiceList;
   window.openVoiceUpload = openVoiceUpload;
   window.openVoiceCloneFilePicker = openVoiceCloneFilePicker;
+  window.openVoiceCloneAvatarPicker = openVoiceCloneAvatarPicker;
   window.clearVoiceUploads = clearVoiceUploads;
   window.toggleVoiceCloneRecording = toggleVoiceCloneRecording;
   window.playVoiceCloneRecording = playVoiceCloneRecording;
