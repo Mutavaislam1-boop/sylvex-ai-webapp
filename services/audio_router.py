@@ -854,16 +854,26 @@ def _style_from_music_options(music_options: dict) -> str:
     return ", ".join(values)
 
 
-def _music_duration_minutes(music_options: dict, provider_model: str) -> Optional[int]:
+def _music_duration_minutes(music_options: dict, provider_model: str) -> Optional[float]:
+    raw_seconds = music_options.get("duration_seconds")
+    if raw_seconds is not None and str(raw_seconds).strip().lower() not in {"", "auto", "none"}:
+        try:
+            seconds = int(float(raw_seconds))
+        except (TypeError, ValueError):
+            return None
+        maximum_seconds = (2 if provider_model == "chirp-v3-5" else 4) * 60
+        if 1 <= seconds <= maximum_seconds:
+            return seconds / 60
+        return None
     raw = music_options.get("duration_minutes", music_options.get("duration"))
     if raw is None or str(raw).strip().lower() in {"", "auto", "none"}:
         return None
     try:
-        minutes = int(float(raw))
+        minutes = float(raw)
     except (TypeError, ValueError):
         return None
     maximum = 2 if provider_model == "chirp-v3-5" else 4
-    return minutes if 1 <= minutes <= maximum else None
+    return minutes if 0 < minutes <= maximum else None
 
 
 # =====================================================
@@ -879,7 +889,11 @@ def _audio_payload(payload: dict, provider_model: str) -> dict[str, Any]:
     vocal = _music_option_value(music_options, "vocal").lower()
     make_instrumental = vocal == "instrumental"
     duration_minutes = _music_duration_minutes(music_options, provider_model)
-    duration_instruction = f"Target duration: approximately {duration_minutes} minutes." if duration_minutes else ""
+    if duration_minutes:
+        total_seconds = int(round(duration_minutes * 60))
+        duration_instruction = f"Target duration: approximately {total_seconds // 60} minutes {total_seconds % 60} seconds."
+    else:
+        duration_instruction = ""
 
     custom_payload = os.getenv("AUDIO_API_GENERATE_PAYLOAD_JSON")
     if custom_payload:
