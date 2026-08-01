@@ -9,3 +9,4 @@ pillow
 imageio-ffmpeg
 reportlab
 runwayml
+google-genai
