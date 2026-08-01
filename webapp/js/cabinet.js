@@ -1095,8 +1095,10 @@ const MUSIC_MODEL_LIST = [
   { id:'suno_chirp_3_5', label:'Suno Chirp v3.5', providerModel:'chirp-v3-5', desc:'Suno music generation', icon:'suno', durations:[1,2] },
   { id:'suno_chirp_4_0', label:'Suno Chirp v4.0', providerModel:'chirp-v4-0', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_4_5', label:'Suno Chirp v4.5', providerModel:'chirp-v4-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'suno_chirp_4_5_plus', label:'Suno Chirp v4.5 Plus', providerModel:'chirp-v4-5-plus', desc:'Suno music generation · расширенный стиль', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5', label:'Suno Chirp v5', providerModel:'chirp-v5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
   { id:'suno_chirp_5_5', label:'Suno Chirp v5.5', providerModel:'chirp-v5-5', desc:'Suno music generation', icon:'suno', durations:[1,2,3,4] },
+  { id:'minimax_music_2_5', label:'MiniMax Music 2.5', providerModel:'minimax-music-2.5', desc:'MiniMax text-to-music · отдельный API', icon:'minimax', durations:[1,2,3,4], capabilities:{ duration:false } },
 ];
 
 const VOICE_MODEL_LIST = [
@@ -2257,6 +2259,11 @@ function currentMusicModel() {
   return MUSIC_MODEL_LIST.find((item) => item.id === musicState.modelId) || MUSIC_MODEL_LIST[0] || null;
 }
 
+function musicModelSupports(feature) {
+  const model = currentMusicModel();
+  return !(model && model.capabilities && model.capabilities[feature] === false);
+}
+
 // =====================================================
 // АУДИОПЛЕЕР: ensureMusicSettings
 // Управляет воспроизведением музыки или озвучки внутри Mini App без внешнего перехода.
@@ -2269,6 +2276,7 @@ function ensureMusicSettings() {
   if (!musicState.genre) musicState.genre = 'auto';
   const model = currentMusicModel();
   const maxDurationSeconds = Math.max(...((model && model.durations) || [1, 2, 3, 4])) * 60;
+  if (model && model.capabilities && model.capabilities.duration === false) musicState.duration = 'auto';
   if (musicState.duration !== 'auto' && (!Number.isFinite(Number(musicState.duration)) || Number(musicState.duration) < 1 || Number(musicState.duration) > maxDurationSeconds)) {
     musicState.duration = 'auto';
   }
@@ -2903,6 +2911,13 @@ function renderMusicControls() {
     const total = Number(musicState.duration || 0);
     durationVal.textContent = musicState.duration === 'auto' ? 'Auto' : Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
   }
+  const durationButton = document.getElementById('musicDurationButton');
+  if (durationButton) {
+    const supported = musicModelSupports('duration');
+    durationButton.disabled = !supported;
+    durationButton.classList.toggle('image-setting-disabled', !supported);
+    durationButton.title = supported ? '' : 'Точная длительность не поддерживается выбранной моделью';
+  }
 
   const settingsVal = document.getElementById('musicSettingsVal');
   if (settingsVal) {
@@ -2986,6 +3001,10 @@ function resetMusicSettingsDraft(e) {
 function openMusicDurationWheel(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   ensureMusicSettings();
+  if (!musicModelSupports('duration')) {
+    toast('Эта модель не поддерживает выбор точной длительности');
+    return;
+  }
   const model = currentMusicModel();
   const maxMinutes = Math.max(...((model && model.durations) || [1, 2, 3, 4]));
   musicDurationDraftSeconds = musicState.duration === 'auto' ? 0 : Math.min(maxMinutes * 60, Number(musicState.duration) || 0);
@@ -3241,6 +3260,7 @@ const MODEL_ICON_SVG = {
     if (/krea/i.test(model)) return 'krea';
     if (/gemini.*tts|tts.*gemini|flash_tts|preview_tts/i.test(model)) return 'gemini';
     if (/suno|chirp/i.test(model)) return 'suno';
+    if (/minimax.*music|music.*minimax/i.test(model)) return 'minimax';
     if (/musicgen/i.test(model)) return 'music';
     if (/voice/i.test(model)) return 'voice';
     if (/^gpt-|^o[0-9]|chatgpt/i.test(model)) return 'openai';
