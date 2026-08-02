@@ -1302,11 +1302,11 @@ function voiceDescription(item) {
   const genderId = voiceGenderForPanel(item);
   const gender = genderId === 'male' ? 'Мужской голос' : (genderId === 'female' ? 'Женский голос' : 'Нейтральный голос');
   const rawStyle = String((item && (item.style || item.description || item.useCase || item.use_case)) || '').trim();
-  const style = VOICE_STYLE_RU[rawStyle] || rawStyle;
+  const style = rawStyle;
   const accent = String((item && item.accent) || '').trim();
-  if (style) return gender + ' · ' + style.charAt(0).toLowerCase() + style.slice(1);
-  if (accent) return gender + ' · акцент: ' + accent;
-  return gender + ' · универсальная озвучка';
+  if (style) return gender + ' · ' + style;
+  if (accent) return gender + ' · ' + accent + ' accent';
+  return gender + ' · Universal voice';
 }
 
 async function loadVoiceAvatarCatalog(force) {
@@ -2502,6 +2502,11 @@ function renderVoiceControls() {
     const icon = voiceListButton.querySelector('.vgen-btn-ico');
     voiceListButtonLabel.textContent = label;
     voiceListButton.classList.toggle('has-selected-voice', Boolean(selectedItem));
+    voiceListButton.classList.toggle('has-selected-voice-image', Boolean(selectedItem && avatarUrl));
+    voiceListButton.setAttribute('style', selectedItem ? voiceAvatarStyle(selectedItem.id || selectedItem.voice_id || label) : '');
+    voiceListButton.style.backgroundImage = avatarUrl
+      ? 'linear-gradient(180deg,rgba(0,0,0,.06),rgba(0,0,0,.68)),url("' + String(avatarUrl).replace(/["\\]/g, '') + '")'
+      : '';
     if (icon && selectedItem) {
       icon.className = 'vgen-btn-ico voice-list-button-avatar ' + (avatarUrl ? '' : 'is-generated');
       icon.setAttribute('style', voiceAvatarStyle(selectedItem.id || selectedItem.voice_id || label));
@@ -2781,7 +2786,7 @@ function renderVoiceListPanel() {
   const optionKind = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabsVoice' : (isRunwayVoiceModel(voiceState.modelId) ? 'runwayVoice' : 'voice');
   const activeVoice = optionKind === 'elevenlabsVoice' ? voiceState.elevenlabsVoice : (optionKind === 'runwayVoice' ? voiceState.runwayVoice : voiceState.voice);
   const items = currentVoiceListForPanel();
-  const renderRow = (item) => {
+    const renderRow = (item) => {
     const id = String(item.id || item.voice_id || '');
     const label = String(item.label || item.name || id);
     const safeId = S.escapeHtml(id);
@@ -2789,12 +2794,13 @@ function renderVoiceListPanel() {
     const selected = String(activeVoice || '') === id;
     const initials = S.escapeHtml(voiceInitials(label || id));
     const description = voiceDescription(item);
+    const marquee = label.length > 20;
     const avatarUrl = voiceAvatarUrlFor(item, optionKind === 'elevenlabsVoice' ? 'elevenlabs' : (optionKind === 'runwayVoice' ? 'runway' : 'gemini'));
     return '<div class="voice-style-row ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
       + '<span class="voice-style-row-avatar ' + (avatarUrl ? '' : 'is-generated') + '" style="' + S.escapeHtml(voiceAvatarStyle(id || label)) + '">'
       + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="' + S.escapeHtml(label) + '" loading="lazy" decoding="async" />' : '<span class="voice-generated-initials">' + initials + '</span>')
       + '</span>'
-      + '<span class="voice-style-row-copy"><span class="voice-style-row-name">' + S.escapeHtml(label) + '</span><small>' + S.escapeHtml(description) + '</small></span>'
+      + '<span class="voice-style-row-copy"><span class="voice-style-row-name ' + (marquee ? 'is-marquee' : '') + '"><span>' + S.escapeHtml(label) + '</span>' + (marquee ? '<span aria-hidden="true">' + S.escapeHtml(label) + '</span>' : '') + '</span><small>' + S.escapeHtml(description) + '</small></span>'
       + (selected ? '<span class="voice-style-row-check">✓</span>' : '<span class="voice-style-row-check"></span>')
       + (item.custom ? '<button class="visual-delete-btn" type="button" aria-label="Удалить голос" onclick="SYLVEX.deleteUserVoice(event,\'' + resourceId + '\',\'' + safeId + '\')">×</button>' : '')
       + '<button class="voice-style-row-play" type="button" aria-label="Прослушать ' + S.escapeHtml(label) + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
@@ -8043,7 +8049,8 @@ function imageModelButton(model) {
     try {
       if (btn) {
         btn.disabled = true;
-        btn.textContent = '…';
+        btn.classList.add('is-loading');
+        btn.innerHTML = '<span class="voice-preview-loading-dot" aria-hidden="true"></span>';
       }
       const cacheKey = (voiceState.modelId || 'gemini_3_1_flash_tts_preview') + ':' + voice;
       const voiceItem = currentVoiceListForPanel().find((item) => String(item.id || item.voice_id || '') === voice);
@@ -8076,7 +8083,10 @@ function imageModelButton(model) {
       geminiVoicePreviewAudio.src = audioUrl;
       geminiVoicePreviewAudio.currentTime = 0;
       await geminiVoicePreviewAudio.play();
-      if (btn) btn.textContent = '❚❚';
+      if (btn) {
+        btn.classList.remove('is-loading');
+        btn.textContent = '❚❚';
+      }
       geminiVoicePreviewAudio.onended = () => {
         if (btn) btn.textContent = oldText || '▶';
       };
@@ -8085,7 +8095,10 @@ function imageModelButton(model) {
       toast((err && err.message) || 'Не удалось прослушать голос');
       if (btn) btn.textContent = oldText || '▶';
     } finally {
-      if (btn) btn.disabled = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+      }
     }
   }
 
