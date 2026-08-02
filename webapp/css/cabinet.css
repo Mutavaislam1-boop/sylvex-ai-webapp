@@ -797,9 +797,18 @@ CSS-БЛОК: .studio-mode-tab
   content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,transparent 25%,rgba(0,0,0,.68));pointer-events:none;
 }
 #voiceListButton.has-selected-voice .voice-list-button-avatar{
-  position:absolute;right:9px;top:9px;width:34px;height:34px;border:2px solid rgba(255,255,255,.82);box-shadow:0 4px 14px rgba(0,0,0,.38);
+  position:absolute;left:9px;top:9px;width:34px;height:34px;border:2px solid rgba(255,255,255,.82);box-shadow:0 4px 14px rgba(0,0,0,.38);
 }
 #voiceListButton.has-selected-voice .vgen-btn-lbl{color:#fff;text-shadow:0 1px 5px rgba(0,0,0,.75);z-index:1}
+.voice-list-card-play{display:none}
+#voiceListButton.has-selected-voice .voice-list-card-play{
+  display:grid;place-items:center;position:absolute;right:9px;top:9px;z-index:3;
+  width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.62);
+  background:rgba(12,12,12,.62);color:#fff;font-size:11px;font-weight:800;
+  box-shadow:0 4px 14px rgba(0,0,0,.34);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+#voiceListButton.has-selected-voice .voice-list-card-play:active{transform:scale(.92)}
+#voiceListButton.has-selected-voice .voice-list-card-play.is-loading{pointer-events:none}
 .vgen-upload-row{
   min-height:92px;
   border:0;
