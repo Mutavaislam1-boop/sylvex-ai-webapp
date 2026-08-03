@@ -11907,6 +11907,84 @@ async def public_prostudio_transcribe(request: Request):
         })
     return {"ok": True, "text": text}
 
+
+@app.post("/api/public/prostudio/voice/text-tool")
+async def public_prostudio_voice_text_tool(request: Request):
+    """Small editor actions for Voice Studio; never starts audio generation."""
+    payload = await request.json()
+    action = str(payload.get("action") or "").strip().lower()
+    text = str(payload.get("text") or "").strip()
+    brief = str(payload.get("brief") or "").strip()
+    format_name = str(payload.get("format") or "script").strip()
+    target_language = str(payload.get("target_language") or "en").strip()
+    if action not in {"create", "improve", "translate"}:
+        return JSONResponse({"ok": False, "error": "Unsupported text action"}, status_code=400)
+    if action == "create" and not brief:
+        return JSONResponse({"ok": False, "error": "Описание текста обязательно"}, status_code=400)
+    if action != "create" and not text:
+        return JSONResponse({"ok": False, "error": "Текст обязателен"}, status_code=400)
+    if len(text) + len(brief) > 60000:
+        return JSONResponse({"ok": False, "error": "Текст слишком длинный"}, status_code=413)
+
+    language_names = {
+        "en": "English", "de": "German", "fr": "French", "ru": "Russian",
+        "es": "Spanish", "it": "Italian", "tr": "Turkish",
+    }
+    if action == "create":
+        instruction = (
+            f"Create a {format_name} voice-over script from this brief:\n{brief}\n\n"
+            "Write polished, natural spoken text. Return only the finished script, without headings, notes or Markdown."
+        )
+    elif action == "translate":
+        instruction = (
+            f"Translate the following voice-over text into {language_names.get(target_language, target_language)}. "
+            "Preserve speaker labels, pauses, emotion markers, meaning and natural spoken rhythm. "
+            f"Return only the translation.\n\n{text}"
+        )
+    else:
+        instruction = (
+            "Improve the following text for professional voice-over. Correct grammar, make it natural to speak, "
+            "preserve its meaning, language, speaker labels and markup. Return only the improved text.\n\n" + text
+        )
+
+    messages = [
+        {"role": "system", "content": "You are the SYLVEX Voice Studio script editor. Follow the requested operation precisely."},
+        {"role": "user", "content": instruction},
+    ]
+    provider_errors = {}
+    result_text = ""
+    if OPENAI_API_KEY:
+        openai_model = env_value("OPENAI_VOICE_TEXT_MODEL", default="gpt-5-mini")
+        ok, result_text, _data = await asyncio.to_thread(
+            openai_compatible_text_request,
+            "openai",
+            OPENAI_API_BASE,
+            OPENAI_API_KEY,
+            openai_model,
+            messages,
+        )
+        if not ok:
+            provider_errors["openai"] = result_text
+            result_text = ""
+    if not result_text:
+        gemini_model = env_value("GEMINI_VOICE_TEXT_MODEL", default="gemini-2.5-flash")
+        ok, result_text, _data = await asyncio.to_thread(gemini_text_request, gemini_model, messages)
+        if not ok:
+            provider_errors["gemini"] = result_text
+            result_text = ""
+    if not result_text:
+        print("PROSTUDIO ERROR VOICE_TEXT_TOOL_FAILED:", {
+            "action": action,
+            "text_length": len(text),
+            "brief_length": len(brief),
+            "providers": provider_errors,
+        })
+        return JSONResponse(
+            {"ok": False, "error": "AI-редактор временно недоступен. Попробуйте немного позже."},
+            status_code=503,
+        )
+    return {"ok": True, "text": result_text.strip(), "action": action}
+
 # =====================================================
 # API ENDPOINT: public_prostudio_elevenlabs_voice_clone
 # Принимает запись микрофона из Mini App и создаёт новый голос ElevenLabs.
