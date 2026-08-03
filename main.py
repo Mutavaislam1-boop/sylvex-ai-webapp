@@ -11916,6 +11916,7 @@ async def public_prostudio_voice_text_tool(request: Request):
     text = str(payload.get("text") or "").strip()
     brief = str(payload.get("brief") or "").strip()
     format_name = str(payload.get("format") or "script").strip()
+    source_language = str(payload.get("source_language") or "auto").strip()
     target_language = str(payload.get("target_language") or "en").strip()
     if action not in {"create", "improve", "translate"}:
         return JSONResponse({"ok": False, "error": "Unsupported text action"}, status_code=400)
@@ -11936,8 +11937,9 @@ async def public_prostudio_voice_text_tool(request: Request):
             "Write polished, natural spoken text. Return only the finished script, without headings, notes or Markdown."
         )
     elif action == "translate":
+        source_hint = "Detect the source language automatically" if source_language == "auto" else f"The source language is {language_names.get(source_language, source_language)}"
         instruction = (
-            f"Translate the following voice-over text into {language_names.get(target_language, target_language)}. "
+            f"{source_hint}. Translate the following voice-over text into {language_names.get(target_language, target_language)}. "
             "Preserve speaker labels, pauses, emotion markers, meaning and natural spoken rhythm. "
             f"Return only the translation.\n\n{text}"
         )

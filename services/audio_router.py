@@ -1528,8 +1528,8 @@ def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[s
     speaker_voices = voice_options.get("speaker_voices") or voice_options.get("speakerVoices") or []
     if not isinstance(speaker_voices, list):
         speaker_voices = []
-    voices = [str(value) for value in speaker_voices[:3] if value]
-    while len(voices) < 3:
+    voices = [str(value) for value in speaker_voices[:7] if value]
+    while len(voices) < 7:
         fallback = voice_options.get("elevenlabs_second_voice") or voice_options.get("secondVoice") or primary
         voices.append(str(primary if not voices else fallback))
     inputs = []
@@ -1540,10 +1540,9 @@ def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[s
         lower = line.lower()
         voice_id = voices[0]
         text = line
-        prefixes = (
-            (("speaker1:", "speaker 1:", "a:", "диктор 1:", "персонаж 1:", "герой 1:"), voices[0]),
-            (("speaker2:", "speaker 2:", "b:", "диктор 2:", "персонаж 2:", "герой 2:"), voices[1]),
-            (("speaker3:", "speaker 3:", "c:", "диктор 3:", "персонаж 3:", "герой 3:"), voices[2]),
+        prefixes = tuple(
+            ((f"speaker{index}:", f"speaker {index}:", f"диктор {index}:", f"персонаж {index}:", f"герой {index}:"), voices[index - 1])
+            for index in range(1, 8)
         )
         matched = False
         for variants, selected_voice in prefixes:
