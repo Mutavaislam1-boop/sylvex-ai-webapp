@@ -8440,16 +8440,74 @@ def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, la
         data["language"] = language
     elif language in {"ru", "en"}:
         data["language"] = language
-    response = requests.post(
-        f"{OPENAI_API_BASE}/audio/transcriptions",
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-        files={"file": (filename or "speech.webm", content, content_type or "audio/webm")},
-        data=data,
-        timeout=180,
-    )
+    try:
+        response = requests.post(
+            f"{OPENAI_API_BASE}/audio/transcriptions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            files={"file": (filename or "speech.webm", content, content_type or "audio/webm")},
+            data=data,
+            timeout=180,
+        )
+    except requests.RequestException as exc:
+        return False, f"OpenAI transcription request failed: {type(exc).__name__}"
     if response.status_code >= 400:
-        return False, response.text
-    return True, response.json().get("text", "")
+        return False, f"OpenAI transcription failed (status={response.status_code}): {response.text[:1200]}"
+    try:
+        text = str(response.json().get("text") or "").strip()
+    except (TypeError, ValueError):
+        return False, "OpenAI transcription returned an invalid response"
+    return (True, text) if text else (False, "OpenAI transcription returned empty text")
+
+
+def gemini_transcribe_bytes(content: bytes, content_type: str, language: str = "") -> tuple[bool, str]:
+    """Fallback speech recognition when the primary OpenAI endpoint is unavailable."""
+    api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
+    if not api_key:
+        return False, "GEMINI_API_KEY is not configured"
+    mime = (content_type or "audio/webm").split(";", 1)[0].strip().lower()
+    if not mime.startswith("audio/"):
+        mime = "audio/webm"
+    language_hint = ""
+    if language in {"ru", "en"}:
+        language_hint = f" The expected language is {'Russian' if language == 'ru' else 'English'}."
+    model = env_value("GEMINI_TRANSCRIBE_MODEL", default="gemini-2.5-flash")
+    endpoint_base = env_value(
+        "GEMINI_TEXT_ENDPOINT",
+        "GEMINI-GENERATE-CONTENT-ENDPOINT",
+        default="https://generativelanguage.googleapis.com/v1beta/models",
+    ).rstrip("/")
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": "Transcribe this voice recording exactly. Return only the transcript, without comments or formatting." + language_hint},
+                {"inline_data": {"mime_type": mime, "data": base64.b64encode(content).decode("ascii")}},
+            ],
+        }],
+        "generationConfig": {"temperature": 0},
+    }
+    try:
+        response = requests.post(
+            f"{endpoint_base}/{model}:generateContent",
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            data=json.dumps(payload),
+            timeout=180,
+        )
+    except requests.RequestException as exc:
+        return False, f"Gemini transcription request failed: {type(exc).__name__}"
+    try:
+        data = response.json() if response.content else {}
+    except ValueError:
+        data = {}
+    if response.status_code >= 400:
+        return False, f"Gemini transcription failed (status={response.status_code}): {(raw_error_text(data) or response.text)[:1200]}"
+    text = "\n".join(
+        str(part.get("text") or "")
+        for candidate in data.get("candidates") or [] if isinstance(candidate, dict)
+        for part in ((candidate.get("content") or {}).get("parts") or [])
+        if isinstance(part, dict) and part.get("text")
+    ).strip()
+    return (True, text) if text else (False, "Gemini transcription returned empty text")
 
 
 def text_media_transcript(payload: dict, attachment: dict, tool: str) -> tuple[str, str]:
@@ -11811,13 +11869,42 @@ async def public_prostudio_transcribe(request: Request):
     content = await file.read()
     if not content:
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
-    ok, text = openai_transcribe_bytes(
+    if len(content) > 25 * 1024 * 1024:
+        return JSONResponse(
+            {"ok": False, "error": "Запись превышает допустимый размер 25 МБ"},
+            status_code=413,
+        )
+    filename = getattr(file, "filename", None) or "voice.webm"
+    content_type = getattr(file, "content_type", None) or "audio/webm"
+    # Provider calls are synchronous; keep them off FastAPI's event loop so a
+    # long transcription cannot freeze the Mini App's other API requests.
+    ok, text = await asyncio.to_thread(
+        openai_transcribe_bytes,
         content,
-        getattr(file, "filename", None) or "voice.webm",
-        getattr(file, "content_type", None) or "audio/webm",
+        filename,
+        content_type,
     )
     if not ok:
-        return JSONResponse({"ok": False, "error": text}, status_code=502)
+        openai_error = text
+        ok, text = await asyncio.to_thread(gemini_transcribe_bytes, content, content_type)
+        if not ok:
+            print("PROSTUDIO ERROR TRANSCRIBE_FAILED:", {
+                "filename": filename,
+                "content_type": content_type,
+                "bytes": len(content),
+                "openai_error": openai_error,
+                "gemini_error": text,
+            })
+            return JSONResponse(
+                {"ok": False, "error": "Сервис распознавания речи временно недоступен. Попробуйте ещё раз позже."},
+                status_code=503,
+            )
+        print("PROSTUDIO TRANSCRIBE FALLBACK:", {
+            "provider": "gemini",
+            "filename": filename,
+            "bytes": len(content),
+            "openai_error": openai_error,
+        })
     return {"ok": True, "text": text}
 
 # =====================================================
