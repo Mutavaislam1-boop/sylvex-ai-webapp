@@ -2543,9 +2543,31 @@ CSS-БЛОК: .studio-prompt-column
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .studio-prompt-column{
-  min-width:0;display:flex;flex-direction:column;border-left:1px solid rgba(255,255,255,.10);
+  position:relative;min-width:0;display:flex;flex-direction:column;border-left:1px solid rgba(255,255,255,.10);
   padding-left:24px;
 }
+.text-mic-floating{
+  position:absolute;top:5px;right:2px;z-index:3;width:38px;height:38px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.13);background:#202020;color:#eee;display:grid;place-items:center;cursor:pointer;
+}
+.studio-video-composer[data-composer-mode="text"] .image-video-only{display:none!important}
+.text-mic-floating.rec{
+  background:#1687ff;border-color:#46a1ff;color:#fff;box-shadow:0 0 0 4px rgba(22,135,255,.17),0 8px 24px rgba(0,92,210,.35);
+  animation:textMicBluePulse 1.15s ease-in-out infinite;
+}
+.studio-video-composer[data-composer-mode="text"] .studio-prompt-column textarea{padding-right:48px}
+.text-recording-bar{
+  min-height:38px;margin:4px 0 2px;padding:6px 10px;border-radius:12px;background:rgba(19,115,230,.14);
+  border:1px solid rgba(54,148,255,.34);display:flex;align-items:center;gap:8px;color:#d9ecff;
+}
+.text-recording-bar[hidden]{display:none!important}
+.text-recording-bar b{font-size:11px;font-weight:500;white-space:nowrap}
+.text-recording-bar time{font-size:10px;margin-left:auto;font-variant-numeric:tabular-nums;color:#a8d2ff}
+.text-recording-dot{width:7px;height:7px;border-radius:50%;background:#2694ff;box-shadow:0 0 0 4px rgba(38,148,255,.13);animation:textMicDot .75s ease-in-out infinite alternate}
+.text-recording-equalizer{height:22px;flex:1;min-width:60px;display:flex;align-items:center;justify-content:center;gap:3px;overflow:hidden}
+.text-recording-equalizer i{width:3px;height:20px;border-radius:99px;background:linear-gradient(180deg,#7fc2ff,#1687ff);transform:scaleY(.18);transition:transform 70ms linear;transform-origin:center}
+@keyframes textMicBluePulse{50%{box-shadow:0 0 0 7px rgba(22,135,255,.08),0 8px 26px rgba(0,92,210,.42)}}
+@keyframes textMicDot{to{opacity:.35;transform:scale(.72)}}
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer textarea
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
