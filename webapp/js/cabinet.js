@@ -10987,7 +10987,7 @@ function closeUploadPanel(e) {
   // ЗАГРУЗКА В MINI APP: uploadProStudioMediaFile
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
-  async function uploadProStudioMediaFile(file, kind) {
+  async function uploadProStudioMediaFile(file, kind, preferInternalPath) {
     const form = new FormData();
     form.append('file', file);
     const res = await fetch('/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image'), {
@@ -11002,7 +11002,7 @@ function closeUploadPanel(e) {
     if (!res.ok || !data.ok || !data.url) {
       throw new Error(data.error || 'Не удалось загрузить файл');
     }
-    return String((kind === 'image' && data.inline_url) || data.url || '');
+    return String((preferInternalPath && data.path) || (kind === 'image' && data.inline_url) || data.url || '');
   }
 
   function revokeVoiceUploadPreview() {
@@ -11214,7 +11214,7 @@ function closeUploadPanel(e) {
       renderTextControls();
       updateSendButton();
       toast(uploadKind === 'video' ? 'Загружаем видео…' : (uploadKind === 'audio' ? 'Загружаем аудио…' : (uploadKind === 'image' ? 'Загружаем фото…' : 'Загружаем файл…')));
-      uploadProStudioMediaFile(f, uploadKind)
+      uploadProStudioMediaFile(f, uploadKind, true)
         .then((url) => {
           textState.attachment = {
             kind: uploadKind,

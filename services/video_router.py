@@ -690,7 +690,43 @@ def _guess_mime_from_url(url: str, default: str = "application/octet-stream"):
         return "video/mp4"
     if path.endswith(".mov"):
         return "video/quicktime"
+    media_mimes = {
+        ".mpeg": "video/mpeg", ".mpg": "video/mpeg", ".avi": "video/x-msvideo",
+        ".flv": "video/x-flv", ".webm": "video/webm", ".wmv": "video/x-ms-wmv",
+        ".3gp": "video/3gpp", ".wav": "audio/wav", ".mp3": "audio/mpeg",
+        ".aiff": "audio/aiff", ".aif": "audio/aiff", ".aac": "audio/aac",
+        ".ogg": "audio/ogg", ".oga": "audio/ogg", ".flac": "audio/flac",
+    }
+    for suffix, mime_type in media_mimes.items():
+        if path.endswith(suffix):
+            return mime_type
     return default
+
+
+def _local_webapp_media_path(raw_url: str):
+    raw = str(raw_url or "").strip()
+    parsed = urlparse(raw)
+    configured_host = urlparse(os.getenv("WEBAPP_URL", "")).netloc.lower()
+    request_host = parsed.netloc.lower()
+    if parsed.scheme and request_host and configured_host and request_host != configured_host:
+        return None
+    if parsed.scheme and request_host and not configured_host and request_host not in {"localhost", "127.0.0.1"}:
+        return None
+    path = parsed.path or raw
+    if path.startswith("/webapp/"):
+        candidate = WEBAPP_DIR / path.replace("/webapp/", "", 1)
+    elif path.startswith("/generated/"):
+        candidate = WEBAPP_DIR / path.replace("/generated/", "generated/", 1)
+    else:
+        return None
+    try:
+        resolved = candidate.resolve()
+        webapp_root = WEBAPP_DIR.resolve()
+        if resolved != webapp_root and webapp_root not in resolved.parents:
+            return None
+        return resolved if resolved.is_file() else None
+    except Exception:
+        return None
 
 
 # =====================================================
@@ -708,16 +744,8 @@ def _load_media_content_part(url: str, media_type: str):
             header, data = raw.split(";base64,", 1)
             mime_type = header.replace("data:", "").split(";", 1)[0] or default_mime
             return {"type": media_type, "mime_type": mime_type, "data": data.strip()}
-        if raw.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
-            content = local_path.read_bytes()
-            return {
-                "type": media_type,
-                "mime_type": _guess_mime_from_url(raw, default_mime),
-                "data": base64.b64encode(content).decode("utf-8"),
-            }
-        if raw.startswith("/generated/"):
-            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+        local_path = _local_webapp_media_path(raw)
+        if local_path:
             content = local_path.read_bytes()
             return {
                 "type": media_type,
@@ -746,17 +774,14 @@ def _read_media_bytes(url: str, media_type: str):
     raw = str(url or "").strip()
     if not raw:
         return b"", ""
-    default_mime = "video/mp4" if media_type == "video" else "image/jpeg"
+    default_mime = "video/mp4" if media_type == "video" else ("audio/mpeg" if media_type == "audio" else "image/jpeg")
     try:
         if raw.startswith("data:") and ";base64," in raw:
             header, data = raw.split(";base64,", 1)
             mime_type = header.replace("data:", "").split(";", 1)[0] or default_mime
             return base64.b64decode(data, validate=True), mime_type
-        if raw.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
-            return local_path.read_bytes(), _guess_mime_from_url(raw, default_mime)
-        if raw.startswith("/generated/"):
-            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+        local_path = _local_webapp_media_path(raw)
+        if local_path:
             return local_path.read_bytes(), _guess_mime_from_url(raw, default_mime)
         response = requests.get(raw, timeout=120)
         response.raise_for_status()
