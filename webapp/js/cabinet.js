@@ -39,6 +39,10 @@
   let mediaRecorder = null;
   let mediaChunks = [];
   let mediaStream = null;
+  let textMicAudioContext = null;
+  let textMicAnalyser = null;
+  let textMicAnimationFrame = 0;
+  let textMicStartedAt = 0;
   let currentModelLabel = 'SYLVEX Pro';
 let imageCapabilities = [];
 let generatedImageLibrary = [];
@@ -333,7 +337,8 @@ let voiceClonePreviewDuration = 0;
 let activeVoicePanelSection = '';
 
 let textState = {
-  modelId: 'gpt-4o-mini',
+  familyId: 'gpt',
+  modelId: 'gpt-5.5',
   tool: 'text',
   style: 'neutral',
   format: 'markdown',
@@ -1125,6 +1130,8 @@ const VOICE_MODEL_LIST = [
 ];
 
 const TEXT_MODEL_LIST = [
+  { id:'gpt-5.6', label:'GPT-5.6', versionLabel:'5.6', family:'gpt', providerModel:'gpt-5.6', desc:'Новейшая флагманская модель OpenAI', icon:'openai' },
+  { id:'gpt-5.5', label:'GPT-5.5', versionLabel:'5.5', family:'gpt', providerModel:'gpt-5.5', desc:'Модель OpenAI для сложной профессиональной работы', icon:'openai' },
   { id:'gpt-5', label:'GPT-5', providerModel:'gpt-5', desc:'Флагманская модель для документов, анализа и промптов', icon:'openai' },
   { id:'gpt-5-mini', label:'GPT-5 mini', providerModel:'gpt-5-mini', desc:'Быстрый текст, документы и структурирование', icon:'openai' },
   { id:'gpt-4.1', label:'GPT-4.1', providerModel:'gpt-4.1', desc:'Сильная модель для длинных документов и задач', icon:'openai' },
@@ -1144,6 +1151,31 @@ const TEXT_MODEL_LIST = [
   { id:'byteplus_seed_2_lite', label:'BytePlus Seed 2.0 Lite', providerModel:'seed-2-0-lite-260228', desc:'ModelArk Chat API для структурирования и генерации текста', icon:'bytedance' },
 ];
 
+const TEXT_MODEL_FAMILIES = [
+  { id:'gpt', label:'GPT', icon:'openai', defaultModel:'gpt-5.5' },
+  { id:'gemini', label:'Gemini', icon:'gemini', defaultModel:'gemini_3_1_pro' },
+  { id:'grok', label:'Grok', icon:'grok', defaultModel:'grok_4_1' },
+  { id:'qwen', label:'Qwen', icon:'qwen', defaultModel:'qwen_plus' },
+  { id:'byteplus', label:'BytePlus', icon:'bytedance', defaultModel:'byteplus_seed_2_lite' },
+];
+
+function textModelFamilyId(model) {
+  const id = String((model && model.id) || model || '');
+  if (id.startsWith('gpt-')) return 'gpt';
+  if (id.startsWith('gemini_')) return 'gemini';
+  if (id.startsWith('grok_')) return 'grok';
+  if (id.startsWith('qwen_')) return 'qwen';
+  return id.startsWith('byteplus_') ? 'byteplus' : 'gpt';
+}
+
+function textVersionsForFamily(familyId) {
+  const family = String(familyId || 'gpt');
+  const order = family === 'gpt' ? ['gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1','gpt-5-mini','gpt-5','gpt-5.5','gpt-5.6'] : [];
+  return TEXT_MODEL_LIST.filter((item) => textModelFamilyId(item) === family).sort((a, b) => order.length ? order.indexOf(a.id) - order.indexOf(b.id) : 0).map((item) => Object.assign({}, item, {
+    label: item.versionLabel || String(item.label || item.id).replace(/^(GPT|Gemini|Grok|Qwen|BytePlus)\s*/i, ''),
+  }));
+}
+
 const TEXT_TOOL_OPTIONS = [
   { id:'text', label:'Текст' },
   { id:'document', label:'Документ' },
@@ -1158,6 +1190,22 @@ const TEXT_TOOL_OPTIONS = [
   { id:'audio_to_text', label:'Аудио → текст' },
   { id:'video_to_text', label:'Видео → текст' },
 ];
+
+const TEXT_GEMINI_MEDIA_TOOLS = new Set(['video_prompt', 'audio_to_text', 'video_to_text']);
+
+function textToolOptionsForCurrentModel() {
+  const family = textState.familyId || textModelFamilyId(currentTextModel());
+  return TEXT_TOOL_OPTIONS.filter((item) => !TEXT_GEMINI_MEDIA_TOOLS.has(item.id) || family === 'gemini');
+}
+
+function normalizeTextToolForModel() {
+  if (!textToolOptionsForCurrentModel().some((item) => item.id === textState.tool)) textState.tool = 'text';
+}
+
+function selectGeminiForTextMedia() {
+  textState.familyId = 'gemini';
+  if (textModelFamilyId(textState.modelId) !== 'gemini') textState.modelId = 'gemini_3_1_pro';
+}
 
 const TEXT_STYLE_OPTIONS = [
   { id:'neutral', label:'Нейтрально' },
@@ -2248,7 +2296,7 @@ function currentComposerModelList() {
   if (isVideoMode()) return VIDEO_MODELS;
   if (isMusicMode()) return MUSIC_MODEL_LIST;
   if (isVoiceMode()) return VOICE_MODEL_LIST;
-  if (studioMode === 'text') return TEXT_MODEL_LIST;
+  if (studioMode === 'text') return TEXT_MODEL_FAMILIES;
   return [];
 }
 
@@ -2273,20 +2321,30 @@ function textOptionLabel(items, id, fallback) {
 }
 
 function currentTextModel() {
-  return TEXT_MODEL_LIST.find((item) => item.id === textState.modelId) || TEXT_MODEL_LIST[TEXT_MODEL_LIST.length - 1] || null;
+  return TEXT_MODEL_LIST.find((item) => item.id === textState.modelId) || TEXT_MODEL_LIST.find((item) => item.id === 'gpt-5.5') || null;
 }
 
 function renderTextControls() {
   const model = currentTextModel();
-  if (studioMode === 'text' && model) updateComposerModelDisplay(model);
+  const familyId = textModelFamilyId(model);
+  const family = TEXT_MODEL_FAMILIES.find((item) => item.id === familyId) || TEXT_MODEL_FAMILIES[0];
+  textState.familyId = familyId;
+  normalizeTextToolForModel();
+  if (studioMode === 'text' && family) updateComposerModelDisplay(family);
   const toolVal = document.getElementById('textToolVal');
   if (toolVal) toolVal.textContent = textOptionLabel(TEXT_TOOL_OPTIONS, textState.tool || 'text', 'Текст');
   const styleVal = document.getElementById('textStyleVal');
   if (styleVal) styleVal.textContent = textOptionLabel(TEXT_STYLE_OPTIONS, textState.style || 'neutral', 'Стиль');
   const formatVal = document.getElementById('textFormatVal');
   if (formatVal) formatVal.textContent = textOptionLabel(TEXT_FORMAT_OPTIONS, textState.format || 'markdown', 'Markdown');
-  const textModelVal = document.getElementById('textModelVal');
-  if (textModelVal) textModelVal.textContent = model ? (model.label || model.id) : 'GPT-4o mini';
+  const textVersionVal = document.getElementById('textVersionVal');
+  if (textVersionVal) textVersionVal.textContent = model ? (model.versionLabel || String(model.label || model.id).replace(/^GPT-/i, '')) : '5.5';
+  const recordingBar = document.getElementById('textRecordingBar');
+  const isRecording = Boolean(mediaRecorder && mediaRecorder.state === 'recording');
+  if (recordingBar) {
+    recordingBar.hidden = !isRecording;
+    recordingBar.style.display = isRecording ? '' : 'none';
+  }
   const uploadVal = document.getElementById('textUploadVal');
   if (uploadVal) {
     const att = textState.attachment || pendingAttachment || null;
@@ -3397,7 +3455,7 @@ const MODEL_ICON_SVG = {
     }
     if (studioMode === 'music') return musicState.modelId || 'suno_chirp_5';
     if (studioMode === 'voice') return voiceState.modelId || 'gemini_3_1_flash_tts_preview';
-    return textState.modelId || 'gpt-4o-mini';
+    return textState.modelId || 'gpt-5.5';
   }
 
   // =====================================================
@@ -7329,7 +7387,7 @@ function imageModelButton(model) {
     }
 
     if (studioMode === 'text') {
-      if (kind === 'model' || kind === 'text_model') {
+      if (kind === 'model') {
         showImageModelPicker(e);
         return;
       }
@@ -7371,7 +7429,11 @@ function imageModelButton(model) {
       };
 
       if (kind === 'text_tool') {
-        openTextSheet('Инструмент текста', TEXT_TOOL_OPTIONS, 'tool', textState.tool || 'text');
+        openTextSheet('Инструмент текста', textToolOptionsForCurrentModel(), 'tool', textState.tool || 'text');
+        return;
+      }
+      if (kind === 'text_version') {
+        openTextSheet('Версия модели', textVersionsForFamily(textState.familyId || textModelFamilyId(currentTextModel())), 'model_version', textState.modelId || 'gpt-5.5');
         return;
       }
       if (kind === 'text_style') {
@@ -8118,9 +8180,16 @@ function imageModelButton(model) {
       e.preventDefault();
       e.stopPropagation();
     }
-    if (kind === 'tool') textState.tool = value || 'text';
+    if (kind === 'tool') {
+      const available = textToolOptionsForCurrentModel().some((item) => item.id === value);
+      textState.tool = available ? value : 'text';
+    }
     if (kind === 'style') textState.style = value || 'neutral';
     if (kind === 'format') textState.format = value || 'markdown';
+    if (kind === 'model_version') {
+      const model = TEXT_MODEL_LIST.find((item) => item.id === value);
+      if (model && textModelFamilyId(model) === (textState.familyId || 'gpt')) textState.modelId = model.id;
+    }
     renderTextControls();
     const el = document.getElementById('modelPop');
     if (el) {
@@ -8340,11 +8409,14 @@ function imageModelButton(model) {
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
       } else if (studioMode === 'text') {
-        const model = TEXT_MODEL_LIST.find((item) => item.id === value);
-        if (model) {
-          textState.modelId = model.id;
+        const family = TEXT_MODEL_FAMILIES.find((item) => item.id === value);
+        if (family) {
+          textState.familyId = family.id;
+          const available = textVersionsForFamily(family.id);
+          if (!available.some((item) => item.id === textState.modelId)) textState.modelId = family.defaultModel || (available[0] && available[0].id) || 'gpt-5.5';
+          normalizeTextToolForModel();
           const mvc = document.getElementById('modelValComposer');
-          if (mvc) mvc.textContent = model.label || model.name || model.id;
+          if (mvc) mvc.textContent = family.label || family.id;
         }
       }
     }
@@ -10888,10 +10960,10 @@ function closeUploadPanel(e) {
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
-    else if (kind === 'text_audio') { inp.accept = 'audio/*'; pendingAttachAccept = 'text_media'; }
-    else if (kind === 'text_video') { inp.accept = 'video/*'; pendingAttachAccept = 'text_media'; }
+    else if (kind === 'text_audio') { inp.accept = '.wav,.mp3,.aiff,.aif,.aac,.ogg,.oga,.flac,audio/wav,audio/mpeg,audio/aiff,audio/aac,audio/ogg,audio/flac'; pendingAttachAccept = 'text_media'; }
+    else if (kind === 'text_video') { inp.accept = '.mp4,.mpeg,.mpg,.mov,.avi,.flv,.webm,.wmv,.3gp,video/mp4,video/mpeg,video/quicktime,video/x-msvideo,video/x-flv,video/webm,video/x-ms-wmv,video/3gpp'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
-    else if (kind === 'text_media') { inp.accept = 'image/*,audio/*,video/*,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
+    else if (kind === 'text_media') { inp.accept = 'image/*,.wav,.mp3,.aiff,.aif,.aac,.ogg,.oga,.flac,.mp4,.mpeg,.mpg,.mov,.avi,.flv,.webm,.wmv,.3gp,.txt,.md,.json,.csv,.pdf,.doc,.docx'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'media') {
       inp.accept = !allowVideoForTarget
         ? 'image/*'
@@ -11027,6 +11099,14 @@ function closeUploadPanel(e) {
       toast('Выберите файл изображения');
       return;
     }
+    if (pendingKind === 'text_audio' && !/\.(wav|mp3|aiff?|aac|ogg|oga|flac)$/i.test(String(f.name || ''))) {
+      toast('Для анализа поддерживаются WAV, MP3, AIFF, AAC, OGG и FLAC');
+      return;
+    }
+    if (pendingKind === 'text_video' && !/\.(mp4|mpeg|mpg|mov|avi|flv|webm|wmv|3gp)$/i.test(String(f.name || ''))) {
+      toast('Для анализа поддерживаются MP4, MPEG, MOV, AVI, FLV, WebM, WMV и 3GP');
+      return;
+    }
     const isKlingOmniEdit = isKlingOmniEditUploadContext();
     const isKlingOmniVideo = isKlingOmniEdit && pendingKind === 'video';
     const isKlingOmniImage = isKlingOmniEdit && pendingKind === 'image';
@@ -11144,8 +11224,14 @@ function closeUploadPanel(e) {
             size: f.size || 0,
           };
           pendingAttachment = textState.attachment;
-          if (uploadKind === 'video' && (!textState.tool || textState.tool === 'text')) textState.tool = 'video_prompt';
-          if (uploadKind === 'audio') textState.tool = 'audio_to_text';
+          if (uploadKind === 'video') {
+            selectGeminiForTextMedia();
+            if (!textState.tool || textState.tool === 'text') textState.tool = 'video_prompt';
+          }
+          if (uploadKind === 'audio') {
+            selectGeminiForTextMedia();
+            textState.tool = 'audio_to_text';
+          }
           if (uploadKind === 'image' && textState.tool === 'text') textState.tool = 'image_prompt';
           renderTextControls();
           updateSendButton();
@@ -13285,6 +13371,55 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Voice (mic) recording → Whisper ===== */
+  function stopTextMicVisualization() {
+    if (textMicAnimationFrame) cancelAnimationFrame(textMicAnimationFrame);
+    textMicAnimationFrame = 0;
+    if (textMicAudioContext) {
+      try { textMicAudioContext.close(); } catch (_) {}
+    }
+    textMicAudioContext = null;
+    textMicAnalyser = null;
+    const bar = document.getElementById('textRecordingBar');
+    if (bar) { bar.hidden = true; bar.style.display = 'none'; }
+  }
+
+  function startTextMicVisualization(stream) {
+    const bar = document.getElementById('textRecordingBar');
+    const equalizer = document.getElementById('textRecordingEqualizer');
+    const timeEl = document.getElementById('textRecordingTime');
+    if (bar) { bar.hidden = false; bar.style.display = ''; }
+    textMicStartedAt = Date.now();
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      textMicAudioContext = AudioContextClass ? new AudioContextClass() : null;
+      if (textMicAudioContext) {
+        const source = textMicAudioContext.createMediaStreamSource(stream);
+        textMicAnalyser = textMicAudioContext.createAnalyser();
+        textMicAnalyser.fftSize = 64;
+        textMicAnalyser.smoothingTimeConstant = .72;
+        source.connect(textMicAnalyser);
+      }
+    } catch (_) {
+      textMicAnalyser = null;
+    }
+    const bars = equalizer ? Array.from(equalizer.querySelectorAll('i')) : [];
+    const frequencyData = textMicAnalyser ? new Uint8Array(textMicAnalyser.frequencyBinCount) : null;
+    const draw = () => {
+      if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+      if (textMicAnalyser && frequencyData) textMicAnalyser.getByteFrequencyData(frequencyData);
+      bars.forEach((node, index) => {
+        const value = frequencyData ? frequencyData[Math.min(frequencyData.length - 1, index * 2)] : (35 + (index % 4) * 12);
+        node.style.transform = 'scaleY(' + Math.max(.16, Math.min(1, value / 150)) + ')';
+      });
+      if (timeEl) {
+        const seconds = Math.max(0, Math.floor((Date.now() - textMicStartedAt) / 1000));
+        timeEl.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+      }
+      textMicAnimationFrame = requestAnimationFrame(draw);
+    };
+    textMicAnimationFrame = requestAnimationFrame(draw);
+  }
+
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: toggleMic
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -13318,6 +13453,7 @@ async function waitGeneration(jobId, options) {
     mediaRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) mediaChunks.push(ev.data); };
     mediaRecorder.onstop = async () => {
       if (btn) btn.classList.remove('rec');
+      stopTextMicVisualization();
       try { mediaStream.getTracks().forEach((t) => t.stop()); } catch {}
       const blob = new Blob(mediaChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
       if (blob.size < 800) { toast('Recording too short'); return; }
@@ -13339,6 +13475,7 @@ async function waitGeneration(jobId, options) {
     };
     mediaRecorder.start();
     if (btn) btn.classList.add('rec');
+    startTextMicVisualization(mediaStream);
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
   // =====================================================

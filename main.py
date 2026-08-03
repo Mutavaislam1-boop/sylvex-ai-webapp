@@ -8269,6 +8269,8 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
 # ТЕКСТОВАЯ ГЕНЕРАЦИЯ: модели, транскрибация и PDF
 # =====================================================
 TEXT_MODEL_ALIASES = {
+    "gpt-5.6": "gpt-5.6",
+    "gpt-5.5": "gpt-5.5",
     "gpt-5": "gpt-5",
     "gpt-5-mini": "gpt-5-mini",
     "gpt-4.1": "gpt-4.1",
@@ -8289,6 +8291,8 @@ TEXT_MODEL_ALIASES = {
 }
 
 TEXT_MODEL_VARIANTS = {
+    "gpt-5.6": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT56_MODEL", default="gpt-5.6"), "api": "responses"},
+    "gpt-5.5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT55_MODEL", default="gpt-5.5"), "api": "responses"},
     "gpt-5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT5_MODEL", default="gpt-5")},
     "gpt-5-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT5_MINI_MODEL", default="gpt-5-mini")},
     "gpt-4.1": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT41_MODEL", default="gpt-4.1")},
@@ -8312,8 +8316,8 @@ TEXT_MODEL_VARIANTS = {
 def normalize_text_model(model: str) -> str:
     raw = str(model or "").strip()
     if is_internal_ui_model(raw) or raw in {"gpt-image-1", "gpt_image_1", "gpt-image-2", "gpt_image_2"}:
-        return "gpt-4o-mini"
-    return TEXT_MODEL_ALIASES.get(raw, raw or "gpt-4o-mini")
+        return "gpt-5.5"
+    return TEXT_MODEL_ALIASES.get(raw, raw or "gpt-5.5")
 
 
 def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:
@@ -8378,11 +8382,12 @@ def text_attachment_data_url(attachment: dict) -> str:
     return "data:" + mime + ";base64," + base64.b64encode(content).decode("utf-8")
 
 
-def text_attachment_gemini_video_part(attachment: dict) -> dict:
+def text_attachment_gemini_media_part(attachment: dict) -> dict:
     if not isinstance(attachment, dict):
         return {}
     mime = str(attachment.get("mime") or attachment.get("content_type") or "").split(";", 1)[0].strip().lower()
-    if not mime.startswith("video/"):
+    media_type = "video" if mime.startswith("video/") else ("audio" if mime.startswith("audio/") else "")
+    if not media_type:
         return {}
     url = str(attachment.get("url") or "").strip()
     if not url:
@@ -8390,7 +8395,7 @@ def text_attachment_gemini_video_part(attachment: dict) -> dict:
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
         return {}
-    part = _gemini_upload_file_from_url(url, api_key, "video")
+    part = _gemini_upload_file_from_url(url, api_key, media_type)
     if not isinstance(part, dict) or not part.get("uri"):
         return {}
     return {
@@ -8403,8 +8408,8 @@ def text_attachment_gemini_video_part(attachment: dict) -> dict:
 
 def with_text_media_attachment(messages: list, attachment: dict, provider: str) -> list:
     data_url = text_attachment_data_url(attachment)
-    gemini_video_part = text_attachment_gemini_video_part(attachment) if provider == "gemini" else {}
-    if provider not in {"openai", "gemini", "grok"} or (not data_url and not gemini_video_part):
+    gemini_media_part = text_attachment_gemini_media_part(attachment) if provider == "gemini" else {}
+    if provider not in {"openai", "gemini", "grok"} or (not data_url and not gemini_media_part):
         return messages
     patched = list(messages or [])
     for index in range(len(patched) - 1, -1, -1):
@@ -8415,8 +8420,8 @@ def with_text_media_attachment(messages: list, attachment: dict, provider: str) 
         content_parts = [{"type": "text", "text": content}]
         if data_url:
             content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
-        if gemini_video_part:
-            content_parts.append({"type": "gemini_file", "part": gemini_video_part})
+        if gemini_media_part:
+            content_parts.append({"type": "gemini_file", "part": gemini_media_part})
         patched[index] = {
             "role": "user",
             "content": content_parts,
@@ -8579,6 +8584,49 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
     return True, text, data if isinstance(data, dict) else {}
 
 
+def openai_responses_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
+    if not OPENAI_API_KEY:
+        return False, "OPENAI API key is not configured", {}
+    response_input = []
+    for message in messages or []:
+        role = str(message.get("role") or "user")
+        raw_content = message.get("content")
+        if isinstance(raw_content, list):
+            content = []
+            for part in raw_content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    content.append({"type": "input_text", "text": str(part.get("text") or "")})
+                elif part.get("type") == "image_url":
+                    image_url = (part.get("image_url") or {}).get("url")
+                    if image_url:
+                        content.append({"type": "input_image", "image_url": image_url})
+        else:
+            content = [{"type": "input_text", "text": str(raw_content or "")}]
+        response_input.append({"role": role, "content": content})
+    response = requests.post(
+        OPENAI_API_BASE.rstrip("/") + "/responses",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        data=json.dumps({"model": provider_model, "input": response_input}),
+        timeout=90,
+    )
+    try:
+        data = response.json() if response.content else {}
+    except Exception:
+        data = {"raw": response.text}
+    if response.status_code >= 400:
+        return False, raw_error_text(data) or response.text, data if isinstance(data, dict) else {}
+    text = str(data.get("output_text") or "") if isinstance(data, dict) else ""
+    if not text and isinstance(data, dict):
+        text = "\n".join(
+            str(part.get("text") or "")
+            for output in data.get("output") or [] if isinstance(output, dict)
+            for part in output.get("content") or [] if isinstance(part, dict) and part.get("type") == "output_text"
+        ).strip()
+    return True, text, data if isinstance(data, dict) else {}
+
+
 def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
@@ -8638,7 +8686,7 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
 
 
 def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None) -> dict:
-    cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-4o-mini"]
+    cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     provider = cfg.get("provider") or "openai"
     provider_model = cfg.get("provider_model") or model
     request_messages = with_text_media_attachment(messages, attachment or {}, provider)
@@ -8657,7 +8705,10 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
         endpoint_base = BYTEPLUS_ARK_ENDPOINT
         ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, messages, {"thinking": {"type": "disabled"}})
     else:
-        ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages)
+        if cfg.get("api") == "responses":
+            ok, text, data = openai_responses_text_request(provider_model, request_messages)
+        else:
+            ok, text, data = openai_compatible_text_request("openai", OPENAI_API_BASE, OPENAI_API_KEY, provider_model, request_messages)
         provider = "openai"
     if not ok:
         return {"ok": False, "error": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
@@ -8673,7 +8724,7 @@ def text_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     history = payload.get("history") or []
     mode = payload.get("mode") or "text"
-    model = normalize_text_model(payload.get("model") or "gpt-4o-mini")
+    model = normalize_text_model(payload.get("model") or "gpt-5.5")
     attachment = payload.get("attachment") or {}
     text_options = payload.get("text_options") or {}
     if not isinstance(text_options, dict):
@@ -8681,14 +8732,18 @@ def text_generation(payload: dict) -> dict:
     tool = str(text_options.get("tool") or "text").strip().lower()
     style = str(text_options.get("style") or "neutral").strip().lower()
     output_format = str(text_options.get("format") or "markdown").strip().lower()
-    model_cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-4o-mini"]
+    model_cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     model_provider = model_cfg.get("provider") or "openai"
     attachment_mime = str((attachment or {}).get("mime") or (attachment or {}).get("content_type") or "").lower()
-    if tool == "video_prompt" and attachment_mime.startswith("video/") and model_provider != "gemini":
-        if env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY"):
-            model = "gemini_2_5_flash"
-            model_cfg = TEXT_MODEL_VARIANTS.get(model) or model_cfg
-            model_provider = model_cfg.get("provider") or "gemini"
+    gemini_media_tools = {"video_prompt", "audio_to_text", "video_to_text"}
+    if tool in gemini_media_tools and model_provider != "gemini":
+        return {"ok": False, "error": "Этот медиа-инструмент доступен только для моделей Gemini.", "model": model, "tool": tool}
+    if tool == "video_prompt" and not attachment_mime.startswith("video/"):
+        return {"ok": False, "error": "Для создания промта загрузите поддерживаемый видеофайл."}
+    if tool == "video_to_text" and not attachment_mime.startswith("video/"):
+        return {"ok": False, "error": "Для извлечения текста загрузите поддерживаемый видеофайл."}
+    if tool == "audio_to_text" and not attachment_mime.startswith("audio/"):
+        return {"ok": False, "error": "Для извлечения текста загрузите поддерживаемый аудиофайл."}
 
     quick_reply = quick_text_reply(prompt, attachment, history, tool, output_format)
     if quick_reply:
@@ -8704,19 +8759,28 @@ def text_generation(payload: dict) -> dict:
 
     transcript = ""
     transcript_error = ""
-    direct_video_prompt = tool == "video_prompt" and attachment_mime.startswith("video/") and model_provider == "gemini"
+    direct_gemini_media = model_provider == "gemini" and (
+        (tool in {"video_prompt", "video_to_text"} and attachment_mime.startswith("video/"))
+        or (tool == "audio_to_text" and attachment_mime.startswith("audio/"))
+    )
     should_transcribe_media = bool(attachment) and (
         tool in {"audio_to_text", "video_to_text", "structured_dialogue", "translate", "summarize", "extract"}
         or attachment_mime.startswith("audio/")
         or attachment_mime.startswith("video/")
-    ) and not direct_video_prompt
+    ) and not direct_gemini_media
     if should_transcribe_media and attachment_mime.startswith(("audio/", "video/")):
         transcript, transcript_error = text_media_transcript(payload, attachment, tool)
         if transcript_error:
             return {"ok": False, "error": transcript_error}
         prompt = (prompt + "\n\n" if prompt else "") + "Source transcript:\n" + transcript
-    elif direct_video_prompt:
-        prompt = (prompt + "\n\n" if prompt else "") + "Analyze the attached video itself and generate a production-ready prompt from the visible scenes, movement, style, lighting, and pacing."
+    elif direct_gemini_media:
+        if tool == "video_prompt":
+            media_instruction = "Analyze the attached video itself and generate a production-ready prompt from its visible scenes, motion, camera, style, lighting, sound, and pacing."
+        elif tool == "video_to_text":
+            media_instruction = "Analyze the attached video's visual and audio streams. Return an accurate transcript plus scenes, visible actions, speakers, and timestamps when possible."
+        else:
+            media_instruction = "Analyze the attached audio or music file. Transcribe all intelligible speech or lyrics and identify speakers, timestamps, language, and important non-speech or musical sections when possible."
+        prompt = (prompt + "\n\n" if prompt else "") + media_instruction
     elif attachment:
         attachment_text = text_attachment_plain_text(attachment)
         if attachment_text:
@@ -11187,7 +11251,7 @@ async def public_prostudio_generate(request: Request):
         if cache_key and cache_key in PROSTUDIO_TEXT_RESPONSE_CACHE:
             return PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key]
         if not selected_model or is_internal_ui_model(selected_model):
-            payload["model"] = "gpt-4o-mini"
+            payload["model"] = "gpt-5.5"
         result = text_generation(payload)
         if not result.get("ok"):
             return JSONResponse(result, status_code=502)
@@ -11390,7 +11454,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 result = await audio_generation(payload)
         elif mode in text_modes:
             if not selected_model or is_internal_ui_model(selected_model):
-                payload["model"] = "gpt-4o-mini"
+                payload["model"] = "gpt-5.5"
             result = text_generation(payload)
         else:
             result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
