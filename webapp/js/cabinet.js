@@ -2662,6 +2662,28 @@ function closeVoiceAddon(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const drawer = document.getElementById('voiceAddonDrawer');
   if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; drawer.dataset.kind = ''; drawer.classList.remove('voice-translation-fullscreen'); }
+  const toggle = document.getElementById('voiceToolsToggle');
+  const tools = document.getElementById('voiceHorizontalTools');
+  if (tools && toggle && toggle.getAttribute('aria-expanded') === 'true') tools.hidden = false;
+}
+
+function toggleVoiceHorizontalTools(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const toggle = document.getElementById('voiceToolsToggle');
+  const tools = document.getElementById('voiceHorizontalTools');
+  if (!toggle || !tools) return;
+  const willOpen = toggle.getAttribute('aria-expanded') !== 'true';
+  closeVoiceAddon();
+  toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  tools.hidden = !willOpen;
+}
+
+function hideVoiceHorizontalTools(event) {
+  if (event) event.stopPropagation();
+  const toggle = document.getElementById('voiceToolsToggle');
+  const tools = document.getElementById('voiceHorizontalTools');
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  if (tools) tools.hidden = true;
 }
 
 function voiceAddonShell(title, body) {
@@ -2677,6 +2699,8 @@ function openVoiceAddon(event, kind) {
     return;
   }
   drawer.dataset.kind = kind;
+  const tools = document.getElementById('voiceHorizontalTools');
+  if (tools) tools.hidden = true;
   const currentVoice = currentVoiceButtonLabel();
   let body = '';
   if (kind === 'info') {
@@ -2778,6 +2802,7 @@ async function runVoiceTextTool(event, action) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const input = document.getElementById('chatInput');
   if (!input) return;
+  if (action === 'improve') hideVoiceHorizontalTools();
   const selected = voiceEditorSelection();
   const translationInput = document.getElementById('voiceTranslateInput');
   const sourceText = action === 'translate' && translationInput ? translationInput.value.trim() : (selected.text.trim() || input.value.trim());
@@ -2814,6 +2839,7 @@ function applyVoiceTemplate(event, template) {
     voiceState.audioSettings.speed = 1;
     document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.remove('active'));
     toast('Шаблон отменён');
+    hideVoiceHorizontalTools();
     return;
   }
   voiceState.editorTemplate = template;
@@ -2823,6 +2849,7 @@ function applyVoiceTemplate(event, template) {
   settings.style = preset[0]; settings.speed = preset[1];
   document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.toggle('active', (button.getAttribute('onclick') || '').includes("'" + template + "'")));
   toast('Шаблон применён');
+  hideVoiceHorizontalTools();
 }
 
 function addVoiceSpeaker(event) {
@@ -2833,6 +2860,7 @@ function addVoiceSpeaker(event) {
   voiceState.speakerMode = 'multi';
   if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsTool = 'dialogue';
   renderVoiceControls();
+  hideVoiceHorizontalTools();
 }
 
 function removeVoiceSpeaker(event, speakerNumber) {
@@ -2859,6 +2887,7 @@ function toggleVoiceEditorFullscreen(event) {
   if (!column) return;
   column.classList.toggle('voice-editor-fullscreen');
   document.body.classList.toggle('voice-editor-is-fullscreen', column.classList.contains('voice-editor-fullscreen'));
+  hideVoiceHorizontalTools();
   document.getElementById('chatInput')?.focus();
 }
 
@@ -2903,6 +2932,7 @@ function toggleVoiceFavorite(event) {
   favorites = favorites.includes(key) ? favorites.filter((item) => item !== key) : favorites.concat(key);
   try { localStorage.setItem('sylvex_voice_favorites', JSON.stringify(favorites)); } catch {}
   document.getElementById('voiceFavoriteBtn')?.classList.toggle('active', favorites.includes(key));
+  hideVoiceHorizontalTools();
 }
 
 function updateVoiceTextEstimate() {
@@ -15735,7 +15765,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    openVoiceAddon, closeVoiceAddon, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation,
+    openVoiceAddon, closeVoiceAddon, toggleVoiceHorizontalTools, hideVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
