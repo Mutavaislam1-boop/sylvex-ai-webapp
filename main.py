@@ -6234,9 +6234,9 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     is_audio = media_kind == "audio" or content_type.startswith("audio/")
     is_file = media_kind in {"file", "document"} or content_type.startswith(("text/", "application/pdf", "application/json", "application/msword", "application/vnd.openxmlformats-officedocument"))
     if is_video:
-        allowed_exts = {".mp4", ".mov", ".m4v", ".webm"}
+        allowed_exts = {".mp4", ".mov", ".m4v", ".webm", ".mpeg", ".mpg", ".avi", ".flv", ".wmv", ".3gp"}
     elif is_audio:
-        allowed_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".webm", ".flac"}
+        allowed_exts = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".webm", ".flac", ".aiff", ".aif"}
     elif is_file:
         allowed_exts = {".txt", ".md", ".json", ".csv", ".pdf", ".doc", ".docx"}
     else:
