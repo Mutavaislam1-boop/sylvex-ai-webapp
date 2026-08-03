@@ -43,6 +43,7 @@
   let textMicAnalyser = null;
   let textMicAnimationFrame = 0;
   let textMicStartedAt = 0;
+  let textMicLimitTimer = 0;
   let currentModelLabel = 'SYLVEX Pro';
 let imageCapabilities = [];
 let generatedImageLibrary = [];
@@ -13374,6 +13375,8 @@ async function waitGeneration(jobId, options) {
   function stopTextMicVisualization() {
     if (textMicAnimationFrame) cancelAnimationFrame(textMicAnimationFrame);
     textMicAnimationFrame = 0;
+    if (textMicLimitTimer) window.clearTimeout(textMicLimitTimer);
+    textMicLimitTimer = 0;
     if (textMicAudioContext) {
       try { textMicAudioContext.close(); } catch (_) {}
     }
@@ -13381,6 +13384,8 @@ async function waitGeneration(jobId, options) {
     textMicAnalyser = null;
     const bar = document.getElementById('textRecordingBar');
     if (bar) { bar.hidden = true; bar.style.display = 'none'; }
+    const promptColumn = document.querySelector('.studio-prompt-column');
+    if (promptColumn) promptColumn.classList.remove('text-mic-active');
   }
 
   function startTextMicVisualization(stream) {
@@ -13388,7 +13393,17 @@ async function waitGeneration(jobId, options) {
     const equalizer = document.getElementById('textRecordingEqualizer');
     const timeEl = document.getElementById('textRecordingTime');
     if (bar) { bar.hidden = false; bar.style.display = ''; }
+    const promptColumn = document.querySelector('.studio-prompt-column');
+    if (promptColumn) promptColumn.classList.add('text-mic-active');
+    if (timeEl) timeEl.textContent = '0:00';
     textMicStartedAt = Date.now();
+    if (textMicLimitTimer) window.clearTimeout(textMicLimitTimer);
+    textMicLimitTimer = window.setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        toast('Достигнут лимит записи 10 минут');
+        mediaRecorder.stop();
+      }
+    }, 10 * 60 * 1000);
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       textMicAudioContext = AudioContextClass ? new AudioContextClass() : null;
@@ -13412,7 +13427,7 @@ async function waitGeneration(jobId, options) {
         node.style.transform = 'scaleY(' + Math.max(.16, Math.min(1, value / 150)) + ')';
       });
       if (timeEl) {
-        const seconds = Math.max(0, Math.floor((Date.now() - textMicStartedAt) / 1000));
+        const seconds = Math.min(600, Math.max(0, Math.floor((Date.now() - textMicStartedAt) / 1000)));
         timeEl.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
       }
       textMicAnimationFrame = requestAnimationFrame(draw);
@@ -13470,7 +13485,7 @@ async function waitGeneration(jobId, options) {
       } catch (err) {
         toast(translateGenerationError(err, 'Не удалось распознать голос. Попробуйте ещё раз.'));
       } finally {
-        if (ta) ta.placeholder = 'Message SYLVEX…';
+        if (ta) ta.placeholder = studioMode === 'text' ? 'Describe your text' : 'Message SYLVEX…';
       }
     };
     mediaRecorder.start();
