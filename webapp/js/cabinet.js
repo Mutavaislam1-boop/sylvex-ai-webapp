@@ -295,7 +295,14 @@ let voiceState = {
     style: 'auto',
     pace: 'auto',
     tone: 'auto',
+    speed: 1,
+    pitch: 50,
+    expressiveness: 50,
+    stability: 0.5,
+    similarity_boost: 0.75,
   },
+  editorTemplate: '',
+  pronunciationRules: {},
 };
 const geminiVoicePreviewCache = {};
 let geminiVoicePreviewAudio = null;
@@ -2493,6 +2500,11 @@ function ensureVoiceSettings() {
   ['style', 'pace', 'tone'].forEach((key) => {
     if (!voiceState.audioSettings[key]) voiceState.audioSettings[key] = 'auto';
   });
+  if (!voiceState._pronunciationsLoaded) {
+    try { voiceState.pronunciationRules = JSON.parse(localStorage.getItem('sylvex_voice_pronunciations') || '{}'); }
+    catch { voiceState.pronunciationRules = {}; }
+    voiceState._pronunciationsLoaded = true;
+  }
 }
 
 // =====================================================
@@ -2583,6 +2595,10 @@ function renderVoiceControls() {
   }
   renderVoiceToolPanel();
   renderVoiceSpeakerComposer();
+  updateVoiceTextEstimate();
+  let favorites = [];
+  try { favorites = JSON.parse(localStorage.getItem('sylvex_voice_favorites') || '[]'); } catch {}
+  document.getElementById('voiceFavoriteBtn')?.classList.toggle('active', Array.isArray(favorites) && favorites.includes(selectedVoiceIdentity()));
 }
 
 function renderVoiceSpeakerComposer() {
@@ -2603,6 +2619,194 @@ function renderVoiceSpeakerComposer() {
   bar.innerHTML = '<span>Добавить реплику:</span>' + Array.from({ length: count }, (_, index) => {
     return '<button type="button" onclick="SYLVEX.insertVoiceSpeaker(event,' + (index + 1) + ')">Диктор ' + (index + 1) + '</button>';
   }).join('');
+}
+
+const VOICE_EMOTIONS = ['Спокойно', 'Весело', 'Грустно', 'Серьёзно', 'Зло', 'Вдохновляюще'];
+const VOICE_AI_FORMATS = [
+  ['ad', 'Реклама'], ['script', 'Сценарий'], ['story', 'Рассказ'], ['podcast', 'Подкаст'],
+  ['interview', 'Интервью'], ['dialogue', 'Диалог'], ['book', 'Аудиокнига'], ['greeting', 'Поздравление'], ['announcement', 'Объявление'],
+];
+
+function selectedVoiceIdentity() {
+  return String(isElevenLabsVoiceModel(voiceState.modelId) ? voiceState.elevenlabsVoice : (isRunwayVoiceModel(voiceState.modelId) ? voiceState.runwayVoice : voiceState.voice) || 'voice');
+}
+
+function voiceEditorSelection() {
+  const input = document.getElementById('chatInput');
+  if (!input) return { input:null, start:0, end:0, text:'' };
+  const start = Number.isFinite(input.selectionStart) ? input.selectionStart : 0;
+  const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : start;
+  return { input, start, end, text:input.value.slice(start, end) };
+}
+
+function replaceVoiceEditorSelection(value, selectInserted) {
+  const selection = voiceEditorSelection();
+  if (!selection.input) return;
+  selection.input.value = selection.input.value.slice(0, selection.start) + value + selection.input.value.slice(selection.end);
+  const end = selection.start + value.length;
+  selection.input.focus();
+  selection.input.setSelectionRange(selectInserted ? selection.start : end, end);
+  autoGrow(selection.input);
+  updateVoiceTextEstimate();
+  updateSendButton();
+  saveCurrentDraftSoon();
+}
+
+function closeVoiceAddon(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const drawer = document.getElementById('voiceAddonDrawer');
+  if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; }
+}
+
+function voiceAddonShell(title, body) {
+  return '<div class="voice-addon-head"><b>' + S.escapeHtml(title) + '</b><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeVoiceAddon(event)">×</button></div>' + body;
+}
+
+function openVoiceAddon(event, kind) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const drawer = document.getElementById('voiceAddonDrawer');
+  if (!drawer) return;
+  const currentVoice = currentVoiceButtonLabel();
+  let body = '';
+  if (kind === 'info') {
+    body = voiceAddonShell('Информация о голосе', '<div class="voice-addon-options"><span>' + S.escapeHtml(currentVoice) + '</span><span>' + S.escapeHtml(VOICE_MODEL_LIST.find((item) => item.id === voiceState.modelId)?.label || voiceState.modelId) + '</span></div>');
+  } else if (kind === 'settings') {
+    const settings = voiceState.audioSettings || {};
+    const rows = [
+      ['speed','Скорость',50,200,Math.round(Number(settings.speed || 1) * 100),'%'],
+      ['pitch','Высота',0,100,Number(settings.pitch ?? 50),''],
+      ['expressiveness','Эмоциональность',0,100,Number(settings.expressiveness ?? 50),''],
+      ['stability','Стабильность',0,100,Math.round(Number(settings.stability ?? .5) * 100),'%'],
+      ['similarity_boost','Сходство',0,100,Math.round(Number(settings.similarity_boost ?? .75) * 100),'%'],
+    ];
+    body = voiceAddonShell('Настройки голоса', rows.map((row) => '<label class="voice-addon-setting"><span>' + row[1] + '</span><input type="range" min="' + row[2] + '" max="' + row[3] + '" value="' + row[4] + '" oninput="SYLVEX.setVoiceEditorSetting(event,\'' + row[0] + '\',this.value)"><output>' + row[4] + row[5] + '</output></label>').join(''));
+  } else if (kind === 'emotion') {
+    body = voiceAddonShell('Эмоция', '<div class="voice-addon-options">' + VOICE_EMOTIONS.map((item) => '<button type="button" onclick="SYLVEX.insertVoiceEmotion(event,\'' + item + '\')">' + item + '</button>').join('') + '</div>');
+  } else if (kind === 'pause') {
+    body = voiceAddonShell('Добавить паузу', '<div class="voice-addon-options">' + [.2,.5,1,2,3].map((item) => '<button type="button" onclick="SYLVEX.insertVoicePause(event,' + item + ')">' + item + ' сек</button>').join('') + '</div>');
+  } else if (kind === 'pronunciation') {
+    const selected = voiceEditorSelection().text.trim();
+    body = voiceAddonShell('Произношение', '<input class="voice-addon-field" id="voicePronunciationWord" placeholder="Слово" value="' + S.escapeHtml(selected) + '"><input class="voice-addon-field" id="voicePronunciationAs" placeholder="Читать как"><button class="voice-addon-primary" type="button" onclick="SYLVEX.saveVoicePronunciation(event)">Сохранить</button>');
+  } else if (kind === 'translate') {
+    body = voiceAddonShell('Перевести текст', '<select class="voice-addon-field" id="voiceTranslateLanguage"><option value="en">English</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="ru">Русский</option><option value="es">Español</option><option value="it">Italiano</option><option value="tr">Türkçe</option></select><button class="voice-addon-primary" type="button" onclick="SYLVEX.runVoiceTextTool(event,\'translate\')">Перевести</button>');
+  } else if (kind === 'ai') {
+    body = voiceAddonShell('Создать текст с AI', '<div class="voice-addon-options">' + VOICE_AI_FORMATS.map((item) => '<button type="button" data-voice-ai-format="' + item[0] + '" onclick="SYLVEX.selectVoiceAiFormat(event,\'' + item[0] + '\')">' + item[1] + '</button>').join('') + '</div><input class="voice-addon-field" id="voiceAiBrief" placeholder="Опишите тему и задачу"><button class="voice-addon-primary" type="button" onclick="SYLVEX.runVoiceTextTool(event,\'create\')">Создать текст</button>');
+  } else if (kind === 'analysis') {
+    const text = (document.getElementById('chatInput')?.value || '').trim();
+    const words = text ? text.split(/\s+/).length : 0;
+    const seconds = Math.ceil(words / 2.5);
+    const longSentences = (text.match(/[^.!?]+[.!?]?/g) || []).filter((sentence) => sentence.trim().split(/\s+/).length > 24).length;
+    body = voiceAddonShell('Анализ текста', '<div class="voice-analysis-result"><p>Слов: ' + words + '</p><p>Ориентировочное время: ' + Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2,'0') + '</p><p>' + (longSentences ? 'Длинных предложений: ' + longSentences + '. Рекомендуем добавить паузы.' : 'Темп текста подходит для озвучки.') + '</p></div>');
+  }
+  drawer.innerHTML = body;
+  drawer.hidden = false;
+}
+
+function setVoiceEditorSetting(event, key, rawValue) {
+  if (event) event.stopPropagation();
+  ensureVoiceSettings();
+  const numeric = Number(rawValue);
+  voiceState.audioSettings[key] = key === 'speed' ? numeric / 100 : (key === 'stability' || key === 'similarity_boost' ? numeric / 100 : numeric);
+  const output = event && event.target && event.target.parentElement ? event.target.parentElement.querySelector('output') : null;
+  if (output) output.textContent = numeric + (['speed','stability','similarity_boost'].includes(key) ? '%' : '');
+}
+
+function insertVoiceEmotion(event, emotion) {
+  if (event) event.stopPropagation();
+  const selected = voiceEditorSelection().text;
+  replaceVoiceEditorSelection('[' + emotion + '] ' + selected, false);
+  closeVoiceAddon();
+}
+
+function insertVoicePause(event, seconds) {
+  if (event) event.stopPropagation();
+  replaceVoiceEditorSelection('[Пауза ' + Number(seconds) + ' сек]', false);
+  closeVoiceAddon();
+}
+
+function saveVoicePronunciation(event) {
+  if (event) event.stopPropagation();
+  const word = (document.getElementById('voicePronunciationWord')?.value || '').trim();
+  const spoken = (document.getElementById('voicePronunciationAs')?.value || '').trim();
+  if (!word || !spoken) return toast('Заполните слово и произношение');
+  voiceState.pronunciationRules[word] = spoken;
+  try { localStorage.setItem('sylvex_voice_pronunciations', JSON.stringify(voiceState.pronunciationRules)); } catch {}
+  toast('Произношение сохранено');
+  closeVoiceAddon();
+}
+
+function selectVoiceAiFormat(event, format) {
+  if (event) event.stopPropagation();
+  voiceState.aiFormat = format;
+  document.querySelectorAll('[data-voice-ai-format]').forEach((button) => button.classList.toggle('active', button.dataset.voiceAiFormat === format));
+}
+
+async function runVoiceTextTool(event, action) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const input = document.getElementById('chatInput');
+  if (!input) return;
+  const selected = voiceEditorSelection();
+  const sourceText = selected.text.trim() || input.value.trim();
+  const brief = (document.getElementById('voiceAiBrief')?.value || '').trim();
+  if (action !== 'create' && !sourceText) return toast('Сначала введите или выделите текст');
+  if (action === 'create' && !brief) return toast('Опишите тему текста');
+  const drawer = document.getElementById('voiceAddonDrawer');
+  if (drawer) drawer.classList.add('voice-text-tool-loading');
+  try {
+    const response = await fetch('/api/public/prostudio/voice/text-tool', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+      telegram_id:getTelegramId(), action, text:sourceText, brief, format:voiceState.aiFormat || 'script', target_language:document.getElementById('voiceTranslateLanguage')?.value || 'en'
+    }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok || !data.text) throw new Error(data.error || 'Не удалось обработать текст');
+    if (selected.text.trim()) replaceVoiceEditorSelection(data.text, false);
+    else { input.value = data.text; autoGrow(input); updateVoiceTextEstimate(); updateSendButton(); }
+    closeVoiceAddon();
+  } catch (error) { toast(translateGenerationError(error, 'Не удалось обработать текст')); }
+  finally { if (drawer) drawer.classList.remove('voice-text-tool-loading'); }
+}
+
+function applyVoiceTemplate(event, template) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  voiceState.editorTemplate = template;
+  const settings = voiceState.audioSettings || (voiceState.audioSettings = {});
+  const presets = { ad:['energetic',1.08],tiktok:['energetic',1.12],youtube:['friendly',1],podcast:['conversational',.96],book:['narrative',.92],news:['serious',1] };
+  const preset = presets[template] || ['auto',1];
+  settings.style = preset[0]; settings.speed = preset[1];
+  document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.toggle('active', (button.getAttribute('onclick') || '').includes("'" + template + "'")));
+  toast('Шаблон применён');
+}
+
+function addVoiceSpeaker(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const max = isElevenLabsVoiceModel(voiceState.modelId) ? 3 : 2;
+  if (voiceState.numSpeakers >= max) return toast('Для выбранной модели доступно дикторов: ' + max);
+  voiceState.numSpeakers += 1;
+  voiceState.speakerMode = 'multi';
+  renderVoiceControls();
+}
+
+function toggleVoiceFavorite(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const key = selectedVoiceIdentity();
+  let favorites = [];
+  try { favorites = JSON.parse(localStorage.getItem('sylvex_voice_favorites') || '[]'); } catch {}
+  favorites = Array.isArray(favorites) ? favorites : [];
+  favorites = favorites.includes(key) ? favorites.filter((item) => item !== key) : favorites.concat(key);
+  try { localStorage.setItem('sylvex_voice_favorites', JSON.stringify(favorites)); } catch {}
+  document.getElementById('voiceFavoriteBtn')?.classList.toggle('active', favorites.includes(key));
+}
+
+function updateVoiceTextEstimate() {
+  if (!isVoiceMode()) return;
+  const text = document.getElementById('chatInput')?.value || '';
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const speed = Number((voiceState.audioSettings || {}).speed || 1);
+  const seconds = Math.ceil(words / Math.max(1, 2.5 * speed));
+  const credits = words ? Math.max(1, Math.ceil(text.length / 100)) : 0;
+  const duration = document.getElementById('voiceDurationEstimate');
+  const cost = document.getElementById('voiceCreditEstimate');
+  if (duration) duration.textContent = '≈ ' + Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2,'0');
+  if (cost) cost.textContent = '≈ ' + credits + ' кредитов';
 }
 
 function insertVoiceSpeaker(e, speakerNumber) {
@@ -8946,6 +9150,9 @@ function renderGeneratedTelegramButton(url, kind) {
       edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/>',
       share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4"/><path d="m8.6 13.5 6.8 4"/>',
       telegram: '<path d="m21 4-3 16-6-4-4 3 1-5 9-7-11 6-4-2z"/>',
+      lipsync: '<path d="M5 12c2-3 4.3-4.5 7-4.5S17 9 19 12c-2 3-4.3 4.5-7 4.5S7 15 5 12z"/><path d="M9 12h6"/>',
+      avatar: '<circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/>',
+      music: '<path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
     };
     return '<svg class="generation-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[kind] || paths.open) + '</svg>';
   }
@@ -8982,7 +9189,36 @@ function renderGeneratedTelegramButton(url, kind) {
     if (kind === 'video') {
       actions += '<button class="gen-action-btn" type="button" data-video-url="' + safeUrl + '" onclick="SYLVEX.editGeneratedVideo(event)">' + generationActionIcon('edit') + 'Редактировать видео</button>';
     }
+    if (kind === 'voice') {
+      actions += '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" onclick="SYLVEX.continueVoiceResult(event,\'lipsync\')">' + generationActionIcon('lipsync') + 'LipSync</button>';
+      actions += '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" onclick="SYLVEX.continueVoiceResult(event,\'avatar\')">' + generationActionIcon('avatar') + 'Оживить аватара</button>';
+      actions += '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" onclick="SYLVEX.continueVoiceResult(event,\'music\')">' + generationActionIcon('music') + 'Добавить музыку</button>';
+      actions += '<button class="gen-action-btn" type="button" data-audio-url="' + safeUrl + '" onclick="SYLVEX.continueVoiceResult(event,\'video\')">' + generationActionIcon('animate') + 'Создать видео</button>';
+    }
     return '<div class="gen-result-actions">' + actions + '</div>';
+  }
+
+  function continueVoiceResult(event, target) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    const button = event && event.currentTarget;
+    const url = button ? String(button.dataset.audioUrl || '') : '';
+    if (!url) return toast('Аудиофайл недоступен');
+    const attachment = { kind:'audio', mime:'audio/mpeg', name:'SYLVEX voiceover.mp3', url };
+    try { localStorage.setItem('sylvex_content_handoff', JSON.stringify({ source:'voice', target, attachment, created_at:new Date().toISOString() })); } catch {}
+    if (target === 'music') {
+      updateComposerMode('music');
+      musicState.attachment = attachment;
+      musicState.uploads = [attachment];
+      toast('Озвучка передана в Music Studio');
+    } else {
+      updateComposerMode('video');
+      videoState.attachment = attachment;
+      videoState.audioUrl = url;
+      videoState.handoffAction = target;
+      toast(target === 'lipsync' ? 'Озвучка передана в LipSync' : (target === 'avatar' ? 'Озвучка готова для оживления аватара' : 'Озвучка передана в Video Studio'));
+    }
+    pendingAttachment = attachment;
+    updateSendButton();
   }
 
   // =====================================================
@@ -12444,7 +12680,13 @@ function maybeShowVideoTemplateIntro(force) {
 // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
 // =====================================================
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
-  const promptText = (prompt || '').trim();
+  let promptText = (prompt || '').trim();
+  if (isVoiceMode() && voiceState.pronunciationRules && typeof voiceState.pronunciationRules === 'object') {
+    Object.entries(voiceState.pronunciationRules).forEach(([word, spoken]) => {
+      if (!word || !spoken) return;
+      promptText = promptText.split(word).join(spoken);
+    });
+  }
   const imageReferenceImages = isImageMode() && Array.isArray(referenceImagesOverride)
     ? referenceImagesOverride.slice()
     : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
@@ -14771,6 +15013,7 @@ async function waitGeneration(jobId, options) {
       });
       chatInput.addEventListener('input', () => {
         updateSendButton();
+        updateVoiceTextEstimate();
         saveCurrentDraftSoon();
       });
     }
@@ -15385,6 +15628,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
+    openVoiceAddon, closeVoiceAddon, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, toggleVoiceFavorite, updateVoiceTextEstimate,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
@@ -15398,7 +15642,7 @@ async function waitGeneration(jobId, options) {
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     initAudioPlayer,
-    openAudioPlayer,
+    openAudioPlayer, continueVoiceResult,
     PlayerManager,
     get studioMode() { return studioMode; },
     get activeCat() { return activeCat; }
