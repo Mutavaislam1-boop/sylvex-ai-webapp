@@ -286,7 +286,7 @@ let voiceState = {
   sourceLanguage: 'auto',
   targetLanguage: 'en',
   numSpeakers: 1,
-  speakerVoices: ['Kore', 'Puck', 'Zephyr'],
+  speakerVoices: ['Kore', '', '', '', '', '', ''],
   secondVoice: 'Puck',
   speakerMode: 'single',
   speaker1: 'Speaker1',
@@ -323,6 +323,9 @@ let voiceCloneBlob = null;
 let voiceClonePreviewUrl = '';
 let voiceCloneSubmitting = false;
 let voiceLastEditorInsertion = null;
+let voiceToolGuideIdleTimer = 0;
+let voiceToolGuideStepTimer = 0;
+let voiceToolGuideIndex = 0;
 let voiceCloneDraft = {
   name: '',
   gender: 'neutral',
@@ -1595,10 +1598,9 @@ function voiceSpeakerVoiceValue(index) {
     return voiceState.voice || voices[0] || 'Kore';
   }
   if (index === 1) {
-    if (isElevenLabsVoiceModel(voiceState.modelId)) return voiceState.elevenlabsSecondVoice || voices[1] || voiceState.elevenlabsVoice || '21m00Tcm4TlvDq8ikWAM';
-    return voiceState.secondVoice || voices[1] || 'Puck';
+    return voices[1] || '';
   }
-  return voices[index] || 'Zephyr';
+  return voices[index] || '';
 }
 
 // =====================================================
@@ -2497,8 +2499,14 @@ function ensureVoiceSettings() {
   if (!voiceState.numSpeakers) voiceState.numSpeakers = voiceState.speakerMode === 'multi' ? 2 : 1;
   const maximumSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
   voiceState.numSpeakers = Math.max(1, Math.min(maximumSpeakers, Number(voiceState.numSpeakers || 1)));
-  if (!Array.isArray(voiceState.speakerVoices)) voiceState.speakerVoices = ['Kore', 'Puck', 'Zephyr'];
-  while (voiceState.speakerVoices.length < 7) voiceState.speakerVoices.push(voiceState.speakerVoices[0] || 'Kore');
+  if (!Array.isArray(voiceState.speakerVoices)) voiceState.speakerVoices = ['Kore', '', '', '', '', '', ''];
+  while (voiceState.speakerVoices.length < 7) voiceState.speakerVoices.push('');
+  const usedSpeakerVoices = new Set();
+  for (let index = 0; index < voiceState.numSpeakers; index += 1) {
+    const selectedVoice = index === 0 ? voiceSpeakerVoiceValue(0) : String(voiceState.speakerVoices[index] || '');
+    if (selectedVoice && usedSpeakerVoices.has(selectedVoice)) voiceState.speakerVoices[index] = '';
+    else if (selectedVoice) usedSpeakerVoices.add(selectedVoice);
+  }
   if (!isVoicePurposeSupported(voiceState.uploadPurpose)) {
     const supportedPurpose = VOICE_UPLOAD_PURPOSES.find((item) => isVoicePurposeSupported(item)) || VOICE_UPLOAD_PURPOSES[0];
     applyVoiceUploadPurpose(supportedPurpose.id);
@@ -2523,7 +2531,7 @@ function voiceOptionsPayload() {
   const elevenlabsModel = isElevenLabsVoiceModel(voiceState.modelId);
   const purpose = voiceUploadPurposeMeta(voiceState.uploadPurpose || 'voiceover');
   const speakerCount = Math.max(1, Math.min(isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2, Number(voiceState.numSpeakers || 1)));
-  const speakerVoices = (Array.isArray(voiceState.speakerVoices) ? voiceState.speakerVoices : []).slice(0, speakerCount);
+  const speakerVoices = Array.from({ length:speakerCount }, (_, index) => voiceSpeakerVoiceValue(index));
   const targetLanguage = voiceState.targetLanguage || (elevenlabsModel ? voiceState.elevenlabsTargetLanguage : voiceState.runwayTargetLanguage) || 'en';
   const runwayTool = runwayModel ? (purpose.runwayTool || voiceState.runwayTool || 'text_to_speech') : (voiceState.runwayTool || 'text_to_speech');
   const elevenlabsTool = elevenlabsModel ? (purpose.elevenlabsTool || voiceState.elevenlabsTool || 'text_to_speech') : (voiceState.elevenlabsTool || 'text_to_speech');
@@ -2622,8 +2630,14 @@ function renderVoiceSpeakerComposer() {
     bar.className = 'voice-speaker-composer';
     input.parentElement.insertBefore(bar, input);
   }
-  bar.innerHTML = '<span>Добавить реплику:</span>' + Array.from({ length: count }, (_, index) => {
-    return '<button type="button" onclick="SYLVEX.insertVoiceSpeaker(event,' + (index + 1) + ')">Диктор ' + (index + 1) + (index ? '<span class="voice-speaker-remove" role="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</span>' : '') + '</button>';
+  bar.innerHTML = '<span class="voice-speaker-composer-label">Дикторы:</span>' + Array.from({ length: count }, (_, index) => {
+    const voiceId = voiceSpeakerVoiceValue(index);
+    const item = currentVoiceListForPanel().find((voice) => String(voice.id || voice.voice_id || '') === String(voiceId || ''));
+    const name = item ? String(item.label || item.name || item.id || '').split(' · ')[0] : '';
+    const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
+    const avatarUrl = item ? voiceAvatarUrlFor(item, provider) : '';
+    const avatar = avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="">' : '<span>' + (name ? S.escapeHtml(voiceInitials(name)) : String(index + 1)) + '</span>';
+    return '<button class="voice-speaker-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_' + (index + 1) + '\')"><span class="voice-speaker-avatar" style="' + (item ? voiceAvatarStyle(voiceId || name) : '') + '">' + avatar + '</span><span class="voice-speaker-copy"><b>Диктор ' + (index + 1) + '</b><small>' + S.escapeHtml(name || 'Выбрать голос') + '</small></span>' + (index ? '<span class="voice-speaker-remove" role="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</span>' : '') + '</button>';
   }).join('');
 }
 
@@ -2662,9 +2676,6 @@ function closeVoiceAddon(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const drawer = document.getElementById('voiceAddonDrawer');
   if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; drawer.dataset.kind = ''; drawer.classList.remove('voice-translation-fullscreen'); }
-  const toggle = document.getElementById('voiceToolsToggle');
-  const tools = document.getElementById('voiceHorizontalTools');
-  if (tools && toggle && toggle.getAttribute('aria-expanded') === 'true') tools.hidden = false;
 }
 
 function toggleVoiceHorizontalTools(event) {
@@ -2673,17 +2684,60 @@ function toggleVoiceHorizontalTools(event) {
   const tools = document.getElementById('voiceHorizontalTools');
   if (!toggle || !tools) return;
   const willOpen = toggle.getAttribute('aria-expanded') !== 'true';
-  closeVoiceAddon();
   toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
   tools.hidden = !willOpen;
+  resetVoiceToolGuideTimer();
 }
 
-function hideVoiceHorizontalTools(event) {
-  if (event) event.stopPropagation();
+const VOICE_TOOL_GUIDE_TEXT = {
+  'Эмоция':'Добавляет настроение выбранной реплике.',
+  'Пауза':'Вставляет паузу нужной длительности.',
+  'Произношение':'Сохраняет правильное чтение сложных слов.',
+  'Перевести':'Переводит текст перед озвучкой.',
+  'Создать текст с AI':'Создаёт готовый текст по вашей теме.',
+  'Улучшить текст':'Делает текст естественным для диктора.',
+  'Анализ текста':'Проверяет длительность и удобство чтения.',
+  'Звуковые эффекты':'Добавляет звуковую сцену в нужное место.',
+  'Прослушать':'Воспроизводит выбранный голос.',
+  'В избранное':'Сохраняет голос для быстрого доступа.',
+  'Информация':'Показывает данные голоса и модели.',
+  'Настройки голоса':'Открывает параметры звучания.',
+  'Добавить диктора':'Добавляет отдельного участника диалога.',
+  'Полный экран':'Разворачивает редактор для удобной работы.',
+};
+
+function clearVoiceToolGuide() {
+  if (voiceToolGuideIdleTimer) window.clearTimeout(voiceToolGuideIdleTimer);
+  if (voiceToolGuideStepTimer) window.clearTimeout(voiceToolGuideStepTimer);
+  voiceToolGuideIdleTimer = 0; voiceToolGuideStepTimer = 0; voiceToolGuideIndex = 0;
+  document.getElementById('voiceToolGuideBubble')?.remove();
+}
+
+function showNextVoiceToolGuide() {
   const toggle = document.getElementById('voiceToolsToggle');
   const tools = document.getElementById('voiceHorizontalTools');
-  if (toggle) toggle.setAttribute('aria-expanded', 'false');
-  if (tools) tools.hidden = true;
+  if (!toggle || toggle.getAttribute('aria-expanded') !== 'true' || !tools || tools.hidden) return clearVoiceToolGuide();
+  const buttons = Array.from(tools.querySelectorAll('.voice-editor-toolbar button'));
+  if (!buttons.length || voiceToolGuideIndex >= buttons.length) return clearVoiceToolGuide();
+  document.getElementById('voiceToolGuideBubble')?.remove();
+  const button = buttons[voiceToolGuideIndex++];
+  const label = button.getAttribute('title') || button.getAttribute('aria-label') || 'Инструмент';
+  const bubble = document.createElement('div');
+  bubble.id = 'voiceToolGuideBubble'; bubble.className = 'voice-tool-guide';
+  bubble.innerHTML = '<b>' + S.escapeHtml(label) + '</b><span>' + S.escapeHtml(VOICE_TOOL_GUIDE_TEXT[label] || 'Инструмент редактора озвучки.') + '</span>';
+  document.body.appendChild(bubble);
+  const rect = button.getBoundingClientRect();
+  bubble.style.left = Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100)) + 'px';
+  bubble.style.top = Math.min(window.innerHeight - 90, rect.bottom + 8) + 'px';
+  button.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
+  voiceToolGuideStepTimer = window.setTimeout(showNextVoiceToolGuide, 5000);
+}
+
+function resetVoiceToolGuideTimer() {
+  clearVoiceToolGuide();
+  const toggle = document.getElementById('voiceToolsToggle');
+  if (!isVoiceMode() || !toggle || toggle.getAttribute('aria-expanded') !== 'true') return;
+  voiceToolGuideIdleTimer = window.setTimeout(showNextVoiceToolGuide, 30000);
 }
 
 function voiceAddonShell(title, body) {
@@ -2699,8 +2753,6 @@ function openVoiceAddon(event, kind) {
     return;
   }
   drawer.dataset.kind = kind;
-  const tools = document.getElementById('voiceHorizontalTools');
-  if (tools) tools.hidden = true;
   const currentVoice = currentVoiceButtonLabel();
   let body = '';
   if (kind === 'info') {
@@ -2802,7 +2854,6 @@ async function runVoiceTextTool(event, action) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const input = document.getElementById('chatInput');
   if (!input) return;
-  if (action === 'improve') hideVoiceHorizontalTools();
   const selected = voiceEditorSelection();
   const translationInput = document.getElementById('voiceTranslateInput');
   const sourceText = action === 'translate' && translationInput ? translationInput.value.trim() : (selected.text.trim() || input.value.trim());
@@ -2839,7 +2890,6 @@ function applyVoiceTemplate(event, template) {
     voiceState.audioSettings.speed = 1;
     document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.remove('active'));
     toast('Шаблон отменён');
-    hideVoiceHorizontalTools();
     return;
   }
   voiceState.editorTemplate = template;
@@ -2849,7 +2899,6 @@ function applyVoiceTemplate(event, template) {
   settings.style = preset[0]; settings.speed = preset[1];
   document.querySelectorAll('#voiceTemplateStrip button').forEach((button) => button.classList.toggle('active', (button.getAttribute('onclick') || '').includes("'" + template + "'")));
   toast('Шаблон применён');
-  hideVoiceHorizontalTools();
 }
 
 function addVoiceSpeaker(event) {
@@ -2857,10 +2906,10 @@ function addVoiceSpeaker(event) {
   const max = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
   if (voiceState.numSpeakers >= max) return toast('Для выбранной модели доступно дикторов: ' + max);
   voiceState.numSpeakers += 1;
+  voiceState.speakerVoices[voiceState.numSpeakers - 1] = '';
   voiceState.speakerMode = 'multi';
   if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsTool = 'dialogue';
   renderVoiceControls();
-  hideVoiceHorizontalTools();
 }
 
 function removeVoiceSpeaker(event, speakerNumber) {
@@ -2868,7 +2917,7 @@ function removeVoiceSpeaker(event, speakerNumber) {
   if (voiceState.numSpeakers <= 1) return;
   const removed = Math.max(2, Math.min(7, Number(speakerNumber || voiceState.numSpeakers)));
   voiceState.speakerVoices.splice(removed - 1, 1);
-  voiceState.speakerVoices.push(voiceState.speakerVoices[0] || 'Kore');
+  voiceState.speakerVoices.push('');
   voiceState.numSpeakers -= 1;
   voiceState.speakerMode = voiceState.numSpeakers > 1 ? 'multi' : 'single';
   if (isElevenLabsVoiceModel(voiceState.modelId) && voiceState.numSpeakers === 1 && voiceState.elevenlabsTool === 'dialogue') voiceState.elevenlabsTool = 'text_to_speech';
@@ -2887,7 +2936,6 @@ function toggleVoiceEditorFullscreen(event) {
   if (!column) return;
   column.classList.toggle('voice-editor-fullscreen');
   document.body.classList.toggle('voice-editor-is-fullscreen', column.classList.contains('voice-editor-fullscreen'));
-  hideVoiceHorizontalTools();
   document.getElementById('chatInput')?.focus();
 }
 
@@ -2932,7 +2980,6 @@ function toggleVoiceFavorite(event) {
   favorites = favorites.includes(key) ? favorites.filter((item) => item !== key) : favorites.concat(key);
   try { localStorage.setItem('sylvex_voice_favorites', JSON.stringify(favorites)); } catch {}
   document.getElementById('voiceFavoriteBtn')?.classList.toggle('active', favorites.includes(key));
-  hideVoiceHorizontalTools();
 }
 
 function updateVoiceTextEstimate() {
@@ -7867,7 +7914,9 @@ function imageModelButton(model) {
         const index = Math.max(0, Number(kind.slice(-1)) - 1);
         const optionKind = 'voiceSpeaker' + (index + 1);
         const activeVoice = voiceSpeakerVoiceValue(index);
-        const openSpeakerSheet = () => openVoiceSheet('Диктор ' + (index + 1), currentVoiceListForPanel(), optionKind, activeVoice);
+        const selectedByOtherSpeakers = new Set(Array.from({ length: Number(voiceState.numSpeakers || 1) }, (_, speakerIndex) => speakerIndex === index ? '' : voiceSpeakerVoiceValue(speakerIndex)).filter(Boolean).map(String));
+        const availableVoices = currentVoiceListForPanel().filter((item) => !selectedByOtherSpeakers.has(String(item.id || item.voice_id || '')));
+        const openSpeakerSheet = () => openVoiceSheet('Диктор ' + (index + 1), availableVoices, optionKind, activeVoice);
         if (isElevenLabsVoiceModel(voiceState.modelId)) {
           loadElevenLabsVoices(true).then(() => {
             if (isVoiceMode()) openSpeakerSheet();
@@ -8589,7 +8638,9 @@ function imageModelButton(model) {
       if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsTool = count > 1 ? 'dialogue' : 'text_to_speech';
     } else if (/^voiceSpeaker[1-7]$/.test(kind)) {
       const index = Math.max(0, Number(kind.slice(-1)) - 1);
-      if (!Array.isArray(voiceState.speakerVoices)) voiceState.speakerVoices = ['Kore', 'Puck', 'Zephyr'];
+      const duplicate = Array.from({ length: Number(voiceState.numSpeakers || 1) }, (_, speakerIndex) => speakerIndex === index ? '' : voiceSpeakerVoiceValue(speakerIndex)).filter(Boolean).some((voiceId) => String(voiceId) === String(value));
+      if (duplicate) { toast('Этот голос уже выбран для другого диктора'); return; }
+      if (!Array.isArray(voiceState.speakerVoices)) voiceState.speakerVoices = ['Kore', '', '', '', '', '', ''];
       voiceState.speakerVoices[index] = value || voiceSpeakerVoiceValue(index);
       if (index === 0) {
         if (isElevenLabsVoiceModel(voiceState.modelId)) voiceState.elevenlabsVoice = voiceState.speakerVoices[index];
@@ -15031,6 +15082,11 @@ async function waitGeneration(jobId, options) {
     }
     window.addEventListener('resize', updateStudioComposerCompact);
     window.addEventListener('orientationchange', updateStudioComposerCompact);
+    ['pointerdown', 'keydown', 'touchmove', 'wheel'].forEach((eventName) => {
+      document.addEventListener(eventName, (event) => {
+        if (event.target && event.target.closest && event.target.closest('#studioComposer')) resetVoiceToolGuideTimer();
+      }, { passive:true });
+    });
     const composerModelBtn = composerModelVal
       ? composerModelVal.closest('button')
       : (composerRoot ? composerRoot.querySelector('.studio-control-row .studio-select-pill.wide') : null);
@@ -15765,7 +15821,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    openVoiceAddon, closeVoiceAddon, toggleVoiceHorizontalTools, hideVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation,
+    openVoiceAddon, closeVoiceAddon, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
