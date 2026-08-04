@@ -15007,7 +15007,20 @@ async function waitGeneration(jobId, options) {
               const confirmJson = await confirmRes.json();
               if (confirmRes.ok && confirmJson.user) {
                 S.renderUser && S.renderUser(confirmJson.user);
-                if (confirmJson.subscription_activated) showSubscriptionCelebration(confirmJson.user, confirmJson.subscription_plan);
+                if (confirmJson.subscription_activated) {
+                  showSubscriptionCelebration(confirmJson.user, confirmJson.subscription_plan);
+                } else if (packId.indexOf('sub_') === 0 && S.syncUser) {
+                  // successful_payment can reach the polling bot a fraction
+                  // later than the Mini App receives openInvoice("paid").
+                  for (let attempt = 0; attempt < 3; attempt += 1) {
+                    await new Promise(resolve => setTimeout(resolve, 900 + attempt * 600));
+                    const syncedUser = await S.syncUser({ force: true });
+                    if (syncedUser && syncedUser.subscription_status === 'active') {
+                      showSubscriptionCelebration(syncedUser, syncedUser.subscription_plan);
+                      break;
+                    }
+                  }
+                }
               } else if (S.syncUser) {
                 S.syncUser();
               }

@@ -1102,7 +1102,10 @@ def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dic
     invoice_payload = {
             "title": item["title"],
             "description": f"Оплата {item['title']} в SYLVEX.",
-            "payload": bot_stars_payload(telegram_id, item, charge_id),
+            # The polling Telegram bot currently consumes the canonical
+            # four-part payload. Keep the internal invoice id outside the
+            # Bot API payload so both deployments parse the same contract.
+            "payload": bot_stars_payload(telegram_id, item),
             "currency": "XTR",
             "prices": [
                 {
@@ -1120,7 +1123,24 @@ def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dic
 
     data = response.json()
     if response.status_code >= 400 or not data.get("ok"):
+        prostudio_debug(
+            "STARS_INVOICE_CREATE_FAILED",
+            telegram_id=telegram_id,
+            pack_id=pack_id,
+            charge_id=charge_id,
+            status=response.status_code,
+            telegram_error=data.get("description") or data.get("error_code") or "unknown",
+        )
         raise RuntimeError(str(data))
+
+    prostudio_debug(
+        "STARS_INVOICE_CREATED",
+        telegram_id=telegram_id,
+        pack_id=pack_id,
+        charge_id=charge_id,
+        stars=int(item.get("stars") or 0),
+        payload_parts=4,
+    )
 
     return data["result"]
 
@@ -6716,7 +6736,7 @@ async def public_stars_invoice(request: Request):
     try:
         invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item, charge_id)
     except Exception as exc:
-        print("STARS INVOICE ERROR:", exc)
+        prostudio_error("STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id, charge_id=charge_id)
         return JSONResponse({"ok": False, "error": "stars_invoice_failed", "detail": str(exc)}, status_code=502)
 
     log_user_event(
@@ -6782,13 +6802,26 @@ async def public_stars_webhook(request: Request):
             item and telegram_id and telegram_id == payer_id
             and pre_checkout.get("currency") == "XTR"
             and int(pre_checkout.get("total_amount") or 0) == expected_amount
-            and parsed.get("charge_id")
+        )
+        prostudio_debug(
+            "STARS_PRE_CHECKOUT_RECEIVED",
+            query_id=str(pre_checkout.get("id") or ""),
+            telegram_id=telegram_id,
+            payer_id=payer_id,
+            kind=parsed.get("kind") or "",
+            plan_key=parsed.get("plan_key") or "",
+            currency=pre_checkout.get("currency") or "",
+            amount=int(pre_checkout.get("total_amount") or 0),
+            expected_amount=expected_amount,
+            valid=valid,
+            payload_parts=len(payload.split(":")),
         )
         answered = _answer_stars_pre_checkout(
             str(pre_checkout.get("id") or ""),
             valid,
             "Параметры счёта устарели. Вернитесь в магазин и создайте новый счёт.",
         )
+        prostudio_debug("STARS_PRE_CHECKOUT_ANSWERED", query_id=str(pre_checkout.get("id") or ""), approved=valid, answered=answered)
         return {"ok": answered, "approved": valid}
 
     message = update.get("message") or update.get("edited_message") or {}
@@ -6805,7 +6838,16 @@ async def public_stars_webhook(request: Request):
     if not item or not telegram_id or telegram_id != payer_id or payment.get("currency") != "XTR" or int(payment.get("total_amount") or 0) != expected_amount:
         return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
 
-    charge_id = str(parsed.get("charge_id") or payment.get("telegram_payment_charge_id") or "")
+    charge_id = str(payment.get("telegram_payment_charge_id") or parsed.get("charge_id") or "")
+    prostudio_debug(
+        "STARS_SUCCESSFUL_PAYMENT_RECEIVED",
+        telegram_id=telegram_id,
+        kind=parsed.get("kind") or "",
+        plan_key=parsed.get("plan_key") or "",
+        amount=expected_amount,
+        charge_id=charge_id,
+        payload_parts=len(payload.split(":")),
+    )
     created = finalize_shop_payment(
         telegram_id=telegram_id,
         provider="telegram_stars",
@@ -6815,6 +6857,7 @@ async def public_stars_webhook(request: Request):
         payload=payload,
         charge_id=charge_id,
     )
+    prostudio_debug("STARS_SUCCESSFUL_PAYMENT_FINALIZED", telegram_id=telegram_id, charge_id=charge_id, created=created)
     return {"ok": True, "created": created, "charge_id": charge_id}
 
 # =====================================================
@@ -6843,17 +6886,9 @@ async def public_stars_confirm(request: Request):
     if not charge_id:
         return JSONResponse({"ok": False, "error": "charge_id_required"}, status_code=400)
 
-    payload = bot_stars_payload(telegram_id, item, charge_id)
-    created = finalize_shop_payment(
-        telegram_id=telegram_id,
-        provider="telegram_stars",
-        item=item,
-        amount=int(item.get("stars") or 0),
-        currency="XTR",
-        payload=payload,
-        charge_id=charge_id,
-    )
-
+    # openInvoice(status="paid") is a UI signal, not cryptographic proof of
+    # payment. The polling bot or Telegram webhook is the only component that
+    # may activate the purchase after receiving successful_payment.
     user = sync_user_to_db({
         "telegram_id": telegram_id,
         "username": data.get("username") or None,
@@ -6862,13 +6897,24 @@ async def public_stars_confirm(request: Request):
         "balance": 0,
     })
 
+    subscription_active = bool(
+        item.get("kind") == "subscription"
+        and (user or {}).get("subscription_status") == "active"
+    )
+    prostudio_debug(
+        "STARS_CLIENT_CONFIRM_SYNCED",
+        telegram_id=telegram_id,
+        pack_id=pack_id,
+        charge_id=charge_id,
+        subscription_active=subscription_active,
+    )
     return {
         "ok": True,
-        "created": created,
+        "created": False,
         "user": user,
         "pack_id": pack_id,
         "charge_id": charge_id,
-        "subscription_activated": bool(created and item.get("kind") == "subscription"),
+        "subscription_activated": subscription_active,
         "subscription_plan": item.get("plan_key") if item.get("kind") == "subscription" else None,
         "subscription_days": item.get("days") if item.get("kind") == "subscription" else None,
     }
