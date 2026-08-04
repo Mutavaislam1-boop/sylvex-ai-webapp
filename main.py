@@ -4560,7 +4560,9 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             cursor.close()
             conn.close()
         if not row:
-            prostudio_debug("WORKER_CLAIM_NONE")
+            # An empty queue is the normal worker state. Logging it on every
+            # poll (every two seconds by default) floods Railway logs and can
+            # hide actionable errors without adding diagnostic value.
             return None
         payload = _json_obj(row[1])
         claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1}
