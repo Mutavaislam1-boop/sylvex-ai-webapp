@@ -1640,6 +1640,7 @@ CSS-БЛОК: .studio-mode-tab
 .voice-speaker-composer::-webkit-scrollbar{display:none}.voice-speaker-composer-label{flex:0 0 auto}
 .voice-speaker-composer button{flex:0 0 auto;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.065);color:inherit;border-radius:999px;padding:5px 9px 5px 5px;font:inherit;cursor:pointer}
 .voice-speaker-composer button:active{transform:scale(.97);background:rgba(255,255,255,.12)}
+.voice-speaker-composer .voice-speaker-chip.active{border-color:#3f8eed;background:rgba(39,119,216,.2);color:#fff}
 .voice-upload-drop{
   width:100%;
   min-height:120px;
@@ -2097,9 +2098,11 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-tools-toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
 .voice-horizontal-tools[hidden]{display:none!important}
 .voice-horizontal-tools{min-width:0}
-.voice-tool-guide{position:fixed;z-index:10100;width:200px;box-sizing:border-box;padding:9px 10px;border:1px solid rgba(88,156,255,.38);border-radius:11px;background:rgba(38,38,40,.96);color:#eee;box-shadow:0 14px 34px rgba(0,0,0,.38);pointer-events:none;animation:voiceToolGuideIn .2s ease}
-.voice-tool-guide b,.voice-tool-guide span{display:block}.voice-tool-guide b{font-size:11px;font-weight:600;margin-bottom:3px}.voice-tool-guide span{font-size:10px;line-height:1.35;color:#aaa}
-@keyframes voiceToolGuideIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.voice-tool-guide{position:fixed;z-index:10100;width:210px;box-sizing:border-box;padding:10px;border:1px solid rgba(88,156,255,.48);border-radius:11px;background:rgba(38,38,40,.97);color:#eee;box-shadow:0 14px 34px rgba(0,0,0,.38);pointer-events:none;opacity:1;transform:translateY(0);transition:opacity .22s ease,transform .22s ease;animation:voiceToolGuideIn .24s ease}
+.voice-tool-guide.is-leaving{opacity:0;transform:translateY(5px)}
+.voice-tool-guide-head{display:flex!important;align-items:center;gap:7px;margin-bottom:4px}.voice-tool-guide-icon{width:23px;height:23px;flex:0 0 23px;border-radius:7px;background:#286dc0;color:#fff;display:grid!important;place-items:center}.voice-tool-guide-icon svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.voice-tool-guide b,.voice-tool-guide span{display:block}.voice-tool-guide b{font-size:11px;font-weight:600}.voice-tool-guide>span:last-child{font-size:10px;line-height:1.35;color:#aaa}
+.voice-editor-toolbar button.voice-tool-guide-active{color:#fff!important;border-color:#4f9cff!important;background:#286dc0!important;box-shadow:0 0 0 4px rgba(50,132,235,.18),0 0 18px rgba(40,126,235,.42);transform:translateY(-1px)}
+@keyframes voiceToolGuideIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
 .voice-addon-drawer{
   margin-top:9px;padding:12px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#252525;
   color:#eee;box-shadow:0 18px 44px rgba(0,0,0,.26)
@@ -2118,7 +2121,9 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-addon-setting{display:grid;grid-template-columns:105px 1fr 40px;align-items:center;gap:8px;margin:9px 0;font-size:11px;color:#aaa}
 .voice-addon-setting input{width:100%;accent-color:#2784ef}.voice-addon-setting output{text-align:right;color:#ddd;font-variant-numeric:tabular-nums}
 .voice-editor-addons,.voice-text-estimate{display:none}
-.studio-video-composer[data-composer-mode="voice"] .voice-editor-addons{display:grid;grid-template-columns:30px minmax(0,1fr);align-items:start;gap:6px;width:100%;min-width:0;margin-bottom:5px}
+.studio-video-composer[data-composer-mode="voice"] .voice-editor-addons{display:grid;grid-template-columns:minmax(0,1fr) 30px;align-items:start;gap:6px;width:100%;min-width:0;margin-bottom:5px}
+.studio-video-composer[data-composer-mode="voice"] .voice-tools-toggle{grid-column:2;grid-row:1}
+.studio-video-composer[data-composer-mode="voice"] .voice-horizontal-tools{grid-column:1;grid-row:1}
 .studio-video-composer[data-composer-mode="voice"] .voice-addon-drawer{grid-column:1/-1}
 .voice-template-strip{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:7px 0}.voice-template-strip::-webkit-scrollbar{display:none}
 .voice-template-strip button{flex:0 0 auto;padding:5px 9px;border:1px solid rgba(255,255,255,.08);border-radius:999px;background:#292929;color:#929292;font-size:10px;cursor:pointer}
@@ -2137,7 +2142,7 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-translation-actions[hidden],.voice-translation-result[hidden]{display:none!important}
 .voice-speaker-composer button{position:relative}.voice-speaker-chip{display:flex;align-items:center;gap:7px}.voice-speaker-avatar{width:28px;height:28px;flex:0 0 28px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:#3a3a3a;color:#eee;font-size:9px}.voice-speaker-avatar img{width:100%;height:100%;object-fit:cover}.voice-speaker-copy{display:flex;flex-direction:column;align-items:flex-start;max-width:108px;line-height:1.1}.voice-speaker-copy b{font-size:10px;font-weight:500;color:#ddd}.voice-speaker-copy small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:#999}.voice-speaker-remove{margin-left:3px;color:#aaa;font-size:14px;line-height:1}
 .studio-prompt-column.voice-editor-fullscreen{position:fixed!important;inset:0!important;z-index:10020!important;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(env(safe-area-inset-bottom,0px) + 14px)!important;border:0!important;background:#202020!important;display:flex!important}
-.studio-prompt-column.voice-editor-fullscreen .voice-editor-addons{display:grid!important;grid-template-columns:30px minmax(0,1fr);align-items:start;min-height:0}
+.studio-prompt-column.voice-editor-fullscreen .voice-editor-addons{display:grid!important;grid-template-columns:minmax(0,1fr) 30px;align-items:start;min-height:0}
 .studio-prompt-column.voice-editor-fullscreen textarea{flex:1 1 auto!important;max-height:none!important;min-height:220px!important;font-size:17px!important}
 .studio-prompt-column.voice-editor-fullscreen .studio-control-row{flex:0 0 auto}
 .voice-translation-fullscreen{position:fixed!important;inset:0!important;z-index:10030!important;margin:0!important;border-radius:0!important;padding:calc(env(safe-area-inset-top,0px) + 18px) 16px calc(env(safe-area-inset-bottom,0px) + 18px)!important;background:#202020!important;display:flex!important;flex-direction:column}
