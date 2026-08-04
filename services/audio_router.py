@@ -1323,7 +1323,7 @@ async def audio_generation(payload: dict) -> dict:
         document_result = await _prepare_document_voice_payload(payload)
         if document_result:
             return document_result
-        frontend_model = payload.get("model") or voice_options.get("model") or ""
+        frontend_model = payload.get("model") or voice_options.get("model") or "elevenlabs_eleven_v3"
         if _is_elevenlabs_voice_model(frontend_model):
             return await elevenlabs_voice_generation(payload)
         if _is_runway_voice_model(frontend_model):
@@ -1915,7 +1915,7 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
     provider = "elevenlabs"
     voice_options = payload.get("voice_options") or {}
     tool = _elevenlabs_audio_tool(payload)
-    frontend_model = payload.get("model") or voice_options.get("model") or "elevenlabs_multilingual_v2"
+    frontend_model = payload.get("model") or voice_options.get("model") or "elevenlabs_eleven_v3"
     provider_model = _elevenlabs_voice_model_mapping(frontend_model)
     api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
     prompt_report = optimize_prompt_for_model(

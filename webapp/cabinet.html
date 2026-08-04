@@ -372,6 +372,25 @@ HTML-страница Mini App. Комментарии подписывают э
                   <span class="vgen-uico" onclick="event.stopPropagation();SYLVEX.openVoiceMediaPicker(event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"></rect><path d="M17 10l4-2v8l-4-2"></path></svg></span>
                 </div>
               </div>
+              <div class="voice-horizontal-tools" id="voiceHorizontalTools" data-open="true">
+                <div class="voice-editor-toolbar" aria-label="Инструменты озвучки">
+                  <div class="voice-tool-primary-group">
+                    <button type="button" title="Эмоция" aria-label="Эмоция" onclick="SYLVEX.openVoiceAddon(event,'emotion')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8 15c1.2 1.1 2.5 1.6 4 1.6s2.8-.5 4-1.6"/></svg></button>
+                    <button type="button" title="Пауза" aria-label="Пауза" onclick="SYLVEX.openVoiceAddon(event,'pause')"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+                    <button type="button" title="Звуковые эффекты" aria-label="Звуковые эффекты" onclick="SYLVEX.openVoiceAddon(event,'effects')"><svg viewBox="0 0 24 24"><path d="M4 14v-4M8 17V7M12 20V4M16 17V7M20 14v-4"/></svg></button>
+                    <button type="button" title="Добавить диктора" aria-label="Добавить диктора" onclick="SYLVEX.addVoiceSpeaker(event)"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 19a6 6 0 0 1 12 0M18 8v6M15 11h6"/></svg></button>
+                  </div>
+                  <span class="voice-tool-separator" aria-hidden="true"></span>
+                  <div class="voice-tool-secondary-group">
+                    <button type="button" title="Произношение" aria-label="Произношение" onclick="SYLVEX.openVoiceAddon(event,'pronunciation')"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM17 9c1 1 1 5 0 6M20 7c2.2 2.5 2.2 7.5 0 10"/></svg></button>
+                    <button type="button" title="Перевести" aria-label="Перевести" onclick="SYLVEX.openVoiceAddon(event,'translate')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg></button>
+                    <button type="button" title="Улучшить текст" aria-label="Улучшить текст" onclick="SYLVEX.runVoiceTextTool(event,'improve')"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4zM13 6l5 5"/></svg></button>
+                    <button type="button" title="Анализ текста" aria-label="Анализ текста" onclick="SYLVEX.openVoiceAddon(event,'analysis')"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M8 14c-1.2-1-2-2.4-2-4a6 6 0 1 1 12 0c0 1.6-.8 3-2 4-.8.7-1 1.2-1 2H9c0-.8-.2-1.3-1-2z"/></svg></button>
+                    <button type="button" title="Прослушать" aria-label="Прослушать" onclick="SYLVEX.previewSelectedVoice(event)"><svg viewBox="0 0 24 24"><path d="M6 9v6h4l5 4V5l-5 4H6z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg></button>
+                    <button type="button" title="В избранное" aria-label="В избранное" id="voiceFavoriteBtn" onclick="SYLVEX.toggleVoiceFavorite(event)"><svg viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg></button>
+                  </div>
+                </div>
+              </div>
               <div class="voice-tool-panel" id="voiceToolPanel">
                 <div class="image-style-panel-card" onclick="event.stopPropagation()">
                   <div class="image-style-panel-head">
@@ -552,28 +571,6 @@ HTML-страница Mini App. Комментарии подписывают э
             =================================================== -->
             <div class="studio-prompt-column">
               <div class="voice-editor-addons voice-only">
-                <div class="voice-horizontal-tools" id="voiceHorizontalTools" data-open="false">
-                <div class="voice-editor-toolbar" aria-label="Инструменты озвучки">
-                  <button type="button" title="Эмоция" aria-label="Эмоция" onclick="SYLVEX.openVoiceAddon(event,'emotion')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8 15c1.2 1.1 2.5 1.6 4 1.6s2.8-.5 4-1.6"/></svg></button>
-                  <button type="button" title="Пауза" aria-label="Пауза" onclick="SYLVEX.openVoiceAddon(event,'pause')"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
-                  <button type="button" title="Произношение" aria-label="Произношение" onclick="SYLVEX.openVoiceAddon(event,'pronunciation')"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4zM17 9c1 1 1 5 0 6M20 7c2.2 2.5 2.2 7.5 0 10"/></svg></button>
-                  <button type="button" title="Перевести" aria-label="Перевести" onclick="SYLVEX.openVoiceAddon(event,'translate')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg></button>
-                  <button type="button" title="Создать текст с AI" aria-label="Создать текст с AI" onclick="SYLVEX.openVoiceAddon(event,'ai')"><svg viewBox="0 0 24 24"><path d="m12 3 1.3 4.2L17.5 8l-4.2 1.3L12 13.5l-1.3-4.2L6.5 8l4.2-.8L12 3zM18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z"/></svg></button>
-                  <button type="button" title="Улучшить текст" aria-label="Улучшить текст" onclick="SYLVEX.runVoiceTextTool(event,'improve')"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4zM13 6l5 5"/></svg></button>
-                  <button type="button" title="Анализ текста" aria-label="Анализ текста" onclick="SYLVEX.openVoiceAddon(event,'analysis')"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M8 14c-1.2-1-2-2.4-2-4a6 6 0 1 1 12 0c0 1.6-.8 3-2 4-.8.7-1 1.2-1 2H9c0-.8-.2-1.3-1-2z"/></svg></button>
-                  <button type="button" title="Звуковые эффекты" aria-label="Звуковые эффекты" onclick="SYLVEX.openVoiceAddon(event,'effects')"><svg viewBox="0 0 24 24"><path d="M4 14v-4M8 17V7M12 20V4M16 17V7M20 14v-4"/></svg></button>
-                  <button type="button" title="Прослушать" aria-label="Прослушать" onclick="SYLVEX.previewSelectedVoice(event)"><svg viewBox="0 0 24 24"><path d="M6 9v6h4l5 4V5l-5 4H6z"/><path d="M18 9a4 4 0 0 1 0 6"/></svg></button>
-                  <button type="button" title="В избранное" aria-label="В избранное" id="voiceFavoriteBtn" onclick="SYLVEX.toggleVoiceFavorite(event)"><svg viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3z"/></svg></button>
-                  <button type="button" title="Информация" aria-label="Информация" onclick="SYLVEX.openVoiceAddon(event,'info')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></button>
-                  <button type="button" title="Настройки голоса" aria-label="Настройки голоса" onclick="SYLVEX.openVoiceAddon(event,'settings')"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg></button>
-                  <button type="button" title="Добавить диктора" aria-label="Добавить диктора" onclick="SYLVEX.addVoiceSpeaker(event)"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 19a6 6 0 0 1 12 0M18 8v6M15 11h6"/></svg></button>
-                  <button type="button" title="Полный экран" aria-label="Полный экран" onclick="SYLVEX.toggleVoiceEditorFullscreen(event)"><svg viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
-                  <button class="voice-tools-toggle" id="voiceToolsToggle" type="button" aria-expanded="false" aria-controls="voiceHorizontalTools" title="Инструменты озвучки" onclick="SYLVEX.toggleVoiceHorizontalTools(event)"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></button>
-                </div>
-                <div class="voice-template-strip" id="voiceTemplateStrip">
-                  <button type="button" onclick="SYLVEX.applyVoiceTemplate(event,'ad')">Реклама</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,'tiktok')">TikTok</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,'youtube')">YouTube</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,'podcast')">Подкаст</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,'book')">Книга</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,'news')">Новости</button>
-                </div>
-                </div>
                 <aside class="voice-addon-drawer" id="voiceAddonDrawer" hidden></aside>
               </div>
               <!-- ==================================================
@@ -700,25 +697,17 @@ HTML-страница Mini App. Комментарии подписывают э
                 HTML-ЭЛЕМЕНТ: studio-select-pill voice-only
                 CSS-класс задаёт внешний вид и расположение: studio-select-pill voice-only
                 =================================================== -->
-                <button class="studio-select-pill voice-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'voice')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h5l-2 7 9-11h-5l2-5-9 9z"/><path d="M3 6h6"/></svg>
-                  <span id="voiceVoiceVal">Kore</span>
+                <button class="studio-select-pill voice-only" type="button" aria-label="Создать текст с помощью AI" title="Создать текст с помощью AI" onclick="SYLVEX.openVoiceAddon(event,'ai')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.3 4.2L17.5 8l-4.2 1.3L12 13.5l-1.3-4.2L6.5 8l4.2-.8L12 3z"/><path d="m18 14 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z"/></svg>
                 </button>
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: studio-select-pill voice-only
-                CSS-класс задаёт внешний вид и расположение: studio-select-pill voice-only
-                =================================================== -->
-                <button class="studio-select-pill voice-only" type="button" onclick="SYLVEX.openImageOptionMenu(event,'speaker_mode')">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                  <span id="voiceModeVal">Один голос</span>
+                <button class="studio-select-pill voice-only" type="button" aria-label="Настройки голоса" title="Настройки голоса" onclick="SYLVEX.openVoiceAddon(event,'settings')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg>
                 </button>
-                <!-- ==================================================
-                HTML-ЭЛЕМЕНТ: studio-select-pill image-settings-pill voice-only
-                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-settings-pill voice-only
-                =================================================== -->
-                <button class="studio-select-pill image-settings-pill voice-only" type="button" aria-label="Настройки" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v7"/><path d="M6 15v5"/><circle cx="6" cy="13" r="2"/><path d="M18 4v5"/><path d="M18 13v7"/><circle cx="18" cy="11" r="2"/></svg>
-                  <span id="voiceSettingsVal" class="sr-only">Настройки</span>
+                <button class="studio-select-pill voice-only" type="button" aria-label="Общие настройки" title="Общие настройки" onclick="SYLVEX.openImageOptionMenu(event,'settings')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg>
+                </button>
+                <button class="studio-select-pill voice-only" type="button" aria-label="Шаблоны текста" title="Шаблоны текста" onclick="SYLVEX.openVoiceAddon(event,'templates')">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>
                 </button>
                 <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: Сгенерировать
