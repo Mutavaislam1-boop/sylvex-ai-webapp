@@ -303,6 +303,7 @@ let voiceState = {
   },
   editorTemplate: '',
   pronunciationRules: {},
+  activeSpeakerIndex: null,
 };
 const geminiVoicePreviewCache = {};
 let geminiVoicePreviewAudio = null;
@@ -2579,13 +2580,14 @@ function renderVoiceControls() {
   const voiceListButton = document.getElementById('voiceListButton');
   const voiceListButtonLabel = document.getElementById('voiceListButtonLabel');
   if (voiceListButton && voiceListButtonLabel) {
-    const selectedId = isElevenLabsVoiceModel(voiceState.modelId) ? voiceState.elevenlabsVoice : (isRunwayVoiceModel(voiceState.modelId) ? voiceState.runwayVoice : voiceState.voice);
+    const activeSpeakerIndex = Number.isInteger(voiceState.activeSpeakerIndex) && voiceState.activeSpeakerIndex < voiceState.numSpeakers ? voiceState.activeSpeakerIndex : null;
+    const selectedId = activeSpeakerIndex !== null ? voiceSpeakerVoiceValue(activeSpeakerIndex) : (isElevenLabsVoiceModel(voiceState.modelId) ? voiceState.elevenlabsVoice : (isRunwayVoiceModel(voiceState.modelId) ? voiceState.runwayVoice : voiceState.voice));
     const selectedItem = currentVoiceListForPanel().find((item) => String(item.id || item.voice_id || '') === String(selectedId || '')) || currentVoiceListForPanel()[0];
     const label = selectedItem ? String(selectedItem.label || selectedItem.name || selectedItem.id || 'Список голосов').split(' · ')[0] : 'Список голосов';
     const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
     const avatarUrl = selectedItem ? voiceAvatarUrlFor(selectedItem, provider) : '';
     const icon = voiceListButton.querySelector('.vgen-btn-ico');
-    voiceListButtonLabel.textContent = label;
+    voiceListButtonLabel.textContent = activeSpeakerIndex !== null ? ('Диктор ' + (activeSpeakerIndex + 1) + ' · ' + label) : label;
     voiceListButton.classList.toggle('has-selected-voice', Boolean(selectedItem));
     voiceListButton.classList.toggle('has-selected-voice-image', Boolean(selectedItem && avatarUrl));
     voiceListButton.setAttribute('style', selectedItem ? voiceAvatarStyle(selectedItem.id || selectedItem.voice_id || label) : '');
@@ -2637,8 +2639,22 @@ function renderVoiceSpeakerComposer() {
     const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
     const avatarUrl = item ? voiceAvatarUrlFor(item, provider) : '';
     const avatar = avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="">' : '<span>' + (name ? S.escapeHtml(voiceInitials(name)) : String(index + 1)) + '</span>';
-    return '<button class="voice-speaker-chip" type="button" onclick="SYLVEX.openImageOptionMenu(event,\'voice_speaker_' + (index + 1) + '\')"><span class="voice-speaker-avatar" style="' + (item ? voiceAvatarStyle(voiceId || name) : '') + '">' + avatar + '</span><span class="voice-speaker-copy"><b>Диктор ' + (index + 1) + '</b><small>' + S.escapeHtml(name || 'Выбрать голос') + '</small></span>' + (index ? '<span class="voice-speaker-remove" role="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</span>' : '') + '</button>';
+    return '<button class="voice-speaker-chip ' + (voiceState.activeSpeakerIndex === index ? 'active' : '') + '" type="button" onclick="SYLVEX.handleVoiceSpeakerClick(event,' + (index + 1) + ')"><span class="voice-speaker-avatar" style="' + (item ? voiceAvatarStyle(voiceId || name) : '') + '">' + avatar + '</span><span class="voice-speaker-copy"><b>Диктор ' + (index + 1) + '</b><small>' + S.escapeHtml(name || 'Выбрать голос') + '</small></span>' + (index ? '<span class="voice-speaker-remove" role="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</span>' : '') + '</button>';
   }).join('');
+}
+
+function handleVoiceSpeakerClick(event, speakerNumber) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const index = Math.max(0, Math.min(6, Number(speakerNumber || 1) - 1));
+  const voiceId = voiceSpeakerVoiceValue(index);
+  voiceState.activeSpeakerIndex = index;
+  if (!voiceId) {
+    renderVoiceControls();
+    openImageOptionMenu(event, 'voice_speaker_' + (index + 1));
+    return;
+  }
+  insertVoiceSpeaker(event, index + 1);
+  renderVoiceControls();
 }
 
 const VOICE_EMOTIONS = ['Спокойно', 'Весело', 'Грустно', 'Серьёзно', 'Зло', 'Вдохновляюще'];
@@ -2711,26 +2727,44 @@ function clearVoiceToolGuide() {
   if (voiceToolGuideStepTimer) window.clearTimeout(voiceToolGuideStepTimer);
   voiceToolGuideIdleTimer = 0; voiceToolGuideStepTimer = 0; voiceToolGuideIndex = 0;
   document.getElementById('voiceToolGuideBubble')?.remove();
+  document.querySelectorAll('.voice-tool-guide-active').forEach((button) => { button.classList.remove('voice-tool-guide-active'); button.removeAttribute('aria-describedby'); });
 }
 
-function showNextVoiceToolGuide() {
+function renderNextVoiceToolGuide() {
   const toggle = document.getElementById('voiceToolsToggle');
   const tools = document.getElementById('voiceHorizontalTools');
   if (!toggle || toggle.getAttribute('aria-expanded') !== 'true' || !tools || tools.hidden) return clearVoiceToolGuide();
   const buttons = Array.from(tools.querySelectorAll('.voice-editor-toolbar button'));
   if (!buttons.length || voiceToolGuideIndex >= buttons.length) return clearVoiceToolGuide();
-  document.getElementById('voiceToolGuideBubble')?.remove();
+  document.querySelectorAll('.voice-tool-guide-active').forEach((item) => item.classList.remove('voice-tool-guide-active'));
   const button = buttons[voiceToolGuideIndex++];
   const label = button.getAttribute('title') || button.getAttribute('aria-label') || 'Инструмент';
+  const icon = button.querySelector('svg');
   const bubble = document.createElement('div');
   bubble.id = 'voiceToolGuideBubble'; bubble.className = 'voice-tool-guide';
-  bubble.innerHTML = '<b>' + S.escapeHtml(label) + '</b><span>' + S.escapeHtml(VOICE_TOOL_GUIDE_TEXT[label] || 'Инструмент редактора озвучки.') + '</span>';
+  bubble.innerHTML = '<span class="voice-tool-guide-head"><span class="voice-tool-guide-icon">' + (icon ? icon.outerHTML : '') + '</span><b>' + S.escapeHtml(label) + '</b></span><span>' + S.escapeHtml(VOICE_TOOL_GUIDE_TEXT[label] || 'Инструмент редактора озвучки.') + '</span>';
   document.body.appendChild(bubble);
+  button.classList.add('voice-tool-guide-active');
+  button.setAttribute('aria-describedby', 'voiceToolGuideBubble');
   const rect = button.getBoundingClientRect();
-  bubble.style.left = Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100)) + 'px';
+  bubble.style.left = Math.max(8, Math.min(window.innerWidth - 218, rect.left + rect.width / 2 - 105)) + 'px';
   bubble.style.top = Math.min(window.innerHeight - 90, rect.bottom + 8) + 'px';
   button.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
   voiceToolGuideStepTimer = window.setTimeout(showNextVoiceToolGuide, 5000);
+}
+
+function showNextVoiceToolGuide() {
+  const current = document.getElementById('voiceToolGuideBubble');
+  if (!current) return renderNextVoiceToolGuide();
+  current.classList.add('is-leaving');
+  document.querySelectorAll('.voice-tool-guide-active').forEach((button) => {
+    button.classList.remove('voice-tool-guide-active');
+    button.removeAttribute('aria-describedby');
+  });
+  voiceToolGuideStepTimer = window.setTimeout(() => {
+    current.remove();
+    renderNextVoiceToolGuide();
+  }, 230);
 }
 
 function resetVoiceToolGuideTimer() {
@@ -2919,6 +2953,10 @@ function removeVoiceSpeaker(event, speakerNumber) {
   voiceState.speakerVoices.splice(removed - 1, 1);
   voiceState.speakerVoices.push('');
   voiceState.numSpeakers -= 1;
+  if (Number.isInteger(voiceState.activeSpeakerIndex)) {
+    if (voiceState.activeSpeakerIndex === removed - 1) voiceState.activeSpeakerIndex = null;
+    else if (voiceState.activeSpeakerIndex > removed - 1) voiceState.activeSpeakerIndex -= 1;
+  }
   voiceState.speakerMode = voiceState.numSpeakers > 1 ? 'multi' : 'single';
   if (isElevenLabsVoiceModel(voiceState.modelId) && voiceState.numSpeakers === 1 && voiceState.elevenlabsTool === 'dialogue') voiceState.elevenlabsTool = 'text_to_speech';
   renderVoiceControls();
@@ -3229,9 +3267,11 @@ function selectVoiceUploadOption(e, kind, value) {
 // =====================================================
 function renderVoiceListPanel() {
   injectImageStyleSheetCss();
-  const optionKind = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabsVoice' : (isRunwayVoiceModel(voiceState.modelId) ? 'runwayVoice' : 'voice');
-  const activeVoice = optionKind === 'elevenlabsVoice' ? voiceState.elevenlabsVoice : (optionKind === 'runwayVoice' ? voiceState.runwayVoice : voiceState.voice);
-  const items = currentVoiceListForPanel();
+  const activeSpeakerIndex = Number.isInteger(voiceState.activeSpeakerIndex) && voiceState.activeSpeakerIndex < voiceState.numSpeakers ? voiceState.activeSpeakerIndex : null;
+  const optionKind = activeSpeakerIndex !== null ? 'voiceSpeaker' + (activeSpeakerIndex + 1) : (isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabsVoice' : (isRunwayVoiceModel(voiceState.modelId) ? 'runwayVoice' : 'voice'));
+  const activeVoice = activeSpeakerIndex !== null ? voiceSpeakerVoiceValue(activeSpeakerIndex) : (optionKind === 'elevenlabsVoice' ? voiceState.elevenlabsVoice : (optionKind === 'runwayVoice' ? voiceState.runwayVoice : voiceState.voice));
+  const usedByOtherSpeakers = new Set(Array.from({ length:Number(voiceState.numSpeakers || 1) }, (_, index) => index === activeSpeakerIndex ? '' : voiceSpeakerVoiceValue(index)).filter(Boolean).map(String));
+  const items = currentVoiceListForPanel().filter((item) => activeSpeakerIndex === null || !usedByOtherSpeakers.has(String(item.id || item.voice_id || '')));
     const renderRow = (item) => {
     const id = String(item.id || item.voice_id || '');
     const label = String(item.label || item.name || id);
@@ -3241,7 +3281,7 @@ function renderVoiceListPanel() {
     const initials = S.escapeHtml(voiceInitials(label || id));
     const description = voiceDescription(item);
     const marquee = label.length > 20;
-    const avatarUrl = voiceAvatarUrlFor(item, optionKind === 'elevenlabsVoice' ? 'elevenlabs' : (optionKind === 'runwayVoice' ? 'runway' : 'gemini'));
+    const avatarUrl = voiceAvatarUrlFor(item, isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini'));
     return '<div class="voice-style-row ' + (selected ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.pickVoiceOption(event,\'' + optionKind + '\',\'' + safeId + '\')">'
       + '<span class="voice-style-row-avatar ' + (avatarUrl ? '' : 'is-generated') + '" style="' + S.escapeHtml(voiceAvatarStyle(id || label)) + '">'
       + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="' + S.escapeHtml(label) + '" loading="lazy" decoding="async" />' : '<span class="voice-generated-initials">' + initials + '</span>')
@@ -3255,7 +3295,7 @@ function renderVoiceListPanel() {
   return `
     <div class="image-style-panel-card voice-style-panel-card" onclick="event.stopPropagation()">
       <div class="image-style-panel-head">
-        <div class="image-style-panel-title">Список голосов</div>
+        <div class="image-style-panel-title">${activeSpeakerIndex !== null ? 'Диктор ' + (activeSpeakerIndex + 1) + ' · голоса' : 'Список голосов'}</div>
         <button class="image-style-panel-close" type="button" onclick="SYLVEX.closeVoiceList(event)">×</button>
       </div>
       <div class="voice-style-rows">
@@ -8679,7 +8719,7 @@ function imageModelButton(model) {
         }
       }
     }
-    if (['voice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'runwayVoice'].includes(kind)) {
+    if (['voice', 'elevenlabsVoice', 'elevenlabsSecondVoice', 'runwayVoice'].includes(kind) || /^voiceSpeaker[1-7]$/.test(kind)) {
       activeVoicePanelSection = '';
     }
     renderVoiceControls();
@@ -15821,7 +15861,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    openVoiceAddon, closeVoiceAddon, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation,
+    openVoiceAddon, closeVoiceAddon, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
