@@ -2701,7 +2701,7 @@ function toggleVoiceHorizontalTools(event) {
   if (!toggle || !tools) return;
   const willOpen = toggle.getAttribute('aria-expanded') !== 'true';
   toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-  tools.hidden = !willOpen;
+  tools.dataset.open = willOpen ? 'true' : 'false';
   resetVoiceToolGuideTimer();
 }
 
@@ -2733,7 +2733,11 @@ function clearVoiceToolGuide() {
 function renderNextVoiceToolGuide() {
   const toggle = document.getElementById('voiceToolsToggle');
   const tools = document.getElementById('voiceHorizontalTools');
-  if (!toggle || toggle.getAttribute('aria-expanded') !== 'true' || !tools || tools.hidden) return clearVoiceToolGuide();
+  if (!toggle || toggle.getAttribute('aria-expanded') !== 'true' || !tools || tools.dataset.open !== 'true') return clearVoiceToolGuide();
+  if (voiceToolBlockingModalOpen()) {
+    voiceToolGuideStepTimer = window.setTimeout(renderNextVoiceToolGuide, 5000);
+    return;
+  }
   const buttons = Array.from(tools.querySelectorAll('.voice-editor-toolbar button'));
   if (!buttons.length || voiceToolGuideIndex >= buttons.length) return clearVoiceToolGuide();
   document.querySelectorAll('.voice-tool-guide-active').forEach((item) => item.classList.remove('voice-tool-guide-active'));
@@ -2772,6 +2776,19 @@ function resetVoiceToolGuideTimer() {
   const toggle = document.getElementById('voiceToolsToggle');
   if (!isVoiceMode() || !toggle || toggle.getAttribute('aria-expanded') !== 'true') return;
   voiceToolGuideIdleTimer = window.setTimeout(showNextVoiceToolGuide, 30000);
+}
+
+function voiceToolBlockingModalOpen() {
+  const selectors = [
+    '.modal-overlay.show', '.voice-tool-panel:not([hidden])', '#modelPop.show',
+    '.video-template-modal-backdrop', '.photo-tool-modal-backdrop', '.visual-picker-modal.show',
+    '.generation-info-drawer.show', '[role="dialog"]', '[class*="modal-backdrop"]',
+  ];
+  return selectors.some((selector) => Array.from(document.querySelectorAll(selector)).some((element) => {
+    if (!element || element.id === 'voiceToolGuideBubble') return false;
+    const style = window.getComputedStyle(element);
+    return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || 1) !== 0;
+  }));
 }
 
 function voiceAddonShell(title, body) {
@@ -7910,7 +7927,9 @@ function imageModelButton(model) {
             const previewButton = !disabled && isVoiceChoice
               ? '<button class="voice-preview-play" type="button" aria-label="Прослушать ' + safeId + '" data-voice-id="' + safeId + '" onclick="SYLVEX.previewGeminiVoice(event,\'' + safeId + '\')">▶</button>'
               : '';
-            const avatar = isVoiceChoice ? '<span class="voice-style-row-avatar is-generated voice-sheet-avatar" style="' + S.escapeHtml(voiceAvatarStyle(id || item.label)) + '"><span class="voice-generated-initials">' + S.escapeHtml(voiceInitials(item.label || id)) + '</span></span>' : '';
+            const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
+            const avatarUrl = isVoiceChoice ? voiceAvatarUrlFor(item, provider) : '';
+            const avatar = isVoiceChoice ? '<span class="voice-style-row-avatar ' + (avatarUrl ? '' : 'is-generated') + ' voice-sheet-avatar" style="' + S.escapeHtml(voiceAvatarStyle(id || item.label)) + '">' + (avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="" loading="lazy" decoding="async">' : '<span class="voice-generated-initials">' + S.escapeHtml(voiceInitials(item.label || id)) + '</span>') + '</span>' : '';
             const labelContent = isVoiceChoice
               ? '<span class="voice-style-row-copy"><b>' + S.escapeHtml(item.label || id) + '</b><small>' + S.escapeHtml(voiceDescription(item)) + '</small></span>'
               : '<span class="image-size-label">' + S.escapeHtml(item.label || id) + '</span>';
@@ -8726,7 +8745,7 @@ function imageModelButton(model) {
     renderModelPop();
     const el = document.getElementById('modelPop');
     const keepVoiceSheetOpen = ['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind);
-    const closeVoiceUploadPicker = ['voiceUploadPurpose', 'voiceTargetLanguage', 'voiceSpeakerCount', 'voiceSpeaker1', 'voiceSpeaker2', 'voiceSpeaker3', 'voiceSpeaker4', 'voiceSpeaker5', 'voiceSpeaker6', 'voiceSpeaker7'].includes(kind);
+    const closeVoiceUploadPicker = ['voiceUploadPurpose', 'voiceTargetLanguage', 'voiceSpeakerCount'].includes(kind);
     if (el && !keepVoiceSheetOpen) {
       el.classList.remove('show');
       el.classList.remove('image-model-floating-pop');
