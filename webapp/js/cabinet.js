@@ -265,7 +265,7 @@ let musicSettingsDraft = null;
 let musicDurationDraftSeconds = 0;
 
 let voiceState = {
-  modelId: 'gemini_3_1_flash_tts_preview',
+  modelId: 'elevenlabs_eleven_v3',
   uploads: [],
   attachment: null,
   uploading: null,
@@ -1127,10 +1127,10 @@ const MUSIC_MODEL_LIST = [
 ];
 
 const VOICE_MODEL_LIST = [
+  { id:'elevenlabs_eleven_v3', label:'ElevenLabs Eleven v3', providerModel:'eleven_v3', desc:'Эмоциональная озвучка и диалоги', icon:'elevenlabs' },
   { id:'gemini_3_1_flash_tts_preview', label:'Gemini 3.1 Flash TTS Preview', providerModel:'gemini-3.1-flash-tts-preview', desc:'Один или два диктора', icon:'gemini' },
   { id:'gemini_2_5_flash_preview_tts', label:'Gemini 2.5 Flash Preview TTS', providerModel:'gemini-2.5-flash-preview-tts', desc:'Быстрая озвучка Gemini', icon:'gemini' },
   { id:'gemini_2_5_pro_preview_tts', label:'Gemini 2.5 Pro Preview TTS', providerModel:'gemini-2.5-pro-preview-tts', desc:'Выразительная озвучка Gemini Pro', icon:'gemini' },
-  { id:'elevenlabs_eleven_v3', label:'ElevenLabs Eleven v3', providerModel:'eleven_v3', desc:'Эмоциональная озвучка и диалоги', icon:'elevenlabs' },
   { id:'elevenlabs_multilingual_v2', label:'ElevenLabs Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Стабильная многоязычная озвучка', icon:'elevenlabs' },
   { id:'elevenlabs_flash_v2_5', label:'ElevenLabs Flash v2.5', providerModel:'eleven_flash_v2_5', desc:'Быстрая озвучка с низкой задержкой', icon:'elevenlabs' },
   { id:'elevenlabs_flash_v2', label:'ElevenLabs Flash v2', providerModel:'eleven_flash_v2', desc:'Быстрая озвучка с низкой задержкой', icon:'elevenlabs' },
@@ -2479,7 +2479,7 @@ function musicOptionsPayload() {
 // =====================================================
 function ensureVoiceSettings() {
   if (!voiceState.audioSettings || typeof voiceState.audioSettings !== 'object') voiceState.audioSettings = {};
-  if (!voiceState.modelId) voiceState.modelId = 'gemini_3_1_flash_tts_preview';
+  if (!voiceState.modelId) voiceState.modelId = 'elevenlabs_eleven_v3';
   if (!voiceState.voice) voiceState.voice = 'Kore';
   if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
   if (!voiceState.runwayTool) voiceState.runwayTool = 'text_to_speech';
@@ -2730,9 +2730,8 @@ function clearVoiceToolGuide() {
 }
 
 function renderNextVoiceToolGuide() {
-  const toggle = document.getElementById('voiceToolsToggle');
   const tools = document.getElementById('voiceHorizontalTools');
-  if (!toggle || toggle.getAttribute('aria-expanded') !== 'true' || !tools || tools.dataset.open !== 'true') return clearVoiceToolGuide();
+  if (!isVoiceMode() || !tools) return clearVoiceToolGuide();
   if (voiceToolBlockingModalOpen()) {
     voiceToolGuideStepTimer = window.setTimeout(renderNextVoiceToolGuide, 5000);
     return;
@@ -2772,9 +2771,8 @@ function showNextVoiceToolGuide() {
 
 function resetVoiceToolGuideTimer() {
   clearVoiceToolGuide();
-  const toggle = document.getElementById('voiceToolsToggle');
-  if (!isVoiceMode() || !toggle || toggle.getAttribute('aria-expanded') !== 'true') return;
-  voiceToolGuideIdleTimer = window.setTimeout(showNextVoiceToolGuide, 30000);
+  if (!isVoiceMode() || !document.getElementById('voiceHorizontalTools')) return;
+  voiceToolGuideIdleTimer = window.setTimeout(showNextVoiceToolGuide, 300000);
 }
 
 function voiceToolBlockingModalOpen() {
@@ -2838,6 +2836,8 @@ function openVoiceAddon(event, kind) {
   } else if (kind === 'effects') {
     const effects = ['Аплодисменты','Смех','Шаги','Дождь','Гром','Ветер','Дверь','Телефон','Город','Природа'];
     body = voiceAddonShell('Звуковые эффекты', '<div class="voice-addon-options">' + effects.map((item) => '<button type="button" onclick="SYLVEX.insertVoiceEffect(event,\'' + item + '\')">' + item + '</button>').join('') + '</div>');
+  } else if (kind === 'templates') {
+    body = voiceAddonShell('Шаблоны текста', '<div class="voice-addon-options voice-template-strip" id="voiceTemplateStrip"><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'ad\')">Реклама</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'tiktok\')">TikTok</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'youtube\')">YouTube</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'podcast\')">Подкаст</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'book\')">Книга</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'news\')">Новости</button></div>');
   }
   drawer.innerHTML = body;
   drawer.hidden = false;
@@ -3887,7 +3887,7 @@ const MODEL_ICON_SVG = {
       return videoState.modelId || 'seedance_2_fast';
     }
     if (studioMode === 'music') return musicState.modelId || 'suno_chirp_5';
-    if (studioMode === 'voice') return voiceState.modelId || 'gemini_3_1_flash_tts_preview';
+    if (studioMode === 'voice') return voiceState.modelId || 'elevenlabs_eleven_v3';
     return textState.modelId || 'gpt-5.5';
   }
 
@@ -12870,6 +12870,7 @@ function maybeShowVideoTemplateIntro(force) {
       }
     }
     renderVoiceSpeakerComposer();
+    resetVoiceToolGuideTimer();
     if (!restoringChatSpace) restoreChatSpace(currentChatType());
     applyCurrentDraft();
     updateSendButton();
