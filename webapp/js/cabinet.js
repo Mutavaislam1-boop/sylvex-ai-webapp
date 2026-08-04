@@ -323,7 +323,6 @@ let voiceCloneChunks = [];
 let voiceCloneBlob = null;
 let voiceClonePreviewUrl = '';
 let voiceCloneSubmitting = false;
-let voiceLastEditorInsertion = null;
 let voiceToolGuideIdleTimer = 0;
 let voiceToolGuideStepTimer = 0;
 let voiceToolGuideIndex = 0;
@@ -2856,31 +2855,19 @@ function setVoiceEditorSetting(event, key, rawValue) {
 function insertVoiceEmotion(event, emotion) {
   if (event) event.stopPropagation();
   const selected = voiceEditorSelection().text;
-  toggleVoiceEditorInsertion('[' + emotion + '] ' + selected);
+  insertVoiceEditorMarkup('[' + emotion + '] ' + selected);
   closeVoiceAddon();
 }
 
 function insertVoicePause(event, seconds) {
   if (event) event.stopPropagation();
-  toggleVoiceEditorInsertion('[Пауза ' + Number(seconds) + ' сек]');
+  insertVoiceEditorMarkup('[Пауза ' + Number(seconds) + ' сек]');
   closeVoiceAddon();
 }
 
-function toggleVoiceEditorInsertion(value) {
-  const input = document.getElementById('chatInput');
-  if (!input) return;
-  if (voiceLastEditorInsertion && voiceLastEditorInsertion.value === value) {
-    const position = voiceLastEditorInsertion.start;
-    if (input.value.slice(position, position + value.length) === value) {
-      input.value = input.value.slice(0, position) + input.value.slice(position + value.length);
-      input.focus(); input.setSelectionRange(position, position); autoGrow(input); updateVoiceTextEstimate(); updateSendButton();
-      voiceLastEditorInsertion = null;
-      toast('Выбор отменён');
-      return;
-    }
-  }
-  const selection = voiceEditorSelection();
-  voiceLastEditorInsertion = { value, start:selection.start };
+function insertVoiceEditorMarkup(value) {
+  // Repeatable editor commands are additive: the same emotion, pause or
+  // sound effect may intentionally appear many times in one script.
   replaceVoiceEditorSelection(value, false);
 }
 
@@ -2897,8 +2884,9 @@ function saveVoicePronunciation(event) {
 
 function selectVoiceAiFormat(event, format) {
   if (event) event.stopPropagation();
-  voiceState.aiFormat = format;
-  document.querySelectorAll('[data-voice-ai-format]').forEach((button) => button.classList.toggle('active', button.dataset.voiceAiFormat === format));
+  const nextFormat = voiceState.aiFormat === format ? '' : format;
+  voiceState.aiFormat = nextFormat;
+  document.querySelectorAll('[data-voice-ai-format]').forEach((button) => button.classList.toggle('active', !!nextFormat && button.dataset.voiceAiFormat === nextFormat));
 }
 
 async function runVoiceTextTool(event, action) {
@@ -2981,7 +2969,7 @@ function removeVoiceSpeaker(event, speakerNumber) {
 
 function insertVoiceEffect(event, effect) {
   if (event) event.stopPropagation();
-  toggleVoiceEditorInsertion('[Звуковой эффект: ' + effect + ']');
+  insertVoiceEditorMarkup('[Звуковой эффект: ' + effect + ']');
   closeVoiceAddon();
 }
 
