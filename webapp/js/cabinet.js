@@ -9968,8 +9968,9 @@ function renderGeneratedTelegramButton(url, kind) {
     renderModelPop();
     const mv = document.getElementById('modelVal');
     if (mv) mv.textContent = currentModelLabel;
-    const mvc = document.getElementById('modelValComposer');
-    if (mvc && currentModelLabel) mvc.textContent = currentModelLabel === 'SYLVEX Pro' ? 'Seedance 2.0 Fast' : currentModelLabel;
+    // The composer model is owned by updateComposerMode/render*Controls.
+    // Do not replace it with the legacy global Pro/Seedance label during
+    // language rendering: this used to show Seedance on every first open.
     updatePrice();
   }
 
