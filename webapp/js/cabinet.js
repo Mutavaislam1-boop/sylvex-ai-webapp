@@ -14560,6 +14560,14 @@ async function waitGeneration(jobId, options) {
   function showExpiredSubscriptionModal(state) {
     const info = state || S.user || {};
     if (!info.subscription_expired || _expiredSubscriptionModalShown) return;
+    const requestedView = (new URLSearchParams(window.location.search || '').get('view') || '').toLowerCase();
+    const shopIsOpen = requestedView === 'shop' || requestedView === 'pay' || !!document.querySelector('.view[data-view="shop"].active,.view[data-view="pay"].active');
+    if (shopIsOpen) return;
+    const userId = Number((S.user && S.user.telegram_id) || info.telegram_id || 0);
+    const now = new Date();
+    const localDay = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+    const noticeKey = 'sylvex_expired_subscription_notice_' + (userId || 'user');
+    try { if (localStorage.getItem(noticeKey) === localDay) return; } catch {}
     const modal = ensureExpiredSubscriptionModal();
     const user = S.user || {};
     const fullName = user.display_name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Пользователь';
@@ -14585,7 +14593,30 @@ async function waitGeneration(jobId, options) {
     const expiredAt = info.last_subscription_expires_at || info.subscription_expires_at;
     if (dateEl) dateEl.textContent = expiredAt ? 'Завершена: ' + fmtDate(expiredAt) : 'Подписка не активна';
     _expiredSubscriptionModalShown = true;
+    try { localStorage.setItem(noticeKey, localDay); } catch {}
     modal.classList.add('show');
+  }
+
+  function showSubscriptionCelebration(userState, plan) {
+    closeExpiredSubscriptionModal();
+    document.getElementById('subscriptionCelebration')?.remove();
+    const user = Object.assign({}, S.user || {}, userState || {});
+    const name = user.display_name || [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Пользователь';
+    const planLabel = String(plan || user.subscription_plan || '').toLowerCase() === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
+    const overlay = document.createElement('div');
+    overlay.id = 'subscriptionCelebration';
+    overlay.className = 'subscription-celebration';
+    overlay.innerHTML = '<div class="subscription-confetti" aria-hidden="true">' + Array.from({length:28}, (_, index) => '<i style="--i:' + index + '"></i>').join('') + '</div>'
+      + '<section class="subscription-celebration-card" role="dialog" aria-modal="true">'
+      + '<button type="button" aria-label="Закрыть" onclick="this.closest(\'#subscriptionCelebration\').remove()">×</button>'
+      + '<span class="subscription-celebration-mark"><svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span>'
+      + '<h2>Подписка активирована!</h2><p>' + S.escapeHtml(name) + ', добро пожаловать в SYLVEX Pro.</p>'
+      + '<strong>' + S.escapeHtml(planLabel) + '</strong>'
+      + '<button class="subscription-celebration-go" type="button" onclick="this.closest(\'#subscriptionCelebration\').remove();switchView(\'tools\')">Перейти в Pro Studio</button>'
+      + '</section>';
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('show'));
+    S.haptic && S.haptic.notify && S.haptic.notify('success');
   }
 
   function closeExpiredSubscriptionModal(e) {
@@ -14976,6 +15007,7 @@ async function waitGeneration(jobId, options) {
               const confirmJson = await confirmRes.json();
               if (confirmRes.ok && confirmJson.user) {
                 S.renderUser && S.renderUser(confirmJson.user);
+                if (confirmJson.subscription_activated) showSubscriptionCelebration(confirmJson.user, confirmJson.subscription_plan);
               } else if (S.syncUser) {
                 S.syncUser();
               }
@@ -15331,7 +15363,16 @@ async function waitGeneration(jobId, options) {
     const status = (params.get('payment') || '').toLowerCase();
     if (status === 'success') {
       toast('Оплата принята. Обновляем баланс…');
-      if (S.syncUser) setTimeout(() => S.syncUser(), 1200);
+      if (S.syncUser) setTimeout(async () => {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const user = await S.syncUser({ force: true });
+          if (user && user.subscription_status === 'active') {
+            showSubscriptionCelebration(user, user.subscription_plan);
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 1800));
+        }
+      }, 1200);
     } else if (status === 'cancel') {
       toast('Оплата PayPal отменена');
     }
@@ -15888,7 +15929,7 @@ async function waitGeneration(jobId, options) {
     openBuy, closeBuy, payWith, contactAdmin,
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
-    renderSubscription, showExpiredSubscriptionModal, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
+    renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
     openEditProfile, pickAvatar, saveEditProfile,
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,

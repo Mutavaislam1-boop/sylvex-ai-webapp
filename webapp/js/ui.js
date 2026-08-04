@@ -52,6 +52,9 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function switchView(name) {
+    if ((name === 'shop' || name === 'pay') && window.SYLVEX && window.SYLVEX.closeExpiredSubscriptionModal) {
+      window.SYLVEX.closeExpiredSubscriptionModal();
+    }
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
     const sc = document.querySelector('.scroll');

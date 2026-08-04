@@ -6522,6 +6522,24 @@ CSS-БЛОК: .generation-info-actions button
   .expired-subscription-plans{grid-template-columns:1fr}
   .expired-subscription-plans button{min-height:80px}
 }
+.subscription-celebration{position:fixed;inset:0;z-index:1200100;display:grid;place-items:center;padding:20px;background:rgba(2,4,10,.76);backdrop-filter:blur(14px);opacity:0;transition:opacity .28s ease;overflow:hidden}
+.subscription-celebration.show{opacity:1}
+.subscription-celebration-card{position:relative;z-index:2;width:min(390px,100%);padding:34px 24px 24px;border:1px solid rgba(255,255,255,.14);border-radius:28px;background:linear-gradient(150deg,rgba(35,41,55,.96),rgba(13,16,24,.98));box-shadow:0 30px 90px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.12);color:#fff;text-align:center;transform:translateY(18px) scale(.94);transition:transform .36s cubic-bezier(.2,.9,.25,1.2)}
+.subscription-celebration.show .subscription-celebration-card{transform:none}
+.subscription-celebration-card>button:first-child{position:absolute;right:14px;top:12px;width:32px;height:32px;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;font-size:23px;line-height:1;cursor:pointer}
+.subscription-celebration-mark{display:grid;place-items:center;width:72px;height:72px;margin:0 auto 18px;border-radius:50%;background:linear-gradient(145deg,#3ba7ff,#2867e8);box-shadow:0 12px 34px rgba(45,128,255,.42)}
+.subscription-celebration-mark svg{width:36px;height:36px;fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.subscription-celebration-card h2{margin:0 0 8px;font-size:25px}
+.subscription-celebration-card p{margin:0;color:rgba(255,255,255,.68);font-size:14px;line-height:1.5}
+.subscription-celebration-card>strong{display:block;margin:16px 0 20px;color:#82bdff;font-size:15px}
+.subscription-celebration-go{width:100%;min-height:50px;border:0;border-radius:15px;background:#f4f7fb;color:#10131a;font:700 14px inherit;cursor:pointer}
+.subscription-confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.subscription-confetti i{--c:#4ba9ff;position:absolute;top:-24px;left:calc(var(--i) * 3.57%);width:8px;height:15px;border-radius:2px;background:var(--c);opacity:.9;animation:sylvex-confetti 2.8s calc(var(--i) * -.08s) linear infinite}
+.subscription-confetti i:nth-child(3n){--c:#f2c94c}.subscription-confetti i:nth-child(3n + 1){--c:#bb77ff}
+@keyframes sylvex-confetti{to{transform:translate3d(35px,110vh,0) rotate(760deg)}}
+[data-theme="light"] .subscription-celebration{background:rgba(235,240,249,.76)}
+[data-theme="light"] .subscription-celebration-card{background:rgba(255,255,255,.96);color:#111827;border-color:rgba(20,30,50,.1)}
+[data-theme="light"] .subscription-celebration-card p{color:rgba(17,24,39,.62)}
 @keyframes photoToolSpin{to{transform:rotate(360deg)}}
 @keyframes photoToolPulse{50%{transform:scale(.88);opacity:.55}}
 @media(max-width:680px){
