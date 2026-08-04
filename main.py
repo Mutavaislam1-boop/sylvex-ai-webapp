@@ -16,6 +16,7 @@ import time
 import traceback
 import threading
 import random
+import html
 import concurrent.futures
 from typing import Optional
 from uuid import uuid4
@@ -71,6 +72,7 @@ app.mount("/preset_catalog", StaticFiles(directory=PRESET_CATALOG_DIR), name="pr
 app.include_router(video_templates_router)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+TELEGRAM_PAYMENT_WEBHOOK_SECRET = (os.getenv("TELEGRAM_PAYMENT_WEBHOOK_SECRET") or "").strip()
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
 print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 PROSTUDIO_SCHEMA_LOCK = threading.Lock()
@@ -934,6 +936,7 @@ def parse_shop_payload(payload: str) -> dict:
     result = {
         "kind": None,
         "provider": None,
+        "telegram_id": 0,
         "plan_key": None,
         "credits": 0,
         "charge_id": None,
@@ -952,6 +955,12 @@ def parse_shop_payload(payload: str) -> dict:
         result["kind"] = "credits"
     else:
         return {}
+
+    if len(parts) >= 2:
+        try:
+            result["telegram_id"] = int(parts[1] or 0)
+        except Exception:
+            result["telegram_id"] = 0
 
     if result["kind"] == "subscription":
         if len(parts) >= 3:
@@ -1090,13 +1099,10 @@ def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dic
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is not configured")
 
-    response = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
-        json={
+    invoice_payload = {
             "title": item["title"],
             "description": f"Оплата {item['title']} в SYLVEX.",
             "payload": bot_stars_payload(telegram_id, item, charge_id),
-            "provider_token": "",
             "currency": "XTR",
             "prices": [
                 {
@@ -1104,7 +1110,11 @@ def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dic
                     "amount": int(item["stars"]),
                 }
             ],
-        },
+        }
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/createInvoiceLink",
+        # Bot API requires provider_token to be omitted for Telegram Stars.
+        json=invoice_payload,
         timeout=30,
     )
 
@@ -2119,6 +2129,8 @@ def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: i
                     "charge_id": charge_id,
                 },
             )
+        if activated:
+            send_subscription_congratulations(telegram_id, item, provider)
     else:
         add_user_balance(telegram_id, credits)
         log_user_event(
@@ -2133,6 +2145,74 @@ def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: i
         )
 
     return True
+
+
+def send_subscription_congratulations(telegram_id: int, item: dict, provider: str = "") -> bool:
+    if not BOT_TOKEN or not telegram_id:
+        return False
+    name = "Пользователь"
+    username = ""
+    expires_at = None
+    balance = 0
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT first_name, username, COALESCE(balance, 0) FROM users WHERE telegram_id = %s", (telegram_id,))
+            user_row = cursor.fetchone()
+            if user_row:
+                name = user_row[0] or user_row[1] or name
+                username = user_row[1] or ""
+                balance = int(user_row[2] or 0)
+            cursor.execute("""
+                SELECT expires_at::timestamp
+                FROM subscriptions
+                WHERE telegram_id = %s AND status = 'active'
+                ORDER BY expires_at::timestamp DESC LIMIT 1
+            """, (telegram_id,))
+            sub_row = cursor.fetchone()
+            expires_at = sub_row[0] if sub_row else None
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as exc:
+        prostudio_error("SUBSCRIPTION_CONGRATULATION_PROFILE_FAILED", exc, telegram_id=telegram_id)
+
+    plan_label = "1 год" if str(item.get("plan_key") or "").lower() == "year" else "1 месяц"
+    handle = f"@{html.escape(username)}" if username else "без username"
+    expiry_label = expires_at.strftime("%d.%m.%Y %H:%M") if expires_at else "активна"
+    text = (
+        "🎉 <b>Поздравляем с подпиской SYLVEX Pro!</b>\n\n"
+        f"👤 <b>{html.escape(str(name))}</b> · {handle}\n"
+        f"🆔 <code>{int(telegram_id)}</code>\n"
+        f"💎 План: <b>{plan_label}</b>\n"
+        f"📅 Действует до: <b>{expiry_label}</b>\n"
+        f"⚡️ Баланс: <b>{balance}</b>\n"
+        f"💳 Оплата: <b>{html.escape(str(provider or 'payment'))}</b>\n\n"
+        "Все инструменты Pro уже доступны. Можно сразу начинать генерацию."
+    )
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": int(telegram_id),
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": {"inline_keyboard": [
+                    [{"text": "Начать генерацию", "web_app": {"url": WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=home"}}],
+                    [{"text": "Открыть Pro Studio", "web_app": {"url": WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=tools"}}],
+                ]},
+            },
+            timeout=20,
+        )
+        data = response.json() if response.content else {}
+        if response.status_code >= 400 or not data.get("ok"):
+            raise RuntimeError(f"Telegram sendMessage failed: {response.status_code} {data}")
+        return True
+    except Exception as exc:
+        prostudio_error("SUBSCRIPTION_CONGRATULATION_FAILED", exc, telegram_id=telegram_id)
+        return False
 
 
 # =====================================================
@@ -6656,6 +6736,85 @@ async def public_stars_invoice(request: Request):
         "charge_id": charge_id,
     }
 
+
+def _stars_item_from_payment_payload(payload: str):
+    parsed = parse_shop_payload(payload)
+    if parsed.get("kind") == "subscription":
+        return SHOP_ITEMS.get(f"sub_{parsed.get('plan_key') or ''}")
+    if parsed.get("kind") == "credits":
+        credits = int(parsed.get("credits") or 0)
+        return next((item for item in SHOP_ITEMS.values() if item.get("kind") == "credits" and int(item.get("credits") or 0) == credits), None)
+    return None
+
+
+def _answer_stars_pre_checkout(query_id: str, ok: bool, error_message: str = "") -> bool:
+    body = {"pre_checkout_query_id": query_id, "ok": bool(ok)}
+    if not ok:
+        body["error_message"] = error_message or "Не удалось проверить платёж. Попробуйте ещё раз."
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/answerPreCheckoutQuery",
+        json=body,
+        timeout=8,
+    )
+    data = response.json() if response.content else {}
+    return response.status_code < 400 and bool(data.get("ok"))
+
+
+@app.post("/api/public/payments/stars/webhook")
+async def public_stars_webhook(request: Request):
+    if TELEGRAM_PAYMENT_WEBHOOK_SECRET:
+        supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not hmac.compare_digest(supplied_secret, TELEGRAM_PAYMENT_WEBHOOK_SECRET):
+            return JSONResponse({"ok": False, "error": "invalid_webhook_secret"}, status_code=401)
+
+    update = await request.json()
+    pre_checkout = update.get("pre_checkout_query") or {}
+    if pre_checkout:
+        payload = str(pre_checkout.get("invoice_payload") or "")
+        parsed = parse_shop_payload(payload)
+        item = _stars_item_from_payment_payload(payload)
+        telegram_id = int(parsed.get("telegram_id") or 0)
+        payer_id = int((pre_checkout.get("from") or {}).get("id") or 0)
+        expected_amount = int(item.get("stars") or 0) if item else 0
+        valid = bool(
+            item and telegram_id and telegram_id == payer_id
+            and pre_checkout.get("currency") == "XTR"
+            and int(pre_checkout.get("total_amount") or 0) == expected_amount
+            and parsed.get("charge_id")
+        )
+        answered = _answer_stars_pre_checkout(
+            str(pre_checkout.get("id") or ""),
+            valid,
+            "Параметры счёта устарели. Вернитесь в магазин и создайте новый счёт.",
+        )
+        return {"ok": answered, "approved": valid}
+
+    message = update.get("message") or update.get("edited_message") or {}
+    payment = message.get("successful_payment") or {}
+    if not payment:
+        return {"ok": True, "ignored": True}
+
+    payload = str(payment.get("invoice_payload") or "")
+    parsed = parse_shop_payload(payload)
+    item = _stars_item_from_payment_payload(payload)
+    telegram_id = int(parsed.get("telegram_id") or 0)
+    payer_id = int((message.get("from") or {}).get("id") or 0)
+    expected_amount = int(item.get("stars") or 0) if item else 0
+    if not item or not telegram_id or telegram_id != payer_id or payment.get("currency") != "XTR" or int(payment.get("total_amount") or 0) != expected_amount:
+        return JSONResponse({"ok": False, "error": "invalid_successful_payment"}, status_code=400)
+
+    charge_id = str(parsed.get("charge_id") or payment.get("telegram_payment_charge_id") or "")
+    created = finalize_shop_payment(
+        telegram_id=telegram_id,
+        provider="telegram_stars",
+        item=item,
+        amount=expected_amount,
+        currency="XTR",
+        payload=payload,
+        charge_id=charge_id,
+    )
+    return {"ok": True, "created": created, "charge_id": charge_id}
+
 # =====================================================
 # API ENDPOINT: public_stars_confirm
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -6707,6 +6866,9 @@ async def public_stars_confirm(request: Request):
         "user": user,
         "pack_id": pack_id,
         "charge_id": charge_id,
+        "subscription_activated": bool(created and item.get("kind") == "subscription"),
+        "subscription_plan": item.get("plan_key") if item.get("kind") == "subscription" else None,
+        "subscription_days": item.get("days") if item.get("kind") == "subscription" else None,
     }
 
 # Developer payment endpoint for simulating successful payments (dev only)
