@@ -2913,6 +2913,7 @@ CSS-БЛОК: .studio-generate
   min-width:40px;
   height:40px;
   min-height:40px;
+  box-sizing:border-box;
   padding:0;
   display:grid;
   place-items:center;
@@ -2920,7 +2921,22 @@ CSS-БЛОК: .studio-generate
 }
 .studio-video-composer[data-composer-mode="text"] .studio-generate-label{display:none}
 .studio-video-composer[data-composer-mode="text"] .studio-send-arrow{display:block}
-.studio-video-composer[data-composer-mode="text"] .studio-control-row{padding-right:0}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row{
+  position:relative;
+  padding-right:92px!important;
+}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row::after{
+  content:"";
+  position:absolute;
+  right:0;
+  bottom:0;
+  z-index:7;
+  width:88px;
+  height:40px;
+  border-radius:22px 0 0 22px;
+  background:#202020;
+  pointer-events:none;
+}
 .studio-video-composer[data-composer-mode="text"] .text-mic-floating{
   top:auto;
   right:44px;
@@ -2928,8 +2944,12 @@ CSS-БЛОК: .studio-generate
   z-index:8;
   width:40px;
   height:40px;
+  box-sizing:border-box;
   background:#202020;
 }
+.studio-video-composer[data-composer-mode="text"] .studio-generate{z-index:9}
+.studio-video-composer[data-composer-mode="text"] .text-mic-floating{z-index:14}
+.studio-input.composer-input-window[data-composer-mode="text"] .studio-control-row{position:sticky}
 .studio-input.composer-input-window[data-composer-mode="text"] textarea:not(:placeholder-shown)~.text-mic-floating{
   opacity:1;
   background:#202020;
