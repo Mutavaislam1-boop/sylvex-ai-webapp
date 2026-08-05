@@ -97,6 +97,7 @@ print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 PROSTUDIO_SCHEMA_LOCK = threading.Lock()
 PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
+SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
@@ -11625,11 +11626,7 @@ async def public_prostudio_generate(request: Request):
             {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
         )
 
-    if not PROSTUDIO_WORKER_ENABLED:
-        prostudio_debug("GENERATE_INLINE_TASK_SCHEDULED", job_id=job_id)
-        asyncio.create_task(process_prostudio_generation(job_id, payload))
-    else:
-        prostudio_debug("GENERATE_QUEUED_FOR_WORKER", job_id=job_id)
+    prostudio_debug("GENERATE_QUEUED_FOR_WORKER", job_id=job_id)
 
     return {
         "ok": True,
@@ -12116,6 +12113,10 @@ def process_subscription_reminders() -> dict:
 
 
 async def subscription_reminder_worker_loop():
+    if not SUBSCRIPTION_REMINDER_WORKER_ENABLED:
+        print("SUBSCRIPTION REMINDER WORKER DISABLED")
+        return
+    print("SUBSCRIPTION REMINDER WORKER STARTED")
     while True:
         try:
             result = await asyncio.to_thread(process_subscription_reminders)
@@ -12139,7 +12140,7 @@ async def subscription_reminder_worker_loop():
 async def start_prostudio_generation_worker():
     if PROSTUDIO_WORKER_ENABLED:
         asyncio.create_task(prostudio_generation_worker_loop())
-    if DATABASE_URL and BOT_TOKEN:
+    if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         asyncio.create_task(subscription_reminder_worker_loop())
 
 # =====================================================
