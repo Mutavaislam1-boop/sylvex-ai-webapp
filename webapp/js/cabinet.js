@@ -2622,21 +2622,14 @@ function renderVoiceControls() {
 }
 
 function renderVoiceSpeakerComposer() {
-  const input = document.getElementById('chatInput');
-  if (!input) return;
-  let bar = document.getElementById('voiceSpeakerComposer');
+  const host = document.getElementById('voiceDialogueOpenTools');
+  if (!host) return;
   const count = isVoiceMode() ? Math.max(1, Math.min(isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2, Number(voiceState.numSpeakers || 1))) : 1;
-  if (!isVoiceMode() || count < 2) {
-    if (bar) bar.remove();
+  if (!isVoiceMode() || voiceWorkspaceMode !== 'dialogue') {
+    host.innerHTML = '';
     return;
   }
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'voiceSpeakerComposer';
-    bar.className = 'voice-speaker-composer';
-    input.parentElement.insertBefore(bar, input);
-  }
-  bar.innerHTML = '<span class="voice-speaker-composer-label">Дикторы:</span>' + Array.from({ length: count }, (_, index) => {
+  const speakerButtons = Array.from({ length: count }, (_, index) => {
     const voiceId = voiceSpeakerVoiceValue(index);
     const item = currentVoiceListForPanel().find((voice) => String(voice.id || voice.voice_id || '') === String(voiceId || ''));
     const name = item ? String(item.label || item.name || item.id || '').split(' · ')[0] : '';
@@ -2645,6 +2638,16 @@ function renderVoiceSpeakerComposer() {
     const avatar = avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="">' : '<span>' + (name ? S.escapeHtml(voiceInitials(name)) : String(index + 1)) + '</span>';
     return '<button class="voice-speaker-chip ' + (voiceState.activeSpeakerIndex === index ? 'active' : '') + '" type="button" onclick="SYLVEX.handleVoiceSpeakerClick(event,' + (index + 1) + ')"><span class="voice-speaker-avatar" style="' + (item ? voiceAvatarStyle(voiceId || name) : '') + '">' + avatar + '</span><span class="voice-speaker-copy"><b>Диктор ' + (index + 1) + '</b><small>' + S.escapeHtml(name || 'Выбрать голос') + '</small></span>' + (index ? '<span class="voice-speaker-remove" role="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</span>' : '') + '</button>';
   }).join('');
+  const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
+  const addSpeaker = count < maxSpeakers ? '<button class="voice-dialogue-add-speaker" type="button" onclick="SYLVEX.addVoiceSpeaker(event)" aria-label="Добавить диктора">+</button>' : '';
+  host.innerHTML = '<div class="voice-dialogue-row voice-dialogue-speaker-row"><b>Дикторы</b><div class="voice-dialogue-row-items">' + speakerButtons + addSpeaker + '</div></div>'
+    + voiceDialogueOptionRow('emotion', 'Эмоции', VOICE_EMOTIONS.concat(voiceCustomOptions.emotion || []), 'insertVoiceEmotion')
+    + voiceDialogueOptionRow('pause', 'Пауза', VOICE_PAUSES.concat(voiceCustomOptions.pause || []), 'insertVoicePause', ' сек')
+    + voiceDialogueOptionRow('effects', 'Звуковые эффекты', VOICE_EFFECTS.concat(voiceCustomOptions.effects || []), 'insertVoiceEffect');
+}
+
+function voiceDialogueOptionRow(kind, title, items, handler, suffix) {
+  return '<div class="voice-dialogue-row"><span class="voice-dialogue-row-title"><button type="button" onclick="SYLVEX.openVoiceCustomOption(event,\'' + kind + '\')" aria-label="Добавить свой вариант">+</button><b>' + S.escapeHtml(title) + '</b></span><div class="voice-dialogue-row-items">' + items.map((item) => '<button class="voice-dialogue-option" type="button" data-value="' + S.escapeHtml(String(item)) + '" onclick="SYLVEX.' + handler + '(event,this.dataset.value)">' + S.escapeHtml(String(item)) + (suffix || '') + '</button>').join('') + '</div></div>';
 }
 
 function handleVoiceSpeakerClick(event, speakerNumber) {
@@ -2706,6 +2709,31 @@ function closeVoiceAddon(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const drawer = document.getElementById('voiceAddonDrawer');
   if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; drawer.dataset.kind = ''; drawer.classList.remove('voice-translation-fullscreen', 'voice-addon-modal'); }
+}
+
+function hideMobileKeyboard(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  const active = document.activeElement;
+  if (active && typeof active.blur === 'function') active.blur();
+  try { navigator.virtualKeyboard?.hide?.(); } catch {}
+  document.documentElement.style.setProperty('--kb', '0px');
+  document.body.classList.remove('kb-open');
+}
+
+function dismissGenerationInputUi() {
+  hideMobileKeyboard();
+  closeVoiceAddon();
+  activeVoicePanelSection = '';
+  renderVoiceToolPanel();
+  document.querySelectorAll('.voice-upload-select-wrap.open').forEach((item) => item.classList.remove('open'));
+  const modelPop = document.getElementById('modelPop');
+  if (modelPop) {
+    modelPop.classList.remove('show', 'image-model-floating-pop', 'image-size-floating-pop', 'music-settings-pop', 'video-option-horizontal-pop');
+    modelPop.style.cssText = '';
+  }
+  document.getElementById('plusSheet')?.classList.remove('show');
+  const videoAddMenu = document.getElementById('videoAddMenu');
+  if (videoAddMenu) videoAddMenu.hidden = true;
 }
 
 function toggleVoiceHorizontalTools(event) {
@@ -2894,7 +2922,8 @@ function addVoiceCustomOption(event, kind) {
   const list = voiceCustomOptions[kind] || (voiceCustomOptions[kind] = []);
   if (!list.some((item) => String(item).toLowerCase() === value.toLowerCase())) list.push(value);
   try { localStorage.setItem(VOICE_CUSTOM_OPTIONS_KEY, JSON.stringify(voiceCustomOptions)); } catch {}
-  openVoiceAddon(null, kind, false, true);
+  closeVoiceAddon();
+  renderVoiceSpeakerComposer();
   toast('Вариант добавлен');
 }
 
@@ -13050,16 +13079,19 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   const audioUploadsOverride = generationOptions && Array.isArray(generationOptions.audioUploads)
     ? generationOptions.audioUploads.slice()
     : null;
+  const voiceOptionsBase = generationOptions && generationOptions.voiceOptions
+    ? Object.assign({}, generationOptions.voiceOptions)
+    : (isVoiceMode() ? voiceOptionsPayload() : null);
   const voiceOptions = isVoiceMode()
-    ? Object.assign(voiceOptionsPayload(), {
+    ? Object.assign(voiceOptionsBase || {}, {
         uploads: (audioUploadsOverride || (voiceState.uploads || []).slice()).map((item) => {
           if (!item || typeof item !== 'object') return item;
           const clean = Object.assign({}, item);
           delete clean.previewUrl;
           return clean;
         }),
-        attachment: voiceState.attachment ? (() => {
-          const clean = Object.assign({}, voiceState.attachment);
+        attachment: (voiceState.attachment || voiceOptionsBase?.attachment) ? (() => {
+          const clean = Object.assign({}, voiceState.attachment || voiceOptionsBase.attachment);
           delete clean.previewUrl;
           return clean;
         })() : null,
@@ -13452,6 +13484,15 @@ async function waitGeneration(jobId, options) {
       ? currentVideoReferenceImages()
       : (isImageMode() ? (imageState.referenceImageUrls || []).slice() : []);
     const audioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []).slice() : [];
+    if (isVoiceMode() && voiceWorkspaceMode === 'dialogue') {
+      const speakerCount = Math.max(2, Number(voiceState.numSpeakers || 2));
+      const missingSpeaker = Array.from({ length:speakerCount }, (_, index) => voiceSpeakerVoiceValue(index)).some((voiceId) => !voiceId);
+      if (missingSpeaker) {
+        toast('Выберите голос для каждого диктора');
+        return;
+      }
+    }
+    const voiceOptionsSnapshot = isVoiceMode() ? voiceOptionsPayload() : null;
     const imageOptionsSnapshot = isImageMode()
       ? imageOptionsPayload(referenceImages)
       : null;
@@ -13491,6 +13532,8 @@ async function waitGeneration(jobId, options) {
       return;
     }
 
+    dismissGenerationInputUi();
+
     const photoMode = isImageMode();
     const musicMode = isMusicMode();
     let loadingIndex = -1;
@@ -13514,8 +13557,14 @@ async function waitGeneration(jobId, options) {
     ta.value = ''; autoGrow(ta); updateSendButton();
     saveCurrentDraftSoon();
     clearAttachment();
-    if (isVideoMode()) {
+    if (isImageMode()) {
+      imageState.referenceImageUrl = '';
+      imageState.referenceImageUrls = [];
+      imageState.uploadedImageUrls = [];
+      imageState.attachment = null;
+    } else if (isVideoMode()) {
       videoState.characterImage = '';
+      videoState.referenceImageUrls = [];
       if (videoState.section !== 'edit') {
         videoState.inputVideo = '';
         videoState.videoUrl = '';
@@ -13529,6 +13578,11 @@ async function waitGeneration(jobId, options) {
         currentAudioState().uploading = null;
         revokeVoiceUploadPreview();
         currentAudioState().attachment = null;
+        if (voiceWorkspaceMode === 'dialogue') {
+          voiceState.speakerVoices = ['', '', '', '', '', '', ''];
+          voiceState.activeSpeakerIndex = null;
+          renderVoiceControls();
+        }
       }
     }
     renderComposerImageDraft();
@@ -13557,6 +13611,7 @@ async function waitGeneration(jobId, options) {
         {
           onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
           audioUploads,
+          voiceOptions: voiceOptionsSnapshot,
         }
       );
       renderChat();
@@ -15395,12 +15450,9 @@ async function waitGeneration(jobId, options) {
     // =====================================================
     if (supportModal) supportModal.addEventListener('click', closeSupport);
 
-    // Enter to send chat
+    // Enter always creates a new line. Generation starts only from its button.
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
-      chatInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
-      });
       chatInput.addEventListener('input', () => {
         updateSendButton();
         updateVoiceTextEstimate();
@@ -16027,7 +16079,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
+    openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
