@@ -589,19 +589,31 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-input
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-body.kb-open .view[data-view="tools"].active .studio-input{
-  transform:translate3d(0,-38px,0);
-  padding-bottom:12px;
-  transition:transform .15s ease;
-  will-change:transform;
-}
 @media(max-width:900px){
-  .view[data-view="tools"].active .studio-input.composer-keyboard-lift{
-    transform:translate3d(0,-38px,0)!important;
-    padding-bottom:12px;
-    transition:transform .15s ease;
-    will-change:transform;
+  body.composer-input-window-open{overflow:hidden!important}
+  .view[data-view="tools"].active .studio-input.composer-input-window{
+    position:fixed!important;
+    inset:0!important;
+    z-index:100040!important;
+    width:100vw!important;
+    height:100dvh!important;
+    max-height:100dvh!important;
+    box-sizing:border-box!important;
+    margin:0!important;
+    padding:calc(env(safe-area-inset-top,0px) + 10px) 10px calc(env(safe-area-inset-bottom,0px) + 10px)!important;
+    border:0!important;
+    border-radius:0!important;
+    background:#202020!important;
+    transform:none!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
   }
+  .studio-input.composer-input-window .studio-mode-tabs{flex:0 0 auto}
+  .studio-input.composer-input-window .studio-video-panel{flex:1 0 auto;margin-bottom:8px}
+  .studio-input.composer-input-window .studio-prompt-column{scroll-margin-bottom:90px}
+  .studio-input.composer-input-window .mobile-keyboard-close{display:grid}
 }
 /* =====================================================
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .chat-area

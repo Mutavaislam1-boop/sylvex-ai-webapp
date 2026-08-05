@@ -2718,7 +2718,8 @@ function hideMobileKeyboard(event) {
   try { navigator.virtualKeyboard?.hide?.(); } catch {}
   document.documentElement.style.setProperty('--kb', '0px');
   document.body.classList.remove('kb-open');
-  document.getElementById('studioComposer')?.classList.remove('composer-keyboard-lift');
+  document.body.classList.remove('composer-input-window-open');
+  document.getElementById('studioComposer')?.classList.remove('composer-input-window');
 }
 
 function dismissGenerationInputUi() {
@@ -15454,22 +15455,15 @@ async function waitGeneration(jobId, options) {
     // Enter always creates a new line. Generation starts only from its button.
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
-      const liftComposerOnFocus = () => {
+      const openComposerInputWindow = () => {
         if (window.innerWidth > 900) return;
         document.body.classList.add('kb-open');
-        document.getElementById('studioComposer')?.classList.add('composer-keyboard-lift');
+        document.body.classList.add('composer-input-window-open');
+        document.getElementById('studioComposer')?.classList.add('composer-input-window');
       };
-      chatInput.addEventListener('touchstart', liftComposerOnFocus, { passive:true });
-      chatInput.addEventListener('pointerdown', liftComposerOnFocus);
-      chatInput.addEventListener('focus', liftComposerOnFocus);
-      chatInput.addEventListener('blur', () => {
-        setTimeout(() => {
-          if (document.activeElement !== chatInput) {
-            document.body.classList.remove('kb-open');
-            document.getElementById('studioComposer')?.classList.remove('composer-keyboard-lift');
-          }
-        }, 120);
-      });
+      chatInput.addEventListener('touchstart', openComposerInputWindow, { passive:true });
+      chatInput.addEventListener('pointerdown', openComposerInputWindow);
+      chatInput.addEventListener('focus', openComposerInputWindow);
       chatInput.addEventListener('input', () => {
         updateSendButton();
         updateVoiceTextEstimate();
