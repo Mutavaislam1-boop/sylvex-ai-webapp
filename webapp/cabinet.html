@@ -580,17 +580,12 @@ HTML-страница Mini App. Комментарии подписывают э
                 <svg viewBox="0 0 24 24"><path d="M5 7h14v8H5zM8 10h.01M11 10h.01M14 10h.01M8 13h8M8 19l4 2 4-2"/></svg>
               </button>
               <div class="voice-text-estimate voice-only" id="voiceTextEstimate"><span id="voiceDurationEstimate">0:00</span></div>
+              <button class="text-mic-floating text-only" id="micBtn" type="button" aria-label="Голосовой набор" onclick="SYLVEX.toggleMic(event)">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
+              </button>
               <div class="text-recording-bar text-only" id="textRecordingBar" hidden aria-live="polite">
                 <div class="text-recording-equalizer" id="textRecordingEqualizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
                 <time id="textRecordingTime">0:00</time>
-              </div>
-              <div class="text-action-dock text-only" aria-label="Управление сообщением">
-                <button class="text-action-circle" id="micBtn" type="button" aria-label="Голосовой набор" onclick="SYLVEX.toggleMic(event)">
-                  <svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
-                </button>
-                <button class="text-action-circle text-action-send" id="textSendBtn" type="button" aria-label="Отправить сообщение" onclick="sendChat()" disabled>
-                  <svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
-                </button>
               </div>
               <!-- ==================================================
               HTML-ЭЛЕМЕНТ: studio-control-row

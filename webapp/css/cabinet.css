@@ -2904,57 +2904,35 @@ CSS-БЛОК: .studio-generate
 .studio-generate:not(:disabled){background:#2f6fbd;color:#fff}
 .studio-generate:disabled{cursor:not-allowed;opacity:.9}
 .studio-send-arrow{display:none;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.studio-video-composer[data-composer-mode="text"] .studio-generate{
+  position:absolute;
+  right:0;
+  bottom:0;
+  z-index:9;
+  width:40px;
+  min-width:40px;
+  height:40px;
+  min-height:40px;
+  box-sizing:border-box;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+}
 .studio-video-composer[data-composer-mode="text"] .studio-generate-label{display:none}
 .studio-video-composer[data-composer-mode="text"] .studio-send-arrow{display:block}
-.text-action-dock{display:none}
-.studio-video-composer[data-composer-mode="text"] .text-action-dock{display:block;position:absolute;right:2px;top:5px;z-index:8}
-.text-action-dock .text-action-circle{width:38px;height:38px;padding:0;border:1px solid rgba(255,255,255,.13);border-radius:50%;background:#202020;color:#eee;display:grid;place-items:center;cursor:pointer}
-.text-action-dock .text-action-circle svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-.text-action-dock .text-action-send{display:none}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row{position:relative;padding-right:92px!important}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row::after{
+  content:"";position:absolute;right:0;bottom:0;z-index:7;width:88px;height:40px;
+  border-radius:22px 0 0 22px;background:#202020;pointer-events:none
+}
+.studio-video-composer[data-composer-mode="text"] .text-mic-floating{
+  top:auto;right:44px;bottom:0;z-index:14;width:40px;height:40px;box-sizing:border-box;background:#202020
+}
+.studio-input.composer-input-window[data-composer-mode="text"] .studio-control-row{position:sticky}
+.studio-input.composer-input-window[data-composer-mode="text"] textarea:not(:placeholder-shown)~.text-mic-floating{opacity:1;background:#202020}
 
 @media(max-width:900px){
-  .studio-video-composer[data-composer-mode="text"] .studio-prompt-column{padding-bottom:48px}
-  .studio-video-composer[data-composer-mode="text"] .studio-control-row{padding-right:92px!important}
-  .studio-video-composer[data-composer-mode="text"] #sendBtn{display:none!important}
-  .studio-video-composer[data-composer-mode="text"] .text-action-dock{
-    position:absolute;
-    right:0;
-    bottom:0;
-    z-index:20;
-    width:88px;
-    height:42px;
-    box-sizing:border-box;
-    padding:1px;
-    border-radius:22px;
-    background:#202020;
-    display:flex!important;
-    align-items:center;
-    justify-content:space-between;
-    gap:4px;
-  }
-  .text-action-dock .text-action-circle{
-    position:static!important;
-    flex:0 0 40px!important;
-    width:40px!important;
-    min-width:40px!important;
-    height:40px!important;
-    min-height:40px!important;
-    box-sizing:border-box!important;
-    margin:0!important;
-    padding:0!important;
-    border:1px solid rgba(255,255,255,.13)!important;
-    border-radius:50%!important;
-    background:#2d2d2d!important;
-    color:#eee;
-    display:grid!important;
-    place-items:center!important;
-    opacity:1!important;
-    cursor:pointer;
-  }
-  .text-action-dock .text-action-circle svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-  .text-action-dock .text-action-send:not(:disabled){background:#2f6fbd!important;color:#fff}
-  .text-action-dock .text-action-circle:disabled{opacity:.55!important;cursor:not-allowed}
-  .text-action-dock .text-action-circle.rec{background:#1687ff!important;border-color:#46a1ff!important;animation:textMicBluePulse 1.15s ease-in-out infinite}
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
   .studio-mode-tabs{
