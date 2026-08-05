@@ -595,6 +595,14 @@ body.kb-open .view[data-view="tools"].active .studio-input[data-composer-mode="v
   transition:transform .15s ease;
   will-change:transform;
 }
+@media(max-width:900px){
+  .view[data-view="tools"].active .studio-input[data-composer-mode="voice"].voice-keyboard-lift{
+    transform:translate3d(0,-38px,0)!important;
+    padding-bottom:12px;
+    transition:transform .15s ease;
+    will-change:transform;
+  }
+}
 /* =====================================================
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .chat-area
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
