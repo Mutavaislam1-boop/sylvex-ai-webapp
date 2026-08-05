@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 from services.error_translator import raw_error_text, translate_provider_error
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services.prompt_optimizer import optimize_prompt_for_model
+from services.storage import generated_key, key_from_url as storage_key_from_url, put_bytes as storage_put_bytes, read_bytes as storage_read_bytes
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 WEBAPP_DIR = ROOT_DIR / "webapp"
@@ -858,12 +859,9 @@ def _gemini_upload_file_from_url(url: str, api_key: str, media_type: str):
 def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
     if not content:
         return ""
-    GENERATED_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     ext = "mp4" if suffix not in {"mp4", "mov", "webm"} else suffix
     filename = f"{uuid4().hex}.{ext}"
-    path = GENERATED_VIDEOS_DIR / filename
-    path.write_bytes(content)
-    return _public_generated_url(f"/webapp/generated/videos/{filename}")
+    return storage_put_bytes(content, generated_key("videos", filename), mimetypes.guess_type(filename)[0] or "video/mp4")
 
 
 # =====================================================
@@ -2503,7 +2501,10 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
     async with httpx.AsyncClient(timeout=120.0) as client:
         for index, video_url in enumerate(videos):
             try:
-                if str(video_url).startswith("/webapp/"):
+                if storage_key_from_url(str(video_url)):
+                    video_content = storage_read_bytes(str(video_url))
+                    content_type = mimetypes.guess_type(urlparse(str(video_url)).path)[0] or "video/mp4"
+                elif str(video_url).startswith("/webapp/"):
                     local_path = WEBAPP_DIR / str(video_url).replace("/webapp/", "", 1)
                     video_content = local_path.read_bytes() if local_path.exists() else b""
                     content_type = "video/mp4" if local_path.suffix.lower() == ".mp4" else (mimetypes.guess_type(str(local_path))[0] or "video/mp4")
@@ -3658,18 +3659,12 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             return text
         mime_hint = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else ""
         ext = _guess_image_ext(content, mime_hint)
-        root = pathlib.Path(__file__).resolve().parents[1]
-        image_dir = root / "webapp" / "generated" / "video-inputs"
-        image_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid4().hex}.{ext}"
-        path = image_dir / filename
-        path.write_bytes(content)
-        public_path = f"/webapp/generated/video-inputs/{filename}"
+        public_path = storage_put_bytes(content, generated_key("video-inputs", filename), mime_hint or f"image/{ext}")
         print("KLING DEBUG MATERIALIZED_INPUT_IMAGE:", {
-            "path": str(path),
+            "path": generated_key("video-inputs", filename),
             "url": public_path,
             "bytes": len(content),
-            "exists": path.exists(),
         })
         return _absolute_public_url(public_path)
 
