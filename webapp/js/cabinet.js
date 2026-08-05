@@ -2690,7 +2690,7 @@ function replaceVoiceEditorSelection(value, selectInserted) {
 function closeVoiceAddon(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const drawer = document.getElementById('voiceAddonDrawer');
-  if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; drawer.dataset.kind = ''; drawer.classList.remove('voice-translation-fullscreen'); }
+  if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; drawer.dataset.kind = ''; drawer.classList.remove('voice-translation-fullscreen', 'voice-addon-modal'); }
 }
 
 function toggleVoiceHorizontalTools(event) {
@@ -2792,7 +2792,7 @@ function voiceAddonShell(title, body) {
   return '<div class="voice-addon-head"><b>' + S.escapeHtml(title) + '</b><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeVoiceAddon(event)">×</button></div>' + body;
 }
 
-function openVoiceAddon(event, kind) {
+function openVoiceAddon(event, kind, centeredModal) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const drawer = document.getElementById('voiceAddonDrawer');
   if (!drawer) return;
@@ -2801,6 +2801,7 @@ function openVoiceAddon(event, kind) {
     return;
   }
   drawer.dataset.kind = kind;
+  drawer.classList.toggle('voice-addon-modal', !!centeredModal);
   const currentVoice = currentVoiceButtonLabel();
   let body = '';
   if (kind === 'info') {
@@ -7887,19 +7888,22 @@ function imageModelButton(model) {
       el.classList.remove('image-model-floating-pop');
       el.classList.remove('image-size-floating-pop');
       el.classList.remove('music-settings-pop');
+      el.classList.remove('voice-general-settings-pop');
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
 
       const openVoiceSheet = (title, items, optionKind, activeValue) => {
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
+        el.classList.add('voice-general-settings-pop');
         el.style.position = 'fixed';
-        el.style.left = '8px';
+        el.style.left = '50%';
         el.style.right = 'auto';
-        el.style.top = 'auto';
-        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
-        el.style.width = '72vw';
-        el.style.maxWidth = '350px';
+        el.style.top = '50%';
+        el.style.bottom = 'auto';
+        el.style.transform = 'translate(-50%,-50%)';
+        el.style.width = 'calc(100vw - 28px)';
+        el.style.maxWidth = '420px';
         el.style.minWidth = '250px';
         el.style.maxHeight = '68vh';
         el.style.overflowY = 'auto';
@@ -8045,13 +8049,15 @@ function imageModelButton(model) {
         if (el.parentElement !== document.body) document.body.appendChild(el);
         el.classList.add('image-size-floating-pop');
         el.classList.add('music-settings-pop');
+        el.classList.add('voice-general-settings-pop');
         el.style.position = 'fixed';
-        el.style.left = '8px';
+        el.style.left = '50%';
         el.style.right = 'auto';
-        el.style.top = 'auto';
-        el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
-        el.style.width = '78vw';
-        el.style.maxWidth = '380px';
+        el.style.top = '50%';
+        el.style.bottom = 'auto';
+        el.style.transform = 'translate(-50%,-50%)';
+        el.style.width = 'calc(100vw - 28px)';
+        el.style.maxWidth = '420px';
         el.style.minWidth = '275px';
         el.style.maxHeight = '70vh';
         el.style.overflowY = 'auto';

@@ -2109,6 +2109,12 @@ body > #modelPop.music-duration-wheel-pop{
   color:#eee;box-shadow:0 18px 44px rgba(0,0,0,.26)
 }
 .voice-addon-drawer[hidden]{display:none!important}
+.voice-addon-drawer.voice-addon-modal{
+  position:fixed!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important;
+  z-index:1000050!important;width:min(430px,calc(100vw - 28px));max-height:min(76vh,620px);overflow-y:auto;
+  margin:0!important;padding:16px!important;border-radius:22px!important;transform:translate(-50%,-50%);
+  background:#252525!important;box-shadow:0 0 0 100vmax rgba(0,0,0,.64),0 28px 80px rgba(0,0,0,.62)!important
+}
 .voice-addon-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
 .voice-addon-head b{font-size:13px;font-weight:600}.voice-addon-head button{border:0;background:transparent;color:#999;font-size:20px;cursor:pointer}
 .voice-addon-options{display:flex;flex-wrap:nowrap;gap:7px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding-bottom:2px}
@@ -2131,6 +2137,10 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-tool-primary-group,.voice-tool-secondary-group{display:flex;flex-direction:row;align-items:center;gap:5px;direction:rtl}
 .voice-tool-separator{display:block;width:1px;height:26px;flex:0 0 1px;background:rgba(255,255,255,.11)}
 .voice-editor-toolbar button{flex:0 0 32px;width:32px;height:30px;border-radius:9px}
+.studio-control-row .voice-bottom-labeled{width:auto;max-width:none;padding:0 12px;gap:7px;white-space:nowrap}
+.studio-control-row .voice-bottom-labeled span{font-size:11px}
+.studio-control-row .voice-settings-round{width:38px;min-width:38px;height:38px;padding:0;border-radius:50%;justify-content:center;margin-left:auto}
+.voice-general-settings-pop{border-radius:22px!important;box-shadow:0 0 0 100vmax rgba(0,0,0,.64),0 28px 80px rgba(0,0,0,.62)!important}
 .studio-video-composer[data-composer-mode="voice"] .voice-text-estimate{display:flex;justify-content:flex-end;gap:12px;margin:-2px 48px 5px 0;color:#858585;font-size:10px;font-variant-numeric:tabular-nums}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column textarea{min-height:96px}
 .voice-text-tool-loading{opacity:.5;pointer-events:none}
@@ -2150,11 +2160,16 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-translation-fullscreen .voice-translation-result{flex:1;max-height:none;font-size:16px}
 @media(max-width:900px){
   .voice-quick-actions{justify-content:flex-start;overflow-x:auto;scrollbar-width:none}.voice-addon-drawer{position:relative;z-index:4}
-  .studio-voice-full>.voice-horizontal-tools{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+  .studio-voice-full>.vgen-actions{order:0}
+  .studio-voice-full>.voice-horizontal-tools{order:1;margin:4px 0 0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+  .studio-voice-full>.vgen-upload-row{order:2}
+  .studio-voice-full>.voice-tool-panel{order:3}
   .studio-voice-full>.voice-horizontal-tools::-webkit-scrollbar{display:none}
   .voice-editor-toolbar{width:max-content;min-width:100%;flex-direction:row;align-items:center;gap:8px;overflow:visible;direction:ltr}
   .voice-tool-primary-group,.voice-tool-secondary-group{flex-direction:row;align-items:center;gap:5px;direction:ltr}
   .voice-tool-separator{width:1px;height:26px;flex:0 0 1px}
+  .studio-control-row .voice-bottom-labeled{padding:0 10px}
+  .studio-control-row .voice-bottom-labeled span{font-size:10px}
   .voice-editor-addons{margin-top:2px}.voice-addon-setting{grid-template-columns:88px 1fr 34px}
   .studio-prompt-column.voice-editor-fullscreen{padding-top:calc(env(safe-area-inset-top,0px) + 72px)!important}
 }
