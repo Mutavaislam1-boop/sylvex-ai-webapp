@@ -2205,6 +2205,9 @@ body > #modelPop.music-duration-wheel-pop{
 .studio-control-row .voice-bottom-labeled{width:auto;max-width:none;padding:0 12px;gap:7px;white-space:nowrap}
 .studio-control-row .voice-bottom-labeled span{font-size:11px}
 .studio-control-row .voice-settings-round{width:38px;min-width:38px;height:38px;padding:0;border-radius:50%;justify-content:center;margin-left:auto}
+@media(min-width:901px){
+  .studio-video-composer[data-composer-mode="voice"] .studio-control-row .voice-settings-round{margin-left:0}
+}
 .voice-general-settings-pop{border-radius:22px!important;box-shadow:0 0 0 100vmax rgba(0,0,0,.64),0 28px 80px rgba(0,0,0,.62)!important}
 .studio-video-composer[data-composer-mode="voice"] .voice-text-estimate{display:flex;justify-content:flex-end;gap:12px;margin:-2px 48px 5px 0;color:#858585;font-size:10px;font-variant-numeric:tabular-nums}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column textarea{min-height:96px}
@@ -2933,6 +2936,12 @@ CSS-БЛОК: .studio-generate
 .studio-input.composer-input-window[data-composer-mode="text"] textarea:not(:placeholder-shown)~.text-mic-floating{opacity:1;background:#202020}
 
 @media(max-width:900px){
+  .studio-video-composer[data-composer-mode="text"] .studio-prompt-column textarea{padding-right:92px!important}
+  .studio-video-composer[data-composer-mode="text"] .studio-control-row{position:static!important;padding-right:0!important}
+  .studio-video-composer[data-composer-mode="text"] .studio-control-row::after{top:0;right:0;bottom:auto;width:88px;height:40px;border-radius:0 0 0 22px}
+  .studio-video-composer[data-composer-mode="text"] .studio-generate{top:0;right:0;bottom:auto}
+  .studio-video-composer[data-composer-mode="text"] .text-mic-floating{top:0;right:44px;bottom:auto}
+  .studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close{display:none!important}
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
   .studio-mini-tab{width:44px;height:38px}
   .studio-mode-tabs{
