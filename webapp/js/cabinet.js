@@ -15206,6 +15206,7 @@ async function waitGeneration(jobId, options) {
     const ta = document.getElementById('chatInput');
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');
+    const textSend = document.getElementById('textSendBtn');
     if (!ta || !send) return;
     const activeReferences = isVideoMode()
       ? currentVideoReferenceImages()
@@ -15227,6 +15228,7 @@ async function waitGeneration(jobId, options) {
     } else {
       send.hidden = !has || textUploading;
     }
+    if (textSend) textSend.disabled = !has || textUploading;
   }
 
   /* ===== Support modal ===== */
