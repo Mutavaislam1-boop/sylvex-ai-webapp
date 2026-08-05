@@ -9894,15 +9894,34 @@ def qwen_image_size(size: str, frontend_model: str, provider_model: str = "") ->
 
 
 def qwen_image_reference_value(value: str) -> str:
-    """Return an image value accepted by DashScope (public URL or data URL)."""
+    """Return actual image bytes as a DashScope-compatible data URL when possible."""
     raw = str(value or "").strip()
     if raw.startswith("data:image/") and ";base64," in raw:
         return raw
-    if raw.startswith(("http://", "https://")):
-        return raw
-    if raw.startswith("/") and WEBAPP_URL:
-        return f"{WEBAPP_URL.rstrip('/')}{raw}"
-    return ""
+
+    public_url = f"{WEBAPP_URL.rstrip('/')}{raw}" if raw.startswith("/") and WEBAPP_URL else raw
+    content = b""
+    content_type = mimetypes.guess_type(urllib.parse.urlparse(public_url).path)[0] or "image/png"
+    try:
+        if storage_key_from_url(public_url):
+            content = storage_read_bytes(public_url)
+        elif public_url.startswith(("http://", "https://")):
+            response = requests.get(public_url, timeout=60)
+            response.raise_for_status()
+            content = response.content
+            content_type = str(response.headers.get("content-type") or content_type).split(";", 1)[0].strip()
+    except Exception as exc:
+        prostudio_error("QWEN_IMAGE_REFERENCE_READ_FAILED", exc, source_type="storage" if storage_key_from_url(public_url) else "url")
+
+    if content:
+        if content.startswith(b"\xff\xd8\xff"):
+            content_type = "image/jpeg"
+        elif content.startswith(b"\x89PNG\r\n\x1a\n"):
+            content_type = "image/png"
+        elif content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            content_type = "image/webp"
+        return f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}"
+    return public_url if public_url.startswith(("http://", "https://")) else ""
 
 
 def qwen_image_edit_model(provider_model: str, has_images: bool) -> str:
@@ -9954,6 +9973,16 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
     per_request_count = image_count if key in {"qwen_image_2", "qwen_image_2_pro"} else 1
     content = [{"image": reference} for reference in included_references]
     content.append({"text": prompt})
+    request_parameters = {
+        "negative_prompt": str(opts.get("negative_prompt") or "")[:500],
+        "prompt_extend": False if included_references else bool(opts.get("prompt_extend", True)),
+        "watermark": bool(opts.get("watermark", False)),
+        "n": max(1, min(per_request_count, 6)),
+    }
+    # For editing, omitting size makes DashScope preserve the input image's
+    # aspect ratio. Text-to-image keeps the explicitly selected output size.
+    if not included_references:
+        request_parameters["size"] = qwen_image_size(size, frontend_model, provider_model)
     request_payload = {
         "model": effective_provider_model,
         "input": {
@@ -9964,13 +9993,7 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
                 }
             ]
         },
-        "parameters": {
-            "negative_prompt": str(opts.get("negative_prompt") or "")[:500],
-            "prompt_extend": bool(opts.get("prompt_extend", True)),
-            "watermark": bool(opts.get("watermark", False)),
-            "size": qwen_image_size(size, frontend_model, provider_model),
-            "n": max(1, min(per_request_count, 6)),
-        },
+        "parameters": request_parameters,
     }
     if seed is not None:
         request_payload["parameters"]["seed"] = seed
@@ -9985,10 +10008,11 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
                 endpoint=endpoint,
                 frontend_model=frontend_model,
                 provider_model=effective_provider_model,
-                size=request_payload["parameters"].get("size"),
+                size=request_payload["parameters"].get("size") or "source",
                 count=request_payload["parameters"].get("n"),
                 reference_count_received=len(received_references),
                 image_count=len(included_references),
+                inline_image_count=sum(1 for value in included_references if value.startswith("data:image/")),
                 reference_count_omitted=max(0, len(received_references) - len(included_references)),
                 attempt=attempt,
                 seed_present=seed is not None,
