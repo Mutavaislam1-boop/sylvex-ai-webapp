@@ -9893,6 +9893,40 @@ def qwen_image_size(size: str, frontend_model: str, provider_model: str = "") ->
     }.get(ratio, "1664*928")
 
 
+def qwen_image_reference_value(value: str) -> str:
+    """Return an image value accepted by DashScope (public URL or data URL)."""
+    raw = str(value or "").strip()
+    if raw.startswith("data:image/") and ";base64," in raw:
+        return raw
+    if raw.startswith(("http://", "https://")):
+        return raw
+    if raw.startswith("/") and WEBAPP_URL:
+        return f"{WEBAPP_URL.rstrip('/')}{raw}"
+    return ""
+
+
+def qwen_image_edit_model(provider_model: str, has_images: bool) -> str:
+    """Use an editing-capable Qwen model whenever an input image is present."""
+    model = str(provider_model or "").strip()
+    if not has_images:
+        return model
+    normalized = model.lower()
+    generation_only_models = {
+        "qwen-image",
+        "qwen-image-max",
+        "qwen-image-plus",
+        "qwen-image-max-2025-12-30",
+        "qwen-image-plus-2026-01-09",
+    }
+    if normalized in generation_only_models:
+        return env_value(
+            "QWEN_IMAGE_EDIT_MODEL",
+            "QWEN-IMAGE-EDIT-MODEL",
+            default="qwen-image-2.0",
+        )
+    return model
+
+
 # =====================================================
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: call_qwen_image
 # Формирует официальный payload, отправляет запрос во внешний AI API и нормализует ответ для общего lifecycle генерации.
@@ -9903,19 +9937,30 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
         return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Provider API key is missing: DASHSCOPE_API_KEY"), {}
     opts = payload.get("image_options") or {}
     key = qwen_frontend_model(frontend_model, provider_model)
+    received_references = image_reference_urls(payload)
+    included_references = []
+    for reference in received_references:
+        image_value = qwen_image_reference_value(reference)
+        if image_value and image_value not in included_references:
+            included_references.append(image_value)
+        if len(included_references) >= 3:
+            break
+    effective_provider_model = qwen_image_edit_model(provider_model, bool(included_references))
     seed_supported = bool((QWEN_MODEL_VARIANTS.get(key) or {}).get("seed"))
     seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
     if seed is not None and seed > 2147483647:
         return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Seed must be between 0 and 2147483647"), {}
     image_count = max(1, int(count or 1))
     per_request_count = image_count if key in {"qwen_image_2", "qwen_image_2_pro"} else 1
+    content = [{"image": reference} for reference in included_references]
+    content.append({"text": prompt})
     request_payload = {
-        "model": provider_model,
+        "model": effective_provider_model,
         "input": {
             "messages": [
                 {
                     "role": "user",
-                    "content": [{"text": prompt}],
+                    "content": content,
                 }
             ]
         },
@@ -9939,16 +9984,19 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
                 "QWEN_IMAGE_PROVIDER_REQUEST",
                 endpoint=endpoint,
                 frontend_model=frontend_model,
-                provider_model=provider_model,
+                provider_model=effective_provider_model,
                 size=request_payload["parameters"].get("size"),
                 count=request_payload["parameters"].get("n"),
+                reference_count_received=len(received_references),
+                image_count=len(included_references),
+                reference_count_omitted=max(0, len(received_references) - len(included_references)),
                 attempt=attempt,
                 seed_present=seed is not None,
             )
             response = requests.post(endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
         except requests.RequestException as exc:
-            prostudio_error("QWEN_IMAGE_PROVIDER_REQUEST_FAILED", exc, endpoint=endpoint, frontend_model=frontend_model, provider_model=provider_model)
-            return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), last_payload
+            prostudio_error("QWEN_IMAGE_PROVIDER_REQUEST_FAILED", exc, endpoint=endpoint, frontend_model=frontend_model, provider_model=effective_provider_model)
+            return [], image_error_response("qwen", frontend_model, effective_provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), last_payload
         data = safe_provider_json(response, "qwen", endpoint)
         images = normalize_image_response(data)
         prostudio_debug(
@@ -9960,7 +10008,7 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
         )
         if response.status_code >= 400 or data.get("ok") is False:
             provider_error = provider_error_text(data.get("error") or data.get("message") or data, "Provider request failed")
-            return [], image_error_response("qwen", frontend_model, provider_model, endpoint, provider_error, response, data), last_payload
+            return [], image_error_response("qwen", frontend_model, effective_provider_model, endpoint, provider_error, response, data), last_payload
         for url in images:
             if url and url not in all_images:
                 all_images.append(url)
@@ -11013,11 +11061,20 @@ async def image_generation(payload: dict) -> dict:
 
     if provider == "qwen":
         images, error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
+        qwen_payload_image_count = sum(
+            1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
+        )
         print("QWEN IMAGE PAYLOAD:", {
             "frontend_model": requested_model,
-            "provider_model": api_model,
+            "provider_model": (request_payload or {}).get("model") or api_model,
             "endpoint": endpoint,
-            "payload": request_payload,
+            "image_count": qwen_payload_image_count,
+            "has_references": qwen_payload_image_count > 0,
+            "content_types": [
+                "image" if isinstance(item, dict) and item.get("image") else "text"
+                for item in qwen_content
+            ],
         })
         if error:
             return error
@@ -11027,7 +11084,7 @@ async def image_generation(payload: dict) -> dict:
             result.update(qwen_cost_info(requested_model, api_model, len(final_images) or count))
             result["provider"] = "qwen"
             result["model"] = requested_model
-            result["provider_model"] = api_model
+            result["provider_model"] = (request_payload or {}).get("model") or api_model
             result["request_payload"] = request_payload
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
