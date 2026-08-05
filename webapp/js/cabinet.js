@@ -12919,7 +12919,6 @@ function maybeShowVideoTemplateIntro(force) {
         isMusic ? 'music' :
         'video';
     }
-    if (isText && composer?.classList.contains('composer-input-window')) hideMobileKeyboard();
     // Show only controls for the active generation mode.
     const modeClasses = ['image-only', 'video-only', 'music-only', 'voice-only', 'text-only'];
 
@@ -15459,7 +15458,7 @@ async function waitGeneration(jobId, options) {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
       const openComposerInputWindow = () => {
-        if (window.innerWidth > 900 || studioMode === 'text') return;
+        if (window.innerWidth > 900) return;
         document.body.classList.add('kb-open');
         document.body.classList.add('composer-input-window-open');
         document.getElementById('studioComposer')?.classList.add('composer-input-window');
