@@ -2718,7 +2718,7 @@ function hideMobileKeyboard(event) {
   try { navigator.virtualKeyboard?.hide?.(); } catch {}
   document.documentElement.style.setProperty('--kb', '0px');
   document.body.classList.remove('kb-open');
-  document.getElementById('studioComposer')?.classList.remove('voice-keyboard-lift');
+  document.getElementById('studioComposer')?.classList.remove('composer-keyboard-lift');
 }
 
 function dismissGenerationInputUi() {
@@ -15454,19 +15454,19 @@ async function waitGeneration(jobId, options) {
     // Enter always creates a new line. Generation starts only from its button.
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
-      const liftVoiceComposerOnFocus = () => {
-        if (window.innerWidth > 900 || !isVoiceMode()) return;
+      const liftComposerOnFocus = () => {
+        if (window.innerWidth > 900) return;
         document.body.classList.add('kb-open');
-        document.getElementById('studioComposer')?.classList.add('voice-keyboard-lift');
+        document.getElementById('studioComposer')?.classList.add('composer-keyboard-lift');
       };
-      chatInput.addEventListener('touchstart', liftVoiceComposerOnFocus, { passive:true });
-      chatInput.addEventListener('pointerdown', liftVoiceComposerOnFocus);
-      chatInput.addEventListener('focus', liftVoiceComposerOnFocus);
+      chatInput.addEventListener('touchstart', liftComposerOnFocus, { passive:true });
+      chatInput.addEventListener('pointerdown', liftComposerOnFocus);
+      chatInput.addEventListener('focus', liftComposerOnFocus);
       chatInput.addEventListener('blur', () => {
         setTimeout(() => {
           if (document.activeElement !== chatInput) {
             document.body.classList.remove('kb-open');
-            document.getElementById('studioComposer')?.classList.remove('voice-keyboard-lift');
+            document.getElementById('studioComposer')?.classList.remove('composer-keyboard-lift');
           }
         }, 120);
       });
@@ -15495,9 +15495,9 @@ async function waitGeneration(jobId, options) {
         const layoutKeyboard = window.innerHeight - vv.height - vv.offsetTop;
         const stableKeyboard = stableViewportHeight - vv.height - vv.offsetTop;
         const kb = Math.max(0, layoutKeyboard, stableKeyboard);
-        const forceVoiceLift = editableFocused && active?.id === 'chatInput' && window.innerWidth <= 900 && isVoiceMode();
+        const forceComposerLift = editableFocused && active?.id === 'chatInput' && window.innerWidth <= 900;
         document.documentElement.style.setProperty('--kb', kb + 'px');
-        document.body.classList.toggle('kb-open', forceVoiceLift || (editableFocused && kb > 80));
+        document.body.classList.toggle('kb-open', forceComposerLift || (editableFocused && kb > 80));
       };
       // =====================================================
       // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
