@@ -589,8 +589,8 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-input
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-body.kb-open .view[data-view="tools"].active .studio-input{
-  transform:translate3d(0,calc(-1 * var(--kb)),0);
+body.kb-open .view[data-view="tools"].active .studio-input[data-composer-mode="voice"]{
+  transform:translate3d(0,-38px,0);
   padding-bottom:12px;
   transition:transform .15s ease;
   will-change:transform;
