@@ -750,6 +750,9 @@ CSS-БЛОК: .studio-mode-tab
   min-width:0;
 }
 .studio-video-composer[data-composer-mode="voice"] .studio-voice-full{display:flex}
+.studio-video-composer[data-composer-mode="voice"][data-voice-workspace="voiceover"] .dialogue-only{display:none!important}
+.studio-video-composer[data-composer-mode="voice"][data-voice-workspace="dialogue"] .voiceover-only{display:none!important}
+.studio-video-composer[data-composer-mode="voice"][data-voice-workspace="dialogue"] .dialogue-only{display:block!important}
 .vgen-actions{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -2124,6 +2127,11 @@ body > #modelPop.music-duration-wheel-pop{
   min-height:34px;padding:7px 11px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#303030;color:#ddd;cursor:pointer
 }
 .voice-addon-options button:hover,.voice-addon-options button.active,.voice-addon-primary{border-color:#377fdb;background:#245d9f;color:#fff}
+.voice-custom-option-form{display:flex;align-items:center;gap:7px;margin-top:10px}
+.voice-custom-option-form input{min-width:0;flex:1;height:36px;box-sizing:border-box;padding:0 10px;border:1px solid rgba(255,255,255,.11);border-radius:10px;background:#1f1f1f;color:#eee;outline:none}
+.voice-custom-option-form button{height:36px;flex:0 0 auto;padding:0 10px;border:1px solid #377fdb;border-radius:10px;background:#245d9f;color:#fff;display:flex;align-items:center;gap:5px;cursor:pointer}
+.voice-custom-option-form button svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round}
+.voice-custom-option-form button span{font-size:10px}
 .voice-addon-field{width:100%;box-sizing:border-box;margin:5px 0 9px;padding:10px;border:1px solid rgba(255,255,255,.11);border-radius:10px;background:#1f1f1f;color:#eee;outline:none}
 .voice-addon-setting{display:grid;grid-template-columns:105px 1fr 40px;align-items:center;gap:8px;margin:9px 0;font-size:11px;color:#aaa}
 .voice-addon-setting input{width:100%;accent-color:#2784ef}.voice-addon-setting output{text-align:right;color:#ddd;font-variant-numeric:tabular-nums}
