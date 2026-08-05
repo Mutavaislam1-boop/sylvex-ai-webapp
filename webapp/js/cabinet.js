@@ -15461,8 +15461,6 @@ async function waitGeneration(jobId, options) {
         document.body.classList.add('composer-input-window-open');
         document.getElementById('studioComposer')?.classList.add('composer-input-window');
       };
-      chatInput.addEventListener('touchstart', openComposerInputWindow, { passive:true });
-      chatInput.addEventListener('pointerdown', openComposerInputWindow);
       chatInput.addEventListener('focus', openComposerInputWindow);
       chatInput.addEventListener('input', () => {
         updateSendButton();
