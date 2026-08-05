@@ -719,7 +719,10 @@ HTML-страница Mini App. Комментарии подписывают э
                 ID используется JavaScript/CSS как точка подключения: sendBtn
                 CSS-класс задаёт внешний вид и расположение: studio-generate
                 =================================================== -->
-                <button class="studio-generate" id="sendBtn" type="button" onclick="sendChat()" disabled>Сгенерировать</button>
+                <button class="studio-generate" id="sendBtn" type="button" onclick="sendChat()" aria-label="Сгенерировать" disabled>
+                  <span class="studio-generate-label">Сгенерировать</span>
+                  <svg class="studio-send-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </button>
               </div>
             </div>
           <!-- ==================================================

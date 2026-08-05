@@ -613,8 +613,26 @@ CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
   .studio-input.composer-input-window .studio-mode-tabs{flex:0 0 auto}
   .studio-input.composer-input-window .studio-video-panel{flex:1 0 auto;margin-bottom:8px}
   .studio-input.composer-input-window .studio-prompt-column{scroll-margin-bottom:90px}
-  .studio-input.composer-input-window .studio-prompt-column textarea{min-height:124px!important}
+  .studio-input.composer-input-window .studio-prompt-column textarea{min-height:124px!important;padding-right:0!important}
   .studio-input.composer-input-window .mobile-keyboard-close{display:grid}
+  .studio-input.composer-input-window .studio-control-row{
+    position:sticky;
+    bottom:0;
+    z-index:12;
+    padding:8px 0 calc(env(safe-area-inset-bottom,0px) + 4px);
+    background:linear-gradient(180deg,rgba(32,32,32,0),#202020 28%);
+  }
+  .studio-input.composer-input-window textarea:not(:placeholder-shown)+.mobile-keyboard-close{
+    opacity:.28;
+    border-color:transparent;
+    background:rgba(32,32,32,.18);
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+  }
+  .studio-input.composer-input-window textarea:not(:placeholder-shown)~.text-mic-floating{
+    opacity:.28;
+    background:rgba(32,32,32,.18);
+  }
 }
 /* =====================================================
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .chat-area
@@ -2885,6 +2903,32 @@ CSS-БЛОК: .studio-generate
 }
 .studio-generate:not(:disabled){background:#2f6fbd;color:#fff}
 .studio-generate:disabled{cursor:not-allowed;opacity:.9}
+.studio-send-arrow{display:none;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.studio-video-composer[data-composer-mode="text"] .studio-generate{
+  position:absolute;
+  right:0;
+  bottom:0;
+  z-index:8;
+  width:38px;
+  min-width:38px;
+  height:38px;
+  min-height:38px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+}
+.studio-video-composer[data-composer-mode="text"] .studio-generate-label{display:none}
+.studio-video-composer[data-composer-mode="text"] .studio-send-arrow{display:block}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row{padding-right:88px}
+.studio-video-composer[data-composer-mode="text"] .text-mic-floating{
+  top:auto;
+  right:44px;
+  bottom:0;
+  width:38px;
+  height:38px;
+}
+.studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close{display:none!important}
 
 @media(max-width:900px){
   .studio-mode-tab{height:46px;padding:0 14px;font-size:13px}
