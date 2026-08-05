@@ -10,8 +10,3 @@ Optional poster image:
 
 Optional prompt text:
 - webapp/assets/video-templates/47/prompt.txt
-
-
-
-Office Chaos
-Calm under pressure in a cinematic office consumed by fire, smoke, and swirling chaos
