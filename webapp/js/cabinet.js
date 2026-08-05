@@ -12919,6 +12919,7 @@ function maybeShowVideoTemplateIntro(force) {
         isMusic ? 'music' :
         'video';
     }
+    if (isText && composer?.classList.contains('composer-input-window')) hideMobileKeyboard();
     // Show only controls for the active generation mode.
     const modeClasses = ['image-only', 'video-only', 'music-only', 'voice-only', 'text-only'];
 
@@ -15222,6 +15223,8 @@ async function waitGeneration(jobId, options) {
     if (send.classList.contains('studio-generate')) {
       send.disabled = !has || textUploading;
       send.hidden = false;
+      send.setAttribute('aria-label', studioMode === 'text' ? 'Отправить сообщение' : 'Сгенерировать');
+      send.title = studioMode === 'text' ? 'Отправить' : 'Сгенерировать';
     } else {
       send.hidden = !has || textUploading;
     }
@@ -15456,7 +15459,7 @@ async function waitGeneration(jobId, options) {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
       const openComposerInputWindow = () => {
-        if (window.innerWidth > 900) return;
+        if (window.innerWidth > 900 || studioMode === 'text') return;
         document.body.classList.add('kb-open');
         document.body.classList.add('composer-input-window-open');
         document.getElementById('studioComposer')?.classList.add('composer-input-window');
