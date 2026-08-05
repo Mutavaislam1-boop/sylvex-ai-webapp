@@ -22,6 +22,7 @@ import httpx
 
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
+from services.storage import generated_key, key_from_url as storage_key_from_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, temporary_file_from_url
 
 
 AUDIO_API_BASE_URL = os.getenv("AUDIO_API_BASE_URL", "https://udioapi.pro/api").rstrip("/")
@@ -461,15 +462,16 @@ def _is_runway_voice_model(frontend_model: str) -> bool:
 def _save_gemini_tts_wav(pcm: bytes) -> str:
     if not pcm:
         return ""
-    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid4().hex}.wav"
-    path = GENERATED_AUDIO_DIR / filename
+    temp = tempfile.NamedTemporaryFile(prefix="sylvex-audio-", suffix=".wav", delete=False)
+    path = pathlib.Path(temp.name)
+    temp.close()
     with wave.open(str(path), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(24000)
         wf.writeframes(pcm)
-    return f"/webapp/generated/audio/{filename}"
+    return storage_put_file(path, generated_key("audio", filename), "audio/wav", remove_local=True)
 
 
 # =====================================================
@@ -479,12 +481,9 @@ def _save_gemini_tts_wav(pcm: bytes) -> str:
 def _save_audio_file(content: bytes, ext: str = ".mp3") -> str:
     if not content:
         return ""
-    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     safe_ext = ext if ext.startswith(".") and len(ext) <= 8 else ".mp3"
     filename = f"{uuid4().hex}{safe_ext}"
-    path = GENERATED_AUDIO_DIR / filename
-    path.write_bytes(content)
-    return f"/webapp/generated/audio/{filename}"
+    return storage_put_bytes(content, generated_key("audio", filename), mimetypes.guess_type(filename)[0] or "audio/mpeg")
 
 
 # =====================================================
@@ -494,12 +493,9 @@ def _save_audio_file(content: bytes, ext: str = ".mp3") -> str:
 def _save_video_file(content: bytes, ext: str = ".mp4") -> str:
     if not content:
         return ""
-    GENERATED_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     safe_ext = ext if ext.startswith(".") and len(ext) <= 8 else ".mp4"
     filename = f"{uuid4().hex}{safe_ext}"
-    path = GENERATED_VIDEO_DIR / filename
-    path.write_bytes(content)
-    return f"/webapp/generated/videos/{filename}"
+    return storage_put_bytes(content, generated_key("videos", filename), mimetypes.guess_type(filename)[0] or "video/mp4")
 
 
 # =====================================================
@@ -510,11 +506,21 @@ def _local_webapp_path_from_url(url: str) -> Optional[pathlib.Path]:
     value = str(url or "").strip()
     if not value:
         return None
+    if storage_key_from_url(value):
+        try:
+            return temporary_file_from_url(value, pathlib.Path(urllib.parse.urlparse(value).path).suffix)
+        except Exception:
+            return None
     parsed_path = urllib.parse.urlparse(value).path if value.startswith(("http://", "https://")) else value
     if not parsed_path.startswith("/webapp/"):
         return None
     local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
     return local_path if local_path.exists() else None
+
+
+def _remove_materialized_temp(path: Optional[pathlib.Path]) -> None:
+    if path and path.parent == pathlib.Path(tempfile.gettempdir()) and path.name.startswith("sylvex-"):
+        path.unlink(missing_ok=True)
 
 
 # =====================================================
@@ -561,14 +567,18 @@ def _mux_video_with_audio(video_url: str, audio_url: str) -> str:
         completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600, check=False)
     except Exception as exc:
         print("ELEVENLABS DUBBING VIDEO MUX ERROR:", {"error": repr(exc)})
+        _remove_materialized_temp(video_path)
+        _remove_materialized_temp(audio_path)
         return ""
+    _remove_materialized_temp(video_path)
+    _remove_materialized_temp(audio_path)
     if completed.returncode != 0 or not output_path.exists() or output_path.stat().st_size <= 0:
         print("ELEVENLABS DUBBING VIDEO MUX ERROR:", {
             "returncode": completed.returncode,
             "stderr": (completed.stderr or b"").decode("utf-8", "ignore")[-1000:],
         })
         return ""
-    return f"/webapp/generated/videos/{output_path.name}"
+    return storage_put_file(output_path, generated_key("videos", output_path.name), "video/mp4", remove_local=True)
 
 
 # =====================================================
@@ -600,7 +610,9 @@ def _extract_audio_from_video_for_dubbing(video_url: str) -> tuple[bytes, str, s
         completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600, check=False)
     except Exception as exc:
         print("ELEVENLABS DUBBING AUDIO EXTRACT ERROR:", {"error": repr(exc)})
+        _remove_materialized_temp(video_path)
         return b"", output_path.name, "audio/mp4", repr(exc)
+    _remove_materialized_temp(video_path)
     if completed.returncode != 0 or not output_path.exists() or output_path.stat().st_size <= 0:
         stderr = (completed.stderr or b"").decode("utf-8", "ignore")[-1200:]
         print("ELEVENLABS DUBBING AUDIO EXTRACT ERROR:", {
@@ -614,7 +626,9 @@ def _extract_audio_from_video_for_dubbing(video_url: str) -> tuple[bytes, str, s
             pass
         return b"", output_path.name, "audio/mp4", stderr or "Could not extract audio from video"
 
-    return output_path.read_bytes(), output_path.name, "audio/mp4", ""
+    result = output_path.read_bytes()
+    output_path.unlink(missing_ok=True)
+    return result, output_path.name, "audio/mp4", ""
 
 
 # =====================================================
@@ -703,6 +717,11 @@ async def _load_provider_media(client: httpx.AsyncClient, media_url: str) -> tup
     if not value:
         return b"", "input-audio.mp3", "audio/mpeg"
     parsed_path = urllib.parse.urlparse(value).path if value.startswith(("http://", "https://")) else value
+    if storage_key_from_url(value):
+        content = storage_read_bytes(value)
+        filename = pathlib.Path(parsed_path).name or "input-audio.mp3"
+        content_type = mimetypes.guess_type(filename)[0] or "audio/mpeg"
+        return content, filename, content_type
     if parsed_path.startswith("/webapp/"):
         local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
         if not local_path.exists():
@@ -954,15 +973,16 @@ def _extract_gemini_output_text(data: Any) -> str:
 def _save_lyria_realtime_wav(pcm: bytes) -> str:
     if not pcm:
         return ""
-    GENERATED_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid4().hex}.wav"
-    path = GENERATED_AUDIO_DIR / filename
+    temp = tempfile.NamedTemporaryFile(prefix="sylvex-music-", suffix=".wav", delete=False)
+    path = pathlib.Path(temp.name)
+    temp.close()
     with wave.open(str(path), "wb") as wf:
         wf.setnchannels(2)
         wf.setsampwidth(2)
         wf.setframerate(48000)
         wf.writeframes(pcm)
-    return f"/webapp/generated/audio/{filename}"
+    return storage_put_file(path, generated_key("audio", filename), "audio/wav", remove_local=True)
 
 
 async def lyria_music_generation(payload: dict, frontend_model: str, provider_model: str) -> dict:
@@ -1163,7 +1183,10 @@ async def _send_generated_audio_to_telegram(
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
-            if str(audio_url).startswith("/webapp/"):
+            if storage_key_from_url(str(audio_url)):
+                audio_content = storage_read_bytes(str(audio_url))
+                content_type = mimetypes.guess_type(urllib.parse.urlparse(str(audio_url)).path)[0] or "audio/mpeg"
+            elif str(audio_url).startswith("/webapp/"):
                 local_path = WEBAPP_DIR / str(audio_url).replace("/webapp/", "", 1)
                 audio_content = local_path.read_bytes() if local_path.exists() else b""
                 content_type = "audio/wav" if local_path.suffix.lower() == ".wav" else "audio/mpeg"

@@ -12,3 +12,4 @@ runwayml
 google-genai
 pypdf
 python-docx
+boto3

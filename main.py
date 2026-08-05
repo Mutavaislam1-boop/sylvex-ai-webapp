@@ -18,12 +18,14 @@ import threading
 import random
 import html
 import concurrent.futures
+import tempfile
+import mimetypes
 from typing import Optional
 from uuid import uuid4
 import requests
 import psycopg2
 from dotenv import load_dotenv
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
 from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
@@ -31,6 +33,7 @@ from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
+from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, Response
@@ -70,6 +73,22 @@ app.mount("/css", StaticFiles(directory="webapp/css"), name="css")
 app.mount("/generated", StaticFiles(directory=WEBAPP_DIR / "generated"), name="generated")
 app.mount("/preset_catalog", StaticFiles(directory=PRESET_CATALOG_DIR), name="preset_catalog")
 app.include_router(video_templates_router)
+
+
+@app.get("/api/public/storage/{object_key:path}")
+async def public_storage_object(object_key: str, request: Request):
+    key = storage_key_from_url(object_key) or object_key
+    try:
+        range_header = str(request.headers.get("range") or "")
+        body, content_type, content_length, total, start, end = await asyncio.to_thread(storage_get_object_range, key, range_header)
+    except Exception:
+        return Response(status_code=404)
+    headers = {"Cache-Control": "public, max-age=31536000, immutable", "Accept-Ranges": "bytes"}
+    headers["Content-Length"] = str(content_length)
+    status_code = 206 if range_header else 200
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+    return StreamingResponse(storage_iter_object(body, max_bytes=content_length), media_type=content_type, headers=headers, status_code=status_code)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TELEGRAM_PAYMENT_WEBHOOK_SECRET = (os.getenv("TELEGRAM_PAYMENT_WEBHOOK_SECRET") or "").strip()
@@ -337,9 +356,7 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
             download.raise_for_status(); image_bytes = download.content
         else:
             raise RuntimeError("OpenAI image response has no image")
-        local_path = VOICE_GENERATED_AVATARS_DIR / f"{key}.png"
-        local_path.write_bytes(image_bytes)
-        avatar_path = f"/api/public/prostudio/voice-avatar/{key}"
+        avatar_path = storage_put_bytes(image_bytes, generated_key("voice-avatars", f"{key}.png"), "image/png")
         conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
         cursor.execute("""
             UPDATE prostudio_voice_avatars SET image_data=%s, content_type='image/png', avatar_path=%s,
@@ -3850,6 +3867,13 @@ async def public_prostudio_voice_avatar_image(avatar_key: str):
     safe_key = re.sub(r"[^a-f0-9]", "", str(avatar_key or "").lower())[:40]
     if len(safe_key) != 40:
         return Response(status_code=404)
+    storage_key = generated_key("voice-avatars", f"{safe_key}.png")
+    if storage_exists(storage_key):
+        body, content_type, content_length = await asyncio.to_thread(storage_get_object, storage_key)
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+        if content_length is not None:
+            headers["Content-Length"] = str(content_length)
+        return StreamingResponse(storage_iter_object(body), media_type=content_type, headers=headers)
     local_path = VOICE_GENERATED_AVATARS_DIR / f"{safe_key}.png"
     if local_path.exists():
         return FileResponse(local_path, media_type="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
@@ -3861,7 +3885,7 @@ async def public_prostudio_voice_avatar_image(avatar_key: str):
             if row and row[0]:
                 image_bytes = bytes(row[0])
                 try:
-                    local_path.write_bytes(image_bytes)
+                    storage_put_bytes(image_bytes, storage_key, row[1] or "image/png")
                 except Exception:
                     pass
                 return Response(content=image_bytes, media_type=row[1] or "image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
@@ -5302,14 +5326,11 @@ def materialize_data_image_url(url: str) -> str:
             ext = "gif"
         else:
             ext = "png"
-        image_dir = WEBAPP_DIR / "generated" / "images"
-        image_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid4().hex}.{ext}"
-        path = image_dir / filename
-        prostudio_debug("IMAGE_SAVE_START", path=str(path), ext=ext, bytes=len(content))
-        path.write_bytes(content)
-        saved_url = f"/webapp/generated/images/{filename}"
-        prostudio_debug("IMAGE_SAVE_DONE", path=str(path), url=saved_url, exists=path.exists(), bytes=path.stat().st_size if path.exists() else 0)
+        key = generated_key("images", filename)
+        prostudio_debug("IMAGE_SAVE_START", path=key, ext=ext, bytes=len(content), storage="r2" if r2_enabled() else "local")
+        saved_url = storage_put_bytes(content, key, mime)
+        prostudio_debug("IMAGE_SAVE_DONE", path=key, url=saved_url, exists=storage_exists(key), bytes=len(content))
         return saved_url
     except Exception as exc:
         prostudio_error("IMAGE_SAVE_FAILED", exc)
@@ -5341,6 +5362,61 @@ def public_media_url(url: str) -> str:
     return materialized
 
 
+def _persist_remote_media_url(url: str, category: str) -> str:
+    raw = str(url or "").strip()
+    if not raw or storage_key_from_url(raw):
+        return raw
+    try:
+        if raw.startswith("data:image"):
+            return materialize_data_image_url(raw)
+        if raw.startswith("/webapp/generated/") or raw.startswith("/generated/"):
+            local_key = storage_key_from_url(raw)
+            if local_key:
+                local_path = WEBAPP_DIR.parent / local_key
+                if local_path.is_file():
+                    return storage_put_file(local_path, local_key, remove_local=r2_enabled())
+            return raw
+        if not raw.startswith(("http://", "https://")):
+            return raw
+        response = requests.get(raw, timeout=240)
+        response.raise_for_status()
+        content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+        suffix = pathlib.Path(urllib.parse.urlparse(raw).path).suffix.lower()
+        if not suffix or len(suffix) > 8:
+            suffix = mimetypes.guess_extension(content_type) or {"images": ".png", "videos": ".mp4", "audio": ".mp3", "documents": ".bin", "thumbs": ".jpg"}.get(category, ".bin")
+        filename = f"{uuid4().hex}{suffix}"
+        return storage_put_bytes(response.content, generated_key(category, filename), content_type)
+    except Exception as exc:
+        prostudio_error("R2_MEDIA_PERSIST_FAILED", exc, source=_sql_text(raw, 180), category=category)
+        return raw
+
+
+def persist_generation_media(result: dict, mode: str) -> dict:
+    if not isinstance(result, dict):
+        return result
+    scalar_fields = {
+        "image_url": "images", "thumbnail_url": "thumbs", "video_url": "videos",
+        "audio_url": "audio", "music_url": "audio", "file_url": "documents",
+    }
+    list_fields = {
+        "images": "images", "thumbnails": "thumbs", "videos": "videos",
+        "audio_urls": "audio", "files": "documents",
+    }
+    for field, category in scalar_fields.items():
+        if result.get(field):
+            result[field] = _persist_remote_media_url(result[field], category)
+    for field, category in list_fields.items():
+        values = result.get(field)
+        if isinstance(values, list):
+            result[field] = [_persist_remote_media_url(value, category) for value in values]
+    metadata = result.get("metadata")
+    if isinstance(metadata, dict):
+        for field, category in scalar_fields.items():
+            if metadata.get(field):
+                metadata[field] = _persist_remote_media_url(metadata[field], category)
+    return result
+
+
 def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") -> tuple | None:
     raw = str(url or "").strip()
     if not raw:
@@ -5355,6 +5431,9 @@ def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") ->
             ext = mime_type.split("/", 1)[1].replace("jpeg", "jpg") or "png"
             filename = pathlib.Path(filename).stem + "." + ext
             content = base64.b64decode(data)
+        elif storage_key_from_url(raw):
+            content = storage_read_bytes(raw)
+            filename = pathlib.Path(urllib.parse.urlparse(raw).path).name or filename
         elif raw.startswith("/webapp/"):
             local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
             content = local_path.read_bytes()
@@ -5453,9 +5532,6 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
     if not image_urls:
         return thumbs
 
-    thumb_dir = WEBAPP_DIR / "generated" / "thumbs"
-    thumb_dir.mkdir(parents=True, exist_ok=True)
-
     for url in image_urls:
         thumb_url = ""
         try:
@@ -5466,10 +5542,8 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
             if str(url).startswith("data:"):
                 raw = str(url).split(",", 1)[1] if "," in str(url) else ""
                 content = base64.b64decode(raw)
-            elif str(url).startswith("/webapp/generated/"):
-                local_rel = str(url).replace("/webapp/", "", 1)
-                local_path = WEBAPP_DIR / local_rel
-                content = local_path.read_bytes()
+            elif storage_key_from_url(str(url)):
+                content = storage_read_bytes(str(url))
             else:
                 r = requests.get(url, timeout=45)
                 if r.status_code >= 400 or not r.content:
@@ -5480,11 +5554,11 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
                 img = img.convert("RGB")
                 img.thumbnail((size, size))
                 filename = f"{uuid4().hex}.jpg"
-                path = thumb_dir / filename
-                prostudio_debug("THUMBNAIL_CREATE_START", source=_sql_text(url, 180), path=str(path), size=size)
-                img.save(path, format="JPEG", quality=78, optimize=True)
-                thumb_url = f"/webapp/generated/thumbs/{filename}"
-                prostudio_debug("THUMBNAIL_CREATE_DONE", path=str(path), url=thumb_url, exists=path.exists(), bytes=path.stat().st_size if path.exists() else 0)
+                output = io.BytesIO()
+                prostudio_debug("THUMBNAIL_CREATE_START", source=_sql_text(url, 180), path=filename, size=size)
+                img.save(output, format="JPEG", quality=78, optimize=True)
+                thumb_url = storage_put_bytes(output.getvalue(), generated_key("thumbs", filename), "image/jpeg")
+                prostudio_debug("THUMBNAIL_CREATE_DONE", path=filename, url=thumb_url, exists=storage_exists(thumb_url), bytes=output.tell())
         except Exception as exc:
             prostudio_error("THUMBNAIL_CREATE_FAILED", exc, source=_sql_text(url, 180))
             thumb_url = ""
@@ -6354,15 +6428,9 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     if len(content) > max_bytes:
         return JSONResponse({"ok": False, "error": "File is too large"}, status_code=400)
 
-    upload_dir = WEBAPP_DIR / "generated" / ("documents" if is_file else "video-inputs")
-    upload_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid4().hex}{suffix}"
-    stored_path = upload_dir / stored_name
-    stored_path.write_bytes(content)
     public_folder = "documents" if is_file else "video-inputs"
-    public_path = f"/webapp/generated/{public_folder}/{stored_name}"
-    base = (WEBAPP_URL or "").rstrip("/")
-    public_url = f"{base}{public_path}" if base else public_path
+    public_url = storage_put_bytes(content, generated_key(public_folder, stored_name), content_type)
     uploaded_kind = "video" if is_video else ("audio" if is_audio else ("file" if is_file else "image"))
     print("PROSTUDIO MEDIA UPLOAD:", {
         "kind": uploaded_kind,
@@ -8546,6 +8614,8 @@ def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:
         return b"", name, mime
     try:
         parsed_path = urllib.parse.urlparse(url).path if url.startswith(("http://", "https://")) else url
+        if storage_key_from_url(url):
+            return storage_read_bytes(url), name, mime
         if parsed_path.startswith("/webapp/"):
             local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
             return local_path.read_bytes(), name or local_path.name, mime
@@ -8753,10 +8823,10 @@ def save_text_pdf(text: str, title: str = "SYLVEX Text") -> str:
         from reportlab.pdfbase.ttfonts import TTFont
         from xml.sax.saxutils import escape
 
-        out_dir = WEBAPP_DIR / "generated" / "documents"
-        out_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid4().hex}.pdf"
-        path = out_dir / filename
+        temp = tempfile.NamedTemporaryFile(prefix="sylvex-document-", suffix=".pdf", delete=False)
+        path = pathlib.Path(temp.name)
+        temp.close()
         doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
         styles = getSampleStyleSheet()
         font_name = "Helvetica"
@@ -8779,7 +8849,7 @@ def save_text_pdf(text: str, title: str = "SYLVEX Text") -> str:
             story.append(Paragraph(escape(block) if block.strip() else "&nbsp;", styles["BodyText"]))
             story.append(Spacer(1, 4))
         doc.build(story)
-        return f"/webapp/generated/documents/{filename}"
+        return storage_put_file(path, generated_key("documents", filename), "application/pdf", remove_local=True)
     except Exception as exc:
         print("TEXT PDF SAVE FAILED:", repr(exc))
         return ""
@@ -9186,6 +9256,9 @@ def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
             ext = mime_type.split("/", 1)[1].replace("jpeg", "jpg") or "png"
             filename = f"reference-{index + 1}.{ext}"
             content = base64.b64decode(data)
+        elif storage_key_from_url(raw):
+            content = storage_read_bytes(raw)
+            filename = pathlib.Path(urllib.parse.urlparse(raw).path).name or filename
         elif raw.startswith("/webapp/"):
             local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
             content = local_path.read_bytes()
@@ -10256,6 +10329,14 @@ def google_local_or_remote_image_part(url: str) -> dict:
             head, data = raw.split(";base64,", 1)
             mime_type = head.replace("data:", "") or mime_type
             return {"type": "image", "mime_type": mime_type, "data": data}
+        if storage_key_from_url(raw):
+            data = storage_read_bytes(raw)
+            suffix = pathlib.Path(urllib.parse.urlparse(raw).path).suffix.lower()
+            if suffix in {".jpg", ".jpeg"}:
+                mime_type = "image/jpeg"
+            elif suffix == ".webp":
+                mime_type = "image/webp"
+            return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(data).decode("utf-8")}
         if raw.startswith("/webapp/"):
             local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
             data = local_path.read_bytes()
@@ -11805,6 +11886,9 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             update_prostudio_generation_job(job_id, "provider_processing", result=pending_result)
             prostudio_debug("JOB_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=mode)
             return
+
+        result = await asyncio.to_thread(persist_generation_media, result, mode)
+        prostudio_debug("JOB_MEDIA_PERSISTED", job_id=job_id, mode=mode, storage="r2" if r2_enabled() else "local")
 
         telegram_id = int(payload.get("telegram_id") or 0)
         print("PROSTUDIO RESULT BEFORE CHARGE:", {
