@@ -589,14 +589,14 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-input
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-body.kb-open .view[data-view="tools"].active .studio-input[data-composer-mode="voice"]{
+body.kb-open .view[data-view="tools"].active .studio-input{
   transform:translate3d(0,-38px,0);
   padding-bottom:12px;
   transition:transform .15s ease;
   will-change:transform;
 }
 @media(max-width:900px){
-  .view[data-view="tools"].active .studio-input[data-composer-mode="voice"].voice-keyboard-lift{
+  .view[data-view="tools"].active .studio-input.composer-keyboard-lift{
     transform:translate3d(0,-38px,0)!important;
     padding-bottom:12px;
     transition:transform .15s ease;
