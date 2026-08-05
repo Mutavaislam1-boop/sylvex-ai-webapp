@@ -2202,8 +2202,8 @@ body > #modelPop.music-duration-wheel-pop{
   .studio-control-row .voice-bottom-labeled span{font-size:10px}
   .voice-editor-addons{margin-top:2px}.voice-addon-setting{grid-template-columns:88px 1fr 34px}
   .voice-dialogue-open-tools{gap:6px}
-  .voice-dialogue-row{align-items:flex-start;flex-direction:column;gap:6px;padding:8px}
-  .voice-dialogue-row-items{width:100%;overflow:visible;flex-wrap:wrap;gap:7px 11px}
+  .voice-dialogue-row{align-items:center;flex-direction:row;gap:8px;padding:8px;overflow:hidden}
+  .voice-dialogue-row-items{width:auto;flex:1 1 auto;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;gap:7px 11px}
   .voice-dialogue-option{font-size:10px}
   body.kb-open .mobile-keyboard-close{display:grid}
   .studio-prompt-column.voice-editor-fullscreen{padding-top:calc(env(safe-area-inset-top,0px) + 72px)!important}
