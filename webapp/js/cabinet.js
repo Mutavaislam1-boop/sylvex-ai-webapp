@@ -1593,6 +1593,7 @@ function applyVoiceUploadPurpose(purposeId) {
 // =====================================================
 function voiceSpeakerVoiceValue(index) {
   const voices = Array.isArray(voiceState.speakerVoices) ? voiceState.speakerVoices : [];
+  if (voiceWorkspaceMode === 'dialogue') return String(voices[index] || '');
   if (index === 0) {
     if (isElevenLabsVoiceModel(voiceState.modelId)) return voiceState.elevenlabsVoice || voices[0] || '21m00Tcm4TlvDq8ikWAM';
     if (isRunwayVoiceModel(voiceState.modelId)) return voiceState.runwayVoice || voices[0] || 'Maya';
@@ -2660,9 +2661,9 @@ function handleVoiceSpeakerClick(event, speakerNumber) {
   renderVoiceControls();
 }
 
-const VOICE_EMOTIONS = ['Спокойно', 'Весело', 'Грустно', 'Серьёзно', 'Зло', 'Вдохновляюще'];
-const VOICE_PAUSES = [.2,.5,1,2,3];
-const VOICE_EFFECTS = ['Аплодисменты','Смех','Шаги','Дождь','Гром','Ветер','Дверь','Телефон','Город','Природа'];
+const VOICE_EMOTIONS = ['Спокойно', 'Весело', 'Грустно', 'Серьёзно', 'Зло', 'Вдохновляюще', 'Удивлённо', 'Взволнованно', 'Уверенно', 'Нежно', 'Таинственно', 'Иронично', 'Шёпотом', 'Торжественно'];
+const VOICE_PAUSES = [.2,.5,1,1.5,2,3,5];
+const VOICE_EFFECTS = ['Аплодисменты','Смех','Вздох','Кашель','Шаги','Дождь','Гром','Ветер','Дверь','Телефон','Город','Природа','Огонь','Волны','Птицы','Толпа','Сирена','Уведомление'];
 const VOICE_CUSTOM_OPTIONS_KEY = 'sylvex_voice_custom_dialogue_options';
 let voiceCustomOptions = { emotion:[], pause:[], effects:[] };
 try {
@@ -2806,6 +2807,10 @@ function voiceAddonShell(title, body) {
   return '<div class="voice-addon-head"><b>' + S.escapeHtml(title) + '</b><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeVoiceAddon(event)">×</button></div>' + body;
 }
 
+function voiceInlineOptionStrip(kind, title, items, insertHandler, suffix) {
+  return '<div class="voice-inline-option-strip"><button class="voice-inline-add" type="button" aria-label="Добавить свой вариант" onclick="SYLVEX.openVoiceCustomOption(event,\'' + kind + '\')">+</button><b>' + S.escapeHtml(title) + '</b>' + items.map((item) => '<button type="button" data-value="' + S.escapeHtml(String(item)) + '" onclick="SYLVEX.' + insertHandler + '(event,this.dataset.value)">' + S.escapeHtml(String(item)) + (suffix || '') + '</button>').join('') + '</div>';
+}
+
 function openVoiceAddon(event, kind, centeredModal, forceRender) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   const drawer = document.getElementById('voiceAddonDrawer');
@@ -2832,10 +2837,10 @@ function openVoiceAddon(event, kind, centeredModal, forceRender) {
     body = voiceAddonShell('Настройки голоса', rows.map((row) => '<label class="voice-addon-setting"><span>' + row[1] + '</span><input type="range" min="' + row[2] + '" max="' + row[3] + '" value="' + row[4] + '" oninput="SYLVEX.setVoiceEditorSetting(event,\'' + row[0] + '\',this.value)"><output>' + row[4] + row[5] + '</output></label>').join(''));
   } else if (kind === 'emotion') {
     const emotions = VOICE_EMOTIONS.concat(voiceCustomOptions.emotion || []);
-    body = voiceAddonShell('Эмоция', '<div class="voice-addon-options">' + emotions.map((item) => '<button type="button" data-value="' + S.escapeHtml(String(item)) + '" onclick="SYLVEX.insertVoiceEmotion(event,this.dataset.value)">' + S.escapeHtml(String(item)) + '</button>').join('') + '</div>' + voiceCustomOptionForm('emotion', 'Своя эмоция'));
+    body = voiceInlineOptionStrip('emotion', 'Эмоции', emotions, 'insertVoiceEmotion');
   } else if (kind === 'pause') {
     const pauses = VOICE_PAUSES.concat(voiceCustomOptions.pause || []);
-    body = voiceAddonShell('Добавить паузу', '<div class="voice-addon-options">' + pauses.map((item) => '<button type="button" data-value="' + S.escapeHtml(String(item)) + '" onclick="SYLVEX.insertVoicePause(event,this.dataset.value)">' + S.escapeHtml(String(item)) + ' сек</button>').join('') + '</div>' + voiceCustomOptionForm('pause', 'Своя пауза в секундах', 'number'));
+    body = voiceInlineOptionStrip('pause', 'Пауза', pauses, 'insertVoicePause', ' сек');
   } else if (kind === 'pronunciation') {
     const selected = voiceEditorSelection().text.trim();
     body = voiceAddonShell('Произношение', '<input class="voice-addon-field" id="voicePronunciationWord" placeholder="Слово" value="' + S.escapeHtml(selected) + '"><input class="voice-addon-field" id="voicePronunciationAs" placeholder="Читать как"><button class="voice-addon-primary" type="button" onclick="SYLVEX.saveVoicePronunciation(event)">Сохранить</button>');
@@ -2852,12 +2857,24 @@ function openVoiceAddon(event, kind, centeredModal, forceRender) {
     body = voiceAddonShell('Анализ текста', '<div class="voice-analysis-result"><p>Слов: ' + words + '</p><p>Ориентировочное время: ' + Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2,'0') + '</p><p>' + (longSentences ? 'Длинных предложений: ' + longSentences + '. Рекомендуем добавить паузы.' : 'Темп текста подходит для озвучки.') + '</p></div>');
   } else if (kind === 'effects') {
     const effects = VOICE_EFFECTS.concat(voiceCustomOptions.effects || []);
-    body = voiceAddonShell('Звуковые эффекты', '<div class="voice-addon-options">' + effects.map((item) => '<button type="button" data-value="' + S.escapeHtml(String(item)) + '" onclick="SYLVEX.insertVoiceEffect(event,this.dataset.value)">' + S.escapeHtml(String(item)) + '</button>').join('') + '</div>' + voiceCustomOptionForm('effects', 'Свой звуковой эффект'));
+    body = voiceInlineOptionStrip('effects', 'Звуковые эффекты', effects, 'insertVoiceEffect');
+  } else if (kind.startsWith('custom_')) {
+    const customKind = kind.slice(7);
+    const meta = customKind === 'pause'
+      ? ['Добавить паузу', 'Длительность в секундах', 'number']
+      : customKind === 'effects'
+        ? ['Добавить звуковой эффект', 'Название эффекта', 'text']
+        : ['Добавить эмоцию', 'Название эмоции', 'text'];
+    body = voiceAddonShell(meta[0], voiceCustomOptionForm(customKind, meta[1], meta[2]));
   } else if (kind === 'templates') {
     body = voiceAddonShell('Шаблоны текста', '<div class="voice-addon-options voice-template-strip" id="voiceTemplateStrip"><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'ad\')">Реклама</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'tiktok\')">TikTok</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'youtube\')">YouTube</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'podcast\')">Подкаст</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'book\')">Книга</button><button type="button" onclick="SYLVEX.applyVoiceTemplate(event,\'news\')">Новости</button></div>');
   }
   drawer.innerHTML = body;
   drawer.hidden = false;
+}
+
+function openVoiceCustomOption(event, kind) {
+  openVoiceAddon(event, 'custom_' + kind, true, true);
 }
 
 function voiceCustomOptionForm(kind, placeholder, inputType) {
@@ -12804,12 +12821,17 @@ function maybeShowVideoTemplateIntro(force) {
 
   function setVoiceWorkspaceMode(event, mode) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
+    const previousWorkspaceMode = voiceWorkspaceMode;
     voiceWorkspaceMode = mode === 'dialogue' ? 'dialogue' : 'voiceover';
     if (voiceWorkspaceMode === 'dialogue') {
       if (!isElevenLabsVoiceModel(voiceState.modelId)) voiceState.modelId = 'elevenlabs_eleven_v3';
       voiceState.elevenlabsTool = 'dialogue';
       voiceState.speakerMode = 'multi';
       voiceState.numSpeakers = Math.max(2, Number(voiceState.numSpeakers || 2));
+      if (previousWorkspaceMode !== 'dialogue') {
+        voiceState.speakerVoices = ['', '', '', '', '', '', ''];
+        voiceState.activeSpeakerIndex = null;
+      }
     } else {
       voiceState.elevenlabsTool = 'text_to_speech';
       voiceState.speakerMode = 'single';
@@ -16005,7 +16027,7 @@ async function waitGeneration(jobId, options) {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
-    openVoiceAddon, closeVoiceAddon, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
+    openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
