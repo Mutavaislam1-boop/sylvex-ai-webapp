@@ -2718,6 +2718,7 @@ function hideMobileKeyboard(event) {
   try { navigator.virtualKeyboard?.hide?.(); } catch {}
   document.documentElement.style.setProperty('--kb', '0px');
   document.body.classList.remove('kb-open');
+  document.getElementById('studioComposer')?.classList.remove('voice-keyboard-lift');
 }
 
 function dismissGenerationInputUi() {
@@ -15454,13 +15455,19 @@ async function waitGeneration(jobId, options) {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
       const liftVoiceComposerOnFocus = () => {
-        if (window.innerWidth <= 900 && isVoiceMode()) document.body.classList.add('kb-open');
+        if (window.innerWidth > 900 || !isVoiceMode()) return;
+        document.body.classList.add('kb-open');
+        document.getElementById('studioComposer')?.classList.add('voice-keyboard-lift');
       };
+      chatInput.addEventListener('touchstart', liftVoiceComposerOnFocus, { passive:true });
       chatInput.addEventListener('pointerdown', liftVoiceComposerOnFocus);
       chatInput.addEventListener('focus', liftVoiceComposerOnFocus);
       chatInput.addEventListener('blur', () => {
         setTimeout(() => {
-          if (document.activeElement !== chatInput) document.body.classList.remove('kb-open');
+          if (document.activeElement !== chatInput) {
+            document.body.classList.remove('kb-open');
+            document.getElementById('studioComposer')?.classList.remove('voice-keyboard-lift');
+          }
         }, 120);
       });
       chatInput.addEventListener('input', () => {
