@@ -2112,6 +2112,7 @@ body > #modelPop.music-duration-wheel-pop{
   color:#eee;box-shadow:0 18px 44px rgba(0,0,0,.26)
 }
 .voice-addon-drawer[hidden]{display:none!important}
+.voice-addon-drawer[data-kind="emotion"],.voice-addon-drawer[data-kind="pause"],.voice-addon-drawer[data-kind="effects"]{padding:4px 0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .voice-addon-drawer.voice-addon-modal{
   position:fixed!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important;
   z-index:1000050!important;width:min(430px,calc(100vw - 28px));max-height:min(76vh,620px);overflow-y:auto;
@@ -2127,6 +2128,12 @@ body > #modelPop.music-duration-wheel-pop{
   min-height:34px;padding:7px 11px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#303030;color:#ddd;cursor:pointer
 }
 .voice-addon-options button:hover,.voice-addon-options button.active,.voice-addon-primary{border-color:#377fdb;background:#245d9f;color:#fff}
+.voice-inline-option-strip{display:flex;align-items:center;gap:12px;width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;white-space:nowrap;padding:3px 0;direction:ltr}
+.voice-inline-option-strip::-webkit-scrollbar{display:none}
+.voice-inline-option-strip b{flex:0 0 auto;color:#f2f2f2;font-size:12px;font-weight:700}
+.voice-inline-option-strip button{flex:0 0 auto;border:0;border-radius:0;background:transparent;color:#aaa;padding:3px 0;font:inherit;font-size:11px;line-height:1.3;cursor:pointer;white-space:nowrap}
+.voice-inline-option-strip button:hover{color:#fff;background:transparent}
+.voice-inline-option-strip .voice-inline-add{font-size:20px;line-height:1;color:#eee;padding:0 1px}
 .voice-custom-option-form{display:flex;align-items:center;gap:7px;margin-top:10px}
 .voice-custom-option-form input{min-width:0;flex:1;height:36px;box-sizing:border-box;padding:0 10px;border:1px solid rgba(255,255,255,.11);border-radius:10px;background:#1f1f1f;color:#eee;outline:none}
 .voice-custom-option-form button{height:36px;flex:0 0 auto;padding:0 10px;border:1px solid #377fdb;border-radius:10px;background:#245d9f;color:#fff;display:flex;align-items:center;gap:5px;cursor:pointer}
