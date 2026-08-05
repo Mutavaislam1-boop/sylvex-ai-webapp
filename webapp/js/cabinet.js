@@ -15465,25 +15465,34 @@ async function waitGeneration(jobId, options) {
     // nav stays in its natural position and gets covered by the keyboard.
     const vv = window.visualViewport;
     if (vv) {
+      let stableViewportHeight = Math.max(window.innerHeight, vv.height + vv.offsetTop);
       // =====================================================
       // JAVASCRIPT-БЛОК: updateKb
       // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
       // =====================================================
       const updateKb = () => {
-        const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        const active = document.activeElement;
+        const editableFocused = Boolean(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable));
+        if (!editableFocused) stableViewportHeight = Math.max(window.innerHeight, vv.height + vv.offsetTop);
+        else stableViewportHeight = Math.max(stableViewportHeight, window.innerHeight, vv.height + vv.offsetTop);
+        const layoutKeyboard = window.innerHeight - vv.height - vv.offsetTop;
+        const stableKeyboard = stableViewportHeight - vv.height - vv.offsetTop;
+        const kb = Math.max(0, layoutKeyboard, stableKeyboard);
         document.documentElement.style.setProperty('--kb', kb + 'px');
-        document.body.classList.toggle('kb-open', kb > 80);
+        document.body.classList.toggle('kb-open', editableFocused && kb > 80);
       };
       // =====================================================
       // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
       // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
       // =====================================================
       vv.addEventListener('resize', updateKb);
-      // =====================================================
-      // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
-      // Связывает действие пользователя или загрузку страницы с нужной функцией интерфейса.
-      // =====================================================
       vv.addEventListener('scroll', updateKb);
+      window.addEventListener('resize', updateKb);
+      document.addEventListener('focusin', () => {
+        setTimeout(updateKb, 60);
+        setTimeout(updateKb, 260);
+      });
+      document.addEventListener('focusout', () => setTimeout(updateKb, 80));
       updateKb();
     }
   }

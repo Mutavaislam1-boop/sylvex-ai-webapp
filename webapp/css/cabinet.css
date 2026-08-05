@@ -590,9 +590,10 @@ CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 body.kb-open .view[data-view="tools"].active .studio-input{
-  transform:translateY(calc(-1 * var(--kb)));
+  transform:translate3d(0,calc(-1 * var(--kb)),0);
   padding-bottom:12px;
   transition:transform .15s ease;
+  will-change:transform;
 }
 /* =====================================================
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .chat-area
