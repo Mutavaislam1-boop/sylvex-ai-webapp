@@ -613,6 +613,7 @@ CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
   .studio-input.composer-input-window .studio-mode-tabs{flex:0 0 auto}
   .studio-input.composer-input-window .studio-video-panel{flex:1 0 auto;margin-bottom:8px}
   .studio-input.composer-input-window .studio-prompt-column{scroll-margin-bottom:90px}
+  .studio-input.composer-input-window .studio-prompt-column textarea{min-height:124px!important}
   .studio-input.composer-input-window .mobile-keyboard-close{display:grid}
 }
 /* =====================================================
