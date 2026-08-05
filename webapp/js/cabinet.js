@@ -15453,6 +15453,16 @@ async function waitGeneration(jobId, options) {
     // Enter always creates a new line. Generation starts only from its button.
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
+      const liftVoiceComposerOnFocus = () => {
+        if (window.innerWidth <= 900 && isVoiceMode()) document.body.classList.add('kb-open');
+      };
+      chatInput.addEventListener('pointerdown', liftVoiceComposerOnFocus);
+      chatInput.addEventListener('focus', liftVoiceComposerOnFocus);
+      chatInput.addEventListener('blur', () => {
+        setTimeout(() => {
+          if (document.activeElement !== chatInput) document.body.classList.remove('kb-open');
+        }, 120);
+      });
       chatInput.addEventListener('input', () => {
         updateSendButton();
         updateVoiceTextEstimate();
@@ -15478,8 +15488,9 @@ async function waitGeneration(jobId, options) {
         const layoutKeyboard = window.innerHeight - vv.height - vv.offsetTop;
         const stableKeyboard = stableViewportHeight - vv.height - vv.offsetTop;
         const kb = Math.max(0, layoutKeyboard, stableKeyboard);
+        const forceVoiceLift = editableFocused && active?.id === 'chatInput' && window.innerWidth <= 900 && isVoiceMode();
         document.documentElement.style.setProperty('--kb', kb + 'px');
-        document.body.classList.toggle('kb-open', editableFocused && kb > 80);
+        document.body.classList.toggle('kb-open', forceVoiceLift || (editableFocused && kb > 80));
       };
       // =====================================================
       // ОБРАБОТЧИК СОБЫТИЯ БРАУЗЕРА
