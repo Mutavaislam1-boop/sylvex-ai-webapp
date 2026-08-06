@@ -30,7 +30,20 @@
   };
   const expandedHistorySections = {};
   const activeGenerationWatchers = new Set();
-  let activeProStudioJob = null;
+  const activeGeneration = {
+    locked: false,
+    status: '',
+    mode: '',
+    jobId: '',
+    model: '',
+    startedAt: 0,
+    requestId: '',
+    loadingToken: '',
+    placeholderMessage: null,
+    progressTimer: null,
+    restoringMode: false,
+    historyPreview: false,
+  };
   const openingConversations = new Set();
   let restoringChatSpace = false;
   // Pending attachment for next send.
@@ -4124,11 +4137,14 @@ function localizedGreeting() {
   // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
   // =====================================================
   function restoreChatSpace(type) {
-    const normalized = chatTypeForMode(type);
+    const normalized = activeGenerationLocked() && activeGeneration.mode
+      ? activeGeneration.mode
+      : chatTypeForMode(type);
     if (!chatSpaces[normalized]) return;
     loadStoredChatSpace(normalized);
     currentConvId = chatSpaces[normalized].activeChatId || chatSpaces[normalized].conversationId || null;
     chatMessages = (chatSpaces[normalized].messages || []).slice();
+    if (activeGenerationLocked()) ensureActiveGenerationPlaceholder(false);
     renderChat();
     renderConvList();
     updateSendButton();
@@ -4145,6 +4161,7 @@ function localizedGreeting() {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function savedInitialStudioMode() {
+    if (activeGenerationLocked() && activeGeneration.mode) return activeGeneration.mode;
     try {
       const saved = localStorage.getItem(lastModeStorageKey());
       return CHAT_SPACE_TYPES.includes(saved) ? saved : '';
@@ -4189,29 +4206,171 @@ function localizedGreeting() {
   }
 
   function activeGenerationButtonLabel(status) {
-    return String(status || '').toLowerCase() === 'queued' ? 'В очереди' : 'Генерация…';
+    return ['submitting', 'queued'].includes(String(status || '').toLowerCase()) ? 'В очереди' : 'Генерация…';
+  }
+
+  function activeGenerationStorageKey() {
+    return 'sylvex-prostudio-active-generation-' + (getTelegramId() || 'anon');
+  }
+
+  function activeGenerationLocked() {
+    return !!activeGeneration.locked;
+  }
+
+  function persistActiveGeneration() {
+    try {
+      if (!activeGeneration.locked) localStorage.removeItem(activeGenerationStorageKey());
+      else localStorage.setItem(activeGenerationStorageKey(), JSON.stringify({
+        status: activeGeneration.status,
+        mode: activeGeneration.mode,
+        jobId: activeGeneration.jobId,
+        model: activeGeneration.model,
+        startedAt: activeGeneration.startedAt,
+      }));
+    } catch {}
+  }
+
+  function activeGenerationPlaceholderIndex() {
+    if (!activeGeneration.loadingToken) return -1;
+    return chatMessages.findIndex((message) => message && message.activeGenerationToken === activeGeneration.loadingToken);
+  }
+
+  function adoptActiveGenerationPlaceholder(index) {
+    const message = chatMessages[index];
+    if (!message || !message.generationLoading) return -1;
+    if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    message.activeGenerationToken = activeGeneration.loadingToken;
+    message.generationStatus = activeGeneration.status;
+    if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+    activeGeneration.placeholderMessage = message;
+    return index;
+  }
+
+  function patchActiveGenerationDom() {
+    const token = activeGeneration.loadingToken;
+    if (!token) return;
+    const node = document.querySelector('.generation-loading-msg[data-generation-token="' + token + '"]');
+    if (!node) return;
+    const title = node.querySelector('.generation-loading-title');
+    if (title) title.textContent = activeGenerationButtonLabel(activeGeneration.status);
+    const progress = activeGeneration.placeholderMessage && activeGeneration.placeholderMessage.progress;
+    if (progress) {
+      const updated = nextGenerationProgress(progress, false);
+      activeGeneration.placeholderMessage.progress = updated;
+      const percent = Math.max(0, Math.min(92, Number(updated.percent || 0)));
+      const bar = node.querySelector('.generation-loading-progress span');
+      const percentNode = node.querySelector('.generation-loading-percent');
+      if (bar) bar.style.width = percent + '%';
+      if (percentNode) percentNode.textContent = percent + '%';
+    }
+  }
+
+  function syncActiveGenerationProgressTimer() {
+    if (!activeGeneration.locked) {
+      if (activeGeneration.progressTimer) clearInterval(activeGeneration.progressTimer);
+      activeGeneration.progressTimer = null;
+      return;
+    }
+    if (activeGeneration.progressTimer) return;
+    activeGeneration.progressTimer = setInterval(patchActiveGenerationDom, 2200);
+  }
+
+  function ensureActiveGenerationPlaceholder(renderNow) {
+    if (!activeGeneration.locked) return -1;
+    let index = activeGenerationPlaceholderIndex();
+    if (index < 0) {
+      if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      const message = activeGeneration.placeholderMessage || {
+        role: 'ai',
+        generationLoading: true,
+        activeGenerationToken: activeGeneration.loadingToken,
+        generationStatus: activeGeneration.status,
+        progress: createGenerationProgress(generationKindForCurrentMode()),
+      };
+      message.activeGenerationToken = activeGeneration.loadingToken;
+      message.generationLoading = true;
+      message.generationStatus = activeGeneration.status;
+      if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+      activeGeneration.placeholderMessage = message;
+      index = chatMessages.push(message) - 1;
+    }
+    if (renderNow) renderChat();
+    return index;
+  }
+
+  function transitionActiveGeneration(action, data) {
+    const payload = data || {};
+    if (action === 'begin') {
+      if (activeGeneration.locked) return false;
+      activeGeneration.locked = true;
+      activeGeneration.status = 'submitting';
+      activeGeneration.mode = chatTypeForMode(payload.mode || currentChatType());
+      activeGeneration.jobId = '';
+      activeGeneration.model = payload.model || pickStudioModel();
+      activeGeneration.startedAt = Number(payload.startedAt || Date.now());
+      activeGeneration.requestId = payload.requestId || ('local_' + Date.now().toString(36));
+      activeGeneration.loadingToken = '';
+      activeGeneration.placeholderMessage = null;
+      activeGeneration.historyPreview = false;
+    } else if (action === 'restore' || action === 'job' || action === 'status') {
+      const incomingJobId = String(payload.id || payload.job_id || payload.jobId || '');
+      if (activeGeneration.jobId && incomingJobId && activeGeneration.jobId !== incomingJobId) return false;
+      activeGeneration.locked = true;
+      if (payload.status) activeGeneration.status = String(payload.status);
+      if (incomingJobId) activeGeneration.jobId = incomingJobId;
+      if (!activeGeneration.mode && payload.mode) activeGeneration.mode = chatTypeForMode(payload.mode);
+      if (!activeGeneration.model && payload.model) activeGeneration.model = payload.model;
+      if (!activeGeneration.startedAt) activeGeneration.startedAt = Number(payload.startedAt || Date.now());
+      if (!activeGeneration.requestId) activeGeneration.requestId = incomingJobId || ('restore_' + Date.now().toString(36));
+    } else if (action === 'reset') {
+      if (activeGeneration.progressTimer) clearInterval(activeGeneration.progressTimer);
+      Object.assign(activeGeneration, {
+        locked:false, status:'', mode:'', jobId:'', model:'', startedAt:0,
+        requestId:'', loadingToken:'', placeholderMessage:null, progressTimer:null,
+        restoringMode:false, historyPreview:false,
+      });
+    }
+
+    document.body.classList.toggle('prostudio-job-locked', activeGeneration.locked);
+    const composer = document.getElementById('studioComposer');
+    const input = document.getElementById('chatInput');
+    if (composer) composer.setAttribute('aria-busy', activeGeneration.locked ? 'true' : 'false');
+    if (input) {
+      input.readOnly = activeGeneration.locked;
+      input.setAttribute('aria-disabled', activeGeneration.locked ? 'true' : 'false');
+    }
+    document.querySelectorAll('#studioComposer button, #studioComposer input, #studioComposer select').forEach((element) => {
+      element.setAttribute('aria-disabled', activeGeneration.locked ? 'true' : 'false');
+    });
+    persistActiveGeneration();
+    syncActiveGenerationProgressTimer();
+    if (activeGeneration.placeholderMessage) {
+      activeGeneration.placeholderMessage.generationStatus = activeGeneration.status;
+      if (activeGeneration.placeholderMessage.progress) {
+        activeGeneration.placeholderMessage.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+      }
+    }
+    updateSendButton();
+    patchActiveGenerationDom();
+    return true;
   }
 
   function applyActiveProStudioJob(job) {
-    const active = !!(job && (job.id || job.job_id) && isActiveGenerationStatus(job.status));
-    activeProStudioJob = active ? Object.assign({}, job, { id: job.id || job.job_id }) : null;
-    document.body.classList.toggle('prostudio-job-locked', active);
-    const composer = document.getElementById('studioComposer');
-    const input = document.getElementById('chatInput');
-    if (composer) composer.setAttribute('aria-busy', active ? 'true' : 'false');
-    if (input) {
-      input.readOnly = active;
-      input.setAttribute('aria-disabled', active ? 'true' : 'false');
-    }
-    document.querySelectorAll('#studioComposer button, #studioComposer input, #studioComposer select').forEach((element) => {
-      element.setAttribute('aria-disabled', active ? 'true' : 'false');
-    });
-    updateSendButton();
+    return transitionActiveGeneration(activeGeneration.locked ? 'status' : 'restore', job || {});
   }
 
   function clearActiveProStudioJob(jobId) {
-    if (jobId && activeProStudioJob && activeProStudioJob.id !== jobId) return;
-    applyActiveProStudioJob(null);
+    if (jobId && activeGeneration.jobId && activeGeneration.jobId !== jobId) return;
+    transitionActiveGeneration('reset');
+  }
+
+  function restoreLocalActiveGeneration() {
+    try {
+      const snapshot = JSON.parse(localStorage.getItem(activeGenerationStorageKey()) || '{}');
+      if (!snapshot || !snapshot.mode || !snapshot.status) return;
+      if (!isActiveGenerationStatus(snapshot.status) && snapshot.status !== 'submitting') return;
+      transitionActiveGeneration('restore', snapshot);
+    } catch {}
   }
 
   async function restoreActiveProStudioJob() {
@@ -4223,7 +4382,16 @@ function localizedGreeting() {
       if (!response.ok || !data.ok) return;
       if (data.active && data.job) {
         applyActiveProStudioJob(data.job);
+        if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) {
+          activeGeneration.restoringMode = true;
+          updateComposerMode(activeGeneration.mode);
+          activeGeneration.restoringMode = false;
+        }
+        ensureActiveGenerationPlaceholder(true);
+        rememberCurrentChatSpace();
         watchGenerationJob(data.active_job_id || data.job.id, data.job);
+      } else if (activeGeneration.locked) {
+        clearActiveProStudioJob(activeGeneration.jobId);
       }
     } catch (error) {
       console.warn('[SYLVEX] active generation restore failed', error);
@@ -4252,16 +4420,74 @@ function localizedGreeting() {
     waitGeneration(jobId)
       .then((result) => {
         activeGenerationWatchers.delete(jobId);
-        const convId = (result && result.conversation_id) || (jobInfo && jobInfo.conversation_id) || '';
+        renderRestoredActiveGenerationResult(result, jobInfo || {});
         loadConversations();
-        if (convId && (!currentConvId || currentConvId === convId)) {
-          openConv(convId, chatTypeForMode((jobInfo && jobInfo.mode) || (result && result.type) || currentChatType()), { silent: true });
-        }
       })
       .catch((err) => {
         activeGenerationWatchers.delete(jobId);
         console.warn('[SYLVEX] generation watcher failed', jobId, err);
+        if (err && err.terminalStatus) {
+          const index = activeGenerationPlaceholderIndex();
+          if (index >= 0) {
+            chatMessages[index] = {
+              role: 'ai',
+              text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.'),
+            };
+          }
+          renderChat();
+          rememberCurrentChatSpace();
+          clearActiveProStudioJob(jobId);
+        }
       });
+  }
+
+  function renderRestoredActiveGenerationResult(result, jobInfo) {
+    const data = result || {};
+    const mode = chatTypeForMode(activeGeneration.mode || jobInfo.mode || data.type || currentChatType());
+    activeGeneration.restoringMode = true;
+    if (currentChatType() !== mode) updateComposerMode(mode);
+    activeGeneration.restoringMode = false;
+    restoreChatSpace(mode);
+    let index = activeGenerationPlaceholderIndex();
+    if (index < 0) index = ensureActiveGenerationPlaceholder(false);
+    const prompt = jobInfo.prompt || data.prompt || '';
+    const backendType = String(data.type || '').toLowerCase();
+    const type = backendType === 'video' || data.video_url || (Array.isArray(data.videos) && data.videos.length)
+      ? 'video'
+      : (mode === 'image' ? 'image' : (mode === 'music' ? 'music' : (mode === 'voice' ? 'voice' : 'file')));
+    if (type === 'image') {
+      const images = generatedUrlsFromResponse(data, 'image');
+      const thumbs = generatedThumbsFromResponse(data);
+      if (images.length) addGeneratedImages(images, thumbs);
+      chatMessages[index] = {
+        role: 'ai',
+        imageResultMini: true,
+        metadata: imageGenerationMetadata(prompt, [], data, null),
+      };
+    } else if (mode === 'text' && data.text) {
+      chatMessages[index] = {
+        role: 'ai',
+        text: data.text,
+        files: Array.isArray(data.files) ? data.files : (data.file_url ? [data.file_url] : []),
+      };
+    } else {
+      const urls = generatedUrlsFromResponse(data, type === 'video' ? 'video' : 'audio');
+      chatMessages[index] = urls.length
+        ? {
+            role: 'ai',
+            imageResultMini: true,
+            metadata: generationResultMetadata(type, prompt, data, [], null),
+          }
+        : {
+            role: 'ai',
+            text: data.sent_to_telegram
+              ? 'Готово ✅\nРезультат отправлен в Telegram-чат.'
+              : 'Готово ✅\nГенерация завершена.',
+          };
+    }
+    renderChat();
+    rememberCurrentChatSpace();
+    clearActiveProStudioJob(activeGeneration.jobId);
   }
 
   // =====================================================
@@ -4269,6 +4495,7 @@ function localizedGreeting() {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function applyCurrentDraft() {
+    if (activeGenerationLocked()) return;
     const ta = document.getElementById('chatInput');
     if (!ta) return;
     const type = currentChatType();
@@ -5488,6 +5715,7 @@ async function generatePhotoTool(e) {
   try {
     const start = await callGenerate(prompt, null, refs, null, {
       onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
     });
     const result = start.result || start;
     const images = generatedUrlsFromResponse(result, 'image');
@@ -5516,6 +5744,9 @@ async function generatePhotoTool(e) {
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
   }
 }
 
@@ -6196,6 +6427,9 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
     imageState.size = previousSize;
     imageState.count = previousCount;
     imageState.style = previousStyle;
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
   }
 }
 
@@ -10000,7 +10234,7 @@ function renderGeneratedTelegramButton(url, kind) {
           + '</div>';
       }
       if (m.imageLoading || m.generationLoading) {
-        return '<div class="msg ai generation-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+        return '<div class="msg ai generation-loading-msg" data-i="' + i + '" data-generation-token="' + S.escapeHtml(m.activeGenerationToken || '') + '"><div class="ai-avatar">S</div>'
           + renderGenerationLoadingCard(m)
           + '</div>';
       }
@@ -12837,6 +13071,7 @@ function maybeShowVideoTemplateIntro(force) {
     try {
       const start = await callGenerate(promptText, null, [], videoOptions, {
         onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+        loadingIndex,
       });
       const result = start.result || start;
       chatMessages.splice(loadingIndex, 1, {
@@ -12863,6 +13098,9 @@ function maybeShowVideoTemplateIntro(force) {
       activeCat = previousActiveCat;
       renderChat();
       rememberCurrentChatSpace();
+      if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+        clearActiveProStudioJob(activeGeneration.jobId);
+      }
     }
   }
 
@@ -12925,6 +13163,11 @@ function maybeShowVideoTemplateIntro(force) {
   }
 
   function updateComposerMode(kind) {
+    const requestedMode = chatTypeForMode(kind);
+    if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
+      toast(activeGenerationButtonLabel(activeGeneration.status));
+      return;
+    }
     if (!restoringChatSpace) rememberCurrentChatSpace();
     const isVideoSection = kind === 'video' || kind === 'edit' || kind === 'motion';
     studioMode = isVideoSection ? 'video' : kind;
@@ -13080,6 +13323,14 @@ function maybeShowVideoTemplateIntro(force) {
     if (on) renderConvList();
     d.classList.toggle('show', on);
     b.classList.toggle('show', on);
+    if (!on && activeGenerationLocked()) {
+      activeGeneration.historyPreview = false;
+      activeGeneration.restoringMode = true;
+      if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) updateComposerMode(activeGeneration.mode);
+      else restoreChatSpace(activeGeneration.mode || currentChatType());
+      activeGeneration.restoringMode = false;
+      ensureActiveGenerationPlaceholder(true);
+    }
   }
   // =====================================================
   // JAVASCRIPT-БЛОК: autoGrow
@@ -13095,6 +13346,27 @@ function maybeShowVideoTemplateIntro(force) {
 // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
 // =====================================================
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
+  if (!activeGenerationLocked()) {
+    transitionActiveGeneration('begin', {
+      mode: currentChatType(),
+      model: pickStudioModel(),
+      startedAt: Date.now(),
+    });
+  }
+  if (activeGenerationPlaceholderIndex() < 0) {
+    const requestedLoadingIndex = Number(generationOptions && generationOptions.loadingIndex);
+    if (Number.isInteger(requestedLoadingIndex) && requestedLoadingIndex >= 0) {
+      adoptActiveGenerationPlaceholder(requestedLoadingIndex);
+    } else {
+      for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+        if (chatMessages[index] && chatMessages[index].generationLoading) {
+          adoptActiveGenerationPlaceholder(index);
+          break;
+        }
+      }
+    }
+    ensureActiveGenerationPlaceholder(false);
+  }
   let promptText = (prompt || '').trim();
   if (isVoiceMode() && voiceState.pronunciationRules && typeof voiceState.pronunciationRules === 'object') {
     Object.entries(voiceState.pronunciationRules).forEach(([word, spoken]) => {
@@ -13202,8 +13474,15 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   // =====================================================
   const j = await res.json().catch(() => ({}));
   if (res.status === 409 && j && j.active_job_id) {
-    applyActiveProStudioJob({ id: j.active_job_id, status: j.status || 'queued' });
-    watchGenerationJob(j.active_job_id, { id: j.active_job_id, status: j.status || 'queued' });
+    // The backend is authoritative here: the active job may belong to a
+    // different mode than the locally attempted request.
+    clearActiveProStudioJob();
+    await restoreActiveProStudioJob();
+    if (!activeGenerationLocked()) {
+      transitionActiveGeneration('job', { id: j.active_job_id, status: j.status || 'queued', mode: studioMode });
+      ensureActiveGenerationPlaceholder(true);
+      watchGenerationJob(j.active_job_id, { id: j.active_job_id, status: j.status || 'queued', mode: studioMode });
+    }
     const err = new Error('Дождитесь завершения текущей генерации.');
     err.activeGeneration = true;
     err.activeJobId = j.active_job_id;
@@ -13224,7 +13503,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     rememberCurrentChatSpace();
   }
   if (j.job_id) {
-    applyActiveProStudioJob({ id: j.job_id, status: j.status || 'queued', mode: studioMode });
+    transitionActiveGeneration('job', { id: j.job_id, status: j.status || 'queued', mode: activeGeneration.mode || studioMode });
     j.result = await waitGeneration(j.job_id, generationOptions || {});
   }
 
@@ -13391,8 +13670,8 @@ async function waitGeneration(jobId, options) {
   let transientErrors = 0;
   const startedAt = Date.now();
   const networkGraceMs = 15 * 60 * 1000;
+  let lastStatus = '';
   while (true) {
-    if (onProgress) onProgress(false);
     let res;
     try {
       res = await fetch(
@@ -13420,28 +13699,42 @@ async function waitGeneration(jobId, options) {
     transientErrors = 0;
 
     if (isActiveGenerationStatus(job.status)) {
-      applyActiveProStudioJob({
+      transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: job.status,
         mode: job.mode || '',
         conversation_id: job.conversation_id || '',
       });
+      if (job.status !== lastStatus) {
+        lastStatus = job.status;
+        patchActiveGenerationDom();
+      }
     }
 
     if (job.status === 'completed') {
+      transitionActiveGeneration('status', {
+        id: job.job_id || job.generation_id || jobId,
+        status: 'completed',
+        mode: job.mode || '',
+      });
       const result = job.result || {};
       result.job_id = result.job_id || job.job_id || jobId;
       result.generation_id = result.generation_id || job.generation_id || jobId;
       result.conversation_id = result.conversation_id || job.conversation_id || '';
-      if (onProgress) onProgress(true);
-      clearActiveProStudioJob(jobId);
       return result;
     }
 
     if (job.status === 'failed' || job.status === 'cancelled') {
+      transitionActiveGeneration('status', {
+        id: job.job_id || job.generation_id || jobId,
+        status: job.status,
+        mode: job.mode || '',
+      });
       const error = job.error || {};
-      clearActiveProStudioJob(jobId);
-      throw new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
+      const terminalError = new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
+      terminalError.terminalStatus = job.status;
+      terminalError.jobId = jobId;
+      throw terminalError;
     }
 
     if (!isActiveGenerationStatus(job.status)) {
@@ -13499,6 +13792,7 @@ async function waitGeneration(jobId, options) {
     try {
       const start = await callGenerate(prompt, attachment, referenceImages, videoOptions, {
         onProgress: (completed) => updateGenerationLoadingProgress(index, completed),
+        loadingIndex: index,
       });
       const j = start.result || start;
       if (mode === 'image') {
@@ -13531,6 +13825,9 @@ async function waitGeneration(jobId, options) {
       document.body.classList.remove('ai-generating');
       renderChat();
       rememberCurrentChatSpace();
+      if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+        clearActiveProStudioJob(activeGeneration.jobId);
+      }
     }
   }
 
@@ -13539,14 +13836,20 @@ async function waitGeneration(jobId, options) {
    // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
    // =====================================================
    async function sendChat() {
-    if (activeProStudioJob && isActiveGenerationStatus(activeProStudioJob.status)) {
-      toast(activeGenerationButtonLabel(activeProStudioJob.status));
+    if (activeGenerationLocked()) {
+      toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
     }
+    transitionActiveGeneration('begin', {
+      mode: currentChatType(),
+      model: pickStudioModel(),
+      startedAt: Date.now(),
+    });
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
     if (studioMode === 'text' && textState.attachment && textState.attachment.uploading) {
       toast('Файл ещё загружается');
+      clearActiveProStudioJob();
       return;
     }
     const attachment = currentModeAttachment();
@@ -13559,6 +13862,7 @@ async function waitGeneration(jobId, options) {
       const missingSpeaker = Array.from({ length:speakerCount }, (_, index) => voiceSpeakerVoiceValue(index)).some((voiceId) => !voiceId);
       if (missingSpeaker) {
         toast('Выберите голос для каждого диктора');
+        clearActiveProStudioJob();
         return;
       }
     }
@@ -13574,7 +13878,10 @@ async function waitGeneration(jobId, options) {
         ].filter(Boolean)))
       : [];
 
-    if (!v && !attachment && !referenceImages.length && !referenceVideos.length && !audioUploads.length) return;
+    if (!v && !attachment && !referenceImages.length && !referenceVideos.length && !audioUploads.length) {
+      clearActiveProStudioJob();
+      return;
+    }
 
     const balanceCheck = estimateFrontendGenerationCredits(imageOptionsSnapshot);
     if (balanceCheck.known && balanceCheck.balance < balanceCheck.required) {
@@ -13599,6 +13906,7 @@ async function waitGeneration(jobId, options) {
       renderChat();
       rememberCurrentChatSpace();
       toast('Недостаточно токенов');
+      clearActiveProStudioJob();
       return;
     }
 
@@ -13609,11 +13917,7 @@ async function waitGeneration(jobId, options) {
     let loadingIndex = -1;
     const uploadOnlyVoice = isVoiceMode() && !v && audioUploads.length && !attachment && !referenceImages.length;
     if (photoMode) {
-      loadingIndex = chatMessages.push({
-        role: 'ai',
-        generationLoading: true,
-        progress: createGenerationProgress(generationKindForCurrentMode()),
-      }) - 1;
+      loadingIndex = ensureActiveGenerationPlaceholder(false);
     } else if (!uploadOnlyVoice) {
       chatMessages.push({
         role: 'user',
@@ -13623,6 +13927,7 @@ async function waitGeneration(jobId, options) {
         referenceImages: referenceImages.length ? referenceImages : null,
         referenceVideos: referenceVideos.length ? referenceVideos : null,
       });
+      loadingIndex = ensureActiveGenerationPlaceholder(false);
     }
     ta.value = ''; autoGrow(ta); updateSendButton();
     saveCurrentDraftSoon();
@@ -13659,19 +13964,12 @@ async function waitGeneration(jobId, options) {
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
     if (isVoiceMode()) renderVoiceToolPanel();
-    if (!photoMode) {
-      loadingIndex = chatMessages.push(studioMode === 'text'
-        ? { textLoading: true, role: 'ai' }
-        : {
-            generationLoading: true,
-            role: 'ai',
-            progress: createGenerationProgress(generationKindForCurrentMode()),
-          }) - 1;
-    }
+    if (loadingIndex < 0) loadingIndex = ensureActiveGenerationPlaceholder(false);
     renderChat();
     rememberCurrentChatSpace();
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
+    let unlockAfterRender = false;
     try {
       const start = await callGenerate(
         v,
@@ -13680,14 +13978,21 @@ async function waitGeneration(jobId, options) {
         videoOptionsSnapshot,
         {
           onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+          loadingIndex,
           audioUploads,
           voiceOptions: voiceOptionsSnapshot,
         }
       );
       renderChat();
-      rememberCurrentChatSpace();
+      if (!activeGeneration.historyPreview) rememberCurrentChatSpace();
 
       const j = start.result || start;
+      if (activeGeneration.historyPreview) {
+        activeGeneration.historyPreview = false;
+        restoreChatSpace(activeGeneration.mode || currentChatType());
+      }
+      const stableLoadingIndex = activeGenerationPlaceholderIndex();
+      if (stableLoadingIndex >= 0) loadingIndex = stableLoadingIndex;
 
       if (photoMode) {
         const images = generatedUrlsFromResponse(j, 'image');
@@ -13752,7 +14057,13 @@ async function waitGeneration(jobId, options) {
       if (musicMode) resetMusicGenerationOptions();
       loadConversations(); // refresh sidebar order
       rememberCurrentChatSpace();
+      unlockAfterRender = true;
     } catch (err) {
+      if (err && err.activeGeneration) {
+        renderChat();
+        rememberCurrentChatSpace();
+        return;
+      }
       if (err && err.paywall) {
         if (loadingIndex >= 0) {
           chatMessages[loadingIndex] = buildInsufficientBalanceMessage(
@@ -13768,19 +14079,53 @@ async function waitGeneration(jobId, options) {
         renderChat();
         rememberCurrentChatSpace();
         toast('Недостаточно токенов');
+        if (!activeGeneration.jobId) clearActiveProStudioJob();
         return;
       }
+      if (activeGeneration.historyPreview) {
+        activeGeneration.historyPreview = false;
+        restoreChatSpace(activeGeneration.mode || currentChatType());
+      }
+      loadingIndex = activeGenerationPlaceholderIndex() >= 0 ? activeGenerationPlaceholderIndex() : loadingIndex;
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       chatMessages.push({
         role: 'ai',
         text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.')
       });
       rememberCurrentChatSpace();
+      if (err && err.terminalStatus) unlockAfterRender = true;
+      else if (!activeGeneration.jobId) {
+        ta.value = v;
+        autoGrow(ta);
+        setCurrentModeAttachment(attachment);
+        if (photoMode) {
+          imageState.referenceImageUrls = referenceImages.slice();
+          imageState.referenceImageUrl = referenceImages[0] || '';
+          imageState.uploadedImageUrls = referenceImages.slice();
+        } else if (isVideoMode()) {
+          videoState.referenceImageUrls = referenceImages.slice();
+          if (videoOptionsSnapshot) {
+            videoState.inputVideo = videoOptionsSnapshot.input_video || videoOptionsSnapshot.video_url || '';
+            videoState.videoUrl = videoState.inputVideo;
+            videoState.editInputVideo = videoOptionsSnapshot.input_video || '';
+            videoState.editVideoUrl = videoState.editInputVideo;
+            videoState.referenceVideoUrl = videoOptionsSnapshot.reference_video || '';
+          }
+        } else if (isMusicMode() || isVoiceMode()) {
+          currentAudioState().uploads = audioUploads.slice();
+        }
+        renderComposerImageDraft();
+        renderUploadedPhotoGrid();
+        updateImageUploadButtonPreview();
+        if (isVoiceMode()) renderVoiceToolPanel();
+        clearActiveProStudioJob();
+      }
     } finally {
       document.body.classList.remove('ai-generating');
     }
     renderChat();
     rememberCurrentChatSpace();
+    if (unlockAfterRender) clearActiveProStudioJob(activeGeneration.jobId);
   }
   // =====================================================
   // JAVASCRIPT-БЛОК: copyMsg
@@ -13809,6 +14154,7 @@ async function waitGeneration(jobId, options) {
 
   callGenerate(prev.text, null, prev.referenceImages || [], null, {
     onProgress: (completed) => updateGenerationLoadingProgress(i, completed),
+    loadingIndex: i,
   })
     .then(async (start) => {
       const j = start.result || start;
@@ -13833,6 +14179,7 @@ async function waitGeneration(jobId, options) {
 
       rememberCurrentChatSpace();
       renderChat();
+      clearActiveProStudioJob(activeGeneration.jobId);
     })
     .catch((err) => {
       chatMessages[i] = {
@@ -13842,6 +14189,7 @@ async function waitGeneration(jobId, options) {
 
       rememberCurrentChatSpace();
       renderChat();
+      if (!activeGeneration.jobId || (err && err.terminalStatus)) clearActiveProStudioJob(activeGeneration.jobId);
     });
 }
 
@@ -14240,7 +14588,7 @@ async function waitGeneration(jobId, options) {
       renderConvList();
       const type = currentChatType();
       const space = chatSpaces[type] || {};
-      if (!(space.activeChatId || space.conversationId) && !(space.messages || []).length && !chatMessages.length) {
+      if (!activeGenerationLocked() && !(space.activeChatId || space.conversationId) && !(space.messages || []).length && !chatMessages.length) {
         const latest = latestConversationForType(type);
         if (latest && latest.id) openConv(latest.id, type, { silent: true });
       }
@@ -14305,7 +14653,7 @@ async function waitGeneration(jobId, options) {
       if (openingConversations.has(openKey)) return;
       if (id === currentConvId && nextType === currentChatType() && chatMessages.length && options.silent) return;
       openingConversations.add(openKey);
-      if (nextType !== currentChatType()) {
+      if (!activeGenerationLocked() && nextType !== currentChatType()) {
         rememberCurrentChatSpace();
         restoringChatSpace = true;
         updateComposerMode(nextType);
@@ -14383,11 +14731,19 @@ async function waitGeneration(jobId, options) {
         };
       });
       if (!chatMessages.length) chatMessages = [];
-      chatSpaces[nextType] = { activeChatId: currentConvId, conversationId: currentConvId, messages: chatMessages.slice() };
-      rememberCurrentChatSpace();
+      if (activeGenerationLocked()) {
+        activeGeneration.historyPreview = true;
+        currentConvId = chatSpaces[activeGeneration.mode]?.conversationId || null;
+        ensureActiveGenerationPlaceholder(false);
+      } else {
+        chatSpaces[nextType] = { activeChatId: currentConvId, conversationId: currentConvId, messages: chatMessages.slice() };
+        rememberCurrentChatSpace();
+      }
       renderChat();
       renderConvList();
-      if (!options.silent) toggleHistory();
+      // While a job is active the drawer remains open so the user can inspect
+      // old results. Closing the drawer explicitly restores the active mode.
+      if (!options.silent && !activeGenerationLocked()) toggleHistory();
     } catch {
     } finally {
       if (openKey) openingConversations.delete(openKey);
@@ -15276,11 +15632,11 @@ async function waitGeneration(jobId, options) {
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
     const label = send.querySelector('.studio-generate-label');
-    if (activeProStudioJob && isActiveGenerationStatus(activeProStudioJob.status)) {
+    if (activeGenerationLocked()) {
       send.disabled = true;
       send.hidden = false;
       send.classList.add('has-active-job');
-      const activeLabel = activeGenerationButtonLabel(activeProStudioJob.status);
+      const activeLabel = activeGenerationButtonLabel(activeGeneration.status);
       if (label) label.textContent = activeLabel;
       send.setAttribute('aria-label', activeLabel);
       send.title = activeLabel;
@@ -15410,14 +15766,14 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function bindEvents() {
     document.addEventListener('click', (event) => {
-      if (!activeProStudioJob || !isActiveGenerationStatus(activeProStudioJob.status)) return;
+      if (!activeGenerationLocked()) return;
       const target = event.target;
       if (!target || !target.closest) return;
       if (target.closest('#historyBtn, [data-view="history"], #histBackdrop, #histDrawer .hd-close, #histDrawer .hd-section')) return;
       if (target.closest('.view[data-view="tools"]')) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        toast(activeGenerationButtonLabel(activeProStudioJob.status));
+        toast(activeGenerationButtonLabel(activeGeneration.status));
       }
     }, true);
     // Force bottom composer model button to open the image model picker.
@@ -16167,6 +16523,7 @@ async function waitGeneration(jobId, options) {
 
     bindEvents();
     initAudioPlayer();
+    restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
     applyLang();       // triggers renderDynamic
     initHero();
