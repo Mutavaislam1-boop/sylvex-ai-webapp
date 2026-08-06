@@ -7858,3 +7858,32 @@ body > #modelPop:not(.video-template-modal) .model-brand-logo {
   width:var(--miniapp-icon-box) !important;
   height:var(--miniapp-icon-box) !important;
 }
+/* One active Pro Studio generation per user. History and completed-result
+   actions stay outside these selectors and remain fully interactive. */
+body.prostudio-job-locked #studioComposer,
+body.prostudio-job-locked #modelBtn {
+  opacity: .52;
+  filter: saturate(.55);
+  transition: opacity .18s ease, filter .18s ease;
+}
+
+body.prostudio-job-locked #studioComposer,
+body.prostudio-job-locked #modelBtn,
+body.prostudio-job-locked #modelPop {
+  pointer-events: none;
+  user-select: none;
+}
+
+body.prostudio-job-locked #sendBtn.has-active-job {
+  opacity: 1;
+  filter: none;
+}
+
+body.prostudio-job-locked #sendBtn.has-active-job .studio-generate-label {
+  display: inline-flex;
+  white-space: nowrap;
+}
+
+body.prostudio-job-locked #sendBtn.has-active-job .studio-send-arrow {
+  display: none;
+}

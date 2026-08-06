@@ -4473,6 +4473,50 @@ def prostudio_error(stage: str, exc: Exception = None, **data):
         safe["traceback"] = traceback.format_exc()
     print(f"PROSTUDIO ERROR {stage}:", safe)
 
+PROSTUDIO_ACTIVE_JOB_STATUSES = ("queued", "processing", "provider_processing")
+
+
+class ActiveProstudioJobError(RuntimeError):
+    def __init__(self, job_id: str, status: str):
+        super().__init__("active_generation_exists")
+        self.job_id = str(job_id or "")
+        self.status = str(status or "queued")
+
+
+def get_active_prostudio_job(telegram_id: int) -> dict:
+    if not DATABASE_URL or not telegram_id:
+        return {}
+    ensure_prostudio_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT id, status, mode, model, provider, conversation_id, created_at, updated_at
+            FROM prostudio_generation_jobs
+            WHERE telegram_id = %s
+              AND status IN ('queued', 'processing', 'provider_processing')
+            ORDER BY created_at ASC
+            LIMIT 1
+        """, (int(telegram_id),))
+        row = cursor.fetchone()
+        if not row:
+            return {}
+        return {
+            "id": row[0],
+            "job_id": row[0],
+            "status": row[1],
+            "mode": row[2],
+            "model": row[3],
+            "provider": row[4],
+            "conversation_id": row[5],
+            "created_at": _to_iso(row[6]),
+            "updated_at": _to_iso(row[7]),
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: create_prostudio_generation_job
 # Записывает состояние пользователя, job, metadata или результат генерации в общую базу Mini App и Telegram Bot.
@@ -4492,10 +4536,26 @@ def create_prostudio_generation_job(payload: dict) -> str:
     if not DATABASE_URL or not telegram_id:
         prostudio_debug("JOB_CREATE_SKIPPED_DB", job_id=job_id, has_database=bool(DATABASE_URL), telegram_id=telegram_id)
         return job_id
+    ensure_prostudio_table()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
     try:
-        ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
-        cursor = conn.cursor()
+        # Serialize job creation per Telegram user across every web process.
+        # The check and INSERT share one transaction, so simultaneous clicks
+        # cannot create two active jobs.
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        cursor.execute("""
+            SELECT id, status
+            FROM prostudio_generation_jobs
+            WHERE telegram_id = %s
+              AND status IN ('queued', 'processing', 'provider_processing')
+            ORDER BY created_at ASC
+            LIMIT 1
+        """, (telegram_id,))
+        active = cursor.fetchone()
+        if active:
+            conn.rollback()
+            raise ActiveProstudioJobError(active[0], active[1])
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
                 id, telegram_id, conversation_id, mode, model, provider, prompt, status, request_json
@@ -4511,11 +4571,16 @@ def create_prostudio_generation_job(payload: dict) -> str:
             _safe_json_dumps(payload),
         ))
         conn.commit()
+        prostudio_debug("JOB_CREATE_DONE", job_id=job_id, status="queued")
+    except ActiveProstudioJobError:
+        raise
+    except Exception as exc:
+        conn.rollback()
+        prostudio_error("JOB_CREATE_FAILED", exc, job_id=job_id, telegram_id=telegram_id)
+        raise
+    finally:
         cursor.close()
         conn.close()
-        prostudio_debug("JOB_CREATE_DONE", job_id=job_id, status="queued")
-    except Exception as exc:
-        prostudio_error("JOB_CREATE_FAILED", exc, job_id=job_id, telegram_id=telegram_id)
     return job_id
 
 # =====================================================
@@ -6537,6 +6602,24 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
             print("PROSTUDIO JOB LIST FAILED:", exc)
     return {"ok": True, "jobs": jobs}
 
+
+@app.get("/api/public/prostudio/active-job")
+async def public_prostudio_active_job(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    try:
+        job = get_active_prostudio_job(telegram_id)
+    except Exception as exc:
+        prostudio_error("ACTIVE_JOB_LOOKUP_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "active_job_lookup_failed"}, status_code=500)
+    return {
+        "ok": True,
+        "active": bool(job),
+        "active_job_id": job.get("id") or "",
+        "status": job.get("status") or "",
+        "job": job,
+    }
+
 # =====================================================
 # API ENDPOINT: public_prostudio_job
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -6623,6 +6706,7 @@ async def public_prostudio_job(job_id: str):
             "generation_id": job_id,
             "job_id": job_id,
             "status": effective_status,
+            "mode": job_mode,
             "result": result_json,
             "error": error_json,
             "conversation_id": row[3],
@@ -11549,6 +11633,7 @@ async def download_prostudio_content(url: str, kind: str = "file"):
 # =====================================================
 async def public_prostudio_generate(request: Request):
     payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
     prompt = (payload.get("prompt") or "").strip()
@@ -11593,6 +11678,23 @@ async def public_prostudio_generate(request: Request):
 
     generation_modes = {"image", "video", "music", "voice"}
     text_modes = {"text", "chat", "pro", "lite"}
+    try:
+        active_job = get_active_prostudio_job(telegram_id) if telegram_id else {}
+    except Exception as exc:
+        prostudio_error("ACTIVE_JOB_PRECHECK_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({
+            "ok": False,
+            "error": "active_job_lookup_failed",
+            "message": "Не удалось проверить активную генерацию.",
+        }, status_code=503)
+    if active_job:
+        return JSONResponse({
+            "ok": False,
+            "error": "active_generation_exists",
+            "message": "У пользователя уже есть активная генерация.",
+            "active_job_id": active_job.get("id") or "",
+            "status": active_job.get("status") or "queued",
+        }, status_code=409)
     if mode in generation_modes and is_internal_ui_model(selected_model):
         return invalid_generation_model_response(selected_model)
 
@@ -11693,7 +11795,22 @@ async def public_prostudio_generate(request: Request):
             PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key] = result
         return result
 
-    job_id = create_prostudio_generation_job(payload) if mode in generation_modes else ""
+    try:
+        job_id = create_prostudio_generation_job(payload) if mode in generation_modes else ""
+    except ActiveProstudioJobError as exc:
+        return JSONResponse({
+            "ok": False,
+            "error": "active_generation_exists",
+            "message": "У пользователя уже есть активная генерация.",
+            "active_job_id": exc.job_id,
+            "status": exc.status,
+        }, status_code=409)
+    except Exception:
+        return JSONResponse({
+            "ok": False,
+            "error": "generation_job_create_failed",
+            "message": "Не удалось создать задачу генерации.",
+        }, status_code=500)
     if job_id:
         payload["job_id"] = job_id
         payload["generation_id"] = job_id

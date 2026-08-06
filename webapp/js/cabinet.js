@@ -30,6 +30,7 @@
   };
   const expandedHistorySections = {};
   const activeGenerationWatchers = new Set();
+  let activeProStudioJob = null;
   const openingConversations = new Set();
   let restoringChatSpace = false;
   // Pending attachment for next send.
@@ -4187,15 +4188,57 @@ function localizedGreeting() {
     return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
   }
 
+  function activeGenerationButtonLabel(status) {
+    return String(status || '').toLowerCase() === 'queued' ? 'В очереди' : 'Генерация…';
+  }
+
+  function applyActiveProStudioJob(job) {
+    const active = !!(job && (job.id || job.job_id) && isActiveGenerationStatus(job.status));
+    activeProStudioJob = active ? Object.assign({}, job, { id: job.id || job.job_id }) : null;
+    document.body.classList.toggle('prostudio-job-locked', active);
+    const composer = document.getElementById('studioComposer');
+    const input = document.getElementById('chatInput');
+    if (composer) composer.setAttribute('aria-busy', active ? 'true' : 'false');
+    if (input) {
+      input.readOnly = active;
+      input.setAttribute('aria-disabled', active ? 'true' : 'false');
+    }
+    document.querySelectorAll('#studioComposer button, #studioComposer input, #studioComposer select').forEach((element) => {
+      element.setAttribute('aria-disabled', active ? 'true' : 'false');
+    });
+    updateSendButton();
+  }
+
+  function clearActiveProStudioJob(jobId) {
+    if (jobId && activeProStudioJob && activeProStudioJob.id !== jobId) return;
+    applyActiveProStudioJob(null);
+  }
+
+  async function restoreActiveProStudioJob() {
+    const telegramId = getTelegramId();
+    if (!telegramId) return;
+    try {
+      const response = await fetch('/api/public/prostudio/active-job?telegram_id=' + encodeURIComponent(telegramId), { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) return;
+      if (data.active && data.job) {
+        applyActiveProStudioJob(data.job);
+        watchGenerationJob(data.active_job_id || data.job.id, data.job);
+      }
+    } catch (error) {
+      console.warn('[SYLVEX] active generation restore failed', error);
+    }
+  }
+
   // =====================================================
   // ОЖИДАНИЕ JOB: restoreActiveGenerationJobs
   // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
   // =====================================================
   function restoreActiveGenerationJobs(jobs) {
-    (jobs || []).forEach((job) => {
-      if (!job || !job.id || !isActiveGenerationStatus(job.status)) return;
-      watchGenerationJob(job.id, job);
-    });
+    const activeJob = (jobs || []).find((job) => job && job.id && isActiveGenerationStatus(job.status));
+    if (!activeJob) return;
+    applyActiveProStudioJob(activeJob);
+    watchGenerationJob(activeJob.id, activeJob);
   }
 
   // =====================================================
@@ -4204,6 +4247,7 @@ function localizedGreeting() {
   // =====================================================
   function watchGenerationJob(jobId, jobInfo) {
     if (!jobId || activeGenerationWatchers.has(jobId)) return;
+    applyActiveProStudioJob(Object.assign({}, jobInfo || {}, { id: jobId, status: (jobInfo && jobInfo.status) || 'queued' }));
     activeGenerationWatchers.add(jobId);
     waitGeneration(jobId)
       .then((result) => {
@@ -13157,6 +13201,14 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   const j = await res.json().catch(() => ({}));
+  if (res.status === 409 && j && j.active_job_id) {
+    applyActiveProStudioJob({ id: j.active_job_id, status: j.status || 'queued' });
+    watchGenerationJob(j.active_job_id, { id: j.active_job_id, status: j.status || 'queued' });
+    const err = new Error('Дождитесь завершения текущей генерации.');
+    err.activeGeneration = true;
+    err.activeJobId = j.active_job_id;
+    throw err;
+  }
   if (res.status === 402 && j && j.paywall) {
     const err = new Error(j.error || 'Недостаточно токенов');
     err.paywall = true;
@@ -13172,6 +13224,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     rememberCurrentChatSpace();
   }
   if (j.job_id) {
+    applyActiveProStudioJob({ id: j.job_id, status: j.status || 'queued', mode: studioMode });
     j.result = await waitGeneration(j.job_id, generationOptions || {});
   }
 
@@ -13366,17 +13419,28 @@ async function waitGeneration(jobId, options) {
     }
     transientErrors = 0;
 
+    if (isActiveGenerationStatus(job.status)) {
+      applyActiveProStudioJob({
+        id: job.job_id || job.generation_id || jobId,
+        status: job.status,
+        mode: job.mode || '',
+        conversation_id: job.conversation_id || '',
+      });
+    }
+
     if (job.status === 'completed') {
       const result = job.result || {};
       result.job_id = result.job_id || job.job_id || jobId;
       result.generation_id = result.generation_id || job.generation_id || jobId;
       result.conversation_id = result.conversation_id || job.conversation_id || '';
       if (onProgress) onProgress(true);
+      clearActiveProStudioJob(jobId);
       return result;
     }
 
-    if (job.status === 'failed') {
+    if (job.status === 'failed' || job.status === 'cancelled') {
       const error = job.error || {};
+      clearActiveProStudioJob(jobId);
       throw new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
     }
 
@@ -13475,6 +13539,10 @@ async function waitGeneration(jobId, options) {
    // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
    // =====================================================
    async function sendChat() {
+    if (activeProStudioJob && isActiveGenerationStatus(activeProStudioJob.status)) {
+      toast(activeGenerationButtonLabel(activeProStudioJob.status));
+      return;
+    }
     const ta = document.getElementById('chatInput');
     const v = (ta.value || '').trim();
     if (studioMode === 'text' && textState.attachment && textState.attachment.uploading) {
@@ -15207,6 +15275,19 @@ async function waitGeneration(jobId, options) {
     const mic = document.getElementById('micBtn');
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
+    const label = send.querySelector('.studio-generate-label');
+    if (activeProStudioJob && isActiveGenerationStatus(activeProStudioJob.status)) {
+      send.disabled = true;
+      send.hidden = false;
+      send.classList.add('has-active-job');
+      const activeLabel = activeGenerationButtonLabel(activeProStudioJob.status);
+      if (label) label.textContent = activeLabel;
+      send.setAttribute('aria-label', activeLabel);
+      send.title = activeLabel;
+      return;
+    }
+    send.classList.remove('has-active-job');
+    if (label) label.textContent = studioMode === 'text' ? 'Отправить' : 'Сгенерировать';
     const activeReferences = isVideoMode()
       ? currentVideoReferenceImages()
       : (isImageMode() ? imageState.referenceImageUrls : []);
@@ -15328,6 +15409,17 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function bindEvents() {
+    document.addEventListener('click', (event) => {
+      if (!activeProStudioJob || !isActiveGenerationStatus(activeProStudioJob.status)) return;
+      const target = event.target;
+      if (!target || !target.closest) return;
+      if (target.closest('#historyBtn, [data-view="history"], #histBackdrop, #histDrawer .hd-close, #histDrawer .hd-section')) return;
+      if (target.closest('.view[data-view="tools"]')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        toast(activeGenerationButtonLabel(activeProStudioJob.status));
+      }
+    }, true);
     // Force bottom composer model button to open the image model picker.
     const composerModelVal = document.getElementById('modelValComposer');
     const composerRoot = document.getElementById('studioComposer');
@@ -16093,6 +16185,7 @@ async function waitGeneration(jobId, options) {
     }
     loadConversations();
     loadProStudioSync();
+    restoreActiveProStudioJob();
   }
 
   // Expose to global scope.
