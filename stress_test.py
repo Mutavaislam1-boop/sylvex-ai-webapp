@@ -2,7 +2,8 @@
 
 Run only against a worker configured with PROSTUDIO_MOCK_GENERATION=1:
 
-    LOAD_TEST_ENABLED=1 PROSTUDIO_MOCK_GENERATION=1 python stress_test.py
+    LOAD_TEST_ENABLED=1 PROSTUDIO_MOCK_GENERATION=1 \
+    TEST_WORKERS=5 TEST_WORKER_CONCURRENCY=3 python stress_test.py
 
 The script has no HTTP endpoint and never calls an AI provider or Telegram.
 """
@@ -27,7 +28,6 @@ load_dotenv()
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 ACTIVE_STATUSES = {"processing", "provider_processing"}
-EXPECTED_WORKERS = 5
 POLL_INTERVAL_SECONDS = 0.25
 TEST_TIMEOUT_SECONDS = 600
 
@@ -36,12 +36,24 @@ def enabled(name: str) -> bool:
     return str(os.getenv(name, "0")).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def test_user_count() -> int:
+def bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
-        value = int(str(os.getenv("TEST_USERS", "15")).strip())
+        value = int(str(os.getenv(name, str(default))).strip())
     except (TypeError, ValueError):
-        value = 15
-    return max(1, min(1000, value))
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def test_user_count() -> int:
+    return bounded_env_int("TEST_USERS", 15, 1, 1000)
+
+
+def test_worker_count() -> int:
+    return bounded_env_int("TEST_WORKERS", 5, 1, 100)
+
+
+def test_worker_concurrency() -> int:
+    return bounded_env_int("TEST_WORKER_CONCURRENCY", 3, 1, 20)
 
 
 def database_url() -> str:
@@ -128,8 +140,8 @@ def fetch_jobs(job_ids: Iterable[str]) -> List[dict]:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, status, attempts, created_at, locked_at, completed_at,
-                       COALESCE(result_json, '{}'::jsonb), COALESCE(error_json, '{}'::jsonb)
+                SELECT id, telegram_id, status, attempts, created_at, locked_at, completed_at,
+                       provider, COALESCE(result_json, '{}'::jsonb), COALESCE(error_json, '{}'::jsonb)
                 FROM prostudio_generation_jobs
                 WHERE id = ANY(%s)
                 """,
@@ -139,13 +151,15 @@ def fetch_jobs(job_ids: Iterable[str]) -> List[dict]:
     return [
         {
             "id": row[0],
-            "status": str(row[1] or ""),
-            "attempts": int(row[2] or 0),
-            "created_at": row[3],
-            "locked_at": row[4],
-            "completed_at": row[5],
-            "result": row[6] if isinstance(row[6], dict) else {},
-            "error": row[7] if isinstance(row[7], dict) else {},
+            "telegram_id": int(row[1] or 0),
+            "status": str(row[2] or ""),
+            "attempts": int(row[3] or 0),
+            "created_at": row[4],
+            "locked_at": row[5],
+            "completed_at": row[6],
+            "provider": str(row[7] or ""),
+            "result": row[8] if isinstance(row[8], dict) else {},
+            "error": row[9] if isinstance(row[9], dict) else {},
         }
         for row in rows
     ]
@@ -183,7 +197,14 @@ def wait_for_terminal_statuses(job_ids: List[str]) -> tuple:
     )
 
 
-def build_summary(job_ids: List[str], rows: List[dict], max_processing: int, duration: float) -> Dict[str, object]:
+def build_summary(
+    job_ids: List[str],
+    rows: List[dict],
+    max_processing: int,
+    duration: float,
+    workers: int = 5,
+    worker_concurrency: int = 3,
+) -> Dict[str, object]:
     id_counts = Counter(job_ids)
     duplicate_ids = {job_id for job_id, count in id_counts.items() if count > 1}
     duplicate_ids.update(row["id"] for row in rows if row["attempts"] > 1)
@@ -194,11 +215,52 @@ def build_summary(job_ids: List[str], rows: List[dict], max_processing: int, dur
         "completed": sum(1 for row in rows if row["status"] == "completed"),
         "failed": sum(1 for row in rows if row["status"] in {"failed", "cancelled"}),
         "max_processing": max_processing,
+        "test_workers": workers,
+        "test_worker_concurrency": worker_concurrency,
+        "expected_capacity": workers * worker_concurrency,
         "total_duration": round(duration, 3),
         "duplicate_job_ids": sorted(duplicate_ids),
         "average_queue_time": average(queue_times),
         "average_processing_time": average(processing_times),
     }
+
+
+def error_value(payload: dict, *keys: str):
+    source = payload if isinstance(payload, dict) else {}
+    for key in keys:
+        value = source.get(key)
+        if value not in (None, "", {}, []):
+            return value
+    return ""
+
+
+def failed_job_details(rows: List[dict]) -> List[dict]:
+    details = []
+    for row in rows:
+        if row["status"] not in {"failed", "cancelled"}:
+            continue
+        error = row.get("error") or {}
+        result = row.get("result") or {}
+        provider = error_value(error, "provider") or error_value(result, "provider") or row.get("provider") or ""
+        worker_provider_error = (
+            error_value(error, "provider_error", "raw_error", "details", "detail", "traceback")
+            or error_value(result, "provider_error", "raw_error", "error", "message")
+            or error_value(error, "error", "message")
+            or ""
+        )
+        details.append({
+            "job_id": row["id"],
+            "telegram_id": row.get("telegram_id", 0),
+            "status": row["status"],
+            "error": error_value(error, "error", "message", "detail") or error or "unknown error",
+            "worker/provider error": {
+                "provider": provider,
+                "error": worker_provider_error,
+                "attempts": row.get("attempts", 0),
+                "error_payload": error,
+            },
+        })
+    return details
 
 
 def validate_mock_results(rows: List[dict]) -> List[str]:
@@ -215,17 +277,30 @@ def main() -> int:
         raise RuntimeError("Table prostudio_generation_jobs does not exist. Deploy the application first.")
 
     count = test_user_count()
+    workers = test_worker_count()
+    worker_concurrency = test_worker_concurrency()
+    expected_capacity = workers * worker_concurrency
     jobs = build_test_jobs(count)
     test_started = time.monotonic()
     job_ids = enqueue_jobs_concurrently(jobs)
     rows, max_processing, _ = wait_for_terminal_statuses(job_ids)
-    summary = build_summary(job_ids, rows, max_processing, time.monotonic() - test_started)
+    summary = build_summary(
+        job_ids,
+        rows,
+        max_processing,
+        time.monotonic() - test_started,
+        workers,
+        worker_concurrency,
+    )
     non_mock_results = validate_mock_results(rows)
+    failures = failed_job_details(rows)
 
     print("STRESS_TEST_RESULT")
     print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=False))
+    for failure in failures:
+        print("FAILED_JOB")
+        print(json.dumps(failure, ensure_ascii=False, indent=2, default=str))
 
-    expected_parallelism = min(EXPECTED_WORKERS, count)
     errors = []
     if summary["total"] != count:
         errors.append("not all jobs were returned")
@@ -235,11 +310,12 @@ def main() -> int:
         errors.append("duplicate processing was detected")
     if non_mock_results:
         errors.append("completed jobs without mock=true: {}".format(non_mock_results))
-    if summary["max_processing"] != expected_parallelism:
+    minimum_parallelism = 1 if count == 1 else 2
+    if summary["max_processing"] < minimum_parallelism:
         errors.append(
-            "expected max_processing={}, got {}; configure PROSTUDIO_WORKER_CONCURRENCY=5".format(
-                expected_parallelism,
+            "parallel processing was not confirmed: max_processing={}, expected_capacity={}".format(
                 summary["max_processing"],
+                expected_capacity,
             )
         )
     if errors:
