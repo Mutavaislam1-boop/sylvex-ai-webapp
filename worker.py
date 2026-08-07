@@ -16,6 +16,7 @@ load_dotenv()
 from main import (  # noqa: E402
     BOT_TOKEN,
     DATABASE_URL,
+    PROSTUDIO_MOCK_GENERATION,
     PROSTUDIO_WORKER_CONCURRENCY,
     PROSTUDIO_WORKER_ENABLED,
     SUBSCRIPTION_REMINDER_WORKER_ENABLED,
@@ -57,6 +58,7 @@ async def run_worker() -> None:
         {
             "prostudio": PROSTUDIO_WORKER_ENABLED,
             "prostudio_concurrency": PROSTUDIO_WORKER_CONCURRENCY,
+            "prostudio_mock_generation": PROSTUDIO_MOCK_GENERATION,
             "subscription_reminders": SUBSCRIPTION_REMINDER_WORKER_ENABLED,
         },
     )

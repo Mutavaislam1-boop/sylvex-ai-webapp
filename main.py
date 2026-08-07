@@ -111,6 +111,9 @@ def _bounded_prostudio_worker_concurrency(value) -> int:
 PROSTUDIO_WORKER_CONCURRENCY = _bounded_prostudio_worker_concurrency(
     os.getenv("PROSTUDIO_WORKER_CONCURRENCY", "3")
 )
+PROSTUDIO_MOCK_GENERATION = os.getenv("PROSTUDIO_MOCK_GENERATION", "0").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
@@ -11870,6 +11873,42 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         prompt = (payload.get("prompt") or "").strip()
         selected_model = (payload.get("model") or "").strip()
         selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
+        if PROSTUDIO_MOCK_GENERATION:
+            mock_duration_seconds = random.randint(5, 15)
+            prostudio_debug(
+                "MOCK_GENERATION_STARTED",
+                job_id=job_id,
+                telegram_id=int(payload.get("telegram_id") or 0),
+                mode=mode,
+                model=selected_model,
+                duration_seconds=mock_duration_seconds,
+                mock=True,
+            )
+            await asyncio.sleep(mock_duration_seconds)
+            mock_result = {
+                "ok": True,
+                "mock": True,
+                "type": mode,
+                "status": "completed",
+                "job_id": job_id,
+                "generation_id": job_id,
+                "provider": "mock",
+                "model": selected_model,
+                "duration_seconds": mock_duration_seconds,
+                "balance_charged": False,
+                "sent_to_telegram": False,
+            }
+            update_prostudio_generation_job(job_id, "completed", result=mock_result)
+            prostudio_debug(
+                "MOCK_GENERATION_COMPLETED",
+                job_id=job_id,
+                telegram_id=int(payload.get("telegram_id") or 0),
+                mode=mode,
+                model=selected_model,
+                duration_seconds=mock_duration_seconds,
+                mock=True,
+            )
+            return
         prompt_report = optimize_prompt_for_model(
             prompt,
             model=selected_model,
