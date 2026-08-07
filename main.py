@@ -97,6 +97,20 @@ print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 PROSTUDIO_SCHEMA_LOCK = threading.Lock()
 PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
+
+
+def _bounded_prostudio_worker_concurrency(value) -> int:
+    try:
+        raw = str("3" if value is None else value).strip() or "3"
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        parsed = 3
+    return max(1, min(20, parsed))
+
+
+PROSTUDIO_WORKER_CONCURRENCY = _bounded_prostudio_worker_concurrency(
+    os.getenv("PROSTUDIO_WORKER_CONCURRENCY", "3")
+)
 SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
@@ -12162,6 +12176,157 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             update_prostudio_generation_job(job_id, "failed", error=error_result)
             log_prostudio_error(payload, error_result, job_id=job_id)
 
+async def _wait_for_prostudio_worker_stop(stop_event: asyncio.Event, timeout: float) -> bool:
+    if stop_event.is_set():
+        return True
+    try:
+        await asyncio.wait_for(stop_event.wait(), timeout=max(0.05, float(timeout)))
+    except asyncio.TimeoutError:
+        return stop_event.is_set()
+    return True
+
+
+async def _prostudio_job_heartbeat_loop(job_id: str, finished_event: asyncio.Event):
+    # A bounded companion coroutine is created only for an occupied pool slot.
+    # It prevents a healthy long-running provider call from being recovered as stale.
+    heartbeat_interval = max(5.0, min(60.0, PROSTUDIO_STALE_PROCESSING_MINUTES * 20.0))
+    while not finished_event.is_set():
+        try:
+            await asyncio.wait_for(finished_event.wait(), timeout=heartbeat_interval)
+            return
+        except asyncio.TimeoutError:
+            await asyncio.to_thread(heartbeat_prostudio_generation_job, job_id)
+
+
+async def _run_prostudio_generation_pool(
+    stop_event: asyncio.Event,
+    concurrency: Optional[int] = None,
+):
+    pool_size = _bounded_prostudio_worker_concurrency(
+        PROSTUDIO_WORKER_CONCURRENCY if concurrency is None else concurrency
+    )
+    active_job_ids = set()
+    active_lock = asyncio.Lock()
+
+    async def pool_counts():
+        async with active_lock:
+            active_count = len(active_job_ids)
+        return active_count, max(0, pool_size - active_count)
+
+    async def log_pool_status(job_id: str = ""):
+        active_count, free_slots = await pool_counts()
+        prostudio_debug(
+            "WORKER_POOL_STATUS",
+            concurrency=pool_size,
+            active_tasks=active_count,
+            free_slots=free_slots,
+            job_id=job_id or "",
+        )
+
+    async def worker_slot(slot_id: int):
+        while not stop_event.is_set():
+            claimed = None
+            try:
+                claimed = await asyncio.to_thread(claim_next_prostudio_generation_job)
+            except Exception as exc:
+                prostudio_error("WORKER_CLAIM_FAILED", exc, slot_id=slot_id)
+
+            if stop_event.is_set():
+                # A claim that completed concurrently with shutdown is already
+                # marked processing. Process it instead of abandoning it.
+                if not claimed:
+                    return
+            if not claimed or not claimed.get("id") or not claimed.get("payload"):
+                if await _wait_for_prostudio_worker_stop(stop_event, PROSTUDIO_WORKER_INTERVAL):
+                    return
+                continue
+
+            job_id = str(claimed["id"])
+            async with active_lock:
+                duplicate = job_id in active_job_ids
+                if not duplicate:
+                    active_job_ids.add(job_id)
+                active_count = len(active_job_ids)
+            if duplicate:
+                prostudio_error(
+                    "WORKER_DUPLICATE_JOB_BLOCKED",
+                    job_id=job_id,
+                    slot_id=slot_id,
+                    concurrency=pool_size,
+                    active_tasks=active_count,
+                    free_slots=max(0, pool_size - active_count),
+                )
+                continue
+
+            finished_event = asyncio.Event()
+            heartbeat_task = asyncio.create_task(
+                _prostudio_job_heartbeat_loop(job_id, finished_event),
+                name=f"prostudio-heartbeat-{job_id}",
+            )
+            prostudio_debug(
+                "WORKER_TASK_STARTED",
+                concurrency=pool_size,
+                active_tasks=active_count,
+                free_slots=max(0, pool_size - active_count),
+                job_id=job_id,
+                slot_id=slot_id,
+                attempts=claimed.get("attempts"),
+            )
+            try:
+                await process_prostudio_generation(job_id, claimed["payload"])
+            except Exception as exc:
+                # process_prostudio_generation already isolates provider errors,
+                # but keep the pool healthy if an unexpected exception escapes.
+                prostudio_error("WORKER_TASK_EXCEPTION", exc, job_id=job_id, slot_id=slot_id)
+                update_prostudio_generation_job(
+                    job_id,
+                    "failed",
+                    error={"ok": False, "error": str(exc)},
+                )
+            finally:
+                finished_event.set()
+                await asyncio.gather(heartbeat_task, return_exceptions=True)
+                async with active_lock:
+                    active_job_ids.discard(job_id)
+                    active_count = len(active_job_ids)
+                prostudio_debug(
+                    "WORKER_TASK_FINISHED",
+                    concurrency=pool_size,
+                    active_tasks=active_count,
+                    free_slots=max(0, pool_size - active_count),
+                    job_id=job_id,
+                    slot_id=slot_id,
+                )
+
+    # Recover abandoned work before accepting new jobs. Heartbeats protect all
+    # subsequently active pool jobs during periodic recovery passes.
+    await asyncio.to_thread(requeue_stale_prostudio_jobs)
+    slots = [
+        asyncio.create_task(worker_slot(index + 1), name=f"prostudio-worker-slot-{index + 1}")
+        for index in range(pool_size)
+    ]
+    prostudio_debug(
+        "WORKER_POOL_STARTED",
+        concurrency=pool_size,
+        active_tasks=0,
+        free_slots=pool_size,
+        job_id="",
+    )
+    status_interval = max(15.0, PROSTUDIO_WORKER_INTERVAL * 10.0)
+    try:
+        while not stop_event.is_set():
+            if await _wait_for_prostudio_worker_stop(stop_event, status_interval):
+                break
+            await asyncio.to_thread(requeue_stale_prostudio_jobs)
+            await log_pool_status()
+    finally:
+        # Slots are never cancelled here: they stop claiming immediately and
+        # finish any job they already own before the pool returns.
+        stop_event.set()
+        await asyncio.gather(*slots, return_exceptions=True)
+        await log_pool_status()
+
+
 # =====================================================
 # ФОНОВАЯ ЗАДАЧА: prostudio_generation_worker_loop
 # Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
@@ -12171,19 +12336,18 @@ async def prostudio_generation_worker_loop():
         print("PROSTUDIO WORKER DISABLED")
         return
     print("PROSTUDIO WORKER STARTED")
-    prostudio_debug("WORKER_LOOP_STARTED", interval=PROSTUDIO_WORKER_INTERVAL)
-    while True:
-        try:
-            requeue_stale_prostudio_jobs()
-            claimed = claim_next_prostudio_generation_job()
-            if claimed and claimed.get("id") and claimed.get("payload"):
-                prostudio_debug("WORKER_PROCESS_CLAIMED_START", job_id=claimed["id"], attempts=claimed.get("attempts"))
-                await process_prostudio_generation(claimed["id"], claimed["payload"])
-                prostudio_debug("WORKER_PROCESS_CLAIMED_DONE", job_id=claimed["id"])
-                continue
-        except Exception as exc:
-            prostudio_error("WORKER_LOOP_EXCEPTION", exc)
-        await asyncio.sleep(PROSTUDIO_WORKER_INTERVAL)
+    stop_event = asyncio.Event()
+    try:
+        await _run_prostudio_generation_pool(stop_event, PROSTUDIO_WORKER_CONCURRENCY)
+    except asyncio.CancelledError:
+        # Cancellation is treated as a graceful stop request. The pool's
+        # cleanup waits for jobs already claimed, while no new jobs are read.
+        stop_event.set()
+        prostudio_debug(
+            "WORKER_POOL_STOPPING",
+            concurrency=PROSTUDIO_WORKER_CONCURRENCY,
+        )
+        raise
 
 
 def process_subscription_reminders() -> dict:

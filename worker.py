@@ -6,6 +6,7 @@ existing queue, generation, billing, storage and Telegram delivery logic from
 """
 
 import asyncio
+import signal
 
 from dotenv import load_dotenv
 
@@ -15,6 +16,7 @@ load_dotenv()
 from main import (  # noqa: E402
     BOT_TOKEN,
     DATABASE_URL,
+    PROSTUDIO_WORKER_CONCURRENCY,
     PROSTUDIO_WORKER_ENABLED,
     SUBSCRIPTION_REMINDER_WORKER_ENABLED,
     prostudio_generation_worker_loop,
@@ -54,15 +56,44 @@ async def run_worker() -> None:
         "SYLVEX WORKER STARTED:",
         {
             "prostudio": PROSTUDIO_WORKER_ENABLED,
+            "prostudio_concurrency": PROSTUDIO_WORKER_CONCURRENCY,
             "subscription_reminders": SUBSCRIPTION_REMINDER_WORKER_ENABLED,
         },
     )
+    shutdown_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    installed_signals = []
+    for signal_name in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(signal_name, shutdown_event.set)
+            installed_signals.append(signal_name)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    shutdown_waiter = asyncio.create_task(shutdown_event.wait(), name="worker-shutdown-waiter")
+    cancellation_requested = False
     try:
-        await asyncio.gather(*tasks)
-    finally:
+        done, _ = await asyncio.wait(
+            [*tasks, shutdown_waiter],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if shutdown_waiter not in done:
+            for task in done:
+                if task is not shutdown_waiter:
+                    task.result()
+        cancellation_requested = True
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        shutdown_waiter.cancel()
+        await asyncio.gather(shutdown_waiter, return_exceptions=True)
+        if not cancellation_requested:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        for signal_name in installed_signals:
+            loop.remove_signal_handler(signal_name)
 
 
 if __name__ == "__main__":
