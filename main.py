@@ -11873,6 +11873,25 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         prompt = (payload.get("prompt") or "").strip()
         selected_model = (payload.get("model") or "").strip()
         selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
+        if payload.get("load_test") and not PROSTUDIO_MOCK_GENERATION:
+            # A load-test job must never fall through to a real provider, even
+            # if the CLI and worker were accidentally configured differently.
+            update_prostudio_generation_job(
+                job_id,
+                "failed",
+                error={
+                    "ok": False,
+                    "mock": True,
+                    "error": "PROSTUDIO_MOCK_GENERATION is disabled on worker",
+                },
+            )
+            prostudio_debug(
+                "MOCK_GENERATION_REJECTED",
+                job_id=job_id,
+                telegram_id=int(payload.get("telegram_id") or 0),
+                reason="mock_generation_disabled",
+            )
+            return
         if PROSTUDIO_MOCK_GENERATION:
             mock_duration_seconds = random.randint(5, 15)
             prostudio_debug(
