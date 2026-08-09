@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from psycopg2.extras import Json
-from db_pool import close_db_pool, db_connect, start_db_pool
+from db_pool import close_db_pool, db_connection, start_db_pool
 
 
 load_dotenv()
@@ -73,7 +73,7 @@ def ensure_safe_to_run() -> None:
 
 
 def table_exists() -> bool:
-    with db_connect(database_url()) as connection:
+    with db_connection(database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT to_regclass('public.prostudio_generation_jobs')")
             row = cursor.fetchone()
@@ -107,7 +107,7 @@ def build_test_jobs(count: int) -> List[dict]:
 
 def insert_job(job: dict, start_gate: threading.Event) -> str:
     start_gate.wait()
-    with db_connect(database_url()) as connection:
+    with db_connection(database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -136,7 +136,7 @@ def enqueue_jobs_concurrently(jobs: List[dict]) -> List[str]:
 
 def fetch_jobs(job_ids: Iterable[str]) -> List[dict]:
     ids = list(job_ids)
-    with db_connect(database_url()) as connection:
+    with db_connection(database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 from uuid import uuid4
 
-from db_pool import db_connect
+from db_pool import db_connection
 
 
 SUPPORTED_PROVIDERS = {
@@ -88,37 +88,31 @@ def ensure_provider_slot_table(database_url: str) -> None:
     with _SCHEMA_LOCK:
         if _SCHEMA_READY:
             return
-        conn = db_connect(database_url)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT pg_advisory_xact_lock(%s)", (742193602,))
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS prostudio_provider_slots (
-                    provider TEXT NOT NULL,
-                    job_id TEXT NOT NULL,
-                    worker_id TEXT NOT NULL,
-                    acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    lease_until TIMESTAMPTZ NOT NULL,
-                    PRIMARY KEY (provider, job_id)
-                )
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_prostudio_provider_slots_lease
-                ON prostudio_provider_slots (provider, lease_until)
-            """)
-            conn.commit()
+        with db_connection(database_url) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", (742193602,))
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS prostudio_provider_slots (
+                        provider TEXT NOT NULL,
+                        job_id TEXT NOT NULL,
+                        worker_id TEXT NOT NULL,
+                        acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        lease_until TIMESTAMPTZ NOT NULL,
+                        PRIMARY KEY (provider, job_id)
+                    )
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_prostudio_provider_slots_lease
+                    ON prostudio_provider_slots (provider, lease_until)
+                """)
             _SCHEMA_READY = True
-        finally:
-            cursor.close()
-            conn.close()
 
 
 def try_acquire_slot(database_url: str, provider: str, job_id: str, limit: int, worker_id: str) -> SlotResult:
     normalized = normalize_provider(provider)
-    conn = db_connect(database_url)
-    cursor = conn.cursor()
-    try:
+    with db_connection(database_url) as conn:
+      with conn.cursor() as cursor:
         # Serializes count+insert for this provider across all worker processes.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"prostudio-provider:{normalized}",))
         cursor.execute("""
@@ -165,20 +159,12 @@ def try_acquire_slot(database_url: str, provider: str, job_id: str, limit: int, 
             WHERE provider = %s AND lease_until > NOW()
         """, (normalized,))
         active = int(cursor.fetchone()[0])
-        conn.commit()
         return SlotResult(acquired=acquired, active=active, recovered=recovered)
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
 
 
 def heartbeat_slot(database_url: str, provider: str, job_id: str, worker_id: str) -> bool:
-    conn = db_connect(database_url)
-    cursor = conn.cursor()
-    try:
+    with db_connection(database_url) as conn:
+      with conn.cursor() as cursor:
         cursor.execute("""
             UPDATE prostudio_provider_slots
             SET heartbeat_at = NOW(), lease_until = NOW() + (%s * INTERVAL '1 second')
@@ -186,18 +172,13 @@ def heartbeat_slot(database_url: str, provider: str, job_id: str, worker_id: str
               AND lease_until > NOW()
         """, (PROVIDER_SLOT_TTL_SECONDS, normalize_provider(provider), job_id, worker_id))
         updated = cursor.rowcount == 1
-        conn.commit()
         return updated
-    finally:
-        cursor.close()
-        conn.close()
 
 
 def release_slot(database_url: str, provider: str, job_id: str, worker_id: str) -> int:
     normalized = normalize_provider(provider)
-    conn = db_connect(database_url)
-    cursor = conn.cursor()
-    try:
+    with db_connection(database_url) as conn:
+      with conn.cursor() as cursor:
         cursor.execute("""
             DELETE FROM prostudio_provider_slots
             WHERE provider = %s AND job_id = %s AND worker_id = %s
@@ -207,11 +188,7 @@ def release_slot(database_url: str, provider: str, job_id: str, worker_id: str) 
             WHERE provider = %s AND lease_until > NOW()
         """, (normalized,))
         active = int(cursor.fetchone()[0])
-        conn.commit()
         return active
-    finally:
-        cursor.close()
-        conn.close()
 
 
 @asynccontextmanager
