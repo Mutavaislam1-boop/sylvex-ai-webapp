@@ -4820,7 +4820,7 @@ async def video_generation(payload: dict) -> dict:
     if result.get("ok") and result.get("videos"):
         telegram_id = int(payload.get("telegram_id") or 0)
         sent_to_telegram = False
-        if telegram_id:
+        if telegram_id and not payload.get("skip_telegram"):
             try:
                 sent_to_telegram = await _send_generated_videos_to_telegram(
                     telegram_id=telegram_id,

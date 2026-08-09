@@ -33,6 +33,7 @@
   const activeGeneration = {
     locked: false,
     status: '',
+    phase: '',
     mode: '',
     jobId: '',
     model: '',
@@ -4202,11 +4203,17 @@ function localizedGreeting() {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function isActiveGenerationStatus(status) {
-    return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
+    return ['queued', 'processing', 'provider_processing', 'provider_completed', 'persisting', 'finalizing', 'retrying'].includes(String(status || '').toLowerCase());
   }
 
-  function activeGenerationButtonLabel(status) {
-    return ['submitting', 'queued'].includes(String(status || '').toLowerCase()) ? 'В очереди' : 'Генерация…';
+  function activeGenerationButtonLabel(status, phase) {
+    const normalized = String(status || '').toLowerCase();
+    const normalizedPhase = String(phase || '').toLowerCase();
+    if (normalized === 'submitting' || normalizedPhase === 'queue' || normalized === 'queued') return 'В очереди';
+    if (normalizedPhase === 'storage' || ['provider_completed', 'persisting'].includes(normalized)) return 'Сохраняем результат';
+    if (normalizedPhase === 'finalization' || normalized === 'finalizing') return 'Завершаем';
+    if (normalizedPhase === 'done' || normalized === 'completed') return 'Готово';
+    return 'Генерация…';
   }
 
   function activeGenerationStorageKey() {
@@ -4222,6 +4229,7 @@ function localizedGreeting() {
       if (!activeGeneration.locked) localStorage.removeItem(activeGenerationStorageKey());
       else localStorage.setItem(activeGenerationStorageKey(), JSON.stringify({
         status: activeGeneration.status,
+        phase: activeGeneration.phase,
         mode: activeGeneration.mode,
         jobId: activeGeneration.jobId,
         model: activeGeneration.model,
@@ -4241,7 +4249,7 @@ function localizedGreeting() {
     if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     message.activeGenerationToken = activeGeneration.loadingToken;
     message.generationStatus = activeGeneration.status;
-    if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+    if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
     activeGeneration.placeholderMessage = message;
     return index;
   }
@@ -4252,7 +4260,7 @@ function localizedGreeting() {
     const node = document.querySelector('.generation-loading-msg[data-generation-token="' + token + '"]');
     if (!node) return;
     const title = node.querySelector('.generation-loading-title');
-    if (title) title.textContent = activeGenerationButtonLabel(activeGeneration.status);
+    if (title) title.textContent = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
     const progress = activeGeneration.placeholderMessage && activeGeneration.placeholderMessage.progress;
     if (progress) {
       const updated = nextGenerationProgress(progress, false);
@@ -4290,7 +4298,7 @@ function localizedGreeting() {
       message.activeGenerationToken = activeGeneration.loadingToken;
       message.generationLoading = true;
       message.generationStatus = activeGeneration.status;
-      if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+      if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
       activeGeneration.placeholderMessage = message;
       index = chatMessages.push(message) - 1;
     }
@@ -4304,6 +4312,7 @@ function localizedGreeting() {
       if (activeGeneration.locked) return false;
       activeGeneration.locked = true;
       activeGeneration.status = 'submitting';
+      activeGeneration.phase = 'queue';
       activeGeneration.mode = chatTypeForMode(payload.mode || currentChatType());
       activeGeneration.jobId = '';
       activeGeneration.model = payload.model || pickStudioModel();
@@ -4317,6 +4326,7 @@ function localizedGreeting() {
       if (activeGeneration.jobId && incomingJobId && activeGeneration.jobId !== incomingJobId) return false;
       activeGeneration.locked = true;
       if (payload.status) activeGeneration.status = String(payload.status);
+      if (payload.phase) activeGeneration.phase = String(payload.phase);
       if (incomingJobId) activeGeneration.jobId = incomingJobId;
       if (!activeGeneration.mode && payload.mode) activeGeneration.mode = chatTypeForMode(payload.mode);
       if (!activeGeneration.model && payload.model) activeGeneration.model = payload.model;
@@ -4325,7 +4335,7 @@ function localizedGreeting() {
     } else if (action === 'reset') {
       if (activeGeneration.progressTimer) clearInterval(activeGeneration.progressTimer);
       Object.assign(activeGeneration, {
-        locked:false, status:'', mode:'', jobId:'', model:'', startedAt:0,
+        locked:false, status:'', phase:'', mode:'', jobId:'', model:'', startedAt:0,
         requestId:'', loadingToken:'', placeholderMessage:null, progressTimer:null,
         restoringMode:false, historyPreview:false,
       });
@@ -4347,7 +4357,7 @@ function localizedGreeting() {
     if (activeGeneration.placeholderMessage) {
       activeGeneration.placeholderMessage.generationStatus = activeGeneration.status;
       if (activeGeneration.placeholderMessage.progress) {
-        activeGeneration.placeholderMessage.progress.message = activeGenerationButtonLabel(activeGeneration.status);
+        activeGeneration.placeholderMessage.progress.message = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
       }
     }
     updateSendButton();
@@ -13668,8 +13678,6 @@ function updateGenerationLoadingProgress(index, completed) {
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   let transientErrors = 0;
-  const startedAt = Date.now();
-  const networkGraceMs = 15 * 60 * 1000;
   let lastStatus = '';
   while (true) {
     let res;
@@ -13680,7 +13688,6 @@ async function waitGeneration(jobId, options) {
       );
     } catch (err) {
       transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw err;
       await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
       continue;
     }
@@ -13692,7 +13699,6 @@ async function waitGeneration(jobId, options) {
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
       transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
       await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
       continue;
     }
@@ -13702,6 +13708,7 @@ async function waitGeneration(jobId, options) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: job.status,
+        phase: job.phase || '',
         mode: job.mode || '',
         conversation_id: job.conversation_id || '',
       });
@@ -13737,9 +13744,9 @@ async function waitGeneration(jobId, options) {
       throw terminalError;
     }
 
-    if (!isActiveGenerationStatus(job.status)) {
-      throw new Error('Генерация не завершилась. Попробуйте повторить немного позже.');
-    }
+    // PostgreSQL job status is the only terminal signal. An unknown or newly
+    // introduced non-terminal status must not turn a healthy generation into
+    // a frontend failure.
 
     await new Promise(resolve => setTimeout(resolve, 1500));
   }
