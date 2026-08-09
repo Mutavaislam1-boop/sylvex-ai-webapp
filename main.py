@@ -34,7 +34,8 @@ from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
-from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, normalize_provider, provider_slot
+from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
+from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
 from provider_resilience import (
     circuit_before_request,
     circuit_record_outcome,
@@ -43,7 +44,7 @@ from provider_resilience import (
 )
 from db_pool import close_db_pool, db_connect, db_pool_status, start_db_pool
 
-from fastapi import FastAPI, Request, UploadFile, File
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -126,6 +127,7 @@ SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_E
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
+PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
@@ -4527,8 +4529,9 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
         """, (int(telegram_id),))
         row = cursor.fetchone()
         if not row:
-            return {}
-        return {
+            job = {}
+        else:
+            job = {
             "id": row[0],
             "job_id": row[0],
             "status": row[1],
@@ -4542,6 +4545,11 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
     finally:
         cursor.close()
         conn.close()
+    if job:
+        recovery = recover_stale_prostudio_job(job["id"])
+        if recovery.get("recovered"):
+            return {}
+    return job
 
 
 # =====================================================
@@ -4726,6 +4734,7 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def requeue_stale_prostudio_jobs():
+    """Compatibility entry point: terminally recover abandoned active jobs."""
     if not DATABASE_URL:
         return
     try:
@@ -4734,37 +4743,150 @@ def requeue_stale_prostudio_jobs():
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                UPDATE prostudio_generation_jobs
-                SET status = CASE
-                    WHEN COALESCE(attempts, 0) >= %s THEN 'failed'
-                    ELSE 'queued'
-                END,
-                    error_json = CASE
-                        WHEN COALESCE(attempts, 0) >= %s THEN %s::jsonb
-                        ELSE error_json
-                    END,
-                    locked_at = NULL,
-                    heartbeat_at = NULL,
-                    updated_at = NOW(),
-                    completed_at = CASE
-                        WHEN COALESCE(attempts, 0) >= %s THEN NOW()
-                        ELSE completed_at
-                    END
-                WHERE status IN ('processing', 'provider_processing')
+                SELECT id
+                FROM prostudio_generation_jobs
+                WHERE status IN ('queued', 'processing', 'provider_processing')
                   AND COALESCE(heartbeat_at, updated_at, created_at) < NOW() - (%s || ' minutes')::interval
-            """, (
-                PROSTUDIO_MAX_JOB_ATTEMPTS,
-                PROSTUDIO_MAX_JOB_ATTEMPTS,
-                _safe_json_dumps({"ok": False, "error": "Generation worker timeout"}),
-                PROSTUDIO_MAX_JOB_ATTEMPTS,
-                PROSTUDIO_STALE_PROCESSING_MINUTES,
-            ))
-            conn.commit()
+                ORDER BY created_at ASC
+                LIMIT 200
+            """, (PROSTUDIO_STALE_PROCESSING_MINUTES,))
+            job_ids = [str(row[0]) for row in cursor.fetchall()]
         finally:
             cursor.close()
             conn.close()
+        for job_id in job_ids:
+            recover_stale_prostudio_job(job_id)
     except Exception as exc:
-        prostudio_error("STALE_JOB_REQUEUE_FAILED", exc)
+        prostudio_error("STALE_JOB_RECOVERY_FAILED", exc)
+
+
+def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
+    """Atomically fail an abandoned job only when no live provider lease exists."""
+    if not DATABASE_URL or not job_id:
+        return {"recovered": False, "reason": "database_or_job_missing"}
+    ensure_prostudio_table()
+    ensure_provider_slot_table(DATABASE_URL)
+    threshold_seconds = max(60, int(PROSTUDIO_STALE_PROCESSING_MINUTES) * 60)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    detected = None
+    released_slots = []
+    try:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"prostudio-stale:{job_id}",))
+        cursor.execute("""
+            SELECT id, status, provider, created_at, updated_at, heartbeat_at,
+                   EXTRACT(EPOCH FROM (NOW() - created_at)),
+                   EXTRACT(EPOCH FROM (NOW() - heartbeat_at)),
+                   result_json
+            FROM prostudio_generation_jobs
+            WHERE id = %s
+            FOR UPDATE
+        """, (job_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            return {"recovered": False, "reason": "job_not_found"}
+        old_status = str(row[1] or "")
+        if old_status not in PROSTUDIO_ACTIVE_JOB_STATUSES:
+            conn.rollback()
+            return {"recovered": False, "reason": "job_not_active", "status": old_status}
+
+        cursor.execute("""
+            SELECT provider, worker_id, heartbeat_at, lease_until,
+                   (lease_until > NOW()) AS is_live
+            FROM prostudio_provider_slots
+            WHERE job_id = %s
+            ORDER BY lease_until DESC
+        """, (job_id,))
+        slot_rows = cursor.fetchall()
+        live_slot = next((slot for slot in slot_rows if bool(slot[4])), None)
+        heartbeat_age = float(row[7]) if row[7] is not None else None
+        reference_time = row[5] or row[4] or row[3]
+        cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - %s::timestamp))", (reference_time,))
+        stale_age = float(cursor.fetchone()[0] or 0)
+        if stale_age <= threshold_seconds and not force:
+            conn.rollback()
+            return {"recovered": False, "reason": "heartbeat_fresh", "status": old_status}
+        if live_slot:
+            conn.rollback()
+            return {
+                "recovered": False, "reason": "live_provider_slot", "status": old_status,
+                "worker_id": str(live_slot[1] or ""),
+            }
+
+        worker_id = str(slot_rows[0][1] or "") if slot_rows else ""
+        provider = str(row[2] or (slot_rows[0][0] if slot_rows else "") or "")
+        age_seconds = float(row[6] or 0)
+        saved_result = _json_obj(row[8])
+        cursor.execute(
+            "SELECT EXISTS(SELECT 1 FROM generation_charges WHERE generation_id = %s)",
+            (job_id,),
+        )
+        has_charge = bool(cursor.fetchone()[0])
+        has_final_result = generation_has_completed_result(saved_result, "")
+        reason = "stale_worker_recovered"
+        detected = {
+            "job_id": job_id, "old_status": old_status,
+            "age_seconds": round(age_seconds, 3),
+            "heartbeat_age_seconds": round(heartbeat_age, 3) if heartbeat_age is not None else None,
+            "worker_id": worker_id, "provider": provider, "reason": reason,
+            "has_final_result": has_final_result, "has_charge": has_charge,
+        }
+        prostudio_debug("PROSTUDIO_STALE_JOB_DETECTED", **detected)
+        cursor.execute("""
+            DELETE FROM prostudio_provider_slots
+            WHERE job_id = %s AND lease_until <= NOW()
+            RETURNING provider, worker_id
+        """, (job_id,))
+        released_slots = cursor.fetchall()
+        error_payload = {
+            "ok": False,
+            "error": reason,
+            "message": "Предыдущая генерация была остановлена после перезапуска worker.",
+        }
+        cursor.execute("""
+            UPDATE prostudio_generation_jobs
+            SET status = 'failed', error_json = %s::jsonb,
+                locked_at = NULL, heartbeat_at = NULL, provider_wait_until = NULL,
+                updated_at = NOW(), completed_at = NOW()
+            WHERE id = %s AND status = %s
+        """, (_safe_json_dumps(error_payload), job_id, old_status))
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return {"recovered": False, "reason": "job_changed_concurrently"}
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+    for slot_provider, slot_worker in released_slots:
+        slot_log = dict(detected)
+        slot_log["provider"] = str(slot_provider or detected["provider"])
+        slot_log["worker_id"] = str(slot_worker or detected["worker_id"])
+        prostudio_debug("PROSTUDIO_STALE_SLOT_RELEASED", **slot_log)
+    prostudio_debug("PROSTUDIO_STALE_JOB_RECOVERED", **detected)
+    return {"recovered": True, "status": "failed", **detected}
+
+
+def recover_stale_prostudio_job(job_id: str, force: bool = False) -> dict:
+    """Retry the atomic recovery when concurrent runtime DDL causes a deadlock."""
+    for attempt in range(1, 5):
+        try:
+            return _recover_stale_prostudio_job_once(job_id, force=force)
+        except (psycopg2.errors.DeadlockDetected, psycopg2.errors.LockNotAvailable) as exc:
+            prostudio_debug(
+                "PROSTUDIO_STALE_RECOVERY_RETRY",
+                job_id=job_id,
+                attempt=attempt,
+                worker_id=WORKER_ID,
+                reason=type(exc).__name__,
+            )
+            if attempt >= 4:
+                raise
+            time.sleep(min(2.0, 0.25 * (2 ** (attempt - 1))) + random.uniform(0.0, 0.2))
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: heartbeat_prostudio_generation_job
@@ -6762,6 +6884,27 @@ async def public_prostudio_active_job(telegram_id: int = 0):
         "job": job,
     }
 
+
+@app.post("/api/admin/prostudio/recover-job/{job_id}")
+async def admin_recover_prostudio_job(job_id: str, request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    init_data = str(data.get("init_data") or "")
+    if not PROSTUDIO_ADMIN_ID or telegram_id != PROSTUDIO_ADMIN_ID:
+        raise HTTPException(status_code=403, detail="admin_required")
+    if BOT_TOKEN and _telegram_id_from_init_data(init_data) != PROSTUDIO_ADMIN_ID:
+        raise HTTPException(status_code=403, detail="telegram_auth_failed")
+    try:
+        recovery = await asyncio.to_thread(
+            recover_stale_prostudio_job,
+            job_id,
+            bool(data.get("force", False)),
+        )
+    except Exception as exc:
+        prostudio_error("PROSTUDIO_ADMIN_STALE_RECOVERY_FAILED", exc, job_id=job_id)
+        raise HTTPException(status_code=500, detail="stale_recovery_failed") from exc
+    return {"ok": True, **recovery}
+
 # =====================================================
 # API ENDPOINT: public_prostudio_job
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -6860,6 +7003,310 @@ async def public_prostudio_job(job_id: str):
             {"ok": False, "error": "job_read_failed"},
             status_code=500,
         )
+
+
+def _telegram_id_from_init_data(init_data: str) -> int:
+    """Return the signed Telegram user id, or zero for invalid init data."""
+    if not verify_telegram_init_data(init_data):
+        return 0
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        user = json.loads(parsed.get("user") or "{}")
+        return int(user.get("id") or 0)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return 0
+
+
+def _prostudio_download_filename(mode: str, job_id: str, content_type: str, object_key: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "", str(job_id or ""))[:36] or "result"
+    normalized_mode = str(mode or "").strip().lower()
+    mime = str(content_type or "").split(";", 1)[0].strip().lower()
+    mime_extensions = {
+        "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
+        "video/mp4": ".mp4", "video/webm": ".webm",
+        "audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/wav": ".wav",
+        "audio/x-wav": ".wav", "audio/mp4": ".m4a", "audio/ogg": ".ogg",
+    }
+    fallback_extensions = {"image": ".png", "video": ".mp4", "music": ".mp3", "voice": ".mp3"}
+    extension = mime_extensions.get(mime)
+    if not extension:
+        extension = pathlib.PurePosixPath(object_key or "").suffix.lower()
+    if not extension or len(extension) > 8:
+        extension = fallback_extensions.get(normalized_mode, ".bin")
+    return f"sylvex-{normalized_mode}-{safe_id}{extension}"
+
+
+@app.get("/api/public/prostudio/download/{job_id}")
+async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data: str = ""):
+    """Stream a completed job's durable R2 result without mutating the job."""
+    if not telegram_id:
+        raise HTTPException(status_code=400, detail="telegram_id_required")
+    if BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != int(telegram_id):
+            raise HTTPException(status_code=403, detail="telegram_auth_failed")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+    if not r2_enabled():
+        raise HTTPException(status_code=503, detail="r2_not_configured")
+
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT telegram_id, status, mode, result_json
+            FROM prostudio_generation_jobs
+            WHERE id = %s
+            LIMIT 1
+        """, (job_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    if int(row[0] or 0) != int(telegram_id):
+        raise HTTPException(status_code=403, detail="job_access_denied")
+    if str(row[1] or "").lower() != "completed":
+        raise HTTPException(status_code=409, detail="job_not_completed")
+
+    mode = str(row[2] or "").strip().lower()
+    if mode not in {"image", "video", "music", "voice"}:
+        raise HTTPException(status_code=400, detail="job_has_no_downloadable_media")
+    result = _json_obj(row[3])
+    media_urls = generation_result_urls(result, mode)
+    media_url = media_urls[0] if media_urls else ""
+    parsed_path = urllib.parse.unquote(urllib.parse.urlparse(media_url).path)
+    if parsed_path.startswith("/webapp/generated/") or parsed_path.startswith("/generated/"):
+        raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")
+    object_key = storage_key_from_url(media_url)
+    if not object_key or not storage_exists(object_key):
+        raise HTTPException(status_code=404, detail="r2_result_not_found")
+
+    try:
+        body, content_type, content_length = await asyncio.to_thread(storage_get_object, object_key)
+    except Exception as exc:
+        prostudio_error("PROSTUDIO_DOWNLOAD_R2_FAILED", exc, job_id=job_id, object_key=object_key)
+        raise HTTPException(status_code=502, detail="r2_download_failed") from exc
+
+    filename = _prostudio_download_filename(mode, job_id, content_type, object_key)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if content_length is not None:
+        headers["Content-Length"] = str(content_length)
+    return StreamingResponse(
+        storage_iter_object(body, max_bytes=content_length),
+        media_type=content_type or "application/octet-stream",
+        headers=headers,
+    )
+
+
+def _share_public_metadata(result: dict, request_payload: dict) -> dict:
+    """Build an explicit public whitelist; never expose internal provider payloads."""
+    result_meta = _json_obj(result.get("metadata"))
+    options = {}
+    for source in (
+        _json_obj(request_payload.get("image_options")),
+        _json_obj(request_payload.get("video_options")),
+        _json_obj(request_payload.get("music_options")),
+        _json_obj(request_payload.get("voice_options")),
+        _json_obj(result_meta.get("settings")),
+    ):
+        options.update(source)
+
+    def pick(*keys):
+        for key in keys:
+            for source in (result_meta, result, options, request_payload):
+                value = source.get(key) if isinstance(source, dict) else None
+                if value not in (None, "", [], {}):
+                    return value
+        return ""
+
+    return {
+        "style": pick("style", "styleName"),
+        "character": pick("characterName", "character"),
+        "object": pick("objectName", "objects", "object"),
+        "size": pick("size", "resolution", "ratio"),
+        "width": pick("width"),
+        "height": pick("height"),
+        "model_label": pick("model_label"),
+    }
+
+
+def _share_request_identity(data: dict) -> tuple[int, str]:
+    telegram_id = int(data.get("telegram_id") or 0)
+    init_data = str(data.get("init_data") or "")
+    if not telegram_id:
+        raise HTTPException(status_code=400, detail="telegram_id_required")
+    if BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            raise HTTPException(status_code=403, detail="telegram_auth_failed")
+    return telegram_id, init_data
+
+
+@app.post("/api/public/prostudio/share/{job_id}")
+async def public_prostudio_create_share(job_id: str, request: Request):
+    data = await request.json()
+    telegram_id, _ = _share_request_identity(data)
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+    if not r2_enabled():
+        raise HTTPException(status_code=503, detail="r2_not_configured")
+
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT j.telegram_id, j.status, j.mode, j.provider, j.model, j.prompt,
+                   j.cost, j.result_json, j.request_json, j.created_at, j.completed_at,
+                   u.username
+            FROM prostudio_generation_jobs j
+            LEFT JOIN users u ON u.telegram_id = j.telegram_id
+            WHERE j.id = %s
+            LIMIT 1
+        """, (job_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    if int(row[0] or 0) != telegram_id:
+        raise HTTPException(status_code=403, detail="job_access_denied")
+    if str(row[1] or "").lower() != "completed":
+        raise HTTPException(status_code=409, detail="job_not_completed")
+    mode = str(row[2] or "").strip().lower()
+    if mode not in {"image", "video", "music", "voice"}:
+        raise HTTPException(status_code=400, detail="job_has_no_shareable_media")
+
+    result = _json_obj(row[7])
+    request_payload = _json_obj(row[8])
+    media_urls = generation_result_urls(result, mode)
+    media_url = media_urls[0] if media_urls else ""
+    media_key = storage_key_from_url(media_url)
+    if not media_key or not storage_exists(media_key):
+        raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")
+    thumbnail_url = str(result.get("thumbnail_url") or result.get("thumb_url") or "")
+    metadata = _share_public_metadata(result, request_payload)
+    cost = {
+        "credits": result.get("cost_credits", row[6] or 0),
+        "usd": result.get("cost_usd", _json_obj(result.get("metadata")).get("cost_usd", "")),
+    }
+    generation_time = None
+    if row[9] and row[10]:
+        generation_time = max(0.0, (row[10] - row[9]).total_seconds())
+    share = create_or_get_share(
+        lambda: db_connect(DATABASE_URL), job_id=job_id,
+        owner_telegram_id=telegram_id, owner_username=str(row[11] or ""),
+        mode=mode, provider=str(row[3] or ""), model=str(row[4] or ""),
+        prompt=str(row[5] or ""), cost=cost, generation_time=generation_time,
+        media_url=media_url, thumbnail_url=thumbnail_url, public_metadata=metadata,
+    )
+    bot_username = (os.getenv("TELEGRAM_BOT_USERNAME") or "sylvexai_bot").strip().lstrip("@")
+    share_url = f"https://t.me/{bot_username}?startapp=share_{share['share_id']}"
+    return {"ok": True, **share, "share_url": share_url}
+
+
+@app.get("/api/public/prostudio/share/{share_id}/download")
+async def public_prostudio_share_download(share_id: str):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+    share = get_public_share(lambda: db_connect(DATABASE_URL), share_id, increment_views=False)
+    if not share:
+        raise HTTPException(status_code=404, detail="share_not_found")
+    if not share.get("allow_download"):
+        raise HTTPException(status_code=403, detail="download_disabled")
+    object_key = storage_key_from_url(share.get("media_url") or "")
+    if not r2_enabled() or not object_key or not storage_exists(object_key):
+        raise HTTPException(status_code=404, detail="r2_result_not_found")
+    try:
+        body, content_type, content_length = await asyncio.to_thread(storage_get_object, object_key)
+    except Exception as exc:
+        prostudio_error("PROSTUDIO_SHARE_DOWNLOAD_FAILED", exc, share_id=share_id)
+        raise HTTPException(status_code=502, detail="r2_download_failed") from exc
+    increment_downloads(lambda: db_connect(DATABASE_URL), share_id)
+    filename = _prostudio_download_filename(share.get("mode") or "file", share_id, content_type, object_key)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if content_length is not None:
+        headers["Content-Length"] = str(content_length)
+    return StreamingResponse(storage_iter_object(body, max_bytes=content_length), media_type=content_type, headers=headers)
+
+
+@app.get("/api/public/prostudio/share/{share_id}/media")
+async def public_prostudio_share_media(share_id: str, request: Request):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+    share = get_public_share(lambda: db_connect(DATABASE_URL), share_id, increment_views=False)
+    if not share:
+        raise HTTPException(status_code=404, detail="share_not_found")
+    object_key = storage_key_from_url(share.get("media_url") or "")
+    if not r2_enabled() or not object_key or not storage_exists(object_key):
+        raise HTTPException(status_code=404, detail="r2_result_not_found")
+    try:
+        range_header = str(request.headers.get("range") or "")
+        body, content_type, content_length, total, start, end = await asyncio.to_thread(
+            storage_get_object_range, object_key, range_header
+        )
+    except Exception as exc:
+        prostudio_error("PROSTUDIO_SHARE_MEDIA_FAILED", exc, share_id=share_id)
+        raise HTTPException(status_code=502, detail="r2_read_failed") from exc
+    headers = {
+        "Cache-Control": "public, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(content_length),
+    }
+    status_code = 206 if range_header else 200
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+    return StreamingResponse(
+        storage_iter_object(body, max_bytes=content_length),
+        media_type=content_type,
+        headers=headers,
+        status_code=status_code,
+    )
+
+
+@app.post("/api/public/prostudio/share/{share_id}/reference")
+async def public_prostudio_share_reference(share_id: str, request: Request):
+    data = await request.json()
+    _share_request_identity(data)
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+    share = get_public_share(lambda: db_connect(DATABASE_URL), share_id, increment_views=False)
+    if not share:
+        raise HTTPException(status_code=404, detail="share_not_found")
+    if not share.get("allow_reference"):
+        raise HTTPException(status_code=403, detail="reference_disabled")
+    return {
+        "ok": True,
+        "reference": {
+            "mode": share.get("mode"),
+            "media_url": f"{str(WEBAPP_URL or '').rstrip('/')}/api/public/prostudio/share/{share_id}/media",
+        },
+    }
+
+
+@app.get("/api/public/prostudio/share/{share_id}")
+async def public_prostudio_get_share(share_id: str):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+    share = get_public_share(lambda: db_connect(DATABASE_URL), share_id, increment_views=True)
+    if not share:
+        raise HTTPException(status_code=404, detail="share_not_found")
+    public_share = dict(share)
+    public_share["media_url"] = f"/api/public/prostudio/share/{share_id}/media"
+    public_share["thumbnail_url"] = public_share["media_url"] if share.get("mode") == "image" else ""
+    return {"ok": True, "share": public_share}
 
 # =====================================================
 # API ENDPOINT: public_paypal_create_order
