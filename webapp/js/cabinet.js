@@ -9803,17 +9803,56 @@ function renderGeneratedTelegramButton(url, kind) {
     return '/api/public/prostudio/download/' + encodeURIComponent(jobId) + '?' + params.toString();
   }
 
-  function renderCompletedGenerationDownload(jobId, status, className) {
+  function generationDownloadFilename(kind, id) {
+    const normalized = String(kind || '').toLowerCase();
+    const prefix = normalized === 'audio' ? 'music' : normalized;
+    const extensions = { image: 'png', video: 'mp4', music: 'mp3', voice: 'mp3' };
+    return 'sylvex-' + (prefix || 'file') + '-' + String(id || 'generation').slice(0, 12) + '.' + (extensions[prefix] || 'bin');
+  }
+
+  function browserDownload(url, filename) {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename || '';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  function downloadGeneratedFile(event) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    const button = event && event.currentTarget;
+    const relativeUrl = String(button && button.dataset.downloadUrl || '');
+    const filename = String(button && button.dataset.fileName || 'sylvex-generation');
+    if (!relativeUrl) return toast('Файл для скачивания недоступен');
+    const absoluteUrl = new URL(relativeUrl, window.location.origin).toString();
+    const tg = S.tg;
+    if (tg && typeof tg.downloadFile === 'function') {
+      try {
+        tg.downloadFile({ url: absoluteUrl, file_name: filename }, (accepted) => {
+          if (accepted === false) toast('Telegram не разрешил скачать файл');
+        });
+        return;
+      } catch (error) {
+        console.warn('PROSTUDIO_NATIVE_DOWNLOAD_FAILED', { error: String(error && error.message || error) });
+      }
+    }
+    browserDownload(relativeUrl, filename);
+  }
+
+  function renderCompletedGenerationDownload(jobId, status, className, kind) {
     if (!jobId || String(status || '').toLowerCase() !== 'completed') return '';
     const href = completedGenerationDownloadUrl(jobId);
-    return '<a class="' + S.escapeHtml(className || 'gen-action-btn') + '" href="' + S.escapeHtml(href) + '" target="_blank" rel="noopener">'
-      + generationActionIcon('download') + 'Скачать</a>';
+    const filename = generationDownloadFilename(kind, jobId);
+    return '<button type="button" class="' + S.escapeHtml(className || 'gen-action-btn') + '" data-download-url="' + S.escapeHtml(href) + '" data-file-name="' + S.escapeHtml(filename) + '" onclick="SYLVEX.downloadGeneratedFile(event)">'
+      + generationActionIcon('download') + 'Скачать</button>';
   }
 
   function renderGeneratedActions(url, kind, jobId, status) {
     const safeUrl = S.escapeHtml(url);
     let actions = renderGeneratedOpenButton(url, kind) + renderGeneratedTelegramButton(url, kind);
-    actions += renderCompletedGenerationDownload(jobId, status, 'gen-action-btn');
+    actions += renderCompletedGenerationDownload(jobId, status, 'gen-action-btn', kind);
     if (kind === 'image') {
       actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     }
@@ -11481,6 +11520,7 @@ async function shareGenerationCard(e, index) {
     return;
   }
   let shareUrl = '';
+  let shareId = '';
   try {
     const response = await fetch('/api/public/prostudio/share/' + encodeURIComponent(jobId), {
       method: 'POST',
@@ -11495,32 +11535,35 @@ async function shareGenerationCard(e, index) {
       throw new Error(payload.detail || payload.error || 'share_create_failed');
     }
     shareUrl = payload.share_url;
+    shareId = String(payload.share_id || '');
   } catch (error) {
     console.error('SYLVEX_SHARE_CREATE_FAILED', { job_id: jobId, error: String(error && error.message || error) });
     toast('Не удалось создать ссылку. Попробуйте позже');
     return;
   }
-  const shareData = {
-    title: 'SYLVEX AI — генерация',
-    text: meta.prompt ? String(meta.prompt).slice(0, 180) : 'Посмотрите мою генерацию в SYLVEX AI',
-    url: shareUrl,
-  };
-  try {
-    if (navigator.share) {
-      await navigator.share(shareData);
-      return;
-    }
-    await navigator.clipboard.writeText(shareUrl);
-    toast('Ссылка на генерацию скопирована');
-  } catch (error) {
-    if (error && error.name === 'AbortError') return;
+  const tg = S.tg;
+  if (tg && typeof tg.shareMessage === 'function') {
     try {
-      await navigator.clipboard.writeText(shareUrl);
-      toast('Ссылка на генерацию скопирована');
-    } catch {
-      window.prompt('Скопируйте ссылку на генерацию', shareUrl);
+      if (!shareId) throw new Error('share_id_missing');
+      const prepareResponse = await fetch('/api/public/prostudio/share/' + encodeURIComponent(shareId) + '/prepared-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegram_id: getTelegramId(), init_data: tg.initData || '' }),
+      });
+      const prepared = await prepareResponse.json().catch(() => ({}));
+      if (!prepareResponse.ok || !prepared.ok || !prepared.prepared_message_id) throw new Error(prepared.detail || 'prepared_message_failed');
+      tg.shareMessage(prepared.prepared_message_id, (shared) => {
+        if (shared === false) console.info('PROSTUDIO_NATIVE_SHARE_CANCELLED');
+      });
+      return;
+    } catch (error) {
+      console.warn('PROSTUDIO_NATIVE_SHARE_FAILED', { error: String(error && error.message || error) });
     }
   }
+  const telegramShareUrl = 'https://t.me/share/url?url=' + encodeURIComponent(shareUrl)
+    + '&text=' + encodeURIComponent('Посмотрите мою генерацию в SYLVEX Pro Studio');
+  if (tg && typeof tg.openTelegramLink === 'function') tg.openTelegramLink(telegramShareUrl);
+  else window.location.href = telegramShareUrl;
 }
 
 function shareStartId() {
@@ -11562,6 +11605,7 @@ function closeGenerationSharePage() {
   const page = document.getElementById('generationSharePage');
   if (page) page.classList.remove('is-open');
   document.body.classList.remove('generation-share-open');
+  document.body.classList.remove('generation-share-standalone');
 }
 
 function renderGenerationShareCard(share) {
@@ -11585,9 +11629,9 @@ function renderGenerationShareCard(share) {
     ['Размер', dimensions], ['Provider', share.provider],
   ].filter((row) => row[1] !== '' && row[1] !== null && row[1] !== undefined);
   const actionLabels = mode === 'video'
-    ? [['play', 'Смотреть', 'play'], ['download', 'Скачать', 'download'], ['edit', 'Использовать в Kling Editor', 'editor'], ['share', 'Создать свою версию', 'remix']]
+    ? [['download', 'Скачать', 'download'], ['edit', 'Использовать в Kling Editor', 'editor']]
     : mode === 'image'
-      ? [['download', 'Скачать', 'download'], ['lipsync', 'Использовать как референс', 'reference'], ['share', 'Создать свою версию', 'remix']]
+      ? [['download', 'Скачать', 'download'], ['lipsync', 'Использовать как референс', 'reference']]
       : [['play', 'Прослушать', 'play'], ['download', 'Скачать', 'download']];
   return '<article class="generation-share-card" data-share-id="' + S.escapeHtml(share.share_id || '') + '" data-mode="' + S.escapeHtml(mode) + '">'
     + '<div class="generation-share-media">' + media + '</div>'
@@ -11595,8 +11639,12 @@ function renderGenerationShareCard(share) {
     + (share.prompt ? '<div class="generation-share-prompt"><span>Prompt</span><p>' + S.escapeHtml(share.prompt) + '</p>' + (String(share.prompt).length > 220 ? '<button type="button" onclick="this.parentElement.classList.toggle(\'is-expanded\');this.textContent=this.parentElement.classList.contains(\'is-expanded\')?\'Свернуть\':\'Развернуть\'">Развернуть</button>' : '') + '</div>' : '')
     + '<div class="generation-share-actions">' + actionLabels.map((item) => {
       if (item[2] === 'download' && !share.allow_download) return '';
-      if ((item[2] === 'reference' || item[2] === 'remix' || item[2] === 'editor') && !share.allow_reference) return '';
-      if (item[2] === 'download') return '<a href="/api/public/prostudio/share/' + encodeURIComponent(share.share_id) + '/download" target="_blank" rel="noopener">' + shareSvg(item[0]) + item[1] + '</a>';
+      if ((item[2] === 'reference' || item[2] === 'editor') && !share.allow_reference) return '';
+      if (item[2] === 'download') {
+        const url = '/api/public/prostudio/share/' + encodeURIComponent(share.share_id) + '/download';
+        const filename = generationDownloadFilename(mode, share.share_id);
+        return '<button type="button" data-download-url="' + S.escapeHtml(url) + '" data-file-name="' + S.escapeHtml(filename) + '" onclick="SYLVEX.downloadGeneratedFile(event)">' + shareSvg(item[0]) + item[1] + '</button>';
+      }
       return '<button type="button" data-share-action="' + item[2] + '" onclick="SYLVEX.handleGenerationShareAction(event)">' + shareSvg(item[0]) + item[1] + '</button>';
     }).join('') + '</div></article>';
 }
@@ -11740,7 +11788,7 @@ function openGenerationInfoDrawer(e, index) {
     } else {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
-    actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '');
+    actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
     if (type === 'image') {
@@ -16739,6 +16787,12 @@ async function waitGeneration(jobId, options) {
     const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
     S.setTheme(savedTheme);
 
+    const initialShareId = shareStartId();
+    if (initialShareId) {
+      document.body.classList.add('generation-share-standalone');
+      openGenerationSharePage(initialShareId);
+    }
+
     bindEvents();
     initAudioPlayer();
     restoreLocalActiveGeneration();
@@ -16761,8 +16815,6 @@ async function waitGeneration(jobId, options) {
     loadConversations();
     loadProStudioSync();
     restoreActiveProStudioJob();
-    const initialShareId = shareStartId();
-    if (initialShareId) setTimeout(() => openGenerationSharePage(initialShareId), 0);
   }
 
   // Expose to global scope.
@@ -16783,7 +16835,7 @@ async function waitGeneration(jobId, options) {
     openThemePicker, applyTheme,
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
-    openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction,
+    openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
     initAudioPlayer,
     openAudioPlayer, continueVoiceResult,
     PlayerManager,

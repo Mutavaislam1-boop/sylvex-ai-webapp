@@ -7919,6 +7919,7 @@ body.prostudio-job-locked #sendBtn.has-active-job .studio-send-arrow {
 /* SYLVEX Share is an isolated public presentation layer above Pro Studio. */
 .generation-share-page{position:fixed;inset:0;z-index:12000;display:none;overflow:auto;background:radial-gradient(circle at 50% -10%,rgba(35,126,255,.18),transparent 42%),var(--bg,#0b0d12);color:var(--text,#fff);padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
 .generation-share-page.is-open{display:block}.generation-share-open{overflow:hidden}
+.generation-share-standalone .app{visibility:hidden}.generation-share-standalone .generation-share-page{visibility:visible}.generation-share-standalone .generation-share-brand>button{display:none}
 .generation-share-shell{width:min(760px,100%);margin:0 auto;padding:20px 0 44px}
 .generation-share-brand{display:flex;align-items:center;gap:11px;margin-bottom:18px}.generation-share-brand img{width:42px;height:42px;border-radius:13px;object-fit:cover}.generation-share-brand div{display:flex;flex-direction:column}.generation-share-brand b{font-size:18px;letter-spacing:.08em}.generation-share-brand span{font-size:12px;opacity:.58}.generation-share-brand>button{margin-left:auto;width:38px;height:38px;border:0;border-radius:50%;background:rgba(255,255,255,.09);color:inherit;font-size:25px}
 .generation-share-card{overflow:hidden;border:1px solid rgba(255,255,255,.1);border-radius:24px;background:rgba(24,27,35,.94);box-shadow:0 24px 70px rgba(0,0,0,.35)}
