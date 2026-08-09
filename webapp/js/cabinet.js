@@ -2738,6 +2738,10 @@ function hideMobileKeyboard(event) {
   document.getElementById('studioComposer')?.classList.remove('composer-input-window');
 }
 
+function usesVirtualKeyboardLayout() {
+  return Boolean(S.device && S.device.usesVirtualKeyboard);
+}
+
 function dismissGenerationInputUi() {
   hideMobileKeyboard();
   closeVoiceAddon();
@@ -16114,7 +16118,7 @@ async function waitGeneration(jobId, options) {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
       const openComposerInputWindow = () => {
-        if (window.innerWidth > 900) return;
+        if (!usesVirtualKeyboardLayout()) return;
         document.body.classList.add('kb-open');
         document.body.classList.add('composer-input-window-open');
         document.getElementById('studioComposer')?.classList.add('composer-input-window');
@@ -16138,6 +16142,12 @@ async function waitGeneration(jobId, options) {
       // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
       // =====================================================
       const updateKb = () => {
+        if (!usesVirtualKeyboardLayout()) {
+          document.documentElement.style.setProperty('--kb', '0px');
+          document.body.classList.remove('kb-open', 'composer-input-window-open');
+          document.getElementById('studioComposer')?.classList.remove('composer-input-window');
+          return;
+        }
         const active = document.activeElement;
         const editableFocused = Boolean(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable));
         if (!editableFocused) stableViewportHeight = Math.max(window.innerHeight, vv.height + vv.offsetTop);
@@ -16145,7 +16155,7 @@ async function waitGeneration(jobId, options) {
         const layoutKeyboard = window.innerHeight - vv.height - vv.offsetTop;
         const stableKeyboard = stableViewportHeight - vv.height - vv.offsetTop;
         const kb = Math.max(0, layoutKeyboard, stableKeyboard);
-        const forceComposerLift = editableFocused && active?.id === 'chatInput' && window.innerWidth <= 900;
+        const forceComposerLift = editableFocused && active?.id === 'chatInput';
         document.documentElement.style.setProperty('--kb', kb + 'px');
         document.body.classList.toggle('kb-open', forceComposerLift || (editableFocused && kb > 80));
       };
