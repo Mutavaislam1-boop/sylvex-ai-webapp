@@ -2833,14 +2833,8 @@ function renderVoiceSpeakerComposer() {
   }).join('');
   const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
   const addSpeaker = count < maxSpeakers ? '<button class="voice-dialogue-add-speaker" type="button" onclick="SYLVEX.addVoiceSpeaker(event)" aria-label="Добавить диктора">+</button>' : '';
-  host.innerHTML = '<div class="voice-dialogue-row voice-dialogue-speaker-row"><b>Дикторы</b><div class="voice-dialogue-row-items">' + speakerButtons + addSpeaker + '</div></div>'
-    + voiceDialogueOptionRow('emotion', 'Эмоции', VOICE_EMOTIONS.concat(voiceCustomOptions.emotion || []), 'insertVoiceEmotion')
-    + voiceDialogueOptionRow('pause', 'Пауза', VOICE_PAUSES.concat(voiceCustomOptions.pause || []), 'insertVoicePause', ' сек')
-    + voiceDialogueOptionRow('effects', 'Звуковые эффекты', VOICE_EFFECTS.concat(voiceCustomOptions.effects || []), 'insertVoiceEffect');
-}
-
-function voiceDialogueOptionRow(kind, title, items, handler, suffix) {
-  return '<div class="voice-dialogue-row"><span class="voice-dialogue-row-title"><button type="button" onclick="SYLVEX.openVoiceCustomOption(event,\'' + kind + '\')" aria-label="Добавить свой вариант">+</button><b>' + S.escapeHtml(title) + '</b></span><div class="voice-dialogue-row-items">' + items.map((item) => '<button class="voice-dialogue-option" type="button" data-value="' + S.escapeHtml(String(item)) + '" onclick="SYLVEX.' + handler + '(event,this.dataset.value)">' + S.escapeHtml(String(item)) + (suffix || '') + '</button>').join('') + '</div></div>';
+  host.innerHTML = '<div class="voice-dialogue-row voice-dialogue-speaker-row"><b>Дикторы</b><div class="voice-dialogue-row-items">' + speakerButtons + addSpeaker + '</div></div>';
+  VoiceDialogueComposer.refreshMarkers();
 }
 
 function handleVoiceSpeakerClick(event, speakerNumber) {
@@ -2848,18 +2842,31 @@ function handleVoiceSpeakerClick(event, speakerNumber) {
   const index = Math.max(0, Math.min(6, Number(speakerNumber || 1) - 1));
   const voiceId = voiceSpeakerVoiceValue(index);
   voiceState.activeSpeakerIndex = index;
-  if (!voiceId) {
-    renderVoiceControls();
-    openImageOptionMenu(event, 'voice_speaker_' + (index + 1));
-    return;
-  }
-  insertVoiceSpeaker(event, index + 1);
   renderVoiceControls();
+  openImageOptionMenu(event, 'voice_speaker_' + (index + 1));
 }
 
-const VOICE_EMOTIONS = ['Спокойно', 'Весело', 'Грустно', 'Серьёзно', 'Зло', 'Вдохновляюще', 'Удивлённо', 'Взволнованно', 'Уверенно', 'Нежно', 'Таинственно', 'Иронично', 'Шёпотом', 'Торжественно'];
-const VOICE_PAUSES = [.2,.5,1,1.5,2,3,5];
-const VOICE_EFFECTS = ['Аплодисменты','Смех','Вздох','Кашель','Шаги','Дождь','Гром','Ветер','Дверь','Телефон','Город','Природа','Огонь','Волны','Птицы','Толпа','Сирена','Уведомление'];
+const VOICE_DIALOGUE_DATA = Object.freeze({
+  emotion: [
+    ['Спокойно','calm'],['Весело','happy'],['Грустно','sad'],['Серьёзно','serious'],['Зло','angry'],['Страх','fear'],['Любовь','love'],['Уверенно','confident'],['Смущение','embarrassed'],['Плач','crying'],['Смех','laughing'],['Паника','panic'],['Размышляет','thoughtful'],
+  ],
+  style: [
+    ['Шёпотом','whisper'],['Очень тихо','very_quiet'],['Тихо','quiet'],['Громко','loud'],['Кричит','shouting'],['Медленно','slow'],['Быстро','fast'],['Робот','robot'],['Хрипло','raspy'],['Детский голос','childlike'],['Старческий голос','elderly'],['Уверенно','confident'],['Нервно','nervous'],
+  ],
+  pause: [['0.2 сек','0.2'],['0.5 сек','0.5'],['1 сек','1'],['1.5 сек','1.5'],['2 сек','2'],['3 сек','3']],
+  sfx: [
+    ['Смех','laugh'],['Вздох','sigh'],['Кашель','cough'],['Плач','cry'],['Аплодисменты','applause'],['Шаги','footsteps'],['Дождь','rain'],['Гроза','thunderstorm'],['Ветер','wind'],['Птицы','birds'],['Телефон','phone'],['Машина','car'],['Сирена','siren'],['Дверь','door'],['Толпа','crowd'],['Выстрел','gunshot'],['Поцелуй','kiss'],
+  ],
+  direction: [
+    ['Пауза','pause'],['Длинная пауза','long_pause'],['Начинает смеяться','starts_laughing'],['Перебивает','interrupts'],['Шепчет','whispers'],['Кричит вдаль','shouts_distant'],['Говорит по телефону','on_phone'],['Говорит в микрофон','on_microphone'],['За кадром','voice_over'],['Эхо','echo'],
+  ],
+  accent: [['Американский','american'],['Британский','british'],['Австралийский','australian'],['Русский','russian'],['Турецкий','turkish'],['Японский','japanese'],['Французский','french']],
+  template: [['Диалог','dialogue'],['Интервью','interview'],['Подкаст','podcast'],['Реклама','advertising'],['Рассказ','story'],['Аудиокнига','audiobook'],['Новости','news'],['Радио','radio'],['Диктор','narrator'],['Озвучка фильма','film_dubbing']],
+  ai: [['Сделать эмоциональнее','emotional'],['Сделать серьёзнее','serious'],['Сделать драматичнее','dramatic'],['Переписать','rewrite'],['Сократить','shorten'],['Продолжить','continue']],
+});
+const VOICE_EMOTIONS = VOICE_DIALOGUE_DATA.emotion.map((item) => item[0]);
+const VOICE_PAUSES = VOICE_DIALOGUE_DATA.pause.map((item) => Number(item[1]));
+const VOICE_EFFECTS = VOICE_DIALOGUE_DATA.sfx.map((item) => item[0]);
 const VOICE_CUSTOM_OPTIONS_KEY = 'sylvex_voice_custom_dialogue_options';
 let voiceCustomOptions = { emotion:[], pause:[], effects:[] };
 try {
@@ -2872,6 +2879,282 @@ const VOICE_AI_FORMATS = [
   ['ad', 'Реклама'], ['script', 'Сценарий'], ['story', 'Рассказ'], ['podcast', 'Подкаст'],
   ['interview', 'Интервью'], ['dialogue', 'Диалог'], ['book', 'Аудиокнига'], ['greeting', 'Поздравление'], ['announcement', 'Объявление'],
 ];
+
+const VoiceDialogueComposer = (() => {
+  let input = null;
+  let savedSelection = { start:0, end:0, text:'' };
+  let contextMenu = null;
+  let mobileToolbar = null;
+  let bottomSheet = null;
+  let markerRail = null;
+  let longPressTimer = 0;
+  let dialogueLines = [];
+
+  const active = () => isVoiceMode() && voiceWorkspaceMode === 'dialogue';
+  const isTouchLayout = () => Boolean(S.device && S.device.usesVirtualKeyboard);
+  const rememberCaret = () => {
+    if (!input) return savedSelection;
+    const start = Number.isFinite(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : start;
+    savedSelection = { start, end, text:input.value.slice(start, end) };
+    return savedSelection;
+  };
+  const restoreCaret = () => {
+    if (!input) return;
+    const max = input.value.length;
+    const start = Math.max(0, Math.min(max, savedSelection.start));
+    const end = Math.max(start, Math.min(max, savedSelection.end));
+    input.focus({ preventScroll:true });
+    input.setSelectionRange(start, end);
+  };
+  const afterEdit = (caret) => {
+    if (!input) return;
+    input.focus({ preventScroll:true });
+    input.setSelectionRange(caret, caret);
+    savedSelection = { start:caret, end:caret, text:'' };
+    input.dispatchEvent(new Event('input', { bubbles:true }));
+    autoGrow(input);
+    refreshMarkers();
+  };
+  const insert = (value, options) => {
+    if (!input) return;
+    const config = options || {};
+    const selection = savedSelection;
+    const start = selection.start;
+    const end = selection.end;
+    const selected = input.value.slice(start, end);
+    let inserted = String(value || '');
+    if (config.wrapSelection && selected) inserted = inserted + ' ' + selected;
+    const replacementEnd = (config.replaceSelection || config.wrapSelection) ? end : start;
+    input.value = input.value.slice(0, start) + inserted + input.value.slice(replacementEnd);
+    afterEdit(start + inserted.length);
+  };
+  const token = (kind, value) => '[' + kind + ':' + value + ']';
+  const speakerInfo = (index) => {
+    const voiceId = voiceSpeakerVoiceValue(index);
+    const item = currentVoiceListForPanel().find((voice) => String(voice.id || voice.voice_id || '') === String(voiceId || ''));
+    const name = item ? String(item.label || item.name || item.id || '').split(' · ')[0] : '';
+    const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
+    return { index, voiceId, name:name || ('Диктор ' + (index + 1)), avatar:item ? voiceAvatarUrlFor(item, provider) : '', item };
+  };
+  const insertSpeaker = (index) => {
+    const info = speakerInfo(index);
+    if (!info.voiceId) {
+      voiceState.activeSpeakerIndex = index;
+      renderVoiceControls();
+      openImageOptionMenu(null, 'voice_speaker_' + (index + 1));
+      return;
+    }
+    const before = savedSelection.start > 0 && input.value.slice(0, savedSelection.start).trim() ? '\n' : '';
+    insert(before + 'Speaker' + (index + 1) + ': ');
+  };
+  const templateText = (value) => {
+    const one = voiceSpeakerVoiceValue(0) ? 'Speaker1: ' : '';
+    const two = voiceSpeakerVoiceValue(1) ? 'Speaker2: ' : '';
+    const templates = {
+      dialogue: one + 'Первая реплика\n' + two + 'Ответ',
+      interview: one + 'Здравствуйте. Начнём интервью.\n' + two + 'Здравствуйте, я готов.',
+      podcast: one + 'Добро пожаловать в подкаст.\n' + two + 'Сегодня обсудим важную тему.',
+      advertising: one + token('style','confident') + ' Представляем новый продукт.',
+      story: one + token('style','narrative') + ' Однажды всё изменилось…',
+      audiobook: one + token('style','slow') + ' Глава первая.',
+      news: one + token('emotion','serious') + ' Главные новости дня.',
+      radio: one + token('style','energetic') + ' Вы слушаете SYLVEX Radio.',
+      narrator: one + token('style','confident') + ' Текст диктора.',
+      film_dubbing: one + token('direction','voice_over') + ' Реплика персонажа.\n' + two + 'Ответ персонажа.',
+    };
+    insert(templates[value] || templates.dialogue);
+  };
+  const aiContinuationItems = () => {
+    const before = input ? input.value.slice(0, savedSelection.start).toLowerCase() : '';
+    if (/я тебя[\s…\.]*$/.test(before)) return [['люблю','completion:люблю'],['ненавижу','completion:ненавижу'],['очень ждал','completion:очень ждал'],['искал','completion:искал'],['не понимаю','completion:не понимаю']];
+    return VOICE_DIALOGUE_DATA.ai;
+  };
+  const categoryItems = (category) => category === 'speaker'
+    ? Array.from({ length:Number(voiceState.numSpeakers || 2) }, (_, index) => {
+        const info = speakerInfo(index);
+        return [info.name, String(index), !!info.voiceId];
+      }).filter((item) => item[2]).concat([['Добавить диктора','add',true]])
+    : category === 'ai' ? aiContinuationItems() : (() => {
+        const base = VOICE_DIALOGUE_DATA[category] || [];
+        const customKey = category === 'sfx' ? 'effects' : category;
+        const custom = ['emotion','pause','sfx'].includes(category) && Array.isArray(voiceCustomOptions[customKey])
+          ? voiceCustomOptions[customKey].map((label) => [String(label), String(label).trim().toLowerCase().replace(/\s+/g, '_')])
+          : [];
+        return base.concat(custom);
+      })();
+  const categoryLabel = { speaker:'Диктор',emotion:'Эмоция',style:'Манера речи',pause:'Пауза',sfx:'Звуковой эффект',direction:'Режиссура',accent:'Акцент',template:'Шаблон',ai:'AI Assistant' };
+  const categories = ['speaker','emotion','style','pause','sfx','direction','accent','template','ai'];
+  const icon = (category) => ({
+    speaker:'<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M6 20c.5-4 2.5-6 6-6s5.5 2 6 6"/></svg>',
+    emotion:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 10h.01M15.5 10h.01M8 15c2.3 2 5.7 2 8 0"/></svg>',
+    style:'<svg viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h12"/><circle cx="17" cy="7" r="2"/><circle cx="7" cy="17" r="2"/></svg>',
+    pause:'<svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>',
+    sfx:'<svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>',
+    direction:'<svg viewBox="0 0 24 24"><path d="M5 19 19 5M10 5h9v9"/></svg>',
+    accent:'<svg viewBox="0 0 24 24"><path d="m5 19 7-14 7 14M8 14h8"/></svg>',
+    template:'<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+    ai:'<svg viewBox="0 0 24 24"><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3ZM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15Z"/></svg>',
+  }[category] || '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>');
+
+  const runAction = (category, value) => {
+    closeMenus();
+    if (category === 'speaker') {
+      if (value === 'add') {
+        const previousCount = Number(voiceState.numSpeakers || 1);
+        addVoiceSpeaker(null);
+        if (Number(voiceState.numSpeakers || 1) > previousCount) {
+          voiceState.activeSpeakerIndex = Number(voiceState.numSpeakers) - 1;
+          renderVoiceControls();
+          openImageOptionMenu(null, 'voice_speaker_' + voiceState.numSpeakers);
+        }
+      }
+      else insertSpeaker(Number(value));
+    } else if (category === 'template') templateText(value);
+    else if (category === 'ai') {
+      if (String(value).startsWith('completion:')) insert(String(value).slice(11));
+      else if (value === 'emotional') insert(token('emotion','emotional'), { wrapSelection:true });
+      else if (value === 'serious') insert(token('emotion','serious'), { wrapSelection:true });
+      else if (value === 'dramatic') insert(token('style','dramatic'), { wrapSelection:true });
+      else {
+        restoreCaret();
+        runVoiceTextTool(null, 'improve');
+      }
+    } else {
+      if (category === 'pause' && savedSelection.end > savedSelection.start) {
+        savedSelection = { start:savedSelection.end, end:savedSelection.end, text:'' };
+      }
+      insert(token(category, value), { wrapSelection:category !== 'pause' && category !== 'sfx' });
+    }
+  };
+  const menuItemsHtml = (category) => categoryItems(category).map((item) => {
+    const disabled = item[2] === false;
+    return '<button type="button" ' + (disabled ? 'disabled' : '') + ' data-vdc-category="' + category + '" data-vdc-value="' + S.escapeHtml(String(item[1])) + '">' + S.escapeHtml(item[0]) + '</button>';
+  }).join('');
+  const ensureContextMenu = () => {
+    if (contextMenu) return contextMenu;
+    contextMenu = document.createElement('div');
+    contextMenu.className = 'voice-caret-menu';
+    contextMenu.hidden = true;
+    contextMenu.addEventListener('pointerdown', (event) => event.preventDefault());
+    contextMenu.addEventListener('click', (event) => {
+      const action = event.target.closest('[data-vdc-category][data-vdc-value]');
+      if (action) runAction(action.dataset.vdcCategory, action.dataset.vdcValue);
+    });
+    document.body.appendChild(contextMenu);
+    return contextMenu;
+  };
+  const openContextMenu = (x, y) => {
+    if (!active() || isTouchLayout()) return;
+    rememberCaret();
+    const selected = savedSelection.start !== savedSelection.end;
+    const menu = ensureContextMenu();
+    if (selected) {
+      const direct = [
+        ['emotion','emotional','Сделать эмоциональнее'],['style','whisper','Шёпотом'],['emotion','serious','Сделать серьёзнее'],['ai','rewrite','Переписать'],
+      ];
+      menu.innerHTML = direct.map((item) => '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="' + item[0] + '" data-vdc-value="' + item[1] + '"><span>' + icon(item[0]) + '</span>' + item[2] + '<i></i></button></div>').join('')
+        + '<div class="voice-caret-menu-item"><button type="button"><span>' + icon('speaker') + '</span>Назначить диктора<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml('speaker') + '</div></div>'
+        + '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="pause" data-vdc-value="0.5"><span>' + icon('pause') + '</span>Добавить паузу после<i></i></button></div><hr>'
+        + '<div class="voice-caret-menu-item"><button type="button"><span>' + icon('ai') + '</span>AI Assistant<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml('ai') + '</div></div>';
+    } else {
+      menu.innerHTML = categories.map((category, index) => '<div class="voice-caret-menu-item"><button type="button"><span>' + icon(category) + '</span>' + categoryLabel[category] + '<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml(category) + '</div></div>' + (index === categories.length - 2 ? '<hr>' : '')).join('');
+    }
+    menu.hidden = false;
+    const width = 240;
+    menu.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, x)) + 'px';
+    menu.style.top = Math.max(8, Math.min(window.innerHeight - 360, y)) + 'px';
+  };
+  const ensureMobileUi = () => {
+    if (!mobileToolbar) {
+      mobileToolbar = document.createElement('div');
+      mobileToolbar.className = 'voice-dialogue-mobile-toolbar';
+      mobileToolbar.setAttribute('aria-label', 'Инструменты диалога');
+      mobileToolbar.innerHTML = ['speaker','emotion','pause','sfx','style','direction','ai'].map((category) => '<button type="button" data-vdc-open="' + category + '"><span>' + icon(category) + '</span>' + categoryLabel[category] + '</button>').join('');
+      mobileToolbar.addEventListener('pointerdown', (event) => event.preventDefault());
+      mobileToolbar.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-vdc-open]');
+        if (button) openBottomSheet(button.dataset.vdcOpen);
+      });
+      document.body.appendChild(mobileToolbar);
+    }
+    if (!bottomSheet) {
+      bottomSheet = document.createElement('div');
+      bottomSheet.className = 'voice-dialogue-bottom-sheet';
+      bottomSheet.hidden = true;
+      bottomSheet.addEventListener('pointerdown', (event) => event.preventDefault());
+      bottomSheet.addEventListener('click', (event) => {
+        if (event.target === bottomSheet || event.target.closest('[data-vdc-close]')) return closeMenus();
+        const action = event.target.closest('[data-vdc-category][data-vdc-value]');
+        if (action) runAction(action.dataset.vdcCategory, action.dataset.vdcValue);
+      });
+      document.body.appendChild(bottomSheet);
+    }
+  };
+  const openBottomSheet = (category) => {
+    if (!active()) return;
+    rememberCaret();
+    ensureMobileUi();
+    bottomSheet.innerHTML = '<div class="voice-dialogue-sheet-card"><header><b>' + categoryLabel[category] + '</b><button type="button" data-vdc-close>×</button></header><div class="voice-dialogue-sheet-items">' + menuItemsHtml(category) + '</div></div>';
+    bottomSheet.hidden = false;
+  };
+  const closeMenus = () => {
+    if (contextMenu) contextMenu.hidden = true;
+    if (bottomSheet) bottomSheet.hidden = true;
+  };
+  const refreshMarkers = () => {
+    if (!markerRail || !input) return;
+    if (!active()) { markerRail.hidden = true; markerRail.innerHTML = ''; return; }
+    const matches = Array.from(input.value.matchAll(/(?:^|\n)Speaker([1-7]):\s*([^\n]*)/g));
+    markerRail.hidden = !matches.length;
+    markerRail.innerHTML = matches.map((match) => {
+      const info = speakerInfo(Math.max(0, Number(match[1]) - 1));
+      const avatar = info.avatar ? '<img src="' + S.escapeHtml(info.avatar) + '" alt="">' : '<span>' + S.escapeHtml(voiceInitials(info.name)) + '</span>';
+      return '<div class="voice-dialogue-marker"><span class="voice-speaker-avatar" style="' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '">' + avatar + '</span><b>' + S.escapeHtml(info.name) + '</b><small>' + S.escapeHtml(match[2] || 'Новая реплика') + '</small></div>';
+    }).join('');
+    dialogueLines = matches.map((match, lineIndex) => {
+      const speakerIndex = Math.max(0, Number(match[1]) - 1);
+      const info = speakerInfo(speakerIndex);
+      return {
+        line_id:lineIndex,
+        speaker_id:'speaker_' + (speakerIndex + 1),
+        voice_id:info.voiceId || '',
+        speaker_name:info.name,
+        avatar_url:info.avatar || '',
+        text:match[2] || '',
+      };
+    });
+  };
+  const setup = (editor) => {
+    if (!editor || input === editor) return;
+    input = editor;
+    markerRail = document.createElement('div');
+    markerRail.className = 'voice-dialogue-marker-rail';
+    markerRail.hidden = true;
+    input.parentElement.insertBefore(markerRail, input);
+    ['keyup','click','select','input'].forEach((name) => input.addEventListener(name, () => { rememberCaret(); if (name === 'input') refreshMarkers(); }));
+    document.addEventListener('selectionchange', () => { if (document.activeElement === input) rememberCaret(); });
+    input.addEventListener('contextmenu', (event) => {
+      if (!active() || isTouchLayout()) return;
+      event.preventDefault();
+      openContextMenu(event.clientX, event.clientY);
+    });
+    input.addEventListener('pointerdown', () => {
+      if (!active() || !isTouchLayout()) return;
+      window.clearTimeout(longPressTimer);
+      longPressTimer = window.setTimeout(() => {
+        rememberCaret();
+        openBottomSheet('ai');
+      }, 600);
+    });
+    ['pointerup','pointercancel','pointermove'].forEach((name) => input.addEventListener(name, () => window.clearTimeout(longPressTimer), { passive:true }));
+    document.addEventListener('pointerdown', (event) => {
+      if (contextMenu && !contextMenu.hidden && !event.target.closest('.voice-caret-menu')) closeMenus();
+    });
+    ensureMobileUi();
+  };
+  return { setup, rememberCaret, restoreCaret, insert, insertSpeaker, runAction, openBottomSheet, closeMenus, refreshMarkers, getDialogueLines:() => dialogueLines.map((line) => Object.assign({}, line)), data:VOICE_DIALOGUE_DATA };
+})();
 
 function selectedVoiceIdentity() {
   return String(isElevenLabsVoiceModel(voiceState.modelId) ? voiceState.elevenlabsVoice : (isRunwayVoiceModel(voiceState.modelId) ? voiceState.runwayVoice : voiceState.voice) || 'voice');
@@ -3137,13 +3420,15 @@ function setVoiceEditorSetting(event, key, rawValue) {
 
 function insertVoiceEmotion(event, emotion) {
   if (event) event.stopPropagation();
-  const selected = voiceEditorSelection().text;
-  insertVoiceEditorMarkup('[' + emotion + '] ' + selected);
+  VoiceDialogueComposer.rememberCaret();
+  const mapped = VOICE_DIALOGUE_DATA.emotion.find((item) => item[0] === emotion);
+  VoiceDialogueComposer.runAction('emotion', mapped ? mapped[1] : String(emotion).toLowerCase());
 }
 
 function insertVoicePause(event, seconds) {
   if (event) event.stopPropagation();
-  insertVoiceEditorMarkup('[Пауза ' + Number(seconds) + ' сек]');
+  VoiceDialogueComposer.rememberCaret();
+  VoiceDialogueComposer.runAction('pause', String(Number(seconds)));
 }
 
 function insertVoiceEditorMarkup(value) {
@@ -3236,6 +3521,9 @@ function removeVoiceSpeaker(event, speakerNumber) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   if (voiceState.numSpeakers <= 1) return;
   const removed = Math.max(2, Math.min(7, Number(speakerNumber || voiceState.numSpeakers)));
+  const input = document.getElementById('chatInput');
+  const isUsed = !!(input && new RegExp('(?:^|\\n)Speaker' + removed + ':', 'm').test(input.value));
+  if (isUsed && !window.confirm('Этот диктор уже используется в репликах. Удалить его?')) return;
   voiceState.speakerVoices.splice(removed - 1, 1);
   voiceState.speakerVoices.push('');
   voiceState.numSpeakers -= 1;
@@ -3246,11 +3534,14 @@ function removeVoiceSpeaker(event, speakerNumber) {
   voiceState.speakerMode = voiceState.numSpeakers > 1 ? 'multi' : 'single';
   if (isElevenLabsVoiceModel(voiceState.modelId) && voiceState.numSpeakers === 1 && voiceState.elevenlabsTool === 'dialogue') voiceState.elevenlabsTool = 'text_to_speech';
   renderVoiceControls();
+  VoiceDialogueComposer.refreshMarkers();
 }
 
 function insertVoiceEffect(event, effect) {
   if (event) event.stopPropagation();
-  insertVoiceEditorMarkup('[Звуковой эффект: ' + effect + ']');
+  VoiceDialogueComposer.rememberCaret();
+  const mapped = VOICE_DIALOGUE_DATA.sfx.find((item) => item[0] === effect);
+  VoiceDialogueComposer.runAction('sfx', mapped ? mapped[1] : String(effect).toLowerCase());
 }
 
 function toggleVoiceEditorFullscreen(event) {
@@ -9281,8 +9572,7 @@ function imageModelButton(model) {
     renderVoiceControls();
     renderModelPop();
     const el = document.getElementById('modelPop');
-    const keepSpeakerSheetOpen = /^voiceSpeaker[1-7]$/.test(kind);
-    const keepVoiceSheetOpen = keepSpeakerSheetOpen || ['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind);
+    const keepVoiceSheetOpen = ['speakerMode', 'runwayTool', 'runwayTargetLanguage', 'runwayDuration', 'elevenlabsTool', 'elevenlabsTargetLanguage'].includes(kind);
     const closeVoiceUploadPicker = ['voiceUploadPurpose', 'voiceTargetLanguage', 'voiceSpeakerCount'].includes(kind);
     if (el && !keepVoiceSheetOpen) {
       el.classList.remove('show');
@@ -9292,8 +9582,7 @@ function imageModelButton(model) {
       el.classList.remove('video-option-horizontal-pop');
       el.style.cssText = '';
     } else if (keepVoiceSheetOpen) {
-      if (keepSpeakerSheetOpen) openImageOptionMenu(e, 'voice_speaker_' + kind.slice(-1));
-      else openImageOptionMenu(e, 'settings');
+      openImageOptionMenu(e, 'settings');
     }
     if (closeVoiceUploadPicker) {
       activeVoicePanelSection = 'upload';
@@ -13583,6 +13872,7 @@ function maybeShowVideoTemplateIntro(force) {
         voiceState.activeSpeakerIndex = null;
       }
     } else {
+      VoiceDialogueComposer.closeMenus();
       voiceState.elevenlabsTool = 'text_to_speech';
       voiceState.speakerMode = 'single';
       voiceState.numSpeakers = 1;
@@ -16344,6 +16634,7 @@ async function waitGeneration(jobId, options) {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
       PromptPlaceholderManager.setup(chatInput, chatTypeForMode(studioMode));
+      VoiceDialogueComposer.setup(chatInput);
       const openComposerInputWindow = () => {
         if (!usesVirtualKeyboardLayout()) return;
         document.body.classList.add('kb-open');
@@ -17016,7 +17307,7 @@ async function waitGeneration(jobId, options) {
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
-    PromptPlaceholderManager,
+    PromptPlaceholderManager, VoiceDialogueComposer,
     initAudioPlayer,
     openAudioPlayer, continueVoiceResult,
     PlayerManager,
