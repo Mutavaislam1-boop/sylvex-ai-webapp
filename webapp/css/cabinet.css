@@ -2748,6 +2748,21 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer textarea
   font-size:17px;line-height:1.45;font-family:inherit;
 }
 .view[data-view="tools"].active .studio-video-composer textarea::placeholder{color:#858585}
+.studio-prompt-column textarea.has-animated-placeholder::placeholder{color:transparent!important}
+.animated-prompt-placeholder{
+  position:absolute;left:24px;right:0;top:8px;z-index:1;min-width:0;
+  color:#858585;font-size:17px;line-height:1.45;font-family:inherit;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
+}
+.animated-prompt-placeholder[hidden]{display:none!important}
+.animated-prompt-placeholder i{display:none;font-style:normal;margin-inline-start:1px}
+.animated-prompt-placeholder.is-animated i{display:inline;animation:animatedPromptCursorBlink 1s steps(1,end) infinite}
+.studio-video-composer[data-composer-mode="text"] .animated-prompt-placeholder{right:48px}
+.studio-prompt-column.text-mic-active .animated-prompt-placeholder{display:none!important}
+.studio-prompt-column.voice-editor-fullscreen .animated-prompt-placeholder{left:14px;right:14px;top:calc(env(safe-area-inset-top,0px) + 22px)}
+.studio-video-composer.is-compact .animated-prompt-placeholder{left:0}
+@media(max-width:900px){.animated-prompt-placeholder{left:0}.studio-video-composer[data-composer-mode="text"] .animated-prompt-placeholder{right:92px}}
+@keyframes animatedPromptCursorBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
 /* =====================================================
 CSS-БЛОК: .studio-control-row
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.

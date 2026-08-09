@@ -12,6 +12,183 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   console.log("CABINET JS NEW VERSION 11.07.2026");
   // Pro Studio state.
   let studioMode = 'pro';
+
+  const PROMPT_PLACEHOLDER_ANIMATIONS = {
+    ru: {
+      image: { brand:'SYLVEX генерация фото', base:'Опиши свое фото', variants:['для рекламы','как профессиональный портрет','как киноафишу','как обложку журнала','как продуктовую фотографию','как рекламный баннер','как концепт-арт','в кинематографическом стиле','для социальных сетей'] },
+      video: { brand:'SYLVEX генерация видео', base:'Опиши свое видео', variants:['как рекламный ролик','кинематографично','с плавным движением камеры','в замедленной съемке','для TikTok','для YouTube Shorts','как трейлер фильма','с динамичной камерой','как fashion video'] },
+      music: { brand:'SYLVEX генерация музыки', base:'Опиши свою музыку', variants:['в стиле Pop','в стиле EDM','для фильма','для игры','эпичную','романтическую','атмосферную','с мужским вокалом','с женским вокалом'] },
+      voice: { brand:'SYLVEX озвучка', base:'Введите текст для озвучки', variants:['для рекламного ролика','для трейлера фильма','спокойным голосом','эмоциональным голосом','голосом диктора','для персонажа','для презентации'] },
+      text: { brand:'SYLVEX генерация текста', base:'Опиши свой запрос', variants:['напиши статью','напиши сценарий','напиши рекламный текст','напиши описание товара','напиши пост','напиши письмо','напиши историю','придумай идею','составь план'] },
+    },
+    en: {
+      image: { brand:'SYLVEX image generation', base:'Describe your image', variants:['for an ad','as a professional portrait','as a movie poster','as a magazine cover','as product photography','as an advertising banner','as concept art','in a cinematic style','for social media'] },
+      video: { brand:'SYLVEX video generation', base:'Describe your video', variants:['as a commercial','with a cinematic look','with smooth camera movement','in slow motion','for TikTok','for YouTube Shorts','as a movie trailer','with a dynamic camera','as a fashion video'] },
+      music: { brand:'SYLVEX music generation', base:'Describe your music', variants:['in a Pop style','in an EDM style','for a film','for a game','epic','romantic','atmospheric','with male vocals','with female vocals'] },
+      voice: { brand:'SYLVEX voiceover', base:'Enter text for voiceover', variants:['for a commercial','for a movie trailer','in a calm voice','in an emotional voice','with a narrator voice','for a character','for a presentation'] },
+      text: { brand:'SYLVEX text generation', base:'Describe your request', variants:['write an article','write a script','write advertising copy','write a product description','write a post','write a letter','write a story','suggest an idea','create a plan'] },
+    },
+  };
+
+  const PROMPT_PLACEHOLDER_TIMING = Object.freeze({
+    typing: 45,
+    deleting: 25,
+    phrasePause: 1200,
+    variationPause: 400,
+    blurRestart: 1200,
+  });
+
+  const PromptPlaceholderManager = (() => {
+    let element = null;
+    let layer = null;
+    let textNode = null;
+    let timer = null;
+    let runToken = 0;
+    let mode = 'video';
+    let variationIndex = 0;
+    let temporaryText = '';
+
+    const language = () => {
+      const selected = String((S.getLang && S.getLang()) || localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
+      return PROMPT_PLACEHOLDER_ANIMATIONS[selected] ? selected : 'en';
+    };
+    const copy = () => {
+      const group = PROMPT_PLACEHOLDER_ANIMATIONS[language()] || PROMPT_PLACEHOLDER_ANIMATIONS.en;
+      return group[mode] || group.video;
+    };
+    const clearTimer = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+    };
+    const cancel = () => {
+      runToken += 1;
+      clearTimer();
+    };
+    const show = (value, animated) => {
+      if (!layer || !textNode) return;
+      textNode.textContent = value || '';
+      layer.classList.toggle('is-animated', !!animated);
+      layer.hidden = !!(element && element.value);
+      layer.dir = document.documentElement.dir || 'ltr';
+    };
+    const schedule = (callback, delay, token) => {
+      clearTimer();
+      timer = window.setTimeout(() => {
+        timer = null;
+        if (token === runToken) callback();
+      }, delay);
+    };
+    const typeTo = (target, token, done) => {
+      if (token !== runToken || !textNode) return;
+      const current = textNode.textContent || '';
+      if (current.length >= target.length) return done();
+      show(target.slice(0, current.length + 1), true);
+      schedule(() => typeTo(target, token, done), PROMPT_PLACEHOLDER_TIMING.typing, token);
+    };
+    const deleteTo = (length, token, done) => {
+      if (token !== runToken || !textNode) return;
+      const current = textNode.textContent || '';
+      if (current.length <= length) return done();
+      show(current.slice(0, -1), true);
+      schedule(() => deleteTo(length, token, done), PROMPT_PLACEHOLDER_TIMING.deleting, token);
+    };
+    const runVariations = (token) => {
+      if (token !== runToken) return;
+      const settings = copy();
+      const variants = settings.variants || [];
+      if (!variants.length) {
+        schedule(() => runVariations(token), PROMPT_PLACEHOLDER_TIMING.phrasePause, token);
+        return;
+      }
+      const phrase = settings.base + ' ' + variants[variationIndex % variants.length];
+      variationIndex = (variationIndex + 1) % variants.length;
+      typeTo(phrase, token, () => {
+        schedule(() => deleteTo(settings.base.length, token, () => {
+          schedule(() => runVariations(token), PROMPT_PLACEHOLDER_TIMING.variationPause, token);
+        }), PROMPT_PLACEHOLDER_TIMING.phrasePause, token);
+      });
+    };
+    const start = () => {
+      cancel();
+      if (!element || element.value || document.activeElement === element || temporaryText) {
+        if (element && !element.value) show(temporaryText || copy().base, false);
+        return;
+      }
+      variationIndex = 0;
+      const token = runToken;
+      const settings = copy();
+      show('', true);
+      typeTo(settings.brand, token, () => {
+        schedule(() => deleteTo(0, token, () => {
+          schedule(() => typeTo(settings.base, token, () => {
+            schedule(() => runVariations(token), PROMPT_PLACEHOLDER_TIMING.phrasePause, token);
+          }), PROMPT_PLACEHOLDER_TIMING.variationPause, token);
+        }), PROMPT_PLACEHOLDER_TIMING.phrasePause, token);
+      });
+    };
+    const setMode = (nextMode) => {
+      mode = ['image','video','music','voice','text'].includes(nextMode) ? nextMode : 'video';
+      if (!element) return;
+      const settings = copy();
+      element.placeholder = settings.base;
+      element.setAttribute('aria-label', settings.base);
+      temporaryText = '';
+      start();
+    };
+    const setup = (input, initialMode) => {
+      if (!input || element === input) {
+        if (input) setMode(initialMode || mode);
+        return;
+      }
+      cancel();
+      element = input;
+      layer = document.createElement('div');
+      layer.className = 'animated-prompt-placeholder';
+      layer.setAttribute('aria-hidden', 'true');
+      layer.innerHTML = '<span class="animated-prompt-placeholder-text"></span><i aria-hidden="true">|</i>';
+      textNode = layer.querySelector('.animated-prompt-placeholder-text');
+      element.insertAdjacentElement('afterend', layer);
+      element.classList.add('has-animated-placeholder');
+      element.addEventListener('focus', () => {
+        cancel();
+        if (!element.value) show(temporaryText || copy().base, false);
+      });
+      element.addEventListener('input', () => {
+        cancel();
+        if (element.value) {
+          if (layer) layer.hidden = true;
+        } else {
+          show(temporaryText || copy().base, false);
+        }
+      });
+      element.addEventListener('blur', () => {
+        cancel();
+        if (!element.value && !temporaryText) {
+          const token = runToken;
+          schedule(start, PROMPT_PLACEHOLDER_TIMING.blurRestart, token);
+        }
+      });
+      window.addEventListener('pagehide', cancel);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) cancel();
+        else if (element && !element.value && document.activeElement !== element) start();
+      });
+      setMode(initialMode || mode);
+    };
+    const refreshLanguage = () => setMode(mode);
+    const setTemporary = (value) => {
+      cancel();
+      temporaryText = String(value || '');
+      if (element && !element.value) show(temporaryText || copy().base, false);
+    };
+    const clearTemporary = () => {
+      temporaryText = '';
+      if (!element || element.value) return;
+      if (document.activeElement === element) show(copy().base, false);
+      else start();
+    };
+    return { setup, setMode, refreshLanguage, setTemporary, clearTemporary, stop: cancel };
+  })();
   let activeCat = null;
   let chatMessages = [];
   let currentConvId = null;
@@ -13509,12 +13686,13 @@ function maybeShowVideoTemplateIntro(force) {
     if (minis[miniIndex]) minis[miniIndex].classList.add('active');
     const ta = document.getElementById('chatInput');
     if (ta) {
-      ta.placeholder =
-        isImage ? 'Describe your image' :
-        isText ? 'Describe your text' :
-        isVoice ? 'Введите текст для озвучки' :
-        isMusic ? 'Describe your music' :
-        'Describe your video';
+      PromptPlaceholderManager.setMode(
+        isImage ? 'image' :
+        isText ? 'text' :
+        isVoice ? 'voice' :
+        isMusic ? 'music' :
+        'video'
+      );
     }
     const mvc = document.getElementById('modelValComposer');
     if (isImage) {
@@ -14788,7 +14966,7 @@ async function waitGeneration(jobId, options) {
       const blob = new Blob(mediaChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
       if (blob.size < 800) { toast('Recording too short'); return; }
       const ta = document.getElementById('chatInput');
-      if (ta) { ta.placeholder = 'Transcribing…'; }
+      if (ta) PromptPlaceholderManager.setTemporary('Transcribing…');
       try {
         const fd = new FormData();
         const ext = (blob.type.includes('mp4') ? 'mp4' : 'webm');
@@ -14800,7 +14978,7 @@ async function waitGeneration(jobId, options) {
       } catch (err) {
         toast(translateGenerationError(err, 'Не удалось распознать голос. Попробуйте ещё раз.'));
       } finally {
-        if (ta) ta.placeholder = studioMode === 'text' ? 'Describe your text' : 'Message SYLVEX…';
+        PromptPlaceholderManager.clearTemporary();
       }
     };
     mediaRecorder.start();
@@ -16165,6 +16343,7 @@ async function waitGeneration(jobId, options) {
     // Enter always creates a new line. Generation starts only from its button.
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
+      PromptPlaceholderManager.setup(chatInput, chatTypeForMode(studioMode));
       const openComposerInputWindow = () => {
         if (!usesVirtualKeyboardLayout()) return;
         document.body.classList.add('kb-open');
@@ -16178,6 +16357,7 @@ async function waitGeneration(jobId, options) {
         saveCurrentDraftSoon();
       });
     }
+    window.addEventListener('sylvex:languagechange', () => PromptPlaceholderManager.refreshLanguage());
 
     // Keyboard offset: keep the Pro Studio input pinned above the on-screen
     // keyboard without shrinking the app or moving the header. The bottom
@@ -16836,6 +17016,7 @@ async function waitGeneration(jobId, options) {
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
+    PromptPlaceholderManager,
     initAudioPlayer,
     openAudioPlayer, continueVoiceResult,
     PlayerManager,
