@@ -35,6 +35,7 @@ from services.character_prompts import build_character_prompt, infer_character_o
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from provider_concurrency import ProviderSlotUnavailable, normalize_provider, provider_slot
+from db_pool import close_db_pool, db_connect, db_pool_status, start_db_pool
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, Response
@@ -273,7 +274,7 @@ def load_voice_avatar_catalog() -> dict:
     if DATABASE_URL and VOICE_AVATAR_AUTO_GENERATION:
         try:
             ensure_prostudio_table()
-            conn = psycopg2.connect(DATABASE_URL)
+            conn = db_connect(DATABASE_URL)
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT provider, voice_id, seed, avatar_key, avatar_path
@@ -350,7 +351,7 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
         if not DATABASE_URL or not OPENAI_API_KEY:
             raise RuntimeError("DATABASE_URL or OPENAI_API_KEY is not configured")
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("SELECT status, updated_at FROM prostudio_voice_avatars WHERE avatar_key = %s", (key,))
         row = cursor.fetchone()
@@ -376,7 +377,7 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
         else:
             raise RuntimeError("OpenAI image response has no image")
         avatar_path = storage_put_bytes(image_bytes, generated_key("voice-avatars", f"{key}.png"), "image/png")
-        conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+        conn = db_connect(DATABASE_URL); cursor = conn.cursor()
         cursor.execute("""
             UPDATE prostudio_voice_avatars SET image_data=%s, content_type='image/png', avatar_path=%s,
             status='ready', error_text='', updated_at=NOW() WHERE avatar_key=%s
@@ -386,7 +387,7 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
         print("VOICE AVATAR GENERATION FAILED:", {"provider": provider, "voice_id": voice_id, "error": str(exc)})
         if DATABASE_URL:
             try:
-                conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+                conn = db_connect(DATABASE_URL); cursor = conn.cursor()
                 cursor.execute("UPDATE prostudio_voice_avatars SET status='failed', error_text=%s, updated_at=NOW() WHERE avatar_key=%s", (str(exc)[:1000], key))
                 conn.commit(); cursor.close(); conn.close()
             except Exception:
@@ -414,7 +415,7 @@ def schedule_voice_avatars_batch(voices: list) -> dict:
     if not normalized_items or not DATABASE_URL or not VOICE_AVATAR_AUTO_GENERATION:
         return {}
     ensure_prostudio_table()
-    conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+    conn = db_connect(DATABASE_URL); cursor = conn.cursor()
     for provider, voice_id, key, seed in normalized_items:
         cursor.execute("""
             INSERT INTO prostudio_voice_avatars (provider, voice_id, seed, avatar_key, avatar_path, status)
@@ -1025,7 +1026,7 @@ def _has_subscription_purchase(telegram_id: int) -> bool:
         return False
 
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1051,7 +1052,7 @@ def _restore_active_subscription(telegram_id: int) -> bool:
         return False
 
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1265,7 +1266,7 @@ def ensure_user_events_table():
     if not DATABASE_URL:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1294,7 +1295,7 @@ def ensure_payment_tables():
     if not DATABASE_URL:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1423,7 +1424,7 @@ def log_user_event(
         sanitized = _sanitize_event_payload(payload)
         payload_str = json.dumps(sanitized, ensure_ascii=False)
 
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute(
@@ -1466,7 +1467,7 @@ def ensure_user_profiles_table():
     if not DATABASE_URL:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1493,7 +1494,7 @@ def get_user_profile(telegram_id: int) -> dict:
         return {}
 
     ensure_user_profiles_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1538,7 +1539,7 @@ def save_user_profile(telegram_id: int, display_name=None, custom_avatar_url=Non
     if theme_preference is not None:
         theme_json = json.dumps(theme_preference if isinstance(theme_preference, dict) else {}, ensure_ascii=False)
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1573,7 +1574,7 @@ def ensure_user_referrals_table():
     if not DATABASE_URL:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1625,7 +1626,7 @@ def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
 
     ensure_user_exists(telegram_id)
     ensure_user_referrals_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1666,7 +1667,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
 
     ensure_user_exists(telegram_id)
     if username or first_name:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute("""
@@ -1680,7 +1681,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             cursor.close()
             conn.close()
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1865,7 +1866,7 @@ def get_fast_user_state(telegram_id: int) -> dict:
         }
 
     ensure_user_exists(telegram_id)
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1927,7 +1928,7 @@ def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: 
         return False
 
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1954,7 +1955,7 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
 
     ensure_user_exists(telegram_id)
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1997,7 +1998,7 @@ def ensure_user_exists(telegram_id: int):
     if not DATABASE_URL or not telegram_id:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2019,7 +2020,7 @@ def add_user_balance(telegram_id: int, credits: int):
         return
 
     ensure_user_exists(telegram_id)
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -2049,7 +2050,7 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
 
     ensure_user_exists(telegram_id)
     ensure_prostudio_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2211,7 +2212,7 @@ def send_subscription_congratulations(telegram_id: int, item: dict, provider: st
     expires_at = None
     balance = 0
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT first_name, username, COALESCE(balance, 0) FROM users WHERE telegram_id = %s", (telegram_id,))
@@ -2283,7 +2284,7 @@ def reset_developer_subscription(telegram_id: int, reset_credits: bool = False) 
     ensure_payment_tables()
     ensure_user_exists(telegram_id)
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2504,7 +2505,7 @@ def save_paypal_order(telegram_id: int, pack_id: str, item: dict, order: dict, c
         return
 
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2617,7 +2618,7 @@ def finalize_paypal_capture(event: dict) -> bool:
         return False
 
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2701,7 +2702,7 @@ def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: st
 
     ensure_payment_tables()
     ensure_user_exists(telegram_id)
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2786,7 +2787,7 @@ def activate_paypal_subscription_from_event(event: dict) -> bool:
 
     details = paypal_subscription_payment_details(event)
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -2868,40 +2869,36 @@ def save_kling_settings_to_db(data):
     sound = 1 if data.get("sound") else 0
     prompt_enhance = 1 if data.get("prompt_enhance") else 0
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
-
-    cursor.execute("""
-    INSERT INTO user_ai_settings (
-        telegram_id,
-        kling_model,
-        kling_mode,
-        kling_ratio,
-        kling_quality,
-        kling_duration,
-        kling_sound,
-        kling_prompt_enhance
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (telegram_id) DO UPDATE SET
-        kling_model = EXCLUDED.kling_model,
-        kling_mode = EXCLUDED.kling_mode,
-        kling_ratio = EXCLUDED.kling_ratio,
-        kling_quality = EXCLUDED.kling_quality,
-        kling_duration = EXCLUDED.kling_duration,
-        kling_sound = EXCLUDED.kling_sound,
-        kling_prompt_enhance = EXCLUDED.kling_prompt_enhance
-    """, (
-        int(data.get("telegram_id")),
-        data.get("model"),
-        data.get("mode"),
-        data.get("ratio"),
-        data.get("quality"),
-        duration,
-        sound,
-        prompt_enhance
-    ))
-
-    conn.commit()
+    try:
+        cursor.execute("""
+        INSERT INTO user_ai_settings (
+            telegram_id,
+            kling_model,
+            kling_mode,
+            kling_ratio,
+            kling_quality,
+            kling_duration,
+            kling_sound,
+            kling_prompt_enhance
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (telegram_id) DO UPDATE SET
+            kling_model = EXCLUDED.kling_model,
+            kling_mode = EXCLUDED.kling_mode,
+            kling_ratio = EXCLUDED.kling_ratio,
+            kling_quality = EXCLUDED.kling_quality,
+            kling_duration = EXCLUDED.kling_duration,
+            kling_sound = EXCLUDED.kling_sound,
+            kling_prompt_enhance = EXCLUDED.kling_prompt_enhance
+        """, (
+            int(data.get("telegram_id")), data.get("model"), data.get("mode"),
+            data.get("ratio"), data.get("quality"), duration, sound, prompt_enhance,
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 # =====================================================
 # API ENDPOINT: root
@@ -3003,7 +3000,7 @@ def ensure_elevenlabs_table():
     if not DATABASE_URL:
         return
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -3152,7 +3149,7 @@ def get_elevenlabs_settings_from_db(telegram_id: int) -> dict:
         return defaults
 
     ensure_elevenlabs_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -3214,7 +3211,7 @@ def save_elevenlabs_settings_to_db(data: dict):
         "language": data.get("language"),
         "output_format": data.get("output_format"),
     })
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -3379,7 +3376,7 @@ def visual_stats_payload(resource_id: str, resource_type: str, telegram_id: int 
         return stats
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute(
             "SELECT likes_count, selects_count FROM prostudio_visual_stats WHERE resource_id = %s AND resource_type = %s",
@@ -3410,7 +3407,7 @@ def update_visual_interaction(telegram_id: int, resource_id: str, resource_type:
     if not DATABASE_URL or not telegram_id or not resource_id:
         return {"ok": False, "local_only": True}
     ensure_prostudio_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -3559,7 +3556,7 @@ def get_heygen_voice_settings_from_db(telegram_id: int) -> dict:
         return defaults
 
     ensure_elevenlabs_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -3609,7 +3606,7 @@ def save_heygen_voice_settings_to_db(data: dict):
         "language": data.get("language"),
         "output_format": data.get("output_format"),
     })
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -3898,7 +3895,7 @@ async def public_prostudio_voice_avatar_image(avatar_key: str):
         return FileResponse(local_path, media_type="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
     if DATABASE_URL:
         try:
-            conn = psycopg2.connect(DATABASE_URL); cursor = conn.cursor()
+            conn = db_connect(DATABASE_URL); cursor = conn.cursor()
             cursor.execute("SELECT image_data, content_type FROM prostudio_voice_avatars WHERE avatar_key=%s AND status='ready'", (safe_key,))
             row = cursor.fetchone(); cursor.close(); conn.close()
             if row and row[0]:
@@ -4205,7 +4202,7 @@ def save_generation(telegram_id: int, generation_type: str, prompt: str, status:
     if not DATABASE_URL or not telegram_id:
         return
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO generations (telegram_id, generation_type, prompt, status)
@@ -4227,7 +4224,7 @@ def ensure_prostudio_table():
         return
 
     with PROSTUDIO_SCHEMA_LOCK:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         advisory_locked = False
         try:
@@ -4511,7 +4508,7 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
     ensure_prostudio_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -4561,7 +4558,7 @@ def create_prostudio_generation_job(payload: dict) -> str:
         prostudio_debug("JOB_CREATE_SKIPPED_DB", job_id=job_id, has_database=bool(DATABASE_URL), telegram_id=telegram_id)
         return job_id
     ensure_prostudio_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         # Serialize job creation per Telegram user across every web process.
@@ -4625,7 +4622,7 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         return
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE prostudio_generation_jobs
@@ -4667,7 +4664,7 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
         return None
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute("""
@@ -4725,7 +4722,7 @@ def requeue_stale_prostudio_jobs():
         return
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute("""
@@ -4769,7 +4766,7 @@ def heartbeat_prostudio_generation_job(job_id: str):
     if not DATABASE_URL or not job_id:
         return
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
             cursor.execute("""
@@ -4790,7 +4787,7 @@ def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
     """Return a capacity-waiting job to the queue without consuming an attempt."""
     if not DATABASE_URL or not job_id:
         return
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -4977,7 +4974,7 @@ def log_prostudio_error(payload: dict, error: dict, job_id: str = ""):
         return
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO prostudio_errors (
@@ -5015,7 +5012,7 @@ def save_prostudio_draft(telegram_id: int, mode: str, draft_text: str = "", conv
         mode = "image"
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO prostudio_drafts (telegram_id, mode, conversation_id, draft_text, attachment_json, updated_at)
@@ -5044,7 +5041,7 @@ def load_prostudio_drafts(telegram_id: int) -> dict:
         return {}
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             SELECT mode, conversation_id, draft_text, attachment_json, updated_at
@@ -5112,7 +5109,7 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
     }
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO prostudio_resources (
@@ -5159,7 +5156,7 @@ def load_prostudio_resources(telegram_id: int) -> dict:
         return {"characters": [], "objects": [], "voices": []}
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, resource_type, name, description, gender, preview_url, photos_json, metadata_json, status, created_at, updated_at
@@ -5755,7 +5752,7 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             thumbnail_url=result.get("thumbnail_url") or "",
         )
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO prostudio_messages (
@@ -5849,7 +5846,7 @@ async def public_prostudio_conversations(
 
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
 
         limit = max(1, min(int(limit or 30), 100))
@@ -5992,7 +5989,7 @@ async def delete_public_prostudio_conversation(
 
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute("""
             DELETE FROM prostudio_messages
@@ -6031,7 +6028,7 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
     if DATABASE_URL:
         try:
             ensure_prostudio_table()
-            conn = psycopg2.connect(DATABASE_URL)
+            conn = db_connect(DATABASE_URL)
             cursor = conn.cursor()
             safe_limit = max(1, min(int(limit or 80), 200))
             cursor.execute("""
@@ -6487,7 +6484,7 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
         return {"ok": True, "deleted": False, "resource_id": resource_id}
     try:
         ensure_prostudio_table()
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM prostudio_resources WHERE id = %s AND telegram_id = %s",
@@ -6619,7 +6616,7 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
             if where_mode:
                 params.append(normalized)
             params.append(max(1, min(int(limit or 50), 200)))
-            conn = psycopg2.connect(DATABASE_URL)
+            conn = db_connect(DATABASE_URL)
             cursor = conn.cursor()
             cursor.execute(f"""
                 SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
@@ -6691,7 +6688,7 @@ async def public_prostudio_job(job_id: str):
     try:
         ensure_prostudio_table()
 
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -7498,7 +7495,7 @@ async def public_get_events(telegram_id: int = 0):
         return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=500)
 
     ensure_user_events_table()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -12496,7 +12493,7 @@ def process_subscription_reminders() -> dict:
     if not DATABASE_URL or not BOT_TOKEN:
         return {"checked": 0, "sent": 0}
     ensure_payment_tables()
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -12537,7 +12534,7 @@ def process_subscription_reminders() -> dict:
         if days_before not in {7, 5, 2, 1}:
             continue
 
-        claim_conn = psycopg2.connect(DATABASE_URL)
+        claim_conn = db_connect(DATABASE_URL)
         claim_cursor = claim_conn.cursor()
         try:
             claim_cursor.execute("""
@@ -12584,7 +12581,7 @@ def process_subscription_reminders() -> dict:
             result = response.json() if response.content else {}
             if response.status_code >= 400 or not result.get("ok"):
                 raise RuntimeError(f"Telegram sendMessage failed: {response.status_code} {result}")
-            update_conn = psycopg2.connect(DATABASE_URL)
+            update_conn = db_connect(DATABASE_URL)
             update_cursor = update_conn.cursor()
             try:
                 update_cursor.execute("""
@@ -12605,7 +12602,7 @@ def process_subscription_reminders() -> dict:
                 subscription_id=subscription_id,
                 days_before=days_before,
             )
-            retry_conn = psycopg2.connect(DATABASE_URL)
+            retry_conn = db_connect(DATABASE_URL)
             retry_cursor = retry_conn.cursor()
             try:
                 retry_cursor.execute("DELETE FROM subscription_reminders WHERE id = %s", (claimed[0],))
@@ -12642,10 +12639,18 @@ async def subscription_reminder_worker_loop():
 # Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
 # =====================================================
 async def start_prostudio_generation_worker():
+    if DATABASE_URL:
+        await asyncio.to_thread(start_db_pool, DATABASE_URL)
+        db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
         asyncio.create_task(prostudio_generation_worker_loop())
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
         asyncio.create_task(subscription_reminder_worker_loop())
+
+
+@app.on_event("shutdown")
+async def close_postgresql_pool():
+    await asyncio.to_thread(close_db_pool)
 
 # =====================================================
 # API ENDPOINT: public_prostudio_transcribe
@@ -12839,7 +12844,7 @@ async def public_prostudio_elevenlabs_voice_clone(request: Request):
 # =====================================================
 async def get_cabinet(telegram_id: int):
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
 
     cursor.execute("""

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 from uuid import uuid4
 
-import psycopg2
+from db_pool import db_connect
 
 
 SUPPORTED_PROVIDERS = {
@@ -88,7 +88,7 @@ def ensure_provider_slot_table(database_url: str) -> None:
     with _SCHEMA_LOCK:
         if _SCHEMA_READY:
             return
-        conn = psycopg2.connect(database_url)
+        conn = db_connect(database_url)
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", (742193602,))
@@ -116,7 +116,7 @@ def ensure_provider_slot_table(database_url: str) -> None:
 
 def try_acquire_slot(database_url: str, provider: str, job_id: str, limit: int, worker_id: str) -> SlotResult:
     normalized = normalize_provider(provider)
-    conn = psycopg2.connect(database_url)
+    conn = db_connect(database_url)
     cursor = conn.cursor()
     try:
         # Serializes count+insert for this provider across all worker processes.
@@ -176,7 +176,7 @@ def try_acquire_slot(database_url: str, provider: str, job_id: str, limit: int, 
 
 
 def heartbeat_slot(database_url: str, provider: str, job_id: str, worker_id: str) -> bool:
-    conn = psycopg2.connect(database_url)
+    conn = db_connect(database_url)
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -195,7 +195,7 @@ def heartbeat_slot(database_url: str, provider: str, job_id: str, worker_id: str
 
 def release_slot(database_url: str, provider: str, job_id: str, worker_id: str) -> int:
     normalized = normalize_provider(provider)
-    conn = psycopg2.connect(database_url)
+    conn = db_connect(database_url)
     cursor = conn.cursor()
     try:
         cursor.execute("""
