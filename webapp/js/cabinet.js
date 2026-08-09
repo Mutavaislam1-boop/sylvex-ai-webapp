@@ -2842,6 +2842,12 @@ function handleVoiceSpeakerClick(event, speakerNumber) {
   const index = Math.max(0, Math.min(6, Number(speakerNumber || 1) - 1));
   const voiceId = voiceSpeakerVoiceValue(index);
   voiceState.activeSpeakerIndex = index;
+  if (voiceId) {
+    VoiceDialogueComposer.rememberCaret();
+    VoiceDialogueComposer.insertSpeaker(index);
+    renderVoiceControls();
+    return;
+  }
   renderVoiceControls();
   openImageOptionMenu(event, 'voice_speaker_' + (index + 1));
 }
@@ -2889,6 +2895,7 @@ const VoiceDialogueComposer = (() => {
   let markerRail = null;
   let longPressTimer = 0;
   let dialogueLines = [];
+  const submenuTimers = new WeakMap();
 
   const active = () => isVoiceMode() && voiceWorkspaceMode === 'dialogue';
   const isTouchLayout = () => Boolean(S.device && S.device.usesVirtualKeyboard);
@@ -2930,6 +2937,29 @@ const VoiceDialogueComposer = (() => {
     afterEdit(start + inserted.length);
   };
   const token = (kind, value) => '[' + kind + ':' + value + ']';
+  const copyText = async () => {
+    const text = savedSelection.text || '';
+    if (!text) return toast('Сначала выделите текст');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Текст скопирован');
+    } catch { toast('Не удалось получить доступ к буферу обмена'); }
+    restoreCaret();
+  };
+  const pasteText = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) insert(text, { replaceSelection:true });
+      else restoreCaret();
+    } catch {
+      toast('Вставка недоступна — используйте системное меню');
+      restoreCaret();
+    }
+  };
+  const translateText = () => {
+    restoreCaret();
+    openVoiceAddon(null, 'translate', true);
+  };
   const speakerInfo = (index) => {
     const voiceId = voiceSpeakerVoiceValue(index);
     const item = currentVoiceListForPanel().find((voice) => String(voice.id || voice.voice_id || '') === String(voiceId || ''));
@@ -2983,7 +3013,7 @@ const VoiceDialogueComposer = (() => {
           : [];
         return base.concat(custom);
       })();
-  const categoryLabel = { speaker:'Диктор',emotion:'Эмоция',style:'Манера речи',pause:'Пауза',sfx:'Звуковой эффект',direction:'Режиссура',accent:'Акцент',template:'Шаблон',ai:'AI Assistant' };
+  const categoryLabel = { speaker:'Диктор',emotion:'Эмоции',style:'Манера речи',pause:'Паузы',sfx:'Звуковые эффекты',direction:'Режиссура',accent:'Акцент',template:'Шаблон',ai:'AI Assistant' };
   const categories = ['speaker','emotion','style','pause','sfx','direction','accent','template','ai'];
   const icon = (category) => ({
     speaker:'<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M6 20c.5-4 2.5-6 6-6s5.5 2 6 6"/></svg>',
@@ -2999,7 +3029,11 @@ const VoiceDialogueComposer = (() => {
 
   const runAction = (category, value) => {
     closeMenus();
-    if (category === 'speaker') {
+    if (category === 'clipboard') {
+      if (value === 'paste') pasteText();
+      else if (value === 'copy') copyText();
+      else if (value === 'translate') translateText();
+    } else if (category === 'speaker') {
       if (value === 'add') {
         const previousCount = Number(voiceState.numSpeakers || 1);
         addVoiceSpeaker(null);
@@ -3041,6 +3075,21 @@ const VoiceDialogueComposer = (() => {
       const action = event.target.closest('[data-vdc-category][data-vdc-value]');
       if (action) runAction(action.dataset.vdcCategory, action.dataset.vdcValue);
     });
+    contextMenu.addEventListener('mouseover', (event) => {
+      const item = event.target.closest('.voice-caret-menu-item');
+      if (!item || !contextMenu.contains(item)) return;
+      window.clearTimeout(submenuTimers.get(item));
+      contextMenu.querySelectorAll('.voice-caret-menu-item.submenu-open').forEach((openItem) => {
+        if (openItem !== item) openItem.classList.remove('submenu-open');
+      });
+      if (item.querySelector('.voice-caret-submenu')) item.classList.add('submenu-open');
+    });
+    contextMenu.addEventListener('mouseout', (event) => {
+      const item = event.target.closest('.voice-caret-menu-item');
+      if (!item || !item.classList.contains('submenu-open') || item.contains(event.relatedTarget)) return;
+      const timer = window.setTimeout(() => item.classList.remove('submenu-open'), 420);
+      submenuTimers.set(item, timer);
+    });
     document.body.appendChild(contextMenu);
     return contextMenu;
   };
@@ -3049,16 +3098,20 @@ const VoiceDialogueComposer = (() => {
     rememberCaret();
     const selected = savedSelection.start !== savedSelection.end;
     const menu = ensureContextMenu();
+    const clipboardActions = '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="clipboard" data-vdc-value="paste"><span>' + icon('template') + '</span>Вставить текст<i></i></button></div>'
+      + '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="clipboard" data-vdc-value="copy" ' + (!selected ? 'disabled' : '') + '><span>' + icon('template') + '</span>Копировать<i></i></button></div>'
+      + '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="clipboard" data-vdc-value="translate"><span>' + icon('accent') + '</span>Перевести текст<i></i></button></div><hr>';
     if (selected) {
       const direct = [
         ['emotion','emotional','Сделать эмоциональнее'],['style','whisper','Шёпотом'],['emotion','serious','Сделать серьёзнее'],['ai','rewrite','Переписать'],
       ];
-      menu.innerHTML = direct.map((item) => '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="' + item[0] + '" data-vdc-value="' + item[1] + '"><span>' + icon(item[0]) + '</span>' + item[2] + '<i></i></button></div>').join('')
+      menu.innerHTML = clipboardActions + direct.map((item) => '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="' + item[0] + '" data-vdc-value="' + item[1] + '"><span>' + icon(item[0]) + '</span>' + item[2] + '<i></i></button></div>').join('')
         + '<div class="voice-caret-menu-item"><button type="button"><span>' + icon('speaker') + '</span>Назначить диктора<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml('speaker') + '</div></div>'
         + '<div class="voice-caret-menu-item"><button type="button" data-vdc-category="pause" data-vdc-value="0.5"><span>' + icon('pause') + '</span>Добавить паузу после<i></i></button></div><hr>'
         + '<div class="voice-caret-menu-item"><button type="button"><span>' + icon('ai') + '</span>AI Assistant<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml('ai') + '</div></div>';
     } else {
-      menu.innerHTML = categories.map((category, index) => '<div class="voice-caret-menu-item"><button type="button"><span>' + icon(category) + '</span>' + categoryLabel[category] + '<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml(category) + '</div></div>' + (index === categories.length - 2 ? '<hr>' : '')).join('');
+      const orderedCategories = ['emotion','pause','sfx','speaker','style','direction','accent','template','ai'];
+      menu.innerHTML = clipboardActions + orderedCategories.map((category, index) => '<div class="voice-caret-menu-item"><button type="button"><span>' + icon(category) + '</span>' + categoryLabel[category] + '<i>›</i></button><div class="voice-caret-submenu">' + menuItemsHtml(category) + '</div></div>' + (index === orderedCategories.length - 2 ? '<hr>' : '')).join('');
     }
     menu.hidden = false;
     const width = 240;
@@ -3070,7 +3123,7 @@ const VoiceDialogueComposer = (() => {
       mobileToolbar = document.createElement('div');
       mobileToolbar.className = 'voice-dialogue-mobile-toolbar';
       mobileToolbar.setAttribute('aria-label', 'Инструменты диалога');
-      mobileToolbar.innerHTML = ['speaker','emotion','pause','sfx','style','direction','ai'].map((category) => '<button type="button" data-vdc-open="' + category + '"><span>' + icon(category) + '</span>' + categoryLabel[category] + '</button>').join('');
+      mobileToolbar.innerHTML = '<button type="button" data-vdc-open="quick"><span>' + icon('template') + '</span>Меню</button>' + ['speaker','emotion','pause','sfx','style','direction','ai'].map((category) => '<button type="button" data-vdc-open="' + category + '"><span>' + icon(category) + '</span>' + categoryLabel[category] + '</button>').join('');
       mobileToolbar.addEventListener('pointerdown', (event) => event.preventDefault());
       mobileToolbar.addEventListener('click', (event) => {
         const button = event.target.closest('[data-vdc-open]');
@@ -3085,6 +3138,8 @@ const VoiceDialogueComposer = (() => {
       bottomSheet.addEventListener('pointerdown', (event) => event.preventDefault());
       bottomSheet.addEventListener('click', (event) => {
         if (event.target === bottomSheet || event.target.closest('[data-vdc-close]')) return closeMenus();
+        const markerAction = event.target.closest('[data-vdc-marker-action]');
+        if (markerAction) return editMarker(Number(markerAction.dataset.vdcLine), markerAction.dataset.vdcMarkerAction, markerAction.dataset.vdcSpeaker);
         const action = event.target.closest('[data-vdc-category][data-vdc-value]');
         if (action) runAction(action.dataset.vdcCategory, action.dataset.vdcValue);
       });
@@ -3095,33 +3150,70 @@ const VoiceDialogueComposer = (() => {
     if (!active()) return;
     rememberCaret();
     ensureMobileUi();
-    bottomSheet.innerHTML = '<div class="voice-dialogue-sheet-card"><header><b>' + categoryLabel[category] + '</b><button type="button" data-vdc-close>×</button></header><div class="voice-dialogue-sheet-items">' + menuItemsHtml(category) + '</div></div>';
+    const quickItems = '<button type="button" data-vdc-category="clipboard" data-vdc-value="paste">Вставить текст</button><button type="button" data-vdc-category="clipboard" data-vdc-value="copy">Копировать</button><button type="button" data-vdc-category="clipboard" data-vdc-value="translate">Перевести</button>'
+      + ['emotion','pause','sfx'].map((item) => '<button type="button" data-vdc-open-nested="' + item + '">' + categoryLabel[item] + '</button>').join('');
+    bottomSheet.innerHTML = '<div class="voice-dialogue-sheet-card"><header><b>' + (category === 'quick' ? 'Инструменты текста' : categoryLabel[category]) + '</b><button type="button" data-vdc-close>×</button></header><div class="voice-dialogue-sheet-items">' + (category === 'quick' ? quickItems : menuItemsHtml(category)) + '</div></div>';
+    bottomSheet.querySelectorAll('[data-vdc-open-nested]').forEach((button) => button.addEventListener('click', () => openBottomSheet(button.dataset.vdcOpenNested)));
     bottomSheet.hidden = false;
   };
   const closeMenus = () => {
     if (contextMenu) contextMenu.hidden = true;
     if (bottomSheet) bottomSheet.hidden = true;
   };
+  const editMarker = (lineIndex, action, speakerValue) => {
+    const line = dialogueLines[lineIndex];
+    if (!line || !input) return closeMenus();
+    if (action === 'delete') {
+      input.value = input.value.slice(0, line.marker_start) + input.value.slice(line.marker_end).replace(/^\s*/, '');
+      afterEdit(line.marker_start);
+      closeMenus();
+      return;
+    }
+    if (action === 'replace' && speakerValue !== undefined && speakerValue !== '') {
+      const replacement = 'Speaker' + (Number(speakerValue) + 1) + ':';
+      input.value = input.value.slice(0, line.marker_start) + replacement + input.value.slice(line.marker_end);
+      afterEdit(line.marker_start + replacement.length);
+      closeMenus();
+      return;
+    }
+    voiceState.activeSpeakerIndex = line.speaker_index;
+    renderVoiceControls();
+    openImageOptionMenu(null, 'voice_speaker_' + (line.speaker_index + 1));
+    closeMenus();
+  };
+  const openMarkerActions = (lineIndex) => {
+    const line = dialogueLines[lineIndex];
+    if (!line) return;
+    ensureMobileUi();
+    const speakers = categoryItems('speaker').filter((item) => item[1] !== 'add').map((item) => '<button type="button" data-vdc-marker-action="replace" data-vdc-line="' + lineIndex + '" data-vdc-speaker="' + item[1] + '">Заменить на ' + S.escapeHtml(item[0]) + '</button>').join('');
+    bottomSheet.innerHTML = '<div class="voice-dialogue-sheet-card voice-marker-actions"><header><b>' + S.escapeHtml(line.speaker_name) + '</b><button type="button" data-vdc-close>×</button></header><div class="voice-dialogue-sheet-items">' + speakers + '<button type="button" data-vdc-marker-action="voice" data-vdc-line="' + lineIndex + '">Заменить голос</button><button class="is-danger" type="button" data-vdc-marker-action="delete" data-vdc-line="' + lineIndex + '">Удалить диктора из реплики</button></div></div>';
+    bottomSheet.hidden = false;
+  };
   const refreshMarkers = () => {
     if (!markerRail || !input) return;
     if (!active()) { markerRail.hidden = true; markerRail.innerHTML = ''; return; }
     const matches = Array.from(input.value.matchAll(/(?:^|\n)Speaker([1-7]):\s*([^\n]*)/g));
     markerRail.hidden = !matches.length;
-    markerRail.innerHTML = matches.map((match) => {
+    markerRail.innerHTML = matches.map((match, lineIndex) => {
       const info = speakerInfo(Math.max(0, Number(match[1]) - 1));
       const avatar = info.avatar ? '<img src="' + S.escapeHtml(info.avatar) + '" alt="">' : '<span>' + S.escapeHtml(voiceInitials(info.name)) + '</span>';
-      return '<div class="voice-dialogue-marker"><span class="voice-speaker-avatar" style="' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '">' + avatar + '</span><b>' + S.escapeHtml(info.name) + '</b><small>' + S.escapeHtml(match[2] || 'Новая реплика') + '</small></div>';
+      return '<button type="button" class="voice-dialogue-marker" data-vdc-line="' + lineIndex + '" title="Двойное нажатие — заменить или удалить диктора"><span class="voice-speaker-avatar" style="' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '">' + avatar + '</span><b>' + S.escapeHtml(info.name) + '</b><small>' + S.escapeHtml(match[2] || 'Новая реплика') + '</small></button>';
     }).join('');
     dialogueLines = matches.map((match, lineIndex) => {
       const speakerIndex = Math.max(0, Number(match[1]) - 1);
       const info = speakerInfo(speakerIndex);
+      const markerStart = Number(match.index || 0) + (match[0].startsWith('\n') ? 1 : 0);
+      const markerText = 'Speaker' + match[1] + ':';
       return {
         line_id:lineIndex,
         speaker_id:'speaker_' + (speakerIndex + 1),
+        speaker_index:speakerIndex,
         voice_id:info.voiceId || '',
         speaker_name:info.name,
         avatar_url:info.avatar || '',
         text:match[2] || '',
+        marker_start:markerStart,
+        marker_end:markerStart + markerText.length,
       };
     });
   };
@@ -3132,12 +3224,31 @@ const VoiceDialogueComposer = (() => {
     markerRail.className = 'voice-dialogue-marker-rail';
     markerRail.hidden = true;
     input.parentElement.insertBefore(markerRail, input);
+    markerRail.addEventListener('dblclick', (event) => {
+      const marker = event.target.closest('[data-vdc-line]');
+      if (marker) openMarkerActions(Number(marker.dataset.vdcLine));
+    });
+    let markerTapAt = 0;
+    let markerTapLine = -1;
+    markerRail.addEventListener('click', (event) => {
+      if (!isTouchLayout()) return;
+      const marker = event.target.closest('[data-vdc-line]');
+      if (!marker) return;
+      const now = Date.now();
+      const line = Number(marker.dataset.vdcLine);
+      if (line === markerTapLine && now - markerTapAt < 360) openMarkerActions(line);
+      markerTapAt = now; markerTapLine = line;
+    });
     ['keyup','click','select','input'].forEach((name) => input.addEventListener(name, () => { rememberCaret(); if (name === 'input') refreshMarkers(); }));
     document.addEventListener('selectionchange', () => { if (document.activeElement === input) rememberCaret(); });
     input.addEventListener('contextmenu', (event) => {
       if (!active() || isTouchLayout()) return;
       event.preventDefault();
       openContextMenu(event.clientX, event.clientY);
+    });
+    input.addEventListener('click', () => {
+      if (!active() || !isTouchLayout() || !document.body.classList.contains('kb-open')) return;
+      window.setTimeout(() => { rememberCaret(); openBottomSheet('quick'); }, 0);
     });
     input.addEventListener('pointerdown', () => {
       if (!active() || !isTouchLayout()) return;
