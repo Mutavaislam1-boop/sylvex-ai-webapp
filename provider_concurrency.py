@@ -254,7 +254,9 @@ async def provider_slot(
     finally:
         stopped.set()
         await asyncio.gather(heartbeat_task, return_exceptions=True)
-        active = await asyncio.to_thread(release_slot, database_url, normalized, job_id, owner)
+        active = await asyncio.shield(
+            asyncio.to_thread(release_slot, database_url, normalized, job_id, owner)
+        )
         log(
             "PROVIDER_SLOT_RELEASED", provider=normalized, job_id=job_id,
             active=active, limit=limit, worker_id=owner,

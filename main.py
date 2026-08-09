@@ -34,7 +34,13 @@ from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
-from provider_concurrency import ProviderSlotUnavailable, normalize_provider, provider_slot
+from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, normalize_provider, provider_slot
+from provider_resilience import (
+    circuit_before_request,
+    circuit_record_outcome,
+    circuit_release_probe,
+    run_with_provider_retry,
+)
 from db_pool import close_db_pool, db_connect, db_pool_status, start_db_pool
 
 from fastapi import FastAPI, Request, UploadFile, File
@@ -11919,15 +11925,15 @@ def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model
     )
 
 
-async def run_prostudio_provider_request(
+async def dispatch_prostudio_provider_request(
     job_id: str,
     payload: dict,
     mode: str,
     selected_model: str,
     selected_provider: str,
     text_modes: set,
-) -> tuple[dict, str]:
-    """Call and poll a provider while the caller owns its global slot."""
+) -> dict:
+    """Perform one initial provider submission/generation attempt."""
     result = None
     if mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
@@ -11975,6 +11981,57 @@ async def run_prostudio_provider_request(
     else:
         result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
 
+    return result
+
+
+def _log_circuit_transition(stage: str, provider: str, job_id: str, attempt: int, status_code, delay: float, outcome: dict):
+    prostudio_debug(
+        stage,
+        provider=provider,
+        job_id=job_id,
+        attempt=attempt,
+        status_code=status_code or "",
+        delay=round(float(delay or 0), 3),
+        circuit_state=outcome.get("state") or "CLOSED",
+        failure_count=int(outcome.get("failure_count") or 0),
+        worker_id=WORKER_ID,
+    )
+
+
+async def provider_call_with_retry(job_id: str, provider: str, operation) -> dict:
+    """Run one logical provider operation with bounded transient retries."""
+    async def record_outcome(transient: bool):
+        return await asyncio.to_thread(
+            circuit_record_outcome, DATABASE_URL, provider, job_id, transient
+        )
+
+    return await run_with_provider_retry(
+        provider=provider,
+        job_id=job_id,
+        operation=operation,
+        record_outcome=record_outcome,
+        log=prostudio_debug,
+        worker_id=WORKER_ID,
+    )
+
+
+async def run_prostudio_provider_request(
+    job_id: str,
+    payload: dict,
+    mode: str,
+    selected_model: str,
+    selected_provider: str,
+    text_modes: set,
+    provider: str,
+) -> tuple[dict, str]:
+    """Submit and poll a provider with retry while owning one provider slot."""
+    result = await provider_call_with_retry(
+        job_id,
+        provider,
+        lambda: dispatch_prostudio_provider_request(
+            job_id, payload, mode, selected_model, selected_provider, text_modes
+        ),
+    )
     if not isinstance(result, dict) or not result.get("ok"):
         return result, "failed"
 
@@ -11994,7 +12051,11 @@ async def run_prostudio_provider_request(
         while True:
             await asyncio.sleep(5)
             heartbeat_prostudio_generation_job(job_id)
-            poll = await run_provider_coroutine_off_loop(lambda: poll_video_generation(result))
+            poll = await provider_call_with_retry(
+                job_id,
+                provider,
+                lambda: run_provider_coroutine_off_loop(lambda: poll_video_generation(result)),
+            )
             if not poll.get("ok"):
                 return poll, "failed"
             status = poll.get("status")
@@ -12179,22 +12240,53 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         provider_for_slot = resolve_prostudio_provider_for_slot(
             payload, mode, selected_model, selected_provider
         )
-        try:
-            async with provider_slot(
-                DATABASE_URL, provider_for_slot, job_id, prostudio_debug,
-                wait_for_slot=False,
-            ):
-                log_user_event(
-                    int(payload.get("telegram_id") or 0), "worker", "generation",
-                    "generation_started",
-                    {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
-                )
-                result, final_status = await run_prostudio_provider_request(
-                    job_id, payload, mode, selected_model, selected_provider, text_modes
-                )
-        except ProviderSlotUnavailable:
-            await asyncio.to_thread(defer_prostudio_job_for_provider, job_id)
+        circuit = await asyncio.to_thread(
+            circuit_before_request,
+            DATABASE_URL,
+            provider_for_slot,
+            job_id,
+            WORKER_ID,
+        )
+        if circuit.get("transition") == "HALF_OPEN":
+            _log_circuit_transition(
+                "PROVIDER_CIRCUIT_HALF_OPEN", provider_for_slot, job_id, 0,
+                None, 0, circuit,
+            )
+        if not circuit.get("allowed"):
+            _log_circuit_transition(
+                "PROVIDER_CIRCUIT_BLOCKED", provider_for_slot, job_id, 0,
+                None, circuit.get("wait_seconds") or 1, circuit,
+            )
+            await asyncio.to_thread(
+                defer_prostudio_job_for_provider,
+                job_id,
+                circuit.get("wait_seconds") or 1,
+            )
             return
+        try:
+            try:
+                async with provider_slot(
+                    DATABASE_URL, provider_for_slot, job_id, prostudio_debug,
+                    wait_for_slot=False,
+                ):
+                    log_user_event(
+                        int(payload.get("telegram_id") or 0), "worker", "generation",
+                        "generation_started",
+                        {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
+                    )
+                    result, final_status = await run_prostudio_provider_request(
+                        job_id, payload, mode, selected_model, selected_provider,
+                        text_modes, provider_for_slot,
+                    )
+            except ProviderSlotUnavailable:
+                await asyncio.to_thread(defer_prostudio_job_for_provider, job_id)
+                return
+        finally:
+            await asyncio.shield(
+                asyncio.to_thread(
+                    circuit_release_probe, DATABASE_URL, provider_for_slot, job_id
+                )
+            )
 
         prostudio_debug(
             "JOB_PROVIDER_RESULT",
