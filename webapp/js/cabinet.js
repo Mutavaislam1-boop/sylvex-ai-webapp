@@ -9731,6 +9731,8 @@ function imageModelButton(model) {
       audios: audios.length ? audios : null,
       fileUrl: files[0] || undefined,
       files: files.length ? files : null,
+      generationJobId: j.job_id || j.generation_id || j.charge_id || '',
+      generationStatus: j.status || 'completed',
     };
   }
 
@@ -9784,10 +9786,30 @@ function renderGeneratedTelegramButton(url, kind) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedActions
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
-  function renderGeneratedActions(url, kind) {
+  function completedGenerationJobId(message, meta) {
+    const source = meta || (message && message.metadata) || {};
+    return String(source.job_id || source.charge_id || (message && message.generationJobId) || '');
+  }
+
+  function completedGenerationDownloadUrl(jobId) {
+    if (!jobId) return '';
+    const params = new URLSearchParams();
+    params.set('telegram_id', String(getTelegramId() || 0));
+    if (S.tg && S.tg.initData) params.set('init_data', S.tg.initData);
+    return '/api/public/prostudio/download/' + encodeURIComponent(jobId) + '?' + params.toString();
+  }
+
+  function renderCompletedGenerationDownload(jobId, status, className) {
+    if (!jobId || String(status || '').toLowerCase() !== 'completed') return '';
+    const href = completedGenerationDownloadUrl(jobId);
+    return '<a class="' + S.escapeHtml(className || 'gen-action-btn') + '" href="' + S.escapeHtml(href) + '" target="_blank" rel="noopener">'
+      + generationActionIcon('download') + 'Скачать</a>';
+  }
+
+  function renderGeneratedActions(url, kind, jobId, status) {
     const safeUrl = S.escapeHtml(url);
     let actions = renderGeneratedOpenButton(url, kind) + renderGeneratedTelegramButton(url, kind);
-    actions += '<a class="gen-action-btn" href="' + safeUrl + '" download target="_blank" rel="noopener">' + generationActionIcon('download') + 'Скачать</a>';
+    actions += renderCompletedGenerationDownload(jobId, status, 'gen-action-btn');
     if (kind === 'image') {
       actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     }
@@ -9830,7 +9852,7 @@ function renderGeneratedTelegramButton(url, kind) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedImage
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
-  function renderGeneratedImage(item, index) {
+  function renderGeneratedImage(item, index, generationMeta) {
     const url = typeof item === 'string' ? item : item.url;
     const thumb = typeof item === 'string' ? item : (item.thumb || item.url);
     const safeUrl = S.escapeHtml(url);
@@ -9839,7 +9861,7 @@ function renderGeneratedTelegramButton(url, kind) {
       + '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
       + '<img class="gen-img" src="' + safeThumb + '" alt="generated" loading="lazy" decoding="async" />'
       + '</button>'
-      + renderGeneratedActions(url, 'image')
+      + renderGeneratedActions(url, 'image', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status)
       + '</div>';
   }
 
@@ -9910,6 +9932,8 @@ function renderGeneratedTelegramButton(url, kind) {
       balance_charged: backendMeta.balance_charged !== undefined ? backendMeta.balance_charged : (result && result.balance_charged),
       balance_after: backendMeta.balance_after !== undefined ? backendMeta.balance_after : (result && result.balance_after),
       charge_id: backendMeta.charge_id || (result && (result.charge_id || result.generation_id || result.job_id)) || '',
+      job_id: backendMeta.job_id || (result && (result.job_id || result.generation_id || result.charge_id)) || '',
+      status: backendMeta.status || (result && result.status) || 'completed',
       rendering_speed: backendMeta.rendering_speed || (result && result.rendering_speed) || '',
       provider_model: backendMeta.provider_model || (result && result.provider_model) || '',
       recraft_tools: Array.isArray(backendMeta.recraft_tools)
@@ -9984,6 +10008,9 @@ function renderGeneratedTelegramButton(url, kind) {
       unit_cost_credits: result && result.unit_cost_credits !== undefined ? result.unit_cost_credits : undefined,
       created_at: new Date().toISOString(),
       sent_to_telegram: !!(result && result.sent_to_telegram),
+      job_id: result && (result.job_id || result.generation_id || result.charge_id) ? (result.job_id || result.generation_id || result.charge_id) : '',
+      charge_id: result && (result.charge_id || result.job_id || result.generation_id) ? (result.charge_id || result.job_id || result.generation_id) : '',
+      status: result && result.status ? result.status : 'completed',
     };
   }
 
@@ -10157,11 +10184,11 @@ function renderGeneratedTelegramButton(url, kind) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedVideo
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
-  function renderGeneratedVideo(url) {
+  function renderGeneratedVideo(url, generationMeta) {
     const safeUrl = S.escapeHtml(url);
     return '<div class="gen-media-card gen-video-card">'
       + '<video class="gen-video" src="' + safeUrl + '" controls playsinline preload="metadata"></video>'
-      + renderGeneratedActions(url, 'video')
+      + renderGeneratedActions(url, 'video', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status)
       + '</div>';
   }
 
@@ -10169,7 +10196,7 @@ function renderGeneratedTelegramButton(url, kind) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderGeneratedAudio
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
-  function renderGeneratedAudio(url, kind) {
+  function renderGeneratedAudio(url, kind, generationMeta) {
     const safeUrl = S.escapeHtml(url);
     const safeKind = kind || 'audio';
     const isVoice = safeKind === 'voice';
@@ -10178,7 +10205,7 @@ function renderGeneratedTelegramButton(url, kind) {
       + (isVoice
         ? '<audio class="gen-audio-player" src="' + safeUrl + '" controls preload="metadata" controlsList="nodownload"></audio>'
         : '')
-      + renderGeneratedActions(url, isVoice ? 'voice' : 'audio')
+      + renderGeneratedActions(url, isVoice ? 'voice' : 'audio', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status)
       + '</div>';
   }
 
@@ -10305,12 +10332,12 @@ function renderGeneratedTelegramButton(url, kind) {
         // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
         // =====================================================
         const imageItems = imageUrls.map((url, idx) => ({ url, thumb: imageThumbs[idx] || url }));
-        inner += '<div class="gen-img-grid">' + imageItems.map(renderGeneratedImage).join('') + '</div>';
+        inner += '<div class="gen-img-grid">' + imageItems.map((item, idx) => renderGeneratedImage(item, idx, m.metadata || {})).join('') + '</div>';
       }
-      if (videoUrls.length) inner += '<div class="gen-media-list">' + videoUrls.map(renderGeneratedVideo).join('') + '</div>';
+      if (videoUrls.length) inner += '<div class="gen-media-list">' + videoUrls.map((url) => renderGeneratedVideo(url, m.metadata || {})).join('') + '</div>';
       if (audioUrls.length) {
         const metaType = m.metadata && m.metadata.type ? String(m.metadata.type) : '';
-        inner += '<div class="gen-media-list">' + audioUrls.map((url) => renderGeneratedAudio(url, metaType === 'voice' || currentChatType() === 'voice' ? 'voice' : 'audio')).join('') + '</div>';
+        inner += '<div class="gen-media-list">' + audioUrls.map((url) => renderGeneratedAudio(url, metaType === 'voice' || currentChatType() === 'voice' ? 'voice' : 'audio', m.metadata || {})).join('') + '</div>';
       }
       if (fileUrls.length) inner += '<div class="gen-media-list">' + fileUrls.map(renderGeneratedFile).join('') + '</div>';
       if (m.attachmentName) inner = '<div style="opacity:.7;font-size:12px;margin-bottom:4px">📎 ' + S.escapeHtml(m.attachmentName) + '</div>' + inner;
@@ -11492,6 +11519,8 @@ function openGenerationInfoDrawer(e, index) {
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
+  const jobId = completedGenerationJobId(message, meta);
+  const generationStatus = String(meta.status || message.generationStatus || (message.imageResultMini ? 'completed' : '')).toLowerCase();
   const previewUrl = imagePreviewUrl(meta, '');
   const previewFallbackUrl = meta.preview_fallback_url || imageUrl || resultUrl || '';
   const refImages = meta.reference_images || [];
@@ -11530,7 +11559,7 @@ function openGenerationInfoDrawer(e, index) {
     } else {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
-    actionHtml += '<a href="' + S.escapeHtml(resultUrl) + '" download target="_blank" rel="noopener">' + generationActionIcon('download') + 'Скачать</a>';
+    actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '');
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
     if (type === 'image') {
