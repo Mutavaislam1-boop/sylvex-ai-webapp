@@ -35,7 +35,6 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   const activeGeneration = {
     locked: false,
     status: '',
-    phase: '',
     mode: '',
     jobId: '',
     model: '',
@@ -4205,18 +4204,11 @@ function localizedGreeting() {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function isActiveGenerationStatus(status) {
-    return ['queued', 'processing', 'provider_processing', 'provider_completed', 'persisting', 'finalizing', 'retrying', 'recovering'].includes(String(status || '').toLowerCase());
+    return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
   }
 
-  function activeGenerationButtonLabel(status, phase) {
-    const normalized = String(status || '').toLowerCase();
-    const normalizedPhase = String(phase || '').toLowerCase();
-    if (normalized === 'recovering') return 'Восстанавливаем связь…';
-    if (normalized === 'submitting' || normalizedPhase === 'queue' || normalized === 'queued') return 'В очереди';
-    if (normalizedPhase === 'storage' || ['provider_completed', 'persisting'].includes(normalized)) return 'Сохраняем результат';
-    if (normalizedPhase === 'finalization' || normalized === 'finalizing') return 'Завершаем';
-    if (normalizedPhase === 'done' || normalized === 'completed') return 'Готово';
-    return 'Генерация…';
+  function activeGenerationButtonLabel(status) {
+    return ['submitting', 'queued'].includes(String(status || '').toLowerCase()) ? 'В очереди' : 'Генерация…';
   }
 
   function activeGenerationStorageKey() {
@@ -4232,12 +4224,10 @@ function localizedGreeting() {
       if (!activeGeneration.locked) localStorage.removeItem(activeGenerationStorageKey());
       else localStorage.setItem(activeGenerationStorageKey(), JSON.stringify({
         status: activeGeneration.status,
-        phase: activeGeneration.phase,
         mode: activeGeneration.mode,
         jobId: activeGeneration.jobId,
         model: activeGeneration.model,
         startedAt: activeGeneration.startedAt,
-        requestId: activeGeneration.requestId,
       }));
     } catch {}
   }
@@ -4253,7 +4243,7 @@ function localizedGreeting() {
     if (!activeGeneration.loadingToken) activeGeneration.loadingToken = 'active_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     message.activeGenerationToken = activeGeneration.loadingToken;
     message.generationStatus = activeGeneration.status;
-    if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
+    if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
     activeGeneration.placeholderMessage = message;
     return index;
   }
@@ -4264,7 +4254,7 @@ function localizedGreeting() {
     const node = document.querySelector('.generation-loading-msg[data-generation-token="' + token + '"]');
     if (!node) return;
     const title = node.querySelector('.generation-loading-title');
-    if (title) title.textContent = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
+    if (title) title.textContent = activeGenerationButtonLabel(activeGeneration.status);
     const progress = activeGeneration.placeholderMessage && activeGeneration.placeholderMessage.progress;
     if (progress) {
       const updated = nextGenerationProgress(progress, false);
@@ -4302,7 +4292,7 @@ function localizedGreeting() {
       message.activeGenerationToken = activeGeneration.loadingToken;
       message.generationLoading = true;
       message.generationStatus = activeGeneration.status;
-      if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
+      if (message.progress) message.progress.message = activeGenerationButtonLabel(activeGeneration.status);
       activeGeneration.placeholderMessage = message;
       index = chatMessages.push(message) - 1;
     }
@@ -4316,7 +4306,6 @@ function localizedGreeting() {
       if (activeGeneration.locked) return false;
       activeGeneration.locked = true;
       activeGeneration.status = 'submitting';
-      activeGeneration.phase = 'queue';
       activeGeneration.mode = chatTypeForMode(payload.mode || currentChatType());
       activeGeneration.jobId = '';
       activeGeneration.model = payload.model || pickStudioModel();
@@ -4330,17 +4319,15 @@ function localizedGreeting() {
       if (activeGeneration.jobId && incomingJobId && activeGeneration.jobId !== incomingJobId) return false;
       activeGeneration.locked = true;
       if (payload.status) activeGeneration.status = String(payload.status);
-      if (payload.phase) activeGeneration.phase = String(payload.phase);
       if (incomingJobId) activeGeneration.jobId = incomingJobId;
       if (!activeGeneration.mode && payload.mode) activeGeneration.mode = chatTypeForMode(payload.mode);
       if (!activeGeneration.model && payload.model) activeGeneration.model = payload.model;
       if (!activeGeneration.startedAt) activeGeneration.startedAt = Number(payload.startedAt || Date.now());
-      if (payload.requestId || payload.client_request_id) activeGeneration.requestId = payload.requestId || payload.client_request_id;
       if (!activeGeneration.requestId) activeGeneration.requestId = incomingJobId || ('restore_' + Date.now().toString(36));
     } else if (action === 'reset') {
       if (activeGeneration.progressTimer) clearInterval(activeGeneration.progressTimer);
       Object.assign(activeGeneration, {
-        locked:false, status:'', phase:'', mode:'', jobId:'', model:'', startedAt:0,
+        locked:false, status:'', mode:'', jobId:'', model:'', startedAt:0,
         requestId:'', loadingToken:'', placeholderMessage:null, progressTimer:null,
         restoringMode:false, historyPreview:false,
       });
@@ -4362,7 +4349,7 @@ function localizedGreeting() {
     if (activeGeneration.placeholderMessage) {
       activeGeneration.placeholderMessage.generationStatus = activeGeneration.status;
       if (activeGeneration.placeholderMessage.progress) {
-        activeGeneration.placeholderMessage.progress.message = activeGenerationButtonLabel(activeGeneration.status, activeGeneration.phase);
+        activeGeneration.placeholderMessage.progress.message = activeGenerationButtonLabel(activeGeneration.status);
       }
     }
     updateSendButton();
@@ -4392,15 +4379,10 @@ function localizedGreeting() {
     const telegramId = getTelegramId();
     if (!telegramId) return;
     try {
-      const recoveryRequestId = String(activeGeneration.requestId || '');
-      const response = await fetch(
-        '/api/public/prostudio/active-job?telegram_id=' + encodeURIComponent(telegramId)
-          + (recoveryRequestId ? '&client_request_id=' + encodeURIComponent(recoveryRequestId) : ''),
-        { cache: 'no-store' }
-      );
+      const response = await fetch('/api/public/prostudio/active-job?telegram_id=' + encodeURIComponent(telegramId), { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) return;
-      if ((data.active || (recoveryRequestId && data.found)) && data.job) {
+      if (data.active && data.job) {
         applyActiveProStudioJob(data.job);
         if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) {
           activeGeneration.restoringMode = true;
@@ -4410,31 +4392,11 @@ function localizedGreeting() {
         ensureActiveGenerationPlaceholder(true);
         rememberCurrentChatSpace();
         watchGenerationJob(data.active_job_id || data.job.id, data.job);
-      } else if (activeGeneration.locked && activeGeneration.status === 'recovering' && recoveryRequestId) {
-        const recovered = await recoverGenerationAfterNetworkInterruption({
-          telegram_id: telegramId,
-          client_request_id: recoveryRequestId,
-          mode: activeGeneration.mode,
-          model: activeGeneration.model,
-        }, {}, new Error('webview_restored_during_uncertain_request'));
-        renderRestoredActiveGenerationResult(recovered.result || recovered, data.job || {});
       } else if (activeGeneration.locked) {
         clearActiveProStudioJob(activeGeneration.jobId);
       }
     } catch (error) {
       console.warn('[SYLVEX] active generation restore failed', error);
-      if (error && error.terminalStatus) {
-        const index = activeGenerationPlaceholderIndex();
-        if (index >= 0) {
-          chatMessages[index] = {
-            role: 'ai',
-            text: '⚠️ ' + translateGenerationError(error, 'Генерация не прошла.'),
-          };
-        }
-        renderChat();
-        rememberCurrentChatSpace();
-        clearActiveProStudioJob(error.jobId || activeGeneration.jobId);
-      }
     }
   }
 
@@ -13474,8 +13436,6 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     client_request_id: 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
     language: uiLang(),
   };
-  activeGeneration.requestId = payload.client_request_id;
-  persistActiveGeneration();
 
   console.log('PRO STUDIO FRONTEND PAYLOAD:', {
     mode: payload.mode,
@@ -13502,8 +13462,12 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   try {
     res = await generateRequest();
   } catch (err) {
-    if (!isNetworkLoadError(err)) throw err;
-    return recoverGenerationAfterNetworkInterruption(payload, generationOptions || {}, err);
+    if (studioMode === 'text' && isNetworkLoadError(err)) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      res = await generateRequest();
+    } else {
+      throw err;
+    }
   }
 
   // =====================================================
@@ -13511,9 +13475,6 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   const j = await res.json().catch(() => ({}));
-  if (res.status >= 500 || (res.ok && (!j || !Object.keys(j).length))) {
-    return recoverGenerationAfterNetworkInterruption(payload, generationOptions || {}, j);
-  }
   if (res.status === 409 && j && j.active_job_id) {
     // The backend is authoritative here: the active job may belong to a
     // different mode than the locally attempted request.
@@ -13574,90 +13535,7 @@ function errorMessage(value, fallback) {
 
 function isNetworkLoadError(value) {
   const text = errorMessage(value, '');
-  return /load failed|failed to fetch|networkerror|network request failed|offline|connection reset|connection.*closed|network.*lost|request.*timeout|timed out|aborterror|webview/i.test(String(text || ''));
-}
-
-function prostudioFrontendLog(event, details) {
-  console.info(event, Object.assign({ timestamp: new Date().toISOString() }, details || {}));
-}
-
-async function recoverGenerationAfterNetworkInterruption(payload, generationOptions, cause) {
-  const telegramId = Number(payload && payload.telegram_id) || getTelegramId();
-  const clientRequestId = String((payload && payload.client_request_id) || '');
-  prostudioFrontendLog('PROSTUDIO_NETWORK_INTERRUPTED', {
-    telegram_id: telegramId,
-    client_request_id: clientRequestId,
-    error: errorMessage(cause, 'network_interrupted'),
-  });
-  transitionActiveGeneration('status', {
-    status: 'recovering',
-    phase: 'provider',
-    mode: (payload && payload.mode) || activeGeneration.mode || currentChatType(),
-    model: (payload && payload.model) || activeGeneration.model || '',
-  });
-  ensureActiveGenerationPlaceholder(true);
-  prostudioFrontendLog('PROSTUDIO_ACTIVE_JOB_RECOVERY_STARTED', {
-    telegram_id: telegramId,
-    client_request_id: clientRequestId,
-  });
-
-  let confirmedAbsent = 0;
-  let attempt = 0;
-  while (true) {
-    attempt += 1;
-    try {
-      const query = new URLSearchParams({
-        telegram_id: String(telegramId || ''),
-        client_request_id: clientRequestId,
-      });
-      const response = await fetch('/api/public/prostudio/active-job?' + query.toString(), { cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) throw new Error('active_job_recovery_unavailable');
-      if (data.found && data.job && (data.job.id || data.active_job_id)) {
-        const job = data.job;
-        const jobId = job.id || data.active_job_id;
-        prostudioFrontendLog('PROSTUDIO_ACTIVE_JOB_RECOVERED', {
-          telegram_id: telegramId,
-          client_request_id: clientRequestId,
-          job_id: jobId,
-          status: job.status || data.status || '',
-        });
-        transitionActiveGeneration('job', {
-          id: jobId,
-          status: job.status || data.status || 'queued',
-          phase: job.phase || data.phase || '',
-          mode: job.mode || payload.mode || '',
-          model: job.model || payload.model || '',
-        });
-        ensureActiveGenerationPlaceholder(true);
-        const result = await waitGeneration(jobId, generationOptions || {});
-        return {
-          ok: true,
-          job_id: jobId,
-          status: 'completed',
-          conversation_id: result.conversation_id || job.conversation_id || '',
-          result,
-        };
-      }
-      confirmedAbsent += 1;
-      if (confirmedAbsent >= 5) {
-        prostudioFrontendLog('PROSTUDIO_ACTIVE_JOB_NOT_FOUND_CONFIRMED', {
-          telegram_id: telegramId,
-          client_request_id: clientRequestId,
-          checks: confirmedAbsent,
-        });
-        clearActiveProStudioJob();
-        const error = new Error('Backend подтвердил, что задача генерации не была создана.');
-        error.jobNotFoundConfirmed = true;
-        throw error;
-      }
-    } catch (error) {
-      if (error && error.jobNotFoundConfirmed) throw error;
-      confirmedAbsent = 0;
-    }
-    const delay = Math.min(8000, 700 * Math.pow(1.7, Math.min(attempt - 1, 6)));
-    await new Promise(resolve => setTimeout(resolve, delay));
-  }
+  return /load failed|failed to fetch|networkerror|network request failed|the internet connection appears to be offline/i.test(String(text || ''));
 }
 
 // =====================================================
@@ -13792,6 +13670,8 @@ function updateGenerationLoadingProgress(index, completed) {
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   let transientErrors = 0;
+  const startedAt = Date.now();
+  const networkGraceMs = 15 * 60 * 1000;
   let lastStatus = '';
   while (true) {
     let res;
@@ -13802,6 +13682,7 @@ async function waitGeneration(jobId, options) {
       );
     } catch (err) {
       transientErrors += 1;
+      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw err;
       await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
       continue;
     }
@@ -13813,15 +13694,9 @@ async function waitGeneration(jobId, options) {
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
       transientErrors += 1;
+      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
       await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
       continue;
-    }
-    if (transientErrors > 0) {
-      prostudioFrontendLog('PROSTUDIO_POLLING_RECOVERED', {
-        job_id: jobId,
-        interrupted_attempts: transientErrors,
-        status: job.status || '',
-      });
     }
     transientErrors = 0;
 
@@ -13829,7 +13704,6 @@ async function waitGeneration(jobId, options) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: job.status,
-        phase: job.phase || '',
         mode: job.mode || '',
         conversation_id: job.conversation_id || '',
       });
@@ -13865,9 +13739,9 @@ async function waitGeneration(jobId, options) {
       throw terminalError;
     }
 
-    // PostgreSQL job status is the only terminal signal. An unknown or newly
-    // introduced non-terminal status must not turn a healthy generation into
-    // a frontend failure.
+    if (!isActiveGenerationStatus(job.status)) {
+      throw new Error('Генерация не завершилась. Попробуйте повторить немного позже.');
+    }
 
     await new Promise(resolve => setTimeout(resolve, 1500));
   }
