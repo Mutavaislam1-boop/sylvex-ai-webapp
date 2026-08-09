@@ -7887,3 +7887,43 @@ body.prostudio-job-locked #sendBtn.has-active-job .studio-generate-label {
 body.prostudio-job-locked #sendBtn.has-active-job .studio-send-arrow {
   display: none;
 }
+
+/* Text composer: voice input and send are the final two controls in the
+   horizontal bottom row. They participate in its normal scroll flow. */
+.studio-video-composer[data-composer-mode="text"] .studio-control-row{
+  position:relative;
+  padding-right:0!important;
+}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row::after{
+  display:none!important;
+}
+.studio-video-composer[data-composer-mode="text"] .studio-control-row .text-mic-floating,
+.studio-video-composer[data-composer-mode="text"] .studio-control-row .studio-generate{
+  position:static!important;
+  inset:auto!important;
+  flex:0 0 40px;
+  width:40px;
+  min-width:40px;
+  height:40px;
+  min-height:40px;
+  box-sizing:border-box;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+}
+.studio-video-composer[data-composer-mode="text"] .text-recording-bar{
+  right:0;
+}
+
+@media(max-width:900px){
+  .studio-video-composer[data-composer-mode="text"] .studio-prompt-column textarea{
+    padding-right:42px!important;
+  }
+  .studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close{
+    right:8px;
+  }
+  body.kb-open .studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close,
+  .studio-input.composer-input-window[data-composer-mode="text"] .mobile-keyboard-close{
+    display:grid!important;
+  }
+}
