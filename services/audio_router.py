@@ -2622,11 +2622,13 @@ async def voice_generation(payload: dict) -> dict:
         return _audio_error(provider, frontend_model, provider_model, "Gemini TTS audio save failed", response=data)
 
     telegram_id = int(payload.get("telegram_id") or 0)
-    sent_to_telegram = await _send_generated_audio_to_telegram(
-        telegram_id=telegram_id,
-        audio_url=audio_url,
-        caption="SYLVEX Pro Studio\nОзвучка готова ✅",
-    )
+    sent_to_telegram = False
+    if not payload.get("skip_telegram"):
+        sent_to_telegram = await _send_generated_audio_to_telegram(
+            telegram_id=telegram_id,
+            audio_url=audio_url,
+            caption="SYLVEX Pro Studio\nОзвучка готова ✅",
+        )
     return {
         "ok": True,
         "type": "voice",
@@ -2745,12 +2747,14 @@ async def _completed_audio_response(
         "SYLVEX Pro Studio\n"
         "Музыка готова ✅"
     )
-    sent_to_telegram = await _send_generated_audio_to_telegram(
-        telegram_id=telegram_id,
-        audio_url=audio_url,
-        image_url=image_url,
-        caption=caption,
-    )
+    sent_to_telegram = False
+    if not payload.get("skip_telegram"):
+        sent_to_telegram = await _send_generated_audio_to_telegram(
+            telegram_id=telegram_id,
+            audio_url=audio_url,
+            image_url=image_url,
+            caption=caption,
+        )
     return {
         "ok": True,
         "type": "music",

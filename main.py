@@ -20,6 +20,7 @@ import html
 import concurrent.futures
 import tempfile
 import mimetypes
+import datetime
 from typing import Optional
 from uuid import uuid4
 import requests
@@ -4352,11 +4353,17 @@ def ensure_prostudio_table():
                 provider TEXT,
                 prompt TEXT DEFAULT '',
                 status TEXT DEFAULT 'queued',
+                state_changed_at TIMESTAMP DEFAULT NOW(),
                 cost INTEGER DEFAULT 0,
                 attempts INTEGER DEFAULT 0,
                 locked_at TIMESTAMP,
                 heartbeat_at TIMESTAMP,
+                last_heartbeat_at TIMESTAMP,
                 provider_wait_until TIMESTAMP,
+                provider_started_at TIMESTAMP,
+                provider_completed_at TIMESTAMP,
+                storage_completed_at TIMESTAMP,
+                finalized_at TIMESTAMP,
                 request_json JSONB DEFAULT '{}'::jsonb,
                 response_json JSONB DEFAULT '{}'::jsonb,
                 error_json JSONB DEFAULT '{}'::jsonb,
@@ -4391,6 +4398,12 @@ def ensure_prostudio_table():
             cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
             cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP")
             cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS provider_wait_until TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS provider_started_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS provider_completed_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS storage_completed_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMP DEFAULT NOW()")
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_provider_wait
                 ON prostudio_generation_jobs (status, provider_wait_until, created_at)
@@ -4500,7 +4513,39 @@ def prostudio_error(stage: str, exc: Exception = None, **data):
         safe["traceback"] = traceback.format_exc()
     print(f"PROSTUDIO ERROR {stage}:", safe)
 
-PROSTUDIO_ACTIVE_JOB_STATUSES = ("queued", "processing", "provider_processing")
+PROSTUDIO_JOB_STATUSES = {
+    "queued", "processing", "provider_processing", "provider_completed",
+    "persisting", "finalizing", "completed", "retrying", "failed", "cancelled",
+}
+PROSTUDIO_TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
+PROSTUDIO_ACTIVE_JOB_STATUSES = tuple(sorted(PROSTUDIO_JOB_STATUSES - PROSTUDIO_TERMINAL_JOB_STATUSES))
+PROSTUDIO_JOB_TRANSITIONS = {
+    "queued": {"processing", "failed", "cancelled"},
+    "processing": {"provider_processing", "provider_completed", "retrying", "failed", "cancelled"},
+    "provider_processing": {"provider_completed", "retrying", "failed", "cancelled"},
+    "retrying": {"processing", "provider_processing", "failed", "cancelled"},
+    "provider_completed": {"persisting", "failed", "cancelled"},
+    "persisting": {"finalizing", "failed", "cancelled"},
+    "finalizing": {"completed", "failed", "cancelled"},
+    "completed": {"completed"},
+    "failed": {"failed"},
+    "cancelled": {"cancelled"},
+}
+
+
+def prostudio_job_phase(status: str) -> str:
+    normalized = str(status or "").lower()
+    if normalized == "queued":
+        return "queue"
+    if normalized in {"processing", "provider_processing", "retrying"}:
+        return "provider"
+    if normalized in {"provider_completed", "persisting"}:
+        return "storage"
+    if normalized == "finalizing":
+        return "finalization"
+    if normalized == "completed":
+        return "done"
+    return "done" if normalized in {"failed", "cancelled"} else "queue"
 
 
 class ActiveProstudioJobError(RuntimeError):
@@ -4521,10 +4566,10 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
             SELECT id, status, mode, model, provider, conversation_id, created_at, updated_at
             FROM prostudio_generation_jobs
             WHERE telegram_id = %s
-              AND status IN ('queued', 'processing', 'provider_processing')
+              AND status = ANY(%s)
             ORDER BY created_at ASC
             LIMIT 1
-        """, (int(telegram_id),))
+        """, (int(telegram_id), list(PROSTUDIO_ACTIVE_JOB_STATUSES)))
         row = cursor.fetchone()
         if not row:
             return {}
@@ -4538,6 +4583,7 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
             "conversation_id": row[5],
             "created_at": _to_iso(row[6]),
             "updated_at": _to_iso(row[7]),
+            "phase": prostudio_job_phase(row[1]),
         }
     finally:
         cursor.close()
@@ -4575,10 +4621,10 @@ def create_prostudio_generation_job(payload: dict) -> str:
             SELECT id, status
             FROM prostudio_generation_jobs
             WHERE telegram_id = %s
-              AND status IN ('queued', 'processing', 'provider_processing')
+              AND status = ANY(%s)
             ORDER BY created_at ASC
             LIMIT 1
-        """, (telegram_id,))
+        """, (telegram_id, list(PROSTUDIO_ACTIVE_JOB_STATUSES)))
         active = cursor.fetchone()
         if active:
             conn.rollback()
@@ -4614,7 +4660,17 @@ def create_prostudio_generation_job(payload: dict) -> str:
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: update_prostudio_generation_job
 # Записывает состояние пользователя, job, metadata или результат генерации в общую базу Mini App и Telegram Bot.
 # =====================================================
-def update_prostudio_generation_job(job_id: str, status: str, result: Optional[dict] = None, error: Optional[dict] = None, conversation_id: str = ""):
+def update_prostudio_generation_job(
+    job_id: str,
+    status: str,
+    result: Optional[dict] = None,
+    error: Optional[dict] = None,
+    conversation_id: str = "",
+    publish_history_telegram_id: int = 0,
+):
+    status = str(status or "").lower()
+    if status not in PROSTUDIO_JOB_STATUSES:
+        raise ValueError(f"Unsupported Pro Studio job status: {status}")
     prostudio_debug(
         "JOB_UPDATE_START",
         job_id=job_id,
@@ -4626,10 +4682,36 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
     if not DATABASE_URL or not job_id:
         prostudio_debug("JOB_UPDATE_SKIPPED_DB", job_id=job_id, status=status, has_database=bool(DATABASE_URL))
         return
+    conn = None
+    cursor = None
     try:
         ensure_prostudio_table()
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
+        cursor.execute("""
+            SELECT status, COALESCE(state_changed_at, updated_at, created_at)
+            FROM prostudio_generation_jobs
+            WHERE id = %s
+            FOR UPDATE
+        """, (job_id,))
+        previous = cursor.fetchone()
+        if not previous:
+            cursor.close()
+            conn.close()
+            prostudio_debug("JOB_UPDATE_MISSING", job_id=job_id, status=status)
+            return False
+        old_status, previous_at = previous
+        if status != old_status and status not in PROSTUDIO_JOB_TRANSITIONS.get(old_status, set()):
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            if old_status in PROSTUDIO_TERMINAL_JOB_STATUSES:
+                prostudio_debug(
+                    "JOB_TERMINAL_TRANSITION_BLOCKED", job_id=job_id,
+                    old_status=old_status, new_status=status,
+                )
+                return {"updated": False, "old_status": old_status, "new_status": old_status}
+            raise RuntimeError(f"Invalid Pro Studio job transition: {old_status} -> {status}")
         cursor.execute("""
             UPDATE prostudio_generation_jobs
             SET status = %s,
@@ -4637,28 +4719,69 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
                 response_json = COALESCE(%s::jsonb, response_json),
                 result_json = COALESCE(%s::jsonb, result_json),
                 error_json = COALESCE(%s::jsonb, error_json),
-                cost = CASE WHEN %s IN ('completed', 'provider_processing') THEN COALESCE(%s, cost) ELSE cost END,
+                cost = CASE WHEN %s IN ('completed', 'provider_processing', 'provider_completed', 'persisting', 'finalizing') THEN COALESCE(%s, cost) ELSE cost END,
                 updated_at = NOW(),
-                completed_at = CASE WHEN %s IN ('completed', 'failed') THEN NOW() ELSE completed_at END
+                state_changed_at = CASE WHEN status IS DISTINCT FROM %s THEN NOW() ELSE state_changed_at END,
+                provider_started_at = CASE WHEN %s = 'processing' THEN COALESCE(provider_started_at, NOW()) ELSE provider_started_at END,
+                provider_completed_at = CASE WHEN %s = 'provider_completed' THEN COALESCE(provider_completed_at, NOW()) ELSE provider_completed_at END,
+                storage_completed_at = CASE WHEN %s = 'finalizing' THEN COALESCE(storage_completed_at, NOW()) ELSE storage_completed_at END,
+                finalized_at = CASE WHEN %s = 'completed' THEN COALESCE(finalized_at, NOW()) ELSE finalized_at END,
+                completed_at = CASE WHEN %s = 'completed' THEN COALESCE(completed_at, NOW()) ELSE completed_at END,
+                last_heartbeat_at = NOW()
             WHERE id = %s
+            RETURNING updated_at
         """, (
             status,
             conversation_id or "",
-            _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
-            _safe_json_dumps(_sanitize_event_payload(result or {}, max_text=1200, max_items=50, depth=5)),
-            _safe_json_dumps(_sanitize_event_payload(error or {}, max_text=1200, max_items=50, depth=5)),
+            _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)) if result is not None else None,
+            _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)) if result is not None else None,
+            _safe_json_dumps(_sanitize_event_payload(error, max_text=1200, max_items=50, depth=5)) if error is not None else None,
             status,
             int((result or {}).get("cost_credits") or (result or {}).get("cost") or (result or {}).get("price") or 0),
-            status,
+            status, status, status, status, status, status,
             job_id,
         ))
         rowcount = cursor.rowcount
+        transitioned_at = cursor.fetchone()[0] if rowcount else None
+        if status == "completed" and conversation_id and publish_history_telegram_id:
+            cursor.execute("""
+                UPDATE prostudio_messages
+                SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+                WHERE conversation_id = %s AND telegram_id = %s AND status = 'finalizing'
+            """, (conversation_id, int(publish_history_telegram_id)))
         conn.commit()
         cursor.close()
         conn.close()
         prostudio_debug("JOB_UPDATE_DONE", job_id=job_id, status=status, rowcount=rowcount)
+        elapsed_ms = 0
+        if transitioned_at is not None and previous_at is not None:
+            elapsed_ms = max(0, int((transitioned_at - previous_at).total_seconds() * 1000))
+        prostudio_debug(
+            "JOB_STATE_TRANSITION",
+            job_id=job_id,
+            old_status=old_status,
+            new_status=status,
+            timestamp=_to_iso(transitioned_at),
+            elapsed_ms_from_previous_stage=elapsed_ms,
+        )
+        return {
+            "updated": bool(rowcount), "old_status": old_status,
+            "new_status": status, "timestamp": _to_iso(transitioned_at),
+            "elapsed_ms_from_previous_stage": elapsed_ms,
+        }
     except Exception as exc:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
         prostudio_error("JOB_UPDATE_FAILED", exc, job_id=job_id, status=status)
+        raise
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: claim_next_prostudio_generation_job
@@ -4674,24 +4797,28 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                UPDATE prostudio_generation_jobs
-                SET status = 'processing',
-                    attempts = COALESCE(attempts, 0) + 1,
-                    locked_at = NOW(),
-                    heartbeat_at = NOW(),
-                    provider_wait_until = NULL,
-                    updated_at = NOW()
-                WHERE id = (
-                    SELECT id
+                WITH candidate AS (
+                    SELECT id, status AS old_status
                     FROM prostudio_generation_jobs
-                    WHERE status = 'queued'
+                    WHERE status IN ('queued', 'retrying')
                       AND COALESCE(attempts, 0) < %s
                       AND (provider_wait_until IS NULL OR provider_wait_until <= NOW())
                     ORDER BY created_at ASC
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 )
-                RETURNING id, request_json, attempts
+                UPDATE prostudio_generation_jobs AS jobs
+                SET status = 'processing',
+                    attempts = COALESCE(attempts, 0) + 1,
+                    locked_at = NOW(),
+                    heartbeat_at = NOW(),
+                    last_heartbeat_at = NOW(),
+                    provider_wait_until = NULL,
+                    state_changed_at = NOW(),
+                    updated_at = NOW()
+                FROM candidate
+                WHERE jobs.id = candidate.id
+                RETURNING jobs.id, jobs.request_json, jobs.attempts, candidate.old_status, jobs.updated_at
             """, (PROSTUDIO_MAX_JOB_ATTEMPTS,))
             row = cursor.fetchone()
             conn.commit()
@@ -4705,6 +4832,11 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             return None
         payload = _json_obj(row[1])
         claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1}
+        prostudio_debug(
+            "JOB_STATE_TRANSITION", job_id=row[0], old_status=row[3],
+            new_status="processing", timestamp=_to_iso(row[4]),
+            elapsed_ms_from_previous_stage=0,
+        )
         prostudio_debug(
             "WORKER_CLAIM_DONE",
             job_id=row[0],
@@ -4735,7 +4867,7 @@ def requeue_stale_prostudio_jobs():
                 UPDATE prostudio_generation_jobs
                 SET status = CASE
                     WHEN COALESCE(attempts, 0) >= %s THEN 'failed'
-                    ELSE 'queued'
+                    ELSE 'retrying'
                 END,
                     error_json = CASE
                         WHEN COALESCE(attempts, 0) >= %s THEN %s::jsonb
@@ -4748,8 +4880,8 @@ def requeue_stale_prostudio_jobs():
                         WHEN COALESCE(attempts, 0) >= %s THEN NOW()
                         ELSE completed_at
                     END
-                WHERE status IN ('processing', 'provider_processing')
-                  AND COALESCE(heartbeat_at, updated_at, created_at) < NOW() - (%s || ' minutes')::interval
+                WHERE status IN ('processing', 'provider_processing', 'provider_completed', 'persisting', 'finalizing', 'retrying')
+                  AND COALESCE(last_heartbeat_at, heartbeat_at, updated_at, created_at) < NOW() - (%s || ' minutes')::interval
             """, (
                 PROSTUDIO_MAX_JOB_ATTEMPTS,
                 PROSTUDIO_MAX_JOB_ATTEMPTS,
@@ -4777,9 +4909,9 @@ def heartbeat_prostudio_generation_job(job_id: str):
         try:
             cursor.execute("""
                 UPDATE prostudio_generation_jobs
-                SET heartbeat_at = NOW(), updated_at = NOW()
+                SET heartbeat_at = NOW(), last_heartbeat_at = NOW(), updated_at = NOW()
                 WHERE id = %s
-                  AND status IN ('processing', 'provider_processing')
+                  AND status IN ('processing', 'provider_processing', 'provider_completed', 'persisting', 'finalizing', 'retrying')
             """, (job_id,))
             conn.commit()
         finally:
@@ -4797,16 +4929,31 @@ def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            UPDATE prostudio_generation_jobs
-            SET status = 'queued',
+            WITH previous AS (
+                SELECT id, status AS old_status FROM prostudio_generation_jobs
+                WHERE id = %s FOR UPDATE
+            )
+            UPDATE prostudio_generation_jobs AS jobs
+            SET status = 'retrying',
                 attempts = GREATEST(COALESCE(attempts, 1) - 1, 0),
                 locked_at = NULL,
                 heartbeat_at = NULL,
                 provider_wait_until = NOW() + (%s * INTERVAL '1 second'),
+                state_changed_at = CASE WHEN status IS DISTINCT FROM 'retrying' THEN NOW() ELSE state_changed_at END,
                 updated_at = NOW()
-            WHERE id = %s AND status = 'processing'
-        """, (max(0.2, float(delay_seconds)), job_id))
+            FROM previous
+            WHERE jobs.id = previous.id
+              AND jobs.status IN ('processing', 'provider_processing', 'retrying')
+            RETURNING previous.old_status, jobs.updated_at
+        """, (job_id, max(0.2, float(delay_seconds))))
+        transitioned = cursor.fetchone()
         conn.commit()
+        if transitioned:
+            prostudio_debug(
+                "JOB_STATE_TRANSITION", job_id=job_id,
+                old_status=transitioned[0], new_status="retrying",
+                timestamp=_to_iso(transitioned[1]), elapsed_ms_from_previous_stage=0,
+            )
     finally:
         cursor.close()
         conn.close()
@@ -5725,7 +5872,7 @@ def attach_image_thumbnails(result: dict) -> dict:
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: save_prostudio_message
 # Записывает состояние пользователя, job, metadata или результат генерации в общую базу Mini App и Telegram Bot.
 # =====================================================
-def save_prostudio_message(payload: dict, result: dict) -> str:
+def save_prostudio_message(payload: dict, result: dict, raise_on_error: bool = False) -> str:
     conversation_id = payload.get("conversation_id") or str(uuid4())
     telegram_id = int(payload.get("telegram_id") or 0)
     if not DATABASE_URL or not telegram_id:
@@ -5813,8 +5960,32 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
         prostudio_debug("MESSAGE_DB_WRITE_DONE", conversation_id=conversation_id, telegram_id=telegram_id)
     except Exception as exc:
         prostudio_error("MESSAGE_DB_WRITE_FAILED", exc, conversation_id=conversation_id, telegram_id=telegram_id)
+        if raise_on_error:
+            raise
 
     return conversation_id
+
+
+def save_job_telegram_outcome(job_id: str, result: dict) -> None:
+    """Persist Telegram delivery metadata without changing the terminal job status."""
+    if not DATABASE_URL or not job_id:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE prostudio_generation_jobs
+            SET result_json = %s::jsonb, response_json = %s::jsonb, updated_at = NOW()
+            WHERE id = %s AND status = 'completed'
+        """, (
+            _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
+            _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
+            job_id,
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 # =====================================================
 # PYTHON-БЛОК: payment_url
@@ -5867,6 +6038,7 @@ async def public_prostudio_conversations(
                 FROM prostudio_messages
                 WHERE telegram_id = %s
                   AND conversation_id = %s
+                  AND status = 'completed'
                 ORDER BY created_at ASC, id ASC
                 LIMIT %s OFFSET %s
             """, (telegram_id, conversation_id, limit, offset))
@@ -5949,6 +6121,7 @@ async def public_prostudio_conversations(
                 MIN(created_at) AS created_at
             FROM prostudio_messages
             WHERE telegram_id = %s
+              AND status = 'completed'
               {mode_where}
             GROUP BY conversation_id
             ORDER BY updated_at DESC
@@ -6046,6 +6219,7 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
                     MIN(created_at) AS created_at
                 FROM prostudio_messages
                 WHERE telegram_id = %s
+                  AND status = 'completed'
                 GROUP BY conversation_id
                 ORDER BY updated_at DESC
                 LIMIT %s
@@ -6060,7 +6234,9 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
                 })
 
             cursor.execute("""
-                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json,
+                       created_at, updated_at, completed_at, provider_started_at, provider_completed_at,
+                       storage_completed_at, finalized_at, last_heartbeat_at
                 FROM prostudio_generation_jobs
                 WHERE telegram_id = %s
                 ORDER BY updated_at DESC
@@ -6081,6 +6257,12 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
                     "created_at": _to_iso(row[10]),
                     "updated_at": _to_iso(row[11]),
                     "completed_at": _to_iso(row[12]),
+                    "phase": prostudio_job_phase(row[6]),
+                    "provider_started_at": _to_iso(row[13]),
+                    "provider_completed_at": _to_iso(row[14]),
+                    "storage_completed_at": _to_iso(row[15]),
+                    "finalized_at": _to_iso(row[16]),
+                    "last_heartbeat_at": _to_iso(row[17]),
                 })
             cursor.close()
             conn.close()
@@ -6625,7 +6807,9 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
             conn = db_connect(DATABASE_URL)
             cursor = conn.cursor()
             cursor.execute(f"""
-                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json,
+                       created_at, updated_at, completed_at, provider_started_at, provider_completed_at,
+                       storage_completed_at, finalized_at, last_heartbeat_at
                 FROM prostudio_generation_jobs
                 WHERE telegram_id = %s
                   {where_mode}
@@ -6647,6 +6831,12 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
                     "created_at": _to_iso(row[10]),
                     "updated_at": _to_iso(row[11]),
                     "completed_at": _to_iso(row[12]),
+                    "phase": prostudio_job_phase(row[6]),
+                    "provider_started_at": _to_iso(row[13]),
+                    "provider_completed_at": _to_iso(row[14]),
+                    "storage_completed_at": _to_iso(row[15]),
+                    "finalized_at": _to_iso(row[16]),
+                    "last_heartbeat_at": _to_iso(row[17]),
                 })
             cursor.close()
             conn.close()
@@ -6669,6 +6859,7 @@ async def public_prostudio_active_job(telegram_id: int = 0):
         "active": bool(job),
         "active_job_id": job.get("id") or "",
         "status": job.get("status") or "",
+        "phase": job.get("phase") or "",
         "job": job,
     }
 
@@ -6703,7 +6894,13 @@ async def public_prostudio_job(job_id: str):
                 result_json,
                 error_json,
                 conversation_id,
-                mode
+                mode,
+                provider_started_at,
+                provider_completed_at,
+                storage_completed_at,
+                finalized_at,
+                completed_at,
+                last_heartbeat_at
             FROM prostudio_generation_jobs
             WHERE id = %s
             LIMIT 1
@@ -6727,9 +6924,6 @@ async def public_prostudio_job(job_id: str):
             error_json["message"] = normalized_error
         effective_status = row[0]
         job_mode = (row[4] or "").lower()
-        if effective_status == "completed" and not generation_has_completed_result(result_json, job_mode):
-            effective_status = "provider_processing"
-            prostudio_debug("JOB_GET_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=job_mode)
         image_url = result_json.get("image_url") if isinstance(result_json, dict) else ""
         thumb_url = result_json.get("thumbnail_url") if isinstance(result_json, dict) else ""
         image_exists = None
@@ -6758,10 +6952,17 @@ async def public_prostudio_job(job_id: str):
             "generation_id": job_id,
             "job_id": job_id,
             "status": effective_status,
+            "phase": prostudio_job_phase(effective_status),
             "mode": job_mode,
             "result": result_json,
             "error": error_json,
             "conversation_id": row[3],
+            "provider_started_at": _to_iso(row[5]),
+            "provider_completed_at": _to_iso(row[6]),
+            "storage_completed_at": _to_iso(row[7]),
+            "finalized_at": _to_iso(row[8]),
+            "completed_at": _to_iso(row[9]),
+            "last_heartbeat_at": _to_iso(row[10]),
         }
 
     except Exception as exc:
@@ -8667,7 +8868,7 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
 
     telegram_id = int(payload.get("telegram_id") or 0)
     sent_to_telegram = False
-    if telegram_id:
+    if telegram_id and not payload.get("skip_telegram"):
         try:
             sent_to_telegram = await send_generated_images_to_telegram(
                 telegram_id=telegram_id,
@@ -9551,8 +9752,8 @@ def image_error_response(provider: str, frontend_model: str, provider_model: str
 async def finalize_image_result(payload: dict, images: list) -> dict:
     result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
     telegram_id = int(payload.get("telegram_id") or 0)
-    result["sent_to_telegram"] = telegram_id > 0
-    if telegram_id:
+    result["sent_to_telegram"] = False
+    if telegram_id and not payload.get("skip_telegram"):
         try:
             result["sent_to_telegram"] = await send_generated_images_to_telegram(
                 telegram_id=telegram_id,
@@ -11866,6 +12067,9 @@ async def public_prostudio_generate(request: Request):
     if job_id:
         payload["job_id"] = job_id
         payload["generation_id"] = job_id
+        # Provider adapters must not send Telegram themselves. Delivery is a
+        # post-completion side effect owned by this state-machine worker.
+        payload["skip_telegram"] = True
         prostudio_debug("GENERATE_JOB_CREATED", job_id=job_id, mode=mode, worker_enabled=PROSTUDIO_WORKER_ENABLED)
     if job_id:
         log_user_event(
@@ -11998,19 +12202,26 @@ def _log_circuit_transition(stage: str, provider: str, job_id: str, attempt: int
     )
 
 
-async def provider_call_with_retry(job_id: str, provider: str, operation) -> dict:
+async def provider_call_with_retry(job_id: str, provider: str, operation, resume_status: str = "processing") -> dict:
     """Run one logical provider operation with bounded transient retries."""
     async def record_outcome(transient: bool):
         return await asyncio.to_thread(
             circuit_record_outcome, DATABASE_URL, provider, job_id, transient
         )
 
+    def retry_log(stage: str, **data):
+        prostudio_debug(stage, **data)
+        if stage == "PROVIDER_RETRY_SCHEDULED":
+            update_prostudio_generation_job(job_id, "retrying")
+        elif stage == "PROVIDER_RETRY_ATTEMPT" and int(data.get("attempt") or 0) > 1:
+            update_prostudio_generation_job(job_id, resume_status)
+
     return await run_with_provider_retry(
         provider=provider,
         job_id=job_id,
         operation=operation,
         record_outcome=record_outcome,
-        log=prostudio_debug,
+        log=retry_log,
         worker_id=WORKER_ID,
     )
 
@@ -12055,6 +12266,7 @@ async def run_prostudio_provider_request(
                 job_id,
                 provider,
                 lambda: run_provider_coroutine_off_loop(lambda: poll_video_generation(result)),
+                resume_status="provider_processing",
             )
             if not poll.get("ok"):
                 return poll, "failed"
@@ -12133,6 +12345,9 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 "balance_charged": False,
                 "sent_to_telegram": False,
             }
+            update_prostudio_generation_job(job_id, "provider_completed", result=mock_result)
+            update_prostudio_generation_job(job_id, "persisting", result=mock_result)
+            update_prostudio_generation_job(job_id, "finalizing", result=mock_result)
             update_prostudio_generation_job(job_id, "completed", result=mock_result)
             prostudio_debug(
                 "MOCK_GENERATION_COMPLETED",
@@ -12240,6 +12455,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         provider_for_slot = resolve_prostudio_provider_for_slot(
             payload, mode, selected_model, selected_provider
         )
+        update_prostudio_generation_job(job_id, "processing")
         circuit = await asyncio.to_thread(
             circuit_before_request,
             DATABASE_URL,
@@ -12327,8 +12543,22 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             prostudio_debug("JOB_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=mode)
             return
 
+        provider_transition = update_prostudio_generation_job(job_id, "provider_completed", result=result)
+        prostudio_debug(
+            "JOB_PROVIDER_COMPLETED", job_id=job_id,
+            old_status=provider_transition.get("old_status"), new_status="provider_completed",
+            timestamp=provider_transition.get("timestamp"),
+            elapsed_ms_from_previous_stage=provider_transition.get("elapsed_ms_from_previous_stage"),
+        )
+        update_prostudio_generation_job(job_id, "persisting", result=result)
         result = await asyncio.to_thread(persist_generation_media, result, mode)
         prostudio_debug("JOB_MEDIA_PERSISTED", job_id=job_id, mode=mode, storage="r2" if r2_enabled() else "local")
+        storage_transition = update_prostudio_generation_job(job_id, "finalizing", result=result)
+        prostudio_debug(
+            "JOB_STORAGE_COMPLETED", job_id=job_id, old_status="persisting",
+            new_status="finalizing", timestamp=storage_transition.get("timestamp"),
+            elapsed_ms_from_previous_stage=storage_transition.get("elapsed_ms_from_previous_stage"),
+        )
 
         telegram_id = int(payload.get("telegram_id") or 0)
         print("PROSTUDIO RESULT BEFORE CHARGE:", {
@@ -12365,10 +12595,6 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         metadata = build_prostudio_metadata(payload, result)
         if metadata:
             result["metadata"] = metadata
-        await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
-        if isinstance(result.get("metadata"), dict):
-            result["metadata"]["sent_to_telegram"] = bool(result.get("sent_to_telegram"))
-            result["metadata"]["telegram_status"] = result.get("telegram_status") or ("sent" if result.get("sent_to_telegram") else "not_sent")
         prostudio_debug(
             "JOB_MESSAGE_SAVE_START",
             job_id=job_id,
@@ -12377,9 +12603,18 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             images_count=len(_json_list(result.get("images"))),
             thumbs_count=len(_json_list(result.get("thumbnails"))),
         )
-        result["conversation_id"] = save_prostudio_message(payload, result)
+        # The history row is prepared but deliberately hidden until the job's
+        # completed transaction has committed.
+        result["status"] = "finalizing"
+        result["conversation_id"] = save_prostudio_message(payload, result, raise_on_error=True)
         prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
         if job_id:
+            result["status"] = "completed"
+            result["sent_to_telegram"] = False
+            result["telegram_status"] = "pending"
+            if isinstance(result.get("metadata"), dict):
+                result["metadata"]["sent_to_telegram"] = False
+                result["metadata"]["telegram_status"] = "pending"
             print("PROSTUDIO JOB COMPLETED PAYLOAD:", {
                 "job_id": job_id,
                 "conversation_id": result["conversation_id"],
@@ -12391,7 +12626,23 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 "generation_cost": result.get("generation_cost"),
                 "cost_credits": result.get("cost_credits"),
             })
-            update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
+            completed_transition = update_prostudio_generation_job(
+                job_id,
+                "completed",
+                result=result,
+                conversation_id=result["conversation_id"],
+                publish_history_telegram_id=telegram_id,
+            )
+            prostudio_debug(
+                "JOB_FINALIZED", job_id=job_id, old_status=completed_transition.get("old_status"),
+                new_status="completed", timestamp=completed_transition.get("timestamp"),
+                elapsed_ms_from_previous_stage=completed_transition.get("elapsed_ms_from_previous_stage"),
+            )
+            prostudio_debug(
+                "JOB_COMPLETED", job_id=job_id, old_status=completed_transition.get("old_status"),
+                new_status="completed", timestamp=completed_transition.get("timestamp"),
+                elapsed_ms_from_previous_stage=completed_transition.get("elapsed_ms_from_previous_stage"),
+            )
             prostudio_debug("JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id=result["conversation_id"], status="completed")
             log_user_event(
                 int(payload.get("telegram_id") or 0),
@@ -12399,6 +12650,23 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 "generation",
                 "generation_completed",
                 {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
+            )
+            # Telegram is intentionally a post-completion side effect. Its
+            # failure can update delivery metadata but can never fail the job.
+            telegram_side_effect_started = time.monotonic()
+            telegram_sent = await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
+            if isinstance(result.get("metadata"), dict):
+                result["metadata"]["sent_to_telegram"] = bool(telegram_sent)
+                result["metadata"]["telegram_status"] = result.get("telegram_status") or ("sent" if telegram_sent else "not_sent")
+            try:
+                await asyncio.to_thread(save_job_telegram_outcome, job_id, result)
+            except Exception as telegram_metadata_exc:
+                prostudio_error("JOB_TELEGRAM_METADATA_SAVE_FAILED", telegram_metadata_exc, job_id=job_id)
+            prostudio_debug(
+                "JOB_TELEGRAM_SENT", job_id=job_id, old_status="completed",
+                new_status="completed", timestamp=_to_iso(datetime.datetime.utcnow()),
+                elapsed_ms_from_previous_stage=max(0, int((time.monotonic() - telegram_side_effect_started) * 1000)),
+                sent=bool(telegram_sent),
             )
     except Exception as exc:
         prostudio_error("JOB_PROCESS_EXCEPTION", exc, job_id=job_id)
