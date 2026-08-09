@@ -1,3 +1,5 @@
+console.log("SYLVEX_CABINET_JS_STARTED");
+
 // =====================================================
 // АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/cabinet.js
 // Файл содержит frontend-логику Mini App.
