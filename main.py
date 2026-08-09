@@ -4625,7 +4625,7 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
     )
     if not DATABASE_URL or not job_id:
         prostudio_debug("JOB_UPDATE_SKIPPED_DB", job_id=job_id, status=status, has_database=bool(DATABASE_URL))
-        return
+        return False
     try:
         ensure_prostudio_table()
         conn = db_connect(DATABASE_URL)
@@ -4657,8 +4657,10 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         cursor.close()
         conn.close()
         prostudio_debug("JOB_UPDATE_DONE", job_id=job_id, status=status, rowcount=rowcount)
+        return rowcount > 0
     except Exception as exc:
         prostudio_error("JOB_UPDATE_FAILED", exc, job_id=job_id, status=status)
+        return False
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: claim_next_prostudio_generation_job
@@ -5588,6 +5590,39 @@ def verify_persisted_generation_media(result: dict, mode: str) -> list[str]:
             + ", ".join(_sql_text(value, 180) for value in invalid[:3])
         )
     return urls
+
+
+def build_completed_job_result(result: dict, mode: str) -> dict:
+    """Build the small durable payload required by Mini App polling."""
+    keep = {
+        "ok", "type", "status", "provider", "model", "provider_model",
+        "image_url", "images", "thumbnail_url", "thumb_url", "thumbnails",
+        "video_url", "videos", "audio_url", "audio_urls", "audios", "music_url",
+        "result_url", "full_url", "url", "file_url", "title", "text", "duration",
+        "cost", "price", "cost_credits", "generation_cost", "unit_cost_credits",
+        "balance_charged", "balance_after", "charge_id",
+    }
+    final_result = {key: value for key, value in result.items() if key in keep}
+    final_result["ok"] = True
+    final_result["status"] = "completed"
+    final_result["type"] = result.get("type") or mode
+    final_result["sent_to_telegram"] = False
+    urls = generation_result_urls(final_result, mode)
+    primary_url = urls[0] if urls else ""
+    final_result["metadata"] = {
+        "type": final_result["type"],
+        "provider": final_result.get("provider") or "",
+        "model": final_result.get("model") or "",
+        "provider_model": final_result.get("provider_model") or "",
+        "result_url": primary_url,
+        "full_url": primary_url,
+        "image_url": final_result.get("image_url") or "",
+        "thumbnail_url": final_result.get("thumbnail_url") or final_result.get("thumb_url") or "",
+        "video_url": final_result.get("video_url") or "",
+        "audio_url": final_result.get("audio_url") or final_result.get("music_url") or "",
+        "sent_to_telegram": False,
+    }
+    return final_result
 
 
 def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") -> tuple | None:
@@ -12388,6 +12423,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
 
         result = await asyncio.to_thread(persist_generation_media, result, mode)
         persisted_media_urls = await asyncio.to_thread(verify_persisted_generation_media, result, mode)
+        r2_ready_at = time.monotonic()
         prostudio_debug("JOB_MEDIA_PERSISTED", job_id=job_id, mode=mode, storage="r2" if r2_enabled() else "local")
         prostudio_debug(
             "JOB_MEDIA_PERSIST_VERIFIED",
@@ -12395,6 +12431,12 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             mode=mode,
             storage="r2" if r2_enabled() else "local",
             media_count=len(persisted_media_urls),
+        )
+        prostudio_debug(
+            "JOB_R2_READY",
+            job_id=job_id,
+            timestamp=round(r2_ready_at, 6),
+            elapsed_ms_since_r2_ready=0,
         )
 
         telegram_id = int(payload.get("telegram_id") or 0)
@@ -12415,6 +12457,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             "generation_cost": result.get("generation_cost"),
         })
         charge = charge_generation_balance(telegram_id, job_id or result.get("generation_id") or str(uuid4()), result, payload)
+        if charge.get("error") or charge.get("insufficient_balance"):
+            raise RuntimeError(charge.get("error") or "Insufficient balance while finalizing generation")
         result["balance_charged"] = bool(charge.get("charged") or charge.get("already_charged"))
         result["balance_after"] = charge.get("balance_after")
         result["charge_id"] = job_id or result.get("generation_id") or ""
@@ -12425,53 +12469,89 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             "balance_charged": result.get("balance_charged"),
             "balance_after": result.get("balance_after"),
         })
-
-        prostudio_debug("JOB_SAVE_GENERATION_START", job_id=job_id, telegram_id=telegram_id, mode=mode)
-        save_generation(telegram_id, mode, prompt or "[attachment]")
-        prostudio_debug("JOB_METADATA_BUILD_START", job_id=job_id)
-        metadata = build_prostudio_metadata(payload, result)
-        if metadata:
-            result["metadata"] = metadata
+        charge_done_at = time.monotonic()
         prostudio_debug(
-            "JOB_MESSAGE_SAVE_START",
+            "JOB_CHARGE_DONE",
             job_id=job_id,
-            image_url=result.get("image_url") or "",
-            thumbnail_url=result.get("thumbnail_url") or "",
-            images_count=len(_json_list(result.get("images"))),
-            thumbs_count=len(_json_list(result.get("thumbnails"))),
+            timestamp=round(charge_done_at, 6),
+            elapsed_ms_since_r2_ready=round((charge_done_at - r2_ready_at) * 1000),
         )
-        result["conversation_id"] = save_prostudio_message(payload, result)
-        prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
-        if job_id:
-            print("PROSTUDIO JOB COMPLETED PAYLOAD:", {
-                "job_id": job_id,
-                "conversation_id": result["conversation_id"],
-                "result_keys": sorted(result.keys()),
-                "image_url": result.get("image_url"),
-                "thumbnail_url": result.get("thumbnail_url"),
-                "metadata_image_url": (result.get("metadata") or {}).get("image_url") if isinstance(result.get("metadata"), dict) else "",
-                "metadata_thumbnail_url": (result.get("metadata") or {}).get("thumbnail_url") if isinstance(result.get("metadata"), dict) else "",
-                "generation_cost": result.get("generation_cost"),
-                "cost_credits": result.get("cost_credits"),
-            })
-            update_prostudio_generation_job(job_id, "completed", result=result, conversation_id=result["conversation_id"])
-            prostudio_debug("JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id=result["conversation_id"], status="completed")
+
+        # This is the only result Mini App needs to stop polling. It contains
+        # verified R2 URLs and the committed balance outcome, but no slow
+        # history/conversation or Telegram side effects.
+        completed_result = build_completed_job_result(result, mode)
+        if not update_prostudio_generation_job(job_id, "completed", result=completed_result):
+            raise RuntimeError("Failed to commit completed Pro Studio job")
+        completed_committed_at = time.monotonic()
+        prostudio_debug(
+            "JOB_COMPLETED_COMMITTED",
+            job_id=job_id,
+            timestamp=round(completed_committed_at, 6),
+            elapsed_ms_since_r2_ready=round((completed_committed_at - r2_ready_at) * 1000),
+        )
+        prostudio_debug("JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed")
+
+        # History enriches an already completed job and is intentionally not
+        # allowed to roll its terminal status back on failure.
+        try:
+            prostudio_debug("JOB_SAVE_GENERATION_START", job_id=job_id, telegram_id=telegram_id, mode=mode)
+            save_generation(telegram_id, mode, prompt or "[attachment]")
+            prostudio_debug("JOB_METADATA_BUILD_START", job_id=job_id)
+            metadata = build_prostudio_metadata(payload, result)
+            if metadata:
+                result["metadata"] = metadata
+            prostudio_debug(
+                "JOB_MESSAGE_SAVE_START",
+                job_id=job_id,
+                image_url=result.get("image_url") or "",
+                thumbnail_url=result.get("thumbnail_url") or "",
+                images_count=len(_json_list(result.get("images"))),
+                thumbs_count=len(_json_list(result.get("thumbnails"))),
+            )
+            result["conversation_id"] = save_prostudio_message(payload, result)
+            prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
+            update_prostudio_generation_job(
+                job_id, "completed", result=result, conversation_id=result["conversation_id"]
+            )
             log_user_event(
-                int(payload.get("telegram_id") or 0),
+                telegram_id,
                 "backend",
                 "generation",
                 "generation_completed",
                 {"job_id": job_id, "mode": mode, "conversation_id": result["conversation_id"]},
             )
-            # Telegram delivery is deliberately post-completion. It cannot
-            # delay the Mini App result or turn a completed job into failed.
-            telegram_sent = await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
+            history_done_at = time.monotonic()
             prostudio_debug(
-                "JOB_TELEGRAM_SENT",
+                "JOB_HISTORY_DONE",
                 job_id=job_id,
-                telegram_id=telegram_id,
-                sent=bool(telegram_sent),
+                success=True,
+                timestamp=round(history_done_at, 6),
+                elapsed_ms_since_r2_ready=round((history_done_at - r2_ready_at) * 1000),
             )
+        except Exception as history_exc:
+            prostudio_error("JOB_POST_COMPLETION_HISTORY_FAILED", history_exc, job_id=job_id)
+            history_done_at = time.monotonic()
+            prostudio_debug(
+                "JOB_HISTORY_DONE",
+                job_id=job_id,
+                success=False,
+                timestamp=round(history_done_at, 6),
+                elapsed_ms_since_r2_ready=round((history_done_at - r2_ready_at) * 1000),
+            )
+
+        # Telegram is another post-completion side effect and cannot alter the
+        # terminal PostgreSQL status.
+        telegram_sent = await sync_completed_generation_to_telegram(telegram_id, mode, payload, result)
+        telegram_done_at = time.monotonic()
+        prostudio_debug(
+            "JOB_TELEGRAM_SENT",
+            job_id=job_id,
+            telegram_id=telegram_id,
+            sent=bool(telegram_sent),
+            timestamp=round(telegram_done_at, 6),
+            elapsed_ms_since_r2_ready=round((telegram_done_at - r2_ready_at) * 1000),
+        )
     except Exception as exc:
         prostudio_error("JOB_PROCESS_EXCEPTION", exc, job_id=job_id)
         error_result = {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
