@@ -7296,6 +7296,87 @@ async def public_prostudio_share_reference(share_id: str, request: Request):
     }
 
 
+@app.post("/api/public/prostudio/share/{share_id}/prepared-message")
+async def public_prostudio_share_prepared_message(share_id: str, request: Request):
+    """Create a Telegram PreparedInlineMessage for the authenticated Mini App user."""
+    data = await request.json()
+    telegram_id, _ = _share_request_identity(data)
+    if not BOT_TOKEN:
+        raise HTTPException(status_code=503, detail="telegram_bot_not_configured")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_not_configured")
+
+    share = get_public_share(lambda: db_connect(DATABASE_URL), share_id, increment_views=False)
+    if not share:
+        raise HTTPException(status_code=404, detail="share_not_found")
+
+    public_base = str(WEBAPP_URL or "").rstrip("/")
+    bot_username = (os.getenv("TELEGRAM_BOT_USERNAME") or "sylvexai_bot").strip().lstrip("@")
+    deep_link = f"https://t.me/{bot_username}?startapp=share_{share_id}"
+    media_url = f"{public_base}/api/public/prostudio/share/{share_id}/media"
+    logo_url = f"{public_base}/webapp/assets/logo.png"
+    mode = str(share.get("mode") or "image").lower()
+    model = str(share.get("model") or share.get("provider") or "AI")
+    prompt = re.sub(r"\s+", " ", str(share.get("prompt") or "")).strip()
+    short_prompt = prompt[:220] + ("…" if len(prompt) > 220 else "")
+    description = f"Создано в SYLVEX Pro Studio · {model}"
+    if short_prompt:
+        description += f"\n{short_prompt}"
+    reply_markup = {
+        "inline_keyboard": [[{"text": "Открыть в SYLVEX", "url": deep_link}]],
+    }
+    common = {
+        "id": f"share_{share_id}"[:64],
+        "reply_markup": reply_markup,
+    }
+    if mode == "image":
+        result = {
+            **common, "type": "photo", "photo_url": media_url,
+            "thumbnail_url": media_url, "caption": description,
+        }
+    elif mode == "video":
+        result = {
+            **common, "type": "video", "video_url": media_url,
+            "mime_type": "video/mp4", "thumbnail_url": logo_url,
+            "title": "SYLVEX Pro Studio", "caption": description,
+        }
+    elif mode == "music":
+        result = {
+            **common, "type": "audio", "audio_url": media_url,
+            "title": "SYLVEX Pro Studio", "caption": description,
+        }
+    else:
+        result = {
+            **common, "type": "voice", "voice_url": media_url,
+            "title": "SYLVEX Pro Studio", "caption": description,
+        }
+
+    def save_prepared_message():
+        return requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/savePreparedInlineMessage",
+            json={
+                "user_id": telegram_id,
+                "result": result,
+                "allow_user_chats": True,
+                "allow_bot_chats": True,
+                "allow_group_chats": True,
+                "allow_channel_chats": True,
+            },
+            timeout=20,
+        )
+
+    try:
+        response = await asyncio.to_thread(save_prepared_message)
+        payload = response.json() if response.content else {}
+        prepared_id = str((payload.get("result") or {}).get("id") or "")
+        if response.status_code >= 400 or not payload.get("ok") or not prepared_id:
+            raise RuntimeError(str(payload.get("description") or f"telegram_http_{response.status_code}"))
+    except Exception as exc:
+        prostudio_error("PROSTUDIO_SHARE_PREPARE_FAILED", exc, share_id=share_id, telegram_id=telegram_id)
+        raise HTTPException(status_code=502, detail="telegram_share_prepare_failed") from exc
+    return {"ok": True, "prepared_message_id": prepared_id, "share_url": deep_link}
+
+
 @app.get("/api/public/prostudio/share/{share_id}")
 async def public_prostudio_get_share(share_id: str):
     if not DATABASE_URL:
