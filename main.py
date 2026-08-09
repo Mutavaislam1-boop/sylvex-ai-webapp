@@ -34,6 +34,7 @@ from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
+from provider_concurrency import ProviderSlotUnavailable, normalize_provider, provider_slot
 
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import FileResponse, Response
@@ -4352,6 +4353,7 @@ def ensure_prostudio_table():
                 attempts INTEGER DEFAULT 0,
                 locked_at TIMESTAMP,
                 heartbeat_at TIMESTAMP,
+                provider_wait_until TIMESTAMP,
                 request_json JSONB DEFAULT '{}'::jsonb,
                 response_json JSONB DEFAULT '{}'::jsonb,
                 error_json JSONB DEFAULT '{}'::jsonb,
@@ -4385,6 +4387,11 @@ def ensure_prostudio_table():
             cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0")
             cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
             cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP")
+            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS provider_wait_until TIMESTAMP")
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_provider_wait
+                ON prostudio_generation_jobs (status, provider_wait_until, created_at)
+            """)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS prostudio_errors (
                 id SERIAL PRIMARY KEY,
@@ -4669,12 +4676,14 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
                     attempts = COALESCE(attempts, 0) + 1,
                     locked_at = NOW(),
                     heartbeat_at = NOW(),
+                    provider_wait_until = NULL,
                     updated_at = NOW()
                 WHERE id = (
                     SELECT id
                     FROM prostudio_generation_jobs
                     WHERE status = 'queued'
                       AND COALESCE(attempts, 0) < %s
+                      AND (provider_wait_until IS NULL OR provider_wait_until <= NOW())
                     ORDER BY created_at ASC
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
@@ -4775,6 +4784,29 @@ def heartbeat_prostudio_generation_job(job_id: str):
             conn.close()
     except Exception as exc:
         prostudio_error("JOB_HEARTBEAT_FAILED", exc, job_id=job_id)
+
+
+def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
+    """Return a capacity-waiting job to the queue without consuming an attempt."""
+    if not DATABASE_URL or not job_id:
+        return
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE prostudio_generation_jobs
+            SET status = 'queued',
+                attempts = GREATEST(COALESCE(attempts, 1) - 1, 0),
+                locked_at = NULL,
+                heartbeat_at = NULL,
+                provider_wait_until = NOW() + (%s * INTERVAL '1 second'),
+                updated_at = NOW()
+            WHERE id = %s AND status = 'processing'
+        """, (max(0.2, float(delay_seconds)), job_id))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 # =====================================================
 # PYTHON-БЛОК: generation_result_urls
@@ -11851,6 +11883,132 @@ async def public_prostudio_generate(request: Request):
     }
 
 
+def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model: str, selected_provider: str) -> str:
+    """Resolve the real provider before any external generation request."""
+    candidate = selected_provider
+    if mode == "image":
+        if is_seedream_request(payload):
+            candidate = "byteplus"
+        else:
+            mapping = image_provider_mapping(selected_model) if selected_model else {}
+            candidate = mapping.get("provider") or candidate
+    elif mode in {"text", "chat", "pro", "lite"}:
+        config = TEXT_MODEL_VARIANTS.get(selected_model) or TEXT_MODEL_VARIANTS.get("gpt-5.5") or {}
+        candidate = config.get("provider") or candidate
+
+    normalized = normalize_provider(candidate)
+    if normalized and normalized not in {"SYLVEX_ROUTER", "AUTO"}:
+        return normalized
+
+    # Last-resort model inference covers old queued payloads which predate the
+    # normalized provider field. It never changes the provider payload itself.
+    haystack = f"{selected_provider} {selected_model}".lower()
+    model_hints = (
+        ("seedream", "BYTEPLUS"), ("byteplus", "BYTEPLUS"),
+        ("gemini", "GEMINI"), ("imagen", "GEMINI"), ("nano_banana", "GEMINI"), ("lyria", "GEMINI"),
+        ("gpt", "OPENAI"), ("openai", "OPENAI"), ("qwen", "QWEN"),
+        ("grok", "GROK"), ("xai", "GROK"), ("kling", "KLING"),
+        ("runway", "RUNWAY"), ("eleven", "ELEVENLABS"), ("heygen", "HEYGEN"),
+        ("hedra", "HEDRA"), ("higgsfield", "HIGGSFIELD"), ("luma", "LUMA"),
+        ("flux", "FLUX"), ("ideogram", "IDEOGRAM"), ("recraft", "RECRAFT"),
+        ("fashn", "FASHN"), ("suno", "SUNO"), ("udio", "SUNO"),
+    )
+    for hint, provider in model_hints:
+        if hint in haystack:
+            return provider
+    raise RuntimeError(
+        f"Cannot apply global provider limit: unresolved provider "
+        f"for mode={mode}, model={selected_model}, provider={selected_provider}"
+    )
+
+
+async def run_prostudio_provider_request(
+    job_id: str,
+    payload: dict,
+    mode: str,
+    selected_model: str,
+    selected_provider: str,
+    text_modes: set,
+) -> tuple[dict, str]:
+    """Call and poll a provider while the caller owns its global slot."""
+    result = None
+    if mode == "image" and is_seedream_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
+        result = await generateBytePlusSeedreamImage(payload)
+    elif mode == "image":
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="image_generation")
+        result = await image_generation(payload)
+    elif mode == "video":
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
+        result = await run_provider_coroutine_off_loop(lambda: video_generation(payload))
+    elif mode == "music":
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="audio_generation")
+        result = await audio_generation(payload)
+    elif mode == "voice":
+        if is_voice_video_voiceover_request(payload):
+            input_video = voice_uploaded_video_url(payload)
+            if not input_video:
+                result = {"ok": False, "type": "video", "error": "Для режима «Озвучить видео» нужно загрузить видео"}
+            else:
+                voice_payload = json.loads(json.dumps(payload))
+                voice_payload["skip_telegram"] = True
+                voice_options = voice_payload.setdefault("voice_options", {})
+                voice_options["elevenlabs_tool"] = "text_to_speech"
+                voice_options["runway_tool"] = "text_to_speech"
+                voice_options["upload_purpose"] = "voiceover"
+                voice_options["uploadPurpose"] = "voiceover"
+                voice_options["uploads"] = []
+                voice_options["attachment"] = None
+                prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_video_voiceover_tts")
+                audio_result = await audio_generation(voice_payload)
+                if not isinstance(audio_result, dict) or not audio_result.get("ok"):
+                    result = audio_result if isinstance(audio_result, dict) else {"ok": False, "type": "voice", "error": "Не удалось создать озвучку для видео"}
+                else:
+                    prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="local-ffmpeg", model=selected_model, route="voice_video_voiceover_mux")
+                    result = build_voice_video_voiceover_result(payload, audio_result, input_video)
+            if isinstance(result, dict):
+                result["voice_video_voiceover"] = True
+        else:
+            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_generation")
+            result = await audio_generation(payload)
+    elif mode in text_modes:
+        if not selected_model or is_internal_ui_model(selected_model):
+            payload["model"] = "gpt-5.5"
+        result = await asyncio.to_thread(text_generation, payload)
+    else:
+        result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
+
+    if not isinstance(result, dict) or not result.get("ok"):
+        return result, "failed"
+
+    final_status = normalize_generation_status(result, mode)
+    result["job_id"] = job_id
+    result["generation_id"] = job_id
+    result["status"] = final_status
+    prostudio_debug("JOB_STATUS_NORMALIZED", job_id=job_id, mode=mode, final_status=final_status)
+
+    if final_status == "provider_processing":
+        update_prostudio_generation_job(job_id, "provider_processing", result=result)
+        log_user_event(
+            int(payload.get("telegram_id") or 0), "worker", "generation",
+            "generation_provider_processing",
+            {"job_id": job_id, "mode": mode, "task_id": result.get("task_id") or result.get("workId"), "poll_url": result.get("poll_url")},
+        )
+        while True:
+            await asyncio.sleep(5)
+            heartbeat_prostudio_generation_job(job_id)
+            poll = await run_provider_coroutine_off_loop(lambda: poll_video_generation(result))
+            if not poll.get("ok"):
+                return poll, "failed"
+            status = poll.get("status")
+            if status == "completed":
+                return poll, "completed"
+            if status == "failed":
+                return poll, "failed"
+
+    return result, final_status
+
+
 # New async function for background job processing
 # =====================================================
 # ФОНОВАЯ ЗАДАЧА: process_prostudio_generation
@@ -12021,59 +12179,25 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             has_video_refs=bool(video_references),
             has_video_media=bool(video_media),
         )
-        log_user_event(
-            int(payload.get("telegram_id") or 0),
-            "worker",
-            "generation",
-            "generation_started",
-            {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
+        provider_for_slot = resolve_prostudio_provider_for_slot(
+            payload, mode, selected_model, selected_provider
         )
-        result = None
-        if mode == "image" and is_seedream_request(payload):
-            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
-            result = await generateBytePlusSeedreamImage(payload)
-        elif mode == "image":
-            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="image_generation")
-            result = await image_generation(payload)
-        elif mode == "video":
-            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
-            result = await run_provider_coroutine_off_loop(lambda: video_generation(payload))
-        elif mode == "music":
-            prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="audio_generation")
-            result = await audio_generation(payload)
-        elif mode == "voice":
-            if is_voice_video_voiceover_request(payload):
-                input_video = voice_uploaded_video_url(payload)
-                if not input_video:
-                    result = {"ok": False, "type": "video", "error": "Для режима «Озвучить видео» нужно загрузить видео"}
-                else:
-                    voice_payload = json.loads(json.dumps(payload))
-                    voice_payload["skip_telegram"] = True
-                    voice_options = voice_payload.setdefault("voice_options", {})
-                    voice_options["elevenlabs_tool"] = "text_to_speech"
-                    voice_options["runway_tool"] = "text_to_speech"
-                    voice_options["upload_purpose"] = "voiceover"
-                    voice_options["uploadPurpose"] = "voiceover"
-                    voice_options["uploads"] = []
-                    voice_options["attachment"] = None
-                    prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_video_voiceover_tts")
-                    audio_result = await audio_generation(voice_payload)
-                    if not isinstance(audio_result, dict) or not audio_result.get("ok"):
-                        result = audio_result if isinstance(audio_result, dict) else {"ok": False, "type": "voice", "error": "Не удалось создать озвучку для видео"}
-                    else:
-                        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="local-ffmpeg", model=selected_model, route="voice_video_voiceover_mux")
-                        result = build_voice_video_voiceover_result(payload, audio_result, input_video)
-                if isinstance(result, dict):
-                    result["voice_video_voiceover"] = True
-            else:
-                prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="voice_generation")
-                result = await audio_generation(payload)
-        elif mode in text_modes:
-            if not selected_model or is_internal_ui_model(selected_model):
-                payload["model"] = "gpt-5.5"
-            result = text_generation(payload)
-        else:
-            result = {"ok": False, "error": "Unknown generation mode", "mode": mode}
+        try:
+            async with provider_slot(
+                DATABASE_URL, provider_for_slot, job_id, prostudio_debug,
+                wait_for_slot=False,
+            ):
+                log_user_event(
+                    int(payload.get("telegram_id") or 0), "worker", "generation",
+                    "generation_started",
+                    {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
+                )
+                result, final_status = await run_prostudio_provider_request(
+                    job_id, payload, mode, selected_model, selected_provider, text_modes
+                )
+        except ProviderSlotUnavailable:
+            await asyncio.to_thread(defer_prostudio_job_for_provider, job_id)
+            return
 
         prostudio_debug(
             "JOB_PROVIDER_RESULT",
@@ -12094,46 +12218,6 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 log_prostudio_error(payload, result, job_id=job_id)
                 prostudio_debug("JOB_PROCESS_FAILED_PROVIDER_RESULT", job_id=job_id, error=(result or {}).get("error") or "")
             return
-
-        final_status = normalize_generation_status(result, mode)
-        result["job_id"] = job_id
-        result["generation_id"] = job_id
-        result["status"] = final_status
-        prostudio_debug("JOB_STATUS_NORMALIZED", job_id=job_id, mode=mode, final_status=final_status)
-
-        if final_status == "provider_processing":
-            update_prostudio_generation_job(job_id, "provider_processing", result=result)
-            log_user_event(
-                int(payload.get("telegram_id") or 0),
-                "worker",
-                "generation",
-                "generation_provider_processing",
-                {
-                    "job_id": job_id,
-                    "mode": mode,
-                    "task_id": result.get("task_id") or result.get("workId"),
-                    "poll_url": result.get("poll_url"),
-                },
-            )
-            while True:
-                await asyncio.sleep(5)
-                heartbeat_prostudio_generation_job(job_id)
-                poll = await run_provider_coroutine_off_loop(lambda: poll_video_generation(result))
-
-                if not poll.get("ok"):
-                    update_prostudio_generation_job(job_id, "failed", error=poll)
-                    return
-
-                status = poll.get("status")
-
-                if status == "completed":
-                    result = poll
-                    final_status = "completed"
-                    break
-
-                if status == "failed":
-                    update_prostudio_generation_job(job_id, "failed", error=poll)
-                    return
 
         if final_status != "completed":
             error_result = {
