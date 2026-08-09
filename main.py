@@ -4409,6 +4409,10 @@ def ensure_prostudio_table():
                 ON prostudio_generation_jobs (status, provider_wait_until, created_at)
             """)
             cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_client_request
+                ON prostudio_generation_jobs (telegram_id, ((request_json ->> 'client_request_id')))
+            """)
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS prostudio_errors (
                 id SERIAL PRIMARY KEY,
                 telegram_id BIGINT,
@@ -4555,21 +4559,30 @@ class ActiveProstudioJobError(RuntimeError):
         self.status = str(status or "queued")
 
 
-def get_active_prostudio_job(telegram_id: int) -> dict:
+def get_active_prostudio_job(telegram_id: int, client_request_id: str = "") -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
     ensure_prostudio_table()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        client_request_id = str(client_request_id or "").strip()[:160]
         cursor.execute("""
             SELECT id, status, mode, model, provider, conversation_id, created_at, updated_at
             FROM prostudio_generation_jobs
             WHERE telegram_id = %s
-              AND status = ANY(%s)
-            ORDER BY created_at ASC
+              AND (
+                    status = ANY(%s)
+                    OR (%s <> '' AND request_json ->> 'client_request_id' = %s)
+              )
+            ORDER BY
+                CASE WHEN %s <> '' AND request_json ->> 'client_request_id' = %s THEN 0 ELSE 1 END,
+                created_at ASC
             LIMIT 1
-        """, (int(telegram_id), list(PROSTUDIO_ACTIVE_JOB_STATUSES)))
+        """, (
+            int(telegram_id), list(PROSTUDIO_ACTIVE_JOB_STATUSES),
+            client_request_id, client_request_id, client_request_id, client_request_id,
+        ))
         row = cursor.fetchone()
         if not row:
             return {}
@@ -4617,6 +4630,20 @@ def create_prostudio_generation_job(payload: dict) -> str:
         # The check and INSERT share one transaction, so simultaneous clicks
         # cannot create two active jobs.
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        client_request_id = str(payload.get("client_request_id") or "").strip()[:160]
+        if client_request_id:
+            cursor.execute("""
+                SELECT id, status
+                FROM prostudio_generation_jobs
+                WHERE telegram_id = %s
+                  AND request_json ->> 'client_request_id' = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (telegram_id, client_request_id))
+            duplicate_request = cursor.fetchone()
+            if duplicate_request:
+                conn.rollback()
+                raise ActiveProstudioJobError(duplicate_request[0], duplicate_request[1])
         cursor.execute("""
             SELECT id, status
             FROM prostudio_generation_jobs
@@ -6846,17 +6873,18 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
 
 
 @app.get("/api/public/prostudio/active-job")
-async def public_prostudio_active_job(telegram_id: int = 0):
+async def public_prostudio_active_job(telegram_id: int = 0, client_request_id: str = ""):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     try:
-        job = get_active_prostudio_job(telegram_id)
+        job = get_active_prostudio_job(telegram_id, client_request_id=client_request_id)
     except Exception as exc:
         prostudio_error("ACTIVE_JOB_LOOKUP_FAILED", exc, telegram_id=telegram_id)
         return JSONResponse({"ok": False, "error": "active_job_lookup_failed"}, status_code=500)
     return {
         "ok": True,
-        "active": bool(job),
+        "active": bool(job) and job.get("status") in PROSTUDIO_ACTIVE_JOB_STATUSES,
+        "found": bool(job),
         "active_job_id": job.get("id") or "",
         "status": job.get("status") or "",
         "phase": job.get("phase") or "",
