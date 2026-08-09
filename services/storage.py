@@ -15,6 +15,7 @@ from functools import lru_cache
 from typing import BinaryIO, Iterator, Optional
 
 from dotenv import load_dotenv
+from db_pool import db_connect
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -42,9 +43,8 @@ def _record_object(key: str, url: str, content_type: str, size: int) -> None:
     if not DATABASE_URL:
         return
     try:
-        import psycopg2
         with _registry_lock:
-            conn = psycopg2.connect(DATABASE_URL)
+            conn = db_connect(DATABASE_URL)
             cursor = conn.cursor()
             if not _registry_ready:
                 cursor.execute("""
@@ -247,8 +247,7 @@ def delete(key_or_url: str) -> bool:
         (LOCAL_GENERATED_DIR.parent / key).unlink(missing_ok=True)
     if DATABASE_URL:
         try:
-            import psycopg2
-            conn = psycopg2.connect(DATABASE_URL)
+            conn = db_connect(DATABASE_URL)
             cursor = conn.cursor()
             cursor.execute("DELETE FROM sylvex_storage_objects WHERE object_key=%s", (key,))
             conn.commit(); cursor.close(); conn.close()

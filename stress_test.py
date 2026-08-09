@@ -19,9 +19,9 @@ from datetime import datetime
 from typing import Dict, Iterable, List
 from uuid import uuid4
 
-import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import Json
+from db_pool import close_db_pool, db_connect, start_db_pool
 
 
 load_dotenv()
@@ -73,7 +73,7 @@ def ensure_safe_to_run() -> None:
 
 
 def table_exists() -> bool:
-    with psycopg2.connect(database_url()) as connection:
+    with db_connect(database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT to_regclass('public.prostudio_generation_jobs')")
             row = cursor.fetchone()
@@ -107,7 +107,7 @@ def build_test_jobs(count: int) -> List[dict]:
 
 def insert_job(job: dict, start_gate: threading.Event) -> str:
     start_gate.wait()
-    with psycopg2.connect(database_url()) as connection:
+    with db_connect(database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -136,7 +136,7 @@ def enqueue_jobs_concurrently(jobs: List[dict]) -> List[str]:
 
 def fetch_jobs(job_ids: Iterable[str]) -> List[dict]:
     ids = list(job_ids)
-    with psycopg2.connect(database_url()) as connection:
+    with db_connect(database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -273,56 +273,55 @@ def validate_mock_results(rows: List[dict]) -> List[str]:
 
 def main() -> int:
     ensure_safe_to_run()
-    if not table_exists():
-        raise RuntimeError("Table prostudio_generation_jobs does not exist. Deploy the application first.")
+    start_db_pool(database_url())
+    try:
+        if not table_exists():
+            raise RuntimeError("Table prostudio_generation_jobs does not exist. Deploy the application first.")
 
-    count = test_user_count()
-    workers = test_worker_count()
-    worker_concurrency = test_worker_concurrency()
-    expected_capacity = workers * worker_concurrency
-    jobs = build_test_jobs(count)
-    test_started = time.monotonic()
-    job_ids = enqueue_jobs_concurrently(jobs)
-    rows, max_processing, _ = wait_for_terminal_statuses(job_ids)
-    summary = build_summary(
-        job_ids,
-        rows,
-        max_processing,
-        time.monotonic() - test_started,
-        workers,
-        worker_concurrency,
-    )
-    non_mock_results = validate_mock_results(rows)
-    failures = failed_job_details(rows)
-
-    print("STRESS_TEST_RESULT")
-    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=False))
-    for failure in failures:
-        print("FAILED_JOB")
-        print(json.dumps(failure, ensure_ascii=False, indent=2, default=str))
-
-    errors = []
-    if summary["total"] != count:
-        errors.append("not all jobs were returned")
-    if summary["completed"] != count:
-        errors.append("not all jobs completed")
-    if summary["duplicate_job_ids"]:
-        errors.append("duplicate processing was detected")
-    if non_mock_results:
-        errors.append("completed jobs without mock=true: {}".format(non_mock_results))
-    minimum_parallelism = 1 if count == 1 else 2
-    if summary["max_processing"] < minimum_parallelism:
-        errors.append(
-            "parallel processing was not confirmed: max_processing={}, expected_capacity={}".format(
-                summary["max_processing"],
-                expected_capacity,
-            )
+        count = test_user_count()
+        workers = test_worker_count()
+        worker_concurrency = test_worker_concurrency()
+        expected_capacity = workers * worker_concurrency
+        jobs = build_test_jobs(count)
+        test_started = time.monotonic()
+        job_ids = enqueue_jobs_concurrently(jobs)
+        rows, max_processing, _ = wait_for_terminal_statuses(job_ids)
+        summary = build_summary(
+            job_ids, rows, max_processing, time.monotonic() - test_started,
+            workers, worker_concurrency,
         )
-    if errors:
-        print("STRESS_TEST_FAILED: " + "; ".join(errors), file=sys.stderr)
-        return 1
-    print("STRESS_TEST_PASSED")
-    return 0
+        non_mock_results = validate_mock_results(rows)
+        failures = failed_job_details(rows)
+
+        print("STRESS_TEST_RESULT")
+        print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=False))
+        for failure in failures:
+            print("FAILED_JOB")
+            print(json.dumps(failure, ensure_ascii=False, indent=2, default=str))
+
+        errors = []
+        if summary["total"] != count:
+            errors.append("not all jobs were returned")
+        if summary["completed"] != count:
+            errors.append("not all jobs completed")
+        if summary["duplicate_job_ids"]:
+            errors.append("duplicate processing was detected")
+        if non_mock_results:
+            errors.append("completed jobs without mock=true: {}".format(non_mock_results))
+        minimum_parallelism = 1 if count == 1 else 2
+        if summary["max_processing"] < minimum_parallelism:
+            errors.append(
+                "parallel processing was not confirmed: max_processing={}, expected_capacity={}".format(
+                    summary["max_processing"], expected_capacity,
+                )
+            )
+        if errors:
+            print("STRESS_TEST_FAILED: " + "; ".join(errors), file=sys.stderr)
+            return 1
+        print("STRESS_TEST_PASSED")
+        return 0
+    finally:
+        close_db_pool()
 
 
 if __name__ == "__main__":

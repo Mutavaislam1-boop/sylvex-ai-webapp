@@ -9,6 +9,7 @@ import asyncio
 import signal
 
 from dotenv import load_dotenv
+from db_pool import close_db_pool, db_pool_status, start_db_pool
 
 
 load_dotenv()
@@ -31,6 +32,9 @@ async def run_worker() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is required for worker Telegram delivery and reminders")
 
+    await asyncio.to_thread(start_db_pool, DATABASE_URL)
+    db_pool_status()
+
     tasks: list[asyncio.Task] = []
     if PROSTUDIO_WORKER_ENABLED:
         tasks.append(
@@ -48,6 +52,7 @@ async def run_worker() -> None:
         )
 
     if not tasks:
+        await asyncio.to_thread(close_db_pool)
         raise RuntimeError(
             "Worker has no enabled tasks. Set PROSTUDIO_WORKER_ENABLED=1 and/or "
             "SUBSCRIPTION_REMINDER_WORKER_ENABLED=1"
@@ -96,6 +101,7 @@ async def run_worker() -> None:
             await asyncio.gather(*tasks, return_exceptions=True)
         for signal_name in installed_signals:
             loop.remove_signal_handler(signal_name)
+        await asyncio.to_thread(close_db_pool)
 
 
 if __name__ == "__main__":
