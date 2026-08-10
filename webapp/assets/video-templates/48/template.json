@@ -1,7 +1,7 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "48",
+  "name": "Drone Shot",
+  "description": "Replaces the main person in the aerial drone video with the person from the uploaded photo while preserving the original body movement, camera ascent, drone flight path, environment, lighting, composition, and cinematic atmosphere.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -11,7 +11,7 @@
   "output": {
     "type": "video",
     "duration": 5,
-    "aspect_ratio": "16:9"
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",
