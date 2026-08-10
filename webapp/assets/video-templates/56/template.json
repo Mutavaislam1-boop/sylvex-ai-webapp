@@ -1,7 +1,7 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "56",
+  "name": "Action Run",
+  "description": "Replaces the main person in the video with the person from the uploaded photo while preserving the sprinting motion, body movement, camera tracking, environment, lighting, composition, and cinematic action atmosphere.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -10,8 +10,8 @@
   },
   "output": {
     "type": "video",
-    "duration": 5,
-    "aspect_ratio": "16:9"
+    "duration": 7,
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",

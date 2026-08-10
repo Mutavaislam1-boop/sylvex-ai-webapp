@@ -1,2 +1,1 @@
-Drone Shot
-A cinematic aerial drone sequence, featuring a smooth ascent from the subject
+Cinematic zoom-out, featuring a seamless transition from subject view to a full of Earth

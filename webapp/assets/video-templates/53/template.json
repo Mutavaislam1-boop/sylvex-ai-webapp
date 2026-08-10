@@ -1,17 +1,17 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
-  "category": "Character Replacement",
+  "id": "53",
+  "name": "Dust Splash",
+  "description": "Replaces the featured product in the video with the uploaded object while preserving the original landing impact, dust and particle effects, camera movement, lighting, composition, and cinematic commercial style.",
+  "category": "Object Replacement",
   "input": {
     "type": "image",
-    "subject": "person",
+    "subject": "object",
     "count": 1
   },
   "output": {
     "type": "video",
-    "duration": 5,
-    "aspect_ratio": "16:9"
+    "duration": 3,
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",
