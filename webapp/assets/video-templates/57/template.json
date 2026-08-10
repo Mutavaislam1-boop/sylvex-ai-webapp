@@ -1,16 +1,16 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
-  "category": "Character Replacement",
+  "id": "57",
+  "name": "Clothing Rain",
+  "description": "Replaces the featured garment in the video with the uploaded clothing item while preserving the slow-motion falling animation, physics, camera movement, lighting, composition, and high-fashion campaign aesthetic.",
+  "category": "Product Replacement",
   "input": {
     "type": "image",
-    "subject": "person",
+    "subject": "clothing",
     "count": 1
   },
   "output": {
     "type": "video",
-    "duration": 5,
+    "duration": 8,
     "aspect_ratio": "16:9"
   },
   "assets": {

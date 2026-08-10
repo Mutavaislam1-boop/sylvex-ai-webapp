@@ -1,7 +1,7 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "59",
+  "name": "Metal Monster Unleashed",
+  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the liquid chrome transformation, shattering effect, camera movement, lighting, timing, and cinematic composition.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -10,7 +10,7 @@
   },
   "output": {
     "type": "video",
-    "duration": 5,
+    "duration": 15,
     "aspect_ratio": "16:9"
   },
   "assets": {

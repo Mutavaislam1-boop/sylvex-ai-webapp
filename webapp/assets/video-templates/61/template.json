@@ -1,17 +1,17 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
-  "category": "Character Replacement",
+  "id": "61",
+  "name": "Copy Machine",
+  "description": "Replaces the photograph in the video with the uploaded image while preserving the copy machine animation, rapid printing sequence, camera movement, lighting, composition, and realistic paper printing effects.",
+  "category": "Photo Replacement",
   "input": {
     "type": "image",
-    "subject": "person",
+    "subject": "photo",
     "count": 1
   },
   "output": {
     "type": "video",
-    "duration": 5,
-    "aspect_ratio": "16:9"
+    "duration": 7,
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",
