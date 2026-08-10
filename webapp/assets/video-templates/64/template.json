@@ -1,22 +1,22 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
-  "category": "Character Replacement",
+  "id": "64",
+  "name": "Wiggle Faces",
+  "description": "Animates the animal from the uploaded photo with the Wiggle Faces effect.",
+  "category": "Animal Effect",
+  "effect_scene": "wiggle_faces_pets",
   "input": {
     "type": "image",
-    "subject": "person",
+    "subject": "animal",
     "count": 1
   },
   "output": {
     "type": "video",
-    "duration": 5,
-    "aspect_ratio": "16:9"
+    "duration": 8,
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",
-    "poster": "poster.jpg",
-    "prompt": "prompt.txt"
+    "poster": "poster.jpg"
   },
   "enabled": true
 }
