@@ -1,7 +1,7 @@
 {
-  "id": "44",
-  "name": "World Cup Fan Reaction",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "45",
+  "name": "Goal Celebration",
+  "description": "Replaces the celebrating fan in the video with the person from the uploaded photo while preserving the jump, body movement, facial expression, camera motion, stadium atmosphere, crowd, lighting, and environment of the original template.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -10,7 +10,7 @@
   },
   "output": {
     "type": "video",
-    "duration": 5,
+    "duration": 6,
     "aspect_ratio": "16:9"
   },
   "assets": {
