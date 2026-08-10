@@ -1,7 +1,7 @@
 {
-  "id": "19",
-  "name": "Angel Takes Flight",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "20",
+  "name": "Winter Tunnel Combat",
+  "description": "Replaces the main character in the video with the person from the uploaded photo while preserving the hand-to-hand combat choreography, camera movement, snow-covered tunnel environment, lighting, cinematic action, and visual effects.",
   "category": "Character Replacement",
   "input": {
     "type": "image",

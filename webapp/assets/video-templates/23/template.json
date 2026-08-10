@@ -1,7 +1,7 @@
 {
-  "id": "19",
-  "name": "Angel Takes Flight",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "23",
+  "name": "Behind the Scenes",
+  "description": "Replaces the main person in the video with the person from the uploaded photo while preserving the cinematic scene, behind-the-scenes reveal, film crew, camera equipment, lighting setup, camera movement, and overall production atmosphere.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -11,7 +11,7 @@
   "output": {
     "type": "video",
     "duration": 6,
-    "aspect_ratio": "16:9"
+    "aspect_ratio": "1:1"
   },
   "assets": {
     "preview": "preview.mp4",
