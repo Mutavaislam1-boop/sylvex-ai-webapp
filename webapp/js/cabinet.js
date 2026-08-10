@@ -13631,7 +13631,7 @@ function maybeShowVideoTemplateIntro(force) {
         generation_cost: merged.generation_cost || (credits + ' ⚡'),
       }));
     });
-    return Array.from(byId.values()).slice(0, 50);
+    return Array.from(byId.values()).slice(0, 100);
   }
 
   function hydrateVideoTemplateCardVideos(root) {
