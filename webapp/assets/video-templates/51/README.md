@@ -3,10 +3,10 @@
 Video template slot 51
 
 Put preview video here:
-- webapp/assets/video-templates/50/preview.mp4
+- webapp/assets/video-templates/51/preview.mp4
 
 Optional poster image:
-- webapp/assets/video-templates/50/poster.jpg
+- webapp/assets/video-templates/51/poster.jpg
 
 Optional prompt text:
-- webapp/assets/video-templates/50/prompt.txt
+- webapp/assets/video-templates/51/prompt.txt
