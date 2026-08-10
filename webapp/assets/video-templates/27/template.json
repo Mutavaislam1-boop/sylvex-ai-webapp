@@ -1,7 +1,7 @@
 {
-  "id": "19",
-  "name": "Angel Takes Flight",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "27",
+  "name": "Y2K Glitch",
+  "description": "Replaces the main person in the video with the person from the uploaded photo while preserving the retro fashion portrait composition, RGB glitch effects, VHS-style distortion, camera movement, lighting, and Y2K aesthetic.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -11,7 +11,7 @@
   "output": {
     "type": "video",
     "duration": 5,
-    "aspect_ratio": "16:9"
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",

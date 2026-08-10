@@ -1,7 +1,7 @@
 {
-  "id": "19",
-  "name": "Angel Takes Flight",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "35",
+  "name": "Mountain Adventure",
+  "description": "Replaces the main hiker in the video with the person from the uploaded photo while preserving the alpine landscape, rolling green valleys, dramatic skies, hiking journey, camera movement, lighting, composition, and cinematic adventure atmosphere.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
