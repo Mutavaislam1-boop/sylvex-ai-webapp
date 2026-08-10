@@ -1,17 +1,17 @@
 {
-  "id": "19",
-  "name": "Angel Takes Flight",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
-  "category": "Character Replacement",
+  "id": "26",
+  "name": "Concert Arena",
+  "description": "Replaces the content displayed on the massive LED screen with the uploaded image while preserving the packed concert arena, crowd, stage lighting, camera movement, composition, and cinematic live event atmosphere.",
+  "category": "Photo Replacement",
   "input": {
     "type": "image",
-    "subject": "person",
+    "subject": "photo",
     "count": 1
   },
   "output": {
     "type": "video",
     "duration": 6,
-    "aspect_ratio": "16:9"
+    "aspect_ratio": "9:16"
   },
   "assets": {
     "preview": "preview.mp4",

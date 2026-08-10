@@ -1,7 +1,7 @@
 {
-  "id": "19",
-  "name": "Angel Takes Flight",
-  "description": "Replaces the character in the video with the person from the uploaded photo while preserving the movements, camera angle, and environment of the original template.",
+  "id": "37",
+  "name": "360 Degree Turn",
+  "description": "Replaces the main person in the video with the person from the uploaded photo while preserving the full 360-degree orbital camera movement, body position, environment, lighting, composition, and cinematic motion.",
   "category": "Character Replacement",
   "input": {
     "type": "image",
@@ -10,8 +10,8 @@
   },
   "output": {
     "type": "video",
-    "duration": 4,
-    "aspect_ratio": "16:9"
+    "duration": 7,
+    "aspect_ratio": "1:1"
   },
   "assets": {
     "preview": "preview.mp4",
