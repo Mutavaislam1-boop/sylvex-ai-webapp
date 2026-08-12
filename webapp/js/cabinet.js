@@ -16891,6 +16891,8 @@ async function waitGeneration(jobId, options) {
       pickImageOption(null, 'model', modelId);
     } else if (initialMode === 'video' && modelId && VIDEO_MODELS.some((model) => model.id === modelId)) {
       pickImageOption(null, 'model', modelId);
+    } else if (initialMode === 'music' && modelId && MUSIC_MODEL_LIST.some((model) => model.id === modelId)) {
+      pickImageOption(null, 'model', modelId);
     }
     const tool = String(params.get('tool') || '').toLowerCase();
     if (initialMode === 'image' && (tool === 'characters' || tool === 'objects')) {
