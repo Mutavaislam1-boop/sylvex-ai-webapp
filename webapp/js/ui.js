@@ -6,6 +6,15 @@
 // Generic UI helpers: toast, view switching, theme, switches, popovers.
 (function () {
   let toastT;
+  function syncTelegramHeader(forceStudio) {
+    const tg = window.SYLVEX && window.SYLVEX.tg;
+    if (!tg || !tg.setHeaderColor) return;
+    const studioActive = typeof forceStudio === 'boolean'
+      ? forceStudio
+      : !!document.querySelector('.view[data-view="tools"].active');
+    const mode = document.documentElement.dataset.theme || 'dark';
+    try { tg.setHeaderColor(studioActive || mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {}
+  }
   // =====================================================
   // JAVASCRIPT-БЛОК: toast
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -29,8 +38,7 @@
     localStorage.setItem('sylvex-theme', mode);
     const ts = document.getElementById('themeSwitch');
     if (ts) ts.classList.toggle('on', mode === 'dark');
-    const tg = window.SYLVEX && window.SYLVEX.tg;
-    if (tg) { try { tg.setHeaderColor && tg.setHeaderColor(mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {} }
+    syncTelegramHeader();
   }
 
   // =====================================================
@@ -56,6 +64,10 @@
       window.SYLVEX.closeExpiredSubscriptionModal();
     }
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
+    if (name !== 'tools' && window.SYLVEX && window.SYLVEX.VoiceDialogueComposer) {
+      window.SYLVEX.VoiceDialogueComposer.closeMenus();
+    }
+    syncTelegramHeader(name === 'tools');
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
     const sc = document.querySelector('.scroll');
     if (sc) {
@@ -135,5 +147,5 @@
   window.switchView = switchView;
 
   window.SYLVEX = window.SYLVEX || {};
-  Object.assign(window.SYLVEX, { toast, setTheme, toggleTheme, switchView, escapeHtml, toolCard, openQuickTool, histCard, shopCard });
+  Object.assign(window.SYLVEX, { toast, setTheme, toggleTheme, switchView, syncTelegramHeader, escapeHtml, toolCard, openQuickTool, histCard, shopCard });
 })();

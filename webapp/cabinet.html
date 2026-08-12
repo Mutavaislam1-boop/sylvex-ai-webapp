@@ -917,6 +917,19 @@ HTML-страница Mini App. Комментарии подписывают э
             =================================================== -->
             <button class="hd-close" onclick="SYLVEX.toggleHistory()" aria-label="Close">×</button>
           </div>
+          <div class="hd-user-card" id="hdUserCard">
+            <div class="hd-user-main">
+              <div class="hd-user-avatar" id="hdUserAvatar">··</div>
+              <div class="hd-user-identity">
+                <strong id="hdUserName">—</strong>
+                <span id="hdUserHandle">@—</span>
+              </div>
+            </div>
+            <div class="hd-user-stats">
+              <div><span>Баланс</span><b id="hdUserBalance">— ⚡️</b></div>
+              <div><span>Последнее списание</span><b id="hdUserLastSpent">—</b></div>
+            </div>
+          </div>
           <!-- ==================================================
           HTML-ЭЛЕМЕНТ: hd-new
           При нажатии вызывает: SYLVEX.newChat();SYLVEX.toggleHistory()

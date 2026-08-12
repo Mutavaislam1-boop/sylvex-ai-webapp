@@ -2898,6 +2898,7 @@ const VoiceDialogueComposer = (() => {
   let bottomSheet = null;
   let markerRail = null;
   let longPressTimer = 0;
+  let longPressPoint = null;
   let dialogueLines = [];
   const submenuTimers = new WeakMap();
 
@@ -3246,23 +3247,32 @@ const VoiceDialogueComposer = (() => {
     ['keyup','click','select','input'].forEach((name) => input.addEventListener(name, () => { rememberCaret(); if (name === 'input') refreshMarkers(); }));
     document.addEventListener('selectionchange', () => { if (document.activeElement === input) rememberCaret(); });
     input.addEventListener('contextmenu', (event) => {
-      if (!active() || isTouchLayout()) return;
+      if (!active()) return;
       event.preventDefault();
+      if (isTouchLayout()) return;
       openContextMenu(event.clientX, event.clientY);
     });
-    input.addEventListener('click', () => {
-      if (!active() || !isTouchLayout() || !document.body.classList.contains('kb-open')) return;
-      window.setTimeout(() => { rememberCaret(); openBottomSheet('quick'); }, 0);
-    });
-    input.addEventListener('pointerdown', () => {
-      if (!active() || !isTouchLayout()) return;
+    input.addEventListener('pointerdown', (event) => {
+      if (!active() || !isTouchLayout() || event.pointerType === 'mouse') return;
       window.clearTimeout(longPressTimer);
+      longPressPoint = { x:event.clientX, y:event.clientY, id:event.pointerId };
       longPressTimer = window.setTimeout(() => {
+        if (!active() || !longPressPoint) return;
         rememberCaret();
-        openBottomSheet('ai');
-      }, 600);
+        openBottomSheet('quick');
+        longPressPoint = null;
+        S.haptic && S.haptic.impact && S.haptic.impact('medium');
+      }, 2000);
     });
-    ['pointerup','pointercancel','pointermove'].forEach((name) => input.addEventListener(name, () => window.clearTimeout(longPressTimer), { passive:true }));
+    input.addEventListener('pointermove', (event) => {
+      if (!longPressPoint || event.pointerId !== longPressPoint.id) return;
+      if (Math.hypot(event.clientX - longPressPoint.x, event.clientY - longPressPoint.y) > 12) {
+        window.clearTimeout(longPressTimer); longPressPoint = null;
+      }
+    }, { passive:true });
+    ['pointerup','pointercancel'].forEach((name) => input.addEventListener(name, () => {
+      window.clearTimeout(longPressTimer); longPressPoint = null;
+    }, { passive:true }));
     document.addEventListener('pointerdown', (event) => {
       if (contextMenu && !contextMenu.hidden && !event.target.closest('.voice-caret-menu')) closeMenus();
     });
@@ -14112,6 +14122,7 @@ function maybeShowVideoTemplateIntro(force) {
     const isText = studioMode === 'text';
     const isMusic = isMusicMode();
     const isVoice = isVoiceMode();
+    if (!isVoice || voiceWorkspaceMode !== 'dialogue') VoiceDialogueComposer.closeMenus();
     const isAudio = isMusic || isVoice;
     pendingAttachment = currentModeAttachment();
     const composer = document.getElementById('studioComposer');
@@ -14238,7 +14249,7 @@ function maybeShowVideoTemplateIntro(force) {
     const b = document.getElementById('histBackdrop');
     if (!d || !b) return;
     const on = !d.classList.contains('show');
-    if (on) renderConvList();
+    if (on) { renderHistoryUserSummary(); renderConvList(); }
     d.classList.toggle('show', on);
     b.classList.toggle('show', on);
     if (!on && activeGenerationLocked()) {
@@ -14249,6 +14260,36 @@ function maybeShowVideoTemplateIntro(force) {
       activeGeneration.restoringMode = false;
       ensureActiveGenerationPlaceholder(true);
     }
+  }
+  function renderHistoryUserSummary() {
+    const user = S.user || {};
+    const name = (user.display_name && String(user.display_name).trim())
+      || [user.first_name, user.last_name].filter(Boolean).join(' ')
+      || user.username || 'Пользователь';
+    const handle = user.username ? '@' + user.username : 'SYLVEX ID ' + (user.telegram_id || '—');
+    const balance = Number(user.balance || 0);
+    const nameEl = document.getElementById('hdUserName'); if (nameEl) nameEl.textContent = name;
+    const handleEl = document.getElementById('hdUserHandle'); if (handleEl) handleEl.textContent = handle;
+    const balanceEl = document.getElementById('hdUserBalance'); if (balanceEl) balanceEl.textContent = balance.toLocaleString() + ' ⚡️';
+    const avatar = document.getElementById('hdUserAvatar');
+    if (avatar) {
+      avatar.replaceChildren();
+      const avatarUrl = user.custom_avatar_url || user.photo_url;
+      if (avatarUrl) {
+        const img = document.createElement('img'); img.src = avatarUrl; img.alt = ''; avatar.appendChild(img);
+      } else {
+        avatar.textContent = ((user.first_name || user.username || '·').slice(0,1) + (user.last_name || '').slice(0,1)).toUpperCase();
+      }
+    }
+    let spent = '';
+    for (let i = chatMessages.length - 1; i >= 0 && !spent; i -= 1) {
+      const meta = chatMessages[i] && chatMessages[i].metadata;
+      if (!meta || typeof meta !== 'object') continue;
+      if (meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== '') spent = String(meta.cost_credits) + ' ⚡️';
+      else if (meta.generation_cost) spent = String(meta.generation_cost);
+    }
+    if (!spent && user.last_generation_cost_credits !== undefined) spent = String(user.last_generation_cost_credits) + ' ⚡️';
+    const spentEl = document.getElementById('hdUserLastSpent'); if (spentEl) spentEl.textContent = spent || '—';
   }
   // =====================================================
   // JAVASCRIPT-БЛОК: autoGrow
