@@ -85,10 +85,17 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function toolCard(tt) {
-    return '<div class="tool" onclick="toast(t(\u0027tool_' + tt.k + '\u0027))">'
+    return '<div class="tool" onclick="SYLVEX.openQuickTool(\u0027' + tt.k + '\u0027)">'
       + '<div class="ico">' + tt.icon + '</div>'
       + '<h4>' + t('tool_' + tt.k) + '</h4>'
       + '<p>' + t('tool_' + tt.k + '_d') + '</p></div>';
+  }
+
+  function openQuickTool(mode) {
+    switchView('tools');
+    if (mode !== 'general' && window.SYLVEX && window.SYLVEX.updateComposerMode) {
+      window.SYLVEX.updateComposerMode(mode);
+    }
   }
 
   // =====================================================
@@ -124,5 +131,5 @@
   window.switchView = switchView;
 
   window.SYLVEX = window.SYLVEX || {};
-  Object.assign(window.SYLVEX, { toast, setTheme, toggleTheme, switchView, escapeHtml, toolCard, histCard, shopCard });
+  Object.assign(window.SYLVEX, { toast, setTheme, toggleTheme, switchView, escapeHtml, toolCard, openQuickTool, histCard, shopCard });
 })();
