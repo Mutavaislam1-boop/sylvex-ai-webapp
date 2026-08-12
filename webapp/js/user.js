@@ -141,6 +141,7 @@
     setText('profileUserHandle', handle);
     setText('profileUserId', idStr);
     setAvatar('profileAvatar', avatarUrl, ini);
+    if (S.applyStoredTheme) S.applyStoredTheme();
   }
 
   // =====================================================

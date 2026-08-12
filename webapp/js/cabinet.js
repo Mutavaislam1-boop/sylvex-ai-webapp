@@ -16146,6 +16146,7 @@ async function waitGeneration(jobId, options) {
     'assets/avatars/a4.png','assets/avatars/a5.png',
   ];
   let epSelectedAvatar = null;
+  let epAppearanceDraft = null;
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openEditProfile
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
@@ -16167,6 +16168,10 @@ async function waitGeneration(jobId, options) {
         return '<button class="av-opt ' + sel + '" data-url="' + (it.url || '') + '" onclick="SYLVEX.pickAvatar(this)">' + inner + '</button>';
       }).join('');
     }
+    epAppearanceDraft = currentProfileAppearance();
+    syncAppearanceEditor();
+    renderThemeGrid();
+    renderProfileColorPalette();
     document.getElementById('editProfileModal').classList.add('show');
   }
   // =====================================================
@@ -16190,16 +16195,25 @@ async function waitGeneration(jobId, options) {
       telegram_id: getTelegramId(),
       display_name: name,
       custom_avatar_url: epSelectedAvatar,
+      theme_preference: epAppearanceDraft || currentProfileAppearance(),
     };
+    storeProfileAppearance(body.theme_preference);
+    applyProfileAppearance(body.theme_preference);
     try {
       const r = await fetch('/api/public/telegram/profile', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok || j.error) { toast('Ошибка: ' + (j.error || r.status)); return; }
+      S.user = Object.assign({}, S.user || {}, j.user || {}, {
+        display_name: name,
+        custom_avatar_url: epSelectedAvatar,
+        theme_preference: body.theme_preference,
+      });
+      if (S.renderUser) S.renderUser(S.user);
       toast('Сохранено ✓');
       closeModal(null, 'editProfileModal');
-      S.syncUser && S.syncUser();
+      S.syncUser && S.syncUser({ force: true });
     } catch { toast('Сетевая ошибка'); }
   }
 
@@ -16211,6 +16225,102 @@ async function waitGeneration(jobId, options) {
     { id: 'plum',  label: 'Слива',     css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
     { id: 'light', label: 'Светлая',   css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
   ];
+  const DEFAULT_PROFILE_APPEARANCE = { id:'dark', button:'#10a37f', background:'#212121', surface:'#2f2f2f', nickname:'#ececec' };
+  const PROFILE_COLOR_PRESETS = ['#10a37f','#2563eb','#7c3aed','#db2777','#dc2626','#ea580c','#ca8a04','#16a34a','#0891b2','#212121','#ffffff','#000000'];
+  function appearanceStorageKey() { return 'sylvex-profile-appearance-' + (getTelegramId() || 'guest'); }
+  function validHex(value, fallback) { return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback; }
+  function contrastColor(hex) {
+    const clean = validHex(hex, '#000000').slice(1);
+    const rgb = [0,2,4].map((i) => parseInt(clean.slice(i, i + 2), 16));
+    const luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+    return luminance > 0.56 ? '#111111' : '#ffffff';
+  }
+  function readableColor(foreground, background) {
+    const rgb = (hex) => { const c = validHex(hex, '#000000').slice(1); return [0,2,4].map((i) => parseInt(c.slice(i,i+2),16) / 255).map((v) => v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4)); };
+    const lum = (hex) => { const c = rgb(hex); return .2126*c[0]+.7152*c[1]+.0722*c[2]; };
+    const a=lum(foreground),b=lum(background),ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    return ratio >= 4.5 ? foreground : contrastColor(background);
+  }
+  function currentProfileAppearance() {
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(appearanceStorageKey()) || 'null'); } catch {}
+    const remote = S.user && S.user.theme_preference && typeof S.user.theme_preference === 'object' ? S.user.theme_preference : null;
+    const source = local || remote || {};
+    const theme = THEMES.find((item) => item.id === (source.id || source.themeId)) || THEMES[0];
+    return {
+      id: theme.id,
+      button: validHex(source.button, '#10a37f'),
+      background: validHex(source.background, theme.css['--bg-0']),
+      surface: validHex(source.surface, theme.css['--surface']),
+      nickname: validHex(source.nickname, theme.css['--text']),
+    };
+  }
+  function storeProfileAppearance(settings) {
+    try { localStorage.setItem(appearanceStorageKey(), JSON.stringify(settings)); } catch {}
+    localStorage.setItem('sylvex-theme-id', settings.id || 'dark');
+  }
+  function applyProfileAppearance(settings) {
+    const value = Object.assign({}, DEFAULT_PROFILE_APPEARANCE, settings || {});
+    const theme = THEMES.find((item) => item.id === value.id) || THEMES[0];
+    document.documentElement.dataset.theme = theme.mode;
+    const style = document.documentElement.style;
+    const text = contrastColor(value.background);
+    const surfaceText = contrastColor(value.surface);
+    const buttonText = contrastColor(value.button);
+    style.setProperty('--bg-0', validHex(value.background, theme.css['--bg-0']));
+    style.setProperty('--bg-1', validHex(value.background, theme.css['--bg-1']));
+    style.setProperty('--bg-2', validHex(value.background, theme.css['--bg-2']));
+    style.setProperty('--surface', validHex(value.surface, theme.css['--surface']));
+    style.setProperty('--surface-2', validHex(value.surface, theme.css['--surface-2']));
+    style.setProperty('--grad-card', validHex(value.surface, theme.css['--surface']));
+    style.setProperty('--primary', validHex(value.button, '#10a37f'));
+    style.setProperty('--primary-2', validHex(value.button, '#10a37f'));
+    style.setProperty('--accent', validHex(value.button, '#10a37f'));
+    style.setProperty('--text', text);
+    style.setProperty('--text-dim', text === '#ffffff' ? '#c7c7c7' : '#454545');
+    style.setProperty('--text-mute', text === '#ffffff' ? '#969696' : '#737373');
+    style.setProperty('--surface-text', surfaceText);
+    style.setProperty('--button-text', buttonText);
+    style.setProperty('--nickname-color', readableColor(validHex(value.nickname, text), value.surface));
+  }
+  function syncAppearanceEditor() {
+    const value = epAppearanceDraft || currentProfileAppearance();
+    [['Button','button'],['Background','background'],['Surface','surface'],['Nickname','nickname']].forEach(([id,key]) => {
+      const input = document.getElementById('ep' + id + 'Color');
+      const output = document.getElementById('ep' + id + 'ColorValue');
+      if (input) input.value = value[key];
+      if (output) output.textContent = value[key].toUpperCase();
+    });
+  }
+  function previewProfileColor(kind, color) {
+    if (!epAppearanceDraft) epAppearanceDraft = currentProfileAppearance();
+    epAppearanceDraft[kind] = validHex(color, epAppearanceDraft[kind]);
+    syncAppearanceEditor();
+    applyProfileAppearance(epAppearanceDraft);
+  }
+  function selectProfileTheme(themeId) {
+    const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
+    epAppearanceDraft = { id:theme.id, button:'#10a37f', background:theme.css['--bg-0'], surface:theme.css['--surface'], nickname:theme.css['--text'] };
+    syncAppearanceEditor();
+    applyProfileAppearance(epAppearanceDraft);
+    renderThemeGrid();
+  }
+  function renderProfileColorPalette() {
+    const palette = document.getElementById('profileColorPalette'); if (!palette) return;
+    palette.innerHTML = PROFILE_COLOR_PRESETS.map((color) => '<button type="button" style="--swatch:' + color + '" aria-label="' + color + '" onclick="SYLVEX.previewProfileColor(\'button\',\'' + color + '\')"></button>').join('');
+  }
+  function resetProfileAppearance() {
+    epAppearanceDraft = Object.assign({}, DEFAULT_PROFILE_APPEARANCE);
+    syncAppearanceEditor();
+    applyProfileAppearance(epAppearanceDraft);
+    renderThemeGrid();
+  }
+  function cancelEditProfile(event) {
+    if (event && event.target && event.target.id !== 'editProfileModal') return;
+    applyProfileAppearance(currentProfileAppearance());
+    epAppearanceDraft = null;
+    closeModal(null, 'editProfileModal');
+  }
   // =====================================================
   // JAVASCRIPT-БЛОК: applyTheme
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -16245,14 +16355,12 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function renderThemeGrid() {
     const g = document.getElementById('themeGrid'); if (!g) return;
-    const cur = localStorage.getItem('sylvex-theme-id')
-      || (S.user && S.user.theme_preference && S.user.theme_preference.id)
-      || 'dark';
+    const cur = (epAppearanceDraft && epAppearanceDraft.id) || currentProfileAppearance().id;
     g.innerHTML = THEMES.map((t) => {
       const sel = cur === t.id ? 'sel' : '';
       const sw = 'background:' + t.css['--bg-0'];
       const swInner = 'background:' + t.css['--surface-2'];
-      return '<button class="th-opt ' + sel + '" onclick="SYLVEX.applyTheme(\'' + t.id + '\')">'
+      return '<button type="button" class="th-opt ' + sel + '" onclick="SYLVEX.selectProfileTheme(\'' + t.id + '\')">'
         + '<div class="th-sw" style="' + sw + '"><div class="th-sw-inner" style="' + swInner + '"></div></div>'
         + '<div class="th-lbl">' + t.label + '</div></button>';
     }).join('');
@@ -16270,9 +16378,7 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function applyStoredTheme() {
-    const id = localStorage.getItem('sylvex-theme-id')
-      || (S.user && S.user.theme_preference && S.user.theme_preference.id);
-    if (id) applyTheme(id, false);
+    applyProfileAppearance(currentProfileAppearance());
   }
 
   /* ===== Referrals ===== */
@@ -17473,8 +17579,8 @@ async function waitGeneration(jobId, options) {
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
-    openEditProfile, pickAvatar, saveEditProfile,
-    openThemePicker, applyTheme,
+    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile,
+    openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
