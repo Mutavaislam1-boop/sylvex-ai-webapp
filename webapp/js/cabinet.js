@@ -16886,16 +16886,24 @@ async function waitGeneration(jobId, options) {
       : (savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video');
     updateComposerMode(chatTypeForMode(initialMode));
 
-    if (initialMode !== 'image') return;
     const modelId = String(params.get('model') || '');
-    if (modelId && IMAGE_MODEL_LIST.some((model) => model.id === modelId)) {
+    if (initialMode === 'image' && modelId && IMAGE_MODEL_LIST.some((model) => model.id === modelId)) {
+      pickImageOption(null, 'model', modelId);
+    } else if (initialMode === 'video' && modelId && VIDEO_MODELS.some((model) => model.id === modelId)) {
       pickImageOption(null, 'model', modelId);
     }
     const tool = String(params.get('tool') || '').toLowerCase();
-    if (tool === 'characters' || tool === 'objects') {
+    if (initialMode === 'image' && (tool === 'characters' || tool === 'objects')) {
       window.setTimeout(() => openVisualPicker(null, tool === 'objects' ? 'object' : 'character'), 180);
-    } else if (tool === 'references') {
+    } else if (initialMode === 'image' && tool === 'references') {
       window.setTimeout(() => openImageUpload(), 180);
+    } else if (initialMode === 'video' && tool === 'edit') {
+      window.setTimeout(() => updateComposerMode('edit'), 180);
+    } else if (initialMode === 'video' && tool === 'motion') {
+      window.setTimeout(() => updateComposerMode('motion'), 180);
+    } else if (initialMode === 'video' && tool === 'image') {
+      videoState.generationMode = 'image_to_video';
+      window.setTimeout(() => openVideoStartUpload(), 180);
     }
   }
 
