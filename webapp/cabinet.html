@@ -1318,6 +1318,7 @@ HTML-страница Mini App. Комментарии подписывают э
       </div>
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
       <div class="list">
+        <div class="row" onclick="switchView('history')"><div class="ico">↻</div><div class="label"><span data-i18n="gen_history">История генераций</span><small>Все созданные материалы</small></div><div class="chev">›</div></div>
         <div class="row" onclick="SYLVEX.openEditProfile()"><div class="ico">👤</div><div class="label"><span>Редактировать профиль</span><small>Имя и аватарка</small></div><div class="chev">›</div></div>
         <div class="row" onclick="SYLVEX.openThemePicker()"><div class="ico">🎨</div><div class="label"><span>Оформление</span><small>Тема и цвет фона</small></div><div class="chev">›</div></div>
         <div class="row" onclick="SYLVEX.openManageSub()"><div class="ico">⭐</div><div class="label"><span>Управление подпиской</span><small id="manageSubSub">Статус и продление</small></div><div class="chev">›</div></div>
@@ -1383,10 +1384,10 @@ HTML-страница Mini App. Комментарии подписывают э
     =================================================== -->
     <button class="nav-btn active" data-view="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg><span data-i18n="nav_home">Home</span></button>
     <!-- ==================================================
-    HTML-ЭЛЕМЕНТ: History
+    HTML-ЭЛЕМЕНТ: Profile
     CSS-класс задаёт внешний вид и расположение: nav-btn
     =================================================== -->
-    <button class="nav-btn" data-view="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span data-i18n="nav_history">History</span></button>
+    <button class="nav-btn" data-view="profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span data-i18n="profile">Profile</span></button>
     <button class="nav-btn" data-view="tools" aria-label="Pro Studio"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z"/></svg><span data-i18n="nav_studio">Pro Studio</span></button>
     <!-- ==================================================
     HTML-ЭЛЕМЕНТ: Shop
