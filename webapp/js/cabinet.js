@@ -10994,6 +10994,7 @@ function renderGeneratedTelegramButton(url, kind) {
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
   let homeQuickDragStart = 0;
+  let homeQuickDragScrollStart = 0;
   let homeQuickDragging = false;
   let homeQuickMoved = false;
   function openHomeQuickTool(event, key) {
@@ -11007,22 +11008,28 @@ function renderGeneratedTelegramButton(url, kind) {
     openPhotoToolModal(event, key);
   }
   function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-icon">'+item.icon+'</span><span><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
-  function moveHomeQuickTools(direction, automatic) {
-    const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track||host.classList.contains('is-settling'))return;
-    host.classList.add('is-settling');track.classList.add('is-animated');track.style.transform='translate3d('+(direction>0?'-200%':'0%')+',0,0)';
-    window.setTimeout(()=>{homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;renderHomeQuickTools();host.classList.remove('is-settling')},automatic?920:660);
+  function moveHomeQuickTools(direction) {
+    const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track)return;
+    homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;
+    const card=track.children[homeQuickOffset];
+    if(card)track.scrollTo({left:card.offsetLeft-track.offsetLeft,behavior:'smooth'});
   }
   function renderHomeQuickTools() {
-    const host=document.getElementById('homeHist');if(!host)return;const count=HOME_QUICK_TOOLS.length;
-    const items=[HOME_QUICK_TOOLS[(homeQuickOffset+count-1)%count],HOME_QUICK_TOOLS[homeQuickOffset],HOME_QUICK_TOOLS[(homeQuickOffset+1)%count]];
-    host.innerHTML='<div class="home-quick-track">'+items.map(homeQuickCardHtml).join('')+'</div><div class="home-quick-dots">'+HOME_QUICK_TOOLS.map((_,index)=>'<span class="'+(index===homeQuickOffset?'active':'')+'"></span>').join('')+'</div>';
+    const host=document.getElementById('homeHist');if(!host)return;
+    host.innerHTML='<div class="home-quick-track">'+HOME_QUICK_TOOLS.map(homeQuickCardHtml).join('')+'</div><div class="home-quick-dots">'+HOME_QUICK_TOOLS.map((_,index)=>'<span class="'+(index===homeQuickOffset?'active':'')+'"></span>').join('')+'</div>';
     if(!host.dataset.swipeBound){host.dataset.swipeBound='1';
-      host.addEventListener('pointerdown',event=>{if(host.classList.contains('is-settling'))return;homeQuickDragStart=event.clientX;homeQuickDragging=true;homeQuickMoved=false;host.setPointerCapture(event.pointerId);host.classList.add('is-dragging')});
-      host.addEventListener('pointermove',event=>{if(!homeQuickDragging)return;const dx=event.clientX-homeQuickDragStart;if(Math.abs(dx)>4)homeQuickMoved=true;const track=host.querySelector('.home-quick-track');if(track)track.style.transform='translate3d(calc(-100% + '+dx+'px),0,0)'});
-      const finish=event=>{if(!homeQuickDragging)return;homeQuickDragging=false;host.classList.remove('is-dragging');const dx=event.clientX-homeQuickDragStart;if(Math.abs(dx)>Math.min(72,host.clientWidth*.18))moveHomeQuickTools(dx<0?1:-1,false);else{const track=host.querySelector('.home-quick-track');if(track){track.classList.add('is-animated');track.style.transform='translate3d(-100%,0,0)'}}};
-      host.addEventListener('pointerup',finish);host.addEventListener('pointercancel',finish);host.addEventListener('click',event=>{const card=event.target.closest('[data-tool]');if(!card)return;if(homeQuickMoved){event.preventDefault();homeQuickMoved=false;return}openHomeQuickTool(event,card.dataset.tool)});
+      host.addEventListener('pointerdown',event=>{if(event.pointerType!=='mouse')return;const track=host.querySelector('.home-quick-track');if(!track)return;homeQuickDragStart=event.clientX;homeQuickDragScrollStart=track.scrollLeft;homeQuickDragging=true;homeQuickMoved=false;host.setPointerCapture(event.pointerId);host.classList.add('is-dragging');clearInterval(homeQuickTimer);homeQuickTimer=null});
+      host.addEventListener('pointermove',event=>{if(!homeQuickDragging)return;const track=host.querySelector('.home-quick-track');if(!track)return;const dx=event.clientX-homeQuickDragStart;if(Math.abs(dx)>4)homeQuickMoved=true;track.scrollLeft=homeQuickDragScrollStart-dx});
+      const finish=()=>{if(!homeQuickDragging)return;homeQuickDragging=false;host.classList.remove('is-dragging');homeQuickTimer=window.setInterval(()=>moveHomeQuickTools(1),5200)};
+      host.addEventListener('pointerup',finish);host.addEventListener('pointercancel',finish);
+      host.addEventListener('scroll',event=>{if(!event.target.classList.contains('home-quick-track'))return;const track=event.target,cards=Array.from(track.children);let nearest=0,best=Infinity;cards.forEach((card,index)=>{const distance=Math.abs(track.scrollLeft-(card.offsetLeft-track.offsetLeft));if(distance<best){best=distance;nearest=index}});if(nearest!==homeQuickOffset){homeQuickOffset=nearest;host.querySelectorAll('.home-quick-dots span').forEach((dot,index)=>dot.classList.toggle('active',index===nearest))}},true);
+      host.addEventListener('touchstart',event=>{homeQuickDragStart=event.touches[0]?event.touches[0].clientX:0;homeQuickMoved=false;clearInterval(homeQuickTimer);homeQuickTimer=null},{passive:true});
+      host.addEventListener('touchmove',event=>{const touch=event.touches[0];if(touch&&Math.abs(touch.clientX-homeQuickDragStart)>6)homeQuickMoved=true},{passive:true});
+      ['touchend','touchcancel'].forEach(name=>host.addEventListener(name,()=>{clearInterval(homeQuickTimer);homeQuickTimer=window.setInterval(()=>moveHomeQuickTools(1),5200)},{passive:true}));
+      host.addEventListener('click',event=>{const card=event.target.closest('[data-tool]');if(!card)return;if(homeQuickMoved){event.preventDefault();homeQuickMoved=false;return}openHomeQuickTool(event,card.dataset.tool)});
     }
-    if(!homeQuickTimer)homeQuickTimer=window.setInterval(()=>moveHomeQuickTools(1,true),5200);
+    const track=host.querySelector('.home-quick-track'),card=track&&track.children[homeQuickOffset];if(card)track.scrollLeft=card.offsetLeft-track.offsetLeft;
+    if(!homeQuickTimer)homeQuickTimer=window.setInterval(()=>moveHomeQuickTools(1),5200);
   }
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
