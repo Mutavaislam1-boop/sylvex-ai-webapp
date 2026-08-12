@@ -94,6 +94,18 @@
       subscription_expires_at: until,
       last_subscription_expires_at: state.last_subscription_expires_at || until,
       subscription_expired: !!state.subscription_expired,
+      telegram_id: state.telegram_id,
+      username: state.username,
+      first_name: state.first_name,
+      last_name: state.last_name,
+      photo_url: state.photo_url,
+      display_name: state.display_name,
+      custom_avatar_url: state.custom_avatar_url,
+      theme_preference: state.theme_preference || {},
+      created_at: state.created_at,
+      generations_count: state.generations_count || state.total_generations || 0,
+      tokens_spent: state.tokens_spent || 0,
+      referrals_count: state.referrals_count || 0,
     };
   }
 
@@ -106,7 +118,7 @@
     const next = Object.assign({}, prev);
     Object.keys(patch || {}).forEach((key) => {
       const val = patch[key];
-      if ((key === 'photo_url' || key === 'username' || key === 'first_name' || key === 'last_name' || key === 'display_name')
+      if ((key === 'photo_url' || key === 'username' || key === 'first_name' || key === 'last_name' || key === 'display_name' || key === 'custom_avatar_url')
           && (val === null || val === undefined || val === '')) {
         return;
       }
