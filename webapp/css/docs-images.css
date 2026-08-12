@@ -4,6 +4,8 @@
 @media(max-width:900px){.docs-header{padding:0 16px}.docs-brand{min-width:auto}.docs-brand span,.docs-brand b,kbd{display:none}.docs-layout{display:block;padding:38px 20px 120px}.docs-toc{display:none}.docs-hero{padding:34px 24px}.doc-section{margin-bottom:78px}.split{grid-template-columns:1fr}.hero-demo{overflow:auto}.steps,.feature-grid,.model-grid,.dos,.compare{grid-template-columns:1fr}.enhance-demo{grid-template-columns:1fr}.enhance-demo span{transform:rotate(90deg);justify-self:center}.callout{grid-template-columns:1fr}.floating-studio{right:16px;bottom:16px}.floating-studio b{font-size:13px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
+.pricing-table-wrap{width:100%;margin:28px 0;overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel);-webkit-overflow-scrolling:touch}.pricing-table{min-width:980px;margin:0;border:0}.pricing-table th{position:sticky;top:0;z-index:1;background:var(--panel2);white-space:nowrap}.pricing-table th:nth-child(1){width:190px}.pricing-table th:nth-child(2),.pricing-table th:nth-child(3){width:140px}.pricing-table td{vertical-align:top;white-space:normal}.pricing-table td:first-child{font-weight:750;color:var(--text);white-space:nowrap}.pricing-table td:nth-child(2),.pricing-table td:nth-child(3){font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.pricing-table td:last-child{min-width:430px;font-size:13px;color:var(--muted)}.pricing-table tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}.pricing-note{font-size:13px}
+
 .mobile-back,.mobile-docs-nav{display:none}
 
 @media(max-width:900px){
