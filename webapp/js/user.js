@@ -9,6 +9,18 @@
   let syncPromise = null;
   let lastSyncAt = 0;
   const USER_SYNC_COOLDOWN_MS = 10000;
+  function identityCacheKey(telegramId) { return 'sylvex-profile-identity-' + String(telegramId || 'guest'); }
+  function readCachedIdentity(telegramId) {
+    try { return JSON.parse(localStorage.getItem(identityCacheKey(telegramId)) || 'null'); } catch { return null; }
+  }
+  function cacheProfileIdentity(user) {
+    if (!user || !user.telegram_id) return;
+    const value = {
+      display_name: typeof user.display_name === 'string' ? user.display_name : null,
+      custom_avatar_url: typeof user.custom_avatar_url === 'string' ? user.custom_avatar_url : null,
+    };
+    try { localStorage.setItem(identityCacheKey(user.telegram_id), JSON.stringify(value)); } catch {}
+  }
 
   // =====================================================
   // JAVASCRIPT-БЛОК: initials
@@ -242,7 +254,12 @@
       });
       if (!res.ok) throw new Error('user-state ' + res.status);
       const state = await res.json();
-      renderUser(state);
+      const tgUser = telegramUserFromInit();
+      const resolved = Object.assign({}, state, {
+        photo_url: state.custom_avatar_url ? state.photo_url : (state.photo_url || (tgUser && tgUser.photo_url)),
+      });
+      cacheProfileIdentity(resolved);
+      renderUser(resolved);
     } catch (err) {
       console.warn('[SYLVEX] user state failed', err);
     }
@@ -260,6 +277,20 @@
     });
     if (!res.ok) throw new Error('sync ' + res.status);
     return res.json();
+  }
+  async function loadProfileFast(tgUser) {
+    if (!tgUser || !tgUser.telegram_id) return null;
+    try {
+      const res = await fetch('/api/public/telegram/profile?telegram_id=' + encodeURIComponent(tgUser.telegram_id), { cache: 'no-store' });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const profile = json && json.profile ? json.profile : null;
+      if (!profile) return null;
+      const user = Object.assign({}, tgUser, profile);
+      cacheProfileIdentity(user);
+      renderIdentity(user);
+      return user;
+    } catch { return null; }
   }
 
   // =====================================================
@@ -280,7 +311,16 @@
 
     // Optimistic render from client-side Telegram payload first.
     if (tgUser) {
-      renderIdentity(tgUser);
+      const cachedIdentity = readCachedIdentity(tgUser.telegram_id);
+      if (cachedIdentity) {
+        renderIdentity(Object.assign({}, tgUser, cachedIdentity));
+      } else {
+        // Do not flash the Telegram photo before the saved Mini App profile arrives.
+        const placeholderIdentity = Object.assign({}, tgUser);
+        delete placeholderIdentity.photo_url;
+        renderIdentity(placeholderIdentity);
+      }
+      loadProfileFast(tgUser);
       // Apply Telegram language code if we support it.
       if (tgUser.language_code && S.setLang) {
         const code = tgUser.language_code.slice(0, 2).toLowerCase();
@@ -294,8 +334,12 @@
     try {
       const json = await syncTelegramUserInBackground(initData, initDataUnsafe);
       if (json && json.user) {
-        renderUser(json.user);
-        return json.user;
+        const authoritativeUser = Object.assign({}, json.user, {
+          photo_url: json.user.custom_avatar_url ? json.user.photo_url : (json.user.photo_url || (tgUser && tgUser.photo_url)),
+        });
+        cacheProfileIdentity(authoritativeUser);
+        renderUser(authoritativeUser);
+        return authoritativeUser;
       }
     } catch (err) {
       console.warn('[SYLVEX] user sync failed', err);
@@ -318,4 +362,5 @@
   S.syncUser = syncUser;
   S.renderUser = renderUser;
   S.renderUserState = renderUserState;
+  S.cacheProfileIdentity = cacheProfileIdentity;
 })();

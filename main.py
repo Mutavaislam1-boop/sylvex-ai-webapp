@@ -7975,6 +7975,18 @@ async def public_telegram_user_state(telegram_id: int = 0):
 # Маршрут FastAPI: @app.post("/api/public/telegram/profile")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
+@app.get("/api/public/telegram/profile")
+async def public_telegram_profile_get(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    try:
+        profile = await asyncio.to_thread(get_user_profile, int(telegram_id))
+        return {"ok": True, "telegram_id": int(telegram_id), "profile": profile}
+    except Exception as exc:
+        print("PROFILE LOAD FAILED:", exc)
+        return JSONResponse({"ok": False, "error": "profile_load_failed"}, status_code=500)
+
+
 @app.post("/api/public/telegram/profile")
 # =====================================================
 # ЗАГРУЗКА ФАЙЛОВ: public_telegram_profile

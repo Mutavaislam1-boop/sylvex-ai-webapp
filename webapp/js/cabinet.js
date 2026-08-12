@@ -16209,6 +16209,7 @@ async function waitGeneration(jobId, options) {
         custom_avatar_url: epSelectedAvatar,
         theme_preference: body.theme_preference,
       });
+      if (S.cacheProfileIdentity) S.cacheProfileIdentity(S.user);
       if (S.renderUser) S.renderUser(S.user);
       toast('Сохранено ✓');
       closeModal(null, 'editProfileModal');
