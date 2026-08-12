@@ -1593,14 +1593,7 @@ CSS-класс задаёт внешний вид и расположение: s
     <div class="ep-section-title">Оформление</div>
     <div class="ep-label">Готовая тема</div>
     <div class="theme-grid" id="themeGrid"></div>
-    <div class="profile-color-grid">
-      <label class="profile-color-field"><span>Цвет кнопок</span><span><input type="color" id="epButtonColor" value="#10a37f" oninput="SYLVEX.previewProfileColor('button',this.value)"><output id="epButtonColorValue">#10A37F</output></span></label>
-      <label class="profile-color-field"><span>Цвет фона</span><span><input type="color" id="epBackgroundColor" value="#212121" oninput="SYLVEX.previewProfileColor('background',this.value)"><output id="epBackgroundColorValue">#212121</output></span></label>
-      <label class="profile-color-field"><span>Цвет блоков</span><span><input type="color" id="epSurfaceColor" value="#2f2f2f" oninput="SYLVEX.previewProfileColor('surface',this.value)"><output id="epSurfaceColorValue">#2F2F2F</output></span></label>
-      <label class="profile-color-field"><span>Цвет ника</span><span><input type="color" id="epNicknameColor" value="#ececec" oninput="SYLVEX.previewProfileColor('nickname',this.value)"><output id="epNicknameColorValue">#ECECEC</output></span></label>
-    </div>
-    <div class="ep-label" style="margin-top:14px">Быстрый выбор цвета</div>
-    <div class="profile-color-palette" id="profileColorPalette"></div>
+    <label class="profile-color-field nickname-color-field"><span>Цвет ника</span><span><input type="color" id="epNicknameColor" value="#ececec" oninput="SYLVEX.previewProfileColor('nickname',this.value)"><output id="epNicknameColorValue">#ECECEC</output></span></label>
     <button class="profile-reset" type="button" onclick="SYLVEX.resetProfileAppearance()">Сбросить оформление</button>
     <div style="display:flex;gap:8px;margin-top:16px">
       <!-- ==================================================

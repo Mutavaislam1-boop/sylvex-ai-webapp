@@ -16171,7 +16171,6 @@ async function waitGeneration(jobId, options) {
     epAppearanceDraft = currentProfileAppearance();
     syncAppearanceEditor();
     renderThemeGrid();
-    renderProfileColorPalette();
     document.getElementById('editProfileModal').classList.add('show');
   }
   // =====================================================
@@ -16197,14 +16196,14 @@ async function waitGeneration(jobId, options) {
       custom_avatar_url: epSelectedAvatar,
       theme_preference: epAppearanceDraft || currentProfileAppearance(),
     };
-    storeProfileAppearance(body.theme_preference);
-    applyProfileAppearance(body.theme_preference);
     try {
       const r = await fetch('/api/public/telegram/profile', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok || j.error) { toast('Ошибка: ' + (j.error || r.status)); return; }
+      storeProfileAppearance(body.theme_preference);
+      applyProfileAppearance(body.theme_preference);
       S.user = Object.assign({}, S.user || {}, j.user || {}, {
         display_name: name,
         custom_avatar_url: epSelectedAvatar,
@@ -16223,10 +16222,12 @@ async function waitGeneration(jobId, options) {
     { id: 'black', label: 'Чёрная',    css: { '--bg-0':'#000000','--bg-1':'#0a0a0a','--bg-2':'#141414','--surface':'#161616','--surface-2':'#222222','--text':'#f5f5f5' }, mode:'dark' },
     { id: 'blue',  label: 'Синяя ночь', css: { '--bg-0':'#0b1220','--bg-1':'#0a0f1c','--bg-2':'#111a2e','--surface':'#12203a','--surface-2':'#1a2c4d','--text':'#eaf1ff' }, mode:'dark' },
     { id: 'plum',  label: 'Слива',     css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
+    { id: 'vanilla', label: 'Ванильная', css: { '--bg-0':'#f7f0df','--bg-1':'#efe5cf','--bg-2':'#fffaf0','--surface':'#fff8e8','--surface-2':'#eadfc8','--text':'#332d24' }, mode:'light' },
+    { id: 'forest', label: 'Лесная', css: { '--bg-0':'#102019','--bg-1':'#0b1712','--bg-2':'#172a21','--surface':'#1a3026','--surface-2':'#254438','--text':'#e8f3ed' }, mode:'dark' },
+    { id: 'rose', label: 'Розовая', css: { '--bg-0':'#fff3f5','--bg-1':'#f9e7eb','--bg-2':'#fff9fa','--surface':'#fff7f8','--surface-2':'#f1dce1','--text':'#3e252c' }, mode:'light' },
     { id: 'light', label: 'Светлая',   css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
   ];
-  const DEFAULT_PROFILE_APPEARANCE = { id:'dark', button:'#10a37f', background:'#212121', surface:'#2f2f2f', nickname:'#ececec' };
-  const PROFILE_COLOR_PRESETS = ['#10a37f','#2563eb','#7c3aed','#db2777','#dc2626','#ea580c','#ca8a04','#16a34a','#0891b2','#212121','#ffffff','#000000'];
+  const DEFAULT_PROFILE_APPEARANCE = { id:'dark', nickname:'#ececec' };
   function appearanceStorageKey() { return 'sylvex-profile-appearance-' + (getTelegramId() || 'guest'); }
   function validHex(value, fallback) { return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback; }
   function contrastColor(hex) {
@@ -16244,14 +16245,12 @@ async function waitGeneration(jobId, options) {
   function currentProfileAppearance() {
     let local = null;
     try { local = JSON.parse(localStorage.getItem(appearanceStorageKey()) || 'null'); } catch {}
-    const remote = S.user && S.user.theme_preference && typeof S.user.theme_preference === 'object' ? S.user.theme_preference : null;
-    const source = local || remote || {};
+    const remoteValue = S.user && S.user.theme_preference && typeof S.user.theme_preference === 'object' ? S.user.theme_preference : null;
+    const remote = remoteValue && Object.keys(remoteValue).length ? remoteValue : null;
+    const source = remote || local || {};
     const theme = THEMES.find((item) => item.id === (source.id || source.themeId)) || THEMES[0];
     return {
       id: theme.id,
-      button: validHex(source.button, '#10a37f'),
-      background: validHex(source.background, theme.css['--bg-0']),
-      surface: validHex(source.surface, theme.css['--surface']),
       nickname: validHex(source.nickname, theme.css['--text']),
     };
   }
@@ -16264,28 +16263,24 @@ async function waitGeneration(jobId, options) {
     const theme = THEMES.find((item) => item.id === value.id) || THEMES[0];
     document.documentElement.dataset.theme = theme.mode;
     const style = document.documentElement.style;
-    const text = contrastColor(value.background);
-    const surfaceText = contrastColor(value.surface);
-    const buttonText = contrastColor(value.button);
-    style.setProperty('--bg-0', validHex(value.background, theme.css['--bg-0']));
-    style.setProperty('--bg-1', validHex(value.background, theme.css['--bg-1']));
-    style.setProperty('--bg-2', validHex(value.background, theme.css['--bg-2']));
-    style.setProperty('--surface', validHex(value.surface, theme.css['--surface']));
-    style.setProperty('--surface-2', validHex(value.surface, theme.css['--surface-2']));
-    style.setProperty('--grad-card', validHex(value.surface, theme.css['--surface']));
-    style.setProperty('--primary', validHex(value.button, '#10a37f'));
-    style.setProperty('--primary-2', validHex(value.button, '#10a37f'));
-    style.setProperty('--accent', validHex(value.button, '#10a37f'));
+    const text = theme.css['--text'];
+    const surfaceText = contrastColor(theme.css['--surface']);
+    const buttonText = '#ffffff';
+    Object.keys(theme.css).forEach((key) => style.setProperty(key, theme.css[key]));
+    style.setProperty('--grad-card', theme.css['--surface']);
+    style.setProperty('--primary', '#10a37f');
+    style.setProperty('--primary-2', '#0e8e6e');
+    style.setProperty('--accent', '#10a37f');
     style.setProperty('--text', text);
     style.setProperty('--text-dim', text === '#ffffff' ? '#c7c7c7' : '#454545');
     style.setProperty('--text-mute', text === '#ffffff' ? '#969696' : '#737373');
     style.setProperty('--surface-text', surfaceText);
     style.setProperty('--button-text', buttonText);
-    style.setProperty('--nickname-color', readableColor(validHex(value.nickname, text), value.surface));
+    style.setProperty('--nickname-color', readableColor(validHex(value.nickname, text), theme.css['--surface']));
   }
   function syncAppearanceEditor() {
     const value = epAppearanceDraft || currentProfileAppearance();
-    [['Button','button'],['Background','background'],['Surface','surface'],['Nickname','nickname']].forEach(([id,key]) => {
+    [['Nickname','nickname']].forEach(([id,key]) => {
       const input = document.getElementById('ep' + id + 'Color');
       const output = document.getElementById('ep' + id + 'ColorValue');
       if (input) input.value = value[key];
@@ -16300,14 +16295,10 @@ async function waitGeneration(jobId, options) {
   }
   function selectProfileTheme(themeId) {
     const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
-    epAppearanceDraft = { id:theme.id, button:'#10a37f', background:theme.css['--bg-0'], surface:theme.css['--surface'], nickname:theme.css['--text'] };
+    epAppearanceDraft = { id:theme.id, nickname:(epAppearanceDraft && epAppearanceDraft.nickname) || theme.css['--text'] };
     syncAppearanceEditor();
     applyProfileAppearance(epAppearanceDraft);
     renderThemeGrid();
-  }
-  function renderProfileColorPalette() {
-    const palette = document.getElementById('profileColorPalette'); if (!palette) return;
-    palette.innerHTML = PROFILE_COLOR_PRESETS.map((color) => '<button type="button" style="--swatch:' + color + '" aria-label="' + color + '" onclick="SYLVEX.previewProfileColor(\'button\',\'' + color + '\')"></button>').join('');
   }
   function resetProfileAppearance() {
     epAppearanceDraft = Object.assign({}, DEFAULT_PROFILE_APPEARANCE);
