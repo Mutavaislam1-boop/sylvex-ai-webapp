@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Documentation Center · SYLVEX</title>
+  <link rel="stylesheet" href="css/docs-center.css">
+</head>
+<body>
+  <header class="center-header">
+    <a class="center-back" href="index.html" aria-label="Вернуться в SYLVEX">‹</a>
+    <a class="center-brand" href="docs.html"><img src="assets/logo.png" alt=""><b>SYLVEX</b><span>Documentation Center</span></a>
+    <div class="center-current"><small>Раздел</small><b id="currentTitle">Изображения</b></div>
+    <button class="catalog-toggle" id="catalogToggle" type="button" aria-expanded="true" aria-controls="docsCatalog"><span>☰</span><b>Содержание</b></button>
+  </header>
+
+  <main class="center-main">
+    <iframe id="docsFrame" title="Документация SYLVEX" src="docs-images.html?embed=1"></iframe>
+  </main>
+
+  <button class="catalog-scrim" id="catalogScrim" type="button" aria-label="Закрыть содержание"></button>
+  <aside class="docs-catalog open" id="docsCatalog" aria-label="Содержание документации">
+    <div class="catalog-head"><div><small>Documentation Center</small><h2>Содержание</h2></div><button id="catalogClose" type="button" aria-label="Закрыть">×</button></div>
+    <label class="catalog-search"><span>⌕</span><input id="catalogSearch" type="search" placeholder="Найти раздел…"></label>
+    <nav id="catalogNav">
+      <section class="catalog-group open" data-doc="images">
+        <button class="catalog-section" type="button" data-page="images"><span class="catalog-icon">🖼️</span><span><b>Изображения</b><small>Генерация изображений</small></span><i>⌄</i></button>
+        <div class="catalog-links">
+          <button data-page="images" data-anchor="introduction">Введение</button><button data-page="images" data-anchor="basics">Основы генерации</button><button data-page="images" data-anchor="prompt">Промпты</button><button data-page="images" data-anchor="references">Reference Images</button><button data-page="images" data-anchor="characters">Персонажи</button><button data-page="images" data-anchor="objects">Объекты</button><button data-page="images" data-anchor="style">Стили и композиция</button><button data-page="images" data-anchor="settings">Формат и настройки</button><button data-page="images" data-anchor="enhance">Prompt Enhance</button><button data-page="images" data-anchor="history">История</button><button data-page="images" data-anchor="models">AI модели</button><button data-page="images" data-anchor="cost-limits">Стоимость</button><button data-page="images" data-anchor="faq">FAQ</button>
+        </div>
+      </section>
+      <section class="catalog-group" data-doc="video">
+        <button class="catalog-section" type="button" data-page="video"><span class="catalog-icon">🎬</span><span><b>Видео</b><small>Генерация видео</small></span><i>⌄</i></button>
+        <div class="catalog-links">
+          <button data-page="video" data-anchor="introduction">Введение</button><button data-page="video" data-anchor="basics">Основы генерации</button><button data-page="video" data-anchor="prompt">Видеопромпты</button><button data-page="video" data-anchor="text-video">Текст → Видео</button><button data-page="video" data-anchor="image-video">Изображение → Видео</button><button data-page="video" data-anchor="start-end">Начальный и конечный кадр</button><button data-page="video" data-anchor="edit">Редактирование</button><button data-page="video" data-anchor="motion">Motion Control</button><button data-page="video" data-anchor="references">Референсы</button><button data-page="video" data-anchor="camera">Камера и движение</button><button data-page="video" data-anchor="settings">Настройки качества</button><button data-page="video" data-anchor="sound">Звук</button><button data-page="video" data-anchor="models">AI модели</button><button data-page="video" data-anchor="pricing">Стоимость</button><button data-page="video" data-anchor="faq">FAQ</button>
+        </div>
+      </section>
+      <section class="catalog-soon"><span>🎵</span><div><b>Музыка</b><small>Скоро</small></div></section>
+      <section class="catalog-soon"><span>🎙️</span><div><b>Голос</b><small>Скоро</small></div></section>
+      <section class="catalog-soon"><span>✍️</span><div><b>Текст</b><small>Скоро</small></div></section>
+    </nav>
+  </aside>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="js/docs-center.js"></script>
+</body>
+</html>
