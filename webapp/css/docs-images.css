@@ -45,5 +45,5 @@
   .r169{width:110px}
 }
 
-.docs-embedded .docs-header,.docs-embedded .mobile-docs-nav,.docs-embedded .docs-toc{display:none!important}.docs-embedded .docs-layout{display:block;max-width:980px;padding-top:44px}.docs-embedded .doc-section{scroll-margin-top:30px}.docs-embedded .floating-studio{bottom:max(18px,env(safe-area-inset-bottom))}
-@media(max-width:900px){.docs-embedded .docs-layout{padding-top:24px}.docs-embedded body{padding-top:0}.docs-embedded .doc-section{scroll-margin-top:20px}}
+.docs-embedded .docs-header,.docs-embedded .mobile-docs-nav{display:none!important}.docs-embedded .docs-layout{max-width:1240px;grid-template-columns:minmax(0,880px) 230px;gap:70px;padding-top:44px}.docs-embedded .docs-toc{display:block}.docs-embedded .doc-section{scroll-margin-top:30px}.docs-embedded .floating-studio{bottom:max(18px,env(safe-area-inset-bottom))}
+@media(max-width:900px){.docs-embedded .docs-layout{display:block;padding-top:24px}.docs-embedded body{padding-top:0}.docs-embedded .docs-toc{display:none}.docs-embedded .doc-section{scroll-margin-top:20px}}
