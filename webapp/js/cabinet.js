@@ -16143,7 +16143,9 @@ async function waitGeneration(jobId, options) {
   /* ===== Edit profile ===== */
   const AVATAR_PRESETS = [
     'assets/avatars/a1.png','assets/avatars/a2.png','assets/avatars/a3.png',
-    'assets/avatars/a4.png','assets/avatars/a5.png',
+    'assets/avatars/a4.png','assets/avatars/a5.png','assets/avatars/a6.png',
+    'assets/avatars/a7.png','assets/avatars/a8.png','assets/avatars/a9.png',
+    'assets/avatars/a10.png',
   ];
   let epSelectedAvatar = null;
   let epAppearanceDraft = null;
@@ -16164,7 +16166,7 @@ async function waitGeneration(jobId, options) {
       const items = [{ url: null, label: 'TG' }].concat(AVATAR_PRESETS.map((p) => ({ url: p })));
       grid.innerHTML = items.map((it, i) => {
         const sel = (epSelectedAvatar || '') === (it.url || '') ? 'sel' : '';
-        const inner = it.url ? '<img src="' + it.url + '" alt="" />' : '<span>TG</span>';
+        const inner = it.url ? '<img src="' + it.url + '" alt="" loading="lazy" decoding="async" />' : '<span>TG</span>';
         return '<button class="av-opt ' + sel + '" data-url="' + (it.url || '') + '" onclick="SYLVEX.pickAvatar(this)">' + inner + '</button>';
       }).join('');
     }

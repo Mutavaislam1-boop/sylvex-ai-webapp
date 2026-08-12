@@ -196,6 +196,17 @@ body::before{content:none}
 .hsoc.yt:hover{color:#ff0033}
 .hsoc.tt:hover{color:#25f4ee}
 
+/* Readability for secondary profile details and discovery controls on dark themes. */
+[data-theme="dark"] .user-sub,
+[data-theme="dark"] #homeUserHandle,
+[data-theme="dark"] #profileUserHandle,
+[data-theme="dark"] .id-pill,
+[data-theme="dark"] #homeUserId,
+[data-theme="dark"] #profileUserId{color:#c8cbd2}
+[data-theme="dark"] .id-pill{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.14)}
+[data-theme="dark"] .hsoc{color:#d6d8df;background:color-mix(in srgb,var(--surface-2) 88%,white 12%);border-color:rgba(255,255,255,.14)}
+[data-theme="dark"] .ai-chip{color:#d2d5dc;background:color-mix(in srgb,var(--surface) 90%,white 10%);border-color:rgba(255,255,255,.13)}
+
 /* "Open" chip — green, button-like */
 .chip.open{background:rgba(16,163,127,.18);color:#19c37d;border:1px solid rgba(16,163,127,.45);font-weight:600;cursor:pointer;padding:6px 12px;border-radius:999px;font-size:11px;transition:.2s}
 .chip.open:hover{background:rgba(16,163,127,.28)}
@@ -215,6 +226,7 @@ body::before{content:none}
 .connect-head small{display:block;color:var(--text-dim);font-size:11.5px;margin-top:3px;font-weight:400}
 .socials{position:relative;z-index:1;display:flex;gap:10px;justify-content:space-between}
 .social{flex:1;display:grid;place-items:center;height:46px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:#cdd3eb;text-decoration:none;transition:transform .2s ease,box-shadow .25s ease,background .2s ease,color .2s ease;backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));position:relative}
+[data-theme="dark"] .social{color:#dde0e7;background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.15)}
 [data-theme="light"] .social{background:rgba(255,255,255,.7);color:#1f2547}
 .social svg{width:20px;height:20px}
 .social::before{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 0 0 rgba(59,130,246,0);transition:box-shadow .3s ease;pointer-events:none}
@@ -3496,7 +3508,7 @@ CSS-БЛОК: .sub-card-gold .sub-cd-val
 .ep-label{display:block;font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
 .ep-input{width:100%;padding:12px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border-strong);color:var(--text);font-size:14px;outline:none}
 .ep-input:focus{border-color:var(--primary)}
-.avatar-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.avatar-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
 .av-opt{width:100%;aspect-ratio:1;padding:0;border-radius:14px;overflow:hidden;background:var(--surface);border:2px solid var(--border);cursor:pointer;display:grid;place-items:center;color:var(--text-dim);font-weight:700;font-size:12px}
 .av-opt img{width:100%;height:100%;object-fit:cover;display:block}
 .av-opt.sel{border-color:var(--primary);box-shadow:0 0 0 2px rgba(16,163,127,.25)}
