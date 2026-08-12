@@ -297,6 +297,10 @@ const PHOTO_TOOL_CONFIG = {
     labels: ['Фото для улучшения'],
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
+  tattoo: { title:'Тату', shortTitle:'Тату', description:'Загрузите фото человека и изображение татуировки.', min:2, max:2, labels:['Человек','Татуировка'] },
+  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите основное изображение и логотип для размещения.', min:2, max:2, labels:['Основное фото','Логотип'] },
+  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и опишите предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'] },
+  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Первое фото задаёт сцену, второе — новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'] },
 };
 const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
 let activePhotoTool = '';
@@ -6268,6 +6272,10 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'replace_character') {
     return 'Replace the person in the first reference image with the person shown in the second reference image. Preserve the first image pose, clothing, background, objects, lighting, framing and spatial arrangement. Change only the person. Do not create a second person.' + suffix;
   }
+  if (kind === 'tattoo') return 'Apply the tattoo from the second reference image naturally to the person in the first image. Preserve identity, anatomy, pose, lighting and scene. Make the tattoo follow the skin perspective and texture.' + suffix;
+  if (kind === 'logo') return 'Place the logo from the second reference image naturally into the first image. Preserve the logo design, proportions and legibility while matching perspective, material and lighting.' + suffix;
+  if (kind === 'remove_object') return 'Remove only the object described by the user from the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
+  if (kind === 'replace_object') return 'Replace the relevant object in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
   return 'Enhance the first reference photo. Improve sharpness, detail, resolution, dynamic range and natural color while preserving the exact subject, identity, composition, objects and scene. Do not add or remove people or objects.' + suffix;
 }
 
@@ -10972,13 +10980,46 @@ function renderGeneratedTelegramButton(url, kind) {
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderDynamic
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
+  const HOME_QUICK_TOOLS = [
+    {key:'try_on',title:'Try‑On',note:'Виртуальная примерка',icon:'◫'},
+    {key:'remove_bg',title:'Удаление фона',note:'Чистый фон за один шаг',icon:'◌'},
+    {key:'replace_character',title:'Замена персонажа',note:'Сохранение сцены и позы',icon:'◎'},
+    {key:'enhance',title:'Улучшение фото',note:'Детализация и качество',icon:'◇'},
+    {key:'animate_photo',title:'Оживление фото',note:'Фото превращается в видео',icon:'▷'},
+    {key:'tattoo',title:'Тату',note:'Реалистичное нанесение',icon:'✦'},
+    {key:'logo',title:'Лого',note:'Размещение на изображении',icon:'L'},
+    {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',icon:'−'},
+    {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',icon:'⇄'},
+  ];
+  let homeQuickOffset = 0;
+  let homeQuickTimer = null;
+  function openHomeQuickTool(event, key) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    if (key === 'animate_photo') {
+      switchView('tools');
+      updateComposerMode('video');
+      window.setTimeout(openVideoStartUpload, 120);
+      return;
+    }
+    openPhotoToolModal(event, key);
+  }
+  function renderHomeQuickTools(animate) {
+    const host = document.getElementById('homeHist'); if (!host) return;
+    const items = [0,1,2].map((step) => HOME_QUICK_TOOLS[(homeQuickOffset + step) % HOME_QUICK_TOOLS.length]);
+    if (animate) host.classList.add('is-swiping');
+    window.setTimeout(() => {
+      host.innerHTML = items.map((item) => '<button class="home-quick-card" type="button" onclick="SYLVEX.openHomeQuickTool(event,\'' + item.key + '\')"><span class="home-quick-icon">' + item.icon + '</span><span><b>' + item.title + '</b><small>' + item.note + '</small></span><i>›</i></button>').join('');
+      host.classList.remove('is-swiping');
+    }, animate ? 170 : 0);
+    if (!homeQuickTimer) homeQuickTimer = window.setInterval(() => { homeQuickOffset = (homeQuickOffset + 3) % HOME_QUICK_TOOLS.length; renderHomeQuickTools(true); }, 4200);
+  }
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
     const hh = document.getElementById('homeHist');
     const fh = document.getElementById('fullHist');
     const sg = document.getElementById('shopGrid');
     if (ht) ht.innerHTML = S.toolsData.slice(0, 6).map(S.toolCard).join('');
-    if (hh) hh.innerHTML = S.histData.slice(0, 3).map(S.histCard).join('');
+    if (hh) renderHomeQuickTools();
     if (fh) fh.innerHTML = S.histData.map(S.histCard).join('');
     if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
     renderModeStrip();
@@ -17573,7 +17614,7 @@ async function waitGeneration(jobId, options) {
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
-    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile,
+    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile, openHomeQuickTool,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
