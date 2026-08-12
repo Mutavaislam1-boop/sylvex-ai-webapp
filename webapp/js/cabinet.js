@@ -2824,6 +2824,7 @@ function renderVoiceSpeakerComposer() {
   const count = isVoiceMode() ? Math.max(1, Math.min(isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2, Number(voiceState.numSpeakers || 1))) : 1;
   if (!isVoiceMode() || voiceWorkspaceMode !== 'dialogue') {
     host.innerHTML = '';
+    VoiceDialogueComposer.refreshMarkers();
     return;
   }
   const speakerButtons = Array.from({ length: count }, (_, index) => {
@@ -2899,6 +2900,8 @@ const VoiceDialogueComposer = (() => {
   let markerRail = null;
   let longPressTimer = 0;
   let longPressPoint = null;
+  let mobileTapAt = 0;
+  let mobileTapPoint = null;
   let dialogueLines = [];
   const submenuTimers = new WeakMap();
 
@@ -3156,9 +3159,15 @@ const VoiceDialogueComposer = (() => {
     rememberCaret();
     ensureMobileUi();
     const quickItems = '<button type="button" data-vdc-category="clipboard" data-vdc-value="paste">Вставить текст</button><button type="button" data-vdc-category="clipboard" data-vdc-value="copy">Копировать</button><button type="button" data-vdc-category="clipboard" data-vdc-value="translate">Перевести</button>'
-      + ['emotion','pause','sfx'].map((item) => '<button type="button" data-vdc-open-nested="' + item + '">' + categoryLabel[item] + '</button>').join('');
+      + categories.map((item) => '<button type="button" data-vdc-open-nested="' + item + '">' + categoryLabel[item] + '</button>').join('');
     bottomSheet.innerHTML = '<div class="voice-dialogue-sheet-card"><header><b>' + (category === 'quick' ? 'Инструменты текста' : categoryLabel[category]) + '</b><button type="button" data-vdc-close>×</button></header><div class="voice-dialogue-sheet-items">' + (category === 'quick' ? quickItems : menuItemsHtml(category)) + '</div></div>';
     bottomSheet.querySelectorAll('[data-vdc-open-nested]').forEach((button) => button.addEventListener('click', () => openBottomSheet(button.dataset.vdcOpenNested)));
+    const rect = input && input.getBoundingClientRect ? input.getBoundingClientRect() : null;
+    if (rect) {
+      bottomSheet.style.setProperty('--voice-menu-left', Math.max(8, rect.left) + 'px');
+      bottomSheet.style.setProperty('--voice-menu-width', Math.min(rect.width, window.innerWidth - 16) + 'px');
+      bottomSheet.style.setProperty('--voice-menu-bottom', Math.max(8, window.innerHeight - rect.top + 8) + 'px');
+    }
     bottomSheet.hidden = false;
   };
   const closeMenus = () => {
@@ -3196,14 +3205,10 @@ const VoiceDialogueComposer = (() => {
   };
   const refreshMarkers = () => {
     if (!markerRail || !input) return;
+    input.classList.toggle('voice-dialogue-avatar-input', active());
     if (!active()) { markerRail.hidden = true; markerRail.innerHTML = ''; return; }
     const matches = Array.from(input.value.matchAll(/(?:^|\n)Speaker([1-7]):\s*([^\n]*)/g));
     markerRail.hidden = !matches.length;
-    markerRail.innerHTML = matches.map((match, lineIndex) => {
-      const info = speakerInfo(Math.max(0, Number(match[1]) - 1));
-      const avatar = info.avatar ? '<img src="' + S.escapeHtml(info.avatar) + '" alt="">' : '<span>' + S.escapeHtml(voiceInitials(info.name)) + '</span>';
-      return '<button type="button" class="voice-dialogue-marker" data-vdc-line="' + lineIndex + '" title="Двойное нажатие — заменить или удалить диктора"><span class="voice-speaker-avatar" style="' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '">' + avatar + '</span><b>' + S.escapeHtml(info.name) + '</b><small>' + S.escapeHtml(match[2] || 'Новая реплика') + '</small></button>';
-    }).join('');
     dialogueLines = matches.map((match, lineIndex) => {
       const speakerIndex = Math.max(0, Number(match[1]) - 1);
       const info = speakerInfo(speakerIndex);
@@ -3221,30 +3226,28 @@ const VoiceDialogueComposer = (() => {
         marker_end:markerStart + markerText.length,
       };
     });
+    const inputStyle = window.getComputedStyle(input);
+    const lineHeight = parseFloat(inputStyle.lineHeight) || (parseFloat(inputStyle.fontSize) || 15) * 1.45;
+    const paddingTop = parseFloat(inputStyle.paddingTop) || 0;
+    markerRail.style.setProperty('--voice-avatar-left', (input.offsetLeft + 8) + 'px');
+    markerRail.innerHTML = matches.map((match) => {
+      const info = speakerInfo(Math.max(0, Number(match[1]) - 1));
+      const markerStart = Number(match.index || 0) + (match[0].startsWith('\n') ? 1 : 0);
+      const textLine = input.value.slice(0, markerStart).split('\n').length - 1;
+      const top = input.offsetTop + paddingTop + (textLine * lineHeight) - input.scrollTop + (lineHeight - 28) / 2;
+      const avatar = info.avatar ? '<img src="' + S.escapeHtml(info.avatar) + '" alt="">' : '<span>' + S.escapeHtml(voiceInitials(info.name)) + '</span>';
+      return '<span class="voice-dialogue-inline-avatar" style="top:' + top + 'px;' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '" title="' + S.escapeHtml(info.name) + '">' + avatar + '</span>';
+    }).join('');
   };
   const setup = (editor) => {
     if (!editor || input === editor) return;
     input = editor;
     markerRail = document.createElement('div');
-    markerRail.className = 'voice-dialogue-marker-rail';
+    markerRail.className = 'voice-dialogue-inline-avatars';
     markerRail.hidden = true;
     input.parentElement.insertBefore(markerRail, input);
-    markerRail.addEventListener('dblclick', (event) => {
-      const marker = event.target.closest('[data-vdc-line]');
-      if (marker) openMarkerActions(Number(marker.dataset.vdcLine));
-    });
-    let markerTapAt = 0;
-    let markerTapLine = -1;
-    markerRail.addEventListener('click', (event) => {
-      if (!isTouchLayout()) return;
-      const marker = event.target.closest('[data-vdc-line]');
-      if (!marker) return;
-      const now = Date.now();
-      const line = Number(marker.dataset.vdcLine);
-      if (line === markerTapLine && now - markerTapAt < 360) openMarkerActions(line);
-      markerTapAt = now; markerTapLine = line;
-    });
     ['keyup','click','select','input'].forEach((name) => input.addEventListener(name, () => { rememberCaret(); if (name === 'input') refreshMarkers(); }));
+    input.addEventListener('scroll', refreshMarkers, { passive:true });
     document.addEventListener('selectionchange', () => { if (document.activeElement === input) rememberCaret(); });
     input.addEventListener('contextmenu', (event) => {
       if (!active()) return;
@@ -3270,9 +3273,26 @@ const VoiceDialogueComposer = (() => {
         window.clearTimeout(longPressTimer); longPressPoint = null;
       }
     }, { passive:true });
-    ['pointerup','pointercancel'].forEach((name) => input.addEventListener(name, () => {
+    input.addEventListener('pointerup', (event) => {
+      window.clearTimeout(longPressTimer);
+      if (active() && isTouchLayout() && event.pointerType !== 'mouse') {
+        const now = Date.now();
+        const closeToPrevious = mobileTapPoint && Math.hypot(event.clientX - mobileTapPoint.x, event.clientY - mobileTapPoint.y) < 28;
+        if (closeToPrevious && now - mobileTapAt < 360) {
+          event.preventDefault();
+          rememberCaret();
+          openBottomSheet('quick');
+          mobileTapAt = 0; mobileTapPoint = null;
+          S.haptic && S.haptic.impact && S.haptic.impact('light');
+        } else {
+          mobileTapAt = now; mobileTapPoint = { x:event.clientX, y:event.clientY };
+        }
+      }
+      longPressPoint = null;
+    });
+    input.addEventListener('pointercancel', () => {
       window.clearTimeout(longPressTimer); longPressPoint = null;
-    }, { passive:true }));
+    }, { passive:true });
     document.addEventListener('pointerdown', (event) => {
       if (contextMenu && !contextMenu.hidden && !event.target.closest('.voice-caret-menu')) closeMenus();
     });
