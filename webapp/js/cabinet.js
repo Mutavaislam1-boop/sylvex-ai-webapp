@@ -10993,7 +10993,9 @@ function renderGeneratedTelegramButton(url, kind) {
   ];
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
-  let homeQuickTouchStart = 0;
+  let homeQuickDragStart = 0;
+  let homeQuickDragging = false;
+  let homeQuickMoved = false;
   function openHomeQuickTool(event, key) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
     if (key === 'animate_photo') {
@@ -11004,25 +11006,23 @@ function renderGeneratedTelegramButton(url, kind) {
     }
     openPhotoToolModal(event, key);
   }
-  function renderHomeQuickTools(animate) {
-    const host = document.getElementById('homeHist'); if (!host) return;
-    const item = HOME_QUICK_TOOLS[homeQuickOffset % HOME_QUICK_TOOLS.length];
-    if (animate) host.classList.add('is-swiping');
-    window.setTimeout(() => {
-      host.innerHTML = '<button class="home-quick-card" type="button" onclick="SYLVEX.openHomeQuickTool(event,\'' + item.key + '\')"><span class="home-quick-icon">' + item.icon + '</span><span><b>' + item.title + '</b><small>' + item.note + '</small></span><i>›</i></button><div class="home-quick-dots">' + HOME_QUICK_TOOLS.map((_,index) => '<span class="' + (index === homeQuickOffset ? 'active' : '') + '"></span>').join('') + '</div>';
-      host.classList.remove('is-swiping');
-    }, animate ? 170 : 0);
-    if (!host.dataset.swipeBound) {
-      host.dataset.swipeBound = '1';
-      host.addEventListener('touchstart', (event) => { homeQuickTouchStart = event.touches[0].clientX; }, {passive:true});
-      host.addEventListener('touchend', (event) => {
-        const distance = event.changedTouches[0].clientX - homeQuickTouchStart;
-        if (Math.abs(distance) < 35) return;
-        homeQuickOffset = (homeQuickOffset + (distance < 0 ? 1 : HOME_QUICK_TOOLS.length - 1)) % HOME_QUICK_TOOLS.length;
-        renderHomeQuickTools(true);
-      }, {passive:true});
+  function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-icon">'+item.icon+'</span><span><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
+  function moveHomeQuickTools(direction, automatic) {
+    const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track||host.classList.contains('is-settling'))return;
+    host.classList.add('is-settling');track.classList.add('is-animated');track.style.transform='translate3d('+(direction>0?'-200%':'0%')+',0,0)';
+    window.setTimeout(()=>{homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;renderHomeQuickTools();host.classList.remove('is-settling')},automatic?920:660);
+  }
+  function renderHomeQuickTools() {
+    const host=document.getElementById('homeHist');if(!host)return;const count=HOME_QUICK_TOOLS.length;
+    const items=[HOME_QUICK_TOOLS[(homeQuickOffset+count-1)%count],HOME_QUICK_TOOLS[homeQuickOffset],HOME_QUICK_TOOLS[(homeQuickOffset+1)%count]];
+    host.innerHTML='<div class="home-quick-track">'+items.map(homeQuickCardHtml).join('')+'</div><div class="home-quick-dots">'+HOME_QUICK_TOOLS.map((_,index)=>'<span class="'+(index===homeQuickOffset?'active':'')+'"></span>').join('')+'</div>';
+    if(!host.dataset.swipeBound){host.dataset.swipeBound='1';
+      host.addEventListener('pointerdown',event=>{if(host.classList.contains('is-settling'))return;homeQuickDragStart=event.clientX;homeQuickDragging=true;homeQuickMoved=false;host.setPointerCapture(event.pointerId);host.classList.add('is-dragging')});
+      host.addEventListener('pointermove',event=>{if(!homeQuickDragging)return;const dx=event.clientX-homeQuickDragStart;if(Math.abs(dx)>4)homeQuickMoved=true;const track=host.querySelector('.home-quick-track');if(track)track.style.transform='translate3d(calc(-100% + '+dx+'px),0,0)'});
+      const finish=event=>{if(!homeQuickDragging)return;homeQuickDragging=false;host.classList.remove('is-dragging');const dx=event.clientX-homeQuickDragStart;if(Math.abs(dx)>Math.min(72,host.clientWidth*.18))moveHomeQuickTools(dx<0?1:-1,false);else{const track=host.querySelector('.home-quick-track');if(track){track.classList.add('is-animated');track.style.transform='translate3d(-100%,0,0)'}}};
+      host.addEventListener('pointerup',finish);host.addEventListener('pointercancel',finish);host.addEventListener('click',event=>{const card=event.target.closest('[data-tool]');if(!card)return;if(homeQuickMoved){event.preventDefault();homeQuickMoved=false;return}openHomeQuickTool(event,card.dataset.tool)});
     }
-    if (!homeQuickTimer) homeQuickTimer = window.setInterval(() => { homeQuickOffset = (homeQuickOffset + 1) % HOME_QUICK_TOOLS.length; renderHomeQuickTools(true); }, 4200);
+    if(!homeQuickTimer)homeQuickTimer=window.setInterval(()=>moveHomeQuickTools(1,true),5200);
   }
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
