@@ -8,8 +8,9 @@
   const toolsData = [
     { icon: '🎨', k: 'image' }, { icon: '✍️', k: 'text' },
     { icon: '🎙️', k: 'voice' }, { icon: '🎬', k: 'video' },
+    { icon: '🎵', k: 'music' }, { icon: '✨', k: 'general' },
     { icon: '🧠', k: 'chat' },  { icon: '🔍', k: 'up' },
-    { icon: '🎵', k: 'music' }, { icon: '📝', k: 'tr' }
+    { icon: '📝', k: 'tr' }
   ];
 
   const pillsData = [

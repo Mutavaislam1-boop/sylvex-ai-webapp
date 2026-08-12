@@ -19,6 +19,20 @@
     tr: { flag: "TUR", code: "tur", name: "Türkçe",   dir: "ltr" }
   };
 
+  // Quick Tools copy for the dedicated Music and general Pro Studio shortcuts.
+  Object.assign(I18N.en, {
+    tool_music: 'Music',
+    tool_music_d: 'Create music in Pro Studio',
+    tool_general: 'General',
+    tool_general_d: 'Open Pro Studio',
+  });
+  Object.assign(I18N.ru, {
+    tool_music: 'Музыка',
+    tool_music_d: 'Создание музыки в Pro Studio',
+    tool_general: 'Общее',
+    tool_general_d: 'Открыть Pro Studio',
+  });
+
   let lang = localStorage.getItem('sylvex-lang') || 'en';
 
   // =====================================================

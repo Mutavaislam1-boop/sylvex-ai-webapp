@@ -10977,7 +10977,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const hh = document.getElementById('homeHist');
     const fh = document.getElementById('fullHist');
     const sg = document.getElementById('shopGrid');
-    if (ht) ht.innerHTML = S.toolsData.slice(0, 4).map(S.toolCard).join('');
+    if (ht) ht.innerHTML = S.toolsData.slice(0, 6).map(S.toolCard).join('');
     if (hh) hh.innerHTML = S.histData.slice(0, 3).map(S.histCard).join('');
     if (fh) fh.innerHTML = S.histData.map(S.histCard).join('');
     if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
