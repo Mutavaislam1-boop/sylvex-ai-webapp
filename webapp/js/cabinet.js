@@ -10993,6 +10993,7 @@ function renderGeneratedTelegramButton(url, kind) {
   ];
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
+  let homeQuickTouchStart = 0;
   function openHomeQuickTool(event, key) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
     if (key === 'animate_photo') {
@@ -11005,13 +11006,23 @@ function renderGeneratedTelegramButton(url, kind) {
   }
   function renderHomeQuickTools(animate) {
     const host = document.getElementById('homeHist'); if (!host) return;
-    const items = [0,1,2].map((step) => HOME_QUICK_TOOLS[(homeQuickOffset + step) % HOME_QUICK_TOOLS.length]);
+    const item = HOME_QUICK_TOOLS[homeQuickOffset % HOME_QUICK_TOOLS.length];
     if (animate) host.classList.add('is-swiping');
     window.setTimeout(() => {
-      host.innerHTML = items.map((item) => '<button class="home-quick-card" type="button" onclick="SYLVEX.openHomeQuickTool(event,\'' + item.key + '\')"><span class="home-quick-icon">' + item.icon + '</span><span><b>' + item.title + '</b><small>' + item.note + '</small></span><i>›</i></button>').join('');
+      host.innerHTML = '<button class="home-quick-card" type="button" onclick="SYLVEX.openHomeQuickTool(event,\'' + item.key + '\')"><span class="home-quick-icon">' + item.icon + '</span><span><b>' + item.title + '</b><small>' + item.note + '</small></span><i>›</i></button><div class="home-quick-dots">' + HOME_QUICK_TOOLS.map((_,index) => '<span class="' + (index === homeQuickOffset ? 'active' : '') + '"></span>').join('') + '</div>';
       host.classList.remove('is-swiping');
     }, animate ? 170 : 0);
-    if (!homeQuickTimer) homeQuickTimer = window.setInterval(() => { homeQuickOffset = (homeQuickOffset + 3) % HOME_QUICK_TOOLS.length; renderHomeQuickTools(true); }, 4200);
+    if (!host.dataset.swipeBound) {
+      host.dataset.swipeBound = '1';
+      host.addEventListener('touchstart', (event) => { homeQuickTouchStart = event.touches[0].clientX; }, {passive:true});
+      host.addEventListener('touchend', (event) => {
+        const distance = event.changedTouches[0].clientX - homeQuickTouchStart;
+        if (Math.abs(distance) < 35) return;
+        homeQuickOffset = (homeQuickOffset + (distance < 0 ? 1 : HOME_QUICK_TOOLS.length - 1)) % HOME_QUICK_TOOLS.length;
+        renderHomeQuickTools(true);
+      }, {passive:true});
+    }
+    if (!homeQuickTimer) homeQuickTimer = window.setInterval(() => { homeQuickOffset = (homeQuickOffset + 1) % HOME_QUICK_TOOLS.length; renderHomeQuickTools(true); }, 4200);
   }
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
