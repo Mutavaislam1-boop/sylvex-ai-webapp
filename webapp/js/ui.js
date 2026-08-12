@@ -85,10 +85,14 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function toolCard(tt) {
-    return '<div class="tool" onclick="SYLVEX.openQuickTool(\u0027' + tt.k + '\u0027)">'
+    const docsSections = { image:'images', text:'text', voice:'voice', video:'video', music:'music', general:'general' };
+    const docsLabels = { image:'Изображения', text:'Текст', voice:'Голос', video:'Видео AI', music:'Музыка', general:'Общее' };
+    const docsDescriptions = { image:'Руководство по изображениям', text:'Руководство по тексту', voice:'Руководство по озвучке', video:'Руководство по видео', music:'Руководство по музыке', general:'О платформе SYLVEX' };
+    const section = docsSections[tt.k] || 'general';
+    return '<div class="tool" onclick="location.href=\u0027docs.html?section=' + section + '\u0027">'
       + '<div class="ico">' + tt.icon + '</div>'
-      + '<h4>' + t('tool_' + tt.k) + '</h4>'
-      + '<p>' + t('tool_' + tt.k + '_d') + '</p></div>';
+      + '<h4>' + docsLabels[tt.k] + '</h4>'
+      + '<p>' + docsDescriptions[tt.k] + '</p></div>';
   }
 
   function openQuickTool(mode) {
