@@ -4,8 +4,16 @@
   const toggle = document.getElementById('sectionsToggle');
   const scrim = document.getElementById('sectionsScrim');
   const title = document.getElementById('currentTitle');
+  const theme = document.getElementById('centerTheme');
   const pages = { images: 'docs-images.html?embed=1', video: 'docs-video.html?embed=1', music: 'docs-music.html?embed=1', voice: 'docs-voice.html?embed=1', text: 'docs-text.html?embed=1' };
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
+  function applyTheme(value) {
+    document.documentElement.dataset.theme = value;
+    localStorage.setItem('sylvex-theme', value);
+    try { frame.contentDocument.documentElement.dataset.theme = value; } catch (error) {}
+  }
+  theme.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+  frame.addEventListener('load', () => applyTheme(localStorage.getItem('sylvex-theme') || 'dark'));
 
   function showSidebar(show) {
     sidebar.classList.toggle('open', show);
