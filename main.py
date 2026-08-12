@@ -1912,8 +1912,10 @@ def get_fast_user_state(telegram_id: int) -> dict:
     status = "pro" if active_sub else "free"
     last_subscription_expires_at = _to_iso(latest_sub[1]) if latest_sub and latest_sub[1] else None
     subscription_expired = bool(latest_sub and latest_sub[1] and not active_sub and latest_sub[1].timestamp() <= time.time())
+    profile = get_user_profile(telegram_id)
 
     return {
+        "telegram_id": telegram_id,
         "balance": balance or 0,
         "subscription": subscription,
         "subscription_until": subscription_until,
@@ -1923,6 +1925,9 @@ def get_fast_user_state(telegram_id: int) -> dict:
         "subscription_expires_at": subscription_until,
         "last_subscription_expires_at": last_subscription_expires_at,
         "subscription_expired": subscription_expired,
+        "display_name": profile.get("display_name"),
+        "custom_avatar_url": profile.get("custom_avatar_url"),
+        "theme_preference": profile.get("theme_preference") or {},
     }
 
 
