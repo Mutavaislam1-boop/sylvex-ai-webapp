@@ -16895,9 +16895,21 @@ async function waitGeneration(jobId, options) {
       pickImageOption(null, 'model', modelId);
     } else if (initialMode === 'voice' && modelId && VOICE_MODEL_LIST.some((model) => model.id === modelId)) {
       pickImageOption(null, 'model', modelId);
+    } else if (initialMode === 'text' && modelId) {
+      const model = TEXT_MODEL_LIST.find((item) => item.id === modelId);
+      if (model) {
+        textState.familyId = textModelFamilyId(model);
+        textState.modelId = model.id;
+        normalizeTextToolForModel();
+        renderTextControls();
+        renderModelPop();
+      }
     }
     const tool = String(params.get('tool') || '').toLowerCase();
-    if (initialMode === 'image' && (tool === 'characters' || tool === 'objects')) {
+    if (initialMode === 'text' && tool && TEXT_TOOL_OPTIONS.some((item) => item.id === tool)) {
+      if (TEXT_GEMINI_MEDIA_TOOLS.has(tool)) selectGeminiForTextMedia();
+      pickTextOption(null, 'tool', tool);
+    } else if (initialMode === 'image' && (tool === 'characters' || tool === 'objects')) {
       window.setTimeout(() => openVisualPicker(null, tool === 'objects' ? 'object' : 'character'), 180);
     } else if (initialMode === 'image' && tool === 'references') {
       window.setTimeout(() => openImageUpload(), 180);

@@ -4,7 +4,7 @@
   const toggle = document.getElementById('sectionsToggle');
   const scrim = document.getElementById('sectionsScrim');
   const title = document.getElementById('currentTitle');
-  const pages = { images: 'docs-images.html?embed=1', video: 'docs-video.html?embed=1', music: 'docs-music.html?embed=1', voice: 'docs-voice.html?embed=1' };
+  const pages = { images: 'docs-images.html?embed=1', video: 'docs-video.html?embed=1', music: 'docs-music.html?embed=1', voice: 'docs-voice.html?embed=1', text: 'docs-text.html?embed=1' };
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
 
   function showSidebar(show) {
@@ -18,7 +18,8 @@
 
   function openPage(page, anchor) {
     if (!pages[page]) return;
-    title.textContent = page === 'video' ? 'Видео' : (page === 'music' ? 'Музыка' : (page === 'voice' ? 'Озвучка' : 'Изображения'));
+    const pageTitles = { images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Озвучка', text: 'Текст' };
+    title.textContent = pageTitles[page];
     document.querySelectorAll('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
     frame.src = pages[page] + (anchor ? '#' + encodeURIComponent(anchor) : '');
     const url = new URL(location.href);
