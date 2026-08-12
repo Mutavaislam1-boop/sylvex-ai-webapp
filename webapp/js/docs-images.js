@@ -1,25 +1,35 @@
 (function () {
   const sections = Array.from(document.querySelectorAll('.doc-section'));
   const toc = document.getElementById('docsToc');
+  const mobileToc = document.getElementById('mobileDocsNav');
   const search = document.getElementById('docsSearch');
   const results = document.getElementById('searchResults');
   const theme = document.getElementById('docsTheme');
 
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
   toc.innerHTML = sections.map((section) => '<a href="#' + section.id + '">' + section.dataset.title + '</a>').join('');
+  mobileToc.innerHTML = sections.map((section) => '<a href="#' + section.id + '">' + section.dataset.title + '</a>').join('');
   const tocLinks = Array.from(toc.querySelectorAll('a'));
+  const mobileTocLinks = Array.from(mobileToc.querySelectorAll('a'));
 
-  toc.addEventListener('click', (event) => {
+  function navigateToSection(event) {
     const link = event.target.closest('a');
     if (!link) return;
     event.preventDefault();
     document.querySelector(link.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  }
+  toc.addEventListener('click', navigateToSection);
+  mobileToc.addEventListener('click', navigateToSection);
 
   const observer = new IntersectionObserver((entries) => {
     const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
     if (!visible) return;
     tocLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + visible.target.id));
+    mobileTocLinks.forEach((link) => {
+      const active = link.getAttribute('href') === '#' + visible.target.id;
+      link.classList.toggle('active', active);
+      if (active && window.innerWidth <= 900) link.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    });
   }, { rootMargin: '-18% 0px -65%', threshold: [0, .2, .6] });
   sections.forEach((section) => observer.observe(section));
 
@@ -49,4 +59,10 @@
     document.documentElement.dataset.theme = next;
     localStorage.setItem('sylvex-theme', next);
   });
+
+  const telegram = window.Telegram && window.Telegram.WebApp;
+  if (telegram && telegram.BackButton) {
+    telegram.BackButton.show();
+    telegram.BackButton.onClick(() => { window.location.href = 'index.html'; });
+  }
 })();
