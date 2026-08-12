@@ -16879,8 +16879,24 @@ async function waitGeneration(jobId, options) {
   // =====================================================
   function initializeProStudioComposerMode() {
     const composer = document.getElementById('studioComposer');
-    const initialMode = savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video';
+    const params = new URLSearchParams(window.location.search || '');
+    const requestedMode = String(params.get('mode') || '').toLowerCase();
+    const initialMode = CHAT_SPACE_TYPES.includes(requestedMode)
+      ? requestedMode
+      : (savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video');
     updateComposerMode(chatTypeForMode(initialMode));
+
+    if (initialMode !== 'image') return;
+    const modelId = String(params.get('model') || '');
+    if (modelId && IMAGE_MODEL_LIST.some((model) => model.id === modelId)) {
+      pickImageOption(null, 'model', modelId);
+    }
+    const tool = String(params.get('tool') || '').toLowerCase();
+    if (tool === 'characters' || tool === 'objects') {
+      window.setTimeout(() => openVisualPicker(null, tool === 'objects' ? 'object' : 'character'), 180);
+    } else if (tool === 'references') {
+      window.setTimeout(() => openImageUpload(), 180);
+    }
   }
 
   /* ==========================================
