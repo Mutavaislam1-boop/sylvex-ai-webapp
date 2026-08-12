@@ -242,7 +242,7 @@
       });
       if (!res.ok) throw new Error('user-state ' + res.status);
       const state = await res.json();
-      renderUserState(state);
+      renderUser(state);
     } catch (err) {
       console.warn('[SYLVEX] user state failed', err);
     }
@@ -294,7 +294,7 @@
     try {
       const json = await syncTelegramUserInBackground(initData, initDataUnsafe);
       if (json && json.user) {
-        renderUserState(json.user);
+        renderUser(json.user);
         return json.user;
       }
     } catch (err) {
