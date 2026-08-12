@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Изображения — Documentation Center · SYLVEX</title>
+  <meta name="description" content="Полное руководство по генерации изображений в SYLVEX Pro Studio.">
+  <link rel="stylesheet" href="css/docs-images.css">
+</head>
+<body>
+  <header class="docs-header">
+    <a class="docs-brand" href="index.html" aria-label="SYLVEX home"><img src="assets/logo.png" alt=""><b>SYLVEX</b><span>Documentation</span></a>
+    <label class="docs-search"><span>⌕</span><input id="docsSearch" type="search" placeholder="Поиск по документации…" autocomplete="off"><kbd>⌘ K</kbd></label>
+    <button class="theme-toggle" id="docsTheme" type="button" aria-label="Сменить тему">◐</button>
+    <div class="search-results" id="searchResults" hidden></div>
+  </header>
+
+  <div class="docs-layout">
+    <main class="docs-content" id="docsContent">
+      <section class="docs-hero doc-section" id="introduction" data-title="Введение">
+        <span class="eyebrow">Documentation Center · Изображения</span>
+        <h1>От идеи до готового изображения</h1>
+        <p class="lead">Практическое руководство по моделям, промптам, референсам, персонажам, стилям и настройкам генерации внутри SYLVEX.</p>
+        <div class="hero-demo" aria-label="Демонстрация генерации">
+          <div class="demo-prompt"><span class="demo-cursor">Кинематографический портрет, мягкий свет, editorial photo</span></div>
+          <span class="demo-arrow">→</span><span class="demo-generate">Generate</span><span class="demo-arrow">→</span>
+          <div class="demo-result"><i></i><b>Готово</b></div>
+        </div>
+        <a class="primary-link" href="index.html?view=tools&mode=image">Начать генерацию в Pro Studio →</a>
+      </section>
+
+      <section class="doc-section" id="basics" data-title="Что такое генерация изображений">
+        <span class="section-no">01</span><h2>Что такое генерация изображений</h2>
+        <p>Модель преобразует текстовое описание и, при наличии, визуальные источники в новое изображение. Она не ищет готовую картинку: результат синтезируется с учётом сюжета, композиции, света, цвета, стиля и выбранного формата.</p>
+        <div class="callout"><b>Главное правило</b><span>Чем яснее вы описываете объект, среду, композицию и визуальную обработку, тем предсказуемее результат.</span></div>
+      </section>
+
+      <section class="doc-section" id="workflow" data-title="Как работает генерация">
+        <span class="section-no">02</span><h2>Как работает генерация</h2>
+        <div class="steps"><article><b>1</b><h3>Выберите модель</h3><p>Под задачу: реализм, текст, дизайн или быстрое исследование.</p></article><article><b>2</b><h3>Опишите результат</h3><p>Добавьте предмет, действие, окружение, свет и стиль.</p></article><article><b>3</b><h3>Настройте формат</h3><p>Укажите соотношение сторон, разрешение и дополнительные параметры.</p></article><article><b>4</b><h3>Сгенерируйте</h3><p>Сравните варианты, уточните промпт или повторите удачную генерацию.</p></article></div>
+      </section>
+
+      <section class="doc-section" id="prompt" data-title="Как написать хороший промпт">
+        <span class="section-no">03</span><h2>Как написать хороший промпт</h2>
+        <p>Собирайте запрос в последовательности: <strong>субъект → действие → окружение → композиция → свет → цвет → стиль → детали качества</strong>.</p>
+        <div class="prompt-builder"><span>Портрет архитектора</span><span>в стеклянной студии</span><span>средний план</span><span>утренний боковой свет</span><span>графит и янтарь</span><span>editorial photography</span></div>
+        <div class="compare"><article><small>Слишком широко</small><code>Красивый автомобиль</code></article><article class="good"><small>Точный запрос</small><code>Серебристое спортивное купе на мокрой ночной улице, низкая камера, неоновые отражения, cinematic automotive photography</code></article></div>
+      </section>
+
+      <section class="doc-section" id="references" data-title="Reference Images">
+        <span class="section-no">04</span><h2>Reference Images</h2>
+        <p>Добавьте одну или несколько картинок, чтобы передать композицию, визуальный язык, персонажа или предмет. Референс направляет модель, а текст объясняет, что именно нужно сохранить или изменить.</p>
+        <div class="merge-demo"><div>Фото 1</div><div>Фото 2</div><div>Фото 3</div><span>→</span><div class="merged">Результат</div></div>
+        <ul><li>Используйте визуально совместимые источники.</li><li>Прямо указывайте роль каждого изображения.</li><li>Не перегружайте запрос конфликтующими стилями.</li></ul>
+        <a class="secondary-link" href="index.html?view=tools&mode=image&tool=references">Попробовать Reference Images →</a>
+      </section>
+
+      <section class="doc-section split" id="characters" data-title="Персонажи">
+        <div><span class="section-no">05</span><h2>Персонажи</h2><p>Сохранённый персонаж помогает поддерживать узнаваемые черты между сценами. Используйте чёткие фотографии лица с естественным светом и без сильных фильтров.</p><a class="text-link" href="index.html?view=tools&mode=image&tool=characters">Открыть персонажей →</a></div>
+        <div class="mini-flow"><span>Выбор</span><i>→</i><span>Фото</span><i>→</i><span>Сцена</span><i>→</i><span>Результат</span></div>
+      </section>
+
+      <section class="doc-section split" id="objects" data-title="Объекты">
+        <div><span class="section-no">06</span><h2>Объекты</h2><p>Объекты позволяют последовательно использовать товар, аксессуар или другой визуальный элемент в новых сценах. Опишите положение, масштаб, материал и взаимодействие со светом.</p><a class="text-link" href="index.html?view=tools&mode=image&tool=objects">Добавить объект →</a></div>
+        <div class="object-stage"><span>Объект</span><div>Сцена</div><b>+</b></div>
+      </section>
+
+      <section class="doc-section" id="style" data-title="Стили, композиция и свет">
+        <span class="section-no">07</span><h2>Стили, композиция и свет</h2>
+        <div class="feature-grid"><article><h3>Стиль</h3><p>Фотореализм, иллюстрация, editorial, 3D, плёнка или фирменный визуальный язык.</p></article><article><h3>Композиция</h3><p>Крупность плана, угол камеры, симметрия, глубина и расположение ключевых объектов.</p></article><article><h3>Освещение</h3><p>Источник, направление, жёсткость, время суток и контраст.</p></article><article><h3>Цвет</h3><p>Палитра, насыщенность, температура, акцентный цвет и характер обработки.</p></article></div>
+      </section>
+
+      <section class="doc-section" id="settings" data-title="Aspect Ratio, Resolution и настройки">
+        <span class="section-no">08</span><h2>Формат и настройки</h2>
+        <div class="ratio-row"><span class="r11">1:1</span><span class="r43">4:3</span><span class="r169">16:9</span><span class="r916">9:16</span></div>
+        <table><thead><tr><th>Формат</th><th>Лучше использовать для</th></tr></thead><tbody><tr><td>1:1</td><td>Каталоги, аватары, универсальные публикации</td></tr><tr><td>4:3 / 3:4</td><td>Редакционные кадры, товары, портреты</td></tr><tr><td>16:9</td><td>Обложки, презентации, cinematic-сцены</td></tr><tr><td>9:16</td><td>Stories, Shorts и вертикальные креативы</td></tr></tbody></table>
+        <p><strong>Resolution</strong> определяет детализацию и доступные размеры. <strong>Seed</strong>, если поддерживается моделью, помогает приблизительно повторять композицию. Доступность параметров зависит от выбранной модели.</p>
+      </section>
+
+      <section class="doc-section" id="enhance" data-title="Prompt Enhance">
+        <span class="section-no">09</span><h2>Prompt Enhance</h2>
+        <p>Улучшение промпта превращает короткую идею в структурированное визуальное задание. Всегда перечитывайте результат: важные факты, брендовые ограничения и точный текст должны оставаться под вашим контролем.</p>
+        <div class="enhance-demo"><code>кофе на столе</code><span>AI Enhance</span><code>Керамическая чашка кофе на столе из тёмного дуба, утренний оконный свет, пар, shallow depth of field…</code></div>
+      </section>
+
+      <section class="doc-section" id="history" data-title="История генераций">
+        <span class="section-no">10</span><h2>История генераций</h2>
+        <p>Результат автоматически появляется в истории. Откройте карточку, чтобы просмотреть настройки и исходные материалы, скачать результат, поделиться им или повторить генерацию с новым промптом.</p>
+        <div class="history-demo"><div class="history-thumb"></div><div><b>Editorial portrait</b><small>Image · только что</small></div><button type="button">Открыть</button></div>
+      </section>
+
+      <section class="doc-section" id="models" data-title="AI модели">
+        <span class="section-no">11</span><h2>AI модели</h2><p>Выбирайте модель по задаче. Стоимость в интерфейсе Pro Studio является актуальным источником: она может отличаться по версии, размеру и используемому инструменту.</p>
+        <div class="model-grid">
+          <article class="model-card seedream"><small>ByteDance</small><h3>Seedream 5.0 Lite</h3><p>Сбалансированная модель для быстрых реалистичных изображений и повседневных задач.</p><ul><li>Сильна в композиции</li><li>6 кредитов в текущей конфигурации</li><li>Поддерживает популярные форматы</li></ul><a href="index.html?view=tools&mode=image&model=seedream_5_0_lite">Открыть Seedream →</a></article>
+          <article class="model-card flux"><small>Black Forest Labs</small><h3>FLUX</h3><p>Семейство моделей для качественного text-to-image и управляемой работы с визуальным контекстом.</p><ul><li>Хорошая детализация</li><li>Универсальные сюжеты</li><li>Несколько скоростных вариантов</li></ul><a href="index.html?view=tools&mode=image&model=flux_2">Открыть FLUX.2 →</a></article>
+          <article class="model-card gpt"><small>OpenAI</small><h3>GPT Image</h3><p>Подходит для точного следования инструкции, редактирования и сложных композиций.</p><ul><li>Работа с инструкциями</li><li>Редактирование изображений</li><li>Гибкие сценарии</li></ul><a href="index.html?view=tools&mode=image&model=gpt_image_2">Открыть GPT Image 2 →</a></article>
+          <article class="model-card nano"><small>Google</small><h3>Nano Banana</h3><p>Быстрые итерации, работа с референсами и последовательное визуальное редактирование.</p><ul><li>Несколько вариантов</li><li>Удобна для итераций</li><li>Pro и Lite версии</li></ul><a href="index.html?view=tools&mode=image&model=nano_banana_2">Открыть Nano Banana 2 →</a></article>
+          <article class="model-card imagen"><small>Google</small><h3>Imagen 4</h3><p>Фотореализм и аккуратный свет в версиях Fast, Standard и Ultra.</p><ul><li>Высокое визуальное качество</li><li>Три профиля скорости</li><li>Рекламная фотография</li></ul><a href="index.html?view=tools&mode=image&model=imagen_4_standard">Открыть Imagen 4 →</a></article>
+          <article class="model-card recraft"><small>Recraft</small><h3>Recraft</h3><p>Дизайн, фирменная графика и специализированные операции с изображением.</p><ul><li>Raster generation</li><li>Инструменты фона и upscale</li><li>Подходит дизайнерам</li></ul><a href="index.html?view=tools&mode=image&model=recraft_v4_1">Открыть Recraft →</a></article>
+          <article class="model-card ideogram"><small>Ideogram</small><h3>Ideogram</h3><p>Сильный выбор для изображений с типографикой, постеров и рекламных макетов.</p><ul><li>Работа с текстом в кадре</li><li>Turbo rendering</li><li>Постеры и обложки</li></ul><a href="index.html?view=tools&mode=image&model=ideogram_4_0">Открыть Ideogram 4.0 →</a></article>
+          <article class="model-card grok"><small>xAI</small><h3>Grok Image</h3><p>Универсальная генерация и быстрое исследование разных визуальных направлений.</p><ul><li>Быстрые концепты</li><li>Pro-вариант</li><li>Разнообразные стили</li></ul><a href="index.html?view=tools&mode=image&model=grok">Открыть Grok →</a></article>
+          <article class="model-card qwen"><small>Alibaba</small><h3>Qwen Image</h3><p>Универсальные модели с несколькими уровнями качества для текста и визуальных задач.</p><ul><li>Версии Pro и Standard</li><li>Гибкая детализация</li><li>Широкий набор сюжетов</li></ul><a href="index.html?view=tools&mode=image&model=qwen_image_2_pro">Открыть Qwen Image →</a></article>
+        </div>
+      </section>
+
+      <section class="doc-section" id="practices" data-title="Лучшие практики и ошибки">
+        <span class="section-no">12</span><h2>Лучшие практики и частые ошибки</h2>
+        <div class="dos"><article><h3>Делайте</h3><ul><li>Начинайте с главного объекта и сцены.</li><li>Меняйте по одному параметру между итерациями.</li><li>Сохраняйте удачные промпты и seed.</li><li>Проверяйте права на загружаемые материалы.</li></ul></article><article class="dont"><h3>Избегайте</h3><ul><li>Противоречивых требований к свету и стилю.</li><li>Слишком большого числа случайных прилагательных.</li><li>Ожидания одинакового результата у разных моделей.</li><li>Использования генерации как гарантии фактической точности.</li></ul></article></div>
+      </section>
+
+      <section class="doc-section" id="cost-limits" data-title="Стоимость, совместимость и ограничения">
+        <span class="section-no">13</span><h2>Стоимость и ограничения</h2>
+        <p>Цена зависит от модели, версии, разрешения и операции. Перед запуском проверяйте стоимость, показанную в Pro Studio. Некоторые модели не поддерживают seed, отдельные форматы, несколько референсов или конкретные инструменты редактирования.</p>
+        <div class="callout warning"><b>Безопасное использование</b><span>Не загружайте материалы без разрешения, персональные данные и контент, нарушающий права других людей. AI может создавать артефакты — проверяйте текст, лица, руки, логотипы и детали перед публикацией.</span></div>
+      </section>
+
+      <section class="doc-section" id="faq" data-title="FAQ">
+        <span class="section-no">14</span><h2>FAQ</h2>
+        <details><summary>Почему результат отличается при повторной генерации?</summary><p>Генерация содержит случайность. Зафиксируйте seed, если модель его поддерживает, и не меняйте остальные параметры.</p></details>
+        <details><summary>Какая модель лучше для текста внутри изображения?</summary><p>Начните с Ideogram. Для сложного редактирования и точных инструкций сравните результат с GPT Image.</p></details>
+        <details><summary>Сколько референсов нужно загружать?</summary><p>Обычно достаточно одного–трёх качественных и непротиворечивых изображений. Лимит зависит от модели.</p></details>
+        <details><summary>Почему модель игнорирует часть запроса?</summary><p>Сократите промпт, перенесите главное в начало и уберите конфликтующие требования. Для сложной сцены делайте несколько последовательных итераций.</p></details>
+      </section>
+    </main>
+
+    <aside class="docs-toc"><span>На этой странице</span><nav id="docsToc"></nav></aside>
+  </div>
+
+  <a class="floating-studio" href="index.html?view=tools&mode=image"><span>✦</span><b>Открыть Pro Studio</b></a>
+  <script src="js/docs-images.js"></script>
+</body>
+</html>
