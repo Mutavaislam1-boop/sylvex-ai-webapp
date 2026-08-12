@@ -410,9 +410,17 @@ body::before{content:none}
 .studio .studio-input textarea::placeholder{color:var(--st-mute)}
 
 /* When Pro Studio is the active view, neutralize background + give it the full screen feel */
+html:has(.view[data-view="tools"].active),
+body:has(.view[data-view="tools"].active),
+body:has(.view[data-view="tools"].active) .app,
+body:has(.view[data-view="tools"].active) .scroll,
+body:has(.view[data-view="tools"].active) .view[data-view="tools"]{
+  background:#202020 !important;
+  color:#f3f3f3;
+}
 body:has(.view[data-view="tools"].active) .scroll{padding:0}
 body:has(.view[data-view="tools"].active) .app{max-width:none}
-.scroll.studio-mode{padding:0;background:var(--bg-0)}
+.scroll.studio-mode{padding:0;background:#202020}
 .view[data-view="tools"]{height:100%}
 .view[data-view="tools"].active{display:flex;flex-direction:column}
 .view[data-view="tools"] .studio{flex:1 1 auto;min-height:0}
