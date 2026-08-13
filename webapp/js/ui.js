@@ -119,6 +119,7 @@
       if (ci && window.SYLVEX.autoGrow) window.SYLVEX.autoGrow(ci);
     }
     if (name === 'history' && window.SYLVEX && window.SYLVEX.loadProfileGallery) window.SYLVEX.loadProfileGallery();
+    if (name === 'community' && window.SYLVEX && window.SYLVEX.loadCommunityFeed) window.SYLVEX.loadCommunityFeed();
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.select();
     if (window.SYLVEX && window.SYLVEX.updatePrice) window.SYLVEX.updatePrice();
   }

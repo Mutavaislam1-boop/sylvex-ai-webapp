@@ -6394,6 +6394,210 @@ async def delete_public_prostudio_gallery_item(message_id: int, telegram_id: int
         print("PROSTUDIO GALLERY DELETE FAILED:", exc)
     return {"ok": True}
 
+
+def ensure_community_tables():
+    if not DATABASE_URL:
+        return
+    ensure_user_profiles_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_posts (
+            id BIGSERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            source_message_id BIGINT NOT NULL,
+            content_type TEXT NOT NULL,
+            media_url TEXT,
+            preview_url TEXT,
+            body TEXT,
+            model TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE (telegram_id, source_message_id)
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_likes (
+            post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+            telegram_id BIGINT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (post_id, telegram_id)
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_comments (
+            id BIGSERIAL PRIMARY KEY,
+            post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+            telegram_id BIGINT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts (created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_comments_post ON community_comments (post_id, created_at)")
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/api/public/community/feed")
+async def public_community_feed(telegram_id: int = 0, limit: int = 30, offset: int = 0):
+    if not DATABASE_URL:
+        return {"ok": True, "items": []}
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT p.id, p.telegram_id, p.content_type, p.media_url, p.preview_url,
+                   p.body, p.model, p.created_at,
+                   COALESCE(up.display_name, u.first_name, 'SYLVEX User'),
+                   COALESCE(up.custom_avatar_url, ''), COALESCE(u.username, ''),
+                   COUNT(DISTINCT l.telegram_id),
+                   BOOL_OR(l.telegram_id = %s), COUNT(DISTINCT c.id)
+            FROM community_posts p
+            LEFT JOIN users u ON u.telegram_id = p.telegram_id
+            LEFT JOIN user_profiles up ON up.telegram_id = p.telegram_id
+            LEFT JOIN community_likes l ON l.post_id = p.id
+            LEFT JOIN community_comments c ON c.post_id = p.id
+            GROUP BY p.id, up.display_name, up.custom_avatar_url, u.first_name, u.username
+            ORDER BY p.created_at DESC
+            LIMIT %s OFFSET %s
+        """, (telegram_id, max(1, min(int(limit), 50)), max(0, int(offset))))
+        rows = cursor.fetchall()
+        items = [{
+            "id": row[0], "author_id": row[1], "type": row[2], "media_url": row[3] or "",
+            "preview_url": row[4] or row[3] or "", "body": row[5] or "", "model": row[6] or "",
+            "created_at": _to_iso(row[7]), "author_name": row[8], "author_avatar": row[9] or "",
+            "author_username": row[10] or "", "likes": int(row[11] or 0),
+            "liked": bool(row[12]), "comments": int(row[13] or 0),
+        } for row in rows]
+        return {"ok": True, "items": items}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/public/community/posts")
+async def public_community_publish(request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    message_id = int(payload.get("message_id") or 0)
+    init_data = payload.get("initData") or ""
+    if not telegram_id or not message_id:
+        return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT mode, prompt, response_text, image_url, images_json, thumbnails_json,
+                   thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model
+            FROM prostudio_messages WHERE id = %s AND telegram_id = %s
+        """, (message_id, telegram_id))
+        row = cursor.fetchone()
+        if not row:
+            return JSONResponse({"ok": False, "error": "generation_not_found"}, status_code=404)
+        mode, prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model = row
+        images, thumbs = _json_list(images_json), _json_list(thumbnails_json)
+        videos, audios = _json_list(videos_json), _json_list(audios_json)
+        metadata = _json_obj(metadata_json)
+        kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
+        media = (videos[0] if videos else video_url) or (audios[0] if audios else audio_url) or (images[0] if images else image_url) or ""
+        preview = (thumbs[0] if thumbs else thumb_url) or (images[0] if images else image_url) or ""
+        body = str(payload.get("caption") or prompt or response_text or "")[:1500]
+        cursor.execute("""
+            INSERT INTO community_posts
+                (telegram_id, source_message_id, content_type, media_url, preview_url, body, model)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (telegram_id, source_message_id) DO UPDATE SET body = EXCLUDED.body
+            RETURNING id
+        """, (telegram_id, message_id, kind, media, preview, body, model or ""))
+        post_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"ok": True, "post_id": post_id}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/public/community/posts/{post_id}/like")
+async def public_community_like(post_id: int, request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    init_data = payload.get("initData") or ""
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM community_likes WHERE post_id = %s AND telegram_id = %s RETURNING post_id", (post_id, telegram_id))
+        liked = not bool(cursor.fetchone())
+        if liked:
+            cursor.execute("INSERT INTO community_likes (post_id, telegram_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (post_id, telegram_id))
+        conn.commit()
+        return {"ok": True, "liked": liked}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.get("/api/public/community/posts/{post_id}/comments")
+async def public_community_comments(post_id: int):
+    if not DATABASE_URL:
+        return {"ok": True, "items": []}
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT c.id, c.telegram_id, c.body, c.created_at,
+                   COALESCE(up.display_name, u.first_name, 'SYLVEX User'), COALESCE(up.custom_avatar_url, '')
+            FROM community_comments c
+            LEFT JOIN users u ON u.telegram_id = c.telegram_id
+            LEFT JOIN user_profiles up ON up.telegram_id = c.telegram_id
+            WHERE c.post_id = %s ORDER BY c.created_at ASC LIMIT 100
+        """, (post_id,))
+        return {"ok": True, "items": [{"id": r[0], "author_id": r[1], "body": r[2], "created_at": _to_iso(r[3]), "author_name": r[4], "author_avatar": r[5]} for r in cursor.fetchall()]}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/public/community/posts/{post_id}/comments")
+async def public_community_comment(post_id: int, request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    body = str(payload.get("body") or "").strip()[:500]
+    init_data = payload.get("initData") or ""
+    if not telegram_id or not body:
+        return JSONResponse({"ok": False, "error": "invalid_comment"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO community_comments (post_id, telegram_id, body) VALUES (%s, %s, %s) RETURNING id", (post_id, telegram_id, body))
+        comment_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"ok": True, "comment_id": comment_id}
+    finally:
+        cursor.close()
+        conn.close()
+
 # =====================================================
 # API ENDPOINT: public_prostudio_sync
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
