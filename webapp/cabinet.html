@@ -947,8 +947,16 @@ HTML-страница Mini App. Комментарии подписывают э
     </section>
 
     <section class="view" data-view="history">
-      <div class="section-title"><h3 data-i18n="gen_history">Generation history</h3><a onclick="toast(t('filters'))" data-i18n="filter">Filter</a></div>
-      <div class="hist" id="fullHist"></div>
+      <div class="section-title"><h3 data-i18n="gen_history">Generation history</h3><a onclick="SYLVEX.loadProfileGallery(true)">Обновить</a></div>
+      <div class="profile-gallery-filters" id="profileGalleryFilters">
+        <button class="active" type="button" data-gallery-filter="all" onclick="SYLVEX.filterProfileGallery(event,'all')">Все</button>
+        <button type="button" data-gallery-filter="image" onclick="SYLVEX.filterProfileGallery(event,'image')">Фото</button>
+        <button type="button" data-gallery-filter="video" onclick="SYLVEX.filterProfileGallery(event,'video')">Видео</button>
+        <button type="button" data-gallery-filter="music" onclick="SYLVEX.filterProfileGallery(event,'music')">Музыка</button>
+        <button type="button" data-gallery-filter="voice" onclick="SYLVEX.filterProfileGallery(event,'voice')">Голос</button>
+        <button type="button" data-gallery-filter="text" onclick="SYLVEX.filterProfileGallery(event,'text')">Текст</button>
+      </div>
+      <div class="profile-gallery" id="fullHist"><div class="profile-gallery-state">Загрузка…</div></div>
     </section>
 
     <section class="view" data-view="shop">
@@ -1678,33 +1686,12 @@ CSS-класс задаёт внешний вид и расположение: s
     CSS-класс задаёт внешний вид и расположение: sheet-grab
     =================================================== -->
     <div class="sheet-grab"></div>
-    <h3 style="margin:6px 0 6px;font-size:17px">🎁 Пригласить друзей</h3>
-    <p style="opacity:.75;font-size:13px;margin:0 0 12px;line-height:1.5">
-      Приглашайте друзей в SYLVEX AI и получайте вознаграждение.<br>
-      • <b>10 ⚡️</b> за каждого приглашённого, оформившего подписку.<br>
-      • <b>0.5%</b> бонусных токенов за активность приглашённых.
-    </p>
+    <h3 class="ref-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 7v14M12 7H7.5a2.5 2.5 0 1 1 2.2-3.7C11 5.2 12 7 12 7Zm0 0h4.5a2.5 2.5 0 1 0-2.2-3.7C13 5.2 12 7 12 7Z"/></svg><span>Пригласить друзей</span></h3>
     <div class="ep-label">Ваша реферальная ссылка</div>
-    <div class="ref-link-box"><span id="refLinkVal">—</span></div>
-    <div class="ref-stats">
-      <div><div class="k">Рефералов</div><div class="v" id="refCount">0</div></div>
-      <div><div class="k">Заработано</div><div class="v"><span id="refEarned">0</span> ⚡️</div></div>
-      <div><div class="k">Статус</div><div class="v" id="refStatus">—</div></div>
+    <div class="ref-link-box"><span id="refLinkVal">—</span><button class="ref-copy" type="button" onclick="SYLVEX.copyRefLink()" aria-label="Копировать ссылку"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></div>
+    <div class="ref-summary">
+      <span>Приглашено</span><b id="refCount">0</b>
     </div>
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <!-- ==================================================
-      HTML-ЭЛЕМЕНТ: 📋 Копировать
-      При нажатии вызывает: SYLVEX.copyRefLink()
-      CSS-класс задаёт внешний вид и расположение: btn-ghost
-      =================================================== -->
-      <button class="btn-ghost" style="flex:1" onclick="SYLVEX.copyRefLink()">📋 Копировать</button>
-      <!-- ==================================================
-      HTML-ЭЛЕМЕНТ: 🚀 Активировать
-      При нажатии вызывает: SYLVEX.activateRefLink()
-      ID используется JavaScript/CSS как точка подключения: refActivateBtn
-      CSS-класс задаёт внешний вид и расположение: btn-primary
-      =================================================== -->
-      <button class="btn-primary" style="flex:1" id="refActivateBtn" onclick="SYLVEX.activateRefLink()">🚀 Активировать</button>
-    </div>
+    <a class="ref-rules" href="docs-general.html#referrals">Условия реферальной программы</a>
   </div>
 </div>

@@ -118,6 +118,7 @@
       const ci = document.getElementById('chatInput');
       if (ci && window.SYLVEX.autoGrow) window.SYLVEX.autoGrow(ci);
     }
+    if (name === 'history' && window.SYLVEX && window.SYLVEX.loadProfileGallery) window.SYLVEX.loadProfileGallery();
     if (window.SYLVEX && window.SYLVEX.haptic) window.SYLVEX.haptic.select();
     if (window.SYLVEX && window.SYLVEX.updatePrice) window.SYLVEX.updatePrice();
   }

@@ -11018,6 +11018,8 @@ function renderGeneratedTelegramButton(url, kind) {
   let homeQuickDragScrollStart = 0;
   let homeQuickDragging = false;
   let homeQuickMoved = false;
+  let profileGalleryItems = [];
+  let profileGalleryFilter = 'all';
   function openHomeQuickTool(event, key) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
     if (key === 'animate_photo') {
@@ -11052,6 +11054,103 @@ function renderGeneratedTelegramButton(url, kind) {
     const track=host.querySelector('.home-quick-track'),card=track&&track.children[homeQuickOffset];if(card)track.scrollLeft=card.offsetLeft-track.offsetLeft;
     if(!homeQuickTimer)homeQuickTimer=window.setInterval(()=>moveHomeQuickTools(1),5200);
   }
+  function profileGalleryIcon(kind) {
+    const paths = {
+      image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m4 17 5-5 4 4 2-2 5 4"/>',
+      video:'<rect x="3" y="5" width="14" height="14" rx="2"/><path d="m17 10 4-3v10l-4-3Z"/>',
+      music:'<path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
+      voice:'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+      text:'<path d="M6 3h9l4 4v14H6Z"/><path d="M14 3v5h5M9 13h7M9 17h7"/>',
+      open:'<path d="M4 12s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z"/><circle cx="12" cy="12" r="2"/>',
+      download:'<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+      send:'<path d="m21 4-3 16-6-4-4 3 1-5 9-7-11 6-4-2Z"/>',
+      reuse:'<path d="M20 7v5h-5M19 12a7 7 0 1 0-2 5"/>',
+      delete:'<path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/>',
+    };
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (paths[kind] || paths.text) + '</svg>';
+  }
+  function normalizeGalleryType(type) {
+    const value = String(type || '').toLowerCase();
+    if (value === 'audio') return 'music';
+    return ['image','video','music','voice','text'].includes(value) ? value : 'text';
+  }
+  function renderProfileGallery() {
+    const host = document.getElementById('fullHist'); if (!host) return;
+    const items = profileGalleryItems.filter((item) => profileGalleryFilter === 'all' || normalizeGalleryType(item.type) === profileGalleryFilter);
+    if (!items.length) { host.innerHTML = '<div class="profile-gallery-state">Здесь появятся ваши завершённые генерации.</div>'; return; }
+    host.innerHTML = items.map((item) => {
+      const type = normalizeGalleryType(item.type), id = String(item.id), media = String(item.media_url || ''), preview = String(item.preview_url || media || '');
+      const title = String(item.prompt || item.text || 'Генерация').trim().slice(0, 90);
+      let visual = '';
+      if (type === 'image' && preview) visual = '<img src="' + S.escapeHtml(preview) + '" alt="" loading="lazy">';
+      else if (type === 'video' && media) visual = '<video src="' + S.escapeHtml(media) + '" muted playsinline preload="metadata"></video><span class="profile-gallery-play">' + profileGalleryIcon('video') + '</span>';
+      else visual = '<div class="profile-gallery-placeholder">' + profileGalleryIcon(type) + '<span>' + S.escapeHtml(type === 'music' ? 'Музыка' : type === 'voice' ? 'Озвучка' : 'Текст') + '</span></div>';
+      const viewAttrs = type === 'text'
+        ? 'onclick="SYLVEX.viewProfileGalleryText(event,\'' + S.escapeHtml(id) + '\')"'
+        : type === 'image' ? 'data-image-url="' + S.escapeHtml(media) + '" onclick="SYLVEX.openImageViewer(event)"' : 'data-result-url="' + S.escapeHtml(media) + '" data-audio-url="' + S.escapeHtml(media) + '" data-result-kind="' + type + '" onclick="SYLVEX.openGeneratedContent(event)"';
+      const downloadUrl = item.job_id ? completedGenerationDownloadUrl(item.job_id) : media;
+      return '<article class="profile-gallery-card" data-gallery-id="' + S.escapeHtml(id) + '"><button class="profile-gallery-preview" type="button" ' + viewAttrs + '>' + visual + '</button>'
+        + '<div class="profile-gallery-copy"><b>' + S.escapeHtml(title || 'Без названия') + '</b><small>' + S.escapeHtml([item.model, item.created_at ? new Date(item.created_at).toLocaleDateString() : ''].filter(Boolean).join(' · ')) + '</small></div>'
+        + '<div class="profile-gallery-actions">'
+        + '<button type="button" title="Просмотреть" ' + viewAttrs + '>' + profileGalleryIcon('open') + '</button>'
+        + (downloadUrl ? '<button type="button" title="Скачать" data-download-url="' + S.escapeHtml(downloadUrl) + '" data-file-name="' + S.escapeHtml(generationDownloadFilename(type,item.job_id || id)) + '" onclick="SYLVEX.downloadGeneratedFile(event)">' + profileGalleryIcon('download') + '</button>' : '')
+        + '<button type="button" title="Отправить" onclick="SYLVEX.sendProfileGalleryItem(event,\'' + S.escapeHtml(id) + '\')">' + profileGalleryIcon('send') + '</button>'
+        + '<button type="button" title="Использовать в Pro Studio" onclick="SYLVEX.reuseProfileGalleryItem(event,\'' + S.escapeHtml(id) + '\')">' + profileGalleryIcon('reuse') + '</button>'
+        + '<button class="danger" type="button" title="Удалить" onclick="SYLVEX.deleteProfileGalleryItem(event,\'' + S.escapeHtml(id) + '\')">' + profileGalleryIcon('delete') + '</button></div></article>';
+    }).join('');
+  }
+  async function loadProfileGallery(force) {
+    const host = document.getElementById('fullHist'); if (!host) return;
+    if (profileGalleryItems.length && !force) return renderProfileGallery();
+    host.innerHTML = '<div class="profile-gallery-state">Загрузка истории…</div>';
+    try {
+      const response = await fetch('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(getTelegramId() || 0) + '&limit=100', { cache:'no-store' });
+      const payload = await response.json();
+      profileGalleryItems = Array.isArray(payload.items) ? payload.items : [];
+      renderProfileGallery();
+    } catch { host.innerHTML = '<div class="profile-gallery-state">Не удалось загрузить историю.</div>'; }
+  }
+  function filterProfileGallery(event, type) {
+    profileGalleryFilter = type || 'all';
+    document.querySelectorAll('[data-gallery-filter]').forEach((button) => button.classList.toggle('active', button.dataset.galleryFilter === profileGalleryFilter));
+    renderProfileGallery();
+  }
+  function galleryItemById(id) { return profileGalleryItems.find((item) => String(item.id) === String(id)); }
+  function viewProfileGalleryText(event, id) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    const item = galleryItemById(id); if (!item) return;
+    let modal = document.getElementById('profileGalleryTextModal');
+    if (!modal) { modal = document.createElement('div'); modal.id = 'profileGalleryTextModal'; modal.className = 'profile-gallery-text-modal'; document.body.appendChild(modal); }
+    modal.innerHTML = '<section><header><b>Сгенерированный текст</b><button type="button" onclick="this.closest(\'.profile-gallery-text-modal\').classList.remove(\'show\')">×</button></header><div>' + S.escapeHtml(item.text || item.prompt || '') + '</div></section>';
+    modal.classList.add('show');
+    modal.onclick = (clickEvent) => { if (clickEvent.target === modal) modal.classList.remove('show'); };
+  }
+  function sendProfileGalleryItem(event, id) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    const item = galleryItemById(id); if (!item) return;
+    const shareUrl = item.media_url || window.location.href;
+    const text = String(item.prompt || item.text || 'Создано в SYLVEX AI').slice(0, 180);
+    const url = 'https://t.me/share/url?url=' + encodeURIComponent(shareUrl) + '&text=' + encodeURIComponent(text);
+    if (S.tg && S.tg.openTelegramLink) S.tg.openTelegramLink(url); else window.open(url, '_blank', 'noopener');
+  }
+  async function reuseProfileGalleryItem(event, id) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    const item = galleryItemById(id); if (!item) return;
+    switchView('tools');
+    updateComposerMode(normalizeGalleryType(item.type));
+    if (item.conversation_id) await openConv(item.conversation_id, normalizeGalleryType(item.type));
+  }
+  async function deleteProfileGalleryItem(event, id) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    if (!window.confirm('Удалить эту генерацию из истории?')) return;
+    try {
+      const response = await fetch('/api/public/prostudio/gallery/' + encodeURIComponent(id) + '?telegram_id=' + encodeURIComponent(getTelegramId() || 0), { method:'DELETE' });
+      if (!response.ok) throw new Error('delete_failed');
+      profileGalleryItems = profileGalleryItems.filter((item) => String(item.id) !== String(id));
+      renderProfileGallery();
+      toast('Генерация удалена');
+    } catch { toast('Не удалось удалить генерацию'); }
+  }
   function renderDynamic() {
     const ht = document.getElementById('homeTools');
     const hh = document.getElementById('homeHist');
@@ -11059,7 +11158,7 @@ function renderGeneratedTelegramButton(url, kind) {
     const sg = document.getElementById('shopGrid');
     if (ht) ht.innerHTML = S.toolsData.slice(0, 6).map(S.toolCard).join('');
     if (hh) renderHomeQuickTools();
-    if (fh) fh.innerHTML = S.histData.map(S.histCard).join('');
+    if (fh && profileGalleryItems.length) renderProfileGallery();
     if (sg) sg.innerHTML = S.shopData.map(S.shopCard).join('');
     renderModeStrip();
     renderModelPop();
@@ -16502,10 +16601,6 @@ async function waitGeneration(jobId, options) {
       _refData = j;
       document.getElementById('refLinkVal').textContent = j.link || j.code || '—';
       document.getElementById('refCount').textContent = j.referrals_count || 0;
-      document.getElementById('refEarned').textContent = (j.tokens_earned || 0).toLocaleString();
-      document.getElementById('refStatus').textContent = j.activated_at ? 'Активна' : 'Не активна';
-      const btn = document.getElementById('refActivateBtn');
-      if (btn) { btn.textContent = j.activated_at ? '✅ Активирована' : '🚀 Активировать'; btn.disabled = !!j.activated_at; }
     } catch { document.getElementById('refLinkVal').textContent = '—'; }
   }
   // =====================================================
@@ -17056,6 +17151,32 @@ async function waitGeneration(jobId, options) {
   function applyInitialViewFromUrl() {
     const view = initialViewFromUrl();
     if (view && view !== 'home') switchView(view);
+  }
+
+  function referralStartCode() {
+    const unsafe = S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : {};
+    const params = new URLSearchParams(window.location.search || '');
+    const raw = String(unsafe.start_param || params.get('tgWebAppStartParam') || params.get('startapp') || '');
+    const match = raw.match(/^ref_(sylvex_[a-f0-9]{10})_shop$/i);
+    return match ? match[1].toLowerCase() : '';
+  }
+
+  async function handleReferralStart() {
+    const claimCode = referralStartCode();
+    if (!claimCode) return;
+    switchView('shop');
+    try {
+      await fetch('/api/public/telegram/referrals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData: S.tg && S.tg.initData ? S.tg.initData : '',
+          initDataUnsafe: S.tg && S.tg.initDataUnsafe ? S.tg.initDataUnsafe : null,
+          telegram_id: getTelegramId(),
+          claim_code: claimCode,
+        }),
+      });
+    } catch (_) {}
   }
 
   // =====================================================
@@ -17666,6 +17787,7 @@ async function waitGeneration(jobId, options) {
     applyStoredTheme();
     applyInitialViewFromUrl();
     setTimeout(applyInitialViewFromUrl, 150);
+    handleReferralStart();
 
     if (S.syncUser) {
       Promise.resolve(S.syncUser()).finally(() => {
@@ -17692,6 +17814,7 @@ async function waitGeneration(jobId, options) {
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
     openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile, openHomeQuickTool,
+    loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
     signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
