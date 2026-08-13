@@ -3210,8 +3210,8 @@ const VoiceDialogueComposer = (() => {
     input.classList.remove('voice-dialogue-has-speakers');
     if (!active()) { markerRail.hidden = true; markerRail.innerHTML = ''; return; }
     const matches = Array.from(input.value.matchAll(/(?:^|\n)Speaker([1-7]):\s*([^\n]*)/g));
-    input.classList.toggle('voice-dialogue-has-speakers', matches.length > 0);
-    markerRail.hidden = !matches.length;
+    markerRail.hidden = true;
+    markerRail.innerHTML = '';
     dialogueLines = matches.map((match, lineIndex) => {
       const speakerIndex = Math.max(0, Number(match[1]) - 1);
       const info = speakerInfo(speakerIndex);
@@ -3229,28 +3229,15 @@ const VoiceDialogueComposer = (() => {
         marker_end:markerStart + markerText.length,
       };
     });
-    const inputStyle = window.getComputedStyle(input);
-    const lineHeight = parseFloat(inputStyle.lineHeight) || (parseFloat(inputStyle.fontSize) || 15) * 1.45;
-    const paddingTop = parseFloat(inputStyle.paddingTop) || 0;
-    markerRail.style.setProperty('--voice-avatar-left', (input.offsetLeft + 8) + 'px');
-    markerRail.innerHTML = matches.map((match) => {
-      const info = speakerInfo(Math.max(0, Number(match[1]) - 1));
-      const markerStart = Number(match.index || 0) + (match[0].startsWith('\n') ? 1 : 0);
-      const textLine = input.value.slice(0, markerStart).split('\n').length - 1;
-      const top = input.offsetTop + paddingTop + (textLine * lineHeight) - input.scrollTop + (lineHeight - 22) / 2;
-      const avatar = info.avatar ? '<img src="' + S.escapeHtml(info.avatar) + '" alt="">' : '<span>' + S.escapeHtml(voiceInitials(info.name)) + '</span>';
-      return '<span class="voice-dialogue-inline-avatar" style="top:' + top + 'px;' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '" title="' + S.escapeHtml(info.name) + '">' + avatar + '</span>';
-    }).join('');
   };
   const setup = (editor) => {
     if (!editor || input === editor) return;
     input = editor;
     markerRail = document.createElement('div');
-    markerRail.className = 'voice-dialogue-inline-avatars';
+    markerRail.className = 'voice-dialogue-marker-data';
     markerRail.hidden = true;
     input.parentElement.insertBefore(markerRail, input);
     ['keyup','click','select','input'].forEach((name) => input.addEventListener(name, () => { rememberCaret(); if (name === 'input') refreshMarkers(); }));
-    input.addEventListener('scroll', refreshMarkers, { passive:true });
     document.addEventListener('selectionchange', () => { if (document.activeElement === input) rememberCaret(); });
     input.addEventListener('contextmenu', (event) => {
       if (!active()) return;
