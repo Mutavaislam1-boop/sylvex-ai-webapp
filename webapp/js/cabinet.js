@@ -3123,8 +3123,9 @@ const VoiceDialogueComposer = (() => {
     }
     menu.hidden = false;
     const width = 240;
+    const inputRect = input && input.getBoundingClientRect ? input.getBoundingClientRect() : null;
     menu.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, x)) + 'px';
-    menu.style.top = Math.max(8, Math.min(window.innerHeight - 360, y)) + 'px';
+    menu.style.top = Math.max(8, Math.min(window.innerHeight - 360, inputRect ? inputRect.top : y)) + 'px';
   };
   const ensureMobileUi = () => {
     if (!mobileToolbar) {
