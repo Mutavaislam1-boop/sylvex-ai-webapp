@@ -11,6 +11,7 @@
       tg.ready();
       tg.expand();
       tg.setHeaderColor && tg.setHeaderColor('#030308');
+      tg.enableClosingConfirmation && tg.enableClosingConfirmation();
     } catch (e) {}
   }
 

@@ -1448,6 +1448,10 @@ def log_user_event(
             conn.close()
     except Exception as exc:
         print("LOG EVENT FAILED:", exc)
+    try:
+        track_referral_activity(telegram_id, event_type, event_name)
+    except Exception as exc:
+        print("REFERRAL ACTIVITY TRACKING FAILED:", exc)
 
 
 # =====================================================
@@ -1593,6 +1597,22 @@ def ensure_user_referrals_table():
             created_at TIMESTAMP DEFAULT NOW()
         )
         """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS referral_attributions (
+            invited_telegram_id BIGINT PRIMARY KEY,
+            inviter_telegram_id BIGINT NOT NULL,
+            referral_code TEXT NOT NULL,
+            joined_at TIMESTAMP DEFAULT NOW(),
+            last_activity_at TIMESTAMP,
+            generation_count INTEGER DEFAULT 0,
+            subscription_count INTEGER DEFAULT 0,
+            last_event_name TEXT
+        )
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_referral_attributions_inviter
+        ON referral_attributions (inviter_telegram_id)
+        """)
         conn.commit()
     finally:
         cursor.close()
@@ -1619,7 +1639,8 @@ def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
         return {}
 
     code = referral_code_for(telegram_id)
-    link = f"https://t.me/sylvexai_bot?start={code}"
+    bot_username = (os.getenv("TELEGRAM_BOT_USERNAME") or "sylvexai_bot").strip().lstrip("@")
+    link = f"https://t.me/{bot_username}?startapp=ref_{code}_shop"
 
     if not DATABASE_URL:
         return {
@@ -1628,7 +1649,8 @@ def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
             "code": code,
             "link": link,
             "referrals_count": 0,
-            "tokens_earned": 0,
+            "generation_events": 0,
+            "subscription_events": 0,
             "activated_at": None,
         }
 
@@ -1648,6 +1670,13 @@ def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
             RETURNING activated_at
         """, (telegram_id, code, activate, activate))
         row = cursor.fetchone()
+        cursor.execute("""
+            SELECT COUNT(*), COALESCE(SUM(generation_count), 0),
+                   COALESCE(SUM(subscription_count), 0)
+            FROM referral_attributions
+            WHERE inviter_telegram_id = %s
+        """, (telegram_id,))
+        referral_totals = cursor.fetchone() or (0, 0, 0)
         conn.commit()
     finally:
         cursor.close()
@@ -1658,10 +1687,76 @@ def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
         "telegram_id": telegram_id,
         "code": code,
         "link": link,
-        "referrals_count": 0,
-        "tokens_earned": 0,
+        "referrals_count": int(referral_totals[0] or 0),
+        "generation_events": int(referral_totals[1] or 0),
+        "subscription_events": int(referral_totals[2] or 0),
         "activated_at": _to_iso(row[0]) if row and row[0] else None,
     }
+
+
+def claim_referral(invited_telegram_id: int, referral_code: str) -> dict:
+    """Permanently attributes a user to the first valid referrer."""
+    if not DATABASE_URL or not invited_telegram_id or not referral_code:
+        return {"ok": False, "error": "referral_unavailable"}
+
+    ensure_user_referrals_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT telegram_id FROM user_referrals WHERE code = %s",
+            (referral_code,),
+        )
+        owner = cursor.fetchone()
+        if not owner:
+            return {"ok": False, "error": "referral_not_found"}
+        inviter_telegram_id = int(owner[0])
+        if inviter_telegram_id == int(invited_telegram_id):
+            return {"ok": False, "error": "self_referral"}
+        cursor.execute("""
+            INSERT INTO referral_attributions
+                (invited_telegram_id, inviter_telegram_id, referral_code)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (invited_telegram_id) DO NOTHING
+            RETURNING invited_telegram_id
+        """, (invited_telegram_id, inviter_telegram_id, referral_code))
+        created = bool(cursor.fetchone())
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    return {"ok": True, "claimed": created, "shop": True}
+
+
+def track_referral_activity(telegram_id: int, event_type: str, event_name: str):
+    """Records activity for manual referral reward review by administrators."""
+    is_generation = event_name == "generation_completed"
+    is_subscription = event_type == "subscription_activated" or event_name == "subscription_activated"
+    if not DATABASE_URL or not telegram_id or not (is_generation or is_subscription):
+        return
+    ensure_user_referrals_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE referral_attributions
+            SET last_activity_at = NOW(),
+                generation_count = generation_count + %s,
+                subscription_count = subscription_count + %s,
+                last_event_name = %s
+            WHERE invited_telegram_id = %s
+            RETURNING inviter_telegram_id
+        """, (1 if is_generation else 0, 1 if is_subscription else 0, event_name, telegram_id))
+        owner = cursor.fetchone()
+        if owner:
+            cursor.execute("""
+                INSERT INTO user_events (telegram_id, source, event_type, event_name, payload)
+                VALUES (%s, 'referral_system', 'referral_activity', %s, %s::jsonb)
+            """, (int(owner[0]), event_name, json.dumps({"invited_telegram_id": telegram_id})))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # =====================================================
@@ -6227,6 +6322,78 @@ async def delete_public_prostudio_conversation(
 
     return {"ok": True}
 
+
+@app.get("/api/public/prostudio/gallery")
+async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset: int = 0):
+    """Return completed generated content owned by one Mini App user."""
+    if not DATABASE_URL or not telegram_id:
+        return {"ok": True, "items": []}
+    try:
+        ensure_prostudio_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        safe_limit = max(1, min(int(limit or 80), 100))
+        safe_offset = max(0, int(offset or 0))
+        cursor.execute("""
+            SELECT id, conversation_id, mode, prompt, response_text, image_url, images_json,
+                   thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json,
+                   metadata_json, created_at, status, model, provider, response_json
+            FROM prostudio_messages
+            WHERE telegram_id = %s
+              AND (COALESCE(image_url, '') <> '' OR COALESCE(video_url, '') <> ''
+                   OR COALESCE(audio_url, '') <> '' OR COALESCE(response_text, '') <> '')
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s OFFSET %s
+        """, (telegram_id, safe_limit, safe_offset))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        items = []
+        for row in rows:
+            (message_id, conversation_id, mode, prompt, response_text, image_url, images_json,
+             thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json,
+             metadata_json, created_at, status, model, provider, response_json) = row
+            images = _json_list(images_json) or ([image_url] if image_url else [])
+            thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
+            videos = _json_list(videos_json) or ([video_url] if video_url else [])
+            audios = _json_list(audios_json) or ([audio_url] if audio_url else [])
+            metadata = _json_obj(metadata_json)
+            response_data = _json_obj(response_json)
+            kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
+            media_url = (videos[0] if videos else audios[0] if audios else images[0] if images else "")
+            preview_url = (thumbs[0] if thumbs else images[0] if images else metadata.get("thumbnail_url") or "")
+            items.append({
+                "id": message_id, "conversation_id": conversation_id, "type": kind,
+                "prompt": prompt or metadata.get("prompt") or "", "text": response_text or "",
+                "media_url": media_url, "preview_url": preview_url,
+                "job_id": metadata.get("job_id") or response_data.get("job_id") or "",
+                "status": status or metadata.get("status") or "completed",
+                "model": metadata.get("model_label") or model or "", "provider": provider or "",
+                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+            })
+        return {"ok": True, "items": items, "limit": safe_limit, "offset": safe_offset}
+    except Exception as exc:
+        print("PROSTUDIO GALLERY FAILED:", exc)
+        return {"ok": True, "items": []}
+
+
+@app.delete("/api/public/prostudio/gallery/{message_id}")
+async def delete_public_prostudio_gallery_item(message_id: int, telegram_id: int = 0):
+    """Delete one generated result without deleting the rest of its conversation."""
+    if not DATABASE_URL or not telegram_id or not message_id:
+        return {"ok": True}
+    try:
+        ensure_prostudio_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM prostudio_messages WHERE id = %s AND telegram_id = %s", (message_id, telegram_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        print("PROSTUDIO GALLERY DELETE FAILED:", exc)
+    return {"ok": True}
+
 # =====================================================
 # API ENDPOINT: public_prostudio_sync
 # Принимает HTTP-запрос от Mini App или Telegram Bot.
@@ -8074,6 +8241,18 @@ async def public_activate_referrals(request: Request):
 
     if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
         return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+
+    claim_code = str(payload.get("claim_code") or "").strip()
+    if claim_code:
+        state = claim_referral(int(telegram_id), claim_code)
+        log_user_event(
+            telegram_id=telegram_id,
+            source="mini_app",
+            event_type="referral",
+            event_name="referral_opened_shop",
+            payload={"code": claim_code, "claimed": state.get("claimed", False)},
+        )
+        return state
 
     state = get_referral_state(int(telegram_id), activate=bool(payload.get("activate", True)))
     log_user_event(
