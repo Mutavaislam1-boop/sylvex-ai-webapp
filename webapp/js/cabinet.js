@@ -3164,8 +3164,10 @@ const VoiceDialogueComposer = (() => {
     bottomSheet.querySelectorAll('[data-vdc-open-nested]').forEach((button) => button.addEventListener('click', () => openBottomSheet(button.dataset.vdcOpenNested)));
     const rect = input && input.getBoundingClientRect ? input.getBoundingClientRect() : null;
     if (rect) {
-      bottomSheet.style.setProperty('--voice-menu-left', Math.max(8, rect.left) + 'px');
-      bottomSheet.style.setProperty('--voice-menu-width', Math.min(rect.width, window.innerWidth - 16) + 'px');
+      const menuWidth = Math.min(276, rect.width, window.innerWidth - 24);
+      const menuLeft = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.left));
+      bottomSheet.style.setProperty('--voice-menu-left', menuLeft + 'px');
+      bottomSheet.style.setProperty('--voice-menu-width', menuWidth + 'px');
       bottomSheet.style.setProperty('--voice-menu-bottom', Math.max(8, window.innerHeight - rect.top + 8) + 'px');
     }
     bottomSheet.hidden = false;
@@ -3205,9 +3207,10 @@ const VoiceDialogueComposer = (() => {
   };
   const refreshMarkers = () => {
     if (!markerRail || !input) return;
-    input.classList.toggle('voice-dialogue-avatar-input', active());
+    input.classList.remove('voice-dialogue-has-speakers');
     if (!active()) { markerRail.hidden = true; markerRail.innerHTML = ''; return; }
     const matches = Array.from(input.value.matchAll(/(?:^|\n)Speaker([1-7]):\s*([^\n]*)/g));
+    input.classList.toggle('voice-dialogue-has-speakers', matches.length > 0);
     markerRail.hidden = !matches.length;
     dialogueLines = matches.map((match, lineIndex) => {
       const speakerIndex = Math.max(0, Number(match[1]) - 1);
@@ -3234,7 +3237,7 @@ const VoiceDialogueComposer = (() => {
       const info = speakerInfo(Math.max(0, Number(match[1]) - 1));
       const markerStart = Number(match.index || 0) + (match[0].startsWith('\n') ? 1 : 0);
       const textLine = input.value.slice(0, markerStart).split('\n').length - 1;
-      const top = input.offsetTop + paddingTop + (textLine * lineHeight) - input.scrollTop + (lineHeight - 28) / 2;
+      const top = input.offsetTop + paddingTop + (textLine * lineHeight) - input.scrollTop + (lineHeight - 22) / 2;
       const avatar = info.avatar ? '<img src="' + S.escapeHtml(info.avatar) + '" alt="">' : '<span>' + S.escapeHtml(voiceInitials(info.name)) + '</span>';
       return '<span class="voice-dialogue-inline-avatar" style="top:' + top + 'px;' + (info.item ? voiceAvatarStyle(info.voiceId || info.name) : '') + '" title="' + S.escapeHtml(info.name) + '">' + avatar + '</span>';
     }).join('');
