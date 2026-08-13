@@ -21,6 +21,8 @@ CSS-БЛОК: :root
   --miniapp-icon-size:18px;
   --miniapp-icon-box:34px;
 }
+.ui-svg-icon{display:block;width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ico .ui-svg-icon,.mi .ui-svg-icon,.pm-ico .ui-svg-icon,.home-quick-icon .ui-svg-icon,.thumb .ui-svg-icon,.pico .ui-svg-icon{width:20px;height:20px}.chev .ui-svg-icon,.pm-arr .ui-svg-icon{width:16px;height:16px}
 /* =====================================================
 CSS-БЛОК: [data-theme="light"]
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
