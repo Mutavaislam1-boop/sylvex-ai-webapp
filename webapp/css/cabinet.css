@@ -2158,6 +2158,7 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-tools-toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
 .voice-horizontal-tools{min-width:0}
 .studio-voice-full>.voice-horizontal-tools{order:-1;margin:0 0 4px;padding:8px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.025);overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+.studio-voice-full>.voice-horizontal-tools.dialogue-only{display:flex!important;flex-direction:column;gap:10px;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}
 .studio-voice-full>.voice-horizontal-tools::-webkit-scrollbar{display:none}
 .voice-tool-guide{position:fixed;z-index:10100;width:210px;box-sizing:border-box;padding:10px;border:1px solid rgba(88,156,255,.48);border-radius:11px;background:rgba(38,38,40,.97);color:#eee;box-shadow:0 14px 34px rgba(0,0,0,.38);pointer-events:none;opacity:1;transform:translateY(0);transition:opacity .22s ease,transform .22s ease;animation:voiceToolGuideIn .24s ease}
 .voice-tool-guide.is-leaving{opacity:0;transform:translateY(5px)}
@@ -2191,7 +2192,7 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-inline-option-strip button{flex:0 0 auto;border:0;border-radius:0;background:transparent;color:#aaa;padding:3px 0;font:inherit;font-size:11px;line-height:1.3;cursor:pointer;white-space:nowrap}
 .voice-inline-option-strip button:hover{color:#fff;background:transparent}
 .voice-inline-option-strip .voice-inline-add{font-size:20px;line-height:1;color:#eee;padding:0 1px}
-.voice-dialogue-open-tools{display:flex;flex-direction:column;gap:7px;margin-top:8px;min-width:0}
+.voice-dialogue-open-tools{display:flex;flex-direction:column;gap:7px;margin-top:0;min-width:0}
 .voice-dialogue-row{display:flex;align-items:center;gap:10px;min-width:0;padding:7px 9px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:rgba(255,255,255,.025)}
 .voice-dialogue-row>b,.voice-dialogue-row-title{flex:0 0 auto;color:#ededed;font-size:11px;font-weight:700;white-space:nowrap}
 .voice-dialogue-row-title{display:flex;align-items:center;gap:5px}
@@ -2215,7 +2216,8 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-template-strip{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:7px 0}.voice-template-strip::-webkit-scrollbar{display:none}
 .voice-template-strip button{flex:0 0 auto;padding:5px 9px;border:1px solid rgba(255,255,255,.08);border-radius:999px;background:#292929;color:#929292;font-size:10px;cursor:pointer}
 .voice-template-strip button.active{color:#fff;border-color:#377fdb;background:#245d9f}
-.voice-editor-toolbar{display:flex;width:max-content;min-width:100%;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px;overflow:visible;scrollbar-width:none;direction:rtl}.voice-editor-toolbar::-webkit-scrollbar{display:none}
+.voice-editor-toolbar{display:flex;width:100%;min-width:0;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;overflow-x:auto;scrollbar-width:none;direction:ltr;padding:9px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:rgba(255,255,255,.025)}.voice-editor-toolbar::-webkit-scrollbar{display:none}
+.voice-tools-block-title{flex:0 0 auto;color:#ededed;font-size:11px;font-weight:700;white-space:nowrap}
 .voice-tool-primary-group,.voice-tool-secondary-group{display:flex;flex-direction:row;align-items:center;gap:5px;direction:rtl}
 .voice-tool-separator{display:block;width:1px;height:26px;flex:0 0 1px;background:rgba(255,255,255,.11)}
 .voice-editor-toolbar button{flex:0 0 32px;width:32px;height:30px;border-radius:9px}
@@ -2247,7 +2249,7 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-caret-menu-item>button:hover,.voice-caret-menu-item:focus-within>button{background:#303b4c;color:#fff}
 .voice-caret-menu-item>button span{display:grid;place-items:center}.voice-caret-menu svg,.voice-dialogue-mobile-toolbar svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .voice-caret-menu-item>button i{font-style:normal;color:#777;text-align:right}
-.voice-caret-submenu{display:none;position:absolute;left:calc(100% + 7px);top:-7px;width:210px;max-height:min(420px,70vh);overflow-y:auto;padding:7px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:#242426;box-shadow:0 18px 48px rgba(0,0,0,.5)}
+.voice-caret-submenu{display:none;position:absolute;left:calc(100% + 7px);top:auto;bottom:-7px;width:210px;max-height:min(420px,70vh);overflow-y:auto;padding:7px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:#242426;box-shadow:0 18px 48px rgba(0,0,0,.5)}
 .voice-caret-menu-item:hover>.voice-caret-submenu,.voice-caret-menu-item:focus-within>.voice-caret-submenu,.voice-caret-menu-item.submenu-open>.voice-caret-submenu{display:block}
 .voice-caret-submenu::before{content:"";position:absolute;right:100%;top:0;width:9px;height:100%}
 .voice-caret-submenu>button,.voice-dialogue-sheet-items>button{display:block;width:100%;min-height:32px;padding:6px 9px;border:0;border-radius:8px;background:transparent;color:#c9c9c9;text-align:left;font:inherit;font-size:11px;cursor:pointer}
@@ -2281,6 +2283,7 @@ body > #modelPop.music-duration-wheel-pop{
   .studio-voice-full>.voice-tool-panel{order:3}
   .studio-voice-full>.voice-horizontal-tools::-webkit-scrollbar{display:none}
   .voice-editor-toolbar{width:max-content;min-width:100%;flex-direction:row;align-items:center;gap:8px;overflow:visible;direction:ltr}
+  .voice-horizontal-tools.dialogue-only .voice-editor-toolbar{width:100%;min-width:0;overflow-x:auto}
   .voice-tool-primary-group,.voice-tool-secondary-group{flex-direction:row;align-items:center;gap:5px;direction:ltr}
   .voice-tool-separator{width:1px;height:26px;flex:0 0 1px}
   .studio-control-row .voice-bottom-labeled{padding:0 10px}
