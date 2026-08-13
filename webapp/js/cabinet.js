@@ -17653,6 +17653,13 @@ async function waitGeneration(jobId, options) {
     applyLang();       // triggers renderDynamic
     initHero();
     renderChat();
+    S.replaceLegacyUiIcons && S.replaceLegacyUiIcons(document);
+    if ('MutationObserver' in window) {
+      const uiIconObserver = new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType === 1) S.replaceLegacyUiIcons && S.replaceLegacyUiIcons(node.parentElement || node);
+      })));
+      uiIconObserver.observe(document.getElementById('app-root') || document.body, { childList:true, subtree:true });
+    }
     updateSendButton();
     loadImageCapabilities();
     handlePaymentReturnFromUrl();
