@@ -6409,6 +6409,7 @@ def ensure_community_tables():
             source_message_id BIGINT NOT NULL,
             content_type TEXT NOT NULL,
             media_url TEXT,
+            media_urls JSONB DEFAULT '[]'::jsonb,
             preview_url TEXT,
             body TEXT,
             model TEXT,
@@ -6416,6 +6417,7 @@ def ensure_community_tables():
             UNIQUE (telegram_id, source_message_id)
         )
         """)
+        cursor.execute("ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS community_likes (
             post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
@@ -6455,7 +6457,10 @@ async def public_community_feed(telegram_id: int = 0, limit: int = 30, offset: i
                    COALESCE(up.display_name, u.first_name, 'SYLVEX User'),
                    COALESCE(up.custom_avatar_url, ''), COALESCE(u.username, ''),
                    COUNT(DISTINCT l.telegram_id),
-                   BOOL_OR(l.telegram_id = %s), COUNT(DISTINCT c.id)
+                   BOOL_OR(l.telegram_id = %s), COUNT(DISTINCT c.id), p.media_urls,
+                   (SELECT COUNT(*) FROM community_posts author_posts
+                    JOIN community_likes author_likes ON author_likes.post_id = author_posts.id
+                    WHERE author_posts.telegram_id = p.telegram_id)
             FROM community_posts p
             LEFT JOIN users u ON u.telegram_id = p.telegram_id
             LEFT JOIN user_profiles up ON up.telegram_id = p.telegram_id
@@ -6472,6 +6477,8 @@ async def public_community_feed(telegram_id: int = 0, limit: int = 30, offset: i
             "created_at": _to_iso(row[7]), "author_name": row[8], "author_avatar": row[9] or "",
             "author_username": row[10] or "", "likes": int(row[11] or 0),
             "liked": bool(row[12]), "comments": int(row[13] or 0),
+            "media_urls": _json_list(row[14]) or ([row[3]] if row[3] else []),
+            "author_likes": int(row[15] or 0),
         } for row in rows]
         return {"ok": True, "items": items}
     finally:
@@ -6483,7 +6490,9 @@ async def public_community_feed(telegram_id: int = 0, limit: int = 30, offset: i
 async def public_community_publish(request: Request):
     payload = await request.json()
     telegram_id = int(payload.get("telegram_id") or 0)
-    message_id = int(payload.get("message_id") or 0)
+    message_ids = payload.get("message_ids") or [payload.get("message_id")]
+    message_ids = list(dict.fromkeys(int(value or 0) for value in message_ids if int(value or 0)))[:4]
+    message_id = message_ids[0] if message_ids else 0
     init_data = payload.get("initData") or ""
     if not telegram_id or not message_id:
         return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
@@ -6497,27 +6506,42 @@ async def public_community_publish(request: Request):
     try:
         cursor.execute("""
             SELECT mode, prompt, response_text, image_url, images_json, thumbnails_json,
-                   thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model
-            FROM prostudio_messages WHERE id = %s AND telegram_id = %s
-        """, (message_id, telegram_id))
-        row = cursor.fetchone()
-        if not row:
+                   thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model, id
+            FROM prostudio_messages WHERE id = ANY(%s) AND telegram_id = %s
+        """, (message_ids, telegram_id))
+        rows = cursor.fetchall()
+        rows.sort(key=lambda item: message_ids.index(int(item[13])))
+        if not rows:
             return JSONResponse({"ok": False, "error": "generation_not_found"}, status_code=404)
-        mode, prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model = row
+        row = rows[0]
+        mode, prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model, _ = row
         images, thumbs = _json_list(images_json), _json_list(thumbnails_json)
         videos, audios = _json_list(videos_json), _json_list(audios_json)
         metadata = _json_obj(metadata_json)
         kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
         media = (videos[0] if videos else video_url) or (audios[0] if audios else audio_url) or (images[0] if images else image_url) or ""
         preview = (thumbs[0] if thumbs else thumb_url) or (images[0] if images else image_url) or ""
-        body = str(payload.get("caption") or prompt or response_text or "")[:1500]
+        media_urls = []
+        for candidate in rows:
+            c_mode, _, _, c_image, c_images, _, _, c_video, c_videos, c_audio, c_audios, c_meta, _, _ = candidate
+            c_meta = _json_obj(c_meta)
+            c_kind = str(c_meta.get("type") or c_mode or "").lower()
+            if len(rows) > 1 and c_kind != "image":
+                return JSONResponse({"ok": False, "error": "multiple_media_requires_images"}, status_code=400)
+            c_url = ((_json_list(c_images) or [c_image])[0] if (_json_list(c_images) or c_image) else "") or ((_json_list(c_videos) or [c_video])[0] if (_json_list(c_videos) or c_video) else "") or ((_json_list(c_audios) or [c_audio])[0] if (_json_list(c_audios) or c_audio) else "")
+            if c_url:
+                media_urls.append(c_url)
+        caption = str(payload.get("caption") or "").strip()
+        if re.search(r"(?:https?://|www\.|t\.me/|@[A-Za-z0-9_]{4,})", caption, re.IGNORECASE):
+            return JSONResponse({"ok": False, "error": "external_links_forbidden"}, status_code=400)
+        body = (caption or prompt or response_text or "")[:360]
         cursor.execute("""
             INSERT INTO community_posts
-                (telegram_id, source_message_id, content_type, media_url, preview_url, body, model)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (telegram_id, source_message_id) DO UPDATE SET body = EXCLUDED.body
+                (telegram_id, source_message_id, content_type, media_url, media_urls, preview_url, body, model)
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+            ON CONFLICT (telegram_id, source_message_id) DO UPDATE SET body = EXCLUDED.body, media_urls = EXCLUDED.media_urls
             RETURNING id
-        """, (telegram_id, message_id, kind, media, preview, body, model or ""))
+        """, (telegram_id, message_id, kind, media, json.dumps(media_urls), preview, body, model or ""))
         post_id = cursor.fetchone()[0]
         conn.commit()
         return {"ok": True, "post_id": post_id}
