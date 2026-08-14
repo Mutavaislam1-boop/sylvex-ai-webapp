@@ -89,13 +89,14 @@ body::before{content:none}
 .hero-track{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;padding-bottom:8px}
 .hero-track::-webkit-scrollbar{display:none}
 .hero-slide{flex:0 0 100%;scroll-snap-align:center;padding:20px;border-radius:22px;position:relative;overflow:hidden;border:1px solid var(--border-strong);min-height:160px;display:flex;flex-direction:column;justify-content:space-between}
-.hero-slide.s1{background:linear-gradient(135deg,#10a37f,#0d8a6a 60%,#064e3b)}
-.hero-slide.s2{background:linear-gradient(135deg,#202123,#2f2f2f 60%,#10a37f)}
-.hero-slide.s3{background:linear-gradient(135deg,#1a7f64,#0e8e6e 50%,#0a0a0a)}
-.hero-slide.s4{background:linear-gradient(135deg,#2f2f2f,#171717 60%,#10a37f)}
-.hero-slide.s5{background:linear-gradient(135deg,#0e8e6e,#0a3a2d 70%,#000)}
-.hero-slide.s6{background:linear-gradient(135deg,#19c37d,#10a37f 55%,#1a1a1a)}
-.hero-slide.s7{background:linear-gradient(135deg,#404040,#10a37f)}
+.hero-slide.s1{background-image:linear-gradient(90deg,rgba(0,0,0,.2),transparent 62%),url('../assets/hero-ai/openai.jpg')}
+.hero-slide.s2{background-image:linear-gradient(90deg,rgba(2,7,28,.16),transparent 62%),url('../assets/hero-ai/gemini.jpg')}
+.hero-slide.s3{background-image:linear-gradient(90deg,rgba(0,0,0,.18),transparent 62%),url('../assets/hero-ai/flux.jpg')}
+.hero-slide.s4{background-image:linear-gradient(90deg,rgba(0,0,0,.18),transparent 62%),url('../assets/hero-ai/kling.jpg')}
+.hero-slide.s5{background-image:linear-gradient(90deg,rgba(0,0,0,.18),transparent 62%),url('../assets/hero-ai/runway.jpg')}
+.hero-slide.s6{background-image:linear-gradient(90deg,rgba(2,4,24,.18),transparent 62%),url('../assets/hero-ai/suno.jpg')}
+.hero-slide.s7{background-image:linear-gradient(90deg,rgba(0,0,0,.18),transparent 62%),url('../assets/hero-ai/elevenlabs.jpg')}
+.hero-slide.ai-brand-slide{min-height:190px;background-size:cover;background-position:center;isolation:isolate}.hero-slide.ai-brand-slide::before{display:none}.hero-slide.ai-brand-slide::after{content:"";position:absolute;z-index:-1;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.72) 0%,rgba(0,0,0,.48) 38%,transparent 72%)}.ai-brand-copy{position:relative;max-width:58%}.ai-banner-brand{display:inline-flex;align-items:center;gap:7px;margin-bottom:10px;color:#fff;font-size:11px;font-weight:750;letter-spacing:.04em}.ai-banner-brand i{width:25px;height:25px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.28);border-radius:8px;background:rgba(255,255,255,.12);backdrop-filter:blur(8px)}.ai-banner-brand svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.hero-slide.ai-brand-slide p{max-width:100%}.hero-slide.ai-brand-slide .cta{box-shadow:0 8px 24px rgba(0,0,0,.2)}
 .hero-slide::before{content:"";position:absolute;right:-30px;top:-30px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.22),transparent 60%)}
 .hero-slide h2{margin:0 0 6px;font-size:19px;font-weight:700;position:relative}
 .hero-slide h2{color:#fff !important}
