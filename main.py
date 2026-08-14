@@ -6519,6 +6519,9 @@ async def public_community_publish(request: Request):
         videos, audios = _json_list(videos_json), _json_list(audios_json)
         metadata = _json_obj(metadata_json)
         kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
+        kind = "music" if kind == "audio" else kind
+        if kind not in {"image", "video", "music"}:
+            return JSONResponse({"ok": False, "error": "unsupported_community_media"}, status_code=400)
         media = (videos[0] if videos else video_url) or (audios[0] if audios else audio_url) or (images[0] if images else image_url) or ""
         preview = (thumbs[0] if thumbs else thumb_url) or (images[0] if images else image_url) or ""
         media_urls = []
@@ -6534,7 +6537,7 @@ async def public_community_publish(request: Request):
         caption = str(payload.get("caption") or "").strip()
         if re.search(r"(?:https?://|www\.|t\.me/|@[A-Za-z0-9_]{4,})", caption, re.IGNORECASE):
             return JSONResponse({"ok": False, "error": "external_links_forbidden"}, status_code=400)
-        body = (caption or prompt or response_text or "")[:360]
+        body = caption[:360]
         cursor.execute("""
             INSERT INTO community_posts
                 (telegram_id, source_message_id, content_type, media_url, media_urls, preview_url, body, model)
