@@ -6,9 +6,9 @@
 // Static data used to render dynamic UI parts.
 (function () {
   const toolsData = [
-    { icon: '🎨', k: 'image' }, { icon: '✍️', k: 'text' },
-    { icon: '🎙️', k: 'voice' }, { icon: '🎬', k: 'video' },
-    { icon: '🎵', k: 'music' }, { icon: '✨', k: 'general' },
+    { icon: '🎨', k: 'image' }, { icon: '🎬', k: 'video' },
+    { icon: '🎵', k: 'music' }, { icon: '🎙️', k: 'voice' },
+    { icon: '✍️', k: 'text' }, { icon: '✨', k: 'general' },
     { icon: '🧠', k: 'chat' },  { icon: '🔍', k: 'up' },
     { icon: '📝', k: 'tr' }
   ];

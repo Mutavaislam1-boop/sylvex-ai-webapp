@@ -119,6 +119,7 @@ body::before{content:none}
 .tool h4{margin:0;font-size:14px;font-weight:600}
 .tool p{margin:4px 0 0;font-size:12px;color:var(--text-mute);line-height:1.4}
 .tool::after{content:none}
+.tool .knowledge-card-image{display:block;width:calc(100% + 32px);max-width:none;aspect-ratio:1/1;margin:-16px -16px 13px;object-fit:cover;background:var(--surface-2)}.knowledge-card-copy{min-width:0}
 .gen-pills{display:flex;gap:8px;overflow-x:auto;padding:4px 2px;scrollbar-width:none;margin-bottom:14px}
 .gen-pills::-webkit-scrollbar{display:none}
 .gen-pill{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:14px;background:var(--surface);border:1px solid var(--border);color:var(--text-dim);font-size:13px;font-weight:500;cursor:pointer;backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
