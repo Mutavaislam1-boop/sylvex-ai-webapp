@@ -6432,7 +6432,19 @@ def ensure_community_tables():
             post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
             telegram_id BIGINT NOT NULL,
             body TEXT NOT NULL,
+            parent_comment_id BIGINT REFERENCES community_comments(id) ON DELETE SET NULL,
+            edited_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("ALTER TABLE community_comments ADD COLUMN IF NOT EXISTS parent_comment_id BIGINT REFERENCES community_comments(id) ON DELETE SET NULL")
+        cursor.execute("ALTER TABLE community_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_comment_likes (
+            comment_id BIGINT NOT NULL REFERENCES community_comments(id) ON DELETE CASCADE,
+            telegram_id BIGINT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (comment_id, telegram_id)
         )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts (created_at DESC)")
@@ -6580,7 +6592,7 @@ async def public_community_like(post_id: int, request: Request):
 
 
 @app.get("/api/public/community/posts/{post_id}/comments")
-async def public_community_comments(post_id: int):
+async def public_community_comments(post_id: int, telegram_id: int = 0):
     if not DATABASE_URL:
         return {"ok": True, "items": []}
     ensure_community_tables()
@@ -6589,13 +6601,23 @@ async def public_community_comments(post_id: int):
     try:
         cursor.execute("""
             SELECT c.id, c.telegram_id, c.body, c.created_at,
-                   COALESCE(up.display_name, u.first_name, 'SYLVEX User'), COALESCE(up.custom_avatar_url, '')
+                   COALESCE(up.display_name, u.first_name, 'SYLVEX User'), COALESCE(up.custom_avatar_url, ''),
+                   c.parent_comment_id, c.edited_at, COUNT(DISTINCT cl.telegram_id),
+                   BOOL_OR(cl.telegram_id = %s),
+                   COALESCE(parent_up.display_name, parent_u.first_name, '')
             FROM community_comments c
             LEFT JOIN users u ON u.telegram_id = c.telegram_id
             LEFT JOIN user_profiles up ON up.telegram_id = c.telegram_id
-            WHERE c.post_id = %s ORDER BY c.created_at ASC LIMIT 100
-        """, (post_id,))
-        return {"ok": True, "items": [{"id": r[0], "author_id": r[1], "body": r[2], "created_at": _to_iso(r[3]), "author_name": r[4], "author_avatar": r[5]} for r in cursor.fetchall()]}
+            LEFT JOIN community_comment_likes cl ON cl.comment_id = c.id
+            LEFT JOIN community_comments parent ON parent.id = c.parent_comment_id
+            LEFT JOIN users parent_u ON parent_u.telegram_id = parent.telegram_id
+            LEFT JOIN user_profiles parent_up ON parent_up.telegram_id = parent.telegram_id
+            WHERE c.post_id = %s
+            GROUP BY c.id, up.display_name, up.custom_avatar_url, u.first_name,
+                     parent_up.display_name, parent_u.first_name
+            ORDER BY c.created_at ASC LIMIT 100
+        """, (telegram_id, post_id))
+        return {"ok": True, "items": [{"id": r[0], "author_id": r[1], "body": r[2], "created_at": _to_iso(r[3]), "author_name": r[4], "author_avatar": r[5], "parent_comment_id": r[6], "edited_at": _to_iso(r[7]), "likes": int(r[8] or 0), "liked": bool(r[9]), "reply_to_name": r[10] or "", "is_own": bool(telegram_id and int(r[1]) == telegram_id)} for r in cursor.fetchall()]}
     finally:
         cursor.close()
         conn.close()
@@ -6603,6 +6625,36 @@ async def public_community_comments(post_id: int):
 
 @app.post("/api/public/community/posts/{post_id}/comments")
 async def public_community_comment(post_id: int, request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    body = str(payload.get("body") or "").strip()[:500]
+    parent_comment_id = int(payload.get("parent_comment_id") or 0) or None
+    init_data = payload.get("initData") or ""
+    if not telegram_id or not body:
+        return JSONResponse({"ok": False, "error": "invalid_comment"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        if parent_comment_id:
+            cursor.execute("SELECT 1 FROM community_comments WHERE id = %s AND post_id = %s", (parent_comment_id, post_id))
+            if not cursor.fetchone():
+                return JSONResponse({"ok": False, "error": "parent_comment_not_found"}, status_code=404)
+        cursor.execute("INSERT INTO community_comments (post_id, telegram_id, body, parent_comment_id) VALUES (%s, %s, %s, %s) RETURNING id", (post_id, telegram_id, body, parent_comment_id))
+        comment_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"ok": True, "comment_id": comment_id}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.patch("/api/public/community/comments/{comment_id}")
+async def public_community_edit_comment(comment_id: int, request: Request):
     payload = await request.json()
     telegram_id = int(payload.get("telegram_id") or 0)
     body = str(payload.get("body") or "").strip()[:500]
@@ -6617,10 +6669,62 @@ async def public_community_comment(post_id: int, request: Request):
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO community_comments (post_id, telegram_id, body) VALUES (%s, %s, %s) RETURNING id", (post_id, telegram_id, body))
-        comment_id = cursor.fetchone()[0]
+        cursor.execute("UPDATE community_comments SET body = %s, edited_at = NOW() WHERE id = %s AND telegram_id = %s RETURNING id", (body, comment_id, telegram_id))
+        if not cursor.fetchone():
+            return JSONResponse({"ok": False, "error": "comment_not_found_or_forbidden"}, status_code=403)
         conn.commit()
-        return {"ok": True, "comment_id": comment_id}
+        return {"ok": True}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.delete("/api/public/community/comments/{comment_id}")
+async def public_community_delete_comment(comment_id: int, request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    init_data = payload.get("initData") or ""
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM community_comments WHERE id = %s AND telegram_id = %s RETURNING post_id", (comment_id, telegram_id))
+        if not cursor.fetchone():
+            return JSONResponse({"ok": False, "error": "comment_not_found_or_forbidden"}, status_code=403)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/public/community/comments/{comment_id}/like")
+async def public_community_comment_like(comment_id: int, request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    init_data = payload.get("initData") or ""
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM community_comment_likes WHERE comment_id = %s AND telegram_id = %s RETURNING comment_id", (comment_id, telegram_id))
+        liked = not bool(cursor.fetchone())
+        if liked:
+            cursor.execute("INSERT INTO community_comment_likes (comment_id, telegram_id) SELECT id, %s FROM community_comments WHERE id = %s ON CONFLICT DO NOTHING", (telegram_id, comment_id))
+        conn.commit()
+        return {"ok": True, "liked": liked}
     finally:
         cursor.close()
         conn.close()
