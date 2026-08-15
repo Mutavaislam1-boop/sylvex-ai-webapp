@@ -161,7 +161,7 @@ HTML-страница Mini App. Комментарии подписывают э
       <div class="section-title"><h3>Быстрые инструменты</h3><a onclick="SYLVEX.openPhotoToolModal(event,'photo_catalog')">Все</a></div>
       <div class="home-quick-tools" id="homeHist"></div>
 
-      <div class="section-title"><h3>Центр знаний</h3><a href="docs.html?section=general">О SYLVEX</a></div>
+      <div class="section-title"><h3>Быстрый доступ</h3><a onclick="switchView('tools')">ProStudio</a></div>
       <div class="tools" id="homeTools"></div>
     </section>
 
@@ -1593,6 +1593,13 @@ CSS-класс задаёт внешний вид и расположение: m
       =================================================== -->
       <button class="btn-primary" style="width:100%" onclick="SYLVEX.renewFromModal()">Продлить подписку</button>
     </div>
+  </div>
+</div>
+
+<div class="knowledge-workspace-modal" id="knowledgeWorkspaceModal" aria-hidden="true">
+  <div class="knowledge-workspace-shell">
+    <button class="knowledge-workspace-close" type="button" onclick="SYLVEX.closeKnowledgeWorkspace()" aria-label="Закрыть">×</button>
+    <iframe id="knowledgeWorkspaceFrame" title="Быстрый генератор SYLVEX"></iframe>
   </div>
 </div>
 
