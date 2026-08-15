@@ -1,6 +1,7 @@
 (function(){
   const root=document.getElementById('knowledgeWorkspace');
   const mode=(new URLSearchParams(location.search).get('mode')||'image').toLowerCase();
+  root.dataset.mode=mode;
   let selectedMedia='';
   const data={
     image:{title:'Генерация изображений',lead:'Только необходимые настройки и непрерывный каталог референсов.',placeholder:'Опишите изображение, эффект печатания…',models:[['seedream_5_0_pro','Seedream 5.0 Pro'],['seedream_5_0_lite','Seedream 5.0 Lite'],['seedream_4_5','Seedream 4.5'],['gpt_image_2','GPT Image 2'],['gpt_image_1','GPT Image 1'],['flux_2','FLUX.2'],['flux_2_turbo','FLUX.2 Turbo'],['nano_banana_2','Nano Banana 2'],['ideogram_4_0','Ideogram 4.0'],['recraft_v4_1_pro','Recraft V4.1 Pro']],controls:[['ratio',['1:1','4:5','16:9','9:16']]]},
