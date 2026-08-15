@@ -80,3 +80,10 @@
 .quick-select select:hover{background:#333}
 .quick-generator-controls .photo-generate{margin-left:auto}
 @media(max-width:700px){.quick-generator-controls{display:flex;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.quick-generator-controls::-webkit-scrollbar{display:none}.quick-select{height:38px;flex:0 0 112px;min-width:112px}.quick-select.wide{flex-basis:154px;min-width:154px}.quick-select select{border-radius:11px;font-size:12px}.quick-generator-controls .photo-generate{position:sticky;right:0;flex:0 0 auto;margin-left:0}}
+
+.quick-generator-controls .quick-picker{flex:0 1 126px;min-width:104px}
+.quick-generator-controls .quick-picker.wide{flex:1 1 190px;min-width:158px}
+.quick-generator-controls .quick-picker .photo-picker-trigger{height:40px}
+.quick-generator-controls .quick-picker .photo-picker-menu{width:max(100%,190px)}
+.quick-generator-controls .quick-picker .ratio-menu{width:132px;min-width:132px}
+@media(max-width:700px){.quick-generator-controls .quick-picker{flex:0 0 108px;min-width:108px}.quick-generator-controls .quick-picker.wide{flex-basis:150px;min-width:150px}.quick-generator-controls .quick-picker .photo-picker-trigger{height:38px}}
