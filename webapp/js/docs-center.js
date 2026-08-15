@@ -5,7 +5,7 @@
   const scrim = document.getElementById('sectionsScrim');
   const title = document.getElementById('currentTitle');
   const theme = document.getElementById('centerTheme');
-  const pages = { general: 'knowledge-workspace.html?mode=general', images: 'knowledge-workspace.html?mode=image', video: 'knowledge-workspace.html?mode=video', music: 'knowledge-workspace.html?mode=music', voice: 'knowledge-workspace.html?mode=voice', text: 'knowledge-workspace.html?mode=text' };
+  const pages = { general: 'docs-general.html', images: 'docs-images.html', video: 'docs-video.html', music: 'docs-music.html', voice: 'docs-voice.html', text: 'docs-text.html' };
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
   function applyTheme(value) {
     document.documentElement.dataset.theme = value;
