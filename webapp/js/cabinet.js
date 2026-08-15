@@ -11002,15 +11002,15 @@ function renderGeneratedTelegramButton(url, kind) {
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
   const HOME_QUICK_TOOLS = [
-    {key:'try_on',title:'Try‑On',note:'Виртуальная примерка',icon:'◫'},
-    {key:'remove_bg',title:'Удаление фона',note:'Чистый фон за один шаг',icon:'◌'},
-    {key:'replace_character',title:'Замена персонажа',note:'Сохранение сцены и позы',icon:'◎'},
-    {key:'enhance',title:'Улучшение фото',note:'Детализация и качество',icon:'◇'},
-    {key:'animate_photo',title:'Оживление фото',note:'Фото превращается в видео',icon:'▷'},
-    {key:'tattoo',title:'Тату',note:'Реалистичное нанесение',icon:'✦'},
-    {key:'logo',title:'Лого',note:'Размещение на изображении',icon:'L'},
-    {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',icon:'−'},
-    {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',icon:'⇄'},
+    {key:'try_on',title:'Try‑On',note:'Виртуальная примерка',image:'assets/quick-tools/try-on.jpg'},
+    {key:'remove_bg',title:'Удаление фона',note:'Чистый фон за один шаг',image:'assets/quick-tools/remove-background.jpg'},
+    {key:'replace_character',title:'Замена персонажа',note:'Сохранение сцены и позы',image:'assets/quick-tools/replace-character.jpg'},
+    {key:'enhance',title:'Улучшение фото',note:'Детализация и качество',image:'assets/quick-tools/enhance-photo.jpg'},
+    {key:'animate_photo',title:'Оживление фото',note:'Фото превращается в видео',image:'assets/quick-tools/animate-photo.jpg'},
+    {key:'tattoo',title:'Тату',note:'Реалистичное нанесение',image:'assets/quick-tools/tattoo.jpg'},
+    {key:'logo',title:'Лого',note:'Размещение на изображении',image:'assets/quick-tools/logo-placement.jpg'},
+    {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',image:'assets/quick-tools/remove-object.jpg'},
+    {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',image:'assets/quick-tools/replace-object.jpg'},
   ];
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
@@ -11088,7 +11088,7 @@ function renderGeneratedTelegramButton(url, kind) {
     }
     openPhotoToolModal(event, key);
   }
-  function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-icon">'+item.icon+'</span><span><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
+  function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-preview"><img src="'+item.image+'" alt="" loading="lazy" decoding="async"></span><span class="home-quick-copy"><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
   function moveHomeQuickTools(direction) {
     const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track)return;
     homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;
