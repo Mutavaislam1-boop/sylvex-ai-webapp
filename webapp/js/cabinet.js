@@ -11253,23 +11253,86 @@ function renderGeneratedTelegramButton(url, kind) {
     }, 260);
   }
 
-  function handleKnowledgeWorkspaceMessage(event) {
+  async function handleKnowledgeWorkspaceMessage(event) {
     const message = event.data || {};
     if (message.source !== 'sylvex-knowledge') return;
     if (message.action === 'close') { closeKnowledgeWorkspace(); return; }
+    if (message.action === 'video-template') {
+      closeKnowledgeWorkspace();
+      switchView('tools');
+      updateComposerMode('video');
+      await openVideoTemplatesCatalog('templates');
+      if (message.templateId) openVideoTemplateFromCatalog(null, String(message.templateId));
+      return;
+    }
+    if (message.action === 'text-chat') {
+      const replyTarget = event.source;
+      updateComposerMode('text');
+      if (message.model) textState.modelId = String(message.model);
+      const input = document.getElementById('chatInput');
+      if (input) {
+        input.value = String(message.prompt || '');
+        autoGrow(input);
+        updateSendButton();
+      }
+      await sendChat();
+      const answer = [...chatMessages].reverse().find(item => item && item.role === 'ai' && item.text && !item.generationLoading);
+      replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'text-chat-result', text:answer?.text || 'Не удалось получить ответ.' }, location.origin);
+      return;
+    }
     if (message.action !== 'generate') return;
     const isGeneral = message.mode === 'general';
     const mode = CHAT_SPACE_TYPES.includes(message.mode) ? message.mode : 'image';
+    const options = message.options && typeof message.options === 'object' ? message.options : {};
+    const modelId = String(message.model || '');
     closeKnowledgeWorkspace();
     switchView('tools');
-    if (!isGeneral) updateComposerMode(mode);
+    if (!isGeneral) {
+      updateComposerMode(mode);
+      if (mode === 'image') {
+        if (modelId) imageState.modelId = modelId;
+        if (options.ratio) imageState.size = String(options.ratio);
+        if (message.reference) {
+          imageState.referenceImageUrl = String(message.reference);
+          imageState.referenceImageUrls = [String(message.reference)];
+          imageState.uploadedImageUrls = [String(message.reference)];
+        }
+        renderImageControls();
+      } else if (mode === 'video') {
+        if (modelId) videoState.modelId = modelId;
+        if (options.ratio) videoState.ratio = String(options.ratio);
+        if (options.duration) videoState.duration = Number.parseInt(String(options.duration), 10) || videoState.duration;
+        if (options.quality) videoState.resolution = String(options.quality);
+        if (message.reference) videoState.referenceImageUrls = [String(message.reference)];
+        normalizeVideoStateForModel();
+        renderVideoControls();
+      } else if (mode === 'music') {
+        if (modelId) musicState.modelId = modelId;
+        if (options.genre) musicState.genre = String(options.genre).toLowerCase();
+        if (options.duration) musicState.duration = Number.parseInt(String(options.duration), 10) * 60 || musicState.duration;
+        if (options.vocal) musicState.settings.vocal = String(options.vocal);
+        renderMusicControls();
+      } else if (mode === 'voice') {
+        if (modelId) voiceState.modelId = modelId;
+        const speakers = [options.speaker1, options.speaker2].filter(Boolean).map(String);
+        if (speakers.length) {
+          voiceWorkspaceMode = speakers.length > 1 ? 'dialogue' : 'voiceover';
+          voiceState.numSpeakers = speakers.length;
+          voiceState.speakerMode = speakers.length > 1 ? 'multi' : 'single';
+          voiceState.speakerVoices = speakers.concat(['','','','','']).slice(0,7);
+          voiceState.elevenlabsVoice = speakers[0];
+          voiceState.elevenlabsSecondVoice = speakers[1] || speakers[0];
+          voiceState.elevenlabsTool = speakers.length > 1 ? 'dialogue' : 'text_to_speech';
+        }
+        renderVoiceControls();
+      }
+    }
     window.setTimeout(() => {
       const input = document.getElementById('chatInput');
       if (input && message.prompt) { input.value = String(message.prompt); autoGrow(input); input.focus(); }
-      const modelId = String(message.model || '');
-      if (modelId) pickImageOption(null, 'model', modelId);
       updateSendButton();
-    }, 80);
+      if (!isGeneral && message.prompt) sendChat();
+    }, 140);
   }
 
   /* ===== Pricing ===== */
