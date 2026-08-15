@@ -143,7 +143,7 @@
     const docsDescriptions = { image:'Руководство по изображениям', text:'Руководство по тексту', voice:'Руководство по озвучке', video:'Руководство по видео', music:'Руководство по музыке', general:'О платформе SYLVEX' };
     const docsImages = { image:'images.png', video:'video.png', music:'music.png', voice:'voice.png', text:'text.png', general:'general.png' };
     const section = docsSections[tt.k] || 'general';
-    return '<div class="tool" onclick="location.href=\u0027docs.html?section=' + section + '\u0027">'
+    return '<div class="tool" onclick="SYLVEX.openKnowledgeWorkspace(\u0027' + section + '\u0027)">'
       + '<img class="knowledge-card-image" src="assets/knowledge-center/' + docsImages[tt.k] + '" alt="" loading="lazy">'
       + '<div class="knowledge-card-copy"><h4>' + docsLabels[tt.k] + '</h4>'
       + '<p>' + docsDescriptions[tt.k] + '</p></div></div>';

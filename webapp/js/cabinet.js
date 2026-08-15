@@ -11228,6 +11228,45 @@ function renderGeneratedTelegramButton(url, kind) {
     updatePrice();
   }
 
+  function openKnowledgeWorkspace(section) {
+    const modal = document.getElementById('knowledgeWorkspaceModal');
+    const frame = document.getElementById('knowledgeWorkspaceFrame');
+    if (!modal || !frame) return;
+    const modes = { images:'image', video:'video', music:'music', voice:'voice', text:'text', general:'general' };
+    const nextSrc = 'knowledge-workspace.html?mode=' + encodeURIComponent(modes[section] || 'image');
+    if (!frame.getAttribute('src') || !frame.getAttribute('src').endsWith(nextSrc)) frame.src = nextSrc;
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('knowledge-workspace-open');
+  }
+
+  function closeKnowledgeWorkspace() {
+    const modal = document.getElementById('knowledgeWorkspaceModal');
+    if (!modal) return;
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('knowledge-workspace-open');
+  }
+
+  function handleKnowledgeWorkspaceMessage(event) {
+    const message = event.data || {};
+    if (message.source !== 'sylvex-knowledge') return;
+    if (message.action === 'close') { closeKnowledgeWorkspace(); return; }
+    if (message.action !== 'generate') return;
+    const isGeneral = message.mode === 'general';
+    const mode = CHAT_SPACE_TYPES.includes(message.mode) ? message.mode : 'image';
+    closeKnowledgeWorkspace();
+    switchView('tools');
+    if (!isGeneral) updateComposerMode(mode);
+    window.setTimeout(() => {
+      const input = document.getElementById('chatInput');
+      if (input && message.prompt) { input.value = String(message.prompt); autoGrow(input); input.focus(); }
+      const modelId = String(message.model || '');
+      if (modelId) pickImageOption(null, 'model', modelId);
+      updateSendButton();
+    }, 80);
+  }
+
   /* ===== Pricing ===== */
   // =====================================================
   // JAVASCRIPT-БЛОК: computePrice
@@ -17836,6 +17875,7 @@ async function waitGeneration(jobId, options) {
     }
 
     bindEvents();
+    window.addEventListener('message', handleKnowledgeWorkspaceMessage);
     initAudioPlayer();
     restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
@@ -17882,7 +17922,7 @@ async function waitGeneration(jobId, options) {
     openSupport, closeSupport, sendSupport,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
-    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile, openHomeQuickTool,
+    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile, openHomeQuickTool, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, searchCommunity, toggleCommunityMenu, communityComingSoon,
     openCommunityUserCard, followCommunityAuthor, messageCommunityAuthor, shareCommunityPost, downloadCommunityPost, filterCommunityPublisher, limitCommunitySelection, publishCommunitySelection,
