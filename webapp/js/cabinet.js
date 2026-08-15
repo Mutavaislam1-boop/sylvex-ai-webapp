@@ -11088,7 +11088,7 @@ function renderGeneratedTelegramButton(url, kind) {
     }
     openPhotoToolModal(event, key);
   }
-  function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-preview"><img src="'+item.image+'" alt="" loading="lazy" decoding="async"></span><span class="home-quick-copy"><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
+  function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-preview"><img src="'+item.image+'" alt="" loading="eager" decoding="async" fetchpriority="high"></span><span class="home-quick-copy"><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
   function moveHomeQuickTools(direction) {
     const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track)return;
     homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;
@@ -11257,12 +11257,48 @@ function renderGeneratedTelegramButton(url, kind) {
     const message = event.data || {};
     if (message.source !== 'sylvex-knowledge') return;
     if (message.action === 'close') { closeKnowledgeWorkspace(); return; }
+    if (message.action === 'music-library-request') {
+      const replyTarget = event.source;
+      try {
+        const response = await fetch('/api/public/prostudio/gallery?telegram_id=' + encodeURIComponent(getTelegramId() || 0) + '&limit=100', { cache:'no-store' });
+        const data = await response.json();
+        const tracks = (Array.isArray(data.items) ? data.items : [])
+          .filter((item) => {
+            const type = String(item.type || '').toLowerCase();
+            const source = String(item.provider || '') + ' ' + String(item.model || '');
+            return !!item.media_url && (type === 'music' || (type === 'audio' && /suno|chirp/i.test(source)));
+          })
+          .map((item) => ({
+            id: item.id,
+            title: String(item.title || item.prompt || 'Трек Suno').slice(0, 80),
+            genre: item.genre || '',
+            audioUrl: item.media_url,
+            coverUrl: item.preview_url || '',
+            model: item.model || '',
+            provider: item.provider || 'suno',
+          }));
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks }, location.origin);
+      } catch (_) {
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks:[] }, location.origin);
+      }
+      return;
+    }
     if (message.action === 'video-template') {
+      const requestedTemplate = String(message.templateId || '').trim();
+      const templates = await loadVideoTemplates();
+      const template = templates.find((item) => {
+        if (!item) return false;
+        if (String(item.id || '') === requestedTemplate) return true;
+        if (String(item.slot || item.folder_id || '') === requestedTemplate) return true;
+        return [item.preview_video, item.poster_url, item.reference_video].some((url) =>
+          String(url || '').includes('/video-templates/' + requestedTemplate + '/')
+        );
+      });
       closeKnowledgeWorkspace();
       switchView('tools');
       updateComposerMode('video');
-      await openVideoTemplatesCatalog('templates');
-      if (message.templateId) openVideoTemplateFromCatalog(null, String(message.templateId));
+      if (template) openVideoTemplateModal(template);
+      else toast('Видеошаблон временно недоступен', 'error');
       return;
     }
     if (message.action === 'text-chat') {
@@ -11292,6 +11328,7 @@ function renderGeneratedTelegramButton(url, kind) {
       if (mode === 'image') {
         if (modelId) imageState.modelId = modelId;
         if (options.ratio) imageState.size = String(options.ratio);
+        if (message.style) imageState.style = String(message.style);
         if (message.reference) {
           imageState.referenceImageUrl = String(message.reference);
           imageState.referenceImageUrls = [String(message.reference)];

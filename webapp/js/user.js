@@ -15,9 +15,24 @@
   }
   function cacheProfileIdentity(user) {
     if (!user || !user.telegram_id) return;
+    const previous = readCachedIdentity(user.telegram_id) || {};
     const value = {
-      display_name: typeof user.display_name === 'string' ? user.display_name : null,
-      custom_avatar_url: typeof user.custom_avatar_url === 'string' ? user.custom_avatar_url : null,
+      telegram_id: user.telegram_id,
+      username: typeof user.username === 'string' ? user.username : previous.username,
+      first_name: typeof user.first_name === 'string' ? user.first_name : previous.first_name,
+      last_name: typeof user.last_name === 'string' ? user.last_name : previous.last_name,
+      photo_url: typeof user.photo_url === 'string' ? user.photo_url : previous.photo_url,
+      display_name: typeof user.display_name === 'string' ? user.display_name : previous.display_name,
+      custom_avatar_url: typeof user.custom_avatar_url === 'string' ? user.custom_avatar_url : previous.custom_avatar_url,
+      balance: user.balance !== undefined ? Number(user.balance || 0) : Number(previous.balance || 0),
+      status: user.status || previous.status || null,
+      subscription_status: user.subscription_status || previous.subscription_status || null,
+      subscription_plan: user.subscription_plan || user.subscription || previous.subscription_plan || null,
+      subscription_expires_at: user.subscription_expires_at || previous.subscription_expires_at || null,
+      referrals_count: user.referrals_count !== undefined ? Number(user.referrals_count || 0) : Number(previous.referrals_count || 0),
+      generations_count: user.generations_count !== undefined ? Number(user.generations_count || 0) : Number(previous.generations_count || 0),
+      tokens_spent: user.tokens_spent !== undefined ? Number(user.tokens_spent || 0) : Number(previous.tokens_spent || 0),
+      created_at: user.created_at || previous.created_at || null,
     };
     try { localStorage.setItem(identityCacheKey(user.telegram_id), JSON.stringify(value)); } catch {}
   }
@@ -67,6 +82,9 @@
       const img = document.createElement('img');
       img.src = photoUrl;
       img.alt = '';
+      img.loading = 'eager';
+      img.decoding = 'sync';
+      img.fetchPriority = 'high';
       img.referrerPolicy = 'no-referrer';
       img.style.cssText = 'width:100%;height:100%;border-radius:inherit;object-fit:cover;display:block';
       img.onerror = () => { el.textContent = ini; if (dot) el.appendChild(dot); };
@@ -313,7 +331,7 @@
     if (tgUser) {
       const cachedIdentity = readCachedIdentity(tgUser.telegram_id);
       if (cachedIdentity) {
-        renderIdentity(Object.assign({}, tgUser, cachedIdentity));
+        renderUser(Object.assign({}, tgUser, cachedIdentity));
       } else {
         // Do not flash the Telegram photo before the saved Mini App profile arrives.
         const placeholderIdentity = Object.assign({}, tgUser);
