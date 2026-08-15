@@ -70,3 +70,13 @@
 .knowledge-workspace:not([data-mode="image"]) .generate:hover{background:#627df7;opacity:1}
 .knowledge-workspace:not([data-mode="image"]) .media-preview button{width:13px;height:13px;font-size:9px;line-height:13px;background:rgba(20,20,20,.88);color:#a8a8a8}
 @media(max-width:700px){.knowledge-workspace:not([data-mode="image"]) .generator.studio-input{padding:9px;border-radius:20px}.knowledge-workspace:not([data-mode="image"]) .prompt-row{padding:7px!important;border-radius:14px}.knowledge-workspace:not([data-mode="image"]) .prompt-row textarea{font-size:14px}.knowledge-workspace:not([data-mode="image"]) .studio-select-pill,.knowledge-workspace:not([data-mode="image"]) .generate{height:36px;min-height:36px;font-size:12px}}
+
+/* All quick generators share the exact image-generator component geometry. */
+.quick-generator .photo-prompt-wrap textarea::placeholder{color:#8e8e8e}
+.quick-generator-controls{display:flex;align-items:center;flex-wrap:wrap}
+.quick-select{position:relative;display:block;flex:0 1 132px;min-width:108px;height:40px}
+.quick-select.wide{flex:1 1 190px;min-width:160px}
+.quick-select select{width:100%;height:100%;padding:0 28px 0 10px;border:1px solid rgba(255,255,255,.11);border-radius:12px;outline:0;background:#292929;color:#ececec;font:600 13px/1 inherit;cursor:pointer}
+.quick-select select:hover{background:#333}
+.quick-generator-controls .photo-generate{margin-left:auto}
+@media(max-width:700px){.quick-generator-controls{display:flex;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.quick-generator-controls::-webkit-scrollbar{display:none}.quick-select{height:38px;flex:0 0 112px;min-width:112px}.quick-select.wide{flex-basis:154px;min-width:154px}.quick-select select{border-radius:11px;font-size:12px}.quick-generator-controls .photo-generate{position:sticky;right:0;flex:0 0 auto;margin-left:0}}
