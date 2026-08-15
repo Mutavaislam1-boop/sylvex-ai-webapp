@@ -11237,7 +11237,6 @@ function renderGeneratedTelegramButton(url, kind) {
     if (!frame.getAttribute('src') || !frame.getAttribute('src').endsWith(nextSrc)) frame.src = nextSrc;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('knowledge-workspace-open');
   }
 
   function closeKnowledgeWorkspace() {
@@ -11245,7 +11244,6 @@ function renderGeneratedTelegramButton(url, kind) {
     if (!modal) return;
     modal.classList.remove('show');
     modal.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('knowledge-workspace-open');
   }
 
   function handleKnowledgeWorkspaceMessage(event) {
@@ -17863,6 +17861,7 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function init() {
+    document.body.classList.remove('knowledge-workspace-open');
     // Restore saved theme.
     const tg = S.tg;
     const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
