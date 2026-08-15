@@ -52,6 +52,18 @@ load_dotenv()
 
 app = FastAPI()
 
+STATIC_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif", ".ico")
+
+
+@app.middleware("http")
+async def cache_static_images(request: Request, call_next):
+    """Keep version-stable visual assets in the Telegram WebView cache."""
+    response = await call_next(request)
+    path = request.url.path.lower()
+    if response.status_code in {200, 206} and path.endswith(STATIC_IMAGE_EXTENSIONS):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 PRESET_CATALOG_DIR = BASE_DIR / "backend" / "preset_catalog"
@@ -6361,10 +6373,18 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
             response_data = _json_obj(response_json)
             kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
             media_url = (videos[0] if videos else audios[0] if audios else images[0] if images else "")
-            preview_url = (thumbs[0] if thumbs else images[0] if images else metadata.get("thumbnail_url") or "")
+            preview_url = (
+                thumbs[0] if thumbs else images[0] if images else
+                metadata.get("thumbnail_url") or metadata.get("cover_url") or
+                metadata.get("artwork_url") or metadata.get("image_url") or
+                response_data.get("thumbnail_url") or response_data.get("cover_url") or
+                response_data.get("image_url") or ""
+            )
             items.append({
                 "id": message_id, "conversation_id": conversation_id, "type": kind,
                 "prompt": prompt or metadata.get("prompt") or "", "text": response_text or "",
+                "title": metadata.get("title") or response_data.get("title") or prompt or "",
+                "genre": metadata.get("genre") or response_data.get("genre") or "",
                 "media_url": media_url, "preview_url": preview_url,
                 "job_id": metadata.get("job_id") or response_data.get("job_id") or "",
                 "status": status or metadata.get("status") or "completed",
