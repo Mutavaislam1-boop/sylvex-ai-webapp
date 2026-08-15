@@ -35,3 +35,22 @@
 .photo-generate:disabled{border-color:transparent;background:#424242;color:#858585;opacity:1}
 .photo-media-row .media-preview button{background:rgba(20,20,20,.88);color:#a8a8a8}
 @media(max-width:700px){.photo-generator{padding:9px;border-radius:20px}.photo-prompt-wrap textarea{min-height:90px;padding:14px 12px;font-size:14px}.photo-animated-placeholder{left:13px;top:14px;font-size:14px}.photo-picker-trigger,.photo-generate{height:44px}.photo-picker-trigger b,.photo-generate{font-size:13px}}
+
+/* Compact controls and corrected ratio previews. */
+.photo-controls{grid-template-columns:minmax(150px,1fr) 92px auto;gap:6px}
+.photo-picker-trigger,.photo-generate{height:40px;border-radius:12px}
+.photo-picker-trigger{gap:5px;padding:0 9px}
+.photo-picker-trigger b{font-size:13px;font-weight:600}
+.photo-ratio .photo-picker-trigger{padding:0 7px}
+.ratio-screen{width:22px;height:22px;flex:0 0 22px;transform:none}
+.ratio-screen:before{width:var(--screen-w);height:var(--screen-h);border-color:#cfcfcf;border-radius:2px}
+.ratio-menu{width:132px;min-width:132px}
+.ratio-menu .ratio-screen{transform:none}
+.photo-picker-menu button{height:38px;font-size:13px}
+.photo-generate{padding:0 13px;background:#5572f5;color:#fff;font-size:13px}
+.photo-generate:hover:not(:disabled){background:#627df7}
+.photo-generate:disabled{background:#424242;color:#858585}
+.photo-add{width:34px;height:34px;font-size:23px}
+.photo-media-row .media-preview button{right:-3px;top:-3px;width:13px;height:13px;font-size:9px;line-height:13px}
+@media(max-width:700px){.photo-controls{grid-template-columns:minmax(130px,1fr) 82px auto;gap:5px}.photo-picker-trigger,.photo-generate{height:38px;border-radius:11px}.photo-picker-trigger{padding:0 7px}.photo-picker-trigger b,.photo-generate{font-size:12px}.photo-generate{padding:0 9px}.ratio-screen{width:20px;height:20px;flex-basis:20px}.photo-add{width:31px;height:31px;font-size:21px}}
+@media(max-width:390px){.photo-controls{grid-template-columns:minmax(0,1fr) 78px}.photo-generate{grid-column:1/-1;width:100%}}
