@@ -5,7 +5,7 @@
   const scrim = document.getElementById('sectionsScrim');
   const title = document.getElementById('currentTitle');
   const theme = document.getElementById('centerTheme');
-  const pages = { general: 'docs-general.html?embed=1', images: 'docs-images.html?embed=1', video: 'docs-video.html?embed=1', music: 'docs-music.html?embed=1', voice: 'docs-voice.html?embed=1', text: 'docs-text.html?embed=1' };
+  const pages = { general: 'knowledge-workspace.html?mode=general', images: 'knowledge-workspace.html?mode=image', video: 'knowledge-workspace.html?mode=video', music: 'knowledge-workspace.html?mode=music', voice: 'knowledge-workspace.html?mode=voice', text: 'knowledge-workspace.html?mode=text' };
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
   function applyTheme(value) {
     document.documentElement.dataset.theme = value;
@@ -26,10 +26,10 @@
 
   function openPage(page, anchor) {
     if (!pages[page]) return;
-    const pageTitles = { general: 'Общее', images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Озвучка', text: 'Текст' };
+    const pageTitles = { general: 'Общее', images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Голос', text: 'Текст' };
     title.textContent = pageTitles[page];
     document.querySelectorAll('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
-    frame.src = pages[page] + (anchor ? '#' + encodeURIComponent(anchor) : '');
+    frame.src = pages[page];
     const url = new URL(location.href);
     url.searchParams.set('section', page);
     if (anchor) url.searchParams.set('anchor', anchor); else url.searchParams.delete('anchor');
