@@ -11234,16 +11234,23 @@ function renderGeneratedTelegramButton(url, kind) {
     if (!modal || !frame) return;
     const modes = { images:'image', video:'video', music:'music', voice:'voice', text:'text', general:'general' };
     const nextSrc = 'knowledge-workspace.html?mode=' + encodeURIComponent(modes[section] || 'image');
-    if (!frame.getAttribute('src') || !frame.getAttribute('src').endsWith(nextSrc)) frame.src = nextSrc;
+    frame.src = nextSrc;
+    modal.hidden = false;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
   }
 
   function closeKnowledgeWorkspace() {
     const modal = document.getElementById('knowledgeWorkspaceModal');
+    const frame = document.getElementById('knowledgeWorkspaceFrame');
     if (!modal) return;
     modal.classList.remove('show');
     modal.setAttribute('aria-hidden', 'true');
+    window.setTimeout(() => {
+      if (modal.classList.contains('show')) return;
+      modal.hidden = true;
+      if (frame) frame.src = 'about:blank';
+    }, 260);
   }
 
   function handleKnowledgeWorkspaceMessage(event) {
@@ -17861,7 +17868,6 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function init() {
-    document.body.classList.remove('knowledge-workspace-open');
     // Restore saved theme.
     const tg = S.tg;
     const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
