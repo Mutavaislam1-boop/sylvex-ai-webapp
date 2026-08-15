@@ -17276,6 +17276,16 @@ async function waitGeneration(jobId, options) {
       : (savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video');
     updateComposerMode(chatTypeForMode(initialMode));
 
+    const requestedPrompt = String(params.get('prompt') || '').trim();
+    if (requestedPrompt) {
+      const input = document.getElementById('chatInput');
+      if (input) {
+        input.value = requestedPrompt;
+        autoGrow(input);
+        updateSendButton();
+      }
+    }
+
     const modelId = String(params.get('model') || '');
     if (initialMode === 'image' && modelId && IMAGE_MODEL_LIST.some((model) => model.id === modelId)) {
       pickImageOption(null, 'model', modelId);
