@@ -11257,6 +11257,24 @@ function renderGeneratedTelegramButton(url, kind) {
     const message = event.data || {};
     if (message.source !== 'sylvex-knowledge') return;
     if (message.action === 'close') { closeKnowledgeWorkspace(); return; }
+    if (message.action === 'voice-library-request') {
+      const replyTarget = event.source;
+      try {
+        await Promise.all([loadElevenLabsVoices(false), loadVoiceAvatarCatalog(false)]);
+        const voices = applyVoiceAvatarsToList(mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES), 'elevenlabs').map((voice) => ({
+          id: String(voice.id || voice.voice_id || ''),
+          name: String(voice.name || voice.label || voice.id || 'Voice').split(' · ')[0],
+          avatar: voiceAvatarUrlFor(voice, 'elevenlabs'),
+          previewUrl: voice.previewUrl || voice.preview_url || '',
+          gender: voice.gender || '',
+          accent: voice.accent || '',
+        })).filter((voice) => voice.id);
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices }, location.origin);
+      } catch (_) {
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices:[] }, location.origin);
+      }
+      return;
+    }
     if (message.action === 'music-library-request') {
       const replyTarget = event.source;
       try {
@@ -11351,7 +11369,8 @@ function renderGeneratedTelegramButton(url, kind) {
         renderMusicControls();
       } else if (mode === 'voice') {
         if (modelId) voiceState.modelId = modelId;
-        const speakers = [options.speaker1, options.speaker2].filter(Boolean).map(String);
+        const speakers = (Array.isArray(options.speakerVoices) ? options.speakerVoices : [options.speaker1, options.speaker2]).filter(Boolean).map(String).slice(0, 7);
+        const speakerNames = (Array.isArray(options.speakerNames) ? options.speakerNames : []).map(String).slice(0, 7);
         if (speakers.length) {
           voiceWorkspaceMode = speakers.length > 1 ? 'dialogue' : 'voiceover';
           voiceState.numSpeakers = speakers.length;
@@ -11360,7 +11379,12 @@ function renderGeneratedTelegramButton(url, kind) {
           voiceState.elevenlabsVoice = speakers[0];
           voiceState.elevenlabsSecondVoice = speakers[1] || speakers[0];
           voiceState.elevenlabsTool = speakers.length > 1 ? 'dialogue' : 'text_to_speech';
+          speakerNames.forEach((name, index) => { voiceState['speaker' + (index + 1)] = name || ('Speaker' + (index + 1)); });
         }
+        voiceState.audioSettings = Object.assign({}, voiceState.audioSettings || {}, {
+          emotion: options.emotion || 'Автоматически',
+          sound_effect: options.sound_effect || 'Без эффекта',
+        });
         renderVoiceControls();
       }
     }
@@ -11368,7 +11392,7 @@ function renderGeneratedTelegramButton(url, kind) {
       const input = document.getElementById('chatInput');
       if (input && message.prompt) { input.value = String(message.prompt); autoGrow(input); input.focus(); }
       updateSendButton();
-      if (!isGeneral && message.prompt) sendChat();
+      if (!isGeneral && message.prompt && mode !== 'voice') sendChat();
     }, 140);
   }
 
