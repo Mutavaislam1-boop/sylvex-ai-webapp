@@ -11261,15 +11261,17 @@ function renderGeneratedTelegramButton(url, kind) {
       const replyTarget = event.source;
       try {
         await Promise.all([loadElevenLabsVoices(false), loadVoiceAvatarCatalog(false)]);
-        const voices = applyVoiceAvatarsToList(mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES), 'elevenlabs').map((voice) => ({
+        const normalizeQuickVoice = (voice) => ({
           id: String(voice.id || voice.voice_id || ''),
           name: String(voice.name || voice.label || voice.id || 'Voice').split(' · ')[0],
           avatar: voiceAvatarUrlFor(voice, 'elevenlabs'),
           previewUrl: voice.previewUrl || voice.preview_url || '',
           gender: voice.gender || '',
           accent: voice.accent || '',
-        })).filter((voice) => voice.id);
-        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices }, location.origin);
+        });
+        const providerVoices = applyVoiceAvatarsToList(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES, 'elevenlabs').map(normalizeQuickVoice).filter((voice) => voice.id);
+        const voices = applyVoiceAvatarsToList(mergeUserVoicesWithProvider(elevenlabsVoiceList || ELEVENLABS_TTS_VOICES), 'elevenlabs').map(normalizeQuickVoice).filter((voice) => voice.id);
+        replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices, demoVoices:providerVoices.slice(0, 7) }, location.origin);
       } catch (_) {
         replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'voice-library', voices:[] }, location.origin);
       }
@@ -11390,7 +11392,7 @@ function renderGeneratedTelegramButton(url, kind) {
     }
     window.setTimeout(() => {
       const input = document.getElementById('chatInput');
-      if (input && message.prompt) { input.value = String(message.prompt); autoGrow(input); input.focus(); }
+      if (input && message.prompt) { input.value = String(message.prompt); input.dispatchEvent(new Event('input', { bubbles:true })); autoGrow(input); input.focus(); }
       updateSendButton();
       if (!isGeneral && message.prompt && mode !== 'voice') sendChat();
     }, 140);
