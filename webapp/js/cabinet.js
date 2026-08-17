@@ -17988,6 +17988,205 @@ async function waitGeneration(jobId, options) {
     else PlayerManager.playTrack(track);
   }
 
+  /* ===== ProStudio Grid ===== */
+  const STUDIO_GRID_KEY = 'sylvex-prostudio-grid-v1';
+  const GRID_TYPES = {
+    text:  { title:'Текст', icon:'T', placeholder:'Опишите идею или задачу…' },
+    image: { title:'Изображение', icon:'▧', placeholder:'Опишите изображение…' },
+    video: { title:'Видео', icon:'▶', placeholder:'Опишите движение и сцену…' },
+    music: { title:'Музыка', icon:'♫', placeholder:'Опишите трек, настроение и жанр…' },
+    voice: { title:'Голос', icon:'◉', placeholder:'Введите текст или диалог…' }
+  };
+  let studioGridState = null;
+  let studioGridSelectedId = '';
+  let studioGridBound = false;
+
+  function defaultStudioGridState() {
+    return {
+      title:'Новая цепочка', panX:90, panY:150, zoom:.9,
+      nodes:[
+        { id:'grid_text_1', type:'text', x:80, y:150, title:'Идея', prompt:'' },
+        { id:'grid_image_1', type:'image', x:430, y:150, title:'Изображение', prompt:'' },
+        { id:'grid_video_1', type:'video', x:780, y:150, title:'Видео', prompt:'' }
+      ],
+      edges:[{from:'grid_text_1',to:'grid_image_1'},{from:'grid_image_1',to:'grid_video_1'}]
+    };
+  }
+
+  function gridEscape(value) {
+    return String(value == null ? '' : value).replace(/[&<>\"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[char]));
+  }
+
+  function loadStudioGridState() {
+    if (studioGridState) return studioGridState;
+    try {
+      const stored = JSON.parse(localStorage.getItem(STUDIO_GRID_KEY) || 'null');
+      if (stored && Array.isArray(stored.nodes) && Array.isArray(stored.edges)) studioGridState = stored;
+    } catch (_) {}
+    if (!studioGridState) studioGridState = defaultStudioGridState();
+    return studioGridState;
+  }
+
+  function saveStudioGridState() {
+    if (!studioGridState) return;
+    try { localStorage.setItem(STUDIO_GRID_KEY, JSON.stringify(studioGridState)); } catch (_) {}
+  }
+
+  function applyStudioGridTransform() {
+    const state = loadStudioGridState();
+    const stage = document.getElementById('studioGridStage');
+    const zoom = document.getElementById('studioGridZoom');
+    if (stage && !window.matchMedia('(max-width:700px)').matches) {
+      stage.style.transform = `translate(${state.panX || 0}px,${state.panY || 0}px) scale(${state.zoom || 1})`;
+    }
+    if (zoom) zoom.textContent = `${Math.round((state.zoom || 1) * 100)}%`;
+  }
+
+  function renderStudioGridEdges() {
+    const state = loadStudioGridState();
+    const svg = document.getElementById('studioGridEdges');
+    if (!svg) return;
+    const byId = Object.fromEntries(state.nodes.map((node) => [node.id, node]));
+    svg.innerHTML = state.edges.map((edge) => {
+      const from = byId[edge.from], to = byId[edge.to];
+      if (!from || !to) return '';
+      const x1 = Number(from.x) + 276, y1 = Number(from.y) + 96;
+      const x2 = Number(to.x), y2 = Number(to.y) + 96;
+      const bend = Math.max(70, Math.abs(x2 - x1) * .45);
+      return `<path d="M${x1} ${y1} C${x1 + bend} ${y1},${x2 - bend} ${y2},${x2} ${y2}"/><circle cx="${x1}" cy="${y1}" r="4"/><circle cx="${x2}" cy="${y2}" r="4"/>`;
+    }).join('');
+  }
+
+  function renderStudioGrid() {
+    const state = loadStudioGridState();
+    const host = document.getElementById('studioGridNodes');
+    const title = document.getElementById('studioGridTitle');
+    if (!host) return;
+    if (title && title !== document.activeElement) title.value = state.title || 'Новая цепочка';
+    host.innerHTML = state.nodes.map((node) => {
+      const type = GRID_TYPES[node.type] || GRID_TYPES.text;
+      return `<article class="studio-grid-node${node.id === studioGridSelectedId ? ' selected' : ''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" style="left:${Number(node.x)||0}px;top:${Number(node.y)||0}px">
+        <span class="studio-grid-port in"></span><span class="studio-grid-port out"></span>
+        <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
+        <div class="studio-grid-node-body"><textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(node.prompt || '')}</textarea><div class="studio-grid-node-result"><i>${type.icon}</i><span>Результат появится в этой цепочке</span></div></div>
+        <footer class="studio-grid-node-footer"><button type="button" data-grid-open>Открыть в ProStudio</button></footer>
+      </article>`;
+    }).join('');
+    applyStudioGridTransform();
+    renderStudioGridEdges();
+  }
+
+  function setStudioLayout(layout) {
+    const mode = layout === 'grid' ? 'grid' : 'classic';
+    const studio = document.querySelector('[data-view="tools"] .studio');
+    const workspace = document.getElementById('studioGridWorkspace');
+    document.querySelectorAll('#studioLayoutSwitch [data-studio-layout]').forEach((button) => button.classList.toggle('active', button.dataset.studioLayout === mode));
+    if (studio) studio.classList.toggle('grid-mode', mode === 'grid');
+    if (workspace) workspace.hidden = mode !== 'grid';
+    localStorage.setItem('sylvex-prostudio-layout', mode);
+    if (mode === 'grid') requestAnimationFrame(renderStudioGrid);
+  }
+
+  function addStudioGridNode(type) {
+    const state = loadStudioGridState();
+    const safeType = GRID_TYPES[type] ? type : 'text';
+    const previous = state.nodes[state.nodes.length - 1];
+    const id = `grid_${safeType}_${Date.now()}`;
+    const nextX = previous ? Math.min(2200, Number(previous.x) + 350) : 120;
+    const nextY = previous && nextX >= 2150 ? Number(previous.y) + 260 : (previous ? Number(previous.y) : 150);
+    state.nodes.push({id,type:safeType,x:nextX,y:nextY,title:GRID_TYPES[safeType].title,prompt:''});
+    if (previous) state.edges.push({from:previous.id,to:id});
+    studioGridSelectedId = id;
+    saveStudioGridState(); renderStudioGrid();
+  }
+
+  function deleteStudioGridNode(id) {
+    const state = loadStudioGridState();
+    state.nodes = state.nodes.filter((node) => node.id !== id);
+    state.edges = state.edges.filter((edge) => edge.from !== id && edge.to !== id);
+    if (studioGridSelectedId === id) studioGridSelectedId = '';
+    saveStudioGridState(); renderStudioGrid();
+  }
+
+  function openStudioGridNode(id) {
+    const node = loadStudioGridState().nodes.find((item) => item.id === id);
+    if (!node) return;
+    setStudioLayout('classic');
+    updateComposerMode(node.type);
+    setTimeout(() => {
+      const input = document.getElementById('chatInput');
+      if (!input) return;
+      input.value = node.prompt || '';
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      autoGrow(input); updateSendButton(); input.focus();
+    }, 60);
+  }
+
+  function zoomStudioGrid(delta) {
+    const state = loadStudioGridState();
+    state.zoom = Math.max(.45, Math.min(1.5, Number(state.zoom || 1) + Number(delta || 0)));
+    saveStudioGridState(); applyStudioGridTransform();
+  }
+
+  function resetStudioGridView() {
+    const state = loadStudioGridState();
+    state.panX = 90; state.panY = 150; state.zoom = .9;
+    saveStudioGridState(); applyStudioGridTransform();
+  }
+
+  function initStudioGrid() {
+    if (studioGridBound) return;
+    studioGridBound = true;
+    const host = document.getElementById('studioGridNodes');
+    const canvas = document.getElementById('studioGridCanvas');
+    const title = document.getElementById('studioGridTitle');
+    if (title) title.addEventListener('input', () => { loadStudioGridState().title = title.value; saveStudioGridState(); });
+    if (host) {
+      host.addEventListener('input', (event) => {
+        const card = event.target.closest('.studio-grid-node');
+        if (!card || !event.target.matches('[data-grid-prompt]')) return;
+        const node = loadStudioGridState().nodes.find((item) => item.id === card.dataset.gridId);
+        if (node) { node.prompt = event.target.value; saveStudioGridState(); }
+      });
+      host.addEventListener('click', (event) => {
+        const card = event.target.closest('.studio-grid-node');
+        if (!card) return;
+        studioGridSelectedId = card.dataset.gridId;
+        host.querySelectorAll('.studio-grid-node').forEach((item) => item.classList.toggle('selected', item === card));
+        if (event.target.closest('[data-grid-delete]')) deleteStudioGridNode(card.dataset.gridId);
+        else if (event.target.closest('[data-grid-open]')) openStudioGridNode(card.dataset.gridId);
+      });
+      host.addEventListener('pointerdown', (event) => {
+        const header = event.target.closest('.studio-grid-node-header');
+        const card = event.target.closest('.studio-grid-node');
+        if (!header || !card || event.target.closest('button') || window.matchMedia('(max-width:700px)').matches) return;
+        event.preventDefault();
+        const node = loadStudioGridState().nodes.find((item) => item.id === card.dataset.gridId);
+        if (!node) return;
+        const startX = event.clientX, startY = event.clientY, x = Number(node.x), y = Number(node.y), scale = studioGridState.zoom || 1;
+        card.setPointerCapture(event.pointerId);
+        const move = (moveEvent) => { node.x = Math.max(0, x + (moveEvent.clientX - startX) / scale); node.y = Math.max(80, y + (moveEvent.clientY - startY) / scale); card.style.left = `${node.x}px`; card.style.top = `${node.y}px`; renderStudioGridEdges(); };
+        const up = () => { card.removeEventListener('pointermove', move); card.removeEventListener('pointerup', up); card.removeEventListener('pointercancel', up); saveStudioGridState(); };
+        card.addEventListener('pointermove', move); card.addEventListener('pointerup', up); card.addEventListener('pointercancel', up);
+      });
+    }
+    if (canvas) {
+      canvas.addEventListener('pointerdown', (event) => {
+        if (event.target.closest('.studio-grid-node') || window.matchMedia('(max-width:700px)').matches) return;
+        const state = loadStudioGridState(), startX = event.clientX, startY = event.clientY, x = Number(state.panX || 0), y = Number(state.panY || 0);
+        canvas.classList.add('is-panning'); canvas.setPointerCapture(event.pointerId);
+        const move = (moveEvent) => { state.panX = x + moveEvent.clientX - startX; state.panY = y + moveEvent.clientY - startY; applyStudioGridTransform(); };
+        const up = () => { canvas.classList.remove('is-panning'); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); saveStudioGridState(); };
+        canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+      });
+      canvas.addEventListener('wheel', (event) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault(); zoomStudioGrid(event.deltaY > 0 ? -.08 : .08);
+      }, {passive:false});
+    }
+    setStudioLayout(localStorage.getItem('sylvex-prostudio-layout') || 'classic');
+  }
+
   /* ===== Init (called after cabinet.html is injected) ===== */
   // =====================================================
   // JAVASCRIPT-БЛОК: init
@@ -18010,6 +18209,7 @@ async function waitGeneration(jobId, options) {
     initAudioPlayer();
     restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
+    initStudioGrid();
     applyLang();       // triggers renderDynamic
     initHero();
     renderChat();
@@ -18042,6 +18242,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
+    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
