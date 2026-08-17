@@ -191,6 +191,10 @@ HTML-страница Mini App. Комментарии подписывают э
             <span class="sb-brand-name" id="modelVal">SYLVEX Pro</span>
             <svg class="sb-brand-chv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
           </button>
+          <div class="studio-layout-switch" id="studioLayoutSwitch" aria-label="Режим ProStudio">
+            <button class="active" type="button" data-studio-layout="classic" onclick="SYLVEX.setStudioLayout('classic')">Обычный</button>
+            <button type="button" data-studio-layout="grid" onclick="SYLVEX.setStudioLayout('grid')">Сетка</button>
+          </div>
           <!-- ==================================================
           HTML-ЭЛЕМЕНТ: sb-icon
           При нажатии вызывает: switchView('home')
@@ -202,6 +206,31 @@ HTML-страница Mini App. Комментарии подписывают э
           <div class="model-pop" id="modelPop" role="menu"></div>
           <div class="mode-strip" id="modeStrip" hidden></div>
         </div>
+        <section class="studio-grid-workspace" id="studioGridWorkspace" hidden aria-label="ProStudio Grid">
+          <header class="studio-grid-header">
+            <div><small>SYLVEX PROSTUDIO</small><input id="studioGridTitle" value="Новая цепочка" maxlength="80" aria-label="Название проекта"></div>
+            <nav>
+              <button type="button" onclick="SYLVEX.addStudioGridNode('text')">+ Текст</button>
+              <button type="button" onclick="SYLVEX.addStudioGridNode('image')">+ Фото</button>
+              <button type="button" onclick="SYLVEX.addStudioGridNode('video')">+ Видео</button>
+              <button type="button" onclick="SYLVEX.addStudioGridNode('music')">+ Музыка</button>
+              <button type="button" onclick="SYLVEX.addStudioGridNode('voice')">+ Голос</button>
+            </nav>
+          </header>
+          <div class="studio-grid-canvas" id="studioGridCanvas">
+            <div class="studio-grid-stage" id="studioGridStage">
+              <svg class="studio-grid-edges" id="studioGridEdges" aria-hidden="true"></svg>
+              <div class="studio-grid-nodes" id="studioGridNodes"></div>
+            </div>
+          </div>
+          <aside class="studio-grid-tools" aria-label="Управление сеткой">
+            <button type="button" onclick="SYLVEX.addStudioGridNode('text')" aria-label="Добавить узел">+</button>
+            <button type="button" onclick="SYLVEX.resetStudioGridView()" aria-label="Показать всю цепочку">⌖</button>
+            <button type="button" onclick="SYLVEX.zoomStudioGrid(-0.1)" aria-label="Уменьшить">−</button>
+            <span id="studioGridZoom">100%</span>
+            <button type="button" onclick="SYLVEX.zoomStudioGrid(0.1)" aria-label="Увеличить">+</button>
+          </aside>
+        </section>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: chatArea
         ID используется JavaScript/CSS как точка подключения: chatArea
