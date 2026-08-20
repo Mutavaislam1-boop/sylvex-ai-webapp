@@ -47,3 +47,23 @@
 
 .docs-embedded .docs-header,.docs-embedded .mobile-docs-nav{display:none!important}.docs-embedded .docs-layout{max-width:1240px;grid-template-columns:minmax(0,880px) 230px;gap:70px;padding-top:44px}.docs-embedded .docs-toc{display:block}.docs-embedded .doc-section{scroll-margin-top:30px}.docs-embedded .floating-studio{bottom:max(18px,env(safe-area-inset-bottom))}
 @media(max-width:900px){.docs-embedded .docs-layout{display:block;padding-top:24px}.docs-embedded body{padding-top:0}.docs-embedded .docs-toc{display:none}.docs-embedded .doc-section{scroll-margin-top:20px}}
+
+/* Supplied brand artwork for public documentation only. */
+.model-card::before{content:"";position:absolute;top:21px;right:21px;width:42px;height:42px;border:1px solid color-mix(in srgb,var(--line) 72%,transparent);border-radius:12px;background-color:rgba(255,255,255,.94);background-image:var(--brand-logo,none);background-position:center;background-repeat:no-repeat;background-size:30px 30px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.model-card.seedream{--brand-logo:url("../assets/ai-brand-logos/seedream.webp")}
+.model-card.gpt,.model-card.sora{--brand-logo:url("../assets/ai-brand-logos/openai.png")}
+.model-card.nano{--brand-logo:url("../assets/ai-brand-logos/nano-banana.png")}
+.model-card.imagen,.model-card.veo,.model-card.lyria{--brand-logo:url("../assets/ai-brand-logos/google.jpeg")}
+.model-card.recraft{--brand-logo:url("../assets/ai-brand-logos/recraft.png")}
+.model-card.ideogram{--brand-logo:url("../assets/ai-brand-logos/ideogram.png")}
+.model-card.grok{--brand-logo:url("../assets/ai-brand-logos/grok.jpeg")}
+.model-card.gemini{--brand-logo:url("../assets/ai-brand-logos/gemini.webp")}
+.model-card.seedance{--brand-logo:url("../assets/ai-brand-logos/seedance.jpeg")}
+.model-card.kling{--brand-logo:url("../assets/ai-brand-logos/kling.png")}
+.model-card.runway{--brand-logo:url("../assets/ai-brand-logos/runway.png")}
+.model-card.luma{--brand-logo:url("../assets/ai-brand-logos/luma.png")}
+.model-card.suno{--brand-logo:url("../assets/ai-brand-logos/suno.png")}
+.model-card.minimax{--brand-logo:url("../assets/ai-brand-logos/minimax.png")}
+.model-card.eleven{--brand-logo:url("../assets/ai-brand-logos/elevenlabs.jpeg")}
+.model-card.byteplus{--brand-logo:url("../assets/ai-brand-logos/seedream.webp")}
+.model-card.flux::before,.model-card.qwen::before,.model-card.wan::before,.model-card.heygen::before,.model-card.other::before{display:none}
