@@ -6612,7 +6612,7 @@ async def public_community_publish(request: Request):
         metadata = _json_obj(metadata_json)
         kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
         kind = "music" if kind == "audio" else kind
-        if kind not in {"image", "video", "music"}:
+        if kind not in {"image", "video"}:
             return JSONResponse({"ok": False, "error": "unsupported_community_media"}, status_code=400)
         media = (videos[0] if videos else video_url) or (audios[0] if audios else audio_url) or (images[0] if images else image_url) or ""
         preview = (thumbs[0] if thumbs else thumb_url) or (images[0] if images else image_url) or ""
