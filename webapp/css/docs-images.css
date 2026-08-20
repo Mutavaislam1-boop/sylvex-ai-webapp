@@ -67,3 +67,16 @@
 .model-card.eleven{--brand-logo:url("../assets/ai-brand-logos/elevenlabs.jpeg")}
 .model-card.byteplus{--brand-logo:url("../assets/ai-brand-logos/seedream.webp")}
 .model-card.flux::before,.model-card.qwen::before,.model-card.wan::before,.model-card.heygen::before,.model-card.other::before{display:none}
+/* Stage 2: shared mobile documentation behaviour. */
+.floating-studio{transition:transform .22s ease,opacity .22s ease}
+.floating-studio.is-hidden{transform:translateY(calc(100% + 32px));opacity:0;pointer-events:none}
+.mobile-back{font-size:30px!important;line-height:1!important;text-decoration:none!important}
+.docs-js-typewriter{display:inline!important;width:auto!important;max-width:100%!important;white-space:normal!important;overflow:visible!important;overflow-wrap:anywhere!important;animation:none!important}
+[data-theme="light"] .docs-brand img{filter:brightness(0)}
+@media(max-width:700px){
+  html,body{max-width:100%;overflow-x:hidden}
+  .docs-layout,.docs-content,.doc-section{min-width:0;max-width:100%}
+  .doc-section table{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .doc-section pre,.doc-section code{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+  .floating-studio{max-width:calc(100vw - 24px)}
+}

@@ -595,7 +595,7 @@ const AI_LOGOS = {
   wan: LOBE_ICON_BASE + '/qwen.svg',
   veo: LOBE_ICON_BASE + '/gemini.svg',
   elevenlabs: LOBE_ICON_BASE + '/elevenlabs.svg',
-  heygen: '/webapp/assets/logos/heygen-symbol-black-logo.svg',
+  heygen: 'assets/logos/heygen-symbol-black-logo.svg',
   suno: LOBE_ICON_BASE + '/suno.svg',
   nanoBanana: 'custom-banana',
 };
@@ -11294,6 +11294,8 @@ function renderGeneratedTelegramButton(url, kind) {
     modal.hidden = false;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('knowledge-workspace-open');
+    if (S.syncTelegramHeader) S.syncTelegramHeader();
   }
 
   function closeKnowledgeWorkspace() {
@@ -11302,6 +11304,8 @@ function renderGeneratedTelegramButton(url, kind) {
     if (!modal) return;
     modal.classList.remove('show');
     modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('knowledge-workspace-open');
+    if (S.syncTelegramHeader) S.syncTelegramHeader();
     window.setTimeout(() => {
       if (modal.classList.contains('show')) return;
       modal.hidden = true;
@@ -16715,14 +16719,14 @@ async function waitGeneration(jobId, options) {
 
   /* ===== Theme picker ===== */
   const THEMES = [
-    { id: 'dark',  label: 'Тёмная',    css: { '--bg-0':'#212121','--bg-1':'#171717','--bg-2':'#2f2f2f','--surface':'#2f2f2f','--surface-2':'#3a3a3a','--text':'#ececec' }, mode:'dark' },
-    { id: 'black', label: 'Чёрная',    css: { '--bg-0':'#000000','--bg-1':'#0a0a0a','--bg-2':'#141414','--surface':'#161616','--surface-2':'#222222','--text':'#f5f5f5' }, mode:'dark' },
-    { id: 'blue',  label: 'Синяя ночь', css: { '--bg-0':'#0b1220','--bg-1':'#0a0f1c','--bg-2':'#111a2e','--surface':'#12203a','--surface-2':'#1a2c4d','--text':'#eaf1ff' }, mode:'dark' },
-    { id: 'plum',  label: 'Слива',     css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
-    { id: 'vanilla', label: 'Ванильная', css: { '--bg-0':'#f7f0df','--bg-1':'#efe5cf','--bg-2':'#fffaf0','--surface':'#fff8e8','--surface-2':'#eadfc8','--text':'#332d24' }, mode:'light' },
-    { id: 'forest', label: 'Лесная', css: { '--bg-0':'#102019','--bg-1':'#0b1712','--bg-2':'#172a21','--surface':'#1a3026','--surface-2':'#254438','--text':'#e8f3ed' }, mode:'dark' },
-    { id: 'rose', label: 'Розовая', css: { '--bg-0':'#fff3f5','--bg-1':'#f9e7eb','--bg-2':'#fff9fa','--surface':'#fff7f8','--surface-2':'#f1dce1','--text':'#3e252c' }, mode:'light' },
-    { id: 'light', label: 'Светлая',   css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
+    { id: 'dark',  label: 'Тёмная', cover:'linear-gradient(135deg,#343434,#171717 56%,#10a37f)', css: { '--bg-0':'#212121','--bg-1':'#171717','--bg-2':'#2f2f2f','--surface':'#2f2f2f','--surface-2':'#3a3a3a','--text':'#ececec' }, mode:'dark' },
+    { id: 'black', label: 'Чёрная', cover:'radial-gradient(circle at 82% 15%,#2e2e2e,transparent 38%),linear-gradient(145deg,#111,#000)', css: { '--bg-0':'#000000','--bg-1':'#0a0a0a','--bg-2':'#141414','--surface':'#161616','--surface-2':'#222222','--text':'#f5f5f5' }, mode:'dark' },
+    { id: 'blue',  label: 'Синяя ночь', cover:'radial-gradient(circle at 78% 20%,#3f69c9,transparent 38%),linear-gradient(135deg,#162b52,#08111f)', css: { '--bg-0':'#0b1220','--bg-1':'#0a0f1c','--bg-2':'#111a2e','--surface':'#12203a','--surface-2':'#1a2c4d','--text':'#eaf1ff' }, mode:'dark' },
+    { id: 'plum',  label: 'Слива', cover:'radial-gradient(circle at 80% 20%,#8d4fb2,transparent 40%),linear-gradient(135deg,#3b1e50,#160b20)', css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
+    { id: 'vanilla', label: 'Ванильная', cover:'radial-gradient(circle at 80% 16%,#fff8d9,transparent 38%),linear-gradient(135deg,#e7cf9e,#fff7e6)', css: { '--bg-0':'#f7f0df','--bg-1':'#efe5cf','--bg-2':'#fffaf0','--surface':'#fff8e8','--surface-2':'#eadfc8','--text':'#332d24' }, mode:'light' },
+    { id: 'forest', label: 'Лесная', cover:'radial-gradient(circle at 76% 18%,#4c8b6f,transparent 40%),linear-gradient(135deg,#254b3a,#0a1711)', css: { '--bg-0':'#102019','--bg-1':'#0b1712','--bg-2':'#172a21','--surface':'#1a3026','--surface-2':'#254438','--text':'#e8f3ed' }, mode:'dark' },
+    { id: 'rose', label: 'Розовая', cover:'radial-gradient(circle at 80% 18%,#ffc6d5,transparent 42%),linear-gradient(135deg,#f4ced7,#fff7f9)', css: { '--bg-0':'#fff3f5','--bg-1':'#f9e7eb','--bg-2':'#fff9fa','--surface':'#fff7f8','--surface-2':'#f1dce1','--text':'#3e252c' }, mode:'light' },
+    { id: 'light', label: 'Светлая', cover:'radial-gradient(circle at 80% 18%,#d9f7ec,transparent 40%),linear-gradient(135deg,#fff,#e8eceb)', css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
   ];
   const DEFAULT_PROFILE_APPEARANCE = { id:'dark', nickname:'#ececec' };
   function appearanceStorageKey() { return 'sylvex-profile-appearance-' + (getTelegramId() || 'guest'); }
@@ -16774,6 +16778,8 @@ async function waitGeneration(jobId, options) {
     style.setProperty('--surface-text', surfaceText);
     style.setProperty('--button-text', buttonText);
     style.setProperty('--nickname-color', readableColor(validHex(value.nickname, text), theme.css['--surface']));
+    style.setProperty('--profile-cover', theme.cover);
+    if (S.syncTelegramHeader) S.syncTelegramHeader();
   }
   function syncAppearanceEditor() {
     const value = epAppearanceDraft || currentProfileAppearance();
@@ -16802,6 +16808,19 @@ async function waitGeneration(jobId, options) {
     syncAppearanceEditor();
     applyProfileAppearance(epAppearanceDraft);
     renderThemeGrid();
+  }
+  function resetProfileSettings() {
+    const u = S.user || {};
+    const initialName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '';
+    const nameInput = document.getElementById('epName');
+    if (nameInput) nameInput.value = initialName;
+    epSelectedAvatar = null;
+    epAppearanceDraft = Object.assign({}, DEFAULT_PROFILE_APPEARANCE);
+    document.querySelectorAll('#avatarGrid .av-opt').forEach((el, index) => el.classList.toggle('sel', index === 0));
+    syncAppearanceEditor();
+    applyProfileAppearance(epAppearanceDraft);
+    renderThemeGrid();
+    toast('Настройки сброшены. Нажмите «Сохранить»');
   }
   function cancelEditProfile(event) {
     if (event && event.target && event.target.id !== 'editProfileModal') return;
@@ -16846,7 +16865,7 @@ async function waitGeneration(jobId, options) {
     const cur = (epAppearanceDraft && epAppearanceDraft.id) || currentProfileAppearance().id;
     g.innerHTML = THEMES.map((t) => {
       const sel = cur === t.id ? 'sel' : '';
-      const sw = 'background:' + t.css['--bg-0'];
+      const sw = 'background:' + t.cover;
       const swInner = 'background:' + t.css['--surface-2'];
       return '<button type="button" class="th-opt ' + sel + '" onclick="SYLVEX.selectProfileTheme(\'' + t.id + '\')">'
         + '<div class="th-sw" style="' + sw + '"><div class="th-sw-inner" style="' + swInner + '"></div></div>'
@@ -16926,6 +16945,7 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function signOut() {
+    if (!window.confirm('Выйти из аккаунта SYLVEX?')) return;
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
     if (S.tg && S.tg.close) S.tg.close();
   }
@@ -17123,6 +17143,8 @@ async function waitGeneration(jobId, options) {
   function openSupport() {
     const m = document.getElementById('supportModal');
     m.classList.add('show');
+    const email = document.getElementById('supportEmail');
+    if (email && !email.value && S.user && S.user.email) email.value = S.user.email;
     setTimeout(() => { const ta = document.getElementById('supportMsg'); ta && ta.focus(); }, 250);
     S.haptic.impact('light');
   }
@@ -17133,15 +17155,52 @@ async function waitGeneration(jobId, options) {
   function closeSupport() {
     document.getElementById('supportModal').classList.remove('show');
   }
+  function startSupportQuickHelp() {
+    const ta = document.getElementById('supportMsg');
+    if (ta && !ta.value.trim()) ta.value = 'Помогите разобраться: ';
+    ta && ta.focus();
+  }
+  function openSupportAi() {
+    closeSupport();
+    switchView('tools');
+    updateComposerMode('text');
+    if (TEXT_MODEL_LIST && TEXT_MODEL_LIST.some((model) => model.id === 'gpt-5.6')) textState.modelId = 'gpt-5.6';
+    window.setTimeout(() => {
+      const input = document.getElementById('chatInput');
+      if (!input) return;
+      if (!input.value.trim()) input.value = 'Помоги мне разобраться с SYLVEX: ';
+      autoGrow(input);
+      updateSendButton();
+      input.focus();
+    }, 80);
+  }
   // =====================================================
   // ЗАПУСК ГЕНЕРАЦИИ: sendSupport
   // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
   // =====================================================
   function sendSupport() {
     const ta = document.getElementById('supportMsg');
+    const emailInput = document.getElementById('supportEmail');
+    const error = document.getElementById('supportEmailError');
+    const email = String(emailInput && emailInput.value || '').trim();
     const v = (ta.value || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+      if (error) error.textContent = 'Введите корректный e-mail';
+      emailInput && emailInput.focus();
+      return;
+    }
+    if (error) error.textContent = '';
     if (!v) { toast(t('support_empty')); return; }
-    S.sendToBot({ type: 'support', message: v });
+    const pendingKey = 'sylvex-support-pending-' + (getTelegramId() || 'guest');
+    let pending = null;
+    try { pending = JSON.parse(localStorage.getItem(pendingKey) || 'null'); } catch {}
+    const repliedAt = Date.parse(String((S.user && (S.user.support_replied_at || S.user.support_reply_at)) || '')) || 0;
+    if (pending && Number(pending.sentAt || 0) > repliedAt) {
+      toast('Дождитесь ответа поддержки перед новым сообщением');
+      return;
+    }
+    S.sendToBot({ type: 'support', email, message: v });
+    try { localStorage.setItem(pendingKey, JSON.stringify({ sentAt:Date.now(), email })); } catch {}
     ta.value = '';
     closeSupport();
     toast(t('support_sent'));
@@ -17214,6 +17273,12 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function bindEvents() {
+    ['gesturestart','gesturechange','gestureend'].forEach((eventName) => {
+      document.addEventListener(eventName, (event) => event.preventDefault(), { passive:false });
+    });
+    document.addEventListener('touchmove', (event) => {
+      if (event.touches && event.touches.length > 1) event.preventDefault();
+    }, { passive:false });
     document.addEventListener('click', (event) => {
       if (!activeGenerationLocked()) return;
       const target = event.target;
@@ -18307,10 +18372,10 @@ async function waitGeneration(jobId, options) {
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
-    openSupport, closeSupport, sendSupport,
+    openSupport, closeSupport, sendSupport, startSupportQuickHelp, openSupportAi,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
-    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, cancelEditProfile, openHomeQuickTool, openKnowledgeWorkspace, closeKnowledgeWorkspace,
+    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, deleteCommunityPost, searchCommunity, toggleCommunityMenu, communityComingSoon,
     openCommunityHub, closeCommunityHub, sendCommunityMessage, sendCommunityFriendRequest, communityFriendAction, loadCommunityNotificationBadge, openCommunityNotification,

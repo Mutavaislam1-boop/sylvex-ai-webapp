@@ -16,8 +16,31 @@
     en: { flag: "EN",  code: "en",  name: "English",  dir: "ltr" },
     ru: { flag: "RU",  code: "ru",  name: "Русский",  dir: "ltr" },
     ar: { flag: "ARB", code: "arb", name: "العربية", dir: "rtl" },
-    tr: { flag: "TUR", code: "tur", name: "Türkçe",   dir: "ltr" }
+    tr: { flag: "TUR", code: "tur", name: "Türkçe",   dir: "ltr" },
+    uk: { flag: "UA",  code: "uk",  name: "Українська", dir: "ltr" },
+    de: { flag: "DE",  code: "de",  name: "Deutsch", dir: "ltr" }
   };
+
+  // Keep the complete interface key set for every supported language. Missing
+  // specialist labels deliberately fall back to English instead of leaking keys.
+  I18N.uk = Object.assign({}, I18N.en, {
+    balance:'Баланс',topup:'Поповнити',generations:'Генерації',today:'Сьогодні',generate_with:'Створюйте з SYLVEX AI',
+    start:'Почати',try_now:'Спробувати',explore:'Відкрити',write:'Писати',quick_tools:'Швидкі інструменти',see_all:'Усі',recent:'Нещодавні',
+    ai_tools:'AI інструменти',gen_settings:'Налаштування генерації',ai_model:'AI модель',format:'Формат',resolution:'Роздільна здатність',prompt_ph:'Опишіть, що створити…',
+    shop:'Магазин',profile:'Профіль',current_balance:'Поточний баланс',subscriptions:'Підписки',plan:'Тариф',member_since:'З нами від',total_spent:'Витрачено',referrals:'Реферали',
+    account:'Обліковий запис',edit_profile:'Редагувати профіль',manage_sub:'Керування підпискою',invite:'Запросити друзів',appearance:'Вигляд',language:'Мова',notifications:'Сповіщення',
+    support:'Підтримка',sign_out:'Вийти',nav_home:'Головна',nav_tools:'Інструменти',nav_studio:'Pro Studio',nav_history:'Історія',nav_shop:'Магазин',nav_settings:'Налаштування',
+    tool_image:'Зображення',tool_video:'Відео',tool_music:'Музика',tool_voice:'Голос',tool_text:'Текст',tool_general:'Загальне',generate_btn:'Створити',send:'Надіслати',close:'Закрити'
+  });
+  I18N.de = Object.assign({}, I18N.en, {
+    balance:'Guthaben',topup:'Aufladen',generations:'Generierungen',today:'Heute',generate_with:'Mit SYLVEX AI erstellen',
+    start:'Erstellen',try_now:'Jetzt testen',explore:'Öffnen',write:'Schreiben',quick_tools:'Schnellzugriff',see_all:'Alle',recent:'Zuletzt',
+    ai_tools:'AI-Werkzeuge',gen_settings:'Generierungseinstellungen',ai_model:'AI-Modell',format:'Format',resolution:'Auflösung',prompt_ph:'Beschreibe, was erstellt werden soll…',
+    shop:'Shop',profile:'Profil',current_balance:'Aktuelles Guthaben',subscriptions:'Abonnements',plan:'Tarif',member_since:'Mitglied seit',total_spent:'Ausgegeben',referrals:'Empfehlungen',
+    account:'Konto',edit_profile:'Profil bearbeiten',manage_sub:'Abonnement verwalten',invite:'Freunde einladen',appearance:'Darstellung',language:'Sprache',notifications:'Benachrichtigungen',
+    support:'Support',sign_out:'Abmelden',nav_home:'Start',nav_tools:'Werkzeuge',nav_studio:'Pro Studio',nav_history:'Verlauf',nav_shop:'Shop',nav_settings:'Einstellungen',
+    tool_image:'Bild',tool_video:'Video',tool_music:'Musik',tool_voice:'Stimme',tool_text:'Text',tool_general:'Allgemein',generate_btn:'Erstellen',send:'Senden',close:'Schließen'
+  });
 
   // Quick Tools copy for the dedicated Music and general Pro Studio shortcuts.
   Object.assign(I18N.en, {
