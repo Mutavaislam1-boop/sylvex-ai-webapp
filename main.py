@@ -6835,12 +6835,19 @@ async def public_community_hub(telegram_id: int = 0):
         """, (telegram_id, telegram_id, telegram_id, telegram_id, telegram_id))
         relations = [{"id":r[0],"status":r[1],"incoming":r[1]=='pending' and int(r[2])!=telegram_id,"name":r[3],"avatar":r[4],"username":r[5]} for r in cursor.fetchall()]
         cursor.execute("""
-            SELECT person_id, MAX(created_at), MAX(body),
+            SELECT m.person_id, m.created_at, m.body,
                    COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,'')
-            FROM (SELECT CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END person_id, created_at, body
-                  FROM community_messages WHERE sender_id=%s OR recipient_id=%s) m
-            LEFT JOIN users u ON u.telegram_id=m.person_id LEFT JOIN user_profiles up ON up.telegram_id=m.person_id
-            GROUP BY person_id,up.display_name,up.custom_avatar_url,u.first_name ORDER BY MAX(created_at) DESC LIMIT 50
+            FROM (
+                SELECT DISTINCT ON (person_id) person_id, created_at, body
+                FROM (
+                    SELECT CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END AS person_id, created_at, body
+                    FROM community_messages WHERE sender_id=%s OR recipient_id=%s
+                ) pairs
+                ORDER BY person_id, created_at DESC
+            ) m
+            LEFT JOIN users u ON u.telegram_id=m.person_id
+            LEFT JOIN user_profiles up ON up.telegram_id=m.person_id
+            ORDER BY m.created_at DESC LIMIT 50
         """, (telegram_id, telegram_id, telegram_id))
         conversations = [{"id":r[0],"created_at":_to_iso(r[1]),"last_message":r[2] or '',"name":('Общий чат' if int(r[0])==0 else r[3]),"avatar":r[4] or ''} for r in cursor.fetchall()]
         return {"ok":True,"friends":[r for r in relations if r['status']=='accepted'],"requests":[r for r in relations if r['status']=='pending'],"conversations":conversations}
