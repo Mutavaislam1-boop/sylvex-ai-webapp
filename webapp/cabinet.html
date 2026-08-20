@@ -47,6 +47,8 @@ HTML-страница Mini App. Комментарии подписывают э
         CSS-класс задаёт внешний вид и расположение: lang-code-pill
         =================================================== -->
         <button data-lang="tr"><span class="lang-code-pill">tur</span> Türkçe</button>
+        <button data-lang="uk"><span class="lang-code-pill">uk</span> Українська</button>
+        <button data-lang="de"><span class="lang-code-pill">de</span> Deutsch</button>
       </div>
     </div>
   </header>
@@ -66,7 +68,7 @@ HTML-страница Mini App. Комментарии подписывают э
             <div class="id-pill"><span data-i18n="id">ID</span> · <span id="homeUserId">—</span></div>
           </div>
         </div>
-        <div class="balance-row">
+        <div class="balance-row profile-balance-action" role="button" tabindex="0" onclick="if(!event.target.closest('button'))switchView('shop')">
           <div>
             <div class="balance-label" data-i18n="balance">Balance</div>
               <div class="balance-val" id="homeBalance">— ⚡️</div>
@@ -1366,37 +1368,37 @@ HTML-страница Mini App. Комментарии подписывают э
         ID используется JavaScript/CSS как точка подключения: profilePlan
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini"><div class="k" data-i18n="plan">Plan</div><div class="v" id="profilePlan">—</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="SYLVEX.openManageSub()"><div class="k" data-i18n="plan">Plan</div><div class="v" id="profilePlan">—</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Member since  —
         ID используется JavaScript/CSS как точка подключения: profileSince
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini"><div class="k" data-i18n="member_since">Member since</div><div class="v" id="profileSince">—</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="toast(this.querySelector('.v').textContent)"><div class="k" data-i18n="member_since">Member since</div><div class="v" id="profileSince">—</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Токенов потрачено  0 ⚡️
         ID используется JavaScript/CSS как точка подключения: profileSpent
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Referrals  0
         ID используется JavaScript/CSS как точка подключения: profileReferrals
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini"><div class="k" data-i18n="referrals">Referrals</div><div class="v" id="profileReferrals">0</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="SYLVEX.openReferrals()"><div class="k" data-i18n="referrals">Referrals</div><div class="v" id="profileReferrals">0</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Генераций  0
         ID используется JavaScript/CSS как точка подключения: profileGens
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini"><div class="k">Генераций</div><div class="v" id="profileGens">0</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Генераций</div><div class="v" id="profileGens">0</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: В SYLVEX  —
         ID используется JavaScript/CSS как точка подключения: profileUptime
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini"><div class="k">В SYLVEX</div><div class="v" id="profileUptime">—</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Средний расход</div><div class="v" id="profileUptime">0 ⚡️</div></div>
       </div>
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
       <div class="list">
@@ -1483,6 +1485,10 @@ HTML-страница Mini App. Комментарии подписывают э
   </nav>
 </div>
 
+<button class="sylvex-support-fab" type="button" onclick="SYLVEX.openSupport()" aria-label="SYLVEX AI Support">
+  <span class="sylvex-support-fab-mark">S</span><span>AI Support</span>
+</button>
+
 <div class="price-bar" id="priceBar">
   <div>
     <div class="pl" data-i18n="total">Total</div>
@@ -1541,6 +1547,14 @@ CSS-класс задаёт внешний вид и расположение: m
     HTML-ЭЛЕМЕНТ: supportMsg
     ID используется JavaScript/CSS как точка подключения: supportMsg
     =================================================== -->
+    <label class="support-email-label" for="supportEmail">E-mail</label>
+    <input class="support-email" id="supportEmail" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" aria-describedby="supportEmailError">
+    <small class="support-field-error" id="supportEmailError" aria-live="polite"></small>
+    <div class="support-mode-row" aria-label="Варианты поддержки">
+      <button type="button" onclick="SYLVEX.startSupportQuickHelp()">Быстрый помощник</button>
+      <button type="button" onclick="SYLVEX.openSupportAi()">AI-консультант</button>
+      <button class="active" type="button">Техподдержка</button>
+    </div>
     <textarea id="supportMsg" data-i18n-ph="support_ph" placeholder="Describe your issue or question…"></textarea>
     <!-- ==================================================
     HTML-ЭЛЕМЕНТ: modal-actions
@@ -1683,7 +1697,7 @@ CSS-класс задаёт внешний вид и расположение: s
     <div class="ep-label">Готовая тема</div>
     <div class="theme-grid" id="themeGrid"></div>
     <label class="profile-color-field nickname-color-field"><span>Цвет ника</span><span><input type="color" id="epNicknameColor" value="#ececec" oninput="SYLVEX.previewProfileColor('nickname',this.value)"><output id="epNicknameColorValue">#ECECEC</output></span></label>
-    <button class="profile-reset" type="button" onclick="SYLVEX.resetProfileAppearance()">Сбросить оформление</button>
+    <button class="profile-reset" type="button" onclick="SYLVEX.resetProfileSettings()">Сбросить настройки</button>
     <div style="display:flex;gap:8px;margin-top:16px">
       <!-- ==================================================
       HTML-ЭЛЕМЕНТ: Отмена

@@ -51,8 +51,9 @@
     const studioActive = typeof forceStudio === 'boolean'
       ? forceStudio
       : !!document.querySelector('.view[data-view="tools"].active');
+    const quickToolsActive = document.body.classList.contains('knowledge-workspace-open');
     const mode = document.documentElement.dataset.theme || 'dark';
-    try { tg.setHeaderColor(studioActive || mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {}
+    try { tg.setHeaderColor(studioActive || quickToolsActive || mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {}
   }
   // =====================================================
   // JAVASCRIPT-БЛОК: toast

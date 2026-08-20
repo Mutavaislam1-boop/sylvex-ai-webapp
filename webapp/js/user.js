@@ -210,12 +210,14 @@
     setText('profileReferrals', Number(u.referrals_count || 0).toLocaleString());
     setText('profileGens', Number(u.generations_count || 0).toLocaleString());
     setText('profileSpent', Number(u.tokens_spent || 0).toLocaleString() + ' ⚡️');
+    const averageSpend = Number(u.generations_count || 0) > 0
+      ? Number(u.tokens_spent || 0) / Number(u.generations_count || 1)
+      : 0;
+    setText('profileUptime', averageSpend.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' ⚡️');
     if (u.created_at) {
       try {
         const d = new Date(u.created_at);
         setText('profileSince', d.toLocaleString(undefined, { month: 'short', year: 'numeric' }));
-        const days = Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
-        setText('profileUptime', days + ' дн.');
       } catch {}
     }
     const pb = document.getElementById('profileUserBadge'); if (pb) { pb.textContent = badge; pb.removeAttribute('data-i18n'); }
