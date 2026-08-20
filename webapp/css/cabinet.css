@@ -219,6 +219,10 @@ body::before{content:none}
 [data-theme="dark"] .id-pill{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.14)}
 [data-theme="dark"] .hsoc{color:#d6d8df;background:color-mix(in srgb,var(--surface-2) 88%,white 12%);border-color:rgba(255,255,255,.14)}
 [data-theme="dark"] .ai-chip{color:#d2d5dc;background:color-mix(in srgb,var(--surface) 90%,white 10%);border-color:rgba(255,255,255,.13)}
+.ai-banner-brand i{overflow:hidden}
+.ai-banner-brand img{width:18px;height:18px;display:block;object-fit:contain;border-radius:4px}
+.ai-banner-brand img.logo-wide{width:21px;height:21px}
+.ai-chip i .public-ai-logo{width:17px;height:17px;display:block;object-fit:contain;border-radius:4px}
 [data-theme="dark"] .app :where(.ico,.mi,.pm-ico,.pm-arr,.chev,.home-quick-icon,.thumb,.pico,.modal-close) .ui-svg-icon{color:#e6e8ed;stroke:#e6e8ed;opacity:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45))}
 [data-theme="dark"] .app :where(.row .ico,.home-quick-icon,.thumb,.pm-ico){background:color-mix(in srgb,var(--surface-2) 82%,white 18%);border-color:rgba(255,255,255,.16)}
 [data-theme="dark"] .app :where(.chev,.pm-arr) .ui-svg-icon{color:#cfd2d9;stroke:#cfd2d9}

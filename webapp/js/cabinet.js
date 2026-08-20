@@ -600,6 +600,29 @@ const AI_LOGOS = {
   nanoBanana: 'custom-banana',
 };
 
+// Brand artwork for public pages only. Pro Studio intentionally keeps AI_LOGOS.
+const PUBLIC_AI_LOGOS = {
+  seedream: 'assets/ai-brand-logos/seedream.webp',
+  ideogram: 'assets/ai-brand-logos/ideogram.png',
+  recraft: 'assets/ai-brand-logos/recraft.png',
+  openai: 'assets/ai-brand-logos/openai.png',
+  nanoBanana: 'assets/ai-brand-logos/nano-banana.png',
+  google: 'assets/ai-brand-logos/google.jpeg',
+  grok: 'assets/ai-brand-logos/grok.jpeg',
+  kling: 'assets/ai-brand-logos/kling.png',
+  runway: 'assets/ai-brand-logos/runway.png',
+  seedance: 'assets/ai-brand-logos/seedance.jpeg',
+  luma: 'assets/ai-brand-logos/luma.png',
+  hailuo: 'assets/ai-brand-logos/hailuo.png',
+  pixverse: 'assets/ai-brand-logos/pixverse.png',
+  suno: 'assets/ai-brand-logos/suno.png',
+  minimax: 'assets/ai-brand-logos/minimax.png',
+  elevenlabs: 'assets/ai-brand-logos/elevenlabs.jpeg',
+  gemini: 'assets/ai-brand-logos/gemini.webp',
+  lyria: 'assets/ai-brand-logos/google.jpeg',
+  byteplus: 'assets/ai-brand-logos/seedream.webp',
+};
+
 const GROK_IMAGE_SIZES = [
   { id:'1:1', label:'1:1', ratio:'1:1' },
   { id:'2:3', label:'2:3', ratio:'2:3' },
@@ -11027,7 +11050,7 @@ function renderGeneratedTelegramButton(url, kind) {
     ['openai','GPT-5.6'],['gemini','Gemini 3.1 Pro'],['grok','Grok 4.1'],['qwen','Qwen Max'],['byteplus','BytePlus Seed 2.0']
   ];
   function homeModelLogo(family){const logos={openai:'<path d="M12 3a4.5 4.5 0 0 1 4.4 3.5 4.5 4.5 0 0 1 2.1 7.8 4.5 4.5 0 0 1-6.5 4.3 4.5 4.5 0 0 1-6.4-4.4A4.5 4.5 0 0 1 7.7 6.5 4.5 4.5 0 0 1 12 3Z"/><path d="m8 8 8 5M16 8l-8 5M12 5v14"/>',gemini:'<path d="M12 2c.6 5.4 4.6 9.4 10 10-5.4.6-9.4 4.6-10 10-.6-5.4-4.6-9.4-10-10 5.4-.6 9.4-4.6 10-10Z"/>',flux:'<path d="m4 18 5-12 3 7 3-9 5 14M5 18h14"/>',qwen:'<circle cx="12" cy="12" r="8"/><path d="M9 9h6v6H9zM15 15l4 4"/>',grok:'<path d="M5 5h14L8 19h11M5 19 19 5"/>',kling:'<path d="M6 3v18M18 3 8 12l10 9"/>',veo:'<path d="m3 6 9 15 9-15h-5l-4 8-4-8Z"/>',runway:'<path d="M5 4h6a5 5 0 0 1 0 10H5zM12 14l7 6"/>',seedance:'<path d="M5 17c4-10 10-10 14 0M7 8c3-4 7-4 10 0"/>',sora:'<circle cx="12" cy="12" r="8"/><path d="M8 15c1-6 7-6 8 0"/>',suno:'<path d="M4 15V9M8 18V6M12 16V8M16 20V4M20 15V9"/>',elevenlabs:'<path d="M8 5v14M12 5v14M16 8v8"/>',ideogram:'<rect x="5" y="5" width="14" height="14" rx="4"/><path d="M9 9h6v6H9z"/>',recraft:'<path d="M6 19V5h7a4 4 0 0 1 0 8H6M12 13l6 6"/>',seedream:'<path d="M12 21V9M12 13c-5 0-7-3-7-7 5 0 7 3 7 7Zm0-3c4 0 6-2 6-6-4 0-6 2-6 6Z"/>',google:'<path d="M20 12h-8v4h4.6A6 6 0 1 1 16 7.2"/>',lyria:'<path d="M9 18V5l10-2v13M9 9l10-2"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',minimax:'<path d="M4 18V6l4 7 4-7 4 7 4-7v12"/>',hailuo:'<path d="M4 14c4-8 12-8 16 0-4 6-12 6-16 0Z"/>',pixverse:'<path d="M5 5h8a5 5 0 0 1 0 10H5zM9 9h4"/>',heygen:'<path d="M5 5v14M19 5v14M5 12h14"/>',luma:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',byteplus:'<path d="m5 3 14 9-14 9V3Zm4 7v4l4-2Z"/>'};return '<svg viewBox="0 0 24 24" aria-hidden="true">'+(logos[family]||logos.gemini)+'</svg>'}
-  function existingHomeModelLogo(family){const aliases={lyria:'gemini',byteplus:'bytedance'},key=aliases[family]||family,value=AI_LOGOS[key];if(value==='custom-banana')return imageModelIconHtml({id:'nano-banana-2',icon:'nanoBanana'});if(value)return '<span class="ai-model-mask" style="--ai-model-icon:url(&quot;'+S.escapeHtml(value)+'&quot;)"></span>';return homeModelLogo(family)}
+  function existingHomeModelLogo(family){const publicLogo=PUBLIC_AI_LOGOS[family];if(publicLogo)return '<img class="public-ai-logo" src="'+S.escapeHtml(publicLogo)+'" alt="" loading="eager" decoding="async">';const aliases={lyria:'gemini',byteplus:'bytedance'},key=aliases[family]||family,value=AI_LOGOS[key];if(value==='custom-banana')return imageModelIconHtml({id:'nano-banana-2',icon:'nanoBanana'});if(value)return '<span class="ai-model-mask" style="--ai-model-icon:url(&quot;'+S.escapeHtml(value)+'&quot;)"></span>';return homeModelLogo(family)}
   function renderHomeAiModels(){const host=document.getElementById('homeAiModelStrip');if(!host)return;const chips=HOME_AI_MODELS.map(([family,label])=>'<span class="ai-chip ai-'+family+'"><i>'+existingHomeModelLogo(family)+'</i><b>'+S.escapeHtml(label)+'</b></span>').join('');host.innerHTML=chips+chips}
   const CREATIVE_CATALOGS = {
     image:{title:'Каталог изображений',lead:'Референсы, стили, форматы и инструменты',groups:[['Живые референсы',[['photo','Галерея фото','Полный каталог готовых изображений'],['portrait','Портрет','Editorial portrait, natural skin, cinematic light'],['product','Предметное фото','Premium product photography, clean studio light'],['interior','Интерьер','Modern interior, realistic materials, architectural light']]],['Стили',[['cinematic','Кино','Cinematic still, dramatic light, film color grading'],['anime','Anime','Premium anime illustration, detailed background'],['realism','Фотореализм','Ultra realistic photography, authentic details'],['3d','3D','High-end 3D render, detailed materials'],['watercolor','Акварель','Elegant watercolor painting, textured paper'],['fashion','Fashion','High fashion editorial, magazine composition']]],['Форматы',[['square','1:1','Square social media composition'],['portrait-format','9:16','Vertical stories and reels composition'],['post-format','4:5','Vertical social post composition'],['wide-format','16:9','Wide cinematic composition']]],['Лого и тату',[['logo','Логотипы','Размещение и варианты логотипа'],['tattoo','Татуировки','Варианты и реалистичная примерка'],['remove_bg','Удаление фона','Чистое отделение объекта'],['try_on','Try On','Примерка одежды по референсам']]]]},
