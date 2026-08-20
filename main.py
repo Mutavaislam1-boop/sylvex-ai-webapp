@@ -6469,6 +6469,41 @@ def ensure_community_tables():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts (created_at DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_comments_post ON community_comments (post_id, created_at)")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_friendships (
+            requester_id BIGINT NOT NULL,
+            addressee_id BIGINT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (requester_id, addressee_id),
+            CHECK (requester_id <> addressee_id)
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_messages (
+            id BIGSERIAL PRIMARY KEY,
+            sender_id BIGINT NOT NULL,
+            recipient_id BIGINT NOT NULL DEFAULT 0,
+            body TEXT NOT NULL,
+            read_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS community_notifications (
+            id BIGSERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            actor_id BIGINT NOT NULL,
+            kind TEXT NOT NULL,
+            post_id BIGINT REFERENCES community_posts(id) ON DELETE CASCADE,
+            comment_id BIGINT REFERENCES community_comments(id) ON DELETE CASCADE,
+            body TEXT,
+            read_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_messages_pair ON community_messages (sender_id, recipient_id, created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_notifications_user ON community_notifications (telegram_id, created_at DESC)")
         conn.commit()
     finally:
         cursor.close()
@@ -6510,9 +6545,34 @@ async def public_community_feed(telegram_id: int = 0, limit: int = 30, offset: i
             "author_username": row[10] or "", "likes": int(row[11] or 0),
             "liked": bool(row[12]), "comments": int(row[13] or 0),
             "media_urls": _json_list(row[14]) or ([row[3]] if row[3] else []),
-            "author_likes": int(row[15] or 0),
+            "author_likes": int(row[15] or 0), "is_own": bool(telegram_id and int(row[1]) == telegram_id),
         } for row in rows]
         return {"ok": True, "items": items}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.delete("/api/public/community/posts/{post_id}")
+async def public_community_delete_post(post_id: int, request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    init_data = payload.get("initData") or ""
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if init_data and BOT_TOKEN:
+        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        if not signed_telegram_id or signed_telegram_id != telegram_id:
+            return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM community_posts WHERE id = %s AND telegram_id = %s RETURNING id", (post_id, telegram_id))
+        if not cursor.fetchone():
+            return JSONResponse({"ok": False, "error": "post_not_found_or_forbidden"}, status_code=403)
+        conn.commit()
+        return {"ok": True}
     finally:
         cursor.close()
         conn.close()
@@ -6604,6 +6664,9 @@ async def public_community_like(post_id: int, request: Request):
         liked = not bool(cursor.fetchone())
         if liked:
             cursor.execute("INSERT INTO community_likes (post_id, telegram_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (post_id, telegram_id))
+            cursor.execute("""INSERT INTO community_notifications (telegram_id, actor_id, kind, post_id, body)
+                SELECT telegram_id, %s, 'like', id, 'поставил(а) отметку «Нравится»'
+                FROM community_posts WHERE id = %s AND telegram_id <> %s""", (telegram_id, post_id, telegram_id))
         conn.commit()
         return {"ok": True, "liked": liked}
     finally:
@@ -6666,6 +6729,9 @@ async def public_community_comment(post_id: int, request: Request):
                 return JSONResponse({"ok": False, "error": "parent_comment_not_found"}, status_code=404)
         cursor.execute("INSERT INTO community_comments (post_id, telegram_id, body, parent_comment_id) VALUES (%s, %s, %s, %s) RETURNING id", (post_id, telegram_id, body, parent_comment_id))
         comment_id = cursor.fetchone()[0]
+        cursor.execute("""INSERT INTO community_notifications (telegram_id, actor_id, kind, post_id, comment_id, body)
+            SELECT telegram_id, %s, 'comment', id, %s, %s FROM community_posts
+            WHERE id = %s AND telegram_id <> %s""", (telegram_id, comment_id, body[:160], post_id, telegram_id))
         conn.commit()
         return {"ok": True, "comment_id": comment_id}
     finally:
@@ -6748,6 +6814,125 @@ async def public_community_comment_like(comment_id: int, request: Request):
     finally:
         cursor.close()
         conn.close()
+
+
+@app.get("/api/public/community/hub")
+async def public_community_hub(telegram_id: int = 0):
+    if not telegram_id or not DATABASE_URL:
+        return {"ok": True, "friends": [], "requests": [], "conversations": []}
+    ensure_community_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END AS person_id,
+                   f.status, f.requester_id,
+                   COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,''), COALESCE(u.username,'')
+            FROM community_friendships f
+            LEFT JOIN users u ON u.telegram_id=CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END
+            LEFT JOIN user_profiles up ON up.telegram_id=CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END
+            WHERE f.requester_id=%s OR f.addressee_id=%s ORDER BY f.updated_at DESC
+        """, (telegram_id, telegram_id, telegram_id, telegram_id, telegram_id))
+        relations = [{"id":r[0],"status":r[1],"incoming":r[1]=='pending' and int(r[2])!=telegram_id,"name":r[3],"avatar":r[4],"username":r[5]} for r in cursor.fetchall()]
+        cursor.execute("""
+            SELECT person_id, MAX(created_at), MAX(body),
+                   COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,'')
+            FROM (SELECT CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END person_id, created_at, body
+                  FROM community_messages WHERE sender_id=%s OR recipient_id=%s) m
+            LEFT JOIN users u ON u.telegram_id=m.person_id LEFT JOIN user_profiles up ON up.telegram_id=m.person_id
+            GROUP BY person_id,up.display_name,up.custom_avatar_url,u.first_name ORDER BY MAX(created_at) DESC LIMIT 50
+        """, (telegram_id, telegram_id, telegram_id))
+        conversations = [{"id":r[0],"created_at":_to_iso(r[1]),"last_message":r[2] or '',"name":('Общий чат' if int(r[0])==0 else r[3]),"avatar":r[4] or ''} for r in cursor.fetchall()]
+        return {"ok":True,"friends":[r for r in relations if r['status']=='accepted'],"requests":[r for r in relations if r['status']=='pending'],"conversations":conversations}
+    finally:
+        cursor.close(); conn.close()
+
+
+@app.post("/api/public/community/friends/request")
+async def public_community_friend_request(request: Request):
+    payload = await request.json(); telegram_id=int(payload.get('telegram_id') or 0); target_id=int(payload.get('target_id') or 0)
+    if not telegram_id or not target_id or telegram_id==target_id:
+        return JSONResponse({"ok":False,"error":"invalid_request"},status_code=400)
+    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+    try:
+        cursor.execute("""INSERT INTO community_friendships (requester_id,addressee_id,status) VALUES (%s,%s,'pending')
+            ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='pending',updated_at=NOW()""",(telegram_id,target_id))
+        cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'friend_request','отправил(а) запрос в друзья')",(target_id,telegram_id))
+        conn.commit(); return {"ok":True}
+    finally: cursor.close(); conn.close()
+
+
+@app.patch("/api/public/community/friends/{other_id}")
+async def public_community_friend_action(other_id: int, request: Request):
+    payload=await request.json(); telegram_id=int(payload.get('telegram_id') or 0); action=str(payload.get('action') or '')
+    if not telegram_id or action not in {'accept','decline','remove'}:
+        return JSONResponse({"ok":False,"error":"invalid_request"},status_code=400)
+    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+    try:
+        if action=='accept':
+            cursor.execute("UPDATE community_friendships SET status='accepted',updated_at=NOW() WHERE requester_id=%s AND addressee_id=%s RETURNING requester_id",(other_id,telegram_id))
+        else:
+            cursor.execute("DELETE FROM community_friendships WHERE (requester_id=%s AND addressee_id=%s) OR (requester_id=%s AND addressee_id=%s) RETURNING requester_id",(telegram_id,other_id,other_id,telegram_id))
+        if not cursor.fetchone(): return JSONResponse({"ok":False,"error":"relation_not_found"},status_code=404)
+        if action=='accept': cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'friend_accept','принял(а) запрос в друзья')",(other_id,telegram_id))
+        conn.commit(); return {"ok":True}
+    finally: cursor.close(); conn.close()
+
+
+@app.get("/api/public/community/messages/{other_id}")
+async def public_community_messages(other_id: int, telegram_id: int = 0, limit: int = 100):
+    if not telegram_id: return {"ok":True,"items":[]}
+    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+    try:
+        if other_id==0:
+            cursor.execute("""SELECT m.id,m.sender_id,m.recipient_id,m.body,m.created_at,COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
+                FROM community_messages m LEFT JOIN users u ON u.telegram_id=m.sender_id LEFT JOIN user_profiles up ON up.telegram_id=m.sender_id
+                WHERE m.recipient_id=0 ORDER BY m.created_at DESC LIMIT %s""",(max(1,min(limit,100)),))
+        else:
+            cursor.execute("""SELECT m.id,m.sender_id,m.recipient_id,m.body,m.created_at,COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
+                FROM community_messages m LEFT JOIN users u ON u.telegram_id=m.sender_id LEFT JOIN user_profiles up ON up.telegram_id=m.sender_id
+                WHERE (m.sender_id=%s AND m.recipient_id=%s) OR (m.sender_id=%s AND m.recipient_id=%s) ORDER BY m.created_at DESC LIMIT %s""",(telegram_id,other_id,other_id,telegram_id,max(1,min(limit,100))))
+            rows=cursor.fetchall()
+            cursor.execute("UPDATE community_messages SET read_at=NOW() WHERE sender_id=%s AND recipient_id=%s AND read_at IS NULL",(other_id,telegram_id))
+        if other_id==0: rows=cursor.fetchall()
+        conn.commit(); rows.reverse()
+        return {"ok":True,"items":[{"id":r[0],"sender_id":r[1],"recipient_id":r[2],"body":r[3],"created_at":_to_iso(r[4]),"author_name":r[5],"author_avatar":r[6],"is_own":int(r[1])==telegram_id} for r in rows]}
+    finally: cursor.close(); conn.close()
+
+
+@app.post("/api/public/community/messages")
+async def public_community_send_message(request: Request):
+    payload=await request.json(); telegram_id=int(payload.get('telegram_id') or 0); recipient_id=int(payload.get('recipient_id') or 0); body=str(payload.get('body') or '').strip()[:2000]
+    if not telegram_id or not body: return JSONResponse({"ok":False,"error":"invalid_message"},status_code=400)
+    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+    try:
+        cursor.execute("INSERT INTO community_messages (sender_id,recipient_id,body) VALUES (%s,%s,%s) RETURNING id",(telegram_id,recipient_id,body)); message_id=cursor.fetchone()[0]
+        if recipient_id: cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'message',%s)",(recipient_id,telegram_id,body[:160]))
+        conn.commit(); return {"ok":True,"message_id":message_id}
+    finally: cursor.close(); conn.close()
+
+
+@app.get("/api/public/community/notifications")
+async def public_community_notifications(telegram_id: int = 0, limit: int = 80):
+    if not telegram_id: return {"ok":True,"items":[],"unread":0}
+    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+    try:
+        cursor.execute("""SELECT n.id,n.kind,n.post_id,n.comment_id,n.body,n.read_at,n.created_at,n.actor_id,
+                   COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
+            FROM community_notifications n LEFT JOIN users u ON u.telegram_id=n.actor_id LEFT JOIN user_profiles up ON up.telegram_id=n.actor_id
+            WHERE n.telegram_id=%s ORDER BY n.created_at DESC LIMIT %s""",(telegram_id,max(1,min(limit,100))))
+        items=[{"id":r[0],"kind":r[1],"post_id":r[2],"comment_id":r[3],"body":r[4] or '',"read":bool(r[5]),"created_at":_to_iso(r[6]),"actor_id":r[7],"actor_name":r[8],"actor_avatar":r[9]} for r in cursor.fetchall()]
+        return {"ok":True,"items":items,"unread":sum(1 for item in items if not item['read'])}
+    finally: cursor.close(); conn.close()
+
+
+@app.post("/api/public/community/notifications/read")
+async def public_community_notifications_read(request: Request):
+    payload=await request.json(); telegram_id=int(payload.get('telegram_id') or 0)
+    if not telegram_id: return JSONResponse({"ok":False,"error":"telegram_id_required"},status_code=400)
+    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+    try: cursor.execute("UPDATE community_notifications SET read_at=NOW() WHERE telegram_id=%s AND read_at IS NULL",(telegram_id,)); conn.commit(); return {"ok":True}
+    finally: cursor.close(); conn.close()
 
 # =====================================================
 # API ENDPOINT: public_prostudio_sync
