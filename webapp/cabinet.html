@@ -11,12 +11,12 @@ HTML-страница Mini App. Комментарии подписывают э
     </div>
     <div class="topbar-actions">
       <div class="tb-stats" aria-label="Статистика">
-        <button class="tb-stat" type="button" title="Генераций сегодня" onclick="switchView('history')">
+        <button class="tb-stat" type="button" title="Всего генераций" onclick="switchView('history')">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
           <b id="tbGenToday">0</b>
         </button>
-        <button class="tb-stat" type="button" title="Дней активности" onclick="toast('Дней активности: '+document.getElementById('tbStreak').textContent)">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 1-3s1 2 3 2c0-4-3-5 1-9z"/></svg>
+        <button class="tb-stat" type="button" title="Потрачено токенов" onclick="SYLVEX.openSpendingStats()">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M12 9v6"/></svg>
           <b id="tbStreak">0</b>
         </button>
       </div>
@@ -1276,19 +1276,6 @@ HTML-страница Mini App. Комментарии подписывают э
         </button>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: pm-card
-        При нажатии вызывает: SYLVEX.payWith('paypal')
-        CSS-класс задаёт внешний вид и расположение: pm-card
-        =================================================== -->
-        <button class="pm-card" onclick="SYLVEX.payWith('paypal')" hidden aria-hidden="true">
-          <div class="pm-ico">P</div>
-          <div class="pm-body">
-            <div class="pm-title">PayPal</div>
-            <div class="pm-sub">Безопасная оплата через PayPal sandbox</div>
-          </div>
-          <div class="pm-arr">→</div>
-        </button>
-        <!-- ==================================================
-        HTML-ЭЛЕМЕНТ: pm-card
         При нажатии вызывает: SYLVEX.payWith('crypto')
         CSS-класс задаёт внешний вид и расположение: pm-card
         =================================================== -->
@@ -1302,12 +1289,6 @@ HTML-страница Mini App. Комментарии подписывают э
         </button>
       </div>
 
-      <div class="paypal-subscribe-panel" id="paypalSubscriptionPanel" hidden>
-        <div class="paypal-subscribe-title">PayPal</div>
-        <div class="paypal-subscribe-note">Подтвердите подписку в защищённом окне PayPal.</div>
-        <div class="paypal-subscribe-wrap" id="paypalSubscribePayMonth"></div>
-        <div class="paypal-subscribe-wrap" id="paypalSubscribePayYear"></div>
-      </div>
     </section>
 
     <section class="view" data-view="profile">
