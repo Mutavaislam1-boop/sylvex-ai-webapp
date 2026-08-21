@@ -1860,14 +1860,33 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         try:
             cursor.execute("""
                 SELECT COALESCE(SUM(credits), 0)
-                FROM purchases
+                FROM generation_charges
                 WHERE telegram_id = %s
-                  AND status = 'completed'
-                  AND COALESCE(credits, 0) < 0
             """, (telegram_id,))
-            tokens_spent = abs(cursor.fetchone()[0] or 0)
+            tokens_spent = max(0, int(cursor.fetchone()[0] or 0))
         except Exception:
             tokens_spent = 0
+
+        referrals_count = 0
+        community_posts_count = 0
+        community_likes_count = 0
+        cursor.execute("SELECT to_regclass('public.referral_attributions')")
+        if cursor.fetchone()[0]:
+            cursor.execute("SELECT COUNT(*) FROM referral_attributions WHERE inviter_telegram_id = %s", (telegram_id,))
+            referrals_count = int(cursor.fetchone()[0] or 0)
+        cursor.execute("SELECT to_regclass('public.community_posts'), to_regclass('public.community_likes')")
+        community_tables = cursor.fetchone() or (None, None)
+        if community_tables[0]:
+            cursor.execute("SELECT COUNT(*) FROM community_posts WHERE telegram_id = %s", (telegram_id,))
+            community_posts_count = int(cursor.fetchone()[0] or 0)
+        if community_tables[0] and community_tables[1]:
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM community_likes likes
+                JOIN community_posts posts ON posts.id = likes.post_id
+                WHERE posts.telegram_id = %s
+            """, (telegram_id,))
+            community_likes_count = int(cursor.fetchone()[0] or 0)
 
         cursor.execute("""
             SELECT event_type, event_name, source, payload, created_at
@@ -1922,7 +1941,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         "total_generations": total_generations,
         "generations_count": total_generations,
         "tokens_spent": tokens_spent,
-        "referrals_count": 0,
+        "referrals_count": referrals_count,
+        "community_posts_count": community_posts_count,
+        "community_likes_count": community_likes_count,
         "last_actions": [
             {
                 "event_type": row[0],
