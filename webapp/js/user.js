@@ -210,10 +210,10 @@
     setText('profileReferrals', Number(u.referrals_count || 0).toLocaleString());
     setText('profileGens', Number(u.generations_count || 0).toLocaleString());
     setText('profileSpent', Number(u.tokens_spent || 0).toLocaleString() + ' ⚡️');
-    const averageSpend = Number(u.generations_count || 0) > 0
-      ? Number(u.tokens_spent || 0) / Number(u.generations_count || 1)
-      : 0;
-    setText('profileUptime', averageSpend.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' ⚡️');
+    setText('profilePosts', Number(u.community_posts_count || u.posts_count || 0).toLocaleString());
+    setText('profilePostLikes', Number(u.community_likes_count || u.post_likes_count || 0).toLocaleString());
+    setText('tbGenToday', Number(u.generations_today || u.today_generations || 0).toLocaleString());
+    setText('tbStreak', Number(u.activity_streak || u.streak_days || 0).toLocaleString());
     if (u.created_at) {
       try {
         const d = new Date(u.created_at);
@@ -289,19 +289,25 @@
   // JAVASCRIPT-БЛОК: syncTelegramUserInBackground
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
+  function userFetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs || 10000);
+    return fetch(url, Object.assign({}, options || {}, { signal: controller.signal }))
+      .finally(() => window.clearTimeout(timer));
+  }
   async function syncTelegramUserInBackground(initData, initDataUnsafe) {
-    const res = await fetch('/api/public/telegram/sync', {
+    const res = await userFetchWithTimeout('/api/public/telegram/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, initDataUnsafe }),
-    });
+    }, 12000);
     if (!res.ok) throw new Error('sync ' + res.status);
     return res.json();
   }
   async function loadProfileFast(tgUser) {
     if (!tgUser || !tgUser.telegram_id) return null;
     try {
-      const res = await fetch('/api/public/telegram/profile?telegram_id=' + encodeURIComponent(tgUser.telegram_id), { cache: 'no-store' });
+      const res = await userFetchWithTimeout('/api/public/telegram/profile?telegram_id=' + encodeURIComponent(tgUser.telegram_id), { cache: 'no-store' }, 8000);
       if (!res.ok) return null;
       const json = await res.json();
       const profile = json && json.profile ? json.profile : null;

@@ -10,15 +10,15 @@ HTML-страница Mini App. Комментарии подписывают э
       <div class="brand-name">SYLVEX</div>
     </div>
     <div class="topbar-actions">
-      <div class="tb-stats" aria-label="Stats">
-        <span class="tb-stat" title="Generations today">
+      <div class="tb-stats" aria-label="Статистика">
+        <button class="tb-stat" type="button" title="Генераций сегодня" onclick="switchView('history')">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
-          <b id="tbGenToday">14</b>
-        </span>
-        <span class="tb-stat" title="Streak">
+          <b id="tbGenToday">0</b>
+        </button>
+        <button class="tb-stat" type="button" title="Дней активности" onclick="toast('Дней активности: '+document.getElementById('tbStreak').textContent)">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 1-3s1 2 3 2c0-4-3-5 1-9z"/></svg>
-          <b id="tbStreak">7</b>
-        </span>
+          <b id="tbStreak">0</b>
+        </button>
       </div>
       <!-- ==================================================
       HTML-ЭЛЕМЕНТ: EN
@@ -84,19 +84,19 @@ HTML-страница Mini App. Комментарии подписывают э
       </div>
 
       <div class="home-socials" aria-label="Follow us">
-        <a class="hsoc ig" href="https://instagram.com/sylvex" target="_blank" rel="noopener" aria-label="Instagram">
+        <a class="hsoc ig" href="https://www.instagram.com/sylvexai?igsi=NG4zdmh2c256YjA1&amp;utm_source=qr" target="_blank" rel="noopener" aria-label="Instagram">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none"/></svg>
         </a>
-        <a class="hsoc fb" href="https://facebook.com/sylvex" target="_blank" rel="noopener" aria-label="Facebook">
+        <a class="hsoc fb" href="https://www.facebook.com/share/1C35WkPzNH/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 22v-8h3l1-4h-4V7.5c0-1.1.4-2 2-2h2V2.1A28 28 0 0 0 14.5 2C11.7 2 10 3.7 10 6.8V10H7v4h3v8h3z"/></svg>
         </a>
-        <a class="hsoc tg" href="https://t.me/sylvex" target="_blank" rel="noopener" aria-label="Telegram">
+        <a class="hsoc tg" href="https://t.me/sylvexcommunity" target="_blank" rel="noopener" aria-label="Telegram">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.04 15.47 8.9 19.3c.4 0 .58-.17.8-.38l1.92-1.83 3.98 2.91c.73.4 1.25.19 1.45-.67l2.63-12.33c.24-1.09-.39-1.51-1.1-1.25L3.36 10.41c-1.06.42-1.05.99-.18 1.26l4.1 1.28 9.5-5.99c.45-.29.86-.13.52.18z"/></svg>
         </a>
-        <a class="hsoc yt" href="https://youtube.com/@sylvex" target="_blank" rel="noopener" aria-label="YouTube">
+        <a class="hsoc yt" href="https://www.youtube.com/channel/UCjIv7bvjQaO0gu_3-28t29Q" target="_blank" rel="noopener" aria-label="YouTube">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.2zM10 15.5v-7l6 3.5-6 3.5z"/></svg>
         </a>
-        <a class="hsoc tt" href="https://tiktok.com/@sylvex" target="_blank" rel="noopener" aria-label="TikTok">
+        <a class="hsoc tt" href="https://www.tiktok.com/@sylvex_ai?_r=1&amp;_t=ZN-994zCEbwsvm" target="_blank" rel="noopener" aria-label="TikTok">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 3h-3v12.3a2.7 2.7 0 1 1-2.7-2.7v-3a5.7 5.7 0 1 0 5.7 5.7V9.2a7.5 7.5 0 0 0 4.5 1.5v-3A4.5 4.5 0 0 1 16 3z"/></svg>
         </a>
         <button class="hsoc sx" type="button" onclick="switchView('community')" aria-label="SYLVEX Community">
@@ -1025,6 +1025,7 @@ HTML-страница Mini App. Комментарии подписывают э
 
     <section class="view" data-view="shop">
       <div class="section-title"><h3 data-i18n="shop">Магазин</h3><a onclick="switchView('profile')" data-i18n="profile">Профиль</a></div>
+      <div class="shop-tabs" role="tablist"><button class="active" type="button" data-shop-tab="subscriptions" onclick="SYLVEX.switchShopTab('subscriptions')">Подписки</button><button type="button" data-shop-tab="tokens" onclick="SYLVEX.switchShopTab('tokens')">Токены</button></div>
 
       <div class="shop-balance">
         <div class="sb-left">
@@ -1045,7 +1046,7 @@ HTML-страница Mini App. Комментарии подписывают э
         <div class="sb-rate">1$ = 100 ⚡️</div>
       </div>
 
-      <div class="sub-grid">
+      <div class="sub-grid" data-shop-panel="subscriptions">
         <div class="sub-card" id="subMonthCard">
           <div class="sub-badge" data-sub-el="badge">−50%</div>
           <div class="sub-title">SYLVEX Pro</div>
@@ -1098,8 +1099,8 @@ HTML-страница Mini App. Комментарии подписывают э
         </div>
       </div>
 
-      <div class="section-title"><h3>Купить токены ⚡️</h3></div>
-      <div class="tok-grid">
+      <div class="section-title" data-shop-panel="tokens" hidden><h3>Купить токены ⚡️</h3></div>
+      <div class="tok-grid" data-shop-panel="tokens" hidden>
         <div class="tok-card" onclick="SYLVEX.openBuy('pack_100')">
           <div class="tok-amount">100</div>
           <div class="tok-unit">⚡️</div>
@@ -1278,7 +1279,7 @@ HTML-страница Mini App. Комментарии подписывают э
         При нажатии вызывает: SYLVEX.payWith('paypal')
         CSS-класс задаёт внешний вид и расположение: pm-card
         =================================================== -->
-        <button class="pm-card" onclick="SYLVEX.payWith('paypal')">
+        <button class="pm-card" onclick="SYLVEX.payWith('paypal')" hidden aria-hidden="true">
           <div class="pm-ico">P</div>
           <div class="pm-body">
             <div class="pm-title">PayPal</div>
@@ -1382,7 +1383,7 @@ HTML-страница Mini App. Комментарии подписывают э
         ID используется JavaScript/CSS как точка подключения: profileSpent
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
-        <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="SYLVEX.openSpendingStats()"><div class="k">Токенов потрачено</div><div class="v" id="profileSpent">0 ⚡️</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Referrals  0
         ID используется JavaScript/CSS как точка подключения: profileReferrals
@@ -1395,12 +1396,8 @@ HTML-страница Mini App. Комментарии подписывают э
         CSS-класс задаёт внешний вид и расположение: mini
         =================================================== -->
         <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Генераций</div><div class="v" id="profileGens">0</div></div>
-        <!-- ==================================================
-        HTML-ЭЛЕМЕНТ: В SYLVEX  —
-        ID используется JavaScript/CSS как точка подключения: profileUptime
-        CSS-класс задаёт внешний вид и расположение: mini
-        =================================================== -->
-        <div class="mini" role="button" tabindex="0" onclick="switchView('history')"><div class="k">Средний расход</div><div class="v" id="profileUptime">0 ⚡️</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="switchView('community')"><div class="k">Публикаций</div><div class="v" id="profilePosts">0</div></div>
+        <div class="mini" role="button" tabindex="0" onclick="switchView('community')"><div class="k">Лайков публикаций</div><div class="v" id="profilePostLikes">0</div></div>
       </div>
       <div class="section-title"><h3 data-i18n="account">Account</h3></div>
       <div class="list">
@@ -1418,18 +1415,21 @@ HTML-страница Mini App. Комментарии подписывают э
           <small data-i18n="connect_sub">Stay close on your favourite platform</small>
         </div>
         <div class="socials">
-          <a class="social tg" href="https://t.me/sylvex" target="_blank" rel="noopener" aria-label="Telegram">
+          <a class="social tg" href="https://t.me/sylvexcommunity" target="_blank" rel="noopener" aria-label="Telegram">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.04 15.47 8.9 19.3c.4 0 .58-.17.8-.38l1.92-1.83 3.98 2.91c.73.4 1.25.19 1.45-.67l2.63-12.33h0c.24-1.09-.39-1.51-1.1-1.25L3.36 10.41c-1.06.42-1.05.99-.18 1.26l4.1 1.28 9.5-5.99c.45-.29.86-.13.52.18z"/></svg>
           </a>
-          <a class="social wa" href="https://wa.me/100000000" target="_blank" rel="noopener" aria-label="WhatsApp">
+          <a class="social wa" href="https://chat.whatsapp.com/DZFdEBZwOv935TS59RGvjt" target="_blank" rel="noopener" aria-label="WhatsApp">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3.5A11 11 0 0 0 3.2 17.1L2 22l5-1.3a11 11 0 0 0 16.3-9.5 10.9 10.9 0 0 0-2.8-7.7zM12.1 20a8.9 8.9 0 0 1-4.6-1.3l-.3-.2-3 .8.8-2.9-.2-.3a9 9 0 1 1 16.7-4.7 9 9 0 0 1-9.4 8.6zm5.1-6.7c-.3-.1-1.7-.8-1.9-.9s-.4-.1-.6.2-.7.9-.8 1-.3.2-.6.1a7.4 7.4 0 0 1-3.7-3.2c-.3-.5.3-.5.8-1.5a.5.5 0 0 0 0-.5l-.9-2c-.2-.5-.4-.5-.6-.5h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-1 2.3c0 1.3 1 2.6 1.1 2.8s1.9 3 4.7 4.2a16 16 0 0 0 1.6.6 3.8 3.8 0 0 0 1.7.1c.5-.1 1.7-.7 1.9-1.3s.2-1.2.2-1.3-.2-.2-.5-.3z"/></svg>
           </a>
-          <a class="social ig" href="https://instagram.com/sylvex" target="_blank" rel="noopener" aria-label="Instagram">
+          <a class="social ig" href="https://www.instagram.com/sylvexai?igsi=NG4zdmh2c256YjA1&amp;utm_source=qr" target="_blank" rel="noopener" aria-label="Instagram">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1.1" fill="currentColor" stroke="none"/></svg>
           </a>
-          <a class="social vb" href="viber://chat?number=%2B100000000" target="_blank" rel="noopener" aria-label="Viber">
+          <a class="social vb" href="https://invite.viber.com/?g2=AQBGW3CGLZH62VcJniNC1dSknQR8j%2B6r2eoyw8%2FRO3O8cnG7LTFr8vO%2FtNxYawWx" target="_blank" rel="noopener" aria-label="Viber">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3.6A11 11 0 0 0 5 3.5C2.4 6 2 9.6 2.1 12.2c.2 2.6 1.1 4.7 2.5 5.5l.4.2v3l2.5-1.4a13 13 0 0 0 4.5.9 11 11 0 0 0 7-2.5c3-2.7 3.3-7.7 2.4-11A8.6 8.6 0 0 0 19 3.6zm-1 12a4 4 0 0 1-2 1.1l-.6-.1a13 13 0 0 1-6.4-3.7 13 13 0 0 1-2.4-3.6C6.3 8.4 6.4 7.4 7 6.8a1.6 1.6 0 0 1 1.2-.6c.3 0 .5.1.7.5l.8 1.7c.1.3.1.6-.1.9l-.5.6c-.2.2-.2.3-.1.5a8.4 8.4 0 0 0 1.8 2.3 8.4 8.4 0 0 0 2.3 1.4c.2.1.3.1.5-.1l.6-.6c.2-.2.5-.3.8-.2l1.8.8c.4.2.5.4.5.7a1.7 1.7 0 0 1-.3 1z"/></svg>
           </a>
+          <a class="social fb" href="https://www.facebook.com/share/1C35WkPzNH/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 22v-8h3l1-4h-4V7.5c0-1.1.4-2 2-2h2V2.1A28 28 0 0 0 14.5 2C11.7 2 10 3.7 10 6.8V10H7v4h3v8h3z"/></svg></a>
+          <a class="social yt" href="https://www.youtube.com/channel/UCjIv7bvjQaO0gu_3-28t29Q" target="_blank" rel="noopener" aria-label="YouTube"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12 31 31 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 23.5 12 31 31 0 0 0 23 7.2zM10 15.5v-7l6 3.5-6 3.5z"/></svg></a>
+          <a class="social tt" href="https://www.tiktok.com/@sylvex_ai?_r=1&amp;_t=ZN-994zCEbwsvm" target="_blank" rel="noopener" aria-label="TikTok"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 3h-3v12.3a2.7 2.7 0 1 1-2.7-2.7v-3a5.7 5.7 0 1 0 5.7 5.7V9.2a7.5 7.5 0 0 0 4.5 1.5v-3A4.5 4.5 0 0 1 16 3z"/></svg></a>
         </div>
       </div>
 
@@ -1437,6 +1437,7 @@ HTML-страница Mini App. Комментарии подписывают э
       <div class="list">
         <div class="row" id="langRow"><div class="ico">🌐</div><div class="label"><span data-i18n="language">Language</span><small data-i18n="language_d">Choose interface language</small></div><div class="val" id="langValue">English</div></div>
         <div class="row"><div class="ico">✨</div><div class="label"><span data-i18n="anim_bg">Animated background</span><small data-i18n="anim_bg_d">Soft motion gradients</small></div><div class="switch on" id="bgSwitch"></div></div>
+        <div class="row" onclick="SYLVEX.toggleAiAssistantVisibility()"><div class="ico">✦</div><div class="label"><span>SYLVEX Ассистент</span><small>Показывать кнопку ассистента</small></div><div class="switch on" id="aiAssistantVisibilitySwitch"></div></div>
       </div>
 
       <div class="section-title"><h3 data-i18n="notifications">Notifications</h3></div>
@@ -1493,8 +1494,8 @@ HTML-страница Mini App. Комментарии подписывают э
 
 <div class="ai-assistant-modal" id="aiAssistantModal" aria-hidden="true">
   <section>
-    <header><span><img src="assets/ai-brand-logos/openai.png" alt=""><b>SYLVEX AI</b></span><button type="button" onclick="SYLVEX.closeAiAssistant()" aria-label="Закрыть">×</button></header>
-    <main class="ai-assistant-chat" id="aiAssistantChat"><div class="ai-assistant-empty">Чем вам помочь?</div></main>
+    <header><span><b>SYLVEX Ассистент</b></span><button type="button" onclick="SYLVEX.closeAiAssistant()" aria-label="Закрыть">×</button></header>
+    <main class="ai-assistant-chat" id="aiAssistantChat"><div class="ai-assistant-message ai">Здравствуйте! Я SYLVEX Ассистент. Напишите, что вы хотите сделать, и я помогу.</div></main>
     <form class="ai-assistant-composer" onsubmit="SYLVEX.sendAiAssistant(event)">
       <textarea id="aiAssistantInput" rows="1" placeholder="Напишите сообщение…" required></textarea>
       <button type="submit" aria-label="Отправить">↑</button>
