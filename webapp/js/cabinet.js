@@ -269,6 +269,7 @@ const PHOTO_TOOL_CONFIG = {
     max: 4,
     labels: ['Человек', 'Одежда 1', 'Одежда 2', 'Одежда 3'],
     demo: '/webapp/assets/photo-tools/try-on/demo.mp4',
+    library: 'clothes',
   },
   remove_bg: {
     title: 'Удаление фона',
@@ -287,6 +288,7 @@ const PHOTO_TOOL_CONFIG = {
     max: 2,
     labels: ['Основное фото', 'Новый персонаж'],
     demo: '/webapp/assets/photo-tools/replace-character/demo.mp4',
+    library: 'character',
   },
   enhance: {
     title: 'Улучшение фото',
@@ -297,10 +299,14 @@ const PHOTO_TOOL_CONFIG = {
     labels: ['Фото для улучшения'],
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
-  tattoo: { title:'Тату', shortTitle:'Тату', description:'Загрузите фото человека и изображение татуировки.', min:2, max:2, labels:['Человек','Татуировка'] },
-  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите основное изображение и логотип для размещения.', min:2, max:2, labels:['Основное фото','Логотип'] },
-  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и опишите предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'] },
-  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Первое фото задаёт сцену, второе — новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'] },
+  animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фотографию и опишите желаемое движение.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4', compare:false, route:'video' },
+  tattoo: { title:'Тату', shortTitle:'Тату', description:'Загрузите фото человека и изображение татуировки.', min:2, max:2, labels:['Человек','Татуировка'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', library:'tattoo' },
+  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите основное изображение и логотип для размещения.', min:2, max:2, labels:['Основное фото','Логотип'], preview:'assets/quick-tools/logo-placement.jpg', library:'logo' },
+  remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
+  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Отметьте заменяемую область и загрузите новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'], preview:'assets/quick-tools/replace-object.jpg', library:'object', mask:true },
+  makeup: { title:'Макияж', shortTitle:'Макияж', description:'Перенесите выбранный стиль макияжа на портрет, сохранив лицо.', min:1, max:2, labels:['Портрет','Референс макияжа'], preview:'assets/quick-tools/enhance-photo.jpg', library:'makeup' },
+  hair_beard: { title:'Причёска и борода', shortTitle:'Причёска и борода', description:'Выберите причёску, бороду или цвет волос.', min:1, max:2, labels:['Портрет','Референс стиля'], preview:'assets/quick-tools/replace-character.jpg', library:'hair' },
+  face_retouch: { title:'Ретушь лица', shortTitle:'Ретушь лица', description:'Естественно улучшите кожу и лицо без изменения личности.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/enhance-photo.jpg' },
 };
 const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
 let activePhotoTool = '';
@@ -6168,11 +6174,20 @@ function selectPhotoCatalogItem(e, url) {
 }
 
 function photoToolDemoHtml(config) {
-  return '<div class="photo-tool-demo">'
-    + '<video src="' + S.escapeHtml(config.demo) + '" autoplay muted loop playsinline preload="metadata" onerror="this.parentElement.classList.add(\'demo-missing\')"></video>'
-    + '<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Добавьте видео demo.mp4 в подготовленную папку</small></div>'
-    + '</div>';
+  const source=String(config.demo||config.preview||''),isVideo=/\.mp4(?:$|\?)/i.test(source),media=(extra)=>isVideo?'<video class="'+extra+'" src="'+S.escapeHtml(source)+'" autoplay muted loop playsinline preload="metadata"></video>':'<img class="'+extra+'" src="'+S.escapeHtml(source)+'" alt="">';
+  if(source&&config.compare!==false)return '<div class="photo-tool-demo photo-tool-compare" style="--compare-position:50%">'+media('photo-tool-after')+media('photo-tool-before')+'<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить до и после" oninput="SYLVEX.updatePhotoToolComparison(event)"><b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+  return '<div class="photo-tool-demo">'+(source?media('photo-tool-demo-media'):'')+'<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Референс будет добавлен позже</small></div></div>';
 }
+
+function updatePhotoToolComparison(e){const input=e&&e.currentTarget,host=input&&input.closest('.photo-tool-compare');if(host)host.style.setProperty('--compare-position',Math.max(0,Math.min(100,Number(input.value)||0))+'%')}
+function photoToolCatalogPreviewHtml(config){const source=String(config.preview||config.demo||''),isVideo=/\.mp4(?:$|\?)/i.test(source);return '<div class="photo-tool-demo">'+(source?(isVideo?'<video src="'+S.escapeHtml(source)+'" muted playsinline preload="metadata"></video>':'<img src="'+S.escapeHtml(source)+'" alt="">'):'<div class="photo-tool-demo-placeholder"><span></span><b>Обложка</b></div>')+'</div>'}
+function photoToolReferenceUrls(kind){if(kind==='character')return (imageState.characterReferences||[]).map(item=>typeof item==='string'?item:(item.url||item.image_url||'')).filter(Boolean);if(kind==='object')return (imageState.objectReferences||[]).map(item=>typeof item==='string'?item:(item.url||item.image_url||'')).filter(Boolean);return []}
+function photoToolLibraryHtml(config){if(!config.library)return'';const refs=photoToolReferenceUrls(config.library),label={character:'персонажа',object:'предмет',tattoo:'тату',logo:'лого',clothes:'одежду',makeup:'макияж',hair:'стиль'}[config.library]||'референс';return '<div class="photo-tool-library"><small>Выберите '+label+'</small><div><button type="button" class="create" onclick="SYLVEX.createPhotoToolReference(event,\''+config.library+'\')"><i>＋</i><b>Создать</b></button>'+Array.from({length:10},(_,index)=>{const url=refs[index]||'';return '<button type="button" '+(url?'onclick="SYLVEX.selectPhotoToolReference(event,\''+S.escapeHtml(url)+'\')"':'disabled')+'>'+(url?'<img src="'+S.escapeHtml(url)+'" alt="">':'<i>'+(index+1)+'</i>')+'</button>'}).join('')+'</div></div>'}
+function photoToolMaskHtml(config,state){if(!config.mask||!state.files[0])return'';return '<div class="photo-tool-mask-editor"><header><div><b>Отметьте область</b><small>Проведите по предмету зелёной кистью</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>'}
+function initPhotoToolMask(){const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(!canvas||!state)return;const rect=canvas.getBoundingClientRect(),scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.strokeStyle='rgba(47,220,119,.88)';ctx.lineWidth=Math.max(13,rect.width*.045);ctx.lineCap='round';ctx.lineJoin='round';let drawing=false,last=null;const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId)};const move=e=>{if(!drawing)return;e.preventDefault();const next=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};const end=e=>{if(!drawing)return;e.preventDefault();drawing=false;state.maskUrl=canvas.toDataURL('image/png')};canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end)}
+function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl=''}
+function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character')return openVisualCreateModal(e,'character');toast('Слот для нового референса подготовлен')}
+function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagation()}const config=PHOTO_TOOL_CONFIG[activePhotoTool],state=photoToolStateFor(activePhotoTool);if(!config||!state||!url)return;const slot=config.library==='character'?1:Math.max(0,config.max-1);state.files[slot]={name:'Референс из каталога',mime:'image/*',url};renderPhotoToolModal()}
 
 function renderPhotoToolCatalog() {
   const body = document.getElementById('photoToolModalBody');
@@ -6182,7 +6197,7 @@ function renderPhotoToolCatalog() {
     + '<div class="photo-tool-catalog">'
     + Object.entries(PHOTO_TOOL_CONFIG).map(([key, config]) =>
       '<button type="button" class="photo-tool-catalog-card" onclick="SYLVEX.openPhotoToolModal(event,\'' + key + '\')">'
-      + photoToolDemoHtml(config)
+      + photoToolCatalogPreviewHtml(config)
       + '<span><b>' + S.escapeHtml(config.shortTitle) + '</b><small>' + S.escapeHtml(config.description) + '</small></span>'
       + '</button>'
     ).join('')
@@ -6215,7 +6230,7 @@ function renderPhotoToolModal() {
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + '<div class="photo-tool-layout">'
     + '<div class="photo-tool-demo-column">' + photoToolDemoHtml(config) + '<p>' + S.escapeHtml(config.description) + '</p></div>'
-    + '<div class="photo-tool-work-column">'
+    + '<div class="photo-tool-work-column">'+photoToolLibraryHtml(config)+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
     + '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"></textarea>'
@@ -6223,6 +6238,7 @@ function renderPhotoToolModal() {
     + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
     + '</button>'
     + '</div></div>';
+  if(config.mask&&state.files[0])window.requestAnimationFrame(initPhotoToolMask);
 }
 
 function openPhotoToolModal(e, kind) {
@@ -6318,8 +6334,11 @@ function photoToolPrompt(kind, extra) {
   }
   if (kind === 'tattoo') return 'Apply the tattoo from the second reference image naturally to the person in the first image. Preserve identity, anatomy, pose, lighting and scene. Make the tattoo follow the skin perspective and texture.' + suffix;
   if (kind === 'logo') return 'Place the logo from the second reference image naturally into the first image. Preserve the logo design, proportions and legibility while matching perspective, material and lighting.' + suffix;
-  if (kind === 'remove_object') return 'Remove only the object described by the user from the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
-  if (kind === 'replace_object') return 'Replace the relevant object in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
+  if (kind === 'remove_object') return 'Remove only the region marked by the user in the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
+  if (kind === 'replace_object') return 'Replace the region marked by the user in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
+  if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
+  if (kind === 'hair_beard') return 'Apply the hairstyle, beard or hair color described by the user or shown in the second reference. Preserve identity, facial anatomy, pose, scene and lighting.' + suffix;
+  if (kind === 'face_retouch') return 'Retouch the face naturally: soften temporary skin imperfections and wrinkles while preserving identity, facial anatomy, realistic skin texture and age-appropriate detail.' + suffix;
   return 'Enhance the first reference photo. Improve sharpness, detail, resolution, dynamic range and natural color while preserving the exact subject, identity, composition, objects and scene. Do not add or remove people or objects.' + suffix;
 }
 
@@ -6337,8 +6356,24 @@ async function generatePhotoTool(e) {
     toast('Загрузите необходимые фотографии');
     return;
   }
+  if (config.mask && state.maskUrl) refs.push(state.maskUrl);
   const extraEl = document.getElementById('photoToolExtraPrompt');
   const extra = extraEl ? String(extraEl.value || '').trim() : '';
+  if (config.route === 'video') {
+    const source = refs[0];
+    closePhotoToolModal();
+    switchView('tools');
+    updateComposerMode('video');
+    applyUploadToTarget(source, UPLOAD_TARGETS.VIDEO_START);
+    window.setTimeout(() => {
+      const input = document.getElementById('chatInput');
+      if (input && extra) { input.value = extra; autoGrow(input); }
+      renderVideoControls();
+      updateSendButton();
+    }, 80);
+    toast('Фото перенесено в генерацию видео');
+    return;
+  }
   const prompt = photoToolPrompt(kind, extra);
   state.generating = true;
   renderPhotoToolModal();
@@ -11034,6 +11069,9 @@ function renderGeneratedTelegramButton(url, kind) {
     {key:'logo',title:'Лого',note:'Размещение на изображении',image:'assets/quick-tools/logo-placement.jpg'},
     {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',image:'assets/quick-tools/remove-object.jpg'},
     {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',image:'assets/quick-tools/replace-object.jpg'},
+    {key:'makeup',title:'Макияж',note:'Новый образ с сохранением лица',image:'assets/quick-tools/enhance-photo.jpg'},
+    {key:'hair_beard',title:'Причёска и борода',note:'Стиль, форма и цвет волос',image:'assets/quick-tools/replace-character.jpg'},
+    {key:'face_retouch',title:'Ретушь лица',note:'Естественная коррекция кожи',image:'assets/quick-tools/enhance-photo.jpg'},
   ];
   let homeQuickOffset = 0;
   let homeQuickTimer = null;
@@ -11147,15 +11185,9 @@ function renderGeneratedTelegramButton(url, kind) {
   async function deleteCommunityComment(commentId){const modal=document.getElementById('communityCommentsModal');if(!modal||!window.confirm('Удалить комментарий?'))return;const r=await fetch('/api/public/community/comments/'+commentId,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:getTelegramId(),initData:S.tg&&S.tg.initData||''})});if(r.ok){const postId=Number(modal.dataset.postId),item=communityItems.find(x=>Number(x.id)===postId);if(item){item.comments=Math.max(0,Number(item.comments||0)-1);updateCommunityCommentCount(postId,item.comments)}openCommunityComments(postId)}else toast('Не удалось удалить комментарий')}
   function openHomeQuickTool(event, key) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
-    if (key === 'animate_photo') {
-      switchView('tools');
-      updateComposerMode('video');
-      window.setTimeout(openVideoStartUpload, 120);
-      return;
-    }
     openPhotoToolModal(event, key);
   }
-  function homeQuickCardHtml(item) { return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-preview"><img src="'+item.image+'" alt="" loading="eager" decoding="async" fetchpriority="high"></span><span class="home-quick-copy"><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
+  function homeQuickCardHtml(item) { const media=item.video?'<video src="'+item.video+'" muted loop autoplay playsinline preload="metadata"></video>':'<img src="'+item.image+'" alt="" loading="eager" decoding="async" fetchpriority="high">';return '<button class="home-quick-card" type="button" data-tool="'+item.key+'"><span class="home-quick-preview">'+media+'</span><span class="home-quick-copy"><b>'+item.title+'</b><small>'+item.note+'</small></span><i>›</i></button>'; }
   function moveHomeQuickTools(direction) {
     const host=document.getElementById('homeHist'),track=host&&host.querySelector('.home-quick-track');if(!track)return;
     homeQuickOffset=(homeQuickOffset+(direction>0?1:HOME_QUICK_TOOLS.length-1))%HOME_QUICK_TOOLS.length;
@@ -18519,7 +18551,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
@@ -18544,6 +18576,7 @@ async function waitGeneration(jobId, options) {
     get activeCat() { return activeCat; }
   });
 
+  S.clearPhotoToolMask = clearPhotoToolMask;
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
