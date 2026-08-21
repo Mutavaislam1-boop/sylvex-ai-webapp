@@ -21,7 +21,6 @@
     toggle.setAttribute('aria-expanded', String(show));
   }
   toggle.addEventListener('click', () => showSidebar(!sidebar.classList.contains('open')));
-  document.getElementById('sectionsClose').addEventListener('click', () => showSidebar(false));
   scrim.addEventListener('click', () => showSidebar(false));
 
   function openPage(page, anchor) {
@@ -29,7 +28,8 @@
     const pageTitles = { general: 'Общее', images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Голос', text: 'Текст' };
     title.textContent = pageTitles[page];
     document.querySelectorAll('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
-    frame.src = pages[page];
+    const target = pages[page] + '?embed=1';
+    if (!frame.getAttribute('src').startsWith(target)) frame.src = target;
     const url = new URL(location.href);
     url.searchParams.set('section', page);
     if (anchor) url.searchParams.set('anchor', anchor); else url.searchParams.delete('anchor');

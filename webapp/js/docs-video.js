@@ -24,7 +24,7 @@
     if (!visible) return;
     allLinks.forEach((link) => link.classList.toggle('active', link.hash === '#' + visible.target.id));
     const mobileActive = mobileToc.querySelector('a.active');
-    if (mobileActive && window.innerWidth <= 900) mobileActive.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
   }, { rootMargin: '-18% 0px -65%', threshold: [0, .2, .6] });
   sections.forEach((section) => observer.observe(section));
 
