@@ -595,7 +595,7 @@ const AI_LOGOS = {
   wan: LOBE_ICON_BASE + '/qwen.svg',
   veo: LOBE_ICON_BASE + '/gemini.svg',
   elevenlabs: LOBE_ICON_BASE + '/elevenlabs.svg',
-  heygen: 'assets/logos/heygen-symbol-black-logo.svg',
+  heygen: '/assets/logos/heygen-symbol-black-logo.svg',
   suno: LOBE_ICON_BASE + '/suno.svg',
   nanoBanana: 'custom-banana',
 };
@@ -16719,16 +16719,16 @@ async function waitGeneration(jobId, options) {
 
   /* ===== Theme picker ===== */
   const THEMES = [
-    { id: 'dark',  label: 'Тёмная', cover:'linear-gradient(135deg,#343434,#171717 56%,#10a37f)', css: { '--bg-0':'#212121','--bg-1':'#171717','--bg-2':'#2f2f2f','--surface':'#2f2f2f','--surface-2':'#3a3a3a','--text':'#ececec' }, mode:'dark' },
-    { id: 'black', label: 'Чёрная', cover:'radial-gradient(circle at 82% 15%,#2e2e2e,transparent 38%),linear-gradient(145deg,#111,#000)', css: { '--bg-0':'#000000','--bg-1':'#0a0a0a','--bg-2':'#141414','--surface':'#161616','--surface-2':'#222222','--text':'#f5f5f5' }, mode:'dark' },
-    { id: 'blue',  label: 'Синяя ночь', cover:'radial-gradient(circle at 78% 20%,#3f69c9,transparent 38%),linear-gradient(135deg,#162b52,#08111f)', css: { '--bg-0':'#0b1220','--bg-1':'#0a0f1c','--bg-2':'#111a2e','--surface':'#12203a','--surface-2':'#1a2c4d','--text':'#eaf1ff' }, mode:'dark' },
-    { id: 'plum',  label: 'Слива', cover:'radial-gradient(circle at 80% 20%,#8d4fb2,transparent 40%),linear-gradient(135deg,#3b1e50,#160b20)', css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
-    { id: 'vanilla', label: 'Ванильная', cover:'radial-gradient(circle at 80% 16%,#fff8d9,transparent 38%),linear-gradient(135deg,#e7cf9e,#fff7e6)', css: { '--bg-0':'#f7f0df','--bg-1':'#efe5cf','--bg-2':'#fffaf0','--surface':'#fff8e8','--surface-2':'#eadfc8','--text':'#332d24' }, mode:'light' },
-    { id: 'forest', label: 'Лесная', cover:'radial-gradient(circle at 76% 18%,#4c8b6f,transparent 40%),linear-gradient(135deg,#254b3a,#0a1711)', css: { '--bg-0':'#102019','--bg-1':'#0b1712','--bg-2':'#172a21','--surface':'#1a3026','--surface-2':'#254438','--text':'#e8f3ed' }, mode:'dark' },
-    { id: 'rose', label: 'Розовая', cover:'radial-gradient(circle at 80% 18%,#ffc6d5,transparent 42%),linear-gradient(135deg,#f4ced7,#fff7f9)', css: { '--bg-0':'#fff3f5','--bg-1':'#f9e7eb','--bg-2':'#fff9fa','--surface':'#fff7f8','--surface-2':'#f1dce1','--text':'#3e252c' }, mode:'light' },
-    { id: 'light', label: 'Светлая', cover:'radial-gradient(circle at 80% 18%,#d9f7ec,transparent 40%),linear-gradient(135deg,#fff,#e8eceb)', css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
+    { id: 'dark', label: 'Тёмная', covers:['linear-gradient(135deg,#343434,#171717 56%,#10a37f)','radial-gradient(circle at 18% 25%,#167b67,transparent 34%),linear-gradient(145deg,#25282b,#101112)','linear-gradient(115deg,#101827,#303844 48%,#0e6c59)'], css: { '--bg-0':'#212121','--bg-1':'#171717','--bg-2':'#2f2f2f','--surface':'#2f2f2f','--surface-2':'#3a3a3a','--text':'#ececec' }, mode:'dark' },
+    { id: 'black', label: 'Чёрная', covers:['radial-gradient(circle at 82% 15%,#2e2e2e,transparent 38%),linear-gradient(145deg,#111,#000)','linear-gradient(125deg,#020202,#242424 50%,#050505)','radial-gradient(circle at 20% 20%,#444,transparent 28%),#050505'], css: { '--bg-0':'#000000','--bg-1':'#0a0a0a','--bg-2':'#141414','--surface':'#161616','--surface-2':'#222222','--text':'#f5f5f5' }, mode:'dark' },
+    { id: 'blue', label: 'Синяя ночь', covers:['radial-gradient(circle at 78% 20%,#3f69c9,transparent 38%),linear-gradient(135deg,#162b52,#08111f)','linear-gradient(130deg,#091737,#234f91,#090d1d)','radial-gradient(circle at 22% 25%,#2f7bd3,transparent 32%),linear-gradient(145deg,#111a37,#060b18)'], css: { '--bg-0':'#0b1220','--bg-1':'#0a0f1c','--bg-2':'#111a2e','--surface':'#12203a','--surface-2':'#1a2c4d','--text':'#eaf1ff' }, mode:'dark' },
+    { id: 'plum', label: 'Слива', covers:['radial-gradient(circle at 80% 20%,#8d4fb2,transparent 40%),linear-gradient(135deg,#3b1e50,#160b20)','linear-gradient(125deg,#24102f,#70408c,#17091f)','radial-gradient(circle at 20% 25%,#b3599e,transparent 35%),linear-gradient(145deg,#351843,#120816)'], css: { '--bg-0':'#1a0f22','--bg-1':'#120a19','--bg-2':'#241432','--surface':'#2b1a3a','--surface-2':'#3a2450','--text':'#f2eaff' }, mode:'dark' },
+    { id: 'vanilla', label: 'Ванильная', covers:['radial-gradient(circle at 80% 16%,#fff8d9,transparent 38%),linear-gradient(135deg,#e7cf9e,#fff7e6)','linear-gradient(125deg,#e3c991,#fff5d7,#d9bc82)','radial-gradient(circle at 20% 20%,#fff,transparent 35%),linear-gradient(145deg,#ead8ad,#fff8ea)'], css: { '--bg-0':'#f7f0df','--bg-1':'#efe5cf','--bg-2':'#fffaf0','--surface':'#fff8e8','--surface-2':'#eadfc8','--text':'#332d24' }, mode:'light' },
+    { id: 'forest', label: 'Лесная', covers:['radial-gradient(circle at 76% 18%,#4c8b6f,transparent 40%),linear-gradient(135deg,#254b3a,#0a1711)','linear-gradient(125deg,#0c2117,#397458,#08140e)','radial-gradient(circle at 20% 25%,#65a77e,transparent 34%),linear-gradient(145deg,#1f4432,#07130d)'], css: { '--bg-0':'#102019','--bg-1':'#0b1712','--bg-2':'#172a21','--surface':'#1a3026','--surface-2':'#254438','--text':'#e8f3ed' }, mode:'dark' },
+    { id: 'rose', label: 'Розовая', covers:['radial-gradient(circle at 80% 18%,#ffc6d5,transparent 42%),linear-gradient(135deg,#f4ced7,#fff7f9)','linear-gradient(125deg,#f0bdca,#fff1f5,#e8aebd)','radial-gradient(circle at 20% 20%,#fff,transparent 34%),linear-gradient(145deg,#f4c6d0,#fff7f9)'], css: { '--bg-0':'#fff3f5','--bg-1':'#f9e7eb','--bg-2':'#fff9fa','--surface':'#fff7f8','--surface-2':'#f1dce1','--text':'#3e252c' }, mode:'light' },
+    { id: 'light', label: 'Светлая', covers:['radial-gradient(circle at 80% 18%,#d9f7ec,transparent 40%),linear-gradient(135deg,#fff,#e8eceb)','linear-gradient(125deg,#f8faf9,#dceae5,#fff)','radial-gradient(circle at 20% 20%,#bfeada,transparent 32%),linear-gradient(145deg,#fff,#e7efec)'], css: { '--bg-0':'#ffffff','--bg-1':'#f7f7f8','--bg-2':'#ffffff','--surface':'#f4f4f4','--surface-2':'#ececec','--text':'#0d0d0d' }, mode:'light' },
   ];
-  const DEFAULT_PROFILE_APPEARANCE = { id:'dark', nickname:'#ececec' };
+  const DEFAULT_PROFILE_APPEARANCE = { id:'dark', coverIndex:0 };
   function appearanceStorageKey() { return 'sylvex-profile-appearance-' + (getTelegramId() || 'guest'); }
   function validHex(value, fallback) { return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback; }
   function contrastColor(hex) {
@@ -16752,7 +16752,7 @@ async function waitGeneration(jobId, options) {
     const theme = THEMES.find((item) => item.id === (source.id || source.themeId)) || THEMES[0];
     return {
       id: theme.id,
-      nickname: validHex(source.nickname, theme.css['--text']),
+      coverIndex: Math.max(0, Math.min(theme.covers.length - 1, Number(source.coverIndex || 0))),
     };
   }
   function storeProfileAppearance(settings) {
@@ -16777,18 +16777,12 @@ async function waitGeneration(jobId, options) {
     style.setProperty('--text-mute', text === '#ffffff' ? '#969696' : '#737373');
     style.setProperty('--surface-text', surfaceText);
     style.setProperty('--button-text', buttonText);
-    style.setProperty('--nickname-color', readableColor(validHex(value.nickname, text), theme.css['--surface']));
-    style.setProperty('--profile-cover', theme.cover);
+    style.removeProperty('--nickname-color');
+    style.setProperty('--profile-cover', theme.covers[Math.max(0, Math.min(theme.covers.length - 1, Number(value.coverIndex || 0)))]);
     if (S.syncTelegramHeader) S.syncTelegramHeader();
   }
   function syncAppearanceEditor() {
-    const value = epAppearanceDraft || currentProfileAppearance();
-    [['Nickname','nickname']].forEach(([id,key]) => {
-      const input = document.getElementById('ep' + id + 'Color');
-      const output = document.getElementById('ep' + id + 'ColorValue');
-      if (input) input.value = value[key];
-      if (output) output.textContent = value[key].toUpperCase();
-    });
+    renderProfileCoverGrid();
   }
   function previewProfileColor(kind, color) {
     if (!epAppearanceDraft) epAppearanceDraft = currentProfileAppearance();
@@ -16798,10 +16792,24 @@ async function waitGeneration(jobId, options) {
   }
   function selectProfileTheme(themeId) {
     const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
-    epAppearanceDraft = { id:theme.id, nickname:(epAppearanceDraft && epAppearanceDraft.nickname) || theme.css['--text'] };
+    epAppearanceDraft = { id:theme.id, coverIndex:0 };
     syncAppearanceEditor();
     applyProfileAppearance(epAppearanceDraft);
     renderThemeGrid();
+  }
+  function selectProfileCover(index) {
+    if (!epAppearanceDraft) epAppearanceDraft = currentProfileAppearance();
+    const theme = THEMES.find((item) => item.id === epAppearanceDraft.id) || THEMES[0];
+    epAppearanceDraft.coverIndex = Math.max(0, Math.min(theme.covers.length - 1, Number(index || 0)));
+    applyProfileAppearance(epAppearanceDraft);
+    renderProfileCoverGrid();
+  }
+  function renderProfileCoverGrid() {
+    const grid = document.getElementById('profileCoverGrid');
+    if (!grid) return;
+    const value = epAppearanceDraft || currentProfileAppearance();
+    const theme = THEMES.find((item) => item.id === value.id) || THEMES[0];
+    grid.innerHTML = theme.covers.map((cover, index) => '<button type="button" class="profile-cover-option '+(Number(value.coverIndex||0)===index?'sel':'')+'" style="background:'+cover+'" onclick="SYLVEX.selectProfileCover('+index+')" aria-label="Обложка '+(index+1)+'"></button>').join('');
   }
   function resetProfileAppearance() {
     epAppearanceDraft = Object.assign({}, DEFAULT_PROFILE_APPEARANCE);
@@ -16865,7 +16873,7 @@ async function waitGeneration(jobId, options) {
     const cur = (epAppearanceDraft && epAppearanceDraft.id) || currentProfileAppearance().id;
     g.innerHTML = THEMES.map((t) => {
       const sel = cur === t.id ? 'sel' : '';
-      const sw = 'background:' + t.cover;
+      const sw = 'background:' + t.covers[0];
       const swInner = 'background:' + t.css['--surface-2'];
       return '<button type="button" class="th-opt ' + sel + '" onclick="SYLVEX.selectProfileTheme(\'' + t.id + '\')">'
         + '<div class="th-sw" style="' + sw + '"><div class="th-sw-inner" style="' + swInner + '"></div></div>'
@@ -17155,25 +17163,6 @@ async function waitGeneration(jobId, options) {
   function closeSupport() {
     document.getElementById('supportModal').classList.remove('show');
   }
-  function startSupportQuickHelp() {
-    const ta = document.getElementById('supportMsg');
-    if (ta && !ta.value.trim()) ta.value = 'Помогите разобраться: ';
-    ta && ta.focus();
-  }
-  function openSupportAi() {
-    closeSupport();
-    switchView('tools');
-    updateComposerMode('text');
-    if (TEXT_MODEL_LIST && TEXT_MODEL_LIST.some((model) => model.id === 'gpt-5.6')) textState.modelId = 'gpt-5.6';
-    window.setTimeout(() => {
-      const input = document.getElementById('chatInput');
-      if (!input) return;
-      if (!input.value.trim()) input.value = 'Помоги мне разобраться с SYLVEX: ';
-      autoGrow(input);
-      updateSendButton();
-      input.focus();
-    }, 80);
-  }
   // =====================================================
   // ЗАПУСК ГЕНЕРАЦИИ: sendSupport
   // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
@@ -17196,7 +17185,7 @@ async function waitGeneration(jobId, options) {
     try { pending = JSON.parse(localStorage.getItem(pendingKey) || 'null'); } catch {}
     const repliedAt = Date.parse(String((S.user && (S.user.support_replied_at || S.user.support_reply_at)) || '')) || 0;
     if (pending && Number(pending.sentAt || 0) > repliedAt) {
-      toast('Дождитесь ответа поддержки перед новым сообщением');
+      toast('Вы уже отправили сообщение. Дождитесь ответа техподдержки');
       return;
     }
     S.sendToBot({ type: 'support', email, message: v });
@@ -17205,6 +17194,85 @@ async function waitGeneration(jobId, options) {
     closeSupport();
     toast(t('support_sent'));
     S.haptic.notify('success');
+  }
+
+  const aiAssistantMessages = [];
+  function renderAiAssistant() {
+    const chat = document.getElementById('aiAssistantChat');
+    if (!chat) return;
+    chat.innerHTML = aiAssistantMessages.length
+      ? aiAssistantMessages.map((message) => '<div class="ai-assistant-message '+message.role+'">'+S.escapeHtml(message.text)+'</div>').join('')
+      : '<div class="ai-assistant-empty">Чем вам помочь?</div>';
+    chat.scrollTop = chat.scrollHeight;
+  }
+  function openAiAssistant() {
+    const modal = document.getElementById('aiAssistantModal');
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden','false');
+    renderAiAssistant();
+    setTimeout(() => document.getElementById('aiAssistantInput')?.focus(), 80);
+  }
+  function closeAiAssistant() {
+    const modal = document.getElementById('aiAssistantModal');
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden','true');
+  }
+  function aiAssistantResultText(result) {
+    const value = result && (result.text || result.output_text || result.content || result.message || result.response || result.answer);
+    if (Array.isArray(value)) return value.map((item) => typeof item === 'string' ? item : (item.text || item.content || '')).filter(Boolean).join('\n');
+    return typeof value === 'string' ? value : '';
+  }
+  async function waitAiAssistantJob(jobId) {
+    while (true) {
+      const response = await fetch('/api/public/prostudio/job/'+encodeURIComponent(jobId), {cache:'no-store'});
+      const job = await response.json().catch(() => ({}));
+      if (!response.ok || !job.ok) throw new Error('Не удалось получить ответ');
+      if (job.status === 'completed') return job.result || {};
+      if (job.status === 'failed' || job.status === 'cancelled') throw new Error('AI-ассистент временно недоступен');
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+  }
+  async function sendAiAssistant(event) {
+    event.preventDefault();
+    const input = document.getElementById('aiAssistantInput');
+    const submit = event.currentTarget.querySelector('button[type="submit"]');
+    const prompt = String(input.value || '').trim();
+    if (!prompt || submit.disabled) return;
+    aiAssistantMessages.push({role:'user',text:prompt},{role:'ai',text:'Печатает…',loading:true});
+    input.value = '';
+    submit.disabled = true;
+    renderAiAssistant();
+    try {
+      const response = await fetch('/api/public/prostudio/generate', {method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),prompt,mode:'text',category:'text',model:'gpt-5.6',provider:'openai',text_options:{},history:aiAssistantMessages.filter((message)=>!message.loading).slice(-10).map((message)=>({role:message.role==='ai'?'assistant':'user',content:message.text})),attachment:null,conversation_id:'',client_request_id:'assistant_'+Date.now().toString(36),language:uiLang()})});
+      const start = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(translateGenerationError(start,'AI-ассистент временно недоступен'));
+      const jobId = start.job_id || start.generation_id || start.id;
+      const result = jobId ? await waitAiAssistantJob(jobId) : (start.result || start);
+      aiAssistantMessages[aiAssistantMessages.length-1] = {role:'ai',text:aiAssistantResultText(result) || 'Ответ получен, но текст не удалось отобразить.'};
+    } catch (error) {
+      aiAssistantMessages[aiAssistantMessages.length-1] = {role:'ai',text:error.message || 'AI-ассистент временно недоступен'};
+    } finally {
+      submit.disabled = false;
+      renderAiAssistant();
+    }
+  }
+  function initAiAssistantFab() {
+    const fab = document.getElementById('aiAssistantFab');
+    if (!fab) return;
+    const size = 58, half = size / 2;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('sylvex-ai-assistant-position') || 'null'); } catch {}
+    const place = (side, y) => {
+      fab.style.left = side === 'left' ? (-half+4)+'px' : (innerWidth-half-4)+'px';
+      fab.style.top = Math.max(75,Math.min(innerHeight-size-85,Number(y)||innerHeight*.58))+'px';
+    };
+    place(saved?.side || (Math.random()>.5?'right':'left'),saved?.y || (90+Math.random()*Math.max(80,innerHeight-250)));
+    let dragging=false,moved=false,suppressClick=false;
+    fab.addEventListener('click',(event)=>{if(!suppressClick)return;suppressClick=false;event.preventDefault();event.stopImmediatePropagation()},true);
+    fab.addEventListener('pointerdown',(event)=>{dragging=true;moved=false;fab.classList.add('is-dragging');fab.setPointerCapture(event.pointerId)});
+    fab.addEventListener('pointermove',(event)=>{if(!dragging)return;moved=true;fab.style.left=(event.clientX-half)+'px';fab.style.top=Math.max(0,Math.min(innerHeight-size,event.clientY-half))+'px'});
+    fab.addEventListener('pointerup',(event)=>{if(!dragging)return;dragging=false;fab.classList.remove('is-dragging');const side=event.clientX<innerWidth/2?'left':'right',y=parseFloat(fab.style.top)||100;place(side,y);localStorage.setItem('sylvex-ai-assistant-position',JSON.stringify({side,y}));if(moved){suppressClick=true;event.preventDefault();event.stopPropagation()}});
+    addEventListener('resize',()=>{const side=parseFloat(fab.style.left)<0?'left':'right';place(side,parseFloat(fab.style.top))});
   }
 
   /* ===== Hero carousel ===== */
@@ -18326,6 +18394,7 @@ async function waitGeneration(jobId, options) {
     }
 
     bindEvents();
+    initAiAssistantFab();
     window.addEventListener('message', handleKnowledgeWorkspaceMessage);
     initAudioPlayer();
     restoreLocalActiveGeneration();
@@ -18372,10 +18441,10 @@ async function waitGeneration(jobId, options) {
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin,
-    openSupport, closeSupport, sendSupport, startSupportQuickHelp, openSupportAi,
+    openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
-    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openKnowledgeWorkspace, closeKnowledgeWorkspace,
+    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, deleteCommunityPost, searchCommunity, toggleCommunityMenu, communityComingSoon,
     openCommunityHub, closeCommunityHub, sendCommunityMessage, sendCommunityFriendRequest, communityFriendAction, loadCommunityNotificationBadge, openCommunityNotification,

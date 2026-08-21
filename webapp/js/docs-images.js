@@ -29,7 +29,7 @@
     mobileTocLinks.forEach((link) => {
       const active = link.getAttribute('href') === '#' + visible.target.id;
       link.classList.toggle('active', active);
-      if (active && window.innerWidth <= 900) link.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
     });
   }, { rootMargin: '-18% 0px -65%', threshold: [0, .2, .6] });
   sections.forEach((section) => observer.observe(section));

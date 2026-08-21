@@ -189,13 +189,15 @@ HTML-страница Mini App. Комментарии подписывают э
           ID используется JavaScript/CSS как точка подключения: modelBtn
           CSS-класс задаёт внешний вид и расположение: sb-brand sb-brand-sm
           =================================================== -->
-          <button class="sb-brand sb-brand-sm" id="modelBtn" onclick="SYLVEX.toggleModelPop(event)" aria-haspopup="menu" aria-expanded="false">
-            <span class="sb-brand-name" id="modelVal">SYLVEX Pro</span>
-            <svg class="sb-brand-chv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-          </button>
-          <div class="studio-layout-switch" id="studioLayoutSwitch" aria-label="Режим ProStudio">
-            <button class="active" type="button" data-studio-layout="classic" onclick="SYLVEX.setStudioLayout('classic')">Обычный</button>
-            <button type="button" data-studio-layout="grid" onclick="SYLVEX.setStudioLayout('grid')">Сетка</button>
+          <div class="studio-brand-cluster">
+            <button class="sb-brand sb-brand-sm" id="modelBtn" onclick="SYLVEX.toggleModelPop(event)" aria-haspopup="menu" aria-expanded="false">
+              <span class="sb-brand-name" id="modelVal">SYLVEX Pro</span>
+              <svg class="sb-brand-chv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="studio-layout-switch" id="studioLayoutSwitch" aria-label="Режим ProStudio">
+              <button class="active" type="button" data-studio-layout="classic" onclick="SYLVEX.setStudioLayout('classic')">Обычный</button>
+              <button type="button" data-studio-layout="grid" onclick="SYLVEX.setStudioLayout('grid')">Сетка</button>
+            </div>
           </div>
           <!-- ==================================================
           HTML-ЭЛЕМЕНТ: sb-icon
@@ -1485,9 +1487,20 @@ HTML-страница Mini App. Комментарии подписывают э
   </nav>
 </div>
 
-<button class="sylvex-support-fab" type="button" onclick="SYLVEX.openSupport()" aria-label="SYLVEX AI Support">
-  <span class="sylvex-support-fab-mark">S</span><span>AI Support</span>
+<button class="sylvex-ai-assistant-fab" id="aiAssistantFab" type="button" onclick="SYLVEX.openAiAssistant()" aria-label="Открыть AI-ассистента">
+  <img src="assets/logo.png" alt="">
 </button>
+
+<div class="ai-assistant-modal" id="aiAssistantModal" aria-hidden="true">
+  <section>
+    <header><span><img src="assets/ai-brand-logos/openai.png" alt=""><b>SYLVEX AI</b></span><button type="button" onclick="SYLVEX.closeAiAssistant()" aria-label="Закрыть">×</button></header>
+    <main class="ai-assistant-chat" id="aiAssistantChat"><div class="ai-assistant-empty">Чем вам помочь?</div></main>
+    <form class="ai-assistant-composer" onsubmit="SYLVEX.sendAiAssistant(event)">
+      <textarea id="aiAssistantInput" rows="1" placeholder="Напишите сообщение…" required></textarea>
+      <button type="submit" aria-label="Отправить">↑</button>
+    </form>
+  </section>
+</div>
 
 <div class="price-bar" id="priceBar">
   <div>
@@ -1523,25 +1536,13 @@ CSS-класс задаёт внешний вид и расположение: m
     =================================================== -->
     <div class="modal-head">
       <div class="mt">
-        <div class="mi">💬</div>
         <div>
           <!-- ==================================================
           HTML-ЭЛЕМЕНТ: Contact Support
           =================================================== -->
           <h3 data-i18n="support_title">Contact Support</h3>
-          <!-- ==================================================
-          HTML-ЭЛЕМЕНТ: Usually replies in under 1 hour
-          CSS-класс задаёт внешний вид и расположение: ms
-          =================================================== -->
-          <div class="ms" data-i18n="support_sub">Usually replies in under 1 hour</div>
         </div>
       </div>
-      <!-- ==================================================
-      HTML-ЭЛЕМЕНТ: ×
-      При нажатии вызывает: closeSupport()
-      CSS-класс задаёт внешний вид и расположение: modal-close
-      =================================================== -->
-      <button class="modal-close" onclick="closeSupport()" aria-label="Close">×</button>
     </div>
     <!-- ==================================================
     HTML-ЭЛЕМЕНТ: supportMsg
@@ -1550,11 +1551,6 @@ CSS-класс задаёт внешний вид и расположение: m
     <label class="support-email-label" for="supportEmail">E-mail</label>
     <input class="support-email" id="supportEmail" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" aria-describedby="supportEmailError">
     <small class="support-field-error" id="supportEmailError" aria-live="polite"></small>
-    <div class="support-mode-row" aria-label="Варианты поддержки">
-      <button type="button" onclick="SYLVEX.startSupportQuickHelp()">Быстрый помощник</button>
-      <button type="button" onclick="SYLVEX.openSupportAi()">AI-консультант</button>
-      <button class="active" type="button">Техподдержка</button>
-    </div>
     <textarea id="supportMsg" data-i18n-ph="support_ph" placeholder="Describe your issue or question…"></textarea>
     <!-- ==================================================
     HTML-ЭЛЕМЕНТ: modal-actions
@@ -1696,7 +1692,8 @@ CSS-класс задаёт внешний вид и расположение: s
     <div class="ep-section-title">Оформление</div>
     <div class="ep-label">Готовая тема</div>
     <div class="theme-grid" id="themeGrid"></div>
-    <label class="profile-color-field nickname-color-field"><span>Цвет ника</span><span><input type="color" id="epNicknameColor" value="#ececec" oninput="SYLVEX.previewProfileColor('nickname',this.value)"><output id="epNicknameColorValue">#ECECEC</output></span></label>
+    <div class="ep-label" style="margin-top:14px">Обложка главного экрана и профиля</div>
+    <div class="profile-cover-grid" id="profileCoverGrid"></div>
     <button class="profile-reset" type="button" onclick="SYLVEX.resetProfileSettings()">Сбросить настройки</button>
     <div style="display:flex;gap:8px;margin-top:16px">
       <!-- ==================================================
