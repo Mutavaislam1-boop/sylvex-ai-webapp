@@ -8728,9 +8728,17 @@ async def public_telegram_profile_get(telegram_id: int = 0):
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
 # =====================================================
 async def public_telegram_profile(request: Request):
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False, "error": "invalid_payload"}, status_code=400)
     init_data = payload.get("initData") or ""
-    telegram_id = int(payload.get("telegram_id") or 0)
+    try:
+        telegram_id = int(payload.get("telegram_id") or 0)
+    except (TypeError, ValueError):
+        telegram_id = 0
 
     if not telegram_id:
         user_data = fallback_public_user(payload)
@@ -8742,26 +8750,49 @@ async def public_telegram_profile(request: Request):
     if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
         return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
 
-    profile = save_user_profile(
-        telegram_id=telegram_id,
-        display_name=payload.get("display_name"),
-        custom_avatar_url=payload.get("custom_avatar_url"),
-        theme_preference=payload.get("theme_preference"),
-    )
-    user = sync_user_to_db({"telegram_id": telegram_id})
-    user.update(profile)
+    theme_preference = payload.get("theme_preference")
+    if theme_preference is not None and not isinstance(theme_preference, dict):
+        return JSONResponse({"ok": False, "error": "invalid_theme_preference"}, status_code=400)
+    if theme_preference is not None:
+        allowed_theme_keys = {"id", "themeId", "coverIndex"}
+        theme_preference = {key: value for key, value in theme_preference.items() if key in allowed_theme_keys}
 
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="profile",
-        event_name="profile_update",
-        payload={
-            "has_display_name": bool(payload.get("display_name")),
-            "has_custom_avatar": bool(payload.get("custom_avatar_url")),
-            "theme_preference": payload.get("theme_preference") or {},
-        },
-    )
+    def persist_profile_request():
+        profile = save_user_profile(
+            telegram_id=telegram_id,
+            display_name=payload.get("display_name"),
+            custom_avatar_url=payload.get("custom_avatar_url"),
+            theme_preference=theme_preference,
+        )
+        user = sync_user_to_db({"telegram_id": telegram_id})
+        user.update(profile)
+        try:
+            log_user_event(
+                telegram_id=telegram_id,
+                source="mini_app",
+                event_type="profile",
+                event_name="profile_update",
+                payload={
+                    "has_display_name": bool(payload.get("display_name")),
+                    "has_custom_avatar": bool(payload.get("custom_avatar_url")),
+                    "theme_preference": theme_preference or {},
+                },
+            )
+        except Exception as exc:
+            print("PROFILE EVENT LOG FAILED:", exc)
+        return profile, user
+
+    try:
+        profile, user = await asyncio.wait_for(
+            asyncio.to_thread(persist_profile_request),
+            timeout=12.0,
+        )
+    except asyncio.TimeoutError:
+        print("PROFILE SAVE TIMEOUT:", telegram_id)
+        return JSONResponse({"ok": False, "error": "profile_save_timeout"}, status_code=503)
+    except Exception as exc:
+        print("PROFILE SAVE FAILED:", telegram_id, exc)
+        return JSONResponse({"ok": False, "error": "profile_save_failed"}, status_code=500)
 
     return {"ok": True, "profile": profile, "user": user}
 
