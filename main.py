@@ -13090,6 +13090,18 @@ async def download_prostudio_content(url: str, kind: str = "file"):
 # Маршрут FastAPI: @app.post("/api/public/prostudio/generate")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
+@app.post("/api/public/prostudio/estimate")
+async def public_prostudio_estimate(request: Request):
+    """Return the existing authoritative Pro Studio estimate without creating a job."""
+    try:
+        payload = await request.json()
+        estimate = estimate_generation_cost(payload if isinstance(payload, dict) else {})
+        return {"ok": True, **estimate}
+    except Exception as exc:
+        prostudio_error("GENERATION_ESTIMATE_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "generation_estimate_failed"}, status_code=400)
+
+
 @app.post("/api/public/prostudio/generate")
 # =====================================================
 # PYTHON-БЛОК: public_prostudio_generate

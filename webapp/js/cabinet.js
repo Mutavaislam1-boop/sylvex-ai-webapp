@@ -18331,6 +18331,27 @@ async function waitGeneration(jobId, options) {
   let studioGridSelectedIds = new Set();
   let studioGridPendingConnection = null;
   let studioGridBound = false;
+  let studioGridWorkflowRun = null;
+  const studioGridNodeRuns = new Map();
+  let studioGridJobsRestored = false;
+
+  function gridDefaultSettings(type) {
+    if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
+    if (type === 'video') return { model_mode:'manual', generation_mode:'text_to_video', ratio:'16:9', duration:5, resolution:'720p', sound:false };
+    if (type === 'music') return { model_mode:'manual', genre:'auto', duration:'auto', mood:'auto', tempo:'auto', theme:'auto', vocal:'auto' };
+    if (type === 'voice') return { model_mode:'manual', voice:'Kore', target_language:'auto', speaker_mode:'single' };
+    if (type === 'text') return { model_mode:'manual', tool:'text', style:'neutral', format:'markdown', language:'auto' };
+    return { model_mode:'manual' };
+  }
+
+  function gridDefaultModel(type) {
+    if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
+    if (type === 'video') return videoState.modelId || 'seedance_2_fast';
+    if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
+    if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
+    if (type === 'text') return textState.modelId || 'gpt-5.5';
+    return '';
+  }
 
   function defaultStudioGridState() {
     return {
@@ -18349,8 +18370,23 @@ async function waitGeneration(jobId, options) {
     state.panX = Number.isFinite(Number(state.panX)) ? Number(state.panX) : 90;
     state.panY = Number.isFinite(Number(state.panY)) ? Number(state.panY) : 150;
     state.zoom = Math.max(.2,Math.min(2.5,Number(state.zoom)||.9));
-    state.nodes = (state.nodes || []).map((node) => Object.assign({subtype:node.type,status:'IDLE',locked:false,results:[],selectedResultVersion:null,settings:{}},node));
-    state.edges = (state.edges || []).map((edge,index) => Object.assign({id:edge.id||'edge_'+Date.now().toString(36)+'_'+index,fromPort:(GRID_TYPES[state.nodes.find(n=>n.id===edge.from)?.type]?.outputs||['text'])[0],toPort:(GRID_TYPES[state.nodes.find(n=>n.id===edge.to)?.type]?.inputs||['text'])[0],dataType:'text'},edge));
+    state.nodes = (state.nodes || []).map((node) => {
+      const type = GRID_TYPES[node.type] ? node.type : 'text';
+      const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],selectedResultVersion:null},node);
+      normalized.settings = Object.assign(gridDefaultSettings(type),node.settings || {});
+      normalized.position_locked = node.position_locked !== undefined ? !!node.position_locked : !!node.locked;
+      delete normalized.locked;
+      if (normalized.status === 'STALE') normalized.status = 'READY';
+      if (!['IDLE','READY','WAITING','RUNNING','COMPLETED','FAILED','CANCELLED'].includes(normalized.status)) normalized.status = 'IDLE';
+      return normalized;
+    });
+    state.edges = (state.edges || []).map((edge,index) => {
+      const sourceNodeId=edge.source_node_id||edge.from,targetNodeId=edge.target_node_id||edge.to;
+      const sourceOutput=edge.source_output||edge.fromPort||(GRID_TYPES[state.nodes.find(n=>n.id===sourceNodeId)?.type]?.outputs||['text'])[0];
+      const targetInput=edge.target_input||edge.toPort||(GRID_TYPES[state.nodes.find(n=>n.id===targetNodeId)?.type]?.inputs||['text'])[0];
+      return Object.assign({},edge,{id:edge.id||'edge_'+Date.now().toString(36)+'_'+index,from:sourceNodeId,to:targetNodeId,fromPort:sourceOutput,toPort:targetInput,source_node_id:sourceNodeId,source_output:sourceOutput,target_node_id:targetNodeId,target_input:targetInput,data_type:edge.data_type||edge.dataType||sourceOutput,dataType:edge.dataType||edge.data_type||sourceOutput});
+    });
+    state.workflow = Object.assign({status:'IDLE',started_at:'',completed_at:'',stop_requested:false},state.workflow || {});
     return state;
   }
 
@@ -18400,6 +18436,48 @@ async function waitGeneration(jobId, options) {
     }).join('');
   }
 
+  function gridModelsForType(type) {
+    if (type === 'image') return IMAGE_MODEL_LIST;
+    if (type === 'video') return VIDEO_MODELS;
+    if (type === 'music') return MUSIC_MODEL_LIST;
+    if (type === 'voice') return VOICE_MODEL_LIST;
+    if (type === 'text') return TEXT_MODEL_LIST;
+    return [];
+  }
+
+  function gridSelectOptions(items,value) {
+    return (items||[]).map((item)=>`<option value="${gridEscape(item.id)}"${String(item.id)===String(value)?' selected':''}>${gridEscape(item.label||item.id)}</option>`).join('');
+  }
+
+  function gridNodePreview(node,status) {
+    const output=node.output||null;
+    if (node.type==='text'&&output?.value) return `<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>`;
+    if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" class="${index===Number(output.selected_index||0)?'active':''}"><img src="${gridEscape(item.preview_url||item.url)}" alt="" loading="lazy"></button>`).join('')}</div>`;
+    if (output?.type==='video'&&output.url) return `<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(output.url)}" muted playsinline preload="metadata"></video><span>▶</span></button>`;
+    if (output?.type==='audio'&&output.url) return `<audio class="studio-grid-audio" src="${gridEscape(output.url)}" controls preload="metadata"></audio>`;
+    const messages={RUNNING:'Генерация…',FAILED:node.error||'Ошибка генерации',CANCELLED:node.error||'Остановлено',WAITING:node.error||'Ожидает входы',READY:'Готов к запуску',COMPLETED:'Результат готов'};
+    return `<i>${(GRID_TYPES[node.type]||GRID_TYPES.text).icon}</i><span>${gridEscape(messages[status]||'Результат появится здесь')}</span>`;
+  }
+
+  function gridNodeSettingsHtml(node) {
+    if (node.type==='task') return '';
+    const settings=node.settings||{},models=gridModelsForType(node.type),model=`<select data-grid-setting="model" aria-label="Модель">${gridSelectOptions(models,node.model)}</select>`;
+    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} фото</option>`).join('')}</select></div>`;
+    if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast;return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Фото → Видео':'Текст → Видео'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v} сек</option>`).join('')}</select></div>`}
+    if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select></div>`;
+    if(node.type==='voice')return `<div class="studio-grid-node-settings">${model}<input data-grid-setting="voice" value="${gridEscape(settings.voice||'Kore')}" aria-label="Голос"></div>`;
+    return `<div class="studio-grid-node-settings">${model}</div>`;
+  }
+
+  function gridNodeInputSummary(node) {
+    const inputs=node.inputs||{},parts=[];
+    if(inputs.text&&!node.prompt?.trim())parts.push(`<span>Текст: ${gridEscape(inputs.text.source_title)}</span>`);
+    if(inputs.text&&node.prompt?.trim())parts.push('<span>Локальное переопределение текста</span>');
+    if(inputs.lyrics)parts.push(`<span>Lyrics: ${gridEscape(inputs.lyrics.source_title)}</span>`);
+    if(inputs.image){const image=inputs.image.value||{};parts.push(`<span class="has-image"><img src="${gridEscape(image.preview_url||image.url||'')}" alt="">Фото: ${gridEscape(inputs.image.source_title)}</span>`)}
+    return parts.length?`<div class="studio-grid-input-summary">${parts.join('')}</div>`:'';
+  }
+
   function renderStudioGrid() {
     const state = loadStudioGridState();
     const host = document.getElementById('studioGridNodes');
@@ -18407,15 +18485,18 @@ async function waitGeneration(jobId, options) {
     if (!host) return;
     if (title && title !== document.activeElement) title.value = state.title || 'Новая цепочка';
     host.innerHTML = state.nodes.map((node) => {
+      resolveGridNodeInputs(node.id);
       const type = GRID_TYPES[node.type] || GRID_TYPES.text;
-      const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),result=(node.results||[]).find(item=>item.version===node.selectedResultVersion)||(node.results||[]).at(-1),preview=result?.url?`<img src="${gridEscape(result.previewUrl||result.url)}" alt="" loading="lazy">`:`<i>${type.icon}</i><span>${status==='COMPLETED'?'Результат готов':status==='STALE'?'Нужно обновить':status==='FAILED'?'Ошибка генерации':status==='RUNNING'?'Генерация…':'Результат появится здесь'}</span>`;
-      return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="left:${Number(node.x)||0}px;top:${Number(node.y)||0}px">
-        ${(type.inputs||[]).length?'<button class="studio-grid-port in" type="button" data-grid-input="'+gridEscape(type.inputs[0])+'" aria-label="Подключить вход"></button>':''}<button class="studio-grid-port out" type="button" data-grid-output="${gridEscape((type.outputs||['text'])[0])}" aria-label="Подключить выход"></button>
+      const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),ports=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in" style="top:${65+index*24}px" type="button" data-grid-input="${gridEscape(input)}" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)}"></button>`).join('');
+      return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.position_locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="left:${Number(node.x)||0}px;top:${Number(node.y)||0}px">
+        ${ports}<button class="studio-grid-port out" type="button" data-grid-output="${gridEscape((type.outputs||['text'])[0])}" aria-label="Подключить выход"></button>
         <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
-        <div class="studio-grid-node-body"><textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(node.prompt || '')}</textarea><div class="studio-grid-node-result">${preview}</div></div>
-        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.type==='task'?'<button type="button" data-grid-build>Построить</button>':'<button type="button" data-grid-run>Запустить</button>'}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
+        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(node.prompt || '')}</textarea><div class="studio-grid-node-result">${preview}</div></div>
+        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:''}${node.type==='task'?'<button type="button" data-grid-build disabled>Planner · этап 3</button>':`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
       </article>`;
     }).join('');
+    const workflowButton=document.getElementById('studioGridRunWorkflow');
+    if(workflowButton){const running=state.workflow?.status==='RUNNING'||state.workflow?.status==='STOPPING';workflowButton.textContent=running?'Остановить цепочку':'Запустить цепочку';workflowButton.classList.toggle('running',running)}
     applyStudioGridTransform();
     renderStudioGridEdges();
   }
@@ -18438,7 +18519,7 @@ async function waitGeneration(jobId, options) {
     const safeType = GRID_TYPES[type] ? type : 'text';
     const id = `grid_${safeType}_${Date.now()}`;
     const center=studioGridCanvasPoint(window.innerWidth/2,window.innerHeight/2),point=position&&Number.isFinite(position.x)&&Number.isFinite(position.y)?position:center;
-    state.nodes.push({id,type:safeType,subtype:safeType,x:point.x-138,y:point.y-95,title:GRID_TYPES[safeType].title,prompt:'',status:'IDLE',locked:false,results:[],settings:{}});
+    state.nodes.push({id,type:safeType,subtype:safeType,x:point.x-138,y:point.y-95,title:GRID_TYPES[safeType].title,prompt:'',status:'IDLE',model:gridDefaultModel(safeType),settings:gridDefaultSettings(safeType),inputs:{},output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[]});
     studioGridSelectedIds = new Set([id]);
     saveStudioGridState(); renderStudioGrid();
     hideStudioGridContext();
@@ -18453,13 +18534,13 @@ async function waitGeneration(jobId, options) {
     saveStudioGridState(); renderStudioGrid();
   }
 
-  function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source));copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+34;copy.y=Number(copy.y)+34;copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.results=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid() }
+  function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source));copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+34;copy.y=Number(copy.y)+34;copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid() }
 
-  function gridConnectionCompatible(fromNode,fromPort,toNode,toPort){if(!fromNode||!toNode||fromNode.id===toNode.id)return false;const output=fromPort||(GRID_TYPES[fromNode.type]?.outputs||[])[0],inputs=GRID_TYPES[toNode.type]?.inputs||[];if(inputs.includes(output))return true;if(output==='task'&&inputs.includes('task'))return true;if(output==='audio'&&toNode.type==='video')return true;return false}
+  function gridConnectionCompatible(fromNode,fromPort,toNode,toPort){if(!fromNode||!toNode||fromNode.id===toNode.id)return false;const output=fromPort||(GRID_TYPES[fromNode.type]?.outputs||[])[0],target=toPort||(GRID_TYPES[toNode.type]?.inputs||[])[0];if(output===target)return true;if(output==='text'&&['text','lyrics'].includes(target))return true;if(output==='task'&&target==='task')return true;if(output==='audio'&&toNode.type==='video')return true;return false}
 
-  function connectStudioGridNodes(fromId,fromPort,toId,toPort){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Несовместимое соединение');return false}state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36),from:fromId,fromPort,to:toId,toPort,dataType:fromPort});markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
+  function connectStudioGridNodes(fromId,fromPort,toId,toPort){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Несовместимое соединение');return false}state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36),from:fromId,fromPort,to:toId,toPort,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});if(to.type==='video'&&fromPort==='image')to.settings.generation_mode='image_to_video';markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
 
-  function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status==='COMPLETED'&&!node.locked)node.status='STALE'})}}
+  function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}}
 
   function autoLayoutStudioGrid(){const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const levels=new Map(),queue=state.nodes.filter(node=>(incoming.get(node.id)||0)===0).map(node=>node.id);queue.forEach(id=>levels.set(id,0));while(queue.length){const id=queue.shift(),level=levels.get(id)||0;state.edges.filter(edge=>edge.from===id).forEach(edge=>{levels.set(edge.to,Math.max(levels.get(edge.to)||0,level+1));incoming.set(edge.to,(incoming.get(edge.to)||1)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}const grouped={};state.nodes.forEach(node=>{const level=levels.get(node.id)||0;(grouped[level]||(grouped[level]=[])).push(node)});Object.keys(grouped).forEach(key=>grouped[key].forEach((node,index)=>{node.x=80+Number(key)*350;node.y=100+index*250}));saveStudioGridState();renderStudioGrid();resetStudioGridView()}
 
@@ -18494,9 +18575,145 @@ async function waitGeneration(jobId, options) {
   function showStudioGridContext(clientX,clientY,position){const menu=document.getElementById('studioGridContext');if(!menu)return;const entries=['task','text','image','video','music','voice'];menu.innerHTML=entries.map(type=>`<button type="button" data-grid-add-type="${type}"><i>${GRID_TYPES[type].icon}</i><span>${GRID_TYPES[type].title}</span></button>`).join('');menu.style.left=`${clientX}px`;menu.style.top=`${clientY}px`;menu.hidden=false;menu._gridPosition=position}
   function hideStudioGridContext(){const menu=document.getElementById('studioGridContext');if(menu)menu.hidden=true}
 
-  function buildStudioGridWorkflow(id){const state=loadStudioGridState(),task=state.nodes.find(node=>node.id===id);if(!task||!task.prompt.trim()){toast('Опишите задачу');return}const value=task.prompt.trim(),lower=value.toLowerCase(),specs=[];if(/музык|песн|трек|lyrics|music/.test(lower)){specs.push(['text','lyrics','Текст песни'],['text','music_prompt','Описание музыки'],['music','music','Музыка'])}else if(/озвуч|голос|диктор|speech/.test(lower)&&!/видео|анима|говор/.test(lower)){specs.push(['text','speech','Текст речи'],['voice','voice','Голос'])}else if(/видео|анима|ожив|говор|lip.?sync/.test(lower)){specs.push(['text','image_prompt','Промпт изображения'],['image','image','Изображение'],['text','video_motion','Движение видео'],['video','video','Видео']);if(/говор|озвуч|реч|диалог|lip.?sync/.test(lower))specs.splice(3,0,['text','speech','Текст речи'],['voice','voice','Голос'])}else specs.push(['text','image_prompt','Промпт изображения'],['image','image','Изображение']);const created=[];specs.forEach((spec,index)=>{const nodeId=`grid_${spec[0]}_${Date.now()}_${index}`;state.nodes.push({id:nodeId,type:spec[0],subtype:spec[1],x:Number(task.x)+350*(index+1),y:Number(task.y)+(index%2?180:-30),title:spec[2],prompt:spec[0]==='text'?value:'',status:spec[0]==='text'?'READY':'WAITING',locked:false,results:[],settings:{modelMode:'auto'}});created.push(nodeId)});if(created.length){const textNodes=created.filter(nodeId=>state.nodes.find(n=>n.id===nodeId)?.type==='text');textNodes.forEach(nodeId=>state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+nodeId,from:task.id,fromPort:'task',to:nodeId,toPort:'task',dataType:'task'}));created.forEach((nodeId,index)=>{const node=state.nodes.find(n=>n.id===nodeId);if(node.type==='image'){const source=created.find(candidate=>state.nodes.find(n=>n.id===candidate)?.subtype==='image_prompt');if(source)state.edges.push({id:'edge_'+Date.now().toString(36)+'_image',from:source,fromPort:'text',to:nodeId,toPort:'text',dataType:'text'})}if(node.type==='voice'){const source=created.find(candidate=>state.nodes.find(n=>n.id===candidate)?.subtype==='speech');if(source)state.edges.push({id:'edge_'+Date.now().toString(36)+'_voice',from:source,fromPort:'text',to:nodeId,toPort:'text',dataType:'text'})}if(node.type==='music'){textNodes.forEach((source,j)=>state.edges.push({id:'edge_'+Date.now().toString(36)+'_music_'+j,from:source,fromPort:'text',to:nodeId,toPort:j?'text':'lyrics',dataType:'text'}))}if(node.type==='video'){const image=created.find(candidate=>state.nodes.find(n=>n.id===candidate)?.type==='image'),motion=created.find(candidate=>state.nodes.find(n=>n.id===candidate)?.subtype==='video_motion');if(image)state.edges.push({id:'edge_'+Date.now().toString(36)+'_video_image',from:image,fromPort:'image',to:nodeId,toPort:'image',dataType:'image'});if(motion)state.edges.push({id:'edge_'+Date.now().toString(36)+'_video_text',from:motion,fromPort:'text',to:nodeId,toPort:'text',dataType:'text'})}})}task.status='COMPLETED';saveStudioGridState();autoLayoutStudioGrid();toast('Черновик цепочки построен без запуска генерации')}
+  function buildStudioGridWorkflow(){toast('AI Planner будет подключён на следующем этапе')}
 
-  function runStudioGridWorkflow(){toast('Проверьте узлы и запускайте генерации по очереди — подключение Workflow Engine выполняется следующим этапом')}
+  function getGridNodeOutputValue(node,sourceOutput) {
+    const output=node&&node.output;
+    if(!output)return null;
+    if(sourceOutput==='text')return output.value||'';
+    if(sourceOutput==='image')return output.items?.[Number(output.selected_index||0)]||null;
+    if(sourceOutput==='video'||sourceOutput==='audio')return output.url?output:null;
+    return output;
+  }
+
+  function resolveGridNodeInputs(nodeId) {
+    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId),inputs={};
+    if(!node)return inputs;
+    state.edges.filter(edge=>edge.to===nodeId).forEach(edge=>{
+      const source=state.nodes.find(item=>item.id===edge.from);
+      if(!source||source.type==='task')return;
+      const value=getGridNodeOutputValue(source,edge.fromPort);
+      if(value!==null&&value!==undefined&&value!=='')inputs[edge.toPort]={value,source_node_id:source.id,source_title:source.title||GRID_TYPES[source.type]?.title||source.type,generation_id:source.generation_id||''};
+    });
+    const connectedText=inputs.text?.value||inputs.prompt?.value||'';
+    if(node.prompt&&node.prompt.trim())inputs.effective_prompt={value:node.prompt.trim(),source_node_id:node.id,local_override:true};
+    else if(connectedText)inputs.effective_prompt={value:String(connectedText),source_node_id:inputs.text?.source_node_id||inputs.prompt?.source_node_id};
+    node.inputs=inputs;
+    return inputs;
+  }
+
+  function validateGridNodeInputs(node,inputs) {
+    const missing=[];
+    if(node.type==='text'&&!String(node.prompt||'').trim())missing.push('Инструкция для текста');
+    if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
+    if(node.type==='video'){
+      const mode=node.settings?.generation_mode||'text_to_video';
+      if(!inputs.effective_prompt?.value)missing.push('Промпт видео');
+      if(mode==='image_to_video'&&!inputs.image?.value)missing.push('Исходное изображение');
+    }
+    if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
+    if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
+    return {ok:missing.length===0,missing};
+  }
+
+  function gridGenerationPayload(node,inputs) {
+    const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),prompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim();
+    let imageOptions=null,videoOptions=null,musicOptions=null,voiceOptions=null,textOptions=null,provider=providerHintForModel(model);
+    if(mode==='image')imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:[],referenceImages:[]});
+    if(mode==='video'){
+      const image=inputs.image?.value,sourceUrl=image&&(image.url||image.preview_url)||'';
+      const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG.seedance_2_fast||{};
+      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,image_url:sourceUrl,reference_images:sourceUrl?[sourceUrl]:[],referenceImageUrls:sourceUrl?[sourceUrl]:[],native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
+      provider=config.provider||provider;
+    }
+    if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
+    if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:[]},settings);
+    if(mode==='text')textOptions=Object.assign({},settings);
+    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:`grid_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`,language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
+  }
+
+  async function estimateGridNodeCost(nodeId) {
+    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task'||node.type==='text')return 0;
+    try{const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridGenerationPayload(node,resolveGridNodeInputs(nodeId)))}),estimate=await response.json();if(response.ok&&estimate.ok){node.estimated_cost={credits:Number(estimate.credits||0),generation_cost:estimate.generation_cost||'',cost_usd:Number(estimate.cost_usd||0)};saveStudioGridState();renderStudioGrid();return node.estimated_cost.credits}}catch(_){}
+    return Number(node.estimated_cost?.credits||0);
+  }
+
+  async function estimateGridWorkflowCost() {
+    const nodes=loadStudioGridState().nodes.filter(node=>node.type!=='task'&&node.type!=='text'&&node.status!=='COMPLETED');
+    const costs=[];for(const node of nodes)costs.push(await estimateGridNodeCost(node.id));return costs.reduce((sum,value)=>sum+Number(value||0),0);
+  }
+
+  async function waitGridGeneration(jobId,onStatus) {
+    let transientErrors=0;
+    while(true){
+      let response;
+      try{response=await fetch(`/api/public/prostudio/job/${encodeURIComponent(jobId)}`,{cache:'no-store'})}catch(error){if(++transientErrors>80)throw error;await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
+      const job=await response.json().catch(()=>({}));
+      if(!response.ok||!job.ok){if(++transientErrors>80)throw new Error(translateGenerationError(job,'Не удалось проверить статус генерации'));await new Promise(resolve=>setTimeout(resolve,Math.min(8000,1200+transientErrors*250)));continue}
+      transientErrors=0;if(onStatus)onStatus(job.status||'running');
+      if(job.status==='completed'){const result=job.result||{};result.job_id=result.job_id||job.job_id||jobId;result.generation_id=result.generation_id||job.generation_id||jobId;return result}
+      if(job.status==='failed'||job.status==='cancelled'){const error=new Error(translateGenerationError(job.error||job,'Генерация не прошла'));error.terminalStatus=job.status;throw error}
+      await new Promise(resolve=>setTimeout(resolve,1500));
+    }
+  }
+
+  async function executeGridNodeRequest(node,inputs,onJobCreated) {
+    const payload=gridGenerationPayload(node,inputs),response=await fetch('/api/public/prostudio/generate',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify(payload)}),body=await response.json().catch(()=>({}));
+    if(response.status===402){const error=new Error(body.error||'Недостаточно токенов');error.insufficientBalance=true;error.requiredCredits=body.required_credits||0;throw error}
+    if(response.status===409){const error=new Error('Дождитесь завершения другой генерации в Pro Studio');error.activeJobId=body.active_job_id||'';throw error}
+    if(!response.ok||!body.ok)throw new Error(translateGenerationError(body,'Генерация не прошла'));
+    if(body.job_id){if(onJobCreated)onJobCreated(body.job_id);return {raw:await waitGridGeneration(body.job_id),generation_id:body.job_id}}
+    return {raw:body,generation_id:body.generation_id||''};
+  }
+
+  function normalizeGridNodeResult(node,execution) {
+    const raw=execution.raw||{},generationId=raw.generation_id||raw.job_id||execution.generation_id||'';
+    if(node.type==='text')return {type:'text',value:String(raw.text||raw.content||raw.response||''),generation_id:generationId,model:node.model,settings:Object.assign({},node.settings)};
+    if(node.type==='image'){
+      const urls=generatedUrlsFromResponse(raw,'image'),thumbs=generatedThumbsFromResponse(raw);
+      if(!urls.length)throw new Error('Генерация завершилась без изображения');
+      return {type:'image',items:urls.map((url,index)=>({url,preview_url:thumbs[index]||url,generation_id:generationId})),selected_index:0,generation_id:generationId,model:node.model,settings:Object.assign({},node.settings),metadata:raw.metadata||{}};
+    }
+    const kind=node.type==='video'?'video':'audio',urls=generatedUrlsFromResponse(raw,kind);
+    if(!urls.length)throw new Error(node.type==='video'?'Генерация завершилась без видео':'Генерация завершилась без аудио');
+    return {type:kind,url:urls[0],preview_url:raw.thumbnail_url||raw.thumb_url||raw.image_url||'',generation_id:generationId,model:node.model,settings:Object.assign({},node.settings),metadata:raw.metadata||{}};
+  }
+
+  function getGridDownstreamNodes(nodeId){const state=loadStudioGridState();return state.edges.filter(edge=>edge.from===nodeId).map(edge=>state.nodes.find(node=>node.id===edge.to)).filter(Boolean)}
+
+  async function runGridNode(nodeId,options={}) {
+    if(studioGridNodeRuns.has(nodeId))return studioGridNodeRuns.get(nodeId);
+    const promise=(async()=>{
+      const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task')return null;
+      const inputs=resolveGridNodeInputs(nodeId),validation=validateGridNodeInputs(node,inputs);
+      if(!validation.ok){node.status=options.workflow?'WAITING':'FAILED';node.error=`Не хватает: ${validation.missing.join(', ')}`;saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      const estimatedCost=await estimateGridNodeCost(nodeId),knownBalance=S.user&&S.user.balance!==undefined&&S.user.balance!==null?Number(S.user.balance):null;
+      if(estimatedCost>0&&knownBalance!==null&&knownBalance<estimatedCost){node.status='FAILED';node.error='Недостаточно токенов';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+      node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.selectedResultVersion=output.type==='image'?0:null;node.error='';getGridDownstreamNodes(node.id).forEach(child=>{if(child.status!=='RUNNING'&&child.status!=='COMPLETED')child.status='READY'});saveStudioGridState();renderStudioGrid();return output}
+      catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
+    })().finally(()=>studioGridNodeRuns.delete(nodeId));
+    studioGridNodeRuns.set(nodeId,promise);return promise;
+  }
+
+  function gridTopologicalOrder() {
+    const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const queue=state.nodes.filter(node=>!incoming.get(node.id)).map(node=>node.id),order=[];while(queue.length){const id=queue.shift();order.push(id);state.edges.filter(edge=>edge.from===id).forEach(edge=>{incoming.set(edge.to,incoming.get(edge.to)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}return order.length===state.nodes.length?order:null;
+  }
+
+  function restoreStudioGridJobs() {
+    if(studioGridJobsRestored)return;studioGridJobsRestored=true;const state=loadStudioGridState();
+    if(['RUNNING','STOPPING'].includes(state.workflow?.status))state.workflow.status='IDLE';
+    state.nodes.filter(node=>node.status==='RUNNING').forEach(node=>{if(!node.generation_id){node.status='FAILED';node.error='Не удалось восстановить незавершённую задачу';return}const promise=waitGridGeneration(node.generation_id).then(raw=>{const output=normalizeGridNodeResult(node,{raw,generation_id:node.generation_id});node.output=output;node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.error='';saveStudioGridState();renderStudioGrid()}).catch(error=>{node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=translateGenerationError(error,'Не удалось восстановить генерацию');saveStudioGridState();renderStudioGrid()}).finally(()=>studioGridNodeRuns.delete(node.id));studioGridNodeRuns.set(node.id,promise)});saveStudioGridState();renderStudioGrid();
+  }
+
+  async function runStudioGridWorkflow() {
+    const state=loadStudioGridState();
+    if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();toast('Цепочка будет остановлена после текущей генерации');return}
+    const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
+    state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
+    studioGridWorkflowRun=(async()=>{const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);for(const id of order){if(state.workflow.stop_requested)break;const node=state.nodes.find(item=>item.id===id);if(!node||node.type==='task'||node.status==='COMPLETED')continue;const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');if(parents.some(parent=>parent.status==='FAILED'||parent.status==='CANCELLED')){node.status='CANCELLED';node.error='Предыдущий узел не завершён';saveStudioGridState();renderStudioGrid();continue}if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';saveStudioGridState();renderStudioGrid();continue}await runGridNode(id,{workflow:true})}const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();state.nodes.filter(node=>node.status==='WAITING'&&state.workflow.stop_requested).forEach(node=>node.status='CANCELLED');saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')})().finally(()=>{studioGridWorkflowRun=null});
+    return studioGridWorkflowRun;
+  }
 
   function initStudioGrid() {
     if (studioGridBound) return;
@@ -18505,15 +18722,23 @@ async function waitGeneration(jobId, options) {
     const canvas = document.getElementById('studioGridCanvas');
     const title = document.getElementById('studioGridTitle');
     const context = document.getElementById('studioGridContext');
+    const edgesHost = document.getElementById('studioGridEdges');
     const interactive='textarea,input,select,button,a,[contenteditable="true"],audio,video';
     const pointers=new Map();let pinch=null,longPressTimer=0,longPressPoint=null;
     if (title) title.addEventListener('input', () => { loadStudioGridState().title = title.value; saveStudioGridState(); });
     if (host) {
       host.addEventListener('input', (event) => {
         const card = event.target.closest('.studio-grid-node');
-        if (!card || !event.target.matches('[data-grid-prompt]')) return;
+        if (!card) return;
         const node = loadStudioGridState().nodes.find((item) => item.id === card.dataset.gridId);
-        if (node) { const changed=node.prompt!==event.target.value;node.prompt=event.target.value;if(changed){node.status=node.type==='task'?'READY':'READY';markStudioGridDownstreamStale(node.id)}saveStudioGridState(); }
+        if(!node)return;
+        if(event.target.matches('[data-grid-prompt]')){const changed=node.prompt!==event.target.value;node.prompt=event.target.value;if(changed){node.status='READY';markStudioGridDownstreamStale(node.id)}}
+        if(event.target.matches('[data-grid-output-text]')&&node.output){node.output.value=event.target.value;node.completed_at=new Date().toISOString();markStudioGridDownstreamStale(node.id)}
+        saveStudioGridState();
+      });
+      host.addEventListener('change',(event)=>{
+        if(!event.target.matches('[data-grid-setting]'))return;const card=event.target.closest('.studio-grid-node'),node=loadStudioGridState().nodes.find(item=>item.id===card?.dataset.gridId);if(!node)return;
+        const key=event.target.dataset.gridSetting,value=event.target.value;if(key==='model'){node.model=value;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{};node.settings.generation_mode=(config.modes||['text_to_video'])[0];node.settings.ratio=(config.ratios||['16:9'])[0];node.settings.duration=(config.durations||[5])[0];node.settings.resolution=(config.resolutions||['720p'])[0]}}else node.settings[key]=['count','duration'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
       });
       host.addEventListener('click', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -18523,8 +18748,10 @@ async function waitGeneration(jobId, options) {
         if(event.target.closest('[data-grid-input]')){const input=event.target.closest('[data-grid-input]');if(studioGridPendingConnection){connectStudioGridNodes(studioGridPendingConnection.from,studioGridPendingConnection.fromPort,id,input.dataset.gridInput);studioGridPendingConnection=null}return}
         if (event.target.closest('[data-grid-delete]')) { deleteStudioGridNode(id); return; }
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
-        if (event.target.closest('[data-grid-run]')) { openStudioGridNode(id); return; }
-        if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.locked?'Разблокировать':'Заблокировать'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
+        if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
+        if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){node.output.selected_index=index;node.selectedResultVersion=index;markStudioGridDownstreamStale(id);saveStudioGridState();renderStudioGrid()}return}
+        if(event.target.closest('[data-grid-preview]')){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(node?.output?.url)window.open(node.output.url,'_blank','noopener');return}
+        if (event.target.closest('[data-grid-more]')) { const rect=event.target.getBoundingClientRect();showStudioGridContext(rect.left,rect.bottom+5,null);const menu=document.getElementById('studioGridContext');menu.innerHTML=`<button data-grid-node-action="duplicate" data-grid-node-id="${gridEscape(id)}">Дублировать</button><button data-grid-node-action="lock" data-grid-node-id="${gridEscape(id)}">${loadStudioGridState().nodes.find(n=>n.id===id)?.position_locked?'Разблокировать позицию':'Закрепить позицию'}</button><button data-grid-node-action="open" data-grid-node-id="${gridEscape(id)}">Открыть в ProStudio</button>`;return}
         if(event.shiftKey){if(studioGridSelectedIds.has(id))studioGridSelectedIds.delete(id);else studioGridSelectedIds.add(id)}else if(!studioGridSelectedIds.has(id))studioGridSelectedIds=new Set([id]);
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));
       });
@@ -18532,8 +18759,8 @@ async function waitGeneration(jobId, options) {
         const card = event.target.closest('.studio-grid-node');
         if (!card || event.target.closest(interactive)) return;
         event.preventDefault();
-        const id=card.dataset.gridId,state=loadStudioGridState();if(!studioGridSelectedIds.has(id))studioGridSelectedIds=event.shiftKey?new Set([...studioGridSelectedIds,id]):new Set([id]);
-        const starts=state.nodes.filter(node=>studioGridSelectedIds.has(node.id)).map(node=>({node,x:Number(node.x),y:Number(node.y)})),startX=event.clientX,startY=event.clientY,scale=state.zoom||1;
+        const id=card.dataset.gridId,state=loadStudioGridState(),targetNode=state.nodes.find(node=>node.id===id);if(targetNode?.position_locked)return;if(!studioGridSelectedIds.has(id))studioGridSelectedIds=event.shiftKey?new Set([...studioGridSelectedIds,id]):new Set([id]);
+        const starts=state.nodes.filter(node=>studioGridSelectedIds.has(node.id)&&!node.position_locked).map(node=>({node,x:Number(node.x),y:Number(node.y)})),startX=event.clientX,startY=event.clientY,scale=state.zoom||1;
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));
         card.setPointerCapture(event.pointerId);
         const move = (moveEvent) => { const dx=(moveEvent.clientX-startX)/scale,dy=(moveEvent.clientY-startY)/scale;starts.forEach(start=>{start.node.x=start.x+dx;start.node.y=start.y+dy;const element=host.querySelector(`[data-grid-id="${CSS.escape(start.node.id)}"]`);if(element){element.style.left=`${start.node.x}px`;element.style.top=`${start.node.y}px`}});renderStudioGridEdges(); };
@@ -18559,10 +18786,12 @@ async function waitGeneration(jobId, options) {
         event.preventDefault();const state=loadStudioGridState();if(event.ctrlKey||event.metaKey){zoomStudioGrid(event.deltaY>0?-.08:.08,event.clientX,event.clientY)}else{state.panX-=event.deltaX;state.panY-=event.deltaY;saveStudioGridState();applyStudioGridTransform()}
       }, {passive:false});
     }
-    if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.locked=!node.locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
+    if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeElement.dataset.gridEdge);state.edges=state.edges.filter(item=>item.id!==edgeElement.dataset.gridEdge);const target=edge&&state.nodes.find(node=>node.id===edge.to);if(target&&target.status!=='RUNNING')target.status='READY';saveStudioGridState();renderStudioGrid();toast('Связь удалена')});
+    if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode')||event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});
     setStudioLayout(localStorage.getItem('sylvex-prostudio-layout') || 'classic');
+    restoreStudioGridJobs();
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
@@ -18621,7 +18850,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runStudioGridWorkflow,
+    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
