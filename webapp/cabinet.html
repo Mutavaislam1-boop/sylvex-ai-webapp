@@ -213,13 +213,7 @@ HTML-страница Mini App. Комментарии подписывают э
         <section class="studio-grid-workspace" id="studioGridWorkspace" hidden aria-label="ProStudio Grid">
           <header class="studio-grid-header">
             <div><small>SYLVEX PROSTUDIO</small><input id="studioGridTitle" value="Новая цепочка" maxlength="80" aria-label="Название проекта"></div>
-            <nav>
-              <button type="button" onclick="SYLVEX.addStudioGridNode('text')">+ Текст</button>
-              <button type="button" onclick="SYLVEX.addStudioGridNode('image')">+ Фото</button>
-              <button type="button" onclick="SYLVEX.addStudioGridNode('video')">+ Видео</button>
-              <button type="button" onclick="SYLVEX.addStudioGridNode('music')">+ Музыка</button>
-              <button type="button" onclick="SYLVEX.addStudioGridNode('voice')">+ Голос</button>
-            </nav>
+            <nav><button type="button" onclick="SYLVEX.autoLayoutStudioGrid()">Авто-компоновка</button><button type="button" onclick="SYLVEX.runStudioGridWorkflow()">Запустить цепочку</button></nav>
           </header>
           <div class="studio-grid-canvas" id="studioGridCanvas">
             <div class="studio-grid-stage" id="studioGridStage">
@@ -227,13 +221,21 @@ HTML-страница Mini App. Комментарии подписывают э
               <div class="studio-grid-nodes" id="studioGridNodes"></div>
             </div>
           </div>
-          <aside class="studio-grid-tools" aria-label="Управление сеткой">
-            <button type="button" onclick="SYLVEX.addStudioGridNode('text')" aria-label="Добавить узел">+</button>
-            <button type="button" onclick="SYLVEX.resetStudioGridView()" aria-label="Показать всю цепочку">⌖</button>
-            <button type="button" onclick="SYLVEX.zoomStudioGrid(-0.1)" aria-label="Уменьшить">−</button>
-            <span id="studioGridZoom">100%</span>
-            <button type="button" onclick="SYLVEX.zoomStudioGrid(0.1)" aria-label="Увеличить">+</button>
+          <aside class="studio-grid-node-tools" aria-label="Добавить узел">
+            <button type="button" onclick="SYLVEX.addStudioGridNode('task')"><i>✦</i><span>Задача</span></button>
+            <button type="button" onclick="SYLVEX.addStudioGridNode('text')"><i>T</i><span>Текст</span></button>
+            <button type="button" onclick="SYLVEX.addStudioGridNode('image')"><i>▧</i><span>Фото</span></button>
+            <button type="button" onclick="SYLVEX.addStudioGridNode('video')"><i>▶</i><span>Видео</span></button>
+            <button type="button" onclick="SYLVEX.addStudioGridNode('music')"><i>♫</i><span>Музыка</span></button>
+            <button type="button" onclick="SYLVEX.addStudioGridNode('voice')"><i>◉</i><span>Голос</span></button>
           </aside>
+          <aside class="studio-grid-tools" aria-label="Управление сеткой">
+            <button type="button" onclick="SYLVEX.zoomStudioGrid(0.1)" aria-label="Увеличить">+</button>
+            <button type="button" onclick="SYLVEX.zoomStudioGrid(-0.1)" aria-label="Уменьшить">−</button>
+            <button type="button" onclick="SYLVEX.resetStudioGridView()" aria-label="Показать всю цепочку">⌖</button>
+            <span id="studioGridZoom">100%</span>
+          </aside>
+          <div class="studio-grid-context" id="studioGridContext" hidden></div>
         </section>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: chatArea
