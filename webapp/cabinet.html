@@ -104,6 +104,18 @@ HTML-страница Mini App. Комментарии подписывают э
         </button>
       </div>
 
+      <section class="home-idea-ai" id="homeIdeaAi">
+        <header><span><img src="assets/logo.png" alt=""><b>SYLVEX AI</b></span><small>Помогу выбрать правильный инструмент</small></header>
+        <div class="home-idea-chat" id="homeIdeaChat"><p class="ai">Опишите свою идею — я уточню детали и подготовлю запрос для нужного генератора.</p></div>
+        <div class="home-idea-attachment" id="homeIdeaAttachment" hidden></div>
+        <form id="homeIdeaForm">
+          <textarea id="homeIdeaInput" rows="2" placeholder="Опиши свою идею…"></textarea>
+          <div><button type="button" id="homeIdeaFile" aria-label="Добавить фото">＋</button><button type="button" id="homeIdeaVoice" aria-label="Голосовой разговор">◉</button><button type="submit" class="send" aria-label="Отправить">↑</button></div>
+          <input id="homeIdeaFileInput" type="file" accept="image/*" hidden>
+        </form>
+        <button class="home-idea-go" id="homeIdeaGo" type="button" hidden>Перейти к созданию →</button>
+      </section>
+
       <div class="section-title"><h3 data-i18n="generate_with">Generate with SYLVEX AI</h3></div>
       <div class="hero-carousel">
         <div class="hero-track" id="heroTrack">

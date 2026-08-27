@@ -13198,6 +13198,75 @@ User task:
         return JSONResponse({"ok": False, "error": "planner_failed", "message": "Не удалось построить цепочку."}, status_code=500)
 
 
+@app.post("/api/public/home-idea/route")
+async def public_home_idea_route(request: Request):
+    """Conversational SYLVEX guide: clarify an idea and prepare, but never launch, a generator."""
+    try:
+        body = await request.json()
+        message = str((body or {}).get("message") or "").strip()
+        history = (body or {}).get("history") or []
+        attachment = (body or {}).get("attachment") or None
+        if not message and not attachment:
+            return JSONResponse({"ok": False, "error": "message_required"}, status_code=400)
+        instruction = f"""
+Ты — SYLVEX AI, персональный творческий навигатор внутри Mini App. Никогда не называй себя OpenAI или ChatGPT.
+Помоги понять задачу и направь пользователя в правильный генератор. Ответь ТОЛЬКО JSON без markdown:
+{{"reply":"краткий естественный ответ или один уточняющий вопрос","ready":true,"mode":"image|video|music|voice|text|grid","model":"идентификатор модели","prompt":"полностью сформулированный запрос для выбранного генератора"}}
+Если данных недостаточно, ready=false, mode/model/prompt оставь пустыми и задай только один самый важный вопрос.
+Если задача ясна, ready=true. Рекомендуемые модели: image=seedream_5_0_pro, video=seedance_2_0, music=suno_chirp_5_5, voice=elevenlabs_eleven_v3, text=gpt-5.6. Для сложной цепочки нескольких видов контента используй grid.
+Не запускай генерацию и не обещай, что она уже началась.
+Сообщение пользователя: {message}
+""".strip()
+        result = await asyncio.to_thread(text_generation, {
+            "prompt": instruction, "mode": "text", "category": "text", "model": "gpt-5.6",
+            "provider": "openai", "text_options": {"tool": "text", "format": "json", "style": "neutral"},
+            "history": history[-12:] if isinstance(history, list) else [], "attachment": attachment,
+        })
+        if not result.get("ok"):
+            return JSONResponse(result, status_code=502)
+        raw = str(result.get("text") or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
+        route = json.loads(raw)
+        allowed_modes = {"image", "video", "music", "voice", "text", "grid"}
+        mode = str(route.get("mode") or "")
+        ready = bool(route.get("ready")) and mode in allowed_modes
+        return {"ok": True, "reply": str(route.get("reply") or "Готов помочь."), "ready": ready,
+                "mode": mode if ready else "", "model": str(route.get("model") or "") if ready else "",
+                "prompt": str(route.get("prompt") or "") if ready else ""}
+    except Exception as exc:
+        prostudio_error("HOME_IDEA_ROUTE_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "idea_route_failed", "message": "SYLVEX временно не смог обработать идею."}, status_code=500)
+
+
+@app.post("/api/public/home-idea/realtime")
+async def public_home_idea_realtime(request: Request):
+    """Create a protected OpenAI Realtime WebRTC session; the standard API key stays on the server."""
+    if not OPENAI_API_KEY:
+        return JSONResponse({"ok": False, "error": "openai_not_configured"}, status_code=503)
+    sdp = (await request.body()).decode("utf-8", errors="ignore").strip()
+    if not sdp:
+        return JSONResponse({"ok": False, "error": "sdp_required"}, status_code=400)
+    user_id = str(request.query_params.get("telegram_id") or "guest")
+    safety_id = hashlib.sha256(("sylvex:" + user_id).encode()).hexdigest()
+    session = {
+        "type": "realtime", "model": os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1"),
+        "instructions": "Ты SYLVEX AI. Общайся по-русски естественно и кратко. Помоги пользователю уточнить творческую идею и выбрать создание изображения, видео, музыки, озвучки, текста или сетку. Никогда не называй себя OpenAI или ChatGPT. Не запускай генерацию.",
+        "audio": {"input": {"transcription": {"model": "gpt-4o-mini-transcribe"}}, "output": {"voice": "marin"}},
+    }
+    def create_call():
+        return requests.post("https://api.openai.com/v1/realtime/calls",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "OpenAI-Safety-Identifier": safety_id},
+            files={"sdp": (None, sdp), "session": (None, json.dumps(session))}, timeout=30)
+    try:
+        response = await asyncio.to_thread(create_call)
+        return Response(content=response.content, status_code=response.status_code,
+                        media_type=response.headers.get("content-type", "application/sdp"))
+    except Exception as exc:
+        prostudio_error("HOME_IDEA_REALTIME_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "realtime_unavailable"}, status_code=502)
+
+
 @app.post("/api/public/prostudio/generate")
 # =====================================================
 # PYTHON-БЛОК: public_prostudio_generate
