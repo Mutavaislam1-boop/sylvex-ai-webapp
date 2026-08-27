@@ -18319,6 +18319,8 @@ async function waitGeneration(jobId, options) {
 
   /* ===== ProStudio Grid ===== */
   const STUDIO_GRID_KEY = 'sylvex-prostudio-grid-v2';
+  const STUDIO_GRID_PROJECTS_KEY = 'sylvex-prostudio-grid-projects-v1';
+  const STUDIO_GRID_PROJECT_PREFIX = 'sylvex-prostudio-grid-project-v1:';
   const GRID_TYPES = {
     task:  { title:'Задача', icon:'✦', placeholder:'Опишите желаемый результат…', inputs:[], outputs:['task'] },
     text:  { title:'Текст', icon:'T', placeholder:'Введите или создайте текст…', inputs:['task','text'], outputs:['text'] },
@@ -18366,6 +18368,46 @@ async function waitGeneration(jobId, options) {
     };
   }
 
+  function emptyStudioGridState() {
+    const stamp=Date.now().toString(36);
+    return normalizeStudioGridState({version:2,projectId:'grid_project_'+stamp,title:'Новый проект',panX:90,panY:150,zoom:.9,nodes:[{id:'grid_task_'+stamp,type:'task',subtype:'task',x:80,y:120,title:'Задача',prompt:'',status:'IDLE',position_locked:false,results:[]}],edges:[]});
+  }
+
+  function loadStudioGridProjects() {
+    try{const items=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECTS_KEY)||'[]');return Array.isArray(items)?items.filter(item=>item&&item.id):[]}catch(_){return[]}
+  }
+
+  function saveStudioGridProjects(items) {
+    try{localStorage.setItem(STUDIO_GRID_PROJECTS_KEY,JSON.stringify(items.slice(0,40)))}catch(_){}
+  }
+
+  function touchStudioGridProject(state) {
+    if(!state?.projectId)return;const items=loadStudioGridProjects(),now=new Date().toISOString(),existing=items.find(item=>item.id===state.projectId),meta={id:state.projectId,title:String(state.title||'Без названия'),updated_at:now};if(existing)Object.assign(existing,meta);else items.unshift(meta);items.sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));saveStudioGridProjects(items);
+  }
+
+  function archiveStudioGridProject(state=studioGridState) {
+    if(!state?.projectId)return;touchStudioGridProject(state);try{localStorage.setItem(STUDIO_GRID_PROJECT_PREFIX+state.projectId,JSON.stringify(state))}catch(_){}
+  }
+
+  function studioGridHasActiveRun() {
+    const state=loadStudioGridState();return !!studioGridWorkflowRun||state.nodes.some(node=>node.status==='RUNNING');
+  }
+
+  function renderStudioGridProjects() {
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><b>История сеток</b><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<button type="button" class="studio-grid-project${item.id===active.projectId?' active':''}" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
+  }
+
+  function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}
+  function toggleStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;if(panel.hidden){touchStudioGridProject(loadStudioGridState());renderStudioGridProjects();panel.hidden=false}else panel.hidden=true}
+
+  function createStudioGridProject() {
+    if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}archiveStudioGridProject();studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Создана новая чистая сетка');
+  }
+
+  function openStudioGridProject(projectId) {
+    const current=loadStudioGridState();if(!projectId||projectId===current.projectId){closeStudioGridProjects();return}if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}let stored=null;try{stored=JSON.parse(localStorage.getItem(STUDIO_GRID_PROJECT_PREFIX+projectId)||'null')}catch(_){}if(!stored||!Array.isArray(stored.nodes)){toast('Не удалось открыть проект');return}archiveStudioGridProject(current);studioGridState=normalizeStudioGridState(stored);studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Проект сетки открыт');
+  }
+
   function normalizeStudioGridState(state) {
     state.version = 2; state.projectId = state.projectId || 'grid_project_'+Date.now().toString(36);
     state.panX = Number.isFinite(Number(state.panX)) ? Number(state.panX) : 90;
@@ -18408,6 +18450,7 @@ async function waitGeneration(jobId, options) {
   function saveStudioGridState() {
     if (!studioGridState) return;
     try { localStorage.setItem(STUDIO_GRID_KEY, JSON.stringify(studioGridState)); } catch (_) {}
+    touchStudioGridProject(studioGridState);
   }
 
   function applyStudioGridTransform() {
@@ -18777,9 +18820,13 @@ async function waitGeneration(jobId, options) {
     const title = document.getElementById('studioGridTitle');
     const context = document.getElementById('studioGridContext');
     const edgesHost = document.getElementById('studioGridEdges');
+    const projectsButton=document.getElementById('studioGridProjectsButton'),newProjectButton=document.getElementById('studioGridNewProject'),projectsPanel=document.getElementById('studioGridProjectsPanel');
     const interactive='textarea,input,select,button,a,[contenteditable="true"],audio,video';
-    const pointers=new Map();let pinch=null,longPressTimer=0,longPressPoint=null;
+    const pointers=new Map();let pinch=null,pinchConsumedPointers=false,gestureZoomStart=0,longPressTimer=0,longPressPoint=null;
     if (title) title.addEventListener('input', () => { loadStudioGridState().title = title.value; saveStudioGridState(); });
+    projectsButton?.addEventListener('click',toggleStudioGridProjects);
+    newProjectButton?.addEventListener('click',createStudioGridProject);
+    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
     if (host) {
       host.addEventListener('input', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -18817,7 +18864,7 @@ async function waitGeneration(jobId, options) {
         const starts=state.nodes.filter(node=>studioGridSelectedIds.has(node.id)&&!node.position_locked).map(node=>({node,x:Number(node.x),y:Number(node.y)})),startX=event.clientX,startY=event.clientY,scale=state.zoom||1;
         host.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.toggle('selected',studioGridSelectedIds.has(item.dataset.gridId)));
         card.setPointerCapture(event.pointerId);
-        const move = (moveEvent) => { const dx=(moveEvent.clientX-startX)/scale,dy=(moveEvent.clientY-startY)/scale;starts.forEach(start=>{start.node.x=start.x+dx;start.node.y=start.y+dy;const element=host.querySelector(`[data-grid-id="${CSS.escape(start.node.id)}"]`);if(element){element.style.left=`${start.node.x}px`;element.style.top=`${start.node.y}px`}});renderStudioGridEdges(); };
+        const move = (moveEvent) => { if(pointers.size>=2||pinchConsumedPointers)return;const dx=(moveEvent.clientX-startX)/scale,dy=(moveEvent.clientY-startY)/scale;starts.forEach(start=>{start.node.x=start.x+dx;start.node.y=start.y+dy;const element=host.querySelector(`[data-grid-id="${CSS.escape(start.node.id)}"]`);if(element){element.style.left=`${start.node.x}px`;element.style.top=`${start.node.y}px`}});renderStudioGridEdges(); };
         const up = () => { card.removeEventListener('pointermove', move); card.removeEventListener('pointerup', up); card.removeEventListener('pointercancel', up); saveStudioGridState(); };
         card.addEventListener('pointermove', move); card.addEventListener('pointerup', up); card.addEventListener('pointercancel', up);
       });
@@ -18826,23 +18873,29 @@ async function waitGeneration(jobId, options) {
       canvas.addEventListener('contextmenu',event=>{if(event.target.closest('.studio-grid-node'))return;event.preventDefault();showStudioGridContext(event.clientX,event.clientY,studioGridCanvasPoint(event.clientX,event.clientY))});
       canvas.addEventListener('pointerdown', (event) => {
         pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
-        if(pointers.size===2){clearTimeout(longPressTimer);const points=[...pointers.values()];pinch={distance:Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y),zoom:loadStudioGridState().zoom,centerX:(points[0].x+points[1].x)/2,centerY:(points[0].y+points[1].y)/2};return}
+        if(pointers.size===2){pinchConsumedPointers=true;clearTimeout(longPressTimer);const points=[...pointers.values()],state=loadStudioGridState(),rect=canvas.getBoundingClientRect(),centerX=(points[0].x+points[1].x)/2,centerY=(points[0].y+points[1].y)/2,localX=centerX-rect.left,localY=centerY-rect.top;pinch={distance:Math.max(1,Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y)),zoom:state.zoom||1,worldX:(localX-state.panX)/(state.zoom||1),worldY:(localY-state.panY)/(state.zoom||1)};return}
         if (event.target.closest('.studio-grid-node')) return;
         hideStudioGridContext();clearStudioGridConnectionMode();studioGridSelectedIds.clear();host?.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.remove('selected'));
         const state = loadStudioGridState(), startX = event.clientX, startY = event.clientY, x = Number(state.panX || 0), y = Number(state.panY || 0);
         if(event.pointerType!=='mouse'){longPressPoint=studioGridCanvasPoint(event.clientX,event.clientY);longPressTimer=window.setTimeout(()=>showStudioGridContext(event.clientX,event.clientY,longPressPoint),520)}
         canvas.classList.add('is-panning'); canvas.setPointerCapture(event.pointerId);
-        const move = (moveEvent) => {pointers.set(moveEvent.pointerId,{x:moveEvent.clientX,y:moveEvent.clientY});if(Math.hypot(moveEvent.clientX-startX,moveEvent.clientY-startY)>8)clearTimeout(longPressTimer);if(pointers.size>=2&&pinch){const points=[...pointers.values()],distance=Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y),target=Math.max(.2,Math.min(2.5,pinch.zoom*distance/Math.max(1,pinch.distance))),delta=target-state.zoom;zoomStudioGrid(delta,(points[0].x+points[1].x)/2,(points[0].y+points[1].y)/2);return}state.panX=x+moveEvent.clientX-startX;state.panY=y+moveEvent.clientY-startY;applyStudioGridTransform(); };
+        const move = (moveEvent) => {if(Math.hypot(moveEvent.clientX-startX,moveEvent.clientY-startY)>8)clearTimeout(longPressTimer);if(pointers.size>=2||pinchConsumedPointers)return;state.panX=x+moveEvent.clientX-startX;state.panY=y+moveEvent.clientY-startY;applyStudioGridTransform(); };
         const up = (upEvent) => {clearTimeout(longPressTimer);pointers.delete(upEvent.pointerId);if(pointers.size<2)pinch=null;canvas.classList.remove('is-panning');canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',up);saveStudioGridState(); };
         canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
       });
+      canvas.addEventListener('pointermove',(event)=>{if(!pointers.has(event.pointerId))return;pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});if(pointers.size<2||!pinch)return;event.preventDefault();const points=[...pointers.values()].slice(0,2),distance=Math.max(1,Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y)),centerX=(points[0].x+points[1].x)/2,centerY=(points[0].y+points[1].y)/2,rect=canvas.getBoundingClientRect(),localX=centerX-rect.left,localY=centerY-rect.top,state=loadStudioGridState(),target=Math.max(.2,Math.min(2.5,pinch.zoom*distance/pinch.distance));state.zoom=target;state.panX=localX-pinch.worldX*target;state.panY=localY-pinch.worldY*target;applyStudioGridTransform()},{passive:false});
+      const finishGridPointer=(event)=>{if(!pointers.has(event.pointerId))return;pointers.delete(event.pointerId);if(pointers.size<2){pinch=null;saveStudioGridState()}if(!pointers.size)pinchConsumedPointers=false};
+      canvas.addEventListener('pointerup',finishGridPointer);canvas.addEventListener('pointercancel',finishGridPointer);
       canvas.addEventListener('wheel', (event) => {
-        event.preventDefault();const state=loadStudioGridState();if(event.ctrlKey||event.metaKey){zoomStudioGrid(event.deltaY>0?-.08:.08,event.clientX,event.clientY)}else{state.panX-=event.deltaX;state.panY-=event.deltaY;saveStudioGridState();applyStudioGridTransform()}
+        event.preventDefault();const state=loadStudioGridState();if(event.ctrlKey||event.metaKey){const target=Math.max(.2,Math.min(2.5,(state.zoom||1)*Math.exp(-event.deltaY*.0025)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)}else{state.panX-=event.deltaX;state.panY-=event.deltaY;saveStudioGridState();applyStudioGridTransform()}
       }, {passive:false});
+      canvas.addEventListener('gesturestart',(event)=>{event.preventDefault();gestureZoomStart=loadStudioGridState().zoom||1},{passive:false});
+      canvas.addEventListener('gesturechange',(event)=>{event.preventDefault();const state=loadStudioGridState(),target=Math.max(.2,Math.min(2.5,gestureZoomStart*Number(event.scale||1)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)},{passive:false});
+      canvas.addEventListener('gestureend',(event)=>{event.preventDefault();saveStudioGridState()},{passive:false});
     }
     if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeElement.dataset.gridEdge);state.edges=state.edges.filter(item=>item.id!==edgeElement.dataset.gridEdge);const target=edge&&state.nodes.find(node=>node.id===edge.to);if(target&&target.status!=='RUNNING')target.status='READY';saveStudioGridState();renderStudioGrid();toast('Связь удалена')});
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
-    document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext()});
+    document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext();if(!event.target.closest('#studioGridProjectsPanel')&&!event.target.closest('#studioGridProjectsButton'))closeStudioGridProjects()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});
     setStudioLayout(localStorage.getItem('sylvex-prostudio-layout') || 'classic');
     restoreStudioGridJobs();
