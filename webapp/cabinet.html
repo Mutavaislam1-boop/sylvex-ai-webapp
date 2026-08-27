@@ -105,15 +105,14 @@ HTML-страница Mini App. Комментарии подписывают э
       </div>
 
       <section class="home-idea-ai" id="homeIdeaAi">
-        <header><span><img src="assets/logo.png" alt=""><b>SYLVEX AI</b></span><small>Помогу выбрать правильный инструмент</small></header>
-        <div class="home-idea-chat" id="homeIdeaChat"><p class="ai">Опишите свою идею — я уточню детали и подготовлю запрос для нужного генератора.</p></div>
         <div class="home-idea-attachment" id="homeIdeaAttachment" hidden></div>
         <form id="homeIdeaForm">
-          <textarea id="homeIdeaInput" rows="2" placeholder="Опиши свою идею…"></textarea>
-          <div><button type="button" id="homeIdeaFile" aria-label="Добавить фото">＋</button><button type="button" id="homeIdeaVoice" aria-label="Голосовой разговор">◉</button><button type="submit" class="send" aria-label="Отправить">↑</button></div>
+          <button type="button" id="homeIdeaFile" class="attach" aria-label="Добавить фото">＋</button>
+          <textarea id="homeIdeaInput" rows="1" placeholder="Опиши свою идею…"></textarea>
+          <button type="button" id="homeIdeaVoice" class="voice" aria-label="Голосовой разговор"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v4M9 21h6"/></svg></button>
+          <button type="submit" class="send" aria-label="Отправить" hidden>↑</button>
           <input id="homeIdeaFileInput" type="file" accept="image/*" hidden>
         </form>
-        <button class="home-idea-go" id="homeIdeaGo" type="button" hidden>Перейти к созданию →</button>
       </section>
 
       <div class="section-title"><h3 data-i18n="generate_with">Generate with SYLVEX AI</h3></div>
