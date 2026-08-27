@@ -18321,7 +18321,7 @@ async function waitGeneration(jobId, options) {
   const STUDIO_GRID_KEY = 'sylvex-prostudio-grid-v2';
   const GRID_TYPES = {
     task:  { title:'Задача', icon:'✦', placeholder:'Опишите желаемый результат…', inputs:[], outputs:['task'] },
-    text:  { title:'Текст', icon:'T', placeholder:'Введите или создайте текст…', inputs:['task'], outputs:['text'] },
+    text:  { title:'Текст', icon:'T', placeholder:'Введите или создайте текст…', inputs:['task','text'], outputs:['text'] },
     image: { title:'Изображение', icon:'▧', placeholder:'Опишите изображение…', inputs:['text','image_reference','character','object'], outputs:['image'] },
     video: { title:'Видео', icon:'▶', placeholder:'Опишите движение и сцену…', inputs:['text','image','video','character','audio'], outputs:['video'] },
     music: { title:'Музыка', icon:'♫', placeholder:'Опишите трек, настроение и жанр…', inputs:['text','lyrics'], outputs:['audio'] },
@@ -18334,6 +18334,7 @@ async function waitGeneration(jobId, options) {
   let studioGridWorkflowRun = null;
   const studioGridNodeRuns = new Map();
   let studioGridJobsRestored = false;
+  let studioGridPlannerRunning = false;
 
   function gridDefaultSettings(type) {
     if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
@@ -18429,10 +18430,10 @@ async function waitGeneration(jobId, options) {
     svg.innerHTML = state.edges.map((edge) => {
       const from = byId[edge.from], to = byId[edge.to];
       if (!from || !to) return '';
-      const x1 = Number(from.x) + 276, y1 = Number(from.y) + 104;
-      const x2 = Number(to.x), y2 = Number(to.y) + 104;
-      const bend = Math.max(70, Math.abs(x2 - x1) * .45);
-      return `<g data-grid-edge="${gridEscape(edge.id)}"><path d="M${x1} ${y1} C${x1 + bend} ${y1},${x2 - bend} ${y2},${x2} ${y2}"/><circle cx="${x1}" cy="${y1}" r="4"/><circle cx="${x2}" cy="${y2}" r="4"/></g>`;
+      const width=276,height=272,vertical=Math.abs((Number(to.y)-Number(from.y)))>Math.abs((Number(to.x)-Number(from.x))),fromSide=edge.fromSide||(vertical&&Number(to.y)>=Number(from.y)?'bottom':'right'),toSide=edge.toSide||(fromSide==='bottom'?'top':'left');
+      const point=(node,side)=>side==='bottom'?{x:Number(node.x)+width/2,y:Number(node.y)+height}:side==='top'?{x:Number(node.x)+width/2,y:Number(node.y)}:side==='left'?{x:Number(node.x),y:Number(node.y)+height/2}:{x:Number(node.x)+width,y:Number(node.y)+height/2};
+      const a=point(from,fromSide),b=point(to,toSide),distance=Math.max(55,Math.hypot(b.x-a.x,b.y-a.y)*.35),control=(p,side,d)=>side==='bottom'?{x:p.x,y:p.y+d}:side==='top'?{x:p.x,y:p.y-d}:side==='left'?{x:p.x-d,y:p.y}:{x:p.x+d,y:p.y},c1=control(a,fromSide,distance),c2=control(b,toSide,distance);
+      return `<g data-grid-edge="${gridEscape(edge.id)}"><path d="M${a.x} ${a.y} C${c1.x} ${c1.y},${c2.x} ${c2.y},${b.x} ${b.y}"/><circle cx="${a.x}" cy="${a.y}" r="4"/><circle cx="${b.x}" cy="${b.y}" r="4"/></g>`;
     }).join('');
   }
 
@@ -18451,6 +18452,7 @@ async function waitGeneration(jobId, options) {
 
   function gridNodePreview(node,status) {
     const output=node.output||null;
+    if(node.type==='task'&&output?.type==='clarification')return `<div class="studio-grid-clarification"><b>Нужно уточнение</b><span>${gridEscape(output.value||'')}</span></div>`;
     if (node.type==='text'&&output?.value) return `<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>`;
     if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" class="${index===Number(output.selected_index||0)?'active':''}"><img src="${gridEscape(item.preview_url||item.url)}" alt="" loading="lazy"></button>`).join('')}</div>`;
     if (output?.type==='video'&&output.url) return `<button type="button" class="studio-grid-media-preview" data-grid-preview><video src="${gridEscape(output.url)}" muted playsinline preload="metadata"></video><span>▶</span></button>`;
@@ -18485,20 +18487,22 @@ async function waitGeneration(jobId, options) {
     if (!host) return;
     if (title && title !== document.activeElement) title.value = state.title || 'Новая цепочка';
     host.innerHTML = state.nodes.map((node) => {
-      resolveGridNodeInputs(node.id);
+      const resolvedInputs=resolveGridNodeInputs(node.id);
       const type = GRID_TYPES[node.type] || GRID_TYPES.text;
-      const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),ports=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in" style="top:${65+index*24}px" type="button" data-grid-input="${gridEscape(input)}" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)}"></button>`).join('');
+      const visiblePrompt=node.prompt||(node.type!=='task'&&node.type!=='text'?String(resolvedInputs.effective_prompt?.value||''):'');
+      const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),inputPorts=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in side-left" style="top:${62+index*25}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="left" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} слева"></button><button class="studio-grid-port in side-top" style="left:${44+index*38}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="top" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} сверху"></button>`).join(''),outputPort=gridEscape((type.outputs||['text'])[0]);
       return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.position_locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="left:${Number(node.x)||0}px;top:${Number(node.y)||0}px">
-        ${ports}<button class="studio-grid-port out" type="button" data-grid-output="${gridEscape((type.outputs||['text'])[0])}" aria-label="Подключить выход"></button>
+        ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
         <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
-        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(node.prompt || '')}</textarea><div class="studio-grid-node-result">${preview}</div></div>
-        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:''}${node.type==='task'?'<button type="button" data-grid-build disabled>Planner · этап 3</button>':`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
+        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
+        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:''}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Строим…':'Построить цепочку'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
       </article>`;
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
     if(workflowButton){const running=state.workflow?.status==='RUNNING'||state.workflow?.status==='STOPPING';workflowButton.textContent=running?'Остановить цепочку':'Запустить цепочку';workflowButton.classList.toggle('running',running)}
     applyStudioGridTransform();
     renderStudioGridEdges();
+    if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
   }
 
   function setStudioLayout(layout) {
@@ -18509,7 +18513,11 @@ async function waitGeneration(jobId, options) {
     if (studio) studio.classList.toggle('grid-mode', mode === 'grid');
     if (workspace) workspace.hidden = mode !== 'grid';
     localStorage.setItem('sylvex-prostudio-layout', mode);
-    if (mode === 'grid') requestAnimationFrame(renderStudioGrid);
+    if (mode === 'grid') requestAnimationFrame(()=>{
+      const state=loadStudioGridState();
+      if(window.matchMedia('(max-width:700px)').matches&&!state.mobile_layout_version)autoLayoutStudioGrid();
+      else renderStudioGrid();
+    });
   }
 
   function studioGridCanvasPoint(clientX,clientY) { const state=loadStudioGridState(),canvas=document.getElementById('studioGridCanvas'),rect=canvas?.getBoundingClientRect()||{left:0,top:0};return{x:(clientX-rect.left-state.panX)/state.zoom,y:(clientY-rect.top-state.panY)/state.zoom} }
@@ -18538,11 +18546,13 @@ async function waitGeneration(jobId, options) {
 
   function gridConnectionCompatible(fromNode,fromPort,toNode,toPort){if(!fromNode||!toNode||fromNode.id===toNode.id)return false;const output=fromPort||(GRID_TYPES[fromNode.type]?.outputs||[])[0],target=toPort||(GRID_TYPES[toNode.type]?.inputs||[])[0];if(output===target)return true;if(output==='text'&&['text','lyrics'].includes(target))return true;if(output==='task'&&target==='task')return true;if(output==='audio'&&toNode.type==='video')return true;return false}
 
-  function connectStudioGridNodes(fromId,fromPort,toId,toPort){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Несовместимое соединение');return false}state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36),from:fromId,fromPort,to:toId,toPort,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});if(to.type==='video'&&fromPort==='image')to.settings.generation_mode='image_to_video';markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
+  function gridConnectionCreatesCycle(fromId,toId){const state=loadStudioGridState(),queue=[toId],seen=new Set();while(queue.length){const current=queue.shift();if(current===fromId)return true;if(seen.has(current))continue;seen.add(current);state.edges.filter(edge=>edge.from===current).forEach(edge=>queue.push(edge.to))}return false}
+
+  function connectStudioGridNodes(fromId,fromPort,toId,toPort,fromSide='right',toSide='left'){const state=loadStudioGridState(),from=state.nodes.find(n=>n.id===fromId),to=state.nodes.find(n=>n.id===toId);if(!gridConnectionCompatible(from,fromPort,to,toPort)){toast('Этот вход несовместим с выбранным блоком');return false}if(gridConnectionCreatesCycle(fromId,toId)){toast('Соединение создаёт цикл и нарушает последовательность');return false}if(to.type==='task'){toast('Задача всегда является первым блоком');return false}state.edges=state.edges.filter(edge=>!(edge.to===toId&&edge.toPort===toPort));state.edges.push({id:'edge_'+Date.now().toString(36),from:fromId,fromPort,to:toId,toPort,fromSide,toSide,source_node_id:fromId,source_output:fromPort,target_node_id:toId,target_input:toPort,data_type:fromPort,dataType:fromPort});if(to.type==='video'&&fromPort==='image')to.settings.generation_mode='image_to_video';markStudioGridDownstreamStale(fromId);saveStudioGridState();renderStudioGrid();return true}
 
   function markStudioGridDownstreamStale(sourceId){const state=loadStudioGridState(),queue=[sourceId],seen=new Set(queue);while(queue.length){const current=queue.shift();state.edges.filter(edge=>edge.from===current).forEach(edge=>{if(seen.has(edge.to))return;seen.add(edge.to);queue.push(edge.to);const node=state.nodes.find(item=>item.id===edge.to);if(node&&node.status!=='RUNNING')node.status='READY'})}}
 
-  function autoLayoutStudioGrid(){const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const levels=new Map(),queue=state.nodes.filter(node=>(incoming.get(node.id)||0)===0).map(node=>node.id);queue.forEach(id=>levels.set(id,0));while(queue.length){const id=queue.shift(),level=levels.get(id)||0;state.edges.filter(edge=>edge.from===id).forEach(edge=>{levels.set(edge.to,Math.max(levels.get(edge.to)||0,level+1));incoming.set(edge.to,(incoming.get(edge.to)||1)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}const grouped={};state.nodes.forEach(node=>{const level=levels.get(node.id)||0;(grouped[level]||(grouped[level]=[])).push(node)});Object.keys(grouped).forEach(key=>grouped[key].forEach((node,index)=>{node.x=80+Number(key)*350;node.y=100+index*250}));saveStudioGridState();renderStudioGrid();resetStudioGridView()}
+  function autoLayoutStudioGrid(){const state=loadStudioGridState(),incoming=new Map(state.nodes.map(node=>[node.id,0]));state.edges.forEach(edge=>incoming.set(edge.to,(incoming.get(edge.to)||0)+1));const levels=new Map(),queue=state.nodes.filter(node=>(incoming.get(node.id)||0)===0).sort((a,b)=>(a.type==='task'?-1:b.type==='task'?1:0)).map(node=>node.id);queue.forEach(id=>levels.set(id,0));while(queue.length){const id=queue.shift(),level=levels.get(id)||0;state.edges.filter(edge=>edge.from===id).forEach(edge=>{levels.set(edge.to,Math.max(levels.get(edge.to)||0,level+1));incoming.set(edge.to,(incoming.get(edge.to)||1)-1);if(incoming.get(edge.to)===0)queue.push(edge.to)})}const grouped={};state.nodes.forEach(node=>{const level=levels.get(node.id)||0;(grouped[level]||(grouped[level]=[])).push(node)});const mobile=window.matchMedia('(max-width:700px)').matches;Object.keys(grouped).sort((a,b)=>Number(a)-Number(b)).forEach(key=>grouped[key].forEach((node,index)=>{if(mobile){node.x=60+index*310;node.y=90+Number(key)*340}else{node.x=80+Number(key)*350;node.y=100+index*310}}));state.edges.forEach(edge=>{edge.fromSide=mobile?'bottom':'right';edge.toSide=mobile?'top':'left'});if(mobile)state.mobile_layout_version=1;saveStudioGridState();renderStudioGrid();resetStudioGridView()}
 
   function openStudioGridNode(id) {
     const node = loadStudioGridState().nodes.find((item) => item.id === id);
@@ -18568,14 +18578,58 @@ async function waitGeneration(jobId, options) {
 
   function resetStudioGridView() {
     const state = loadStudioGridState();
-    const canvas=document.getElementById('studioGridCanvas'),nodes=state.nodes;if(!canvas||!nodes.length){state.panX=90;state.panY=150;state.zoom=.9}else{const rect=canvas.getBoundingClientRect(),minX=Math.min(...nodes.map(n=>Number(n.x))),maxX=Math.max(...nodes.map(n=>Number(n.x)+276)),minY=Math.min(...nodes.map(n=>Number(n.y))),maxY=Math.max(...nodes.map(n=>Number(n.y)+210)),zoom=Math.max(.2,Math.min(1.2,Math.min((rect.width-100)/(maxX-minX||1),(rect.height-130)/(maxY-minY||1))));state.zoom=zoom;state.panX=(rect.width-(maxX-minX)*zoom)/2-minX*zoom;state.panY=(rect.height-(maxY-minY)*zoom)/2-minY*zoom}
+    const canvas=document.getElementById('studioGridCanvas'),nodes=state.nodes;if(!canvas||!nodes.length){state.panX=90;state.panY=150;state.zoom=.9}else{const rect=canvas.getBoundingClientRect(),minX=Math.min(...nodes.map(n=>Number(n.x))),maxX=Math.max(...nodes.map(n=>Number(n.x)+276)),minY=Math.min(...nodes.map(n=>Number(n.y))),maxY=Math.max(...nodes.map(n=>Number(n.y)+272)),zoom=Math.max(.2,Math.min(1.2,Math.min((rect.width-100)/(maxX-minX||1),(rect.height-130)/(maxY-minY||1))));state.zoom=zoom;state.panX=(rect.width-(maxX-minX)*zoom)/2-minX*zoom;state.panY=(rect.height-(maxY-minY)*zoom)/2-minY*zoom}
     saveStudioGridState(); applyStudioGridTransform();
   }
 
   function showStudioGridContext(clientX,clientY,position){const menu=document.getElementById('studioGridContext');if(!menu)return;const entries=['task','text','image','video','music','voice'];menu.innerHTML=entries.map(type=>`<button type="button" data-grid-add-type="${type}"><i>${GRID_TYPES[type].icon}</i><span>${GRID_TYPES[type].title}</span></button>`).join('');menu.style.left=`${clientX}px`;menu.style.top=`${clientY}px`;menu.hidden=false;menu._gridPosition=position}
   function hideStudioGridContext(){const menu=document.getElementById('studioGridContext');if(menu)menu.hidden=true}
 
-  function buildStudioGridWorkflow(){toast('AI Planner будет подключён на следующем этапе')}
+  function clearStudioGridConnectionMode() {
+    studioGridPendingConnection=null;
+    const host=document.getElementById('studioGridNodes');if(!host)return;
+    host.querySelectorAll('.studio-grid-port').forEach(port=>port.classList.remove('connection-source','connection-compatible','connection-incompatible'));
+    host.querySelectorAll('.studio-grid-node').forEach(node=>node.classList.remove('connecting'));
+  }
+
+  function updateStudioGridConnectionHighlights() {
+    const pending=studioGridPendingConnection,host=document.getElementById('studioGridNodes'),state=loadStudioGridState();if(!pending||!host)return;
+    const source=state.nodes.find(node=>node.id===pending.from);
+    host.querySelectorAll('.studio-grid-port').forEach(port=>port.classList.remove('connection-source','connection-compatible','connection-incompatible'));
+    const sourceButton=host.querySelector(`[data-grid-id="${CSS.escape(pending.from)}"] [data-grid-output][data-grid-side="${CSS.escape(pending.fromSide)}"]`);if(sourceButton)sourceButton.classList.add('connection-source');
+    host.querySelectorAll('[data-grid-input]').forEach(port=>{const card=port.closest('.studio-grid-node'),target=state.nodes.find(node=>node.id===card?.dataset.gridId),compatible=gridConnectionCompatible(source,pending.fromPort,target,port.dataset.gridInput)&&!gridConnectionCreatesCycle(pending.from,target?.id);port.classList.add(compatible?'connection-compatible':'connection-incompatible')});
+  }
+
+  async function buildStudioGridWorkflow(id) {
+    if(studioGridPlannerRunning)return;
+    const state=loadStudioGridState(),task=state.nodes.find(node=>node.id===id&&node.type==='task');
+    if(!task||!String(task.prompt||'').trim()){toast('Сначала опишите задачу');return}
+    studioGridPlannerRunning=true;task.status='RUNNING';task.error='';task.output=null;saveStudioGridState();renderStudioGrid();
+    try{
+      const response=await fetch('/api/public/prostudio/grid/plan',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({telegram_id:getTelegramId(),task:task.prompt,model:'gpt-5.5',project_id:state.projectId})}),plan=await response.json().catch(()=>({}));
+      if(!response.ok||!plan.ok)throw new Error(plan.message||'Не удалось построить цепочку');
+      if(plan.action==='clarify'){
+        task.status='WAITING';task.output={type:'clarification',value:String(plan.question||'Уточните желаемый формат результата.')};task.error='Ответьте в поле задачи и снова нажмите «Построить цепочку»';saveStudioGridState();renderStudioGrid();return;
+      }
+      const generatedIds=new Set(state.nodes.filter(node=>node.planner_generated).map(node=>node.id));
+      state.nodes=state.nodes.filter(node=>!generatedIds.has(node.id));
+      state.edges=state.edges.filter(edge=>!generatedIds.has(edge.from)&&!generatedIds.has(edge.to)&&edge.from!==task.id);
+      const idByKey=new Map(),created=[];
+      (plan.nodes||[]).forEach((spec,index)=>{
+        const type=GRID_TYPES[spec.type]?spec.type:'text',nodeId=`grid_plan_${Date.now().toString(36)}_${index}`,outputText=String(spec.output||'').trim();
+        const node={id:nodeId,type,subtype:type,x:Number(task.x)+350*(index+1),y:Number(task.y),title:String(spec.title||GRID_TYPES[type].title),prompt:type==='text'?String(spec.instruction||task.prompt):String(spec.prompt||''),status:type==='text'&&outputText?'COMPLETED':'READY',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},output:type==='text'&&outputText?{type:'text',value:outputText,generation_id:'',model:'gpt-5.5',settings:{planner:true}}:null,generation_id:'',error:'',started_at:'',completed_at:type==='text'&&outputText?new Date().toISOString():'',position_locked:false,results:[],planner_generated:true};
+        state.nodes.push(node);created.push(node);idByKey.set(String(spec.key),nodeId);
+      });
+      const addEdge=(from,fromPort,to,toPort)=>{if(!from||!to)return;state.edges.push({id:'edge_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),from,fromPort,to,toPort,source_node_id:from,source_output:fromPort,target_node_id:to,target_input:toPort,data_type:fromPort,dataType:fromPort,planner_generated:true})};
+      (plan.edges||[]).forEach(edge=>addEdge(idByKey.get(String(edge.from)),String(edge.output||'text'),idByKey.get(String(edge.to)),String(edge.input||'text')));
+      created.filter(node=>node.type!=='text'&&state.edges.some(edge=>edge.to===node.id&&edge.toPort==='text')).forEach(node=>{node.prompt=''});
+      const incoming=new Set(state.edges.filter(edge=>created.some(node=>node.id===edge.to)).map(edge=>edge.to));
+      created.filter(node=>!incoming.has(node.id)&&node.type==='text').forEach(node=>addEdge(task.id,'task',node.id,'task'));
+      task.status='COMPLETED';task.output={type:'plan',value:`Создано блоков: ${created.length}`};task.error='';
+      saveStudioGridState();autoLayoutStudioGrid();toast('Цепочка готова — проверьте промпты и запустите нужные блоки');
+    }catch(error){task.status='FAILED';task.error=translateGenerationError(error,'Не удалось построить цепочку');saveStudioGridState();renderStudioGrid();toast(task.error)}
+    finally{studioGridPlannerRunning=false;renderStudioGrid()}
+  }
 
   function getGridNodeOutputValue(node,sourceOutput) {
     const output=node&&node.output;
@@ -18744,8 +18798,8 @@ async function waitGeneration(jobId, options) {
         const card = event.target.closest('.studio-grid-node');
         if (!card) return;
         const id=card.dataset.gridId;
-        if(event.target.closest('[data-grid-output]')){studioGridPendingConnection={from:id,fromPort:event.target.closest('[data-grid-output]').dataset.gridOutput};card.classList.add('connecting');return}
-        if(event.target.closest('[data-grid-input]')){const input=event.target.closest('[data-grid-input]');if(studioGridPendingConnection){connectStudioGridNodes(studioGridPendingConnection.from,studioGridPendingConnection.fromPort,id,input.dataset.gridInput);studioGridPendingConnection=null}return}
+        if(event.target.closest('[data-grid-output]')){const output=event.target.closest('[data-grid-output]'),next={from:id,fromPort:output.dataset.gridOutput,fromSide:output.dataset.gridSide||'right'};if(studioGridPendingConnection&&studioGridPendingConnection.from===next.from&&studioGridPendingConnection.fromPort===next.fromPort&&studioGridPendingConnection.fromSide===next.fromSide){clearStudioGridConnectionMode();return}studioGridPendingConnection=next;updateStudioGridConnectionHighlights();return}
+        if(event.target.closest('[data-grid-input]')){const input=event.target.closest('[data-grid-input]');if(studioGridPendingConnection){const connected=connectStudioGridNodes(studioGridPendingConnection.from,studioGridPendingConnection.fromPort,id,input.dataset.gridInput,studioGridPendingConnection.fromSide,input.dataset.gridSide||'left');if(connected)clearStudioGridConnectionMode()}return}
         if (event.target.closest('[data-grid-delete]')) { deleteStudioGridNode(id); return; }
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
         if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
@@ -18774,7 +18828,7 @@ async function waitGeneration(jobId, options) {
         pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
         if(pointers.size===2){clearTimeout(longPressTimer);const points=[...pointers.values()];pinch={distance:Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y),zoom:loadStudioGridState().zoom,centerX:(points[0].x+points[1].x)/2,centerY:(points[0].y+points[1].y)/2};return}
         if (event.target.closest('.studio-grid-node')) return;
-        hideStudioGridContext();studioGridSelectedIds.clear();host?.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.remove('selected'));
+        hideStudioGridContext();clearStudioGridConnectionMode();studioGridSelectedIds.clear();host?.querySelectorAll('.studio-grid-node').forEach(item=>item.classList.remove('selected'));
         const state = loadStudioGridState(), startX = event.clientX, startY = event.clientY, x = Number(state.panX || 0), y = Number(state.panY || 0);
         if(event.pointerType!=='mouse'){longPressPoint=studioGridCanvasPoint(event.clientX,event.clientY);longPressTimer=window.setTimeout(()=>showStudioGridContext(event.clientX,event.clientY,longPressPoint),520)}
         canvas.classList.add('is-panning'); canvas.setPointerCapture(event.pointerId);
@@ -18789,7 +18843,7 @@ async function waitGeneration(jobId, options) {
     if(edgesHost)edgesHost.addEventListener('click',event=>{const edgeElement=event.target.closest('[data-grid-edge]');if(!edgeElement)return;event.preventDefault();event.stopPropagation();const state=loadStudioGridState(),edge=state.edges.find(item=>item.id===edgeElement.dataset.gridEdge);state.edges=state.edges.filter(item=>item.id!==edgeElement.dataset.gridEdge);const target=edge&&state.nodes.find(node=>node.id===edge.to);if(target&&target.status!=='RUNNING')target.status='READY';saveStudioGridState();renderStudioGrid();toast('Связь удалена')});
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext()});
-    document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode')||event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});
+    document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});
     setStudioLayout(localStorage.getItem('sylvex-prostudio-layout') || 'classic');
     restoreStudioGridJobs();
   }

@@ -13102,6 +13102,102 @@ async def public_prostudio_estimate(request: Request):
         return JSONResponse({"ok": False, "error": "generation_estimate_failed"}, status_code=400)
 
 
+@app.post("/api/public/prostudio/grid/plan")
+async def public_prostudio_grid_plan(request: Request):
+    """Build an editable Grid draft with the existing SYLVEX text provider; never starts media generation."""
+    try:
+        body = await request.json()
+        task = str((body or {}).get("task") or "").strip()
+        if not task:
+            return JSONResponse({"ok": False, "error": "task_required"}, status_code=400)
+        planner_prompt = f"""
+You are SYLVEX Grid Planner. Analyze the user's creative task and return ONLY valid JSON, without markdown.
+Never start generation. Build an editable draft only.
+
+If the desired final format is ambiguous, return:
+{{"action":"clarify","question":"one short question in the user's language"}}
+
+If it is clear, return:
+{{
+  "action":"plan",
+  "nodes":[
+    {{"key":"text_1","type":"text","title":"short localized title","instruction":"what this text block produces","output":"ready-to-use semantic prompt or text"}},
+    {{"key":"video_1","type":"video","title":"short localized title","prompt":"ready-to-edit final prompt"}}
+  ],
+  "edges":[{{"from":"text_1","output":"text","to":"video_1","input":"text"}}]
+}}
+
+Allowed node types: text, image, video, music, voice. The Task node already exists; never include it.
+Allowed outputs: text, image, video, audio. Allowed inputs: task, text, lyrics, image, audio.
+Use the shortest useful workflow. A clear video request normally needs Text -> Video. If an image source is materially needed, use Text -> Image -> Video and optionally a second Text -> Video motion prompt.
+For every Text node, output must contain the actual ready-to-use content, not technical settings such as aspect ratio, resolution, quality, duration or result count.
+Media generation must not start. Prompts must remain editable.
+
+User task:
+{task}
+""".strip()
+        generated = text_generation({
+            "prompt": planner_prompt,
+            "mode": "text",
+            "category": "text",
+            "model": str((body or {}).get("model") or "gpt-5.5"),
+            "provider": "sylvex-router",
+            "text_options": {"tool": "text", "style": "neutral", "format": "json", "language": "auto"},
+            "history": [],
+            "attachment": None,
+        })
+        if not generated.get("ok"):
+            return JSONResponse(generated, status_code=502)
+        raw = str(generated.get("text") or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S).strip()
+        plan = json.loads(raw)
+        if not isinstance(plan, dict) or plan.get("action") not in {"clarify", "plan"}:
+            raise ValueError("invalid_planner_response")
+        if plan.get("action") == "clarify":
+            question = str(plan.get("question") or "").strip()
+            if not question:
+                raise ValueError("planner_question_missing")
+            return {"ok": True, "action": "clarify", "question": question}
+        allowed_types = {"text", "image", "video", "music", "voice"}
+        allowed_inputs = {"task", "text", "lyrics", "image", "audio"}
+        allowed_outputs = {"text", "image", "video", "audio"}
+        clean_nodes = []
+        keys = set()
+        for index, item in enumerate(plan.get("nodes") or []):
+            if not isinstance(item, dict) or str(item.get("type") or "") not in allowed_types:
+                continue
+            key = re.sub(r"[^a-zA-Z0-9_-]", "", str(item.get("key") or f"node_{index}"))[:64]
+            if not key or key in keys:
+                continue
+            keys.add(key)
+            clean_nodes.append({
+                "key": key,
+                "type": str(item.get("type")),
+                "title": str(item.get("title") or item.get("type"))[:80],
+                "instruction": str(item.get("instruction") or "")[:6000],
+                "output": str(item.get("output") or "")[:12000],
+                "prompt": str(item.get("prompt") or "")[:12000],
+            })
+        clean_edges = []
+        for item in plan.get("edges") or []:
+            if not isinstance(item, dict):
+                continue
+            source, target = str(item.get("from") or ""), str(item.get("to") or "")
+            source_output, target_input = str(item.get("output") or "text"), str(item.get("input") or "text")
+            if source in keys and target in keys and source != target and source_output in allowed_outputs and target_input in allowed_inputs:
+                clean_edges.append({"from": source, "output": source_output, "to": target, "input": target_input})
+        if not clean_nodes:
+            raise ValueError("planner_nodes_missing")
+        return {"ok": True, "action": "plan", "nodes": clean_nodes, "edges": clean_edges, "provider": generated.get("provider"), "model": generated.get("model")}
+    except (json.JSONDecodeError, ValueError) as exc:
+        prostudio_error("GRID_PLANNER_INVALID_RESPONSE", exc)
+        return JSONResponse({"ok": False, "error": "planner_invalid_response", "message": "Не удалось построить цепочку. Попробуйте уточнить задачу."}, status_code=502)
+    except Exception as exc:
+        prostudio_error("GRID_PLANNER_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "planner_failed", "message": "Не удалось построить цепочку."}, status_code=500)
+
+
 @app.post("/api/public/prostudio/generate")
 # =====================================================
 # PYTHON-БЛОК: public_prostudio_generate
