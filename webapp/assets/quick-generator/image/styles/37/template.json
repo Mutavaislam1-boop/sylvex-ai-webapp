@@ -1,0 +1,336 @@
+{
+  "id": "photo_37",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY identity reference for the person.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+Create a highly realistic cinematic music-listening portrait of the exact person from the uploaded reference image.
+
+Preserve the subject’s real facial identity, gender, approximate age, ethnicity, facial proportions, eyes, eyebrows, nose, lips, jawline, ears, hairstyle, hairline, hair texture, facial hair, tattoos, piercings and all other distinctive features.
+
+Do not replace, blend, beautify or reinterpret the person.
+
+The final subject must remain immediately recognizable as the uploaded person.
+
+SCENE:
+
+A single person wearing large premium over-ear headphones, standing or sitting in a dark minimal studio environment.
+
+The subject is shown from approximately the upper chest upward.
+
+Pose the person in a calm 3/4 side profile or soft near-profile angle, with the head slightly tilted upward.
+
+The eyes are completely closed.
+
+The face is relaxed.
+
+The lips are naturally closed.
+
+The expression should communicate deep immersion in music, calm concentration, emotional connection and peaceful isolation.
+
+No smile.
+
+No dramatic facial expression.
+
+The person should look as if they are completely absorbed in the song.
+
+HEADPHONES:
+
+Large modern over-ear wireless headphones.
+
+Premium dark metallic or matte black finish.
+
+Thick ear cushions.
+
+Realistic materials.
+
+Subtle highlights along the ear cups and headband.
+
+The headphones must sit naturally around the ears and follow the shape of the head correctly.
+
+Do not make them oversized, futuristic or unrealistic.
+
+CLOTHING:
+
+Simple dark shirt, black T-shirt, dark sweatshirt or dark minimal top.
+
+No visible logos.
+
+No large prints.
+
+No branding.
+
+The clothing should remain understated so the face, headphones and lighting dominate the image.
+
+LIGHTING:
+
+Strong cinematic dual-color lighting.
+
+A cool electric cyan / deep blue rim light comes from behind and slightly to one side, creating a bright glowing outline around the back of the head, headphones, neck and shoulder.
+
+On the opposite side, use a restrained red-magenta or warm pink accent light touching the edge of the face, forehead, cheek, neck and clothing.
+
+The main facial illumination remains soft, dark and realistic.
+
+The center of the face should not be overexposed.
+
+Preserve natural skin detail.
+
+The cyan rim light may create a subtle luminous aura around the silhouette, but it must still look photographic rather than supernatural.
+
+BACKGROUND:
+
+Very dark navy-blue to almost black studio background.
+
+Minimal environment.
+
+Subtle haze or atmospheric depth is allowed.
+
+Soft blue bokeh or vague studio lights may appear far in the background, but they must remain extremely subtle.
+
+No distracting objects.
+
+No visible room details unless very softly blurred.
+
+The background should feel deep, cinematic and immersive.
+
+CAMERA:
+
+Professional full-frame portrait camera.
+
+Approximately 70–105mm portrait lens.
+
+Eye-level or very slightly low camera position.
+
+Vertical portrait composition.
+
+Moderately shallow depth of field.
+
+Face and headphones sharply focused.
+
+Background soft and unobtrusive.
+
+High dynamic range.
+
+Premium editorial portrait quality.
+
+PHOTOREALISM:
+
+Realistic skin pores.
+
+Natural facial texture.
+
+Realistic hair strands.
+
+Natural eyelashes.
+
+Realistic facial hair if present.
+
+Accurate ear anatomy.
+
+Correct headphone contact with the head.
+
+Natural neck and shoulder anatomy.
+
+No plastic skin.
+
+No CGI appearance.
+
+No overly smooth beauty retouching.
+
+MUSIC PLAYER UI:
+
+Add a floating translucent music-player interface positioned in the lower part of the image, in front of the subject’s torso.
+
+The panel should look like a refined modern glassmorphism music widget.
+
+Rounded rectangle shape.
+
+Semi-transparent dark smoky glass.
+
+Subtle blur.
+
+Soft cyan-blue outer glow.
+
+Very subtle internal highlights.
+
+The panel must look clean, premium and physically integrated into the composition.
+
+Do not make it too large.
+
+Do not cover the face.
+
+Inside the music player include:
+
+- a square album cover thumbnail on the left
+- artist name
+- song title
+- horizontal progress bar
+- current progress indicator
+- previous-track button
+- play/pause button
+- next-track button
+
+Optional:
+small volume icon or speaker control on the far right.
+
+IMPORTANT CUSTOMIZATION:
+
+The music information must be user-editable.
+
+Use these placeholders:
+
+Artist: [ARTIST NAME]
+
+Song: [SONG TITLE]
+
+Album cover: [ALBUM COVER / COVER IMAGE]
+
+The generated image must display the exact artist name and exact song title supplied by the user.
+
+Do not invent a different artist or track when the user provides values.
+
+If the user provides no music information, use neutral placeholder content instead of a famous artist.
+
+TEXT QUALITY:
+
+The artist name and song title must be clean, readable and correctly spelled.
+
+No random letters.
+
+No malformed typography.
+
+No duplicated words.
+
+No extra interface text.
+
+Keep the layout minimal.
+
+VISUAL HIERARCHY:
+
+The person must remain the clear primary subject.
+
+The headphones are the second visual element.
+
+The music-player panel is supportive and secondary.
+
+The player should not dominate the composition.
+
+The image should feel like premium music streaming advertising, album campaign photography or high-end headphone marketing.
+
+COLOR PALETTE:
+
+Deep navy
+black
+electric cyan
+cool blue
+small restrained accents of magenta / red / pink
+
+Avoid rainbow colors.
+
+Avoid oversaturation.
+
+The cyan glow should be strongest around the silhouette and headphones.
+
+The reddish accent should remain secondary.
+
+MOOD:
+
+immersive
+calm
+introspective
+premium
+cinematic
+emotional
+modern
+minimal
+late-night music atmosphere
+
+CRITICAL POSE RULE:
+
+The subject’s eyes MUST be closed.
+
+The person must not look at the camera.
+
+The subject should appear unaware of the camera and fully immersed in listening.
+
+The head may be slightly raised or gently angled to the side.
+
+Do not create an aggressive, smiling or energetic pose.
+
+IDENTITY RULE:
+
+The uploaded image controls ONLY the identity and natural personal characteristics of the subject.
+
+Do not copy the face, hair, beard, tattoos or ethnicity of any example person shown in a style reference.
+
+The style reference controls only:
+
+headphones,
+closed-eye pose,
+dark cinematic environment,
+cyan rim lighting,
+red-magenta accent light,
+music-listening mood,
+floating music-player interface.
+
+NEGATIVE CONSTRAINTS:
+
+No identity change.
+No face blending.
+No celebrity substitution.
+No second person.
+No duplicate face.
+No open eyes.
+No direct eye contact.
+No smile.
+No exaggerated emotion.
+No microphone.
+No DJ equipment.
+No nightclub crowd.
+No concert stage.
+No giant headphones.
+No cybernetic headphones.
+No headset microphone.
+No gaming headset.
+No visible wires unless naturally part of the headphones.
+No neon text.
+No random holograms.
+No excessive glow.
+No floating particles.
+No futuristic HUD around the head.
+No colorful cyberpunk city.
+No random logos.
+No malformed music-player UI.
+No unreadable artist name.
+No wrong song title.
+No extra buttons.
+No duplicated controls.
+No cartoon.
+No anime.
+No illustration.
+No obvious CGI.
+No watermark.
+No signature.
+
+FINAL RESULT:
+
+A hyper-realistic cinematic portrait of the exact uploaded person wearing premium dark over-ear headphones, eyes completely closed, calm and deeply immersed in music.
+
+The subject is framed from the upper chest upward in a 3/4 or side-profile pose against a very dark navy studio background.
+
+A bright cyan-blue rim light outlines the headphones, back of the head, neck and shoulder, while a restrained red-magenta accent touches the opposite side of the face and clothing.
+
+The face remains naturally detailed and realistic.
+
+At the lower part of the frame, a refined semi-transparent glass music-player interface displays:
+
+[ARTIST NAME]
+[SONG TITLE]
+[ALBUM COVER / COVER IMAGE]
+
+with a clean progress bar and previous / play-pause / next controls.
+
+The overall result should feel like a premium music-streaming campaign or high-end headphone advertisement: dark, elegant, immersive, emotional and photorealistic.

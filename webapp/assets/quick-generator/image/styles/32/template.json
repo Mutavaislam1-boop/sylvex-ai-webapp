@@ -1,275 +1,182 @@
 {
-  "id": "photo_18",
+  "id": "photo_32",
   "title": "Название фотографии",
   "description": "",
-  "prompt": "
-  Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
+  "prompt": "Use the uploaded photo as the ONLY identity reference for the main character.
 
-The final image must unmistakably depict the exact same person from the uploaded photo.
+IDENTITY PRESERVATION IS CRITICAL.
 
-IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+Transform the person from the uploaded photo into a polished premium 3D animated avatar while preserving the same recognizable person: same gender, facial structure, face shape, eyes, nose, lips, jawline, skin tone, hairstyle structure, age appearance, and all identity-defining features. Do not replace the person with another face and do not redesign their identity.
 
-Preserve exactly:
-- facial identity
-- gender
-- ethnicity
-- skin tone
-- age impression
-- face shape
-- forehead
-- eyebrows
-- eye shape and eye color
-- nose
-- lips
-- cheekbones
-- jawline
-- chin
-- ears
-- hairline
-- hairstyle, length and texture
-- facial hair if present
-- all distinctive recognizable facial features
+Create a modern high-end stylized 3D character with smooth cinematic animated-film aesthetics. The character should look like a premium contemporary 3D cartoon avatar with slightly stylized but natural proportions, expressive believable eyes, smooth facial surfaces, sculpted hair, soft rounded forms, refined materials and cinematic dimensional lighting.
 
-Do not replace the user with another person.
-Do not change the user’s gender.
-Do not turn the user into a celebrity or generic model.
-Do not significantly beautify, reshape, age, de-age, masculinize or feminize the face.
+Show the character FULL BODY, centered vertically in the composition.
 
-If any styling instruction conflicts with identity preservation, always preserve the uploaded user’s real identity.
+The character is standing inside and partially stepping through a GIANT PHYSICAL 3D INSTAGRAM POST FRAME, as if the person is coming out of their own Instagram post into the real 3D scene.
 
---------------------------------------------------
-CONCEPT
---------------------------------------------------
+INSTAGRAM MUST BE ABSOLUTELY UNMISTAKABLE.
 
-Create an ultra-realistic premium cinematic studio portrait with dramatic magenta-and-cyan split lighting.
+This is NOT a generic social-media interface. The entire visual concept must clearly and immediately represent Instagram.
 
-The result should look like a professional modern editorial portrait photographed in a dark studio.
+USER-PROVIDED INSTAGRAM DATA:
 
-Only ONE person exists in the image.
+If Instagram profile information is supplied by the user, reproduce it inside the Instagram interface exactly as provided.
 
-The subject stands directly in front of the camera against a deep black / very dark charcoal background.
+Instagram username:
+{{instagram_username}}
 
-The portrait should feel minimal, powerful, clean and expensive.
+Display name:
+{{instagram_display_name}}
 
---------------------------------------------------
-POSE & EXPRESSION
---------------------------------------------------
+Profile picture:
+{{instagram_profile_image}}
 
-The person faces generally toward the camera.
+Caption:
+{{instagram_caption}}
 
-The head remains upright and centered.
+Likes count:
+{{instagram_likes}}
 
-Eyes look directly toward the camera or only very slightly off-center.
+Location:
+{{instagram_location}}
 
-Expression:
-- calm
-- neutral
-- composed
-- subtly confident
-- natural
-- relaxed
+DO NOT invent, change, translate, shorten or replace the supplied Instagram username.
 
-A very slight soft smile is acceptable, but no broad smile.
+The username shown inside the generated Instagram post MUST exactly match {{instagram_username}}.
 
-Keep the mouth relaxed.
+If a custom Instagram profile image is provided, use that image as the circular Instagram profile avatar.
 
-Shoulders lowered and relaxed.
+If no separate profile image is supplied, automatically use a small circular portrait of the SAME generated character.
 
-Keep the neck clearly visible and naturally slightly elongated.
+If optional fields such as display name, caption, likes count or location are not supplied, they may simply be omitted rather than filled with random information.
 
-Do not let the head appear compressed into the shoulders.
+Create a large white rounded rectangular Instagram post card/frame surrounding the character.
 
---------------------------------------------------
-FRAMING
---------------------------------------------------
+The Instagram interface should contain:
 
-Vertical studio portrait.
+- recognizable Instagram app icon near the upper part of the composition
+- circular profile avatar
+- EXACT user-provided Instagram username
+- optional display name or location
+- three-dot menu icon in the upper-right corner
+- large central post-image area
+- Instagram heart / Like icon
+- comment bubble icon
+- paper-plane Send/Share icon
+- bookmark / Save icon
+- optional carousel indicator dots
+- optional likes count
+- optional Instagram caption
+- subtle Instagram-style metadata
 
-Show approximately:
-- complete head
-- neck
-- shoulders
-- chest
-- upper torso
+The character should physically interact with the Instagram frame.
 
-Frame from around mid-chest or slightly below the chest upward.
+One hand is raised naturally in a friendly wave toward the viewer.
 
-Do not crop the top of the head.
+The other hand holds one side of the giant Instagram frame.
 
-Leave some clean negative space around the head.
+The character’s torso and head remain visually inside the Instagram post while the legs extend through or below the lower portion of the frame, creating the illusion that the avatar is physically stepping out of Instagram into a three-dimensional scene.
 
-The person should occupy approximately 55–70% of the frame height.
+Use natural balanced anatomy.
 
-Do not use an extreme close-up.
+Do not make the head excessively large.
+Do not make the body tiny.
+Do not use chibi proportions.
 
---------------------------------------------------
-CLOTHING
---------------------------------------------------
+The proportions should resemble a polished modern animated-film character.
 
-Dress the user in a plain minimal black crew-neck T-shirt or black sweatshirt.
+Surround the Instagram frame with floating premium 3D social elements:
+small red and pink hearts,
+Like icons,
+comment symbols,
+paper-plane share icons,
+small reaction icons,
+stars,
+sparkles,
+emoji reactions,
+soft colorful decorative droplets and abstract shapes.
 
-No logo.
-No graphics.
-No visible branding.
-No text.
-No excessive jewelry.
+These elements should float around the frame at different depths, creating a layered 3D composition without blocking the character or the Instagram interface.
 
-The clothing should blend naturally into the dark background and keep all visual attention on the face.
+Add a few subtle playful lifestyle elements in the background such as small stylized palm trees, sunshine or colorful decorative objects while keeping Instagram and the character as the primary visual focus.
 
-Adapt the garment naturally to the user’s actual gender.
-
---------------------------------------------------
-HAIR
---------------------------------------------------
-
-Preserve the uploaded user’s actual:
-- hairstyle
-- hairline
-- hair length
-- texture
-- volume
-- natural color
-
-Do NOT automatically make the hair blonde.
-
-Do NOT redesign the hairstyle.
-
-The magenta and cyan light may create colored highlights on the hair, but the underlying hair color must remain faithful to the uploaded user.
-
---------------------------------------------------
-LIGHTING
---------------------------------------------------
-
-Use strong professional two-color cinematic studio lighting.
-
-One side of the face:
-MAGENTA / PURPLE / DEEP PINK.
-
-Opposite side:
-CYAN / TEAL / COOL BLUE.
-
-The lighting should create a clean split-color effect across:
-- hair
-- temples
-- cheekbones
-- jawline
-- neck
-- shoulders
-
-The central facial area should remain natural enough that identity is clearly preserved.
-
-Use:
-- controlled magenta rim light
-- cyan edge light
-- soft neutral frontal fill
-- subtle highlights in the eyes
-- deep but readable shadows
-
-Avoid fully coloring the entire face.
-
-The user’s real skin tone must remain visible beneath the colored lighting.
-
---------------------------------------------------
-BACKGROUND
---------------------------------------------------
-
-Minimal dark studio background.
-
-Use:
-- deep black
-- charcoal
-- extremely subtle blue-black gradient
-
-No environment.
-No furniture.
-No visible room.
-No objects.
-No patterns.
-No text.
-
---------------------------------------------------
-CAMERA
---------------------------------------------------
-
-Professional full-frame portrait photography.
-
-Approximately 70–100mm portrait lens.
-
-Straight-on perspective.
-
-Eye-level camera.
-
-Sharp focus on:
-- eyes
-- eyebrows
-- nose
-- lips
-- facial hair
-- skin texture
-
-Natural facial perspective.
-
-No wide-angle distortion.
-
-Use:
-- realistic skin texture
-- natural pores
-- high micro-detail
-- subtle depth of field
-- fine analog film grain
-- high dynamic range
-- premium editorial sharpness
-
---------------------------------------------------
-VISUAL STYLE
---------------------------------------------------
-
-ultra-realistic photography
-cinematic studio portrait
-magenta and cyan split lighting
-dark minimalist studio
-premium fashion editorial
-modern celebrity-style photography without copying any real person
-high-end magazine portrait
-natural skin texture
-strong color separation
-clean black clothing
-soft rim lighting
-dramatic but controlled contrast
-subtle film grain
-luxury studio aesthetic
-professional color grading
-photorealistic
-
---------------------------------------------------
-CRITICAL CONSTRAINTS
---------------------------------------------------
-
-same exact person from uploaded photo
-exact gender preserved
-same recognizable face
-same skin tone
-same ethnicity
-same age impression
-same face shape
-same eye shape
-same nose
-same lips
-same jawline
-same hairline
-same hairstyle characteristics
-same facial hair if present
-black top
-dark background
-magenta light on one side
-cyan light on opposite side
-sharp face
-natural skin
-one person only
-no identity drift
-
---------------------------------------------------
-NEGATIVE PROMPT
---------------------------------------------------
-
-different person, changed identity, changed gender, celebrity face, generic model face, face swap, altered facial structure, altered nose, altered lips, altered jawline, different eye shape, different skin tone, different hairstyle, forced blonde hair, excessive beautification, plastic skin, over-smoothed skin, heavy makeup, exaggerated smile, aggressive expression, side profile, head turned too far, closed eyes, sunglasses, multiple people, duplicate person, motion blur, duplicated face, ghost effect, extra head, distorted face, compressed neck, raised shoulders, white clothing, colorful clothing, logos, jewelry overload, outdoor scene, room interior, furniture, bright background, neon signs, text, typography, watermark, social-media interface, CGI, 3D render, anime, cartoon, illustration, low resolution, blurry face, blurry eyes.
+BACKGROUND:
+Clean vibrant pink-to-purple gradient.
+Soft pastel transitions.
+Subtle depth.
+Soft shadows.
+Gentle atmospheric glow.
+
+LIGHTING:
+Soft cinematic studio lighting.
+Beautiful highlights on the character and Instagram frame.
+Smooth global illumination.
+Subtle rim lighting.
+Soft contact shadows.
+Slightly glossy premium 3D materials.
+
+CAMERA:
+Vertical 9:16 composition.
+Full-body character visible.
+Camera approximately chest-to-eye level.
+Very slight perspective depth.
+Character centered.
+Instagram frame clearly visible around the character.
+Enough surrounding space for floating 3D elements.
+
+EXPRESSION:
+The character looks directly toward the camera.
+Friendly and approachable expression.
+Natural light smile.
+No exaggerated grin.
+
+STYLE:
+premium contemporary 3D animation,
+high-end stylized character design,
+smooth sculpted geometry,
+clean rounded forms,
+soft glossy materials,
+cinematic animated-film quality,
+advertising-grade 3D render,
+vibrant Instagram campaign aesthetic,
+high detail,
+sharp central subject,
+professional render quality.
+
+CRITICAL INSTAGRAM RULES:
+
+Use the exact Instagram username supplied by the user.
+
+Never generate a random celebrity username.
+
+Never substitute another account.
+
+Never modify spelling, numbers, symbols, underscores or capitalization in the supplied username.
+
+Never invent profile information when custom information has been provided.
+
+The Instagram frame and interface must visually belong to the SAME character represented by the uploaded reference photo.
+
+DO NOT CREATE:
+generic social-media interface,
+invented social network,
+TikTok interface,
+Facebook interface,
+YouTube interface,
+X/Twitter interface,
+flat 2D illustration,
+photorealistic human instead of 3D avatar,
+tiny body,
+oversized bobblehead,
+chibi proportions,
+distorted hands,
+extra fingers,
+extra limbs,
+duplicate main characters,
+random celebrity names,
+large PROMPT text,
+watermarks,
+creator credits.
+
+FINAL RESULT:
+A highly polished full-body 3D animated version of the uploaded person physically stepping through a giant unmistakable Instagram post, waving with one hand and holding the Instagram frame with the other, with the USER'S OWN Instagram username, profile information and optional profile image displayed directly inside the Instagram interface.
