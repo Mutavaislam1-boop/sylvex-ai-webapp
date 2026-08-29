@@ -1,0 +1,342 @@
+{
+  "id": "photo_34",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY identity reference for the subject.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+Create a highly realistic professional studio portrait of the exact person from the uploaded reference image.
+
+The generated subject must remain immediately recognizable as the same person.
+
+Preserve exactly:
+- facial identity
+- gender
+- approximate age
+- ethnicity and skin tone
+- face shape
+- forehead proportions
+- eyes, eye spacing and eyelids
+- eyebrows
+- nose structure
+- lips
+- jawline and chin
+- ears
+- hairstyle, hairline, hair color and natural hair texture
+- facial hair if present
+- distinctive facial characteristics
+
+Do NOT replace the person's face with another identity.
+Do NOT transform the person into a celebrity.
+Do NOT significantly beautify, masculinize, feminize, age or de-age the person.
+
+PORTRAIT:
+
+Create a clean, centered, front-facing studio portrait.
+
+The subject stands or sits perfectly upright directly facing the camera.
+
+Head position is straight and neutral.
+
+Both shoulders are visible.
+
+The body is almost perfectly frontal to the camera.
+
+The face is positioned near the exact horizontal center of the composition.
+
+Frame the portrait approximately from the upper chest to slightly above the head.
+
+Leave a moderate amount of clean blue negative space above and around the head.
+
+The composition should feel extremely controlled, symmetrical and minimal.
+
+EXPRESSION:
+
+Neutral, calm, confident expression.
+
+The subject looks DIRECTLY into the camera lens.
+
+Eyes open naturally.
+
+Relaxed eyebrows.
+
+Relaxed mouth with lips naturally closed.
+
+No exaggerated smile.
+No dramatic emotion.
+No aggressive expression.
+No fashion pose.
+
+The portrait should have a quiet, serious, premium editorial character.
+
+CLOTHING:
+
+Dress the subject in a minimalist BLACK long-sleeve ribbed Henley shirt.
+
+Important clothing characteristics:
+- deep matte black
+- fine vertical ribbed cotton texture
+- fitted but natural silhouette
+- round neckline
+- short Henley button placket
+- approximately 2–4 small dark buttons
+- subtle natural fabric folds
+- absolutely minimal design
+
+No jacket.
+No suit.
+No tie.
+No visible branding.
+No logos.
+No graphics.
+No jewelry unless it is an important permanent characteristic of the uploaded person.
+
+BACKGROUND:
+
+Use a completely clean, seamless, saturated deep cobalt-blue studio background.
+
+The blue background must be smooth and uniform from edge to edge.
+
+No visible horizon.
+No room.
+No furniture.
+No environmental elements.
+No texture.
+No patterns.
+No gradients that distract from the subject.
+
+Use a rich photographic cobalt / royal blue rather than cyan, turquoise or purple.
+
+LIGHTING:
+
+Create dramatic professional studio portrait lighting.
+
+The lighting must produce a distinctive split-light effect across the face.
+
+One side of the face receives a soft neutral-to-warm key light revealing realistic skin texture.
+
+The opposite side falls into deeper cinematic shadow while receiving a subtle cool electric-blue edge/fill illumination from the blue environment.
+
+The lighting transition should run naturally through the center region of the face.
+
+One side should NOT become completely black — facial structure and skin detail must remain visible.
+
+Add subtle blue rim illumination around portions of:
+- cheek
+- temple
+- ear
+- jawline
+- hair edge
+- shoulder
+
+The blue light should feel physically motivated by the studio setup, not like an artificial digital overlay.
+
+Keep the black shirt dark and understated while retaining enough texture to see its ribbed fabric.
+
+FACE DETAIL:
+
+The face is the absolute visual focal point.
+
+Render extremely realistic human skin:
+- natural pores
+- subtle imperfections
+- fine facial hair
+- realistic under-eye texture
+- natural tonal variations
+- authentic highlights
+- realistic beard texture if present
+- individual eyebrow hairs
+- detailed eyelashes
+- natural lip texture
+
+Do NOT smooth the skin excessively.
+
+Do NOT create glossy plastic skin.
+
+Do NOT use beauty-filter aesthetics.
+
+Preserve natural asymmetry of the uploaded person's face.
+
+HAIR:
+
+Preserve the person's actual hairstyle from the uploaded reference.
+
+Do not replace their hairstyle with the hairstyle of another reference person.
+
+Maintain:
+- natural hairline
+- hair density
+- curl/wave/straight pattern
+- length
+- color
+- volume
+
+Render individual strands and realistic studio-light reflections.
+
+If the uploaded person has facial hair, preserve its natural style, density and placement.
+
+If the uploaded person is clean-shaven, keep them clean-shaven.
+
+CAMERA:
+
+Professional full-frame portrait photography.
+
+Approximately 85mm portrait lens.
+
+Camera positioned exactly around eye level.
+
+Straight-on perspective.
+
+No camera tilt.
+
+No extreme perspective distortion.
+
+No wide-angle facial distortion.
+
+Medium close-up / head-and-shoulders portrait.
+
+Aperture approximately f/4–f/5.6 so the entire face remains sharply resolved.
+
+Eyes and facial features must be tack sharp.
+
+BACKGROUND remains smooth and unobtrusive.
+
+COMPOSITION:
+
+Vertical 9:16 image.
+
+Subject centered.
+
+Head approximately in the upper-middle region.
+
+Both shoulders visible.
+
+Face large enough to reveal fine skin and eye detail.
+
+Maintain clean blue negative space around the head.
+
+The portrait should have strong visual symmetry without artificially making the person's face symmetrical.
+
+Preserve the person's real facial asymmetry while keeping the photographic composition symmetrical.
+
+COLOR PALETTE:
+
+Use an extremely restricted palette:
+
+DEEP COBALT BLUE — background and subtle cool illumination.
+
+BLACK — clothing.
+
+NATURAL HUMAN SKIN TONES — face and neck.
+
+Avoid additional dominant colors.
+
+The simplicity of the blue/black/skin palette is essential.
+
+PHOTOGRAPHIC CHARACTER:
+
+The result should feel like a premium contemporary studio portrait photographed for a high-end editorial campaign.
+
+Minimal.
+Serious.
+Cinematic.
+Controlled.
+Elegant.
+Modern.
+Photorealistic.
+
+It must look like a REAL CAMERA PHOTOGRAPH.
+
+NOT:
+3D render,
+CGI,
+illustration,
+digital painting,
+anime,
+cartoon,
+AI-avatar aesthetic.
+
+IMAGE QUALITY:
+
+Ultra-high-resolution professional portrait photography.
+
+Extremely detailed eyes.
+Extremely detailed skin.
+Accurate facial anatomy.
+Natural hair.
+Realistic beard/stubble if applicable.
+Fine clothing texture.
+Professional dynamic range.
+Clean shadows.
+Controlled highlights.
+Natural color response.
+Sharp facial focus.
+No artificial sharpening halos.
+
+CRITICAL IDENTITY RULE:
+
+THE UPLOADED USER IS THE PERSON IN THE FINAL IMAGE.
+
+The uploaded person's identity must override every stylistic reference.
+
+Any example portrait is used ONLY to determine:
+- blue background
+- black Henley shirt
+- centered composition
+- camera framing
+- studio lighting
+- split-light effect
+- photographic mood
+
+It must NEVER determine the person's facial identity.
+
+Do not combine the uploaded face with another face.
+
+Do not make the user resemble an actor, singer, athlete, model or celebrity.
+
+NEGATIVE CONSTRAINTS:
+
+No different identity.
+No celebrity substitution.
+No face morphing.
+No identity blending.
+No identity drift.
+No duplicate person.
+No additional people.
+No face asymmetry introduced artificially.
+No distorted eyes.
+No crossed eyes.
+No malformed ears.
+No warped jaw.
+No excessive retouching.
+No beauty filter.
+No waxy skin.
+No plastic skin.
+No artificial glowing skin.
+No random facial hair.
+No hairstyle replacement.
+No sunglasses.
+No hat.
+No jewelry unless identity-relevant.
+No suit.
+No jacket.
+No tie.
+No colorful clothing.
+No logos.
+No text.
+No watermark.
+No signature.
+No environmental background.
+No props.
+No excessive lens flare.
+No extreme blue color cast over the entire skin.
+No crushed facial shadows.
+No overexposed highlights.
+No CGI.
+No 3D.
+No illustration.
+
+FINAL RESULT:
+
+A striking photorealistic vertical studio portrait of the exact uploaded person, photographed directly from the front against a perfectly clean saturated cobalt-blue background. The subject wears a minimalist black ribbed Henley shirt and looks calmly and directly into the camera. Dramatic controlled split lighting creates a brighter natural side of the face and a darker cinematic side accented by subtle cool blue illumination. The composition is centered, minimal and symmetrical, while the person's real facial identity, hairstyle, skin texture, age and distinctive characteristics remain faithfully preserved. Premium professional editorial portrait photography with extremely realistic facial detail and no visible AI aesthetic.

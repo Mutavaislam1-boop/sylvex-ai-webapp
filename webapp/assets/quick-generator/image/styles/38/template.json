@@ -1,0 +1,747 @@
+{
+  "id": "photo_38",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY identity reference for the character.
+
+Create a premium stylized 3D designer-toy bust portrait of the exact person from the uploaded reference image.
+
+IDENTITY — HIGHEST PRIORITY:
+
+The character must clearly and immediately resemble the uploaded person.
+
+Preserve the person's:
+- gender
+- approximate age
+- ethnicity
+- face shape
+- forehead
+- eyebrows
+- eye shape
+- nose
+- lips
+- jawline
+- chin
+- ears
+- hairstyle
+- hairline
+- hair texture
+- facial hair if present
+- skin tone
+- distinctive facial characteristics
+
+The uploaded user image determines the identity completely.
+
+Do NOT copy the identity, hairstyle, ethnicity, facial hair, facial proportions, or facial structure of any example character.
+
+Do NOT beautify the person into a generic model.
+Do NOT replace distinctive facial characteristics.
+Do NOT change gender.
+Do NOT change ethnicity.
+Do NOT significantly change apparent age.
+
+The final character must remain immediately recognizable as the exact same person from the uploaded reference.
+
+STYLE:
+
+Transform the real person into a high-end stylized 3D collectible designer toy.
+
+The result must NOT look like a normal realistic photograph.
+
+Use sophisticated semi-realistic 3D character proportions:
+
+- slightly oversized head
+- compact but almost normally proportioned upper body
+- subtly enlarged facial features
+- smooth sculpted geometry
+- premium smooth skin material
+- subtle caricature proportions
+- high-end collectible designer-toy appearance
+
+The body must NOT be extremely small.
+
+The character should have a slightly stylized body while remaining close to normal human proportions.
+
+Keep the transformation sophisticated, fashionable, modern and premium.
+
+The person's recognizable identity must remain dominant over the stylization.
+
+Do NOT create an extreme bobblehead.
+Do NOT create chibi proportions.
+Do NOT make the character childish.
+Do NOT create an exaggerated cartoon.
+Do NOT create a generic emoji-style avatar.
+Do NOT create cheap plastic textures.
+
+POSE AND FRAMING:
+
+Create a centered vertical bust portrait.
+
+Generate the character ONLY TO THE WAIST / UPPER TORSO.
+
+Do not generate a full-body character.
+
+The character faces directly or almost directly toward the camera.
+
+Head upright.
+
+Shoulders relaxed.
+
+Clean frontal portrait composition.
+
+The face is the primary visual focus.
+
+Use a clean white or very light neutral seamless studio background.
+
+No environmental objects.
+No scenery.
+No distracting background elements.
+
+CLOTHING:
+
+Dress the character in an elegant monochromatic black outfit.
+
+Use:
+
+- premium black tailored blazer or suit jacket
+- black shirt or simple black top underneath
+
+Keep the clothing sophisticated, minimalist and fashion-forward.
+
+No visible brand logos.
+No large patterns.
+No unnecessary decorative elements.
+
+SUNGLASSES:
+
+Add premium black fashion sunglasses.
+
+Use:
+
+- dark black lenses
+- elegant moderately thick black frames
+- sophisticated contemporary shape
+- subtle glossy reflections
+- realistic positioning on the nose and ears
+
+The sunglasses must fit naturally and must NOT significantly alter the recognizable structure of the person's face.
+
+PUFFED CHEEK — CRITICAL:
+
+Create ONE clearly and locally puffed cheek.
+
+It must look as though a small object is being held completely INSIDE the mouth behind that cheek.
+
+The object itself must NEVER be visible.
+
+The physical pressure from the invisible object creates a localized rounded outward bulge in ONE cheek.
+
+The bulge should be concentrated near the lower-middle portion of the cheek, close to the corresponding outer corner of the lips.
+
+The deformation must look physically believable.
+
+Only ONE cheek is puffed.
+
+The opposite cheek remains completely normal.
+
+The puffed cheek must NOT destroy the recognizable facial identity of the uploaded person.
+
+Do NOT puff both cheeks.
+
+Do NOT enlarge an entire half of the face.
+
+Do NOT create general facial swelling.
+
+Do NOT make the entire lower face wider.
+
+Do NOT distort the jawline.
+
+INVISIBLE CANDY — ABSOLUTE REQUIREMENT:
+
+THE CANDY ITSELF MUST BE COMPLETELY INVISIBLE.
+
+DO NOT RENDER THE CANDY.
+
+There must be absolutely NO visible:
+
+- round candy
+- candy head
+- candy ball
+- lollipop head
+- colored sphere
+- candy surface
+- candy edge
+- candy reflection
+- candy between the lips
+- candy between the teeth
+- candy outside the mouth
+- candy partially visible inside the mouth
+- candy visible through the cheek
+- spherical object attached to the visible end of the stick
+
+The hidden object exists ONLY as an implied physical cause of the puffed cheek.
+
+The viewer understands its presence only because of:
+
+1. ONE localized puffed cheek
+2. ONE thin white stick emerging from the mouth corner
+
+ONLY THE THIN WHITE STICK IS VISIBLE.
+
+WHITE STICK:
+
+Create ONE thin, straight, clean white cylindrical stick.
+
+The stick must have:
+
+- narrow diameter
+- smooth white surface
+- straight geometry
+- no bends
+- no curves
+- no visible candy on either end
+
+The external tip of the stick is simply a plain white stick ending.
+
+There must be NOTHING attached to its visible end.
+
+STICK STARTING POINT — ABSOLUTE, NON-NEGOTIABLE RULE:
+
+THIS IS ONE OF THE MOST IMPORTANT REQUIREMENTS IN THE ENTIRE IMAGE.
+
+The FIRST VISIBLE POINT of the white stick MUST begin EXACTLY at the OUTERMOST ANATOMICAL CORNER OF THE LIPS on the SAME SIDE as the puffed cheek.
+
+Use the anatomical lip commissure as the exact anchor point.
+
+The lip commissure is:
+
+THE EXACT OUTERMOST POINT WHERE THE UPPER LIP AND LOWER LIP MEET.
+
+That exact point must be the starting point of the visible stick.
+
+Not approximately there.
+
+Not near there.
+
+Not beside there.
+
+Not somewhere along the lips.
+
+Not from the middle of the lips.
+
+Not from the center of the mouth.
+
+EXACTLY FROM THE OUTERMOST LIP CORNER WHERE THE UPPER AND LOWER LIPS JOIN.
+
+THE PUFFED CHEEK DETERMINES WHICH LIP CORNER MUST BE USED.
+
+MANDATORY RELATIONSHIP:
+
+PUFFED CHEEK SIDE = STICK STARTING SIDE.
+
+The stick MUST start from the lip corner DIRECTLY ADJACENT TO THE PUFFED CHEEK.
+
+There must be ZERO GAP between the stick and this exact lip corner.
+
+The first visible millimeter of the stick must physically touch and originate from that exact anatomical lip commissure.
+
+The stick must NOT first cross over the visible lips.
+
+The stick must NOT begin inside the visible mouth.
+
+The stick must NOT emerge from between the central lips.
+
+The stick must NOT float near the mouth.
+
+The visible stick begins EXACTLY at the outermost lip corner beside the puffed cheek.
+
+LEFT PUFFED CHEEK — EXACT STARTING POINT:
+
+If the cheek on the LEFT SIDE OF THE FINAL IMAGE is puffed:
+
+- LEFT cheek is visibly puffed
+- RIGHT cheek remains normal
+- absolutely NO candy is visible
+- locate the EXACT LEFT OUTERMOST CORNER OF THE LIPS
+- locate the precise point where the upper and lower lips meet on the LEFT
+- THAT EXACT POINT is the starting point of the white stick
+- the first visible millimeter of the stick begins there
+- the stick must NOT start anywhere closer to the center of the mouth
+
+MANDATORY:
+
+LEFT PUFFED CHEEK
+→ EXACT LEFT LIP COMMISSURE
+→ STICK STARTS EXACTLY THERE.
+
+RIGHT PUFFED CHEEK — EXACT STARTING POINT:
+
+If the cheek on the RIGHT SIDE OF THE FINAL IMAGE is puffed:
+
+- RIGHT cheek is visibly puffed
+- LEFT cheek remains normal
+- absolutely NO candy is visible
+- locate the EXACT RIGHT OUTERMOST CORNER OF THE LIPS
+- locate the precise point where the upper and lower lips meet on the RIGHT
+- THAT EXACT POINT is the starting point of the white stick
+- the first visible millimeter of the stick begins there
+- the stick must NOT start anywhere closer to the center of the mouth
+
+MANDATORY:
+
+RIGHT PUFFED CHEEK
+→ EXACT RIGHT LIP COMMISSURE
+→ STICK STARTS EXACTLY THERE.
+
+STICK DIRECTION — EXACT 25-DEGREE GEOMETRY:
+
+After beginning EXACTLY from the required same-side outer lip corner, the visible stick travels toward the OPPOSITE SIDE.
+
+At the same time, it slopes DOWNWARD toward the chin.
+
+The required angle is approximately:
+
+25 DEGREES BELOW HORIZONTAL.
+
+Use the natural horizontal mouth line as the reference axis.
+
+The stick should create a shallow downward diagonal.
+
+NOT 45°.
+
+NOT a steep diagonal.
+
+NOT horizontal.
+
+NOT vertical.
+
+NOT upward.
+
+Approximately 25° below horizontal.
+
+The stick must remain straight along its entire visible length.
+
+LEFT PUFFED CHEEK — COMPLETE GEOMETRY:
+
+If the cheek on the LEFT SIDE OF THE FINAL IMAGE is puffed:
+
+LEFT cheek = puffed.
+
+RIGHT cheek = normal.
+
+NO candy visible.
+
+The white stick starts EXACTLY from the LEFT OUTERMOST LIP COMMISSURE — the exact anatomical point where the upper and lower lips meet on the left side.
+
+From this exact point:
+
+the stick travels toward the RIGHT
+
+AND
+
+the stick travels DOWNWARD approximately 25° below horizontal.
+
+The free end therefore finishes:
+
+- farther RIGHT than the starting point
+- LOWER than the starting point
+- toward the lower-right / chin area
+
+VISUAL GEOMETRY:
+
+PUFFED LEFT CHEEK
+→
+EXACT LEFT OUTERMOST LIP CORNER
+↘
+THIN WHITE STICK AT APPROXIMATELY 25°
+↘
+RIGHT + DOWN TOWARD CHIN.
+
+RIGHT PUFFED CHEEK — COMPLETE GEOMETRY:
+
+If the cheek on the RIGHT SIDE OF THE FINAL IMAGE is puffed:
+
+RIGHT cheek = puffed.
+
+LEFT cheek = normal.
+
+NO candy visible.
+
+The white stick starts EXACTLY from the RIGHT OUTERMOST LIP COMMISSURE — the exact anatomical point where the upper and lower lips meet on the right side.
+
+From this exact point:
+
+the stick travels toward the LEFT
+
+AND
+
+the stick travels DOWNWARD approximately 25° below horizontal.
+
+The free end therefore finishes:
+
+- farther LEFT than the starting point
+- LOWER than the starting point
+- toward the lower-left / chin area
+
+VISUAL GEOMETRY:
+
+PUFFED RIGHT CHEEK
+→
+EXACT RIGHT OUTERMOST LIP CORNER
+↙
+THIN WHITE STICK AT APPROXIMATELY 25°
+↙
+LEFT + DOWN TOWARD CHIN.
+
+CHOOSE ONLY ONE SIDE:
+
+Use either:
+
+LEFT puffed cheek
++
+LEFT outermost lip-corner starting point
++
+stick RIGHT and DOWN at approximately 25°
+
+OR:
+
+RIGHT puffed cheek
++
+RIGHT outermost lip-corner starting point
++
+stick LEFT and DOWN at approximately 25°.
+
+Never combine both configurations.
+
+MOUTH AND LIPS:
+
+Keep the mouth mostly closed.
+
+The lips remain naturally relaxed.
+
+Do NOT open the mouth.
+
+The stick is gently held at the exact outer lip corner beside the puffed cheek.
+
+Only that exact corner is slightly affected by the presence of the stick.
+
+The center of the lips remains unobstructed.
+
+The opposite corner remains unobstructed.
+
+Do NOT show the stick crossing over the visible lips before reaching its starting point.
+
+The visible stick begins ONLY at the anatomical lip commissure on the puffed-cheek side.
+
+No teeth should be visible.
+
+Nothing inside the mouth should be visible.
+
+No candy should be visible.
+
+EXPRESSION:
+
+Create a cool, confident, slightly rebellious designer-character expression.
+
+The puffed cheek and diagonal white stick create a subtle playful attitude.
+
+Keep the expression sophisticated rather than comedic.
+
+No broad smile.
+
+No exaggerated expression.
+
+No open mouth.
+
+No childish expression.
+
+HAIR:
+
+Preserve the uploaded person's real hairstyle.
+
+Translate the hairstyle into premium sculpted 3D hair.
+
+Maintain:
+
+- original hairline
+- approximate length
+- volume
+- direction
+- texture
+- curls or waves if present
+- recognizable hairstyle silhouette
+
+Hair should have smooth sculpted strand groups and subtle satin reflections.
+
+FACIAL HAIR:
+
+If the uploaded person has facial hair, preserve it.
+
+Translate it naturally into the same premium 3D designer-toy aesthetic.
+
+If the uploaded person is clean-shaven, do NOT add facial hair.
+
+MATERIALS:
+
+Create premium high-end collectible materials.
+
+Skin:
+smooth matte-satin stylized surface with subtle subsurface scattering.
+
+Hair:
+smooth sculpted material with controlled satin highlights.
+
+Sunglasses:
+premium polished black material with dark reflective lenses.
+
+Clothing:
+soft matte textile with clean stylized folds.
+
+Stick:
+thin smooth solid white cylindrical material.
+
+Do NOT make the skin excessively glossy.
+
+Do NOT make the character look like cheap plastic.
+
+LIGHTING:
+
+Use premium clean studio lighting.
+
+Large soft frontal key light.
+
+Subtle side fill.
+
+Gentle sculpting shadows.
+
+Soft highlights across:
+
+- forehead
+- cheeks
+- nose
+- lips
+- sunglasses
+- hair
+- blazer
+
+The lighting must make the localized puffed cheek clearly visible.
+
+Use a pure white or very light neutral seamless background.
+
+CAMERA:
+
+Vertical portrait composition.
+
+Character shown approximately from waist / upper torso upward.
+
+Camera at approximately eye level.
+
+Mostly frontal perspective.
+
+Centered composition.
+
+Professional portrait-lens appearance.
+
+Sharp facial geometry.
+
+High detail.
+
+Premium commercial 3D-render quality.
+
+RENDER QUALITY:
+
+Ultra-clean professional 3D render.
+
+High-end digital character sculpting.
+
+Smooth geometry.
+
+Excellent material separation.
+
+Realistic global illumination.
+
+Soft ambient occlusion.
+
+Controlled ray-traced reflections.
+
+Clean anti-aliasing.
+
+Premium advertising quality.
+
+Luxury collectible designer-toy aesthetic.
+
+CRITICAL IDENTITY RULE:
+
+The uploaded person's identity overrides every stylistic element.
+
+The uploaded photo determines:
+
+- identity
+- gender
+- age appearance
+- ethnicity
+- facial structure
+- hairstyle
+- facial hair
+- distinctive characteristics
+
+Any style reference determines ONLY:
+
+- designer-toy aesthetic
+- black sunglasses
+- black clothing
+- white background
+- puffed-cheek concept
+- white-stick positioning
+
+Do NOT copy another person's face.
+
+ABSOLUTE CANDY NEGATIVE CONSTRAINTS:
+
+NO VISIBLE CANDY.
+
+NO CANDY HEAD.
+
+NO ROUND CANDY.
+
+NO LOLLIPOP BALL.
+
+NO COLORED SPHERE.
+
+NO OBJECT ATTACHED TO THE VISIBLE END OF THE STICK.
+
+NO CANDY BETWEEN THE LIPS.
+
+NO CANDY BETWEEN THE TEETH.
+
+NO CANDY INSIDE THE VISIBLE MOUTH.
+
+NO CANDY OUTSIDE THE MOUTH.
+
+NO CANDY VISIBLE THROUGH THE CHEEK.
+
+NO PARTIAL CANDY.
+
+NO CANDY REFLECTION.
+
+NO CANDY SILHOUETTE.
+
+ONLY THE THIN WHITE STICK MAY BE VISIBLE.
+
+ABSOLUTE STICK NEGATIVE CONSTRAINTS:
+
+NO stick from the center of the mouth.
+
+NO stick from the middle of the upper lip.
+
+NO stick from the middle of the lower lip.
+
+NO stick from an approximate side area.
+
+NO stick from the opposite lip corner.
+
+NO stick beginning beside the lips.
+
+NO floating stick.
+
+NO gap between the stick and the lip corner.
+
+NO stick visibly crossing over the lips before its starting point.
+
+NO curved stick.
+
+NO bent stick.
+
+NO horizontal stick.
+
+NO vertical stick.
+
+NO upward-pointing stick.
+
+NO steep 45-degree stick.
+
+NO second stick.
+
+NO object on the outer tip.
+
+ABSOLUTE STARTING-POINT RULE:
+
+THE FIRST VISIBLE MILLIMETER OF THE WHITE STICK MUST ORIGINATE DIRECTLY FROM THE EXACT OUTERMOST ANATOMICAL LIP COMMISSURE ON THE SAME SIDE AS THE PUFFED CHEEK.
+
+THIS RULE OVERRIDES ALL OTHER INTERPRETATIONS.
+
+LEFT PUFFED CHEEK:
+
+STICK STARTS EXACTLY AT LEFT OUTERMOST POINT WHERE UPPER AND LOWER LIPS MEET.
+
+RIGHT PUFFED CHEEK:
+
+STICK STARTS EXACTLY AT RIGHT OUTERMOST POINT WHERE UPPER AND LOWER LIPS MEET.
+
+THE STICK MAY NOT BEGIN ANYWHERE ELSE.
+
+FINAL MANDATORY GEOMETRY:
+
+LEFT-SIDE VERSION:
+
+ONE localized puffed LEFT cheek
++
+ZERO visible candy
++
+EXACT LEFT OUTERMOST LIP COMMISSURE as stick anchor
++
+ONE thin straight white stick beginning precisely at that point
++
+stick extends RIGHT
++
+stick extends DOWN
++
+approximately 25° below horizontal
++
+free end toward lower-right / chin.
+
+RIGHT-SIDE VERSION:
+
+ONE localized puffed RIGHT cheek
++
+ZERO visible candy
++
+EXACT RIGHT OUTERMOST LIP COMMISSURE as stick anchor
++
+ONE thin straight white stick beginning precisely at that point
++
+stick extends LEFT
++
+stick extends DOWN
++
+approximately 25° below horizontal
++
+free end toward lower-left / chin.
+
+FINAL RESULT:
+
+A premium stylized 3D designer-toy portrait of the exact person from the uploaded photo, shown from approximately the waist upward against a clean white studio background, wearing elegant black clothing and premium black sunglasses.
+
+ONE cheek is locally puffed outward.
+
+Absolutely NO candy or round object is visible anywhere.
+
+Only ONE thin straight white stick is visible.
+
+The stick's FIRST VISIBLE POINT begins EXACTLY at the OUTERMOST ANATOMICAL CORNER OF THE LIPS ON THE SAME SIDE AS THE PUFFED CHEEK — precisely where the upper and lower lips meet.
+
+From that exact corner, the stick extends toward the OPPOSITE SIDE while descending at approximately 25 DEGREES below horizontal toward the chin.
+
+MOST IMPORTANT VISUAL RULE:
+
+PUFFED CHEEK
+=
+SAME-SIDE EXACT OUTERMOST LIP CORNER
+=
+EXACT STARTING POINT OF STICK
+=
+STICK GOES TO OPPOSITE SIDE + DOWN AT 25°.
+
+NO VISIBLE CANDY UNDER ANY CIRCUMSTANCES.
+
+THE STICK MUST NEVER START FROM THE CENTER OF THE MOUTH.

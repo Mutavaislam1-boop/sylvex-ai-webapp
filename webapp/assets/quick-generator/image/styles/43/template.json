@@ -1,0 +1,780 @@
+{
+  "id": "photo_43",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY identity reference for the person.
+
+Create a premium black-and-white studio portrait of the EXACT SAME PERSON from the uploaded user photo, inspired by the severe frontal composition, formal suit styling, deep black background, and bright rim-light treatment shown in the style references.
+
+IMPORTANT:
+
+The uploaded USER PHOTO determines the person's identity completely.
+
+The style reference images determine ONLY:
+
+- black-and-white monochrome treatment
+- frontal portrait composition
+- formal black suit
+- white shirt
+- black tie
+- deep black background
+- bright white rim light around the head and shoulders
+- high-contrast studio lighting
+- serious editorial mood
+- clean premium portrait aesthetic
+
+Do NOT copy the identity, face, gender, ethnicity, age, hairstyle, facial proportions, or body characteristics of any person shown in the style references.
+
+==================================================
+IDENTITY — HIGHEST PRIORITY
+==================================================
+
+The final portrait must clearly and immediately be recognizable as the EXACT person from the uploaded user photo.
+
+Preserve accurately:
+
+- gender
+- approximate age
+- ethnicity
+- natural facial proportions
+- exact face shape
+- forehead
+- eyebrow shape
+- eye shape
+- eye spacing
+- nose shape and proportions
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairstyle
+- hairline
+- hair length
+- hair texture
+- facial hair if present
+- skin texture translated naturally into monochrome
+- distinctive facial characteristics
+
+Do NOT beautify the person into a generic celebrity or fashion model.
+
+Do NOT change the person's facial structure to match the references.
+
+Do NOT change gender.
+
+Do NOT change ethnicity.
+
+Do NOT significantly change apparent age.
+
+Do NOT replace the user's hairstyle.
+
+If the uploaded person has facial hair, preserve it accurately.
+
+If the uploaded person is clean-shaven, do NOT add facial hair.
+
+The uploaded person's identity overrides every stylistic choice.
+
+==================================================
+CORE PORTRAIT STYLE
+==================================================
+
+Create an extremely refined monochrome studio portrait.
+
+The visual language should feel:
+
+- timeless
+- serious
+- elegant
+- powerful
+- cinematic
+- minimalist
+- formal
+- prestigious
+- editorial
+
+Use true black-and-white photography.
+
+No color tint.
+
+No sepia.
+
+No blue tone.
+
+No warm tone.
+
+The final image should feel like a premium formal portrait photographed for a luxury editorial campaign or prestigious professional profile.
+
+==================================================
+FRONTAL COMPOSITION — CRITICAL
+==================================================
+
+Place the person directly facing the camera.
+
+The face must be nearly perfectly frontal.
+
+Both eyes should appear at approximately the same scale.
+
+Both ears should be naturally visible if the hairstyle allows.
+
+Keep the nose centered.
+
+Keep the chin centered.
+
+Keep the shoulders balanced.
+
+Use a highly symmetrical composition.
+
+The camera should be positioned exactly around eye level.
+
+Do NOT create a dramatic three-quarter pose.
+
+Do NOT turn the person into profile.
+
+Do NOT tilt the head noticeably.
+
+The pose should feel still, composed, and authoritative.
+
+==================================================
+GAZE
+==================================================
+
+The person looks DIRECTLY INTO THE CAMERA.
+
+The eyes are the visual focal point.
+
+The gaze should feel:
+
+- calm
+- serious
+- focused
+- intelligent
+- self-assured
+
+Do NOT make the person look away.
+
+Do NOT close the eyes.
+
+Do NOT exaggerate eye size.
+
+Do NOT create a threatening expression.
+
+The gaze must remain natural and recognizable.
+
+==================================================
+EXPRESSION
+==================================================
+
+Use a restrained neutral expression.
+
+The mouth is closed naturally.
+
+No broad smile.
+
+No exaggerated frown.
+
+No theatrical emotion.
+
+Keep the jaw relaxed but defined.
+
+The expression should feel controlled and composed.
+
+For a male subject:
+keep the expression strong, natural, and understated.
+
+For a female subject:
+keep the expression elegant, composed, and powerful without changing facial identity.
+
+Do NOT force masculine or feminine facial traits beyond what exists in the uploaded photo.
+
+==================================================
+CLOTHING
+==================================================
+
+Dress the person in a classic formal black suit.
+
+Use:
+
+- black tailored suit jacket
+- crisp white dress shirt
+- simple black necktie
+
+The suit must be clean and timeless.
+
+No patterns.
+
+No pinstripes.
+
+No visible branding.
+
+No decorative lapel pins.
+
+No pocket square unless extremely subtle.
+
+No jewelry unless it is clearly essential to the user's identity.
+
+The shirt collar should be symmetrical and clean.
+
+The tie should be centered directly beneath the chin.
+
+The tie knot should be simple, compact, and elegant.
+
+The outfit must not distract from the face.
+
+==================================================
+GENDER-NEUTRAL WARDROBE RULE
+==================================================
+
+Use the same formal visual language regardless of gender:
+
+black tailored suit
++
+white collared shirt
++
+black tie.
+
+Adapt the garment cut naturally to the person's body proportions while keeping the exact same minimalist formal aesthetic.
+
+Do NOT feminize or masculinize the person beyond their real appearance.
+
+==================================================
+FRAMING
+==================================================
+
+Create a vertical head-and-shoulders portrait.
+
+Show approximately:
+
+- entire head
+- neck
+- full shoulders
+- upper chest
+- suit lapels
+- full tie knot
+- upper portion of the tie
+
+The crop should finish approximately around the upper or middle chest.
+
+Do NOT show the full body.
+
+Do NOT crop the top of the hair.
+
+Do NOT crop the chin.
+
+Do NOT crop the tie knot.
+
+Leave modest black negative space above and around the head.
+
+The face should occupy a large portion of the frame.
+
+==================================================
+BACKGROUND
+==================================================
+
+Use a pure or near-pure black seamless studio background.
+
+The background should contain:
+
+NO texture.
+
+NO environment.
+
+NO room.
+
+NO architecture.
+
+NO visible gradient bands.
+
+NO scenery.
+
+NO props.
+
+It should feel like an infinite dark studio space.
+
+The background must remain visually separate from the hair and shoulders because of the rim lighting.
+
+==================================================
+RIM LIGHT — ABSOLUTELY CRITICAL
+==================================================
+
+Create a bright, elegant white rim light around the outer contour of the person.
+
+This rim light is one of the defining visual features.
+
+Place controlled backlights behind the subject to create a thin luminous edge around:
+
+- top of the hair
+- side edges of the hair
+- ears
+- jaw edge where appropriate
+- shoulders
+- upper suit outline
+
+The rim light should be strongest across the upper hair contour.
+
+The top edge of the hairstyle should have a crisp luminous white highlight separating it from the deep black background.
+
+The shoulder edges should also receive a subtle clean white outline.
+
+Do NOT make the rim light thick.
+
+Do NOT create a neon aura.
+
+Do NOT make it look supernatural.
+
+The rim light must look like real studio backlighting.
+
+==================================================
+HAIR RIM LIGHT
+==================================================
+
+The hairstyle should remain exactly faithful to the uploaded person's hair.
+
+Use a strong white backlight to reveal individual edge hairs and the silhouette of the hairstyle.
+
+Create:
+
+- thin white highlights
+- subtle glowing flyaway hairs
+- crisp separation from the background
+- realistic strand texture
+
+Do NOT turn dark hair completely white.
+
+Only the edges catch the backlight.
+
+The central hair mass remains naturally dark or mid-gray depending on its real color.
+
+==================================================
+FACE LIGHTING
+==================================================
+
+Use soft, controlled frontal studio lighting.
+
+The face should be fully readable.
+
+Use one large soft frontal key light slightly above eye level.
+
+Optionally add very subtle symmetrical fill.
+
+Maintain natural modeling across:
+
+- forehead
+- eye sockets
+- nose
+- cheekbones
+- lips
+- jaw
+- neck
+
+The face must NOT look flat.
+
+Use gentle shadow depth to preserve facial structure.
+
+Keep the eyes illuminated enough to show natural catchlights.
+
+==================================================
+LIGHTING BALANCE
+==================================================
+
+The lighting hierarchy should be:
+
+1. face clearly visible
+2. bright rim light separating hair and shoulders
+3. deep black background
+4. subtle suit texture
+
+Do NOT overexpose the face.
+
+Do NOT crush all facial shadows into black.
+
+Do NOT lose detail in the suit.
+
+Do NOT turn the rim light into a blown-out halo.
+
+==================================================
+BLACK-AND-WHITE TONALITY
+==================================================
+
+Use a rich grayscale range.
+
+Deepest blacks:
+background, tie, suit shadows.
+
+Midtones:
+skin, hair, suit fabric.
+
+Bright whites:
+shirt, eye catchlights, controlled facial highlights, rim light.
+
+Maintain strong but sophisticated contrast.
+
+Do NOT produce muddy gray blacks.
+
+Do NOT create washed-out low contrast.
+
+Do NOT create harsh posterization.
+
+==================================================
+SKIN TEXTURE
+==================================================
+
+Preserve realistic natural skin texture.
+
+Show subtle:
+
+- pores
+- fine lines
+- natural tonal variation
+- facial texture
+- small imperfections
+
+Do NOT oversmooth.
+
+Do NOT make the skin plastic.
+
+Do NOT create extreme hyper-detailed pores.
+
+Use premium editorial retouching while keeping the face believable.
+
+Do NOT erase age-specific facial features.
+
+Do NOT artificially make the person younger.
+
+==================================================
+EYES
+==================================================
+
+Keep the user's real eye shape.
+
+The eyes should be crisp and expressive.
+
+Use subtle catchlights.
+
+Do NOT brighten the whites of the eyes excessively.
+
+Do NOT change eye size.
+
+Do NOT alter eye spacing.
+
+Do NOT create artificial glamour retouching.
+
+==================================================
+HAIR
+==================================================
+
+Preserve the uploaded user's hairstyle exactly.
+
+Do NOT copy the hairstyles from the style references.
+
+Maintain:
+
+- hairline
+- density
+- length
+- texture
+- parting
+- direction
+- curl pattern if present
+- natural volume
+
+Render the hair with realistic monochrome detail.
+
+==================================================
+FACIAL HAIR
+==================================================
+
+If facial hair is present:
+
+preserve its exact placement, density, and shape.
+
+Render beard, mustache, or stubble naturally in black and white.
+
+If facial hair is absent:
+
+do NOT add any.
+
+==================================================
+CAMERA
+==================================================
+
+Use the visual characteristics of a professional full-frame portrait camera.
+
+Lens feel:
+
+approximately 85mm to 105mm equivalent.
+
+Camera exactly around eye level.
+
+Minimal perspective distortion.
+
+No wide-angle look.
+
+No oversized nose.
+
+No stretched forehead.
+
+No distorted ears.
+
+Keep natural facial proportions.
+
+==================================================
+DEPTH OF FIELD
+==================================================
+
+Keep the entire face sharply focused.
+
+Both eyes must be sharp.
+
+The hairline should remain detailed.
+
+The front of the suit should retain enough texture.
+
+The background remains completely smooth and featureless.
+
+Use only subtle depth falloff.
+
+Do NOT create excessive blur.
+
+==================================================
+PHOTOGRAPHIC QUALITY
+==================================================
+
+The final image must look like a REAL professional studio photograph.
+
+Use:
+
+- realistic skin
+- realistic fabric
+- natural hair
+- physically believable light
+- professional monochrome conversion
+- subtle lens rendering
+- precise focus
+- clean tonal transitions
+
+Do NOT create illustration.
+
+Do NOT create CGI.
+
+Do NOT create 3D avatar styling.
+
+Do NOT create painted textures.
+
+==================================================
+COMPOSITIONAL SYMMETRY
+==================================================
+
+Keep the composition exceptionally clean.
+
+The vertical centerline should approximately pass through:
+
+- center of forehead
+- bridge of nose
+- philtrum
+- center of lips
+- chin
+- tie knot
+
+The shoulders should feel balanced.
+
+The shirt collar should appear symmetrical.
+
+The tie should run vertically down the center.
+
+Minor natural human asymmetry is acceptable and should NOT be artificially corrected if it is part of the user's identity.
+
+==================================================
+MOOD
+==================================================
+
+The overall mood should be:
+
+serious,
+timeless,
+controlled,
+prestigious,
+minimal,
+cinematic,
+authoritative,
+elegant.
+
+The image should communicate presence through simplicity rather than dramatic posing or accessories.
+
+==================================================
+IMPORTANT REFERENCE RULE
+==================================================
+
+The style references are ONLY references for:
+
+- monochrome photography
+- formal black suit
+- white shirt
+- black tie
+- frontal framing
+- black studio background
+- bright rim lighting
+- serious expression
+
+They are NOT identity references.
+
+Never reproduce the face, hairstyle, age, ethnicity, or facial anatomy of any reference person.
+
+==================================================
+ABSOLUTELY NO TEXT
+==================================================
+
+NO text.
+
+NO word "PROMPT".
+
+NO title.
+
+NO captions.
+
+NO website.
+
+NO signature.
+
+NO watermark.
+
+NO logos.
+
+NO brand names.
+
+NO social-media interface.
+
+NO icons.
+
+The final output must contain ONLY the portrait.
+
+==================================================
+NEGATIVE CONSTRAINTS
+==================================================
+
+NO copied reference identity.
+
+NO random celebrity.
+
+NO identity replacement.
+
+NO gender change.
+
+NO ethnicity change.
+
+NO significant age change.
+
+NO hairstyle replacement.
+
+NO beautification into a generic model.
+
+NO exaggerated makeup.
+
+NO sunglasses.
+
+NO hat.
+
+NO accessories obscuring the face.
+
+NO colored image.
+
+NO sepia.
+
+NO blue monochrome.
+
+NO warm tint.
+
+NO background environment.
+
+NO props.
+
+NO visible chair.
+
+NO hands.
+
+NO full body.
+
+NO dramatic pose.
+
+NO three-quarter face.
+
+NO side profile.
+
+NO upward gaze.
+
+NO downward gaze.
+
+NO broad smile.
+
+NO exaggerated anger.
+
+NO overexposed rim halo.
+
+NO artificial neon outline.
+
+NO plastic skin.
+
+NO illustration.
+
+NO 3D render.
+
+NO anime.
+
+NO cartoon.
+
+NO text.
+
+NO watermark.
+
+==================================================
+FINAL RESULT
+==================================================
+
+Create a premium vertical black-and-white studio portrait of the EXACT PERSON from the uploaded user photo.
+
+The person faces directly toward the camera in a highly centered, nearly symmetrical composition.
+
+The person's identity, age, gender, ethnicity, facial proportions, hairstyle, facial hair, and distinctive characteristics remain accurately preserved.
+
+The subject wears:
+
+a perfectly tailored black suit,
+a crisp white dress shirt,
+and a simple centered black tie.
+
+The background is pure deep black.
+
+Use soft controlled frontal lighting to reveal the face naturally.
+
+Use bright white back/rim lighting behind the subject to create a thin elegant luminous edge around the top and sides of the hair, ears, and shoulders.
+
+The face remains realistic and detailed.
+
+The eyes look directly into the lens.
+
+The expression is calm, neutral, serious, and confident.
+
+The result should feel like an iconic, timeless, prestigious editorial portrait.
+
+FINAL VISUAL FORMULA:
+
+EXACT USER IDENTITY
++
+DIRECT FRONTAL GAZE
++
+NEAR-PERFECT SYMMETRY
++
+BLACK SUIT
++
+WHITE SHIRT
++
+BLACK TIE
++
+DEEP BLACK BACKGROUND
++
+BRIGHT CLEAN WHITE HAIR AND SHOULDER RIM LIGHT
++
+RICH BLACK-AND-WHITE TONAL RANGE
++
+PREMIUM REALISTIC STUDIO PHOTOGRAPHY.
+
+ABSOLUTELY NO TEXT, LOGOS, SIGNATURES, OR WATERMARKS.
