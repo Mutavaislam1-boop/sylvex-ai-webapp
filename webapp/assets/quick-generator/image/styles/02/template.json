@@ -1,0 +1,21 @@
+{
+  "id": "photo_03",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Use the uploaded user photo as the primary identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline and all recognizable facial characteristics. Do not replace the person with another individual. Do not change the user’s gender. The final result must unmistakably remain the same person from the uploaded image.
+Transform the photo into a refined luxury executive portrait with a sophisticated business aesthetic.
+Dress the person in an elegant beige tailored suit with a clean structured fit, a white dress shirt and a light beige or cream tie. The styling should feel premium, classic and understated, with no logos or visible branding.
+Seat the person in a dark brown leather armchair with a rich smooth texture and slightly rounded padded sides. The pose should feel calm, confident and intelligent. One hand should rest thoughtfully near the chin or lightly support the chin, while the other arm rests naturally on the chair arm or lap. The pose should suggest executive confidence and relaxed authority.
+Include a refined wristwatch with a leather strap on the visible wrist. If appropriate, a subtle ring may be visible, but keep accessories minimal and elegant.
+The person should face generally toward the camera with a composed, confident and slightly thoughtful expression. The gaze should feel calm and direct or very slightly off-camera, natural and self-assured, not exaggerated.
+Use a clean soft neutral indoor background in warm off-white or light beige tones. The setting should feel elegant, minimal and professional, without clutter. The leather chair should be clearly visible and frame the subject naturally.
+Lighting should be soft, flattering and professional, with gentle diffused illumination from the front or front-side. Maintain realistic facial shadows, soft highlights on the skin, subtle texture in the suit fabric and natural detail in the leather chair. The overall image should feel warm, polished and premium.
+Framing should be a medium portrait, around waist-up or slightly wider, showing the upper body clearly along with a visible portion of the chair. The composition should be clean, centered or slightly editorially offset, balanced and elegant. The subject should remain the clear focal point.
+Visual style: luxury executive portrait, premium business editorial photography, elegant minimalist styling, calm powerful presence, refined indoor portrait, sophisticated and timeless.
+Professional full-frame camera look, approximately 70–85mm portrait lens, eye-level angle, realistic perspective, natural depth of field, sharp focus on the subject, photorealistic textures, premium magazine-quality finish.
+Critical identity constraints
+same exact person from the uploaded user photo, exact facial identity preserved, exact gender preserved, same skin tone, same age appearance, no face replacement, no identity drift, no celebrity transformation, no facial reconstruction that changes the person.
+Negative prompt
+different person, changed identity, changed gender, face swap, celebrity face, altered facial structure, different skin tone, younger face, older face, exaggerated beauty filter, distorted anatomy, extra people, duplicate person, extra arms, extra fingers, malformed hands, wrong suit color, casual clothes, outdoor background, busy office, text, watermark, logo, social media interface, poster typography, cartoon, illustration, CGI look, low quality, blurry face
+}

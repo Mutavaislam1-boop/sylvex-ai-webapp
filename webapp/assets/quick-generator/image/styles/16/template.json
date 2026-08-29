@@ -1,0 +1,329 @@
+{
+  "id": "photo_16",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference for the person in the final image.
+
+The final result must clearly and unmistakably depict the exact same person from the uploaded photo.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+--------------------------------------------------
+STRICT IDENTITY PRESERVATION
+--------------------------------------------------
+
+Preserve exactly:
+- facial identity
+- gender
+- skin tone
+- ethnicity
+- age impression
+- face shape
+- forehead
+- eyebrows
+- eye shape and eye color
+- nose
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairline
+- hairstyle characteristics
+- hair length and texture
+- facial hair if present
+- all distinctive recognizable facial features
+
+Do not replace the user with another person.
+Do not change the user’s gender.
+Do not turn the user into a celebrity, actor, influencer, or generic fashion model.
+Do not significantly beautify, reconstruct, reshape, age, de-age, masculinize, or feminize the face.
+
+If any styling instruction conflicts with identity preservation, always preserve the uploaded user’s real identity.
+
+--------------------------------------------------
+CONCEPT
+--------------------------------------------------
+
+Create an ultra-realistic quiet-luxury lifestyle portrait of the uploaded user seated inside a sophisticated, warm, old-world library / private reading room.
+
+The image should feel intimate, elegant, calm, intellectual, understated, and cinematic.
+
+The atmosphere should resemble a refined private home library, historic townhouse study, exclusive reading lounge, or elegant old European interior.
+
+This must look like a genuine high-end editorial photograph, not a staged studio portrait.
+
+--------------------------------------------------
+POSE
+--------------------------------------------------
+
+The person is seated naturally in a dark brown leather armchair or classic wooden armchair.
+
+The body is relaxed and slightly angled rather than perfectly frontal.
+
+One arm rests naturally on the armrest or table edge.
+
+The other hand rests casually near the lap, thigh, or opposite armrest.
+
+The posture should feel effortless, composed, and confident.
+
+The shoulders must remain relaxed and lowered.
+
+Keep the neck clearly visible and naturally slightly elongated.
+
+There must be visible separation between:
+- jawline
+- neck
+- shoulders
+
+Do not make the head appear buried between the shoulders.
+
+--------------------------------------------------
+HEAD, GAZE & EXPRESSION
+--------------------------------------------------
+
+The person wears black rectangular or softly squared sunglasses with dark lenses.
+
+The sunglasses should feel elegant, minimal, and expensive — not oversized, sporty, futuristic, or flashy.
+
+The head is turned slightly toward the window.
+
+The person must be looking toward the window / outside light rather than directly at the camera.
+
+The gaze direction should feel natural, contemplative, and relaxed.
+
+Keep the chin slightly raised but subtle.
+
+Expression:
+- calm
+- neutral
+- composed
+- thoughtful
+- quietly confident
+
+No broad smile.
+No exaggerated fashion-model expression.
+No aggressive expression.
+
+--------------------------------------------------
+CLOTHING
+--------------------------------------------------
+
+Dress the user in a loose premium white linen button-up shirt.
+
+The shirt should have:
+- soft natural linen texture
+- relaxed slightly oversized fit
+- open collar
+- top one or two buttons undone
+- long sleeves casually rolled or naturally gathered around the forearms
+- realistic fabric wrinkles
+- soft folds
+- no visible logos
+- no branding
+- clean white or warm ivory tone
+
+Pair with:
+- black or very dark charcoal trousers
+- minimal accessories
+- no tie
+- no jacket
+- no bright jewelry
+
+Adapt the shirt and fit naturally to the user’s actual gender while preserving the same refined white-shirt aesthetic.
+
+--------------------------------------------------
+ENVIRONMENT
+--------------------------------------------------
+
+Place the person inside a warm dark-wood library / study.
+
+Include:
+- floor-to-ceiling or large dark wooden bookshelves
+- books with muted covers
+- rich walnut / mahogany wood tones
+- large traditional windows with wooden frames
+- warm daylight entering through the window
+- classic leather seating
+- subtle framed artwork
+- optional table lamp with warm cream shade
+- a few elegant indoor plants
+- dark polished furniture
+- minimal tasteful decorative objects
+
+The space should feel expensive, lived-in, quiet, and timeless.
+
+Avoid anything modern, glossy, futuristic, or corporate.
+
+--------------------------------------------------
+FOREGROUND DEPTH
+--------------------------------------------------
+
+Add a few soft out-of-focus green leaves or branches in the foreground, partially entering from one side of the frame.
+
+The leaves should be heavily blurred and should create cinematic depth.
+
+They must not cover the user’s face.
+
+Use them only as subtle foreground framing.
+
+--------------------------------------------------
+LIGHTING
+--------------------------------------------------
+
+Use soft natural window light as the primary light source.
+
+The window light should create:
+- gentle highlights across the face
+- subtle illumination on the white linen shirt
+- warm skin tones
+- natural shadow falloff
+- soft reflected light from the wooden interior
+
+Keep the overall room darker than the subject.
+
+Use subtle warm ambient light from a lamp in the background.
+
+The lighting should feel natural and photographic, not artificially dramatic.
+
+No hard flash.
+No bright studio lighting.
+No overexposed white shirt.
+
+--------------------------------------------------
+COLOR PALETTE
+--------------------------------------------------
+
+Dominant palette:
+
+warm dark brown
+walnut
+mahogany
+cream
+ivory
+soft white
+deep black
+muted green
+warm amber
+
+The white shirt should provide the strongest tonal contrast against the dark wood interior.
+
+Use slightly warm cinematic color grading with restrained saturation.
+
+--------------------------------------------------
+CAMERA & FRAMING
+--------------------------------------------------
+
+Vertical cinematic portrait.
+
+Use a medium-wide seated composition.
+
+Show approximately:
+- complete head
+- neck
+- shoulders
+- chest
+- torso
+- arms
+- waist
+- upper legs / part of the seated lower body
+
+The framing should feel slightly distant rather than close.
+
+The person must NOT fill the entire image.
+
+Leave generous environmental space around the subject so the library, windows, furniture, and atmosphere remain clearly visible.
+
+The person should occupy approximately 45–60% of the frame height.
+
+Use some negative space around the head and body.
+
+Camera approximately at seated chest level or slightly below eye level.
+
+Professional full-frame camera look.
+
+Approximately 50–85mm lens.
+
+Natural perspective.
+No wide-angle face distortion.
+
+Shallow-to-medium depth of field:
+- user sharply focused
+- nearby chair and clothing detailed
+- background bookshelves gently softened
+- foreground leaves strongly blurred
+
+--------------------------------------------------
+PHOTOGRAPHIC STYLE
+--------------------------------------------------
+
+ultra-realistic lifestyle photography
+quiet luxury
+old-money interior
+private library portrait
+warm cinematic editorial
+European townhouse aesthetic
+understated elegance
+natural candid photography
+premium fashion lifestyle photography
+soft window light
+rich dark wood interior
+subtle film grain
+realistic skin texture
+realistic linen texture
+natural hands
+high dynamic range
+premium magazine quality
+
+The image should feel expensive without looking flashy.
+
+--------------------------------------------------
+CRITICAL IDENTITY CONSTRAINTS
+--------------------------------------------------
+
+same exact person from uploaded user photo
+exact gender preserved
+same recognizable face
+same skin tone
+same ethnicity
+same age impression
+same facial proportions
+same hairstyle characteristics
+same facial hair characteristics if present
+no celebrity transformation
+no replacement face
+no identity drift
+no excessive beautification
+
+--------------------------------------------------
+CRITICAL COMPOSITION CONSTRAINTS
+--------------------------------------------------
+
+person seated in classic chair
+white linen shirt
+black sunglasses
+dark trousers
+warm dark-wood library
+large window
+soft natural window light
+bookshelves visible
+subtle plants
+blurred foreground leaves
+head turned toward the window
+person looking outside / toward the light
+not looking directly at camera
+relaxed posture
+neck clearly visible
+shoulders lowered
+medium-wide seated framing
+significant environmental space
+person does not fill the entire frame
+vertical cinematic composition
+
+--------------------------------------------------
+NEGATIVE PROMPT
+--------------------------------------------------
+
+different person, changed identity, changed gender, celebrity face, generic fashion model, face swap, altered facial structure, different nose, different lips, different jawline, different hairstyle, excessive beautification, younger face, older face, direct camera stare, looking straight into camera, broad smile, exaggerated smile, raised shoulders, compressed neck, short neck, hidden neck, head buried between shoulders, standing pose, outdoor scene, modern office, bright minimalist studio, white studio background, futuristic interior, colorful room, casual T-shirt, hoodie, suit and tie, leather jacket, colorful clothing, oversized sunglasses, sporty sunglasses, reflective futuristic eyewear, harsh flash, strong artificial spotlight, overexposed shirt, extremely dark face, tight close-up, chest-only portrait, full-body standing shot, subject filling entire frame, crowded background, extra people as main subjects, duplicate person, malformed hands, extra fingers, extra limbs, CGI, 3D render, cartoon, illustration, anime, low resolution, watermark, text, poster typography, social-media interface.

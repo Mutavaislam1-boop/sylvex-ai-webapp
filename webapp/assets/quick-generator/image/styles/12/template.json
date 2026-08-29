@@ -1,0 +1,76 @@
+{
+  "id": "photo_12",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+Use the uploaded user photo as the only and exclusive identity reference for the person in the final image.
+
+The final result must clearly and unmistakably depict the exact same person from the uploaded photo. Identity accuracy is the highest priority.
+
+Strict identity preservation:
+- preserve the user’s exact face and identity
+- preserve the user’s gender exactly as in the uploaded photo
+- preserve skin tone, ethnicity, age impression, facial structure, face shape, forehead, eyebrows, eyes, nose, lips, jawline, chin, ears, hairline, hairstyle, and all distinctive facial features
+- preserve the overall natural likeness of the real person
+- if there is any conflict between scene styling and identity, always prioritize identity preservation
+
+Do not:
+- do not replace the user with another person
+- do not change the gender
+- do not make the face look like a celebrity or a generic model
+- do not overly beautify, reconstruct, or redesign the face
+- do not make the face look artificial, overly stylized, or inconsistent with the uploaded user photo
+
+Create a cozy indie café candid lifestyle portrait with a natural, warm, relaxed, realistic atmosphere.
+
+Scene:
+The person is sitting at a wooden table near a large café window.
+The café should feel stylish, modern, cozy, and natural.
+
+Environment details:
+- large window beside the person
+- visible street outside the window
+- warm natural daylight entering from the window
+- wooden table surface
+- indoor plants and hanging greenery
+- shelves in the background
+- soft warm café lights
+- a few softly blurred people in the background
+- calm cozy café interior
+- premium lifestyle photography aesthetic
+
+Framing and camera:
+- vertical composition
+- medium-wide portrait framing
+- show the person only from slightly below the waist and above
+- the shot should feel a bit more distant, not close-up
+- leave noticeable empty space around the person
+- the person must not fill the whole frame
+- camera angle should feel slightly low, as if the photo was taken a little from below
+
+Pose and expression:
+- natural relaxed seated pose
+- the person should be holding a cup casually
+- the person should have a soft, light, easy smile
+- the person must be looking out the window toward the street
+- the person must not look into the camera
+- the head should be turned slightly to the right
+- the gaze should be slightly raised
+- the neck should appear naturally a little longer and more elegant, not compressed into the shoulders
+- shoulders relaxed, posture natural
+
+Image quality and realism:
+- realistic lifestyle photography
+- soft natural daylight
+- realistic skin texture
+- realistic hands and fingers
+- natural body proportions
+- soft depth of field
+- balanced composition
+- clean premium visual quality
+- candid, authentic, non-staged feeling
+
+Very important:
+This image must look like the same real user from the uploaded photo, naturally placed into this café scene.
+Do not lose the user’s identity under any circumstance.

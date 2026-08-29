@@ -1,0 +1,239 @@
+{
+  "id": "photo_14",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+Use the uploaded user photo as the only and exclusive identity reference for the person in the final image.
+
+The final result must clearly and unmistakably depict the exact same person from the uploaded photo. Identity preservation is the highest priority.
+
+STRICT IDENTITY PRESERVATION
+
+Preserve exactly:
+- facial identity
+- gender
+- skin tone
+- ethnicity
+- age impression
+- facial structure
+- face shape
+- forehead
+- eyebrows
+- eye shape and eye color
+- nose
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairline
+- hairstyle characteristics
+- facial hair if present
+- all distinctive recognizable facial features
+
+Do not replace the user with another person.
+Do not change the user’s gender.
+Do not transform the user into a celebrity or generic model.
+Do not significantly beautify, reconstruct, reshape, age, de-age, masculinize or feminize the face.
+If any visual instruction conflicts with identity preservation, always preserve the uploaded user’s real identity.
+
+Create a premium futuristic FACIAL ANALYSIS / FACE SCAN portrait.
+
+The user is shown front-facing in the center of the image, from approximately upper chest / shoulders upward.
+
+The head is upright and centered.
+The face is oriented directly toward the camera.
+The expression is neutral, calm and composed.
+Eyes look directly forward.
+Keep the face unobstructed and fully visible.
+
+The portrait must remain photorealistic and natural.
+
+BACKGROUND
+
+Use a very dark charcoal-black or deep graphite technical-interface background.
+
+The environment should feel like a sophisticated AI facial-analysis laboratory, biometric visualization interface, luxury technology campaign or futuristic identity-scanning system.
+
+Keep the background minimal and dark so the face remains the strongest focal point.
+
+FACIAL ANALYSIS OVERLAY
+
+Surround the user’s face with an elegant transparent technical HUD interface.
+
+Create multiple thin precision lines extending from key facial areas toward information panels placed around the portrait.
+
+Use subtle anchor points around:
+- forehead
+- eyebrows
+- eyes
+- nose
+- cheekbones
+- lips
+- jawline
+- chin
+- hairline
+
+Lines should be thin, geometric, clean and sophisticated.
+
+Add subtle facial landmark dots across the face, placed naturally at important structural points.
+
+Include a very faint vertical center line through the face and optional subtle horizontal proportional guides.
+
+The interface should appear layered over the portrait rather than physically painted onto the skin.
+
+INFORMATION PANELS
+
+Create elegant small analysis panels around the portrait with categories such as:
+
+FACE SHAPE
+FOREHEAD
+EYEBROWS
+EYE SHAPE
+EYE SPACING
+NOSE
+LIPS
+CHEEKBONES
+JAWLINE
+CHIN
+HAIR
+HAIR TEXTURE
+SKIN TONE
+FACIAL PROPORTIONS
+SYMMETRY ANALYSIS
+KEY FEATURES
+
+Use small clean technical typography.
+
+Each section may contain short neutral visual descriptors generated from the visible appearance of the user, but do not invent personal identity information, medical information, personality traits or sensitive conclusions.
+
+The interface is a visual design effect, not a medical or biometric diagnosis.
+
+SYMMETRY PANEL
+
+Include a separate sophisticated facial-symmetry visualization panel on one side.
+
+Show:
+- simplified wireframe face diagram
+- center alignment line
+- left/right proportional guides
+- subtle geometric facial mapping
+
+A percentage-style visual indicator may be included purely as a fictional interface decoration, but it should not imply a scientifically measured biometric score.
+
+FACIAL PROPORTION PANEL
+
+Include a minimal facial proportion diagram showing:
+- upper third
+- middle third
+- lower third
+- vertical facial alignment
+- eye-line and nose-line relationships
+
+Keep these diagrams subtle and elegant.
+
+OPTIONAL DETAIL PANELS
+
+Add several small rectangular zoom-detail panels showing cropped visual details such as:
+- eyebrow area
+- eye area
+- nose profile/detail
+- lips
+- jawline
+- hair texture
+- skin texture
+
+These mini-panels must still correspond to the same uploaded user and must not introduce another identity.
+
+COLOR PALETTE
+
+Use:
+- matte black
+- charcoal
+- dark graphite
+- subtle bronze / muted gold / warm gray interface accents
+- very thin off-white or pale gray technical lines
+- restrained highlights
+
+Avoid bright neon cyberpunk colors.
+
+LIGHTING
+
+Use controlled professional portrait lighting.
+
+Soft frontal key light with subtle side modeling.
+Natural skin texture.
+Defined but not harsh facial structure.
+Soft controlled highlights on forehead, cheeks, nose and jaw.
+Dark background separation.
+Premium studio quality.
+
+The face should remain perfectly readable beneath the graphical interface.
+
+CAMERA
+
+Professional full-frame camera portrait.
+Approximately 70–100mm portrait lens.
+Straight-on perspective.
+Minimal distortion.
+Sharp focus on eyes and facial features.
+High detail.
+Natural skin texture.
+Subtle depth of field.
+
+COMPOSITION
+
+Horizontal or wide editorial composition.
+
+The user’s face should occupy the central portion of the frame.
+
+Leave generous space on both left and right sides for the facial-analysis panels.
+
+Do not crop the top of the head.
+Do not crop the chin.
+Show shoulders and upper chest naturally.
+
+The portrait and interface should feel balanced, symmetrical and premium.
+
+VISUAL STYLE
+
+ultra-realistic portrait photography
+futuristic facial-analysis interface
+premium AI identity scan
+high-end biometric UI aesthetic
+cinematic technology editorial
+luxury dark interface
+precision technical graphics
+minimal HUD design
+subtle facial landmark mapping
+clean proportional guides
+high-end magazine campaign
+professional studio portrait
+extremely detailed
+photorealistic
+
+CRITICAL CONSTRAINTS
+
+same exact person from uploaded photo
+exact gender preserved
+exact recognizable facial identity
+same age impression
+same skin tone
+same hairstyle characteristics
+same facial hair if present
+front-facing portrait
+neutral expression
+direct forward gaze
+dark technical background
+facial landmark points
+thin analysis lines
+information panels surrounding face
+facial symmetry visualization
+facial proportion diagram
+premium futuristic interface
+no identity drift
+
+NEGATIVE PROMPT
+
+different person, changed identity, changed gender, celebrity face, generic model, face swap, reconstructed face, changed nose, changed lips, changed jawline, changed eyes, different hairstyle, excessive beautification, younger person, older person, exaggerated makeup, distorted face, asymmetrical generated face, side profile, turned head, closed eyes, sunglasses, face obstruction, extra person, duplicate face, multiple heads, cartoon, anime, illustration, cyberpunk neon overload, glowing skin, holographic face replacement, robotic face, medical diagnosis, personality analysis, ethnicity prediction, fake personal information, cluttered interface, huge typography covering face, unreadable chaotic text, social-media interface, watermark, logo, low resolution, blurry facial features.

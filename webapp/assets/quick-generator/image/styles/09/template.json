@@ -1,0 +1,83 @@
+{
+  "id": "photo_09",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+
+Use the uploaded user photo as the primary and exclusive identity reference. The final image must unmistakably depict the same person from the uploaded photo.
+
+Preserve the user’s exact identity, gender, skin tone, age impression, ethnicity, facial structure, face shape, eye shape, nose, lips, jawline, ears, hairline, hairstyle characteristics and all distinctive recognizable facial features.
+
+Do not replace the user with another person. Do not change the user’s gender. Do not beautify or reconstruct the face in a way that changes identity.
+
+Create a cinematic late-night lifestyle portrait in a dark modern interior or hallway with a warm, intimate atmosphere.
+
+Dress the person in a black oversized leather jacket layered over a black hoodie, sweatshirt, or dark casual top, paired with loose dark charcoal or black trousers. The clothing should feel relaxed, slightly oversized, contemporary and minimalist.
+
+Place the person standing casually beside a warm beige textured wall. The posture should feel natural and effortless rather than posed. One or both hands may rest casually near the pockets or beside the body.
+
+Behind and slightly beside the person, place a large vertical black digital music-player display integrated into the wall, resembling a premium oversized smart music interface. The screen should contain album artwork, track information, progress bar, play/pause controls, previous/next controls and minimal music-player icons. Keep the interface elegant and believable.
+
+Do not make the screen the primary subject; it should function as an atmospheric environmental detail.
+
+Use warm amber wall lighting, including a minimal cylindrical wall lamp or hidden warm source casting a soft cone of light across the wall. The warm light should create subtle golden highlights across the leather jacket, hair and side of the face.
+
+The surrounding environment should remain dark, with deep blacks and warm reflections, giving the image a cinematic nighttime mood.
+
+The person’s head should be turned slightly toward the right side of the frame. The eyes should look toward the right and slightly upward, as if observing something outside the frame. Do not make the person stare directly into the camera. Keep the chin subtly raised.
+
+Keep the neck clearly visible and naturally slightly elongated. Keep the shoulders relaxed and lowered, with clear separation between the jawline, neck and shoulders. Do not make the head appear compressed into the shoulders.
+
+Use a slightly candid body position, with the torso subtly angled rather than perfectly frontal.
+
+Composition
+
+Use a medium-long or nearly full-body portrait.
+
+Show the person approximately from the head down to the knees, calves, or nearly full body depending on the composition.
+
+The camera should be positioned at approximately waist-to-chest height with a very subtle low-angle feeling.
+
+Keep the camera moderately distant. The person must not fill the entire image.
+
+Leave generous negative space around the character, especially above the head and along the wall.
+
+The person should occupy approximately 45–60% of the frame height, allowing the lighting, wall and digital music screen to remain clearly visible.
+
+Vertical cinematic composition.
+
+Lighting and visual style
+
+Warm low-key cinematic lighting, amber tungsten tones, deep black shadows, realistic leather reflections, subtle film grain, natural skin texture, slightly soft highlights, realistic nighttime exposure.
+
+The image should feel like an authentic spontaneous photograph taken in a stylish apartment, hotel corridor, music lounge or modern night interior.
+
+Premium editorial lifestyle photography, contemporary street-fashion aesthetic, understated luxury, moody urban atmosphere.
+
+Professional full-frame camera look, approximately 35–50mm lens, realistic perspective, shallow-to-moderate depth of field, natural motion softness where appropriate, highly realistic materials and skin.
+
+Critical constraints
+
+same exact user identity
+same exact gender
+same recognizable face
+black oversized leather jacket
+dark layered clothing
+loose dark trousers
+warm beige wall
+warm amber lighting
+large vertical music-player screen
+cinematic nighttime atmosphere
+head turned slightly right
+eyes looking right and slightly upward
+chin slightly raised
+neck clearly visible
+relaxed shoulders
+moderately distant framing
+generous negative space
+character must not fill the entire frame
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, face swap, altered facial structure, direct camera stare, looking left, downward gaze, compressed neck, short neck, hidden neck, raised shoulders, head buried between shoulders, tight close-up, chest-only portrait, subject filling entire frame, bright daylight, outdoor scene, colorful clothing, formal suit, small leather jacket, white clothing, busy background, nightclub crowd, extra people, duplicate person, malformed hands, extra fingers, extra limbs, unrealistic leather, excessive orange skin, harsh flash, CGI, illustration, cartoon, low resolution, watermark, social-media interface.

@@ -1,0 +1,65 @@
+{
+  "id": "photo_06",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+Use the uploaded user photo as the primary and exclusive identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same recognizable face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline and all distinctive facial characteristics. Do not replace the person with another individual. Do not change the user’s gender. The final result must unmistakably depict the same real person from the uploaded user photo.
+
+Transform the person into a stylized collectible doll / designer doll character. The effect should look like a decorative doll, similar to a fashionable store-display doll or collectible character figure.
+
+The doll effect must be clearly visible:
+
+* smaller stylized body
+* larger oversized head
+* simplified doll-like proportions
+* stylized, illustrated or sculpted-looking unnatural hair
+* stylized doll-like eyes
+* stylized doll-like eyebrows
+* soft toy-like or figure-like facial rendering
+
+Even though the result is doll-like, the face must still remain clearly recognizable as the uploaded user.
+
+The final image should look like a premium doll version of the user, not like a random cartoon character. Keep the identity recognizable while translating the person into a stylized doll aesthetic.
+
+The character should be shown in a clean portrait or full / half-body composition depending on the scene, with the doll proportions clearly visible. The head should be noticeably larger than realistic human proportions, while the body should be more compact and smaller, like a collectible figurine.
+
+Hair should not look fully natural or realistic. It should look more like designed doll hair — smooth, sculpted, illustrated, toy-like, or stylized strands. Eyes and eyebrows should also look intentionally stylized and slightly artificial, like a designer doll, while still matching the user’s identity.
+
+Keep the clothing clean and stylish, matching the chosen concept, but the main focus should be the doll transformation effect.
+
+The rendering should feel polished, premium, clean and visually appealing, with a toy-like / designer-figure aesthetic. The result can sit between 3D doll design, collectible figurine styling and character illustration.
+
+Use a clean background and neat composition so the doll effect is easy to see. Soft studio lighting, polished render, highly detailed stylization, premium collectible look.
+
+Critical identity constraints
+
+same exact person from the uploaded user photo,
+exact gender preserved,
+exact identity preserved,
+same skin tone,
+same age impression,
+same facial structure,
+same recognizable features,
+no replacement with another person,
+no identity drift.
+
+Critical doll-style constraints
+
+collectible doll effect,
+store-display doll aesthetic,
+small body,
+large head,
+stylized artificial hair,
+stylized doll eyes,
+stylized doll eyebrows,
+premium toy-like rendering,
+recognizable user identity,
+not realistic human proportions.
+
+Negative prompt
+
+different person, changed identity, changed gender, realistic adult body proportions, fully realistic human portrait, celebrity face, face swap, generic cartoon character, monstrous doll, horror doll, creepy doll, broken doll, plastic distortion, ugly proportions, extra people, duplicate person, extra arms, extra fingers, malformed hands, blurred face, low quality, text, typography, watermark, logo, social media interface.
+
+
+

@@ -1,0 +1,216 @@
+{
+  "id": "photo_21",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
+
+Transform the person from the uploaded photo into a premium smooth stylized 3D cartoon character while keeping the person immediately recognizable.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+Preserve:
+- exact gender
+- ethnicity
+- skin tone
+- age impression
+- face shape
+- forehead
+- eyebrows
+- eye color and general eye shape
+- nose
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairline
+- hairstyle, length and texture
+- facial hair if present
+- all distinctive recognizable facial characteristics
+
+Do NOT replace the user with another person.
+Do NOT create a celebrity or generic avatar.
+Do NOT change gender.
+Do NOT excessively beautify or reconstruct the face.
+
+--------------------------------------------------
+3D CARTOON TRANSFORMATION
+--------------------------------------------------
+
+Convert the real person into a polished high-end stylized 3D character.
+
+The result should look like a professionally designed animated avatar / premium collectible character:
+
+- smooth stylized facial geometry
+- slightly enlarged expressive eyes
+- clean simplified eyebrows
+- softly sculpted nose
+- smooth rounded lips
+- subtly softened jaw and cheeks
+- slightly enlarged head, but NOT oversized
+- body proportions remain close to normal human proportions
+- realistic neck length
+- elegant simplified anatomy
+- clean soft skin surface
+- subtle glossy highlights
+- sculpted 3D hair made from smooth grouped strands
+- hair should look intentionally modeled, not photorealistic
+- facial hair, if present, becomes clean stylized 3D facial hair
+- highly polished animation-quality rendering
+
+The character must look stylized, but the uploaded user must still be clearly recognizable.
+
+Avoid extreme chibi proportions.
+Avoid a tiny body.
+Avoid an enormous head.
+Keep the body approximately 80–90% of realistic human proportions.
+
+--------------------------------------------------
+COMPOSITION
+--------------------------------------------------
+
+Create a centered portrait.
+
+Show approximately:
+- complete head
+- neck
+- shoulders
+- chest
+- upper torso
+
+Frame from around the waist or upper torso upward depending on the uploaded image.
+
+Keep generous clean space around the character.
+
+The head must not touch the top edge.
+
+Camera at eye level.
+
+Character faces generally toward the camera.
+
+Natural relaxed posture.
+
+Neck clearly visible and slightly elongated.
+Shoulders lowered and relaxed.
+
+--------------------------------------------------
+EXPRESSION
+--------------------------------------------------
+
+Use a calm, friendly, confident expression.
+
+Very subtle soft smile.
+
+Eyes open and expressive.
+
+No exaggerated grin.
+No childish expression.
+No extreme facial emotion.
+
+--------------------------------------------------
+CLOTHING
+--------------------------------------------------
+
+Simplify the uploaded user’s clothing into clean premium 3D wardrobe.
+
+Keep the same general clothing category when possible.
+
+Use:
+- clean fabric shapes
+- minimal seams
+- smooth material rendering
+- no visible logos
+- no text
+- no branding
+
+If clothing is unclear, use a simple elegant neutral outfit appropriate to the user’s gender.
+
+--------------------------------------------------
+BACKGROUND
+--------------------------------------------------
+
+Use a clean minimal studio background.
+
+Depending on the character, use one muted solid or softly graded tone such as:
+
+dark desaturated teal,
+soft slate blue,
+warm beige,
+muted rose,
+soft lavender,
+or light neutral gray.
+
+No environment.
+No furniture.
+No objects.
+No text.
+
+--------------------------------------------------
+LIGHTING
+--------------------------------------------------
+
+Use soft premium 3D studio lighting.
+
+Large soft key light from the front.
+
+Subtle cool rim light on one side.
+
+Soft warm fill on the opposite side.
+
+Gentle highlights on:
+- forehead
+- nose
+- cheeks
+- lips
+- hair
+- shoulders
+
+Use soft controlled shadows.
+
+The render should feel expensive, clean and cinematic.
+
+--------------------------------------------------
+STYLE
+--------------------------------------------------
+
+premium stylized 3D character
+smooth cartoon avatar
+high-end animated portrait
+collectible character aesthetic
+soft sculpted facial geometry
+clean stylized hair
+subtle oversized eyes
+polished skin shader
+soft studio lighting
+professional character design
+modern animation quality
+high-quality 3D render
+clean shapes
+friendly sophisticated appearance
+Pixar-like level of polish without copying any specific character
+premium digital avatar
+
+--------------------------------------------------
+CRITICAL CONSTRAINTS
+--------------------------------------------------
+
+same exact person from uploaded photo
+same gender
+same ethnicity
+same skin tone
+same recognizable facial structure
+same hairstyle characteristics
+same facial hair if present
+slightly stylized proportions
+head only moderately enlarged
+body close to normal proportions
+clear visible neck
+smooth 3D cartoon rendering
+one character only
+no identity drift
+
+--------------------------------------------------
+NEGATIVE PROMPT
+--------------------------------------------------
+
+different person, changed gender, celebrity face, generic avatar, identity loss, completely different facial structure, extreme beautification, realistic photography, photorealistic skin, chibi, bobblehead, giant head, tiny body, baby proportions, childlike body, extremely large eyes, anime, manga, flat illustration, 2D cartoon, low-poly model, clay figure, plastic toy look, grotesque proportions, compressed neck, head buried in shoulders, asymmetrical face, distorted eyes, extra limbs, extra fingers, duplicate person, text, watermark, logo, social-media interface, low resolution, blurry render.

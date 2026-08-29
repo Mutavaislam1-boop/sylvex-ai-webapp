@@ -1,0 +1,173 @@
+{
+  "id": "photo_10",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+
+Use the uploaded user photo as the primary and exclusive identity reference. The final image must unmistakably depict the same person from the uploaded photo.
+
+Preserve the user’s exact identity, gender, skin tone, age impression, ethnicity, facial structure, face shape, eye shape, nose, lips, jawline, ears, hairline, hairstyle characteristics and all distinctive recognizable facial features.
+
+Do not replace the user with another person. Do not change the user’s gender. Do not beautify, reconstruct or reinterpret the face in a way that changes identity.
+
+Create a dramatic cinematic fashion portrait set inside a surreal monumental brutalist architectural environment dominated by enormous dark-gray concrete staircases.
+
+The staircase should feel physically impossible and sculptural: massive stone steps rise steeply upward and gradually twist, curve and spiral through the sky, forming an extraordinary architectural structure that appears almost infinite. Additional elevated stair sections and huge curved concrete structures may cross the background, creating a monumental futuristic labyrinth.
+
+Place the person standing or walking upward on the staircase, captured during a confident step. One leg should be positioned on a higher stair while the other remains lower, creating a strong dynamic silhouette.
+
+The person must be shown full body from head to shoes, with the architectural scale clearly visible around them.
+
+Dress the user in a sophisticated monochromatic luxury fashion look adapted naturally to the user’s actual gender:
+
+* long structured light-gray, stone-gray or warm ivory tailored coat
+* elegant fitted or structured top underneath
+* very wide flowing tailored trousers
+* refined minimalist shoes
+* no logos
+* no visible branding
+* understated high-fashion styling
+
+The long coat should extend significantly below the hips and move naturally in the wind, creating large flowing fabric panels behind and beside the person. The fabric should appear elegant, heavy and cinematic rather than thin or costume-like.
+
+Keep the styling monochromatic in shades of stone, ivory, gray, taupe and soft silver, contrasting against the darker brutalist staircase.
+
+Pose and body language
+
+The posture should feel powerful, elegant and architectural.
+
+The torso should remain tall and elongated.
+
+Keep the shoulders naturally lowered and relaxed.
+
+The neck must remain clearly visible and naturally slightly elongated, with clean separation between the jawline, neck and shoulders. Do not compress the head into the shoulders.
+
+The person may turn the head slightly toward the right side of the frame, looking into the distance and slightly upward toward the staircase or sky.
+
+Keep the chin subtly raised.
+
+The expression should be composed, confident, serious and editorial.
+
+Camera angle
+
+This is extremely important:
+
+Use a strong low-angle camera perspective, photographed from significantly below the person and below the staircase.
+
+The camera should look upward, making both the person and the architecture appear monumental.
+
+The foreground steps should appear very large due to perspective, while the staircase gradually becomes smaller as it rises into the sky.
+
+Use approximately a 24–35mm cinematic wide-angle lens.
+
+The low angle should feel dramatic and intentional but must not distort the user’s face or body anatomy.
+
+The person should remain naturally proportioned.
+
+Composition
+
+Create a wide, spacious vertical composition.
+
+Do not make the person fill the entire frame.
+
+The staircase, sky and surrounding architecture are equally important parts of the image.
+
+Leave substantial open space around and above the person so the enormous scale of the environment is clearly visible.
+
+The user should appear relatively small compared with the monumental architecture, but still remain clearly recognizable.
+
+Show:
+
+* complete head
+* complete torso
+* complete legs
+* both shoes
+* several staircase levels below and above
+* large visible portion of sky
+* distant twisting stair architecture
+
+Avoid tight portrait framing.
+
+Environment
+
+Massive weathered concrete and dark stone architecture with subtle realistic surface texture.
+
+The staircase should appear sculptural, impossible and almost endless, with sections twisting upward into spirals or sweeping curves.
+
+Use a dramatic cloudy sky behind the architecture.
+
+Large soft clouds, patches of pale sky and subtle sunlight breaking through the clouds.
+
+No normal city, no ordinary building interior, no vegetation and no distracting objects.
+
+The entire setting should feel surreal but photorealistic, like real monumental architecture photographed for an avant-garde fashion campaign.
+
+Lighting
+
+Use cool natural daylight filtered through dramatic clouds.
+
+Soft directional sunlight may break through parts of the sky, creating controlled highlights along the person’s face, coat and trousers.
+
+Deep architectural shadows between the stairs.
+
+Elegant gray tonal range.
+
+Slightly desaturated cinematic grading.
+
+Fine natural contrast between:
+
+* pale clothing
+* dark concrete
+* cloudy silver sky
+
+Visual style
+
+ultra-realistic luxury fashion editorial
+surreal brutalist architecture
+monumental concrete staircase
+avant-garde fashion campaign
+cinematic low-angle photography
+architectural photography
+minimalist luxury
+dramatic cloudy sky
+desaturated gray palette
+realistic fabric movement
+high-end magazine photography
+subtle film texture
+extremely detailed stone surfaces
+natural skin texture
+realistic human anatomy
+
+Critical identity constraints
+
+same exact person from uploaded photo
+exact gender preserved
+exact facial identity preserved
+same ethnicity
+same age impression
+same skin tone
+same facial proportions
+same recognizable hairstyle characteristics
+no celebrity transformation
+no generic replacement face
+no identity drift
+
+Critical composition constraints
+
+full body visible
+both shoes visible
+strong low-angle perspective
+person walking or standing on giant stairs
+enormous surreal staircase clearly visible
+spiraling / twisting staircase continuing high into the sky
+person relatively small compared with architecture
+large amount of environmental space
+long flowing tailored coat
+wide elegant trousers
+monochromatic stone-gray styling
+dramatic cloudy sky
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, face swap, altered facial structure, tight close-up, chest-up portrait, waist-up portrait, cropped legs, cropped shoes, subject filling entire frame, normal staircase, ordinary apartment stairs, small staircase, indoor staircase, conventional building, flat camera angle, eye-level portrait, extreme fisheye distortion, stretched face, distorted body, short neck, hidden neck, head buried in shoulders, raised shoulders, tiny legs, giant feet, malformed hands, extra fingers, extra limbs, duplicate person, extra people, bright colorful clothing, casual streetwear, sportswear, vegetation, cars, busy city, text, logo, watermark, social-media interface, cartoon, illustration, anime, obvious CGI, low-poly architecture, fantasy painting.
