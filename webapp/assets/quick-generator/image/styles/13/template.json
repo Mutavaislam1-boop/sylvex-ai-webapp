@@ -1,0 +1,263 @@
+{
+  "id": "photo_13",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+Use the uploaded user photo as the only and exclusive identity reference for the person in the final image.
+
+The final result must clearly and unmistakably depict the exact same person from the uploaded photo. Identity accuracy is the highest priority.
+
+Strict identity preservation
+
+Preserve:
+
+* exact facial identity
+* exact gender
+* skin tone
+* ethnicity
+* age impression
+* facial structure
+* face shape
+* forehead
+* eyebrows
+* eyes and eye color
+* nose
+* lips
+* jawline
+* chin
+* ears
+* hairline
+* hairstyle characteristics
+* facial hair if present
+* all distinctive recognizable facial features
+
+Do not:
+
+* replace the user with another person
+* change the user’s gender
+* transform the user into a celebrity or generic model
+* significantly beautify or reconstruct the face
+* change the hairstyle unless necessary only for natural placement
+* make the user younger or older
+* create identity drift
+
+If any styling instruction conflicts with identity preservation, always prioritize the uploaded user’s real identity.
+
+⸻
+
+Scene
+
+Create an ultra-realistic quiet-luxury summer lifestyle portrait on a classic wooden motorboat cruising on an elegant European alpine lake, inspired by the refined atmosphere of Lake Como.
+
+The person is positioned inside a beautiful vintage-style polished mahogany motorboat with:
+
+* glossy dark honey-brown wooden surfaces
+* chrome metal details
+* elegant tan or caramel leather seating
+* refined classic Italian-style boat craftsmanship
+* clean luxury detailing
+* no visible brand logos
+
+Behind the person, show:
+
+* calm blue-green lake water
+* elegant villas along the shoreline
+* lush green hills
+* tall dark cypress trees
+* dramatic mountains rising in the distance
+* subtle haze between mountain layers
+* soft warm late-afternoon / sunset sky
+
+The background should feel luxurious but natural, peaceful and understated — old-money summer atmosphere rather than flashy luxury.
+
+⸻
+
+Clothing
+
+Dress the person in an elegant light ivory / warm off-white linen button-up shirt.
+
+The shirt should have:
+
+* natural lightweight linen texture
+* relaxed tailored fit
+* slightly open collar
+* top one or two buttons undone
+* sleeves casually rolled to around the forearms
+* soft natural wrinkles
+* no visible logo
+* no tie
+
+Pair it with:
+
+* white, cream, or very light trousers
+* optional refined minimal wristwatch
+* no excessive jewelry
+
+Adapt the styling naturally to the uploaded user’s actual gender while maintaining the same refined Mediterranean quiet-luxury aesthetic.
+
+⸻
+
+Pose
+
+The person should be positioned naturally inside the boat, either:
+
+* sitting casually on the leather seating,
+    or
+* lightly leaning against part of the wooden boat structure.
+
+The posture should feel relaxed, elegant and spontaneous rather than rigidly posed.
+
+One arm can rest naturally along the seat or wooden edge of the boat, while the other hand rests casually near the lap or side.
+
+Keep the shoulders relaxed and lowered.
+
+The neck should remain clearly visible and naturally proportioned, with clean separation between the jawline, neck and shoulders.
+
+Do not compress the head into the shoulders.
+
+⸻
+
+Expression and gaze
+
+The person should have a soft, easy, natural smile — warm and confident, but not exaggerated.
+
+The expression should feel authentic, relaxed and quietly happy.
+
+The head can be turned slightly toward the right side of the frame, with the gaze looking slightly off-camera toward the lake or shoreline.
+
+The person should not appear stiff or overly posed.
+
+Avoid an exaggerated commercial smile.
+
+⸻
+
+Composition
+
+Use a medium portrait / medium-wide lifestyle composition.
+
+Show approximately:
+
+* head
+* shoulders
+* full upper torso
+* waist area
+* part of the boat interior
+
+The person should not fill the entire frame.
+
+Leave enough environmental space around the person so the lake, boat, villas and mountains are clearly visible and contribute strongly to the image.
+
+The boat should be visibly identifiable as a premium classic wooden motorboat.
+
+Keep the person approximately within the central 45–60% of the frame height.
+
+Vertical cinematic composition.
+
+⸻
+
+Camera
+
+Professional full-frame camera look.
+
+Use approximately a 50–85mm lens equivalent with natural facial perspective.
+
+Camera around chest or eye level.
+
+Avoid extreme wide-angle distortion.
+
+Use:
+
+* sharp focus on the user
+* natural shallow-to-medium depth of field
+* softly rendered distant landscape
+* realistic facial proportions
+* refined environmental separation
+
+The image should look like a genuine high-end editorial photograph taken during a luxury summer trip.
+
+⸻
+
+Lighting
+
+Use warm, soft golden-hour natural light.
+
+Sunlight should come gently from the side or slightly behind the person, creating:
+
+* soft warm highlights in the hair
+* subtle rim light
+* natural illumination across the face
+* gentle shadows
+* warm reflections across the polished wood
+* soft golden highlights on the water
+
+Skin tone must remain faithful to the uploaded user.
+
+Do not over-orange the skin.
+
+The white linen shirt should retain visible fabric texture and should not become overexposed.
+
+⸻
+
+Visual style
+
+Ultra-realistic photography
+quiet luxury
+Mediterranean summer
+European lakeside elegance
+classic wooden motorboat
+old-money lifestyle aesthetic
+refined Italian summer atmosphere
+natural candid luxury portrait
+warm golden-hour photography
+premium travel editorial
+understated elegance
+soft cinematic color grading
+realistic skin texture
+natural hair texture
+subtle film grain
+high dynamic range
+premium magazine quality
+
+The final result should feel expensive without looking staged or artificial.
+
+⸻
+
+Critical identity constraints
+
+same exact person from uploaded user photo
+exact gender preserved
+same face
+same skin tone
+same age impression
+same ethnicity
+same facial proportions
+same hairstyle characteristics
+same facial hair characteristics if applicable
+no celebrity transformation
+no replacement face
+no identity drift
+no excessive beautification
+
+⸻
+
+Critical scene constraints
+
+classic polished wooden motorboat
+elegant alpine European lake
+luxury villas in background
+mountains in distance
+warm golden-hour light
+light ivory linen shirt
+relaxed quiet-luxury styling
+soft natural smile
+medium-wide composition
+visible boat interior
+person does not fill whole frame
+natural candid atmosphere
+
+⸻
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, generic model face, face swap, altered facial structure, different skin tone, different age, excessive beautification, plastic skin, unrealistic face, exaggerated smile, extreme teeth whitening, stiff pose, formal business suit, tie, black suit, flashy jewelry, streetwear, sportswear, yacht instead of classic wooden motorboat, modern speedboat, visible brand logo, crowded boat, extra people, duplicate person, urban city skyline, tropical beach, ocean waves, indoor scene, studio background, harsh flash, midday blown highlights, orange skin, extreme wide-angle distortion, fisheye, cropped face, tight close-up, subject filling entire image, malformed hands, extra fingers, extra limbs, CGI, illustration, cartoon, low resolution, watermark, poster text, social-media interface.

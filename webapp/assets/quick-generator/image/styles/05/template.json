@@ -1,0 +1,74 @@
+{
+  "id": "photo_05",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+Use the uploaded user photo as the primary and exclusive identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same recognizable face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline, hairstyle characteristics and all distinctive facial features. Do not replace the person with another individual. Preserve the user’s gender exactly as shown in the uploaded photo.
+
+The final result must unmistakably depict the same real person from the uploaded user photo, placed into the scene described below.
+
+Create a sophisticated black-and-white cinematic fashion portrait in an open countryside field with a large black horse.
+
+The person is seated on a simple narrow dark metal stool or minimalist chair in the foreground. Show the person’s entire seated body from head to shoes, including both legs and both feet. The legs are naturally spread apart in a confident relaxed seated pose.
+
+Place a large elegant black horse directly behind and slightly beside the person, close enough that the horse becomes a major part of the composition. The horse must be fully believable, anatomically correct and realistically proportioned. Most or all of the horse’s body should remain visible, including its head, neck, torso and legs.
+
+The horse wears a simple dark bridle with long reins. The reins naturally fall toward the seated person. The person holds part of the reins loosely and naturally in one or both hands while remaining relaxed.
+
+Dress the person in an all-black sophisticated fashion look: a structured oversized black tailored coat or blazer, black shirt underneath, loose black tailored trousers and polished black leather boots. No visible logos, branding or colorful details.
+
+Add minimalist rectangular black sunglasses with dark lenses.
+
+The posture should feel calm, confident, elegant and slightly mysterious. Shoulders relaxed and lowered.
+
+The person’s neck must remain clearly visible and naturally slightly elongated. Maintain realistic separation between the jawline, neck and shoulders. Do not compress the head into the shoulders, do not create a short neck and do not make the shoulders appear raised.
+
+The person’s head is turned slightly toward the right side of the frame. The gaze must always be directed toward the right and slightly upward, looking into the distance rather than toward the camera. Keep the chin subtly raised.
+
+The expression is neutral, composed, serious and confident. No broad smile.
+
+Place the scene on a narrow earthy path surrounded by tall wild grass and natural countryside vegetation. The landscape should feel raw, quiet and windswept. Use an overcast cloudy sky with soft natural daylight.
+
+The horse’s mane may move slightly in the wind, adding subtle natural motion.
+
+Create a completely monochrome black-and-white image, with deep blacks, controlled highlights, rich grayscale tones and elegant medium contrast. No color tint.
+
+The visual mood should resemble a premium European fashion editorial: timeless, masculine or feminine according to the uploaded user’s actual gender, understated luxury, cinematic countryside photography, dramatic but natural.
+
+Use soft overcast daylight with no harsh artificial lighting. Realistic skin texture, detailed black fabric, subtle highlights on the horse’s coat, natural shadows and authentic outdoor textures.
+
+Use a slightly distant camera position so both the person and horse have enough breathing room in the composition. Do not make the person’s face or body fill the entire frame. Leave visible surrounding field, sky and negative space around the subjects.
+
+Vertical editorial composition, approximately full seated-body portrait. Keep the person visually in the foreground and the horse prominently behind them.
+
+Professional full-frame camera photography, approximately 50–85mm lens, realistic perspective, natural depth of field, person and horse sufficiently sharp while the distant landscape remains softly rendered.
+
+Ultra-realistic photography, premium magazine editorial quality, realistic anatomy, realistic hands, realistic horse anatomy, detailed clothing, natural fabric folds, authentic leather textures, subtle film grain, timeless analog photography character.
+
+Critical identity constraints
+
+same exact person from the uploaded user photo, exact gender preserved, exact facial identity preserved, same age appearance, same skin tone and facial proportions, no celebrity transformation, no generic replacement face, no beautification that changes identity.
+
+Critical composition constraints
+
+one user only + one black horse,
+person seated in foreground,
+black horse standing behind the person,
+full seated body visible including shoes,
+horse largely or fully visible,
+all-black clothing,
+black rectangular sunglasses,
+reins visible,
+person looking right and slightly upward,
+chin subtly raised,
+neck clearly visible and slightly elongated,
+shoulders relaxed and lowered,
+outdoor wild field,
+overcast sky,
+strict black-and-white photography,
+spacious composition with visible environment.
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, generic face, face swap, altered facial structure, looking directly at camera, looking left, looking downward, lowered chin, compressed neck, short neck, hidden neck, head buried in shoulders, raised shoulders, smiling broadly, colorful image, sepia, colorful clothing, white horse, multiple horses, extra people, duplicate person, standing person, close-up portrait, chest-up crop, cropped feet, cropped horse head, horse missing body, tiny horse in background, distorted horse anatomy, extra horse legs, malformed hands, extra fingers, extra limbs, incorrect reins, cowboy outfit, western hat, riding the horse, saddle, city background, studio background, text, typography, logo, watermark, social-media interface, poster graphics, CGI, illustration, cartoon, painting.

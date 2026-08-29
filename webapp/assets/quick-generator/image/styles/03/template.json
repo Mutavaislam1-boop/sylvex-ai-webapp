@@ -1,0 +1,41 @@
+{
+  "id": "photo_02",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the primary identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline and all recognizable facial characteristics. Do not replace the person with another individual. Do not change the user’s gender. The final result must unmistakably remain the same person from the uploaded image.
+Transform the photo into a natural daylight outdoor cinematic lifestyle portrait.
+Dress the person in a loose oversized beige sweatshirt with soft natural fabric texture, casual and minimal, with no logos or text.
+Place the person leaning naturally on an old weathered metal railing or fence with visible rust, aged metal and worn paint. The pose should feel relaxed, thoughtful and confident. The forearms may rest naturally on the railing while the shoulders remain relaxed and slightly lowered.
+The person’s head must always be turned slightly toward the right side of the frame. The person must always look toward the right, never directly into the camera and never toward the left. The eyes should be directed slightly upward, as if looking at something in the distance above eye level. Keep the chin very slightly raised, creating a calm, thoughtful and aspirational expression.
+The neck must be clearly visible and naturally slightly elongated. Maintain realistic anatomical proportions between the head, neck and shoulders. Keep the shoulders relaxed and lowered so the head does not appear compressed, buried or resting directly on the shoulders. Create visible natural separation between the jawline, neck and shoulders. Do not shorten or thicken the neck. The posture should subtly extend upward through the neck while remaining relaxed and realistic.
+Set the scene outdoors on a rooftop, terrace or elevated urban location. Use a clean rich blue sky in the background with warm natural daylight, preferably late-afternoon or golden-hour sunlight.
+Include subtle blurred leaves or branches in the foreground or along the edges of the composition to create natural depth. Keep environmental elements secondary and softly blurred.
+Camera position must be lower than the person’s face, creating a noticeable but natural low-angle portrait. The photograph should look as though the photographer is positioned slightly below the subject and pointing the camera gently upward. Do not use an extreme low angle or distorted perspective.
+The person must be visible from slightly below the waist upward. Do not crop at the chest or shoulders. Show the full upper body, waist and a small area below the waist.
+Use a relatively distant camera position. The subject must NOT fill the entire image. Keep the person moderately sized within the frame with plenty of open negative space around them. Leave significant free space above the head, beside both sides of the body and around the surrounding environment. The composition should feel spacious, airy and cinematic rather than tightly cropped.
+The person should occupy approximately the central 45–60% of the image height rather than dominating the entire frame.
+Keep enough visible blue sky and surrounding environment to establish the outdoor location.
+Warm sunlight should illuminate the person naturally from the side or front-side, creating gentle highlights across the face, neck and beige sweatshirt. Preserve realistic skin texture, natural pores, subtle facial shadows and realistic fabric folds.
+Cinematic natural daylight photography, sophisticated lifestyle editorial aesthetic, warm late-afternoon atmosphere, shallow depth of field, subtle foreground bokeh, realistic colors, premium magazine photography.
+Professional full-frame camera look, approximately 50–85mm lens, natural perspective, highly detailed subject, photorealistic textures, realistic anatomy, realistic hands, realistic clothing and natural depth of field.
+Critical composition constraints
+Same exact person from the uploaded user photo.
+Exact gender preserved.
+Exact facial identity preserved.
+Head slightly turned toward the right side of the frame.
+Eyes looking right and slightly upward.
+Never looking directly at the camera.
+Never looking left.
+Chin slightly raised.
+Neck clearly visible and naturally slightly elongated.
+Shoulders relaxed and lowered.
+Head must not appear buried between the shoulders.
+Low-angle camera position.
+Person visible from slightly below the waist upward.
+Distant framing.
+Plenty of negative space around the person.
+Subject must not fill the frame.
+Negative prompt
+different person, changed identity, changed gender, celebrity face, face replacement, face swap, altered facial structure, looking at camera, looking left, downward gaze, lowered head, tucked chin, compressed neck, short neck, thick neck, hidden neck, head buried in shoulders, raised shoulders, hunched posture, head resting on shoulders, extreme low angle, distorted perspective, close-up, tight portrait, chest-up crop, shoulder-up crop, subject filling entire frame, oversized person in frame, cropped waist, insufficient negative space, extra people, duplicate person, malformed anatomy, extra arms, extra fingers, deformed hands, text, logo, watermark, social media interface, artificial CGI look, cartoon, illustration.
+"
+}

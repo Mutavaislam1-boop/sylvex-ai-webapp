@@ -1,0 +1,21 @@
+{
+  "id": "photo_01",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the primary identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline and all recognizable facial characteristics. Do not replace the person with another individual. Do not masculinize or feminize the person. Preserve the user’s gender exactly as shown in the uploaded photo. The final result must unmistakably depict the same person from the user’s original image.
+              Transform only the styling, clothing, pose, accessories, background and photography.
+              Dress the person in a luxurious long black velvet coat with a high upright collar and minimalistic construction. Add fitted black leather gloves on both hands.
+              Place narrow rectangular black sunglasses with dark smoked lenses on the person while keeping the original face shape and proportions unchanged.
+              Position the person standing directly facing the camera with a straight posture. Arms crossed firmly across the chest, both gloved hands naturally visible resting on the opposite forearms.
+              Create a perfectly centered, symmetrical studio portrait. Camera at eye level, approximately waist-up to mid-thigh framing.
+              Use a clean seamless warm light-gray / greige studio background with no objects or environmental details.
+              Soft diffused professional studio lighting from the front and slightly above. Natural facial shadows, subtle highlights on the leather gloves and velvet fabric, realistic skin texture and natural pores.
+              Luxury minimalist fashion editorial aesthetic, sophisticated black monochrome styling, subtle futuristic influence, premium magazine photography.
+              Professional full-frame camera look, 70–85mm portrait lens, realistic perspective, sharp facial details, natural depth of field, photorealistic textures, high-end editorial quality.
+              Critical identity constraints:
+              same person as the uploaded image, exact facial identity preserved, exact gender preserved, same skin tone, same age appearance, same facial proportions, no face replacement, no celebrity transformation, no beautification that changes identity, no different hairstyle unless explicitly requested, no facial reconstruction.
+              Negative prompt:
+              different person, changed identity, changed gender, face swap with another person, celebrity face, altered facial structure, different nose, different eyes, different jawline, different lips, excessive beautification, younger face, older face, artificial face, extra person, duplicate person, malformed hands, extra fingers, text, logos, watermark, social media interface.
+              "
+
+}

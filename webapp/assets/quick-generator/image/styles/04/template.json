@@ -1,0 +1,58 @@
+{
+  "id": "photo_04",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+Use the uploaded user photo as the primary and exclusive identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same recognizable face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline, hairstyle characteristics and all distinctive facial features. Do not replace the person with another individual and do not transform them into a celebrity or generic character. Preserve the user’s gender exactly as shown in the uploaded photo.
+
+Transform the uploaded person into a stylized 1990s retro 3D video-game character with high-quality pixel-art aesthetics, while keeping the person’s identity clearly recognizable.
+
+The final character should look like the same real person translated into a polished retro game universe — not a different invented character.
+
+Create a full-body character standing naturally in a confident relaxed pose. The entire body must be visible from head to shoes, with both feet clearly visible and no cropping.
+
+Dress the person in colorful late-1980s / early-1990s streetwear: an oversized retro windbreaker with bold geometric color blocking in electric blue, turquoise, orange, yellow, purple and green tones, a simple dark or neutral shirt underneath, loose cargo pants with side pockets, slightly tapered ankles, and chunky retro sneakers with colorful accents.
+
+The clothing should have exaggerated but believable retro-game proportions, strong geometric shapes, simplified fabric folds and clean stylized shading.
+
+The person’s head should be turned slightly toward the right side of the frame. The eyes must look toward the right and slightly upward, as if observing something in the distance. Do not make the person stare directly into the camera. Keep the chin subtly raised.
+
+Keep the neck clearly visible and naturally slightly elongated. The shoulders should remain relaxed and slightly lowered, creating visible separation between the jaw, neck and shoulders. Do not compress the head into the shoulders and do not create a short or hidden neck.
+
+Use a slightly low camera angle, giving the character a confident heroic video-game presence without extreme perspective distortion.
+
+Place the person in the center of the composition but do not make the character fill the entire image. Leave comfortable negative space above the head and around both sides of the body so the environment remains clearly visible.
+
+Create a vibrant retro-futuristic environment inspired by classic 1990s arcade and console games: rooftop or elevated urban platform, distant stylized city skyline, futuristic towers, geometric architecture, optional distant mountains, atmospheric sunset sky and subtle pixelated clouds.
+
+The background should use a vibrant sunset gradient transitioning between orange, pink, purple and blue. Add optional neon architectural details, futuristic signs or abstract glowing symbols, but no readable text, logos or brand names.
+
+The visual treatment should combine:
+
+* stylized low-poly 3D character design,
+* high-end pixel-art detailing,
+* 16-bit / 32-bit era visual inspiration,
+* subtle polygonal facial planes,
+* crisp dark contour accents,
+* blocky geometric shadows,
+* colorful arcade-game lighting,
+* slight retro CRT / pixel-grid texture,
+* polished modern rendering quality.
+
+The face must remain recognizably based on the uploaded user’s real facial identity even after stylization. Preserve the person’s unique facial proportions and features rather than creating a generic video-game face.
+
+Use warm sunset rim lighting with soft directional illumination on the face and clothing. Add believable stylized shadows beneath the character’s feet and subtle environmental depth.
+
+Overall mood: nostalgic, stylish, energetic, premium retro gaming, 1990s street culture, futuristic arcade adventure, polished character-selection-screen aesthetic.
+
+Vertical composition, full-body portrait, high detail, clean character silhouette, professional game concept art, sophisticated pixel-art rendering, vibrant but controlled colors.
+
+Critical identity constraints
+
+same exact person from uploaded photo, exact gender preserved, recognizable facial identity preserved, same skin tone, same age appearance, same facial proportions, same distinctive features, no celebrity transformation, no different person, no generic replacement face.
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, generic video-game character, completely redesigned face, unrecognizable face, photorealistic human body with cartoon head, extreme caricature, childlike proportions, oversized head, compressed neck, short neck, hidden neck, head buried in shoulders, raised shoulders, looking left, looking downward, direct camera stare, cropped feet, cropped head, close-up, half-body portrait, character filling entire frame, extra person, duplicate character, extra arms, extra fingers, malformed hands, malformed legs, floating feet, text, typography, logo, watermark, social-media interface, photorealistic background, anime style, flat 2D cartoon, childish illustration."
+}

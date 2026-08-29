@@ -1,0 +1,263 @@
+{
+  "id": "photo_19",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
+
+The final image must unmistakably depict the exact same person from the uploaded photo.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+Preserve exactly:
+- facial identity
+- gender
+- ethnicity
+- skin tone
+- age impression
+- face shape
+- forehead
+- eyebrows
+- eye shape and eye color
+- nose
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairline
+- hairstyle, hair length and texture
+- facial hair if present
+- all distinctive recognizable facial features
+
+Do not replace the user with another person.
+Do not change the user’s gender.
+Do not turn the user into a celebrity or generic model.
+Do not significantly beautify, reshape, age, de-age, masculinize or feminize the face.
+
+If any styling instruction conflicts with identity preservation, always preserve the uploaded user’s real identity.
+
+--------------------------------------------------
+CONCEPT
+--------------------------------------------------
+
+Create an ultra-realistic cinematic studio portrait with a powerful saturated orange background and minimal black styling.
+
+The portrait should feel premium, bold, clean, modern and editorial.
+
+Only ONE person appears in the image.
+
+The subject stands in front of a seamless vivid orange studio background.
+
+No visible environment, furniture, props or additional objects.
+
+--------------------------------------------------
+POSE
+--------------------------------------------------
+
+Show the person standing naturally with a relaxed but confident posture.
+
+Body facing generally toward the camera, with a subtle three-quarter rotation allowed.
+
+The head must be turned slightly toward the RIGHT side of the frame.
+
+The person should be looking toward the right side and slightly upward, NOT directly into the camera.
+
+The gaze should feel thoughtful, calm and confident.
+
+Keep the chin subtly elevated.
+
+Expression:
+- neutral
+- serious
+- composed
+- confident
+- calm
+- natural
+
+No broad smile.
+No exaggerated emotion.
+
+--------------------------------------------------
+NECK & BODY
+--------------------------------------------------
+
+Keep the neck clearly visible and naturally slightly elongated.
+
+There must be clean separation between:
+- jawline
+- neck
+- shoulders
+
+Shoulders remain relaxed and lowered.
+
+Do not let the head appear compressed into the shoulders.
+
+Maintain natural body proportions.
+
+--------------------------------------------------
+FRAMING
+--------------------------------------------------
+
+Vertical portrait composition.
+
+Use medium portrait framing.
+
+Show approximately:
+- complete head
+- neck
+- shoulders
+- chest
+- torso
+- body down to around the waist
+
+Do not crop tightly around the face.
+
+The person should not fill the entire frame.
+
+Leave visible orange negative space around and above the subject.
+
+The subject should occupy approximately 55–70% of the frame height.
+
+--------------------------------------------------
+CLOTHING
+--------------------------------------------------
+
+Dress the person in a minimal black short-sleeve polo shirt.
+
+The polo should be:
+- deep matte black
+- clean fitted or relaxed-tailored silhouette
+- short sleeves
+- small classic collar
+- subtle fabric texture
+- no logo
+- no branding
+- no graphics
+- no patterns
+
+Adapt the fit naturally to the user’s actual gender while preserving the same black-polo aesthetic.
+
+No jacket.
+No tie.
+No bright accessories.
+
+--------------------------------------------------
+BACKGROUND
+--------------------------------------------------
+
+Use a completely smooth, saturated orange studio backdrop.
+
+Color should be:
+- vivid orange
+- warm orange-red
+- slightly glowing toward the center
+- darker and richer toward the outer edges
+
+The background must remain simple and uninterrupted.
+
+No text.
+No objects.
+No patterns.
+No scenery.
+
+--------------------------------------------------
+LIGHTING
+--------------------------------------------------
+
+Use professional cinematic studio lighting.
+
+Main light:
+soft but directional neutral light illuminating the face.
+
+Add warm orange rim or edge lighting from behind one side of the subject.
+
+Create:
+- warm highlight along cheek, temple and ear
+- orange edge light along neck and shoulder
+- subtle shadow shaping on the opposite side of the face
+- crisp but natural facial definition
+- soft highlights in the eyes
+- controlled shadows under cheekbones and jaw
+
+The skin tone must remain faithful to the uploaded user.
+
+Do not make the face orange.
+
+The orange light should mainly act as rim / edge lighting.
+
+--------------------------------------------------
+CAMERA
+--------------------------------------------------
+
+Professional full-frame camera.
+
+Approx. 70–100mm portrait lens.
+
+Camera around eye level or very slightly below.
+
+Natural facial perspective.
+
+No wide-angle distortion.
+
+Sharp focus on:
+- eyes
+- eyebrows
+- nose
+- lips
+- jawline
+- skin texture
+- facial hair if present
+
+Use realistic skin texture, natural pores, subtle film grain, high dynamic range and premium editorial sharpness.
+
+--------------------------------------------------
+VISUAL STYLE
+--------------------------------------------------
+
+ultra-realistic portrait photography
+cinematic studio portrait
+bold orange background
+minimal black fashion styling
+premium editorial photography
+luxury magazine portrait
+strong warm rim light
+natural skin texture
+high contrast
+clean studio composition
+modern fashion campaign
+subtle analog grain
+high-end professional color grading
+photorealistic
+
+--------------------------------------------------
+CRITICAL CONSTRAINTS
+--------------------------------------------------
+
+same exact person from uploaded photo
+exact gender preserved
+same recognizable face
+same skin tone
+same ethnicity
+same age impression
+same face shape
+same eyes
+same nose
+same lips
+same jawline
+same hairstyle characteristics
+same facial hair if present
+black polo shirt
+bright orange background
+head turned slightly right
+eyes looking right and slightly upward
+neck clearly visible
+shoulders lowered
+medium waist-up portrait
+one person only
+no identity drift
+
+--------------------------------------------------
+NEGATIVE PROMPT
+--------------------------------------------------
+
+different person, changed identity, changed gender, celebrity face, generic model face, face swap, altered facial structure, changed nose, changed lips, changed jawline, different hairstyle, excessive beautification, plastic skin, over-smoothed skin, direct camera stare, looking straight at camera, head turned left, broad smile, exaggerated expression, compressed neck, short neck, raised shoulders, head buried in shoulders, white shirt, suit, jacket, hoodie, T-shirt, patterned clothing, visible logo, multiple people, duplicate person, outdoor scene, interior room, furniture, scenery, dark background, blue background, white background, gradient rainbow background, text, typography, poster title, watermark, social-media interface, CGI, 3D render, anime, cartoon, illustration, blurry face, blurry eyes, low resolution.

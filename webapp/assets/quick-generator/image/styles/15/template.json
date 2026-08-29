@@ -1,0 +1,428 @@
+{
+  "id": "photo_15",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+Prompt
+Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference for the character in the final image.
+
+The final result must clearly and unmistakably depict the exact same person from the uploaded photo.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+STRICT IDENTITY PRESERVATION
+
+Preserve exactly:
+- facial identity
+- gender
+- skin tone
+- ethnicity
+- age impression
+- face shape
+- forehead
+- eyebrows
+- eye shape and eye color
+- nose
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairline
+- hairstyle characteristics
+- facial hair if present
+- all distinctive recognizable facial features
+
+Do not replace the user with another person.
+Do not change the user's gender.
+Do not transform the user into a celebrity, actor, athlete, influencer, or generic warrior.
+Do not significantly beautify, reconstruct, reshape, age, de-age, masculinize, or feminize the face.
+
+The character must remain unmistakably recognizable as the SAME REAL USER.
+
+If any styling instruction conflicts with identity preservation, always preserve the uploaded user's real identity.
+
+--------------------------------------------------
+CONCEPT
+--------------------------------------------------
+
+Transform the uploaded user into a dark, weathered ancient Norse warrior / rune-marked survivor portrait.
+
+The transformation should feel raw, brutal, ancient, cinematic and realistic.
+
+The person appears as if they have survived years of harsh battles, extreme weather and a brutal northern environment.
+
+This is NOT a fantasy monster transformation.
+
+The person must still look completely human and clearly recognizable as the uploaded user.
+
+--------------------------------------------------
+HAIR
+--------------------------------------------------
+
+Preserve the user's natural hairline and general hairstyle characteristics.
+
+If the user has hair, shorten or roughen it only slightly where needed to fit the weathered warrior aesthetic, but do not completely redesign the hairstyle.
+
+If the user is bald or has very short hair, preserve that exactly.
+
+Do not force baldness onto a user who has distinctive hair unless explicitly requested.
+
+Hair should look natural, slightly rough, wind-worn and realistic.
+
+--------------------------------------------------
+FACE & SKIN
+--------------------------------------------------
+
+Keep the exact facial anatomy of the uploaded user.
+
+Add realistic signs of a hardened warrior life:
+
+- weathered skin texture
+- subtle dryness
+- natural pores
+- fine cracks in dried surface pigment
+- slight dirt and dust
+- faint healed scars
+- small scratches
+- subtle abrasions
+- mild bruising or redness
+- roughened skin around forehead, cheeks and jaw
+- natural unevenness from exposure to wind and cold
+
+Do NOT mutilate the face.
+Do NOT distort the facial structure.
+Do NOT obscure the eyes, nose, mouth or jawline.
+
+The user's identity must remain fully readable beneath the weathering.
+
+--------------------------------------------------
+RUNE MARKINGS
+--------------------------------------------------
+
+Add ancient-looking symbolic markings across:
+
+- forehead
+- temples
+- cheeks
+- sides of face
+- neck
+- upper chest
+- shoulders
+
+The markings should resemble hand-painted or ritual-applied Norse-inspired symbols and abstract rune-like forms.
+
+Use primarily:
+- dark desaturated blue
+- deep muted red
+- earthy black
+- occasional faded ochre
+
+The markings should look imperfect, hand-drawn, weathered, cracked and partially faded.
+
+They should NOT look like clean modern tattoos.
+
+They should feel painted, scarred, stained or ritualistically applied over time.
+
+Do not place huge symbols directly over the eyes or mouth.
+
+Keep the user’s recognizable facial features unobstructed.
+
+--------------------------------------------------
+SCARS & WEATHERING
+--------------------------------------------------
+
+Add several subtle healed scars and fresh minor scratches.
+
+Possible locations:
+- forehead
+- bridge of nose
+- cheek
+- temple
+- jaw
+- neck
+
+Scars must remain believable and controlled.
+
+Use:
+- thin healed cuts
+- faint red scratches
+- dried marks
+- subtle cracked skin
+- small healed abrasions
+
+Avoid excessive gore.
+
+No exposed wounds.
+No severed tissue.
+No extreme blood.
+No horror-movie injury.
+
+The effect should feel like a realistic battle-worn warrior, not a mutilated corpse.
+
+--------------------------------------------------
+FACIAL HAIR
+--------------------------------------------------
+
+If the uploaded user naturally has facial hair, preserve its style and characteristics while making it slightly rougher and more weathered.
+
+If the user is clean-shaven, do NOT automatically add a large beard.
+
+Only add minimal natural stubble if needed for the rugged aesthetic and if it does not alter identity.
+
+--------------------------------------------------
+EXPRESSION
+--------------------------------------------------
+
+Create a serious, intense, controlled expression.
+
+The person should look calm but dangerous, experienced and mentally hardened.
+
+No smile.
+
+Eyes should remain clearly visible and sharply focused.
+
+The gaze may be:
+- directly toward the camera
+or
+- very slightly off-camera
+
+The expression should communicate:
+strength,
+survival,
+experience,
+discipline,
+cold determination.
+
+Do not exaggerate anger.
+
+--------------------------------------------------
+POSE & FRAMING
+--------------------------------------------------
+
+Create a close cinematic portrait.
+
+Show approximately:
+- complete head
+- neck
+- shoulders
+- upper chest
+
+The face should occupy the central portion of the image.
+
+Use either:
+- direct frontal portrait
+or
+- subtle three-quarter angle
+
+Do not crop the top of the head.
+
+Do not crop the chin.
+
+Keep the neck clearly visible and naturally slightly elongated.
+
+Shoulders should remain lowered and relaxed.
+
+Do not compress the head into the shoulders.
+
+--------------------------------------------------
+CLOTHING
+--------------------------------------------------
+
+Keep clothing extremely minimal.
+
+Use either:
+
+OPTION A:
+bare shoulders and upper chest, allowing the rune markings to remain visible
+
+or
+
+OPTION B:
+a very dark rough-textured ancient tunic with a wide neckline, exposing part of the neck and upper chest.
+
+The garment should look:
+- heavy
+- handmade
+- coarse
+- dark charcoal
+- weathered
+- ancient
+
+No modern clothing.
+No armor unless very subtle.
+No fantasy helmet.
+No horned helmet.
+
+--------------------------------------------------
+BACKGROUND
+--------------------------------------------------
+
+Use a completely dark, nearly black studio background.
+
+Deep charcoal / black with almost no visible environmental details.
+
+The background should isolate the face and create a powerful cinematic portrait.
+
+No landscape.
+No buildings.
+No fire.
+No battlefield.
+No distracting objects.
+
+--------------------------------------------------
+LIGHTING
+--------------------------------------------------
+
+Use dramatic cinematic portrait lighting.
+
+One soft but directional key light from the front-side.
+
+Create:
+- strong facial modeling
+- deep shadows
+- subtle highlights on forehead, nose, cheekbones and jaw
+- visible texture in scars and markings
+- controlled reflections in the eyes
+- strong separation from the black background
+
+Keep the eyes readable.
+
+Do not crush the face into total darkness.
+
+--------------------------------------------------
+COLOR PALETTE
+--------------------------------------------------
+
+Dominant colors:
+
+black
+charcoal
+earth brown
+weathered skin tones
+dark desaturated blue
+muted blood-red
+faded ochre
+
+The overall grade should be dark, cold, restrained and cinematic.
+
+Avoid bright saturated colors.
+
+--------------------------------------------------
+CAMERA
+--------------------------------------------------
+
+Professional full-frame portrait photography.
+
+85–105mm portrait lens.
+
+Eye-level or slightly below eye-level.
+
+Very shallow-to-moderate depth of field.
+
+Extreme facial detail.
+
+Sharp focus on eyes.
+
+Natural realistic skin.
+
+High micro-contrast.
+
+Subtle film grain.
+
+Premium cinematic character portrait.
+
+--------------------------------------------------
+VISUAL STYLE
+--------------------------------------------------
+
+ultra-realistic
+dark cinematic portrait
+weathered Norse warrior
+ancient rune-marked survivor
+battle-worn human
+ritual face markings
+gritty realism
+historical-fantasy editorial
+high-end character photography
+dramatic studio lighting
+deep black background
+realistic scars
+realistic skin texture
+premium movie character concept
+extremely detailed
+photorealistic
+
+--------------------------------------------------
+CRITICAL IDENTITY CONSTRAINTS
+--------------------------------------------------
+
+same exact person from uploaded user photo
+
+exact gender preserved
+
+same recognizable face
+
+same skin tone
+
+same ethnicity
+
+same age impression
+
+same facial proportions
+
+same eye shape
+
+same eye color
+
+same nose
+
+same lips
+
+same jawline
+
+same hairline
+
+same hairstyle characteristics
+
+same facial hair characteristics if applicable
+
+no celebrity transformation
+
+no replacement face
+
+no generic warrior face
+
+no identity drift
+
+--------------------------------------------------
+CRITICAL STYLE CONSTRAINTS
+--------------------------------------------------
+
+dark black background
+
+close head-and-shoulders portrait
+
+weathered human skin
+
+ancient rune-like painted markings
+
+dark blue and muted red markings
+
+subtle scars and scratches
+
+rough warrior aesthetic
+
+serious expression
+
+high-detail realistic skin
+
+dramatic cinematic side lighting
+
+human, not monster
+
+--------------------------------------------------
+NEGATIVE PROMPT
+--------------------------------------------------
+
+different person, changed identity, changed gender, celebrity face, generic Viking face, face swap, altered nose, altered lips, altered eyes, altered jawline, changed ethnicity, excessive beautification, young generic model face, old generic warrior face, monster, zombie, undead, demon, skull face, deformed face, mutilated face, missing eye, glowing eyes, fantasy glowing runes, neon tattoos, clean modern tattoos, tribal tattoo cliché, excessive blood, gore, open wounds, exposed flesh, severe injury, horned helmet, Viking helmet, fantasy armor, long fantasy beard, forced baldness, different hairstyle, exaggerated muscles, full body, distant portrait, bright background, outdoor landscape, battlefield, fire, snowstorm, cartoon, illustration, anime, 3D render, CGI look, low resolution, blurry eyes, excessive skin smoothing, plastic skin, watermark, text, social-media interface.

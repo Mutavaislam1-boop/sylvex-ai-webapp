@@ -1,0 +1,283 @@
+{
+  "id": "photo_23",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
+
+Transform the person from the uploaded photo into a premium stylized 3D clay / plastiline animated character.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+The final character must remain clearly and immediately recognizable as the exact same person from the uploaded photo.
+
+Preserve:
+- exact gender
+- ethnicity
+- skin tone
+- age impression
+- face shape
+- forehead
+- eyebrows
+- eye shape and eye color
+- nose
+- lips
+- cheekbones
+- jawline
+- chin
+- ears
+- hairline
+- hairstyle, length and texture
+- facial hair if present
+- all distinctive recognizable facial characteristics
+
+Do not replace the user with another person.
+Do not change gender.
+Do not create a celebrity or generic avatar.
+Do not significantly reshape, beautify, age or de-age the face.
+
+--------------------------------------------------
+CLAY / PLASTILINE CHARACTER STYLE
+--------------------------------------------------
+
+The person must look like a professionally sculpted animated clay figurine.
+
+The entire character should have a soft plastiline / modeling-clay appearance.
+
+Use:
+- smooth soft clay material
+- slightly matte waxy surface
+- subtle soft highlights
+- rounded sculpted forms
+- gently molded facial features
+- soft transitions between facial planes
+- slightly simplified anatomy
+- premium handcrafted animated-figure appearance
+
+The surface must NOT look like real human skin.
+
+No visible skin pores.
+
+The face should look physically sculpted from smooth colored clay while still preserving the user’s identity.
+
+The character should feel like a frame from a high-budget stop-motion or modern 3D clay-style animated movie.
+
+--------------------------------------------------
+FACE
+--------------------------------------------------
+
+Maintain the user’s recognizable facial proportions.
+
+Stylize them only moderately.
+
+Eyes may be slightly larger and more expressive than real life, but must preserve the user's eye shape and color.
+
+Eyebrows should be thick, clean, softly sculpted clay shapes.
+
+Nose should retain the user's recognizable shape while becoming smoother and slightly simplified.
+
+Lips should be clean, softly rounded and molded.
+
+Cheeks and jaw should have smooth clay transitions.
+
+Do not make the face childish.
+
+Do not use extreme cartoon proportions.
+
+--------------------------------------------------
+HAIR
+--------------------------------------------------
+
+Preserve the user’s actual:
+- hairstyle
+- hairline
+- hair length
+- hair volume
+- general hair texture
+- hair color
+
+Convert the hair into clearly sculpted clay hair.
+
+Hair should consist of large smooth molded locks and grouped strands.
+
+Each section should look physically sculpted from plastiline.
+
+Avoid individual realistic hairs.
+
+Avoid photorealistic hair.
+
+The hair must look intentionally modeled and animated.
+
+If facial hair exists, preserve it but convert it into a clean stylized clay version.
+
+--------------------------------------------------
+PROPORTIONS
+--------------------------------------------------
+
+Use slightly stylized animated proportions.
+
+The head may be approximately 10–15% larger than realistic human proportions.
+
+The body must remain close to normal adult proportions.
+
+Do NOT create:
+- tiny body
+- giant head
+- chibi proportions
+- bobblehead proportions
+- childlike anatomy
+
+The neck must remain clearly visible and naturally slightly elongated.
+
+Shoulders relaxed and lowered.
+
+The head must not appear buried in the shoulders.
+
+--------------------------------------------------
+EXPRESSION
+--------------------------------------------------
+
+Calm, friendly and confident expression.
+
+Very subtle soft smile.
+
+Eyes open and expressive.
+
+Natural relaxed mouth.
+
+No exaggerated grin.
+No extreme emotion.
+No childish facial expression.
+
+--------------------------------------------------
+COMPOSITION
+--------------------------------------------------
+
+Create a centered vertical portrait.
+
+Show the character from approximately the waist or upper torso upward.
+
+Visible:
+- complete head
+- neck
+- shoulders
+- chest
+- upper torso
+
+Do not crop the top of the head.
+
+Leave comfortable negative space around the character.
+
+Camera at approximately eye level.
+
+The character faces generally toward the camera.
+
+--------------------------------------------------
+CLOTHING
+--------------------------------------------------
+
+Convert the user’s clothing into simplified clay-style clothing.
+
+The clothes must also look physically sculpted from soft modeling clay.
+
+Use:
+- clean smooth shapes
+- simplified folds
+- soft molded seams
+- subtle matte material
+- no realistic fabric fibers
+
+No logos.
+No visible text.
+No branding.
+
+If the original clothing is unclear, use a simple neutral outfit appropriate to the user.
+
+--------------------------------------------------
+BACKGROUND
+--------------------------------------------------
+
+Use a clean minimal studio background with a soft smooth gradient.
+
+Choose a muted complementary tone such as:
+- dark teal
+- slate blue
+- warm beige
+- muted peach
+- soft lavender
+- neutral gray
+
+No environment.
+No furniture.
+No objects.
+No patterns.
+No text.
+
+--------------------------------------------------
+LIGHTING
+--------------------------------------------------
+
+Use premium soft studio lighting designed to emphasize the clay material.
+
+Large soft frontal key light.
+
+Gentle side fill.
+
+Subtle cool rim light.
+
+Create soft highlights across:
+- forehead
+- cheeks
+- nose
+- lips
+- hair
+- neck
+- shoulders
+
+Shadows should be soft and rounded.
+
+The lighting must clearly reveal the smooth sculpted plastiline material.
+
+--------------------------------------------------
+STYLE
+--------------------------------------------------
+
+premium clay character
+plastiline animated figurine
+modeling clay character
+high-end stop-motion aesthetic
+modern 3D clay animation
+smooth sculpted face
+soft molded forms
+handcrafted animated figure
+slightly matte waxy clay
+clean stylized hair
+premium collectible character
+cinematic clay portrait
+professional character design
+high-quality animation rendering
+
+--------------------------------------------------
+CRITICAL
+--------------------------------------------------
+
+same exact person from uploaded photo
+same gender
+same ethnicity
+same skin tone
+same recognizable facial structure
+same hairstyle characteristics
+same facial hair if present
+clear clay / plastiline material
+soft sculpted surfaces
+moderately enlarged animated eyes
+slightly enlarged head
+body close to normal proportions
+visible neck
+one character only
+strong identity preservation
+
+--------------------------------------------------
+NEGATIVE PROMPT
+--------------------------------------------------
+
+different person, changed identity, changed gender, celebrity face, generic avatar, face swap, photorealistic human skin, realistic skin pores, realistic hair strands, ordinary realistic 3D human, hard plastic, shiny plastic toy, glossy vinyl toy, porcelain doll, Barbie-like doll, rubber figure, metallic surface, flat illustration, 2D cartoon, anime, manga, low-poly, chibi, bobblehead, giant head, tiny body, baby proportions, childlike anatomy, extremely large eyes, distorted face, compressed neck, raised shoulders, extra limbs, duplicate person, text, logo, watermark, social-media interface, blurry render, low resolution.

@@ -1,0 +1,51 @@
+{
+  "id": "photo_20",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "Use the uploaded user photo as the ONLY identity reference. The final image must clearly depict the exact same person from the uploaded photo.
+
+STRICT IDENTITY PRESERVATION:
+Preserve the user’s exact facial identity, gender, ethnicity, skin tone, age impression, face shape, eyes, eyebrows, nose, lips, cheekbones, jawline, chin, hairline, hairstyle characteristics and facial hair if present. Do not replace the person, change gender, reshape the face, beautify excessively, or turn the user into a celebrity or generic model.
+
+Create an ultra-realistic premium cinematic studio portrait.
+
+The person is shown from approximately mid-chest upward, wearing a plain oversized black crew-neck sweatshirt with no logos or graphics.
+
+Add large elegant thin-metal aviator-style optical glasses with clear lenses. The glasses must look realistic and premium, with subtle cyan reflections on the lenses while the eyes remain clearly visible.
+
+POSE:
+Body positioned mostly toward the camera.
+Head turned slightly toward the RIGHT side of the frame.
+Chin subtly raised.
+The person looks upward and to the right, as if focusing on something above eye level.
+Expression is calm, serious, thoughtful and composed.
+Mouth relaxed and closed.
+Shoulders lowered.
+Neck clearly visible and naturally slightly elongated; the head must not appear compressed into the shoulders.
+
+LIGHTING:
+Strong cinematic two-color neon studio lighting.
+Magenta / hot pink light from the left side.
+Cool cyan / electric blue / violet light from the right side.
+Pink light creates a vivid rim along one cheek, ear, hair and neck.
+Cool blue light illuminates the opposite side of the face.
+Use a soft neutral frontal fill so the user’s real facial features and skin tone remain recognizable.
+Natural highlights and reflections in the glasses.
+
+BACKGROUND:
+Clean seamless studio gradient transitioning from vivid magenta and pink on the left to violet, electric blue and cool purple on the right.
+No objects, no environment, no furniture.
+
+COMPOSITION:
+Vertical portrait.
+Complete head visible with generous space above it.
+Show head, neck, shoulders and upper torso.
+Subject centered or slightly offset.
+Do not crop too tightly.
+Professional 70–100mm portrait-lens perspective, eye-level or slightly low camera angle, sharp facial details, realistic pores, natural skin texture, subtle film grain, premium editorial photography.
+
+STYLE:
+ultra-realistic photography, neon-lit cinematic studio portrait, magenta and blue split lighting, futuristic editorial portrait, premium fashion photography, dramatic colored rim light, clean gradient background, photorealistic skin, high dynamic range, luxury magazine quality.
+
+NEGATIVE:
+different person, changed identity, changed gender, celebrity face, generic model, face swap, altered facial proportions, excessive beautification, plastic skin, direct frontal stare, looking down, head turned left, broad smile, sunglasses with dark lenses, hidden eyes, thick plastic glasses, raised shoulders, compressed neck, white clothing, patterned clothing, logos, multiple people, duplicated person, props, interior, outdoor scene, text, watermark, social-media UI, CGI, 3D render, illustration, anime, blurry face, blurry eyes, low resolution.

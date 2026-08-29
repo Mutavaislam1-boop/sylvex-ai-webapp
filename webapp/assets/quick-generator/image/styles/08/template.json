@@ -1,0 +1,140 @@
+{
+  "id": "photo_08",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+Use the uploaded user photo as the primary and exclusive identity reference. The final doll must unmistakably represent the same person from the uploaded photo.
+
+Preserve the user’s exact identity, gender, skin tone, age impression, ethnicity, facial structure, face shape, eye shape, nose shape, lips, jawline, ears, hairline and all distinctive recognizable facial characteristics.
+
+Do not replace the user with another person. Do not change the user’s gender. Do not transform the user into a celebrity or a generic doll face.
+
+Transform the uploaded person into a premium classic fashion doll / collectible store doll, with the appearance of a high-end manufactured designer doll.
+
+This must look unmistakably like an actual collectible doll, not simply a 3D human avatar.
+
+Refined doll proportions
+
+Create clearly stylized fashion-doll anatomy, but keep the body closer to natural human proportions:
+
+* slightly larger head than a real human
+* body almost standard in size, but still slightly smaller and more refined than realistic human proportions
+* slim elegant doll-like body
+* slightly narrower shoulders
+* graceful stylized arms
+* compact but not tiny torso
+* slightly elongated elegant neck
+* proportions that clearly read as fashion doll, but not chibi and not extremely small-bodied
+
+The body should not be too small.
+It should look nearly normal, just subtly stylized to feel like a collectible doll.
+
+Face
+
+Keep the user’s recognizable facial identity, but translate the face into a polished molded-doll interpretation.
+
+The face should have:
+
+* smooth molded vinyl-like skin
+* very clean facial surfaces
+* softly simplified nose and lips
+* subtly enlarged doll eyes
+* crisp painted-looking eyelashes
+* clearly defined stylized eyebrows
+* clean glossy eyes with controlled reflections
+* subtle painted makeup appropriate to the user’s gender and original appearance
+* softly sculpted cheeks
+* small refined doll-like mouth
+
+The facial features must still correspond to the uploaded person.
+
+Do not feminize a male user and do not masculinize a female user.
+
+The doll should look like a manufactured doll version of that exact person.
+
+Hair
+
+Hair must look intentionally artificial and doll-like rather than naturally photographic.
+
+Translate the user’s original hairstyle, length, hairline and color into highly polished fashion-doll hair.
+
+Hair should appear:
+
+* perfectly arranged
+* extremely smooth
+* slightly exaggerated in volume
+* silky and glossy
+* separated into clean sculpted or synthetic-looking strands
+* deliberately styled like premium doll hair
+
+Preserve whether the user has long hair, short hair, curls, straight hair, shaved hair, receding hairline or baldness.
+
+Eyebrows and eyes
+
+The eyebrows should have a distinctly designed / painted doll appearance, clean, symmetrical and slightly stylized while still matching the user’s natural eyebrow shape.
+
+Eyes should be slightly larger and cleaner than realistic human eyes, with a premium fashion-doll appearance, but must retain the user’s original eye shape and eye color.
+
+Body and clothing
+
+Preserve the user’s gender when creating the doll body.
+
+Use an elegant fashion-doll body appropriate to the person.
+
+Clothing should look like miniature real fabric made specifically for a collectible doll, with tiny seams, neat construction, realistic folds and premium tailoring.
+
+If clothing from the uploaded user photo is suitable, preserve its general style and colors unless another outfit is explicitly requested.
+
+Material
+
+The character should clearly look physically manufactured:
+
+smooth premium vinyl face and body, subtle plastic sheen, polished surfaces, synthetic hair, miniature clothing, collectible toy craftsmanship.
+
+Avoid realistic human skin pores.
+
+The surface should feel like high-quality molded vinyl, not living human skin.
+
+Composition
+
+Create a clean professional product-style portrait of the doll.
+
+Generate the character only from the waist up.
+The final image must be a waist-up portrait only, showing the head, neck, shoulders, chest, arms and upper torso down to approximately the waist.
+Do not show the full body. Do not show the legs. Do not show below the waist.
+
+The framing should clearly present the slightly enlarged doll head, the upper torso, and the subtly stylized fashion-doll proportions.
+
+Use a simple clean neutral or softly lit studio background.
+
+Soft premium product photography lighting, subtle shadows, sharp facial detail, polished collectible-toy presentation.
+
+The final result should immediately communicate:
+
+“This is a personalized fashion doll version of the real user.”
+
+Critical constraints
+
+same exact user identity
+same exact gender
+same ethnicity
+same age impression
+same recognizable face
+fashion-doll transformation
+slightly enlarged doll head
+almost standard upper-body proportions
+body only slightly stylized, not tiny
+painted stylized eyes
+painted stylized eyebrows
+synthetic/sculpted doll hair
+smooth vinyl skin
+manufactured toy appearance
+premium collectible quality
+waist-up only
+no lower body visible
+
+Negative prompt
+
+full body, legs visible, below-waist crop extended, tiny body, extremely small body, miniature body, chibi proportions, bobblehead proportions, oversized head with tiny torso, exaggerated doll deformation, photorealistic human, normal fully realistic human skin pores, ordinary 3D avatar, generic cartoon face, huge anime eyes, different person, changed gender, feminized male, masculinized female, celebrity face, face swap, identity loss, completely different hairstyle, realistic messy human hair, horror doll, creepy doll, broken doll, porcelain cracks, mannequin face, extra fingers, malformed hands, extra limbs, text, logo, watermark, social-media interface.
+

@@ -1,0 +1,185 @@
+{
+  "id": "photo_11",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+
+Prompt
+
+Use the uploaded user photo as the primary and exclusive identity reference. The final image must unmistakably depict the same person from the uploaded photo.
+
+Preserve the user’s exact identity, gender, skin tone, age impression, ethnicity, facial structure, face shape, eye shape, nose, lips, jawline, ears, hairline, hairstyle characteristics and all distinctive recognizable facial features.
+
+Do not replace the user with another person. Do not change the user’s gender. Do not transform the user into a celebrity or generic model. Do not beautify or reconstruct the face in a way that changes identity.
+
+Create a stylish cinematic 1980s luxury-retro fashion portrait outdoors in bright warm daylight.
+
+Place the person sitting cross-legged directly on a red-brick driveway, centered in the foreground.
+
+Behind the person, position a bright yellow 1980s-style exotic sports car, viewed mainly from the rear. The car should be parked close behind the person and occupy a large portion of the background, creating a bold luxury-retro composition.
+
+The car should have:
+
+* wedge-shaped 1980s supercar proportions
+* glossy saturated yellow paint
+* wide rear body
+* black rear grille details
+* vintage rectangular or circular taillights
+* large rear tires
+* unmistakable retro exotic-car styling
+* no visible modern styling elements
+
+Do not show any recognizable real-world car brand logo or badge.
+
+Clothing
+
+Dress the user in an elegant white tailored suit:
+
+* crisp white blazer
+* matching white tailored trousers
+* black or very dark open-collar dress shirt underneath
+* no tie
+* black minimalist loafers or elegant slip-on shoes
+* subtle gold wristwatch
+* optional understated ring
+
+The styling should feel luxurious, relaxed and slightly rebellious, like a high-end 1980s editorial campaign.
+
+Adapt the tailoring naturally to the user’s actual gender while preserving the same white-suit / dark-shirt aesthetic.
+
+Pose
+
+The person is seated naturally on the brick ground with the legs crossed in front.
+
+Keep the torso upright but relaxed.
+
+Both elbows are bent and both hands are raised approximately around shoulder or upper-chest height.
+
+Instead of showing middle fingers, the person is holding bundles of US dollar cash in both hands.
+Each hand holds thick bundles of dollars, and the hands are positioned close to the sides of the head, so the head appears visually framed between the money bundles.
+The money should be held confidently near the face and temples, creating a flashy luxury-retro attitude.
+
+The facial expression should be calm, composed, confident and self-assured.
+
+The person should generally face the camera.
+
+Neck and posture
+
+Keep the neck clearly visible and naturally slightly elongated.
+
+Shoulders should remain relaxed and lowered.
+
+Maintain clear separation between the jawline, neck and shoulders.
+
+Do not let the head appear compressed into the shoulders.
+
+Composition
+
+Use a slightly wide, moderately distant vertical composition.
+
+Show the person’s entire seated body from head to shoes.
+
+Both crossed legs and both shoes must be clearly visible.
+
+The person should not completely fill the frame.
+
+Keep enough surrounding space to clearly show:
+
+* the brick driveway
+* the rear of the yellow sports car
+* tropical greenery
+* part of the surrounding sunny environment
+
+The person should occupy roughly the central 55–70% of the frame height.
+
+The yellow car should remain large and visually important behind the user.
+
+Environment
+
+Create a luxurious tropical residential setting.
+
+Use:
+
+* red or warm terracotta brick paving
+* lush dark-green tropical vegetation
+* palm trees and dense greenery
+* subtle upscale estate or driveway atmosphere
+* intense warm sunshine
+* rich natural color contrast
+
+The background foliage should be slightly softened by depth of field but still recognizable.
+
+Lighting
+
+Use strong natural late-morning or afternoon sunlight.
+
+Create warm highlights across:
+
+* the user’s face
+* white suit
+* yellow car
+* brick pavement
+
+Use realistic directional shadows on the ground.
+
+The white clothing should remain detailed and not overexposed.
+
+The yellow paint should have realistic glossy reflections.
+
+Skin should remain natural and photorealistic.
+
+Camera and visual treatment
+
+Shot with a professional full-frame camera, approximately 35–50mm lens.
+
+Camera positioned approximately around seated eye level or slightly below.
+
+Natural perspective with mild cinematic depth.
+
+High-end analog-inspired fashion photography.
+
+Slightly warm color grading.
+
+Fine film grain.
+
+Strong but controlled contrast.
+
+Rich yellow, green, white, black and terracotta color palette.
+
+Premium luxury lifestyle editorial photography, retro 1980s atmosphere, cinematic celebrity-style portrait without copying any real person.
+
+Critical identity constraints
+
+same exact person from uploaded photo
+exact gender preserved
+same recognizable face
+same skin tone
+same age impression
+same facial structure
+same hairstyle characteristics
+no celebrity transformation
+no replacement face
+no identity drift
+
+Critical composition constraints
+
+person seated cross-legged on brick driveway
+full seated body visible
+yellow retro exotic sports car directly behind
+white tailored suit
+black open-collar shirt
+both hands raised
+bundles of US dollars in both hands
+cash held near the sides of the head
+head visually between the money bundles
+tropical greenery
+bright natural sunlight
+vertical cinematic composition
+car remains large in background
+person does not fill entire frame
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, face swap, altered facial features, different hairstyle, standing pose, chair, sofa, cropped legs, cropped shoes, tight close-up, chest-up portrait, person filling whole image, tiny car, car far away, modern SUV, modern electric car, visible Ferrari logo, Lamborghini logo, branded license plate, incorrect car proportions, red car, black car, casual streetwear, tie, colorful suit, extra people, duplicate person, extra arms, extra hands, extra fingers, missing fingers, malformed hands, distorted legs, floating body, exaggerated angry expression, cartoon, illustration, CGI, low resolution, watermark, typography, poster text, social-media interface, middle finger gesture.
+

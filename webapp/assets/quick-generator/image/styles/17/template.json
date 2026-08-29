@@ -1,0 +1,178 @@
+{
+  "id": "photo_17",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+  Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
+
+The final image must unmistakably depict the exact same person.
+
+IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+
+Preserve exactly:
+- facial identity
+- gender
+- ethnicity
+- skin tone
+- age impression
+- face shape
+- eyes
+- eyebrows
+- nose
+- lips
+- jawline
+- chin
+- ears
+- facial hair (if present)
+
+Never replace the user with another person.
+Never turn the user into a celebrity or generic model.
+Do not significantly beautify or alter facial structure.
+
+--------------------------------------------------
+CONCEPT
+--------------------------------------------------
+
+Create an ultra-realistic cinematic studio portrait with a premium cyan-and-orange motion blur effect.
+
+Only ONE real person exists.
+
+The central portrait is perfectly sharp.
+
+Behind the subject create 2–3 semi-transparent horizontal motion-blur head echoes created by long exposure.
+
+These are photographic motion trails of the SAME PERSON, not additional people.
+
+--------------------------------------------------
+HAIR
+--------------------------------------------------
+
+Preserve:
+- hairstyle
+- hairline
+- length
+- texture
+- volume
+
+BUT the hair MUST be professionally bleached into an icy platinum blonde.
+
+Mandatory:
+- platinum blonde
+- cool blonde
+- salon-quality bleach
+- even color from roots to ends
+
+No dark hair.
+No brown roots.
+No original hair color.
+No mixed colors.
+
+Only the color changes.
+
+--------------------------------------------------
+POSE
+--------------------------------------------------
+
+The person stands facing the camera.
+
+Show:
+head
+neck
+shoulders
+upper torso.
+
+Relaxed posture.
+
+Shoulders lowered.
+
+Neck clearly visible.
+
+Eyes looking directly into camera.
+
+Neutral calm serious expression.
+
+Closed mouth.
+
+--------------------------------------------------
+CLOTHING
+--------------------------------------------------
+
+Plain oversized black T-shirt.
+
+No logos.
+No graphics.
+No branding.
+
+--------------------------------------------------
+LIGHTING
+--------------------------------------------------
+
+Professional cinematic split lighting.
+
+Left side:
+warm orange / amber.
+
+Right side:
+cyan / teal.
+
+Beautiful color transition across the face.
+
+Soft cinematic shadows.
+
+The motion trails also inherit the orange/cyan lighting.
+
+--------------------------------------------------
+BACKGROUND
+--------------------------------------------------
+
+Minimal dark teal studio background.
+
+No objects.
+No furniture.
+No environment.
+
+--------------------------------------------------
+CAMERA
+--------------------------------------------------
+
+Professional full-frame portrait.
+
+85mm lens.
+
+Eye-level camera.
+
+Ultra-sharp eyes.
+
+Realistic skin.
+
+Subtle film grain.
+
+HDR.
+
+Only the motion trails are blurred.
+
+The main face remains perfectly sharp.
+
+--------------------------------------------------
+STYLE
+--------------------------------------------------
+
+ultra realistic photography
+experimental portrait
+editorial photography
+slow shutter portrait
+multiple exposure
+cyan orange lighting
+high-end fashion portrait
+studio portrait
+premium color grading
+realistic skin texture
+cinematic lighting
+luxury magazine quality
+
+--------------------------------------------------
+NEGATIVE PROMPT
+--------------------------------------------------
+
+different person, celebrity, face swap, changed identity, changed gender, different face, altered facial structure, beauty filter, plastic skin, smile, looking away, side profile, multiple people, duplicated bodies, extra arms, extra hands, two sharp faces, three separate people, ghost horror, blurry main face, blurry eyes, vertical motion blur, zoom blur, outdoor scene, furniture, text, watermark, logo, CGI, anime, cartoon, illustration, low quality, low resolution, black hair, brown hair, original hair color, dark roots, visible roots, mixed blonde, yellow blonde, orange blonde.

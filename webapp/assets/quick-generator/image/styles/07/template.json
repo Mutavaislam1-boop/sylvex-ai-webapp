@@ -1,0 +1,56 @@
+{
+  "id": "photo_07",
+  "title": "Название фотографии",
+  "description": "",
+  "prompt": "
+
+Use the uploaded user photo as the primary and exclusive identity reference. Preserve the exact identity of the person from the uploaded image. Keep the same recognizable face, facial structure, skin tone, age, gender, ethnicity, eye shape, nose, lips, jawline, ears, hairline, hairstyle characteristics and all distinctive facial features. Do not replace the person with another individual. Do not change the user’s gender. The final result must unmistakably depict the same real person from the uploaded user photo.
+
+Transform the person into a clean luxury studio portrait with a modern fashion-editorial aesthetic.
+
+Dress the person in a tailored lime-green / pistachio-green suit with a refined structured fit. The suit includes a matching blazer and matching trousers. Underneath, add a clean white dress shirt with no tie. No visible logos or branding.
+
+Pose the person in a calm, elegant and self-assured way. The person should be seated on a simple minimalist stool or chair. Show the person from approximately mid-thigh / upper-leg and above, or slightly wider if needed. One hand should be raised thoughtfully to the chin or lower face, with the fingers resting naturally along the jaw or chin. The other arm can rest naturally on the lap, thigh, or be folded lightly across the body in a composed editorial pose.
+
+The expression should be calm, confident, refined and slightly contemplative. The face should remain natural and realistic, with a poised luxury-portrait feeling.
+
+Create a minimalist studio background with a white base and large vertical lime-green rectangular panels behind the subject. The design should feel clean, geometric, elegant and fashion-forward. The background should remain simple and uncluttered.
+
+Keep the composition centered or near-centered, with a balanced editorial layout. The person should be the main focus, while the graphic background panels remain clearly visible. Leave some breathing room around the subject so the framing feels premium and well designed.
+
+Use soft professional studio lighting from the front and slightly above, with even illumination and gentle shadows. Maintain realistic skin texture, smooth but natural lighting on the face, and subtle highlights on the suit fabric. The overall result should feel polished, premium and photorealistic.
+
+The image should have a luxury portrait / fashion campaign look: modern, minimal, elegant, clean, confident and stylish.
+
+Professional full-frame camera look, approximately 70–85mm portrait lens, realistic perspective, sharp focus on the face and suit, subtle depth of field, ultra-detailed fabric texture, premium editorial quality.
+
+Critical identity constraints
+
+same exact person from the uploaded user photo,
+exact gender preserved,
+exact facial identity preserved,
+same skin tone,
+same age appearance,
+same facial proportions,
+no face replacement,
+no celebrity transformation,
+no different person,
+no identity drift.
+
+Critical styling constraints
+
+lime-green / pistachio tailored suit,
+white dress shirt,
+minimalist studio setup,
+white background with vertical lime-green rectangular panels,
+seated portrait,
+hand placed thoughtfully on chin or jaw,
+clean modern luxury aesthetic,
+premium studio portrait,
+no tie,
+no busy background.
+
+Negative prompt
+
+different person, changed identity, changed gender, celebrity face, face swap, altered facial structure, different skin tone, different age, heavy beautification, exaggerated smile, distorted anatomy, extra people, duplicate person, extra arms, extra fingers, malformed hands, messy clothing, wrong suit color, dark suit, casual clothes, tie, outdoor background, office background, cluttered background, text, typography, watermark, logo, social media interface, low quality, blurry face, CGI look, cartoon, illustration.
+
