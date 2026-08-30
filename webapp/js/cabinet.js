@@ -11117,8 +11117,64 @@ function renderGeneratedTelegramButton(url, kind) {
   function toggleBrandMusicRepeat(button){const audio=document.querySelector('#brandMusicPlayer audio');if(!audio)return;audio.loop=!audio.loop;button?.classList.toggle('is-active',audio.loop)}
   function shuffleBrandMusic(){if(brandMusicTracks.length<2)return;let next=brandMusicIndex;while(next===brandMusicIndex)next=Math.floor(Math.random()*brandMusicTracks.length);selectBrandMusic(next,true)}
   function selectBrandMusicGenre(value,button){musicState.genre=value||'auto';document.querySelectorAll('.brand-music-genres button').forEach(item=>item.classList.toggle('is-active',item===button));renderMusicControls()}
-  function openBrandGenerator(event,key){if(event){event.preventDefault();event.stopPropagation()}const config=BRAND_GENERATORS[key];if(!config)return;switchView('tools');document.body.classList.add('brand-generator-active');document.body.dataset.brandGenerator=key;brandGeneratorStartIndex=chatMessages.length;if(config.mode==='image')imageState.modelId=config.model;else if(config.mode==='video')videoState.modelId=config.model;else if(config.mode==='music')musicState.modelId=config.model;else if(config.mode==='voice')voiceState.modelId=config.model;else if(config.mode==='text')textState.modelId=config.model;updateComposerMode(config.mode);renderBrandGeneratorHeader(config,key);if(key==='suno'){brandMusicTracks=BRAND_MUSIC_FALLBACK.slice();brandMusicIndex=0;brandMusicLibraryLoaded=false;renderBrandMusicShowcase()}renderModelPop();if(config.mode==='image')renderImageControls();else if(config.mode==='video')renderVideoControls();else if(config.mode==='music')renderMusicControls();else if(config.mode==='voice')renderVoiceControls();else if(config.mode==='text')renderTextControls();filterBrandGeneratorHistory();brandGeneratorObserver?.disconnect();const chat=document.getElementById('chatArea');if(chat){brandGeneratorObserver=new MutationObserver(filterBrandGeneratorHistory);brandGeneratorObserver.observe(chat,{childList:true,subtree:true})}updateSendButton()}
+  const BRAND_PRESENTATION_COPY={
+    openai:'Создавайте изображения и развивайте идеи с интеллектуальными моделями OpenAI.',
+    gemini:'Мультимодальная работа с текстом и идеями в едином пространстве SYLVEX.',
+    flux:'Точная генерация выразительных изображений, деталей и художественных стилей.',
+    kling:'Создавайте кинематографичные видео с естественным движением и динамичной камерой.',
+    runway:'Профессиональная генерация видео и современные инструменты для визуальных экспериментов.',
+    suno:'Создавайте полноценные песни, музыку и вокал из одного текстового замысла.',
+    elevenlabs:'Естественная озвучка, выразительные голоса и диалоги профессионального качества.',
+    seedream:'Профессиональная генерация изображений с точной композицией и высокой детализацией.',
+    seedance:'Плавное движение, выразительная камера и кинематографичные видеосцены.',
+    grok:'Работайте с текстом, анализом и идеями в стандартном пространстве Pro Studio.',
+    heygen:'Создавайте реалистичных AI-аватаров и видео с живой речью.'
+  };
+  function closeBrandPresentation(event){if(event){event.preventDefault();event.stopPropagation()}document.getElementById('brandPresentation')?.classList.remove('show')}
+  function openBrandGenerator(event,key){
+    if(event){event.preventDefault();event.stopPropagation()}
+    const config=BRAND_GENERATORS[key];if(!config)return;
+    let page=document.getElementById('brandPresentation');
+    if(!page){page=document.createElement('div');page.id='brandPresentation';page.className='brand-presentation';document.body.appendChild(page)}
+    const logo=config.logo?'<img src="'+S.escapeHtml(config.logo)+'" alt="">':'<span class="brand-presentation-mark"></span>';
+    page.dataset.brand=key;
+    page.style.setProperty('--brand-presentation-art','url("assets/hero-ai/'+String(key).replace(/[^a-z0-9-]/g,'')+'.jpg")');
+    page.innerHTML='<section><button class="brand-presentation-close" type="button" onclick="SYLVEX.closeBrandPresentation(event)" aria-label="Закрыть">×</button><div class="brand-presentation-content"><div class="brand-presentation-logo">'+logo+'</div><small>SYLVEX × '+S.escapeHtml(config.label)+'</small><h1>'+S.escapeHtml(config.label)+'</h1><p>'+S.escapeHtml(BRAND_PRESENTATION_COPY[key]||'Откройте выбранную AI-модель в стандартном пространстве SYLVEX Pro Studio.')+'</p><button class="brand-presentation-open" type="button" onclick="SYLVEX.launchBrandProStudio(event,\''+S.escapeHtml(key)+'\')">Открыть '+S.escapeHtml(config.label)+' в Pro Studio</button></div></section>';
+    page.classList.add('show');
+  }
+  function launchBrandProStudio(event,key){
+    if(event){event.preventDefault();event.stopPropagation()}
+    const config=BRAND_GENERATORS[key];if(!config)return;
+    closeBrandPresentation();
+    brandGeneratorObserver?.disconnect();brandGeneratorObserver=null;
+    document.body.classList.remove('brand-generator-active');delete document.body.dataset.brandGenerator;
+    document.querySelector('.brand-generator-head')?.remove();document.querySelector('.brand-music-showcase')?.remove();
+    if(config.mode==='image')imageState.modelId=config.model;else if(config.mode==='video')videoState.modelId=config.model;else if(config.mode==='music')musicState.modelId=config.model;else if(config.mode==='voice')voiceState.modelId=config.model;else if(config.mode==='text')textState.modelId=config.model;
+    switchView('tools');updateComposerMode(config.mode);renderModelPop();
+    if(config.mode==='image')renderImageControls();else if(config.mode==='video')renderVideoControls();else if(config.mode==='music')renderMusicControls();else if(config.mode==='voice')renderVoiceControls();else if(config.mode==='text')renderTextControls();
+    updateSendButton();
+  }
   function closeBrandGenerator(event){if(event){event.preventDefault();event.stopPropagation()}brandGeneratorObserver?.disconnect();brandGeneratorObserver=null;document.querySelectorAll('#chatArea .brand-generator-old').forEach(item=>item.classList.remove('brand-generator-old'));document.querySelector('#brandMusicPlayer audio')?.pause();document.body.classList.remove('brand-generator-active');delete document.body.dataset.brandGenerator;document.querySelector('.brand-generator-head')?.remove();document.querySelector('.brand-music-showcase')?.remove();switchView('home')}
+  const APP_MENU_SEARCH_ITEMS=[
+    {title:'Главная',note:'Главный экран Mini App',action:'home'},
+    {title:'Pro Studio',note:'Генерация изображений, видео, музыки, голоса и текста',action:'tools'},
+    {title:'Pro Studio — Сетка',note:'Цепочки связанных генераций',action:'grid'},
+    {title:'Профиль',note:'Данные пользователя и статистика',action:'profile'},
+    {title:'История генераций',note:'Все созданные материалы',action:'history'},
+    {title:'Магазин и подписки',note:'Тарифы и пополнение CVX',action:'shop'},
+    {title:'SYLVEX Community',note:'Публикации, друзья и сообщения',action:'community'},
+    {title:'Настройки',note:'Язык, уведомления и оформление',action:'settings'},
+    {title:'Documentation Center',note:'Руководства, модели, функции и цены',action:'docs'},
+    {title:'Поддержка',note:'Связаться с командой SYLVEX',action:'support'},
+    {title:'Политика конфиденциальности',note:'Как SYLVEX обрабатывает данные',action:'privacy'},
+    {title:'Условия использования',note:'Правила использования сервиса',action:'terms'},
+    {title:'Пригласить друзей',note:'Реферальная программа SYLVEX',action:'referrals'},
+    {title:'Версия приложения',note:'Версия и дата обновления',action:'version'}
+  ];
+  function searchAppMenu(value){const host=document.getElementById('settingsMenuResults'),query=String(value||'').trim().toLocaleLowerCase('ru');if(!host)return;if(!query){host.hidden=true;host.innerHTML='';return}const matches=APP_MENU_SEARCH_ITEMS.filter(item=>(item.title+' '+item.note).toLocaleLowerCase('ru').includes(query)).slice(0,7);host.innerHTML=matches.length?matches.map(item=>'<button type="button" onclick="SYLVEX.openAppMenuSearchResult(\''+item.action+'\')"><span><b>'+S.escapeHtml(item.title)+'</b><small>'+S.escapeHtml(item.note)+'</small></span><i>›</i></button>').join(''):'<p>Ничего не найдено</p>';host.hidden=false}
+  function openAppMenuSearchResult(action){const input=document.getElementById('settingsMenuSearch'),host=document.getElementById('settingsMenuResults');if(input)input.value='';if(host){host.hidden=true;host.innerHTML=''}if(['home','tools','profile','history','shop','community','settings'].includes(action)){switchView(action);return}if(action==='grid'){switchView('tools');setStudioLayout('grid');return}if(action==='docs'){window.location.href='docs.html';return}if(action==='privacy'){window.location.href='privacy.html';return}if(action==='terms'){window.location.href='terms.html';return}if(action==='support'){openSupport();return}if(action==='referrals'){openReferrals();return}if(action==='version')openAppVersion()}
+  function openAppVersion(){const modal=document.getElementById('appVersionModal');if(!modal)return;modal.hidden=false;requestAnimationFrame(()=>modal.classList.add('show'))}
+  function closeAppVersion(event){if(event){event.preventDefault();event.stopPropagation()}const modal=document.getElementById('appVersionModal');if(!modal)return;modal.classList.remove('show');window.setTimeout(()=>{if(!modal.classList.contains('show'))modal.hidden=true},180)}
   const CREATIVE_CATALOGS = {
     image:{title:'Каталог изображений',lead:'Референсы, стили, форматы и инструменты',groups:[['Живые референсы',[['photo','Галерея фото','Полный каталог готовых изображений'],['portrait','Портрет','Editorial portrait, natural skin, cinematic light'],['product','Предметное фото','Premium product photography, clean studio light'],['interior','Интерьер','Modern interior, realistic materials, architectural light']]],['Стили',[['cinematic','Кино','Cinematic still, dramatic light, film color grading'],['anime','Anime','Premium anime illustration, detailed background'],['realism','Фотореализм','Ultra realistic photography, authentic details'],['3d','3D','High-end 3D render, detailed materials'],['watercolor','Акварель','Elegant watercolor painting, textured paper'],['fashion','Fashion','High fashion editorial, magazine composition']]],['Форматы',[['square','1:1','Square social media composition'],['portrait-format','9:16','Vertical stories and reels composition'],['post-format','4:5','Vertical social post composition'],['wide-format','16:9','Wide cinematic composition']]],['Лого и тату',[['logo','Логотипы','Размещение и варианты логотипа'],['tattoo','Татуировки','Варианты и реалистичная примерка'],['remove_bg','Удаление фона','Чистое отделение объекта'],['try_on','Try On','Примерка одежды по референсам']]]]},
     music:{title:'Каталог музыки',lead:'Жанры, настроение, вокал и музыкальные идеи',groups:[['Жанры',[['pop','Pop','Modern radio pop, memorable chorus'],['hiphop','Hip-Hop','Modern hip-hop, deep bass, crisp drums'],['electronic','Electronic','Atmospheric synths, energetic rhythm'],['rock','Rock','Powerful rock, live drums and guitars'],['cinematic-music','Cinematic','Epic orchestral cinematic score'],['ambient','Ambient','Calm soundscape and soft textures']]],['Настроение',[['happy','Светлое','Uplifting, bright and optimistic song'],['dark','Тёмное','Dark mysterious emotional atmosphere'],['romantic','Романтика','Warm intimate romantic melody'],['energetic','Энергия','Fast energetic anthem']]],['Форматы',[['instrumental','Инструментал','Instrumental only, no vocals'],['song','Песня','Complete song with expressive vocal'],['jingle','Джингл','Short memorable commercial jingle'],['soundtrack','Саундтрек','Soundtrack for visual storytelling']]]]},
@@ -18975,10 +19031,10 @@ async function waitGeneration(jobId, options) {
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
-    openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility,
+    openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
     computePrice, updatePrice, generateNow,
     renderSubscription, showExpiredSubscriptionModal, showSubscriptionCelebration, closeExpiredSubscriptionModal, openExpiredSubscriptionPurchase, openSubActive, renewFromModal, openManageSub, closeModal, openProInfo,
-    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openBrandGenerator, closeBrandGenerator, moveBrandMusic, selectBrandMusic, toggleBrandMusic, seekBrandMusic, toggleBrandMusicRepeat, shuffleBrandMusic, selectBrandMusicGenre, openKnowledgeWorkspace, closeKnowledgeWorkspace,
+    openEditProfile, pickAvatar, saveEditProfile, previewProfileColor, selectProfileTheme, selectProfileCover, resetProfileAppearance, resetProfileSettings, cancelEditProfile, openHomeQuickTool, openBrandGenerator, closeBrandPresentation, launchBrandProStudio, closeBrandGenerator, moveBrandMusic, selectBrandMusic, toggleBrandMusic, seekBrandMusic, toggleBrandMusicRepeat, shuffleBrandMusic, selectBrandMusicGenre, openKnowledgeWorkspace, closeKnowledgeWorkspace,
     loadProfileGallery, filterProfileGallery, viewProfileGalleryText, sendProfileGalleryItem, reuseProfileGalleryItem, deleteProfileGalleryItem,
     loadCommunityFeed, toggleCommunityLike, openCommunityPublisher, publishCommunityItem, openCommunityComments, sendCommunityComment, replyCommunityComment, cancelCommunityReply, likeCommunityComment, editCommunityComment, deleteCommunityComment, deleteCommunityPost, searchCommunity, toggleCommunityMenu, communityComingSoon,
     openCommunityHub, closeCommunityHub, sendCommunityMessage, sendCommunityFriendRequest, communityFriendAction, loadCommunityNotificationBadge, openCommunityNotification,
