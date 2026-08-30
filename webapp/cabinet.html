@@ -275,6 +275,11 @@ HTML-страница Mini App. Комментарии подписывают э
             </div>
           </div>
           <aside class="studio-grid-node-tools" aria-label="Добавить узел">
+            <button class="studio-grid-tool-primary" type="button" onclick="SYLVEX.createStudioGridProject()" title="Новый проект"><i>＋</i><span>Новый</span></button>
+            <button type="button" onclick="SYLVEX.toggleHistory(event)" title="История проектов"><i>↻</i><span>История</span></button>
+            <button type="button" onclick="SYLVEX.autoLayoutStudioGrid()" title="Автокомпоновка"><i>⌘</i><span>Расставить</span></button>
+            <button id="studioGridSideRun" type="button" onclick="SYLVEX.runStudioGridWorkflow()" title="Запустить цепочку"><i>▷</i><span>Запустить</span></button>
+            <hr aria-hidden="true">
             <button type="button" onclick="SYLVEX.addStudioGridNode('task')"><i>✦</i><span>Задача</span></button>
             <button type="button" onclick="SYLVEX.addStudioGridNode('text')"><i>T</i><span>Текст</span></button>
             <button type="button" onclick="SYLVEX.addStudioGridNode('image')"><i>▧</i><span>Фото</span></button>
