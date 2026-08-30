@@ -6225,7 +6225,9 @@ function selectPhotoCatalogItem(e, id) {
   const prompt = document.getElementById('quickImageDetailPrompt'); prompt.value = ''; prompt.hidden = item.kind === 'styles';
   renderQuickImageDetailFields(item);
   const upload = document.getElementById('quickImageDetailUpload'); upload.classList.remove('has-image'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить своё фото';
-  document.getElementById('quickImageDetailGenerate').disabled = true; modal.classList.add('show');
+  const generateButton = document.getElementById('quickImageDetailGenerate');
+  generateButton.disabled = true; generateButton.hidden = true; generateButton.textContent = 'Сгенерировать'; generateButton.classList.remove('is-ready');
+  modal.classList.add('show');
 }
 
 function closeQuickImageDetail(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const modal = document.getElementById('quickImageDetailModal'); if (modal) modal.classList.remove('show'); }
@@ -6242,10 +6244,19 @@ async function onQuickImageExtraFile(e, key) {
 async function onQuickImageDetailFile(e) {
   const file = e && e.target && e.target.files && e.target.files[0]; if (!file || !quickImageDetailState) return;
   const upload = document.getElementById('quickImageDetailUpload'); const button = document.getElementById('quickImageDetailGenerate');
-  quickImageDetailState.uploading = true; if (button) button.disabled = true;
+  quickImageDetailState.uploading = true;
+  if (button) { button.hidden = false; button.disabled = true; button.textContent = 'Загрузка фото…'; }
   if (upload) { upload.classList.add('has-image'); upload.style.backgroundImage = 'url("' + URL.createObjectURL(file) + '")'; upload.querySelector('b').textContent = 'Загрузка…'; }
-  try { quickImageDetailState.uploadedUrl = await uploadProStudioMediaFile(file, 'image'); if (upload) upload.querySelector('b').textContent = 'Фото загружено'; if (button) button.disabled = false; }
-  catch (error) { toast((error && error.message) || 'Не удалось загрузить фото'); if (upload) upload.querySelector('b').textContent = 'Загрузить своё фото'; }
+  try {
+    quickImageDetailState.uploadedUrl = await uploadProStudioMediaFile(file, 'image');
+    if (upload) upload.querySelector('b').textContent = 'Фото загружено';
+    if (button) { button.hidden = false; button.disabled = false; button.textContent = 'Сгенерировать'; button.classList.add('is-ready'); button.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+  }
+  catch (error) {
+    toast((error && error.message) || 'Не удалось загрузить фото');
+    if (upload) upload.querySelector('b').textContent = 'Загрузить своё фото';
+    if (button) { button.hidden = true; button.disabled = true; button.textContent = 'Сгенерировать'; }
+  }
   finally { quickImageDetailState.uploading = false; }
 }
 
@@ -14896,10 +14907,21 @@ function maybeShowVideoTemplateIntro(force) {
     const b = document.getElementById('histBackdrop');
     if (!d || !b) return;
     const on = !d.classList.contains('show');
-    if (on) { renderHistoryUserSummary(); renderConvList(); }
+    const gridMode = !!document.querySelector('[data-view="tools"] .studio.grid-mode');
+    if (on) {
+      renderHistoryUserSummary();
+      if (gridMode) renderStudioGridHistoryDrawer();
+      else {
+        const title=d.querySelector('.hd-title'),newButton=d.querySelector('.hd-new'),newLabel=newButton?.querySelector('span');
+        if(title){title.textContent='Чаты';title.setAttribute('data-i18n','chats')}
+        if(newButton)newButton.setAttribute('onclick','SYLVEX.newChat();SYLVEX.toggleHistory()');
+        if(newLabel){newLabel.textContent='Новый Чат';newLabel.setAttribute('data-i18n','new_chat')}
+        renderConvList();
+      }
+    }
     d.classList.toggle('show', on);
     b.classList.toggle('show', on);
-    if (!on && activeGenerationLocked()) {
+    if (!on && !gridMode && activeGenerationLocked()) {
       activeGeneration.historyPreview = false;
       activeGeneration.restoringMode = true;
       if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) updateComposerMode(activeGeneration.mode);
@@ -14908,6 +14930,18 @@ function maybeShowVideoTemplateIntro(force) {
       ensureActiveGenerationPlaceholder(true);
     }
   }
+  function renderStudioGridHistoryDrawer() {
+    const drawer=document.getElementById('histDrawer'),list=document.getElementById('hdConvList');
+    if(!drawer||!list)return;
+    const title=drawer.querySelector('.hd-title'),newButton=drawer.querySelector('.hd-new'),newLabel=newButton?.querySelector('span');
+    if(title){title.textContent='Проекты сетки';title.removeAttribute('data-i18n')}
+    if(newButton)newButton.setAttribute('onclick','SYLVEX.createStudioGridProject();SYLVEX.toggleHistory()');
+    if(newLabel){newLabel.textContent='Новый проект';newLabel.removeAttribute('data-i18n')}
+    const active=loadStudioGridState(),items=loadStudioGridProjects();
+    list.innerHTML=items.length?items.map(item=>`<button type="button" class="hd-grid-project${item.id===active.projectId?' active':''}" data-grid-drawer-project="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join(''):'<div class="hd-empty">Сохранённых проектов пока нет</div>';
+    list.querySelectorAll('[data-grid-drawer-project]').forEach(button=>button.addEventListener('click',()=>openStudioGridProjectFromDrawer(button.dataset.gridDrawerProject)));
+  }
+  function openStudioGridProjectFromDrawer(projectId){openStudioGridProject(projectId);toggleHistory()}
   function renderHistoryUserSummary() {
     const user = S.user || {};
     const name = (user.display_name && String(user.display_name).trim())
@@ -18730,6 +18764,8 @@ async function waitGeneration(jobId, options) {
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
     if(workflowButton){const running=state.workflow?.status==='RUNNING'||state.workflow?.status==='STOPPING';workflowButton.textContent=running?'Остановить цепочку':'Запустить цепочку';workflowButton.classList.toggle('running',running)}
+    const sideRun=document.getElementById('studioGridSideRun');
+    if(sideRun){const running=state.workflow?.status==='RUNNING'||state.workflow?.status==='STOPPING';sideRun.classList.toggle('running',running);const icon=sideRun.querySelector('i'),label=sideRun.querySelector('span');if(icon)icon.textContent=running?'■':'▷';if(label)label.textContent=running?'Стоп':'Запустить'}
     applyStudioGridTransform();
     renderStudioGridEdges();
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
@@ -18756,10 +18792,16 @@ async function waitGeneration(jobId, options) {
     const state = loadStudioGridState();
     const safeType = GRID_TYPES[type] ? type : 'text';
     const id = `grid_${safeType}_${Date.now()}`;
-    const center=studioGridCanvasPoint(window.innerWidth/2,window.innerHeight/2),point=position&&Number.isFinite(position.x)&&Number.isFinite(position.y)?position:center;
-    state.nodes.push({id,type:safeType,subtype:safeType,x:point.x-138,y:point.y-95,title:GRID_TYPES[safeType].title,prompt:'',status:'IDLE',model:gridDefaultModel(safeType),settings:gridDefaultSettings(safeType),inputs:{},output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[]});
+    const center=studioGridCanvasPoint(window.innerWidth/2,window.innerHeight/2),explicit=position&&Number.isFinite(position.x)&&Number.isFinite(position.y),mobile=window.matchMedia('(max-width:700px)').matches;
+    let x,y;
+    if(explicit){x=position.x-138;y=position.y-95}
+    else if(mobile&&state.nodes.length){x=Math.min(...state.nodes.map(node=>Number(node.x)||60));y=Math.max(...state.nodes.map(node=>(Number(node.y)||0)+272))+58}
+    else if(state.nodes.length){const index=state.nodes.length;x=center.x-138+(index%3)*42;y=center.y-95+(index%4)*42;while(state.nodes.some(node=>Math.abs(Number(node.x)-x)<250&&Math.abs(Number(node.y)-y)<185)){x+=318;if(x>center.x+700){x=center.x-138;y+=300}}}
+    else{x=center.x-138;y=center.y-95}
+    state.nodes.push({id,type:safeType,subtype:safeType,x,y,title:GRID_TYPES[safeType].title,prompt:'',status:'IDLE',model:gridDefaultModel(safeType),settings:gridDefaultSettings(safeType),inputs:{},output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[]});
     studioGridSelectedIds = new Set([id]);
     saveStudioGridState(); renderStudioGrid();
+    if(mobile&&!explicit)requestAnimationFrame(resetStudioGridView);
     hideStudioGridContext();
     return id;
   }
@@ -18772,7 +18814,7 @@ async function waitGeneration(jobId, options) {
     saveStudioGridState(); renderStudioGrid();
   }
 
-  function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source));copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+34;copy.y=Number(copy.y)+34;copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid() }
+  function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
 
   function gridConnectionCompatible(fromNode,fromPort,toNode,toPort){if(!fromNode||!toNode||fromNode.id===toNode.id)return false;const output=fromPort||(GRID_TYPES[fromNode.type]?.outputs||[])[0],target=toPort||(GRID_TYPES[toNode.type]?.inputs||[])[0];if(output===target)return true;if(output==='text'&&['text','lyrics'].includes(target))return true;if(output==='task'&&target==='task')return true;if(output==='audio'&&toNode.type==='video')return true;return false}
 
@@ -19145,7 +19187,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow,
+    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, openStudioGridProjectFromDrawer,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
