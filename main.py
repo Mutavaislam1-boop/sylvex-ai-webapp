@@ -13094,6 +13094,17 @@ def prostudio_quick_image_catalog_items() -> dict:
         "popular_references": "popular-references",
         "objects": "objects",
     }
+    style_names = {
+        "01":"Noir Trio", "02":"Neutral Editorial", "03":"Balcony Story", "04":"Neon City", "05":"Equestrian Noir",
+        "06":"Miniature Executive", "07":"Lime Editorial", "08":"Glossy Doll", "09":"Midnight Player", "10":"Monumental Steps",
+        "11":"Tropical Taxi", "12":"Paris Café", "13":"Lake Luxury", "14":"Identity Scan", "15":"Rugged Portrait",
+        "16":"Library Chic", "17":"Motion Echo", "18":"Dual Neon", "19":"Orange Studio", "20":"Cyber Magenta",
+        "21":"Soft 3D Muse", "22":"Glam 3D", "23":"Braided 3D", "24":"Copper 3D", "25":"Fairytale 3D",
+        "26":"Night Drive", "27":"Cyan Motion", "28":"Executive Portrait", "29":"Beanie Avatar", "30":"Paris Noir",
+        "31":"Cloud Corridor", "32":"Instagram Portal", "33":"Lime Supercar", "34":"Electric Blue", "35":"Neon Halo",
+        "36":"Pixel Dissolve", "37":"Cinematic Player", "38":"Fashion Doll", "39":"Graphic Sketch", "40":"Sunset Street",
+        "41":"Mirror Story", "42":"Future Pop", "43":"Monochrome Agent", "44":"Modern Gentleman", "45":"Signature Portrait",
+    }
     for category, folder_name in category_dirs.items():
         category_dir = base_dir / folder_name
         if not category_dir.exists():
@@ -13111,7 +13122,24 @@ def prostudio_quick_image_catalog_items() -> dict:
                     if isinstance(parsed, dict):
                         metadata = parsed
                 except Exception as exc:
-                    prostudio_error("QUICK_IMAGE_CATALOG_TEMPLATE_JSON_FAILED", exc, slot=slot_path.name)
+                    # Many supplied templates contain literal line breaks inside the prompt string.
+                    # Preserve that prompt instead of dropping the complete style metadata.
+                    try:
+                        raw = metadata_file.read_text(encoding="utf-8")
+                        id_match = re.search(r'"id"\s*:\s*"([^"]+)"', raw)
+                        title_match = re.search(r'"title"\s*:\s*"([^"]*)"', raw)
+                        prompt_match = re.search(r'"prompt"\s*:\s*"([\s\S]*)"\s*}\s*$', raw)
+                        if not prompt_match:
+                            prompt_match = re.search(r'"prompt"\s*:\s*"([\s\S]*)$', raw)
+                        prompt_value = prompt_match.group(1) if prompt_match else ""
+                        prompt_value = re.sub(r'"?\s*}\s*$', '', prompt_value).strip()
+                        metadata = {
+                            "id": id_match.group(1) if id_match else "",
+                            "title": title_match.group(1) if title_match else "",
+                            "prompt": prompt_value.replace('\\"', '"'),
+                        }
+                    except Exception:
+                        prostudio_error("QUICK_IMAGE_CATALOG_TEMPLATE_JSON_FAILED", exc, slot=slot_path.name)
             image_file = slot_path if slot_path.is_file() and slot_path.suffix.lower() in image_extensions else None
             if image_file is None and slot_path.is_dir():
                 image_file = next((path for path in sorted(slot_path.iterdir()) if path.is_file() and path.suffix.lower() in image_extensions), None)
@@ -13122,8 +13150,8 @@ def prostudio_quick_image_catalog_items() -> dict:
             slot = slot_path.stem if slot_path.is_file() else slot_path.name
             default_title = f"{slot}"
             metadata_title = str(metadata.get("title") or metadata.get("name") or "").strip()
-            if category == "styles" and (not metadata_title or metadata_title.lower() == "название фотографии"):
-                metadata_title = f"Стиль {slot}"
+            if category == "styles":
+                metadata_title = style_names.get(slot, metadata_title or "Visual Style")
             elif category == "objects" and (not metadata_title or metadata_title.lower() == "название фотографии"):
                 metadata_title = f"Объект {slot}"
             result[category].append({

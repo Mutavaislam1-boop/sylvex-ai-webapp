@@ -6181,8 +6181,32 @@ function ensureQuickImageDetailModal() {
   let modal = document.getElementById('quickImageDetailModal');
   if (modal) return modal;
   modal = document.createElement('div'); modal.id = 'quickImageDetailModal'; modal.className = 'photo-tool-modal quick-image-detail-modal'; modal.onclick = closeQuickImageDetail;
-  modal.innerHTML = '<section class="photo-tool-dialog quick-image-detail-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()"><header class="photo-tool-head"><div><small id="quickImageDetailKind">Каталог</small><h3 id="quickImageDetailTitle">Изображение</h3></div><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeQuickImageDetail(event)">×</button></header><div class="quick-image-detail-layout"><div class="quick-image-detail-reference"><img id="quickImageDetailImage" alt="" /><p id="quickImageDetailDescription"></p></div><div class="quick-image-detail-form"><button id="quickImageDetailUpload" class="quick-image-detail-upload" type="button" onclick="SYLVEX.openQuickImageDetailFile(event)"><span>＋</span><b>Загрузить своё фото</b><small>JPG, PNG или WEBP</small></button><input id="quickImageDetailFile" type="file" accept="image/*" hidden onchange="SYLVEX.onQuickImageDetailFile(event)" /><textarea id="quickImageDetailPrompt" placeholder="Кратко опишите желаемый результат (необязательно)"></textarea><button id="quickImageDetailGenerate" class="photo-tool-generate" type="button" disabled onclick="SYLVEX.generateQuickImageDetail(event)">Сгенерировать</button></div></div></section>';
+  modal.innerHTML = '<section class="photo-tool-dialog quick-image-detail-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()"><header class="photo-tool-head"><div><small id="quickImageDetailKind">Каталог</small><h3 id="quickImageDetailTitle">Изображение</h3></div><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeQuickImageDetail(event)">×</button></header><div class="quick-image-detail-layout"><div class="quick-image-detail-reference"><div class="quick-image-detail-visual"><img id="quickImageDetailImage" alt="" /></div><p id="quickImageDetailDescription"></p></div><div class="quick-image-detail-form"><button id="quickImageDetailUpload" class="quick-image-detail-upload" type="button" onclick="SYLVEX.openQuickImageDetailFile(event)"><span>＋</span><b>Загрузить своё фото</b><small>JPG, PNG или WEBP</small></button><input id="quickImageDetailFile" type="file" accept="image/*" hidden onchange="SYLVEX.onQuickImageDetailFile(event)" /><div id="quickImageDetailFields" class="quick-image-detail-fields"></div><textarea id="quickImageDetailPrompt" placeholder="Кратко опишите желаемый результат (необязательно)"></textarea><button id="quickImageDetailGenerate" class="photo-tool-generate" type="button" disabled onclick="SYLVEX.generateQuickImageDetail(event)">Сгенерировать</button></div></div></section>';
   document.body.appendChild(modal); return modal;
+}
+
+function quickImageStyleFields(item) {
+  const id = String(item && item.id || '');
+  if (id === 'photo_09' || id === 'photo_37') return [
+    {key:'artist',label:'Имя исполнителя'}, {key:'song',label:'Название песни'}, {key:'album_cover',label:'Обложка альбома',type:'image'},
+  ];
+  if (id === 'photo_29') return [
+    {key:'beanie_color',label:'Цвет шапки'}, {key:'beanie_stickers',label:'Стикеры: смайлики, флаг или значки'},
+  ];
+  if (id === 'photo_32') return [
+    {key:'instagram_username',label:'Никнейм'}, {key:'instagram_display_name',label:'Имя'},
+    {key:'instagram_caption',label:'Подпись'}, {key:'instagram_likes',label:'Количество лайков'},
+    {key:'instagram_location',label:'Место'}, {key:'instagram_profile_image',label:'Фото профиля',type:'image'},
+  ];
+  return [];
+}
+
+function renderQuickImageDetailFields(item) {
+  const host = document.getElementById('quickImageDetailFields'); if (!host) return;
+  const fields = quickImageStyleFields(item);
+  host.innerHTML = fields.map((field) => field.type === 'image'
+    ? '<button type="button" class="quick-image-extra-upload" data-extra-upload="' + field.key + '" onclick="SYLVEX.openQuickImageExtraFile(event,\'' + field.key + '\')"><span>＋</span><b>' + field.label + '</b></button><input id="quickImageExtra_' + field.key + '" type="file" accept="image/*" hidden onchange="SYLVEX.onQuickImageExtraFile(event,\'' + field.key + '\')" />'
+    : '<label><span>' + field.label + '</span><input type="text" data-quick-image-field="' + field.key + '" placeholder="' + field.label + '" /></label>').join('');
 }
 
 function selectPhotoCatalogItem(e, id) {
@@ -6192,19 +6216,29 @@ function selectPhotoCatalogItem(e, id) {
   }
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
-  quickImageDetailState = { item, uploadedUrl:'', uploading:false };
+  quickImageDetailState = { item, uploadedUrl:'', uploading:false, extraUploads:{} };
   const modal = ensureQuickImageDetailModal();
   document.getElementById('quickImageDetailTitle').textContent = item.title;
   document.getElementById('quickImageDetailKind').textContent = item.kind === 'styles' ? 'Стиль' : (item.kind === 'objects' ? 'Объект' : 'Референс');
   document.getElementById('quickImageDetailImage').src = item.url;
   document.getElementById('quickImageDetailDescription').textContent = item.description || (item.kind === 'styles' ? 'Загрузите своё фото — стиль применится автоматически.' : 'Загрузите своё фото и при необходимости уточните результат.');
   const prompt = document.getElementById('quickImageDetailPrompt'); prompt.value = ''; prompt.hidden = item.kind === 'styles';
+  renderQuickImageDetailFields(item);
   const upload = document.getElementById('quickImageDetailUpload'); upload.classList.remove('has-image'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить своё фото';
   document.getElementById('quickImageDetailGenerate').disabled = true; modal.classList.add('show');
 }
 
 function closeQuickImageDetail(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const modal = document.getElementById('quickImageDetailModal'); if (modal) modal.classList.remove('show'); }
 function openQuickImageDetailFile(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const input = document.getElementById('quickImageDetailFile'); if (input) { input.value = ''; input.click(); } }
+function openQuickImageExtraFile(e, key) { if (e) { e.preventDefault(); e.stopPropagation(); } const input = document.getElementById('quickImageExtra_' + key); if (input) { input.value = ''; input.click(); } }
+async function onQuickImageExtraFile(e, key) {
+  const file = e && e.target && e.target.files && e.target.files[0]; if (!file || !quickImageDetailState) return;
+  const button = document.querySelector('[data-extra-upload="' + key + '"]'); if (button) button.classList.add('uploading');
+  try {
+    const url = await uploadProStudioMediaFile(file, 'image'); quickImageDetailState.extraUploads[key] = url;
+    if (button) { button.classList.remove('uploading'); button.classList.add('has-image'); button.style.backgroundImage = 'url("' + URL.createObjectURL(file) + '")'; }
+  } catch (error) { if (button) button.classList.remove('uploading'); toast((error && error.message) || 'Не удалось загрузить изображение'); }
+}
 async function onQuickImageDetailFile(e) {
   const file = e && e.target && e.target.files && e.target.files[0]; if (!file || !quickImageDetailState) return;
   const upload = document.getElementById('quickImageDetailUpload'); const button = document.getElementById('quickImageDetailGenerate');
@@ -6221,12 +6255,17 @@ async function generateQuickImageDetail(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const state = quickImageDetailState; if (!state || !state.uploadedUrl || state.uploading) return;
   const item = state.item; const extra = String((document.getElementById('quickImageDetailPrompt') || {}).value || '').trim();
+  const customValues = {};
+  document.querySelectorAll('#quickImageDetailFields [data-quick-image-field]').forEach((field) => { if (String(field.value || '').trim()) customValues[field.dataset.quickImageField] = String(field.value).trim(); });
+  Object.assign(customValues, state.extraUploads || {});
   updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
   let prompt = extra;
   if (item.kind === 'styles') {
     imageState.style = item.styleId || 'auto';
-    if (!item.styleId) imageState.referenceImageUrls = [state.uploadedUrl, item.url];
+    if (!item.styleId) imageState.referenceImageUrls = [state.uploadedUrl, item.url].concat(Object.values(state.extraUploads || {}));
     prompt = item.prompt || ('Примени выбранный стиль «' + item.title + '» к загруженному изображению, сохранив узнаваемость и композицию.');
+    const customization = Object.entries(customValues).map(([key,value]) => key + ': ' + value).join('\n');
+    if (customization) prompt += '\n\nUSER CUSTOMIZATION (use these values exactly):\n' + customization;
   } else if (item.kind === 'objects') {
     imageState.objectId = item.id; imageState.objectName = item.title;
     imageState.objectReferences = item.objectItem
@@ -11558,6 +11597,18 @@ function renderGeneratedTelegramButton(url, kind) {
       } catch (_) {
         replyTarget?.postMessage({ source:'sylvex-knowledge-parent', action:'music-library', tracks:[] }, location.origin);
       }
+      return;
+    }
+    if (message.action === 'image-catalog-item') {
+      await loadPhotoCatalog(false);
+      quickImageCatalogSection = String(message.kind || 'references');
+      closeKnowledgeWorkspace();
+      selectPhotoCatalogItem(null, String(message.itemId || ''));
+      return;
+    }
+    if (message.action === 'photo-tool') {
+      closeKnowledgeWorkspace();
+      openPhotoToolModal(null, String(message.toolId || 'photo_catalog'));
       return;
     }
     if (message.action === 'video-template') {
@@ -19125,6 +19176,8 @@ async function waitGeneration(jobId, options) {
   });
 
   S.clearPhotoToolMask = clearPhotoToolMask;
+  S.openQuickImageExtraFile = openQuickImageExtraFile;
+  S.onQuickImageExtraFile = onQuickImageExtraFile;
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
