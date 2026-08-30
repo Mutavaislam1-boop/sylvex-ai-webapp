@@ -360,6 +360,9 @@ let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let videoTemplatesCache = null;
 let photoCatalogCache = null;
+let quickImageCatalogCache = null;
+let quickImageCatalogSection = 'references';
+let quickImageDetailState = null;
 let klingEffectsCache = null;
 let activeVideoTemplate = null;
 let videoTemplateUploadUrl = '';
@@ -6070,8 +6073,9 @@ function ensurePhotoCatalogModal() {
   modal.className = 'photo-tool-modal photo-catalog-modal';
   modal.onclick = closePhotoCatalog;
   modal.innerHTML = '<section class="photo-tool-dialog photo-catalog-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
-    + '<header class="photo-tool-head"><div><small>Каталог</small><h3>Фото</h3></div>'
+    + '<header class="photo-tool-head"><div><small>Быстрый генератор</small><h3>Каталог изображений</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoCatalog(event)">×</button></header>'
+    + '<nav id="photoCatalogTabs" class="photo-catalog-tabs"></nav>'
     + '<div id="photoCatalogGrid" class="photo-catalog-grid"></div>'
     + '</section>';
   document.body.appendChild(modal);
@@ -6079,36 +6083,60 @@ function ensurePhotoCatalogModal() {
 }
 
 async function loadPhotoCatalog(force) {
-  if (!force && Array.isArray(photoCatalogCache)) return photoCatalogCache;
+  if (!force && quickImageCatalogCache) return quickImageCatalogCache;
   try {
-    const res = await fetch('/api/public/prostudio/photo-catalog', { cache: force ? 'reload' : 'default' });
+    const res = await fetch('/api/public/prostudio/quick-image-catalog', { cache: force ? 'reload' : 'default' });
     const data = await res.json().catch(() => ({}));
-    photoCatalogCache = Array.isArray(data.photos)
-      ? data.photos.map((item) => ({
-          id: String(item.id || ''),
-          url: String(item.image_url || item.url || ''),
-          title: String(item.title || item.name || 'Фото'),
-          prompt: String(item.prompt || ''),
-          model: String(item.model || ''),
-          aspectRatio: String(item.aspect_ratio || item.ratio || ''),
-        })).filter((item) => item.url)
-      : [];
+    const source = data.catalog && typeof data.catalog === 'object' ? data.catalog : {};
+    const normalizeItems = (items, kind) => (Array.isArray(items) ? items : []).map((item) => ({
+      id:String(item.id || ''), url:String(item.image_url || item.url || ''), title:String(item.title || item.name || 'Фото'),
+      description:String(item.description || ''), prompt:String(item.prompt || ''), kind, source:String(item.source || 'quick_folder'),
+    })).filter((item) => item.url);
+    quickImageCatalogCache = {
+      references:normalizeItems(source.references, 'references'), styles:normalizeItems(source.styles, 'styles'),
+      popular_references:normalizeItems(source.popular_references, 'popular_references'), objects:normalizeItems(source.objects, 'objects'),
+    };
+    quickImageCatalogCache.styles = IMAGE_STYLE_SHEET_ITEMS.filter((item) => item.id !== 'auto' && item.image).map((item) => ({
+      id:item.id, url:item.image, title:item.label, description:'Встроенный стиль Pro Studio', prompt:'', kind:'styles', source:'prostudio_style', styleId:item.id,
+    })).concat(quickImageCatalogCache.styles);
+    quickImageCatalogCache.objects = imageObjects().map((item) => ({
+      id:String(item.id || ''), url:String(visualPreviewUrl(item) || ''), title:String(item.name || item.title || 'Объект'),
+      description:String(item.description || ''), prompt:String(item.prompt || ''), kind:'objects', source:'prostudio_object', objectItem:item,
+    })).filter((item) => item.url).concat(quickImageCatalogCache.objects);
+    photoCatalogCache = quickImageCatalogCache.references;
   } catch {
+    quickImageCatalogCache = { references:[], styles:[], popular_references:[], objects:[] };
     photoCatalogCache = [];
   }
-  return photoCatalogCache;
+  return quickImageCatalogCache;
 }
 
-function renderPhotoCatalog(itemsOverride) {
+function selectPhotoCatalogSection(e, section) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  quickImageCatalogSection = section || 'references';
+  renderPhotoCatalog();
+}
+
+function renderPhotoCatalog() {
   const grid = document.getElementById('photoCatalogGrid');
   if (!grid) return;
-  const items = Array.isArray(itemsOverride) ? itemsOverride : (photoCatalogCache || []);
+  const sections = [['references','Референсы'],['styles','Стили'],['popular_references','Популярные'],['objects','Объекты'],['tools','Инструменты']];
+  const tabs = document.getElementById('photoCatalogTabs');
+  if (tabs) tabs.innerHTML = sections.map(([id,label]) => '<button type="button" class="' + (id === quickImageCatalogSection ? 'active' : '') + '" onclick="SYLVEX.selectPhotoCatalogSection(event,\'' + id + '\')">' + label + '</button>').join('');
+  if (quickImageCatalogSection === 'tools') {
+    grid.innerHTML = Object.keys(PHOTO_TOOL_CONFIG).map((id) => {
+      const tool = PHOTO_TOOL_CONFIG[id];
+      return '<button class="photo-catalog-card photo-catalog-tool-card" type="button" onclick="SYLVEX.openPhotoCatalogTool(event,\'' + id + '\')">' + photoToolCatalogPreviewHtml(tool) + '<span><b>' + S.escapeHtml(tool.title || 'Инструмент') + '</b><small>Открыть инструмент</small></span></button>';
+    }).join('');
+    return;
+  }
+  const items = (quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || [];
   if (!items.length) {
-    grid.innerHTML = '<div class="photo-catalog-empty">Каталог пока пуст. Добавьте фотографии в папку разработчика.</div>';
+    grid.innerHTML = '<div class="photo-catalog-empty">В этом разделе пока нет изображений.</div>';
     return;
   }
   grid.innerHTML = items.map((item) => {
-    return '<button class="photo-catalog-card square" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.url) + '\')">'
+    return '<button class="photo-catalog-card square" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.id) + '\')">'
     + '<img src="' + S.escapeHtml(item.url) + '" alt="' + S.escapeHtml(item.title) + '" loading="lazy" decoding="async" onload="SYLVEX.syncPhotoCatalogCardRatio(event)" />'
     + '<span><b>' + S.escapeHtml(item.title) + '</b><small>Использовать фото</small></span>'
     + '</button>';
@@ -6136,7 +6164,8 @@ async function openPhotoCatalog(e) {
   modal.classList.add('show');
   const grid = document.getElementById('photoCatalogGrid');
   if (grid) grid.innerHTML = '<div class="photo-catalog-empty">Загружаем каталог…</div>';
-  renderPhotoCatalog(await loadPhotoCatalog(true));
+  await loadPhotoCatalog(false);
+  renderPhotoCatalog();
 }
 
 function closePhotoCatalog(e) {
@@ -6148,29 +6177,69 @@ function closePhotoCatalog(e) {
   if (modal) modal.classList.remove('show');
 }
 
-function selectPhotoCatalogItem(e, url) {
+function ensureQuickImageDetailModal() {
+  let modal = document.getElementById('quickImageDetailModal');
+  if (modal) return modal;
+  modal = document.createElement('div'); modal.id = 'quickImageDetailModal'; modal.className = 'photo-tool-modal quick-image-detail-modal'; modal.onclick = closeQuickImageDetail;
+  modal.innerHTML = '<section class="photo-tool-dialog quick-image-detail-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()"><header class="photo-tool-head"><div><small id="quickImageDetailKind">Каталог</small><h3 id="quickImageDetailTitle">Изображение</h3></div><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeQuickImageDetail(event)">×</button></header><div class="quick-image-detail-layout"><div class="quick-image-detail-reference"><img id="quickImageDetailImage" alt="" /><p id="quickImageDetailDescription"></p></div><div class="quick-image-detail-form"><button id="quickImageDetailUpload" class="quick-image-detail-upload" type="button" onclick="SYLVEX.openQuickImageDetailFile(event)"><span>＋</span><b>Загрузить своё фото</b><small>JPG, PNG или WEBP</small></button><input id="quickImageDetailFile" type="file" accept="image/*" hidden onchange="SYLVEX.onQuickImageDetailFile(event)" /><textarea id="quickImageDetailPrompt" placeholder="Кратко опишите желаемый результат (необязательно)"></textarea><button id="quickImageDetailGenerate" class="photo-tool-generate" type="button" disabled onclick="SYLVEX.generateQuickImageDetail(event)">Сгенерировать</button></div></div></section>';
+  document.body.appendChild(modal); return modal;
+}
+
+function selectPhotoCatalogItem(e, id) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
-  if (!url) return;
-  const item = (photoCatalogCache || []).find((entry) => entry.url === url) || null;
-  if (item && item.model && IMAGE_MODEL_LIST.some((model) => model.id === item.model)) {
-    imageState.modelId = item.model;
+  const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
+  if (!item) return;
+  quickImageDetailState = { item, uploadedUrl:'', uploading:false };
+  const modal = ensureQuickImageDetailModal();
+  document.getElementById('quickImageDetailTitle').textContent = item.title;
+  document.getElementById('quickImageDetailKind').textContent = item.kind === 'styles' ? 'Стиль' : (item.kind === 'objects' ? 'Объект' : 'Референс');
+  document.getElementById('quickImageDetailImage').src = item.url;
+  document.getElementById('quickImageDetailDescription').textContent = item.description || (item.kind === 'styles' ? 'Загрузите своё фото — стиль применится автоматически.' : 'Загрузите своё фото и при необходимости уточните результат.');
+  const prompt = document.getElementById('quickImageDetailPrompt'); prompt.value = ''; prompt.hidden = item.kind === 'styles';
+  const upload = document.getElementById('quickImageDetailUpload'); upload.classList.remove('has-image'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить своё фото';
+  document.getElementById('quickImageDetailGenerate').disabled = true; modal.classList.add('show');
+}
+
+function closeQuickImageDetail(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const modal = document.getElementById('quickImageDetailModal'); if (modal) modal.classList.remove('show'); }
+function openQuickImageDetailFile(e) { if (e) { e.preventDefault(); e.stopPropagation(); } const input = document.getElementById('quickImageDetailFile'); if (input) { input.value = ''; input.click(); } }
+async function onQuickImageDetailFile(e) {
+  const file = e && e.target && e.target.files && e.target.files[0]; if (!file || !quickImageDetailState) return;
+  const upload = document.getElementById('quickImageDetailUpload'); const button = document.getElementById('quickImageDetailGenerate');
+  quickImageDetailState.uploading = true; if (button) button.disabled = true;
+  if (upload) { upload.classList.add('has-image'); upload.style.backgroundImage = 'url("' + URL.createObjectURL(file) + '")'; upload.querySelector('b').textContent = 'Загрузка…'; }
+  try { quickImageDetailState.uploadedUrl = await uploadProStudioMediaFile(file, 'image'); if (upload) upload.querySelector('b').textContent = 'Фото загружено'; if (button) button.disabled = false; }
+  catch (error) { toast((error && error.message) || 'Не удалось загрузить фото'); if (upload) upload.querySelector('b').textContent = 'Загрузить своё фото'; }
+  finally { quickImageDetailState.uploading = false; }
+}
+
+function openPhotoCatalogTool(e, id) { closePhotoCatalog(e); openPhotoToolModal(null, id); }
+
+async function generateQuickImageDetail(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = quickImageDetailState; if (!state || !state.uploadedUrl || state.uploading) return;
+  const item = state.item; const extra = String((document.getElementById('quickImageDetailPrompt') || {}).value || '').trim();
+  updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
+  let prompt = extra;
+  if (item.kind === 'styles') {
+    imageState.style = item.styleId || 'auto';
+    prompt = item.prompt || ('Примени выбранный стиль «' + item.title + '» к загруженному изображению, сохранив узнаваемость и композицию.');
+  } else if (item.kind === 'objects') {
+    imageState.objectId = item.id; imageState.objectName = item.title;
+    imageState.objectReferences = item.objectItem
+      ? (item.objectItem.referenceImages || item.objectItem.reference_images || item.objectItem.photos || [visualPreviewUrl(item.objectItem)]).filter(Boolean)
+      : [item.url];
+    imageState.objectPrompt = item.prompt || '';
+    prompt = [item.prompt || ('Добавь выбранный объект «' + item.title + '» в загруженное изображение.'), extra].filter(Boolean).join('\n\n');
+  } else {
+    imageState.referenceImageUrls = [state.uploadedUrl, item.url]; imageState.referenceImageUrl = state.uploadedUrl;
+    prompt = [item.prompt || 'Создай новое изображение на основе выбранного визуального референса, сохранив персонажа с загруженного фото.', extra].filter(Boolean).join('\n\n');
   }
-  if (item && item.prompt) {
-    const input = document.getElementById('chatInput');
-    if (input) {
-      input.value = item.prompt;
-      autoGrow(input);
-    }
-  }
-  setUploadTarget(UPLOAD_TARGETS.IMAGE_UPLOAD);
-  applyUploadToTarget(url, UPLOAD_TARGETS.IMAGE_UPLOAD);
-  renderImageControls();
-  renderImageUploadPreview();
-  closePhotoCatalog();
-  toast('Фото добавлено в генерацию');
+  const input = document.getElementById('chatInput'); if (!input) return;
+  input.value = prompt; autoGrow(input); renderImageControls(); renderImageUploadPreview(); renderUploadedPhotoGrid(); updateSendButton();
+  closeQuickImageDetail(); closePhotoCatalog(); await sendChat();
 }
 
 function photoToolDemoHtml(config) {
@@ -19028,7 +19097,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, regenMsg, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,

@@ -79,6 +79,7 @@ VIDEO_TEMPLATE_CATALOG_CACHE_TTL = 60
 VIDEO_TEMPLATE_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
 PHOTO_CATALOG_CACHE_TTL = 60
 PHOTO_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
+QUICK_IMAGE_CATALOG_CACHE = {"expires_at": 0.0, "value": None}
 HEYGEN_AVATAR_LOOK_CACHE_TTL = 300
 HEYGEN_AVATAR_LOOK_CACHE = {}
 
@@ -13080,6 +13081,65 @@ async def public_prostudio_photo_catalog():
     payload = {"ok": True, "photos": prostudio_photo_catalog_items()}
     PHOTO_CATALOG_CACHE["value"] = payload
     PHOTO_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
+    return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
+
+
+def prostudio_quick_image_catalog_items() -> dict:
+    base_dir = WEBAPP_DIR / "assets" / "quick-generator" / "image"
+    image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    result = {"references": [], "styles": [], "popular_references": [], "objects": []}
+    category_dirs = {
+        "references": "references",
+        "styles": "styles",
+        "popular_references": "popular-references",
+        "objects": "objects",
+    }
+    for category, folder_name in category_dirs.items():
+        category_dir = base_dir / folder_name
+        if not category_dir.exists():
+            continue
+        slots = sorted(category_dir.iterdir(), key=lambda path: path.name.lower())
+        for slot_path in slots:
+            if slot_path.name.startswith("."):
+                continue
+            metadata = {}
+            search_dir = slot_path if slot_path.is_dir() else category_dir
+            metadata_file = search_dir / "template.json"
+            if metadata_file.exists():
+                try:
+                    parsed = json.loads(metadata_file.read_text(encoding="utf-8"))
+                    if isinstance(parsed, dict):
+                        metadata = parsed
+                except Exception as exc:
+                    prostudio_error("QUICK_IMAGE_CATALOG_TEMPLATE_JSON_FAILED", exc, slot=slot_path.name)
+            image_file = slot_path if slot_path.is_file() and slot_path.suffix.lower() in image_extensions else None
+            if image_file is None and slot_path.is_dir():
+                image_file = next((path for path in sorted(slot_path.iterdir()) if path.is_file() and path.suffix.lower() in image_extensions), None)
+            if image_file is None:
+                continue
+            relative = image_file.relative_to(WEBAPP_DIR).parts
+            image_url = "/webapp/" + "/".join(urllib.parse.quote(part, safe="") for part in relative)
+            slot = slot_path.stem if slot_path.is_file() else slot_path.name
+            result[category].append({
+                "id": str(metadata.get("id") or f"quick_{category}_{slot}"),
+                "title": str(metadata.get("title") or metadata.get("name") or f"{slot}"),
+                "description": str(metadata.get("description") or ""),
+                "prompt": str(metadata.get("prompt") or ""),
+                "image_url": image_url,
+                "source": "quick_folder",
+            })
+    return result
+
+
+@app.get("/api/public/prostudio/quick-image-catalog")
+async def public_prostudio_quick_image_catalog():
+    now = time.time()
+    cached = QUICK_IMAGE_CATALOG_CACHE.get("value")
+    if cached is not None and now < float(QUICK_IMAGE_CATALOG_CACHE.get("expires_at") or 0):
+        return JSONResponse(cached, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
+    payload = {"ok": True, "catalog": prostudio_quick_image_catalog_items()}
+    QUICK_IMAGE_CATALOG_CACHE["value"] = payload
+    QUICK_IMAGE_CATALOG_CACHE["expires_at"] = now + PHOTO_CATALOG_CACHE_TTL
     return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
 
 # =====================================================
