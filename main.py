@@ -12838,26 +12838,94 @@ def prostudio_video_templates_from_env() -> list:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def prostudio_builtin_video_template_slots() -> list:
+    russian_titles = [
+        "Сброс сумки", "Ангел на шоссе", "Чемпион мира", "Воздушная доставка", "Масштабный отлёт камеры",
+        "Баннер над городом", "Ужас в зеркале", "ASMR-распаковка", "Фотобудка", "Кубок мира LEGO",
+        "Американские горки", "Рамен в Токио", "Полёт над облаками", "Уличная афиша", "Модное селфи",
+        "Выход из отеля", "Красная дорожка", "На вершине Земли", "Полёт ангела", "Бой в снежном тоннеле",
+        "Музыка в поле", "Погружение в радужку", "За кулисами кино", "Ночное видение", "Горный поход",
+        "Концертная арена", "Y2K-глитч", "3D-каркас", "Городской таймлапс", "Высокая мода",
+        "Магия огня", "Мир в бутылке", "Гигантская доставка", "Фэнтези-джунгли", "Горное приключение",
+        "Поездка по открытой дороге", "Камера 360°", "Подъём камеры", "Эффект удара", "Обзор модного образа",
+        "Улыбка на стадионе", "Кошачья встреча", "Звезда в аэропорту", "Реакция болельщика", "Празднование гола",
+        "Дождь конфетти", "Спокойствие в огне", "Взлёт дрона", "Золотые частицы", "Реклама на билборде",
+        "Эпичный отлёт дрона", "Акробатический переворот", "Приземление продукта", "Превращение улыбки", "Премьера на красной дорожке",
+        "Кинематографическая погоня", "Одежда в полёте", "Белки и продукт", "Жидкий хром", "От героя к Земле",
+        "Фотокопии", "Слёзы", "K-pop-фанкам", "Весёлые мордочки", "Надутые щёки", "Рокер-питомец",
+    ]
     templates = []
     base_dir = WEBAPP_DIR / "assets" / "video-templates"
-    for index in range(1, 51):
+    for index in range(1, 68):
         slot = f"{index:02d}"
         template_id = f"builtin_video_template_{index}"
         slot_dir = base_dir / slot
         preview_file = slot_dir / "preview.mp4"
+        if not preview_file.exists() and (slot_dir / "poster.mp4").exists():
+            preview_file = slot_dir / "poster.mp4"
         poster_file = slot_dir / "poster.jpg"
+        metadata_file = slot_dir / "template.json"
+        prompt_file = slot_dir / "prompt.txt"
         preview_exists = preview_file.exists()
         poster_exists = poster_file.exists()
-        templates.append({
+        if not preview_exists:
+            continue
+        metadata = {}
+        if metadata_file.exists():
+            try:
+                parsed = json.loads(metadata_file.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    metadata = parsed
+            except Exception as exc:
+                prostudio_error("VIDEO_TEMPLATE_METADATA_FAILED", exc, slot=slot)
+        prompt = ""
+        if prompt_file.exists():
+            try:
+                prompt = prompt_file.read_text(encoding="utf-8").strip()
+            except Exception as exc:
+                prostudio_error("VIDEO_TEMPLATE_PROMPT_FAILED", exc, slot=slot)
+        output = metadata.get("output") if isinstance(metadata.get("output"), dict) else {}
+        effect_scene = str(metadata.get("effect_scene") or "").strip()
+        is_provider_effect = index in {64, 65, 66} and bool(effect_scene)
+        title = russian_titles[index - 1] if index <= len(russian_titles) else str(metadata.get("name") or template_id)
+        if is_provider_effect:
+            descriptions = {
+                64: "Оживляет мордочку питомца фирменным эффектом Wiggle Faces.",
+                65: "Создаёт забавную анимацию лица с надутыми щёками.",
+                66: "Превращает фото питомца в энергичную рок-анимацию.",
+            }
+            description = descriptions[index]
+        else:
+            description = f"Загрузите изображение. SYLVEX сохранит движение, камеру и постановку референсного видео «{title}», заменив главного персонажа или объект."
+        item = {
             "id": template_id,
             "slot": slot,
+            "title": title,
+            "name": title,
+            "description": description,
+            "prompt": prompt or str(metadata.get("description") or title),
             "preview_exists": preview_exists,
             "poster_exists": poster_exists,
-            "preview_video": f"/webapp/assets/video-templates/{slot}/preview.mp4" if preview_exists else "",
-            "reference_video": f"/webapp/assets/video-templates/{slot}/preview.mp4" if preview_exists else "",
+            "preview_video": f"/webapp/assets/video-templates/{slot}/{preview_file.name}" if preview_exists else "",
+            "reference_video": "" if is_provider_effect else f"/webapp/assets/video-templates/{slot}/{preview_file.name}",
             "poster_url": f"/webapp/assets/video-templates/{slot}/poster.jpg" if poster_exists else "",
-            "upload_path": f"webapp/assets/video-templates/{slot}/preview.mp4",
-        })
+            "upload_path": f"webapp/assets/video-templates/{slot}/{preview_file.name}",
+            "aspect_ratio": str(output.get("aspect_ratio") or "9:16"),
+            "ratios": ["16:9", "1:1", "9:16"],
+            "duration": int(output.get("duration") or 5),
+            "resolution": "720p",
+            "catalog_type": "kling_effect" if is_provider_effect else "video_template",
+            "is_kling_effect": is_provider_effect,
+            "effect_scene": effect_scene if is_provider_effect else "",
+            "mode": "std" if is_provider_effect else "",
+            "model_name": "kling-v1-6" if is_provider_effect else "",
+            "input_count": int((metadata.get("input") or {}).get("count") or 1) if isinstance(metadata.get("input"), dict) else 1,
+            "models": ["kling_effects"] if is_provider_effect else ["kling_o3_omni"],
+            "preferred_model": "kling_effects" if is_provider_effect else "kling_o3_omni",
+            "cost": 95,
+            "cost_credits": 95,
+            "generation_cost": "95 ⚡",
+        }
+        templates.append(item)
     return templates
 
 def prostudio_kling_effects_library() -> list:
