@@ -276,7 +276,6 @@ HTML-страница Mini App. Комментарии подписывают э
           </div>
           <aside class="studio-grid-node-tools" aria-label="Добавить узел">
             <button class="studio-grid-tool-primary" type="button" onclick="SYLVEX.createStudioGridProject()" title="Новый проект"><i>＋</i><span>Новый</span></button>
-            <button type="button" onclick="SYLVEX.toggleHistory(event)" title="История проектов"><i>↻</i><span>История</span></button>
             <button type="button" onclick="SYLVEX.autoLayoutStudioGrid()" title="Автокомпоновка"><i>⌘</i><span>Расставить</span></button>
             <button id="studioGridSideRun" type="button" onclick="SYLVEX.runStudioGridWorkflow()" title="Запустить цепочку"><i>▷</i><span>Запустить</span></button>
             <hr aria-hidden="true">
@@ -295,6 +294,22 @@ HTML-страница Mini App. Комментарии подписывают э
           </aside>
           <div class="studio-grid-context" id="studioGridContext" hidden></div>
         </section>
+        <aside class="studio-grid-drawer" id="studioGridDrawer" aria-label="Меню проектов сетки">
+          <div class="studio-grid-drawer-head"><strong>Проекты сетки</strong><button type="button" onclick="SYLVEX.toggleStudioGridDrawer()" aria-label="Закрыть">×</button></div>
+          <div class="studio-grid-drawer-user" id="studioGridDrawerUser"></div>
+          <button class="studio-grid-drawer-new" type="button" onclick="SYLVEX.createStudioGridProject();SYLVEX.toggleStudioGridDrawer()"><i>＋</i><span>Новый проект</span></button>
+          <div class="studio-grid-drawer-actions"><button type="button" onclick="SYLVEX.autoLayoutStudioGrid();SYLVEX.toggleStudioGridDrawer()"><i>⌘</i><span>Автокомпоновка</span></button><button type="button" onclick="SYLVEX.runStudioGridWorkflow();SYLVEX.toggleStudioGridDrawer()"><i>▷</i><span>Запустить цепочку</span></button></div>
+          <div class="studio-grid-drawer-list" id="studioGridDrawerList"></div>
+        </aside>
+        <div class="studio-grid-drawer-backdrop" id="studioGridDrawerBackdrop" onclick="SYLVEX.toggleStudioGridDrawer()"></div>
+        <div class="studio-grid-text-editor" id="studioGridTextEditor" hidden>
+          <section role="dialog" aria-modal="true" aria-labelledby="studioGridTextEditorTitle">
+            <header><div><small>РЕДАКТОР БЛОКА</small><strong id="studioGridTextEditorTitle">Редактирование текста</strong></div><button type="button" onclick="SYLVEX.closeStudioGridTextEditor()" aria-label="Закрыть">×</button></header>
+            <textarea id="studioGridTextEditorInput" placeholder="Введите текст…" aria-label="Текст блока"></textarea>
+            <footer><button type="button" onclick="SYLVEX.closeStudioGridTextEditor()">Отмена</button><button class="primary" type="button" onclick="SYLVEX.saveStudioGridTextEditor()">Сохранить</button></footer>
+          </section>
+        </div>
+        <input id="studioGridMediaInput" type="file" accept="image/*,video/*,audio/*,.pdf,.txt,.doc,.docx" multiple hidden onchange="SYLVEX.onStudioGridMediaFiles(event)">
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: chatArea
         ID используется JavaScript/CSS как точка подключения: chatArea

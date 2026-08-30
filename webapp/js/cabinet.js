@@ -14903,25 +14903,15 @@ function maybeShowVideoTemplateIntro(force) {
   // =====================================================
   function toggleHistory(e) {
     if (e) e.stopPropagation();
+    if (document.querySelector('[data-view="tools"] .studio.grid-mode')) { toggleStudioGridDrawer(); return; }
     const d = document.getElementById('histDrawer');
     const b = document.getElementById('histBackdrop');
     if (!d || !b) return;
     const on = !d.classList.contains('show');
-    const gridMode = !!document.querySelector('[data-view="tools"] .studio.grid-mode');
-    if (on) {
-      renderHistoryUserSummary();
-      if (gridMode) renderStudioGridHistoryDrawer();
-      else {
-        const title=d.querySelector('.hd-title'),newButton=d.querySelector('.hd-new'),newLabel=newButton?.querySelector('span');
-        if(title){title.textContent='Чаты';title.setAttribute('data-i18n','chats')}
-        if(newButton)newButton.setAttribute('onclick','SYLVEX.newChat();SYLVEX.toggleHistory()');
-        if(newLabel){newLabel.textContent='Новый Чат';newLabel.setAttribute('data-i18n','new_chat')}
-        renderConvList();
-      }
-    }
+    if (on) { renderHistoryUserSummary(); renderConvList(); }
     d.classList.toggle('show', on);
     b.classList.toggle('show', on);
-    if (!on && !gridMode && activeGenerationLocked()) {
+    if (!on && activeGenerationLocked()) {
       activeGeneration.historyPreview = false;
       activeGeneration.restoringMode = true;
       if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) updateComposerMode(activeGeneration.mode);
@@ -14930,20 +14920,20 @@ function maybeShowVideoTemplateIntro(force) {
       ensureActiveGenerationPlaceholder(true);
     }
   }
-  function renderStudioGridHistoryDrawer() {
-    const drawer=document.getElementById('histDrawer'),list=document.getElementById('hdConvList');
-    if(!drawer||!list)return;
-    const title=drawer.querySelector('.hd-title'),newButton=drawer.querySelector('.hd-new'),newLabel=newButton?.querySelector('span');
-    if(title){title.textContent='Проекты сетки';title.removeAttribute('data-i18n')}
-    if(newButton)newButton.setAttribute('onclick','SYLVEX.createStudioGridProject();SYLVEX.toggleHistory()');
-    if(newLabel){newLabel.textContent='Новый проект';newLabel.removeAttribute('data-i18n')}
+  function renderStudioGridDrawer() {
+    const userHost=document.getElementById('studioGridDrawerUser'),list=document.getElementById('studioGridDrawerList');
+    if(!userHost||!list)return;
+    const user=S.user||{},name=(user.display_name&&String(user.display_name).trim())||[user.first_name,user.last_name].filter(Boolean).join(' ')||user.username||'Пользователь',handle=user.username?'@'+user.username:'SYLVEX ID '+(user.telegram_id||'—'),avatarUrl=user.custom_avatar_url||user.photo_url,initials=((user.first_name||user.username||'·').slice(0,1)+(user.last_name||'').slice(0,1)).toUpperCase();
+    userHost.innerHTML=`<div class="studio-grid-drawer-avatar">${avatarUrl?`<img src="${gridEscape(avatarUrl)}" alt="">`:gridEscape(initials)}</div><div><b>${gridEscape(name)}</b><span>${gridEscape(handle)}</span></div><strong>${Number(user.balance||0).toLocaleString()} ⚡️</strong>`;
     const active=loadStudioGridState(),items=loadStudioGridProjects();
-    list.innerHTML=`<div class="hd-grid-actions"><button type="button" data-grid-drawer-layout><i>⌘</i><span>Автокомпоновка</span></button><button type="button" data-grid-drawer-run><i>▷</i><span>Запустить цепочку</span></button></div>${items.length?items.map(item=>`<button type="button" class="hd-grid-project${item.id===active.projectId?' active':''}" data-grid-drawer-project="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join(''):'<div class="hd-empty">Сохранённых проектов пока нет</div>'}`;
-    list.querySelector('[data-grid-drawer-layout]')?.addEventListener('click',()=>{autoLayoutStudioGrid();toggleHistory()});
-    list.querySelector('[data-grid-drawer-run]')?.addEventListener('click',()=>{runStudioGridWorkflow();toggleHistory()});
-    list.querySelectorAll('[data-grid-drawer-project]').forEach(button=>button.addEventListener('click',()=>openStudioGridProjectFromDrawer(button.dataset.gridDrawerProject)));
+    list.innerHTML=items.length?items.map(item=>`<button type="button" class="studio-grid-drawer-project${item.id===active.projectId?' active':''}" data-grid-drawer-project="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join(''):'<div class="hd-empty">Сохранённых проектов пока нет</div>';
+    list.querySelectorAll('[data-grid-drawer-project]').forEach(button=>button.addEventListener('click',()=>{openStudioGridProject(button.dataset.gridDrawerProject);toggleStudioGridDrawer()}));
   }
-  function openStudioGridProjectFromDrawer(projectId){openStudioGridProject(projectId);toggleHistory()}
+  function toggleStudioGridDrawer(force) {
+    const drawer=document.getElementById('studioGridDrawer'),backdrop=document.getElementById('studioGridDrawerBackdrop');if(!drawer||!backdrop)return;
+    const on=typeof force==='boolean'?force:!drawer.classList.contains('show');
+    if(on)renderStudioGridDrawer();drawer.classList.toggle('show',on);backdrop.classList.toggle('show',on);
+  }
   function renderHistoryUserSummary() {
     const user = S.user || {};
     const name = (user.display_name && String(user.display_name).trim())
@@ -18560,6 +18550,8 @@ async function waitGeneration(jobId, options) {
   const studioGridNodeRuns = new Map();
   let studioGridJobsRestored = false;
   let studioGridPlannerRunning = false;
+  let studioGridTextEditorNodeId = '';
+  let studioGridMediaNodeId = '';
 
   function gridDefaultSettings(type) {
     if (type === 'image') return { model_mode:'manual', size:'1:1', count:1, style:'auto', quality:'standard', resolution:'1024' };
@@ -18638,7 +18630,7 @@ async function waitGeneration(jobId, options) {
     state.zoom = Math.max(.2,Math.min(2.5,Number(state.zoom)||.9));
     state.nodes = (state.nodes || []).map((node) => {
       const type = GRID_TYPES[node.type] ? node.type : 'text';
-      const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],selectedResultVersion:null},node);
+      const normalized = Object.assign({subtype:type,status:'IDLE',model:gridDefaultModel(type),settings:gridDefaultSettings(type),inputs:{},attachments:[],output:null,generation_id:'',error:'',started_at:'',completed_at:'',position_locked:false,results:[],selectedResultVersion:null},node);
       normalized.settings = Object.assign(gridDefaultSettings(type),node.settings || {});
       normalized.position_locked = node.position_locked !== undefined ? !!node.position_locked : !!node.locked;
       delete normalized.locked;
@@ -18730,9 +18722,9 @@ async function waitGeneration(jobId, options) {
   function gridNodeSettingsHtml(node) {
     if (node.type==='task') return '';
     const settings=node.settings||{},models=gridModelsForType(node.type),model=`<select data-grid-setting="model" aria-label="Модель">${gridSelectOptions(models,node.model)}</select>`;
-    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} фото</option>`).join('')}</select></div>`;
-    if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast;return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Фото → Видео':'Текст → Видео'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v} сек</option>`).join('')}</select></div>`}
-    if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select></div>`;
+    if(node.type==='image')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="size">${['1:1','16:9','9:16','4:3','3:4'].map(v=>`<option${settings.size===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${['1024','2048','4096'].map(v=>`<option${String(settings.resolution)===v?' selected':''}>${v}px</option>`).join('')}</select><select data-grid-setting="quality">${['standard','high'].map(v=>`<option${settings.quality===v?' selected':''}>${v==='high'?'Высокое':'Стандарт'}</option>`).join('')}</select><select data-grid-setting="count">${[1,2,3,4].map(v=>`<option${Number(settings.count)===v?' selected':''}>${v} фото</option>`).join('')}</select></div>`;
+    if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[node.model]||VIDEO_MODEL_CONFIG.seedance_2_fast;return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="generation_mode">${(config.modes||['text_to_video']).map(v=>`<option value="${v}"${settings.generation_mode===v?' selected':''}>${v==='image_to_video'?'Фото → Видео':v==='video_edit'?'Редактирование видео':v==='motion_control'?'Управление движением':'Текст → Видео'}</option>`).join('')}</select><select data-grid-setting="ratio">${(config.ratios||['16:9']).map(v=>`<option${settings.ratio===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="resolution">${(config.resolutions||['720p']).map(v=>`<option${settings.resolution===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${(config.durations||[5]).map(v=>`<option value="${v}"${Number(settings.duration)===Number(v)?' selected':''}>${v} сек</option>`).join('')}</select>${config.sound?`<label class="studio-grid-toggle"><input type="checkbox" data-grid-setting="sound"${settings.sound?' checked':''}><span>Звук</span></label>`:''}</div>`}
+    if(node.type==='music')return `<div class="studio-grid-node-settings">${model}<select data-grid-setting="genre">${['auto','pop','rock','rap','jazz','ambient'].map(v=>`<option${settings.genre===v?' selected':''}>${v}</option>`).join('')}</select><select data-grid-setting="duration">${['auto',30,60,120,180].map(v=>`<option value="${v}"${String(settings.duration)===String(v)?' selected':''}>${v==='auto'?'Авто':v+' сек'}</option>`).join('')}</select><select data-grid-setting="mood">${['auto','energetic','calm','dramatic','romantic'].map(v=>`<option${settings.mood===v?' selected':''}>${v}</option>`).join('')}</select></div>`;
     if(node.type==='voice')return `<div class="studio-grid-node-settings">${model}<input data-grid-setting="voice" value="${gridEscape(settings.voice||'Kore')}" aria-label="Голос"></div>`;
     return `<div class="studio-grid-node-settings">${model}</div>`;
   }
@@ -18745,6 +18737,7 @@ async function waitGeneration(jobId, options) {
     if(inputs.image){const image=inputs.image.value||{};parts.push(`<span class="has-image"><img src="${gridEscape(image.preview_url||image.url||'')}" alt="">Фото: ${gridEscape(inputs.image.source_title)}</span>`)}
     return parts.length?`<div class="studio-grid-input-summary">${parts.join('')}</div>`:'';
   }
+  function gridNodeAttachmentsHtml(node){const items=Array.isArray(node.attachments)?node.attachments:[];return `<div class="studio-grid-attachments"><button type="button" data-grid-upload-media><i>＋</i><span>Референс</span></button>${items.map((item,index)=>`<div class="studio-grid-attachment">${item.kind==='image'?`<img src="${gridEscape(item.url)}" alt="">`:`<i>${item.kind==='video'?'▶':item.kind==='audio'?'♫':'▤'}</i>`}<span>${gridEscape(item.name||item.kind)}</span><button type="button" data-grid-remove-media="${index}" aria-label="Удалить">×</button></div>`).join('')}</div>`}
 
   function renderStudioGrid() {
     const state = loadStudioGridState();
@@ -18759,8 +18752,8 @@ async function waitGeneration(jobId, options) {
       const selected=studioGridSelectedIds.has(node.id),status=String(node.status||'IDLE').toUpperCase(),preview=gridNodePreview(node,status),inputPorts=(type.inputs||[]).map((input,index)=>`<button class="studio-grid-port in side-left" style="top:${62+index*25}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="left" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} слева"></button><button class="studio-grid-port in side-top" style="left:${44+index*38}px" type="button" data-grid-input="${gridEscape(input)}" data-grid-side="top" title="${gridEscape(input)}" aria-label="Вход ${gridEscape(input)} сверху"></button>`).join(''),outputPort=gridEscape((type.outputs||['text'])[0]);
       return `<article class="studio-grid-node${selected ? ' selected' : ''}${node.position_locked?' locked':''}" data-grid-id="${gridEscape(node.id)}" data-type="${gridEscape(node.type)}" data-status="${gridEscape(status)}" style="--grid-x:${Number(node.x)||0}px;--grid-y:${Number(node.y)||0}px">
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
-        <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
-        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
+        <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
+        <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
         <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:''}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Строим…':'Построить цепочку'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
       </article>`;
     }).join('');
@@ -18780,6 +18773,9 @@ async function waitGeneration(jobId, options) {
     document.querySelectorAll('#studioLayoutSwitch [data-studio-layout]').forEach((button) => button.classList.toggle('active', button.dataset.studioLayout === mode));
     if (studio) studio.classList.toggle('grid-mode', mode === 'grid');
     if (workspace) workspace.hidden = mode !== 'grid';
+    if(mode==='grid'){
+      document.getElementById('histDrawer')?.classList.remove('show');document.getElementById('histBackdrop')?.classList.remove('show');
+    }else toggleStudioGridDrawer(false);
     localStorage.setItem('sylvex-prostudio-layout', mode);
     if (mode === 'grid') requestAnimationFrame(()=>{
       const state=loadStudioGridState();
@@ -18815,6 +18811,18 @@ async function waitGeneration(jobId, options) {
     studioGridSelectedIds.delete(id);
     saveStudioGridState(); renderStudioGrid();
   }
+
+  function openStudioGridTextEditor(id) {
+    const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===id),modal=document.getElementById('studioGridTextEditor'),input=document.getElementById('studioGridTextEditorInput'),title=document.getElementById('studioGridTextEditorTitle');
+    if(!node||!modal||!input)return;
+    const inline=document.querySelector(`[data-grid-id="${CSS.escape(id)}"] [data-grid-prompt]`);
+    studioGridTextEditorNodeId=id;input.value=inline?.value??node.prompt??'';if(title)title.textContent=node.title||GRID_TYPES[node.type]?.title||'Редактирование текста';modal.hidden=false;document.body.classList.add('studio-grid-editor-open');requestAnimationFrame(()=>{input.focus();input.setSelectionRange(input.value.length,input.value.length)});
+  }
+  function closeStudioGridTextEditor(){const modal=document.getElementById('studioGridTextEditor');if(modal)modal.hidden=true;document.body.classList.remove('studio-grid-editor-open');studioGridTextEditorNodeId=''}
+  function saveStudioGridTextEditor(){const node=loadStudioGridState().nodes.find(item=>item.id===studioGridTextEditorNodeId),input=document.getElementById('studioGridTextEditorInput');if(!node||!input){closeStudioGridTextEditor();return}const changed=node.prompt!==input.value;node.prompt=input.value;if(changed){node.status=node.type==='task'?'IDLE':'READY';node.output=node.type==='task'?null:node.output;markStudioGridDownstreamStale(node.id)}saveStudioGridState();renderStudioGrid();closeStudioGridTextEditor();toast('Текст сохранён')}
+  function openStudioGridMediaPicker(id){studioGridMediaNodeId=id;const input=document.getElementById('studioGridMediaInput');if(input){input.value='';input.click()}}
+  async function onStudioGridMediaFiles(event){const files=[...(event?.target?.files||[])],node=loadStudioGridState().nodes.find(item=>item.id===studioGridMediaNodeId);if(!node||!files.length)return;node.attachments=Array.isArray(node.attachments)?node.attachments:[];toast('Загрузка референсов…');for(const file of files){const kind=file.type.startsWith('image/')?'image':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';try{const url=await uploadProStudioMediaFile(file,kind);node.attachments.push({url,kind,name:file.name,mime:file.type})}catch(error){toast(error?.message||`Не удалось загрузить ${file.name}`)}}node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid();studioGridMediaNodeId='';toast('Референсы добавлены')}
+  function removeStudioGridMedia(id,index){const node=loadStudioGridState().nodes.find(item=>item.id===id);if(!node||!Array.isArray(node.attachments))return;node.attachments.splice(Number(index),1);node.status=node.type==='task'?'IDLE':'READY';saveStudioGridState();renderStudioGrid()}
 
   function duplicateStudioGridNode(id) { const state=loadStudioGridState(),source=state.nodes.find(node=>node.id===id);if(!source)return;const copy=JSON.parse(JSON.stringify(source)),mobile=window.matchMedia('(max-width:700px)').matches;copy.id=`grid_${copy.type}_${Date.now()}`;copy.x=Number(copy.x)+(mobile?0:34);copy.y=Number(copy.y)+(mobile?330:34);copy.title=(copy.title||GRID_TYPES[copy.type].title)+' — копия';copy.status='IDLE';copy.output=null;copy.generation_id='';copy.error='';copy.started_at='';copy.completed_at='';copy.results=[];copy.selectedResultVersion=null;state.nodes.push(copy);studioGridSelectedIds=new Set([copy.id]);saveStudioGridState();renderStudioGrid();if(mobile)requestAnimationFrame(resetStudioGridView) }
 
@@ -18931,13 +18939,14 @@ async function waitGeneration(jobId, options) {
   }
 
   function validateGridNodeInputs(node,inputs) {
-    const missing=[];
+    const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video');
     if(node.type==='text'&&!String(node.prompt||'').trim())missing.push('Инструкция для текста');
     if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
     if(node.type==='video'){
       const mode=node.settings?.generation_mode||'text_to_video';
       if(!inputs.effective_prompt?.value)missing.push('Промпт видео');
-      if(mode==='image_to_video'&&!inputs.image?.value)missing.push('Исходное изображение');
+      if(mode==='image_to_video'&&!inputs.image?.value&&!hasImage)missing.push('Исходное изображение');
+      if(mode==='video_edit'&&!hasVideo)missing.push('Исходное видео');
     }
     if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
     if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
@@ -18945,17 +18954,17 @@ async function waitGeneration(jobId, options) {
   }
 
   function gridGenerationPayload(node,inputs) {
-    const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),prompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim();
+    const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),prompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim(),attachments=Array.isArray(node.attachments)?node.attachments:[],attachedImages=attachments.filter(item=>item.kind==='image').map(item=>item.url),attachedVideos=attachments.filter(item=>item.kind==='video').map(item=>item.url),attachedAudio=attachments.filter(item=>item.kind==='audio').map(item=>item.url);
     let imageOptions=null,videoOptions=null,musicOptions=null,voiceOptions=null,textOptions=null,provider=providerHintForModel(model);
-    if(mode==='image')imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:[],referenceImages:[]});
+    if(mode==='image'){const connected=inputs.image?.value,connectedUrl=connected&&(connected.url||connected.preview_url);const refs=[...(connectedUrl?[connectedUrl]:[]),...attachedImages];imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:refs,referenceImages:refs})}
     if(mode==='video'){
-      const image=inputs.image?.value,sourceUrl=image&&(image.url||image.preview_url)||'';
+      const image=inputs.image?.value,sourceUrl=(image&&(image.url||image.preview_url))||attachedImages[0]||'';
       const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG.seedance_2_fast||{};
-      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,image_url:sourceUrl,reference_images:sourceUrl?[sourceUrl]:[],referenceImageUrls:sourceUrl?[sourceUrl]:[],native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
+      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:attachedImages[1]||'',image_url:sourceUrl,video_url:attachedVideos[0]||'',video_references:attachedVideos,reference_images:attachedImages,referenceImageUrls:attachedImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
       provider=config.provider||provider;
     }
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
-    if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:[]},settings);
+    if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:attachedAudio},settings);
     if(mode==='text')textOptions=Object.assign({},settings);
     return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:`grid_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`,language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
   }
@@ -19070,7 +19079,7 @@ async function waitGeneration(jobId, options) {
       });
       host.addEventListener('change',(event)=>{
         if(!event.target.matches('[data-grid-setting]'))return;const card=event.target.closest('.studio-grid-node'),node=loadStudioGridState().nodes.find(item=>item.id===card?.dataset.gridId);if(!node)return;
-        const key=event.target.dataset.gridSetting,value=event.target.value;if(key==='model'){node.model=value;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{};node.settings.generation_mode=(config.modes||['text_to_video'])[0];node.settings.ratio=(config.ratios||['16:9'])[0];node.settings.duration=(config.durations||[5])[0];node.settings.resolution=(config.resolutions||['720p'])[0]}}else node.settings[key]=['count','duration'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
+        const key=event.target.dataset.gridSetting,value=event.target.type==='checkbox'?event.target.checked:event.target.value;if(key==='model'){node.model=value;if(node.type==='video'){const config=VIDEO_MODEL_CONFIG[value]||{};node.settings.generation_mode=(config.modes||['text_to_video'])[0];node.settings.ratio=(config.ratios||['16:9'])[0];node.settings.duration=(config.durations||[5])[0];node.settings.resolution=(config.resolutions||['720p'])[0]}}else node.settings[key]=['count','duration'].includes(key)&&value!=='auto'?Number(value):value;node.estimated_cost=null;node.status='READY';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();void estimateGridNodeCost(node.id);
       });
       host.addEventListener('click', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -19079,6 +19088,9 @@ async function waitGeneration(jobId, options) {
         if(event.target.closest('[data-grid-output]')){const output=event.target.closest('[data-grid-output]'),next={from:id,fromPort:output.dataset.gridOutput,fromSide:output.dataset.gridSide||'right'};if(studioGridPendingConnection&&studioGridPendingConnection.from===next.from&&studioGridPendingConnection.fromPort===next.fromPort&&studioGridPendingConnection.fromSide===next.fromSide){clearStudioGridConnectionMode();return}studioGridPendingConnection=next;updateStudioGridConnectionHighlights();return}
         if(event.target.closest('[data-grid-input]')){const input=event.target.closest('[data-grid-input]');if(studioGridPendingConnection){const connected=connectStudioGridNodes(studioGridPendingConnection.from,studioGridPendingConnection.fromPort,id,input.dataset.gridInput,studioGridPendingConnection.fromSide,input.dataset.gridSide||'left');if(connected)clearStudioGridConnectionMode()}return}
         if (event.target.closest('[data-grid-delete]')) { deleteStudioGridNode(id); return; }
+        if (event.target.closest('[data-grid-expand-text]')) { openStudioGridTextEditor(id); return; }
+        if (event.target.closest('[data-grid-upload-media]')) { openStudioGridMediaPicker(id); return; }
+        if (event.target.closest('[data-grid-remove-media]')) { removeStudioGridMedia(id,event.target.closest('[data-grid-remove-media]').dataset.gridRemoveMedia); return; }
         if (event.target.closest('[data-grid-build]')) { buildStudioGridWorkflow(id); return; }
         if (event.target.closest('[data-grid-run]')) { runGridNode(id); return; }
         if(event.target.closest('[data-grid-pick-result]')){const node=loadStudioGridState().nodes.find(item=>item.id===id),index=Number(event.target.closest('[data-grid-pick-result]').dataset.gridPickResult);if(node?.output?.type==='image'&&node.output.items[index]){node.output.selected_index=index;node.selectedResultVersion=index;markStudioGridDownstreamStale(id);saveStudioGridState();renderStudioGrid()}return}
@@ -19118,6 +19130,7 @@ async function waitGeneration(jobId, options) {
       const finishGridPointer=(event)=>{if(!pointers.has(event.pointerId))return;pointers.delete(event.pointerId);if(pointers.size<2){pinch=null;saveStudioGridState()}if(!pointers.size)pinchConsumedPointers=false};
       canvas.addEventListener('pointerup',finishGridPointer);canvas.addEventListener('pointercancel',finishGridPointer);
       canvas.addEventListener('wheel', (event) => {
+        if(event.target.closest('textarea,input,select,[contenteditable="true"],.studio-grid-text-editor'))return;
         event.preventDefault();const state=loadStudioGridState();if(event.ctrlKey||event.metaKey){const target=Math.max(.2,Math.min(2.5,(state.zoom||1)*Math.exp(-event.deltaY*.0025)));zoomStudioGrid(target-(state.zoom||1),event.clientX,event.clientY)}else{state.panX-=event.deltaX;state.panY-=event.deltaY;saveStudioGridState();applyStudioGridTransform()}
       }, {passive:false});
       canvas.addEventListener('gesturestart',(event)=>{event.preventDefault();gestureZoomStart=loadStudioGridState().zoom||1},{passive:false});
@@ -19189,7 +19202,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, openStudioGridProjectFromDrawer,
+    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
