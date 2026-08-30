@@ -6687,6 +6687,7 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-catalog-card>span>b{font-size:15px}
 .photo-tool-catalog-card>span>small{font-size:11px;line-height:1.35;color:rgba(255,255,255,.56)}
 .photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:rgba(18,18,24,.18);backdrop-filter:blur(18px)}
+.photo-catalog-tabs{display:flex;gap:7px;margin:0 0 12px;overflow-x:auto;scrollbar-width:none}.photo-catalog-tabs::-webkit-scrollbar{display:none}.photo-catalog-tabs button{flex:0 0 auto;padding:8px 12px;border:1px solid rgba(255,255,255,.1);border-radius:999px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.66);font:700 11px inherit;cursor:pointer}.photo-catalog-tabs button.active{background:#f4f5f7;color:#111318;border-color:#f4f5f7}
 .photo-catalog-grid{
   display:block;column-count:5;column-gap:8px
 }
@@ -6707,6 +6708,7 @@ CSS-БЛОК: .generation-info-actions button
   grid-column:1/-1;min-height:220px;border-radius:18px;border:1px dashed rgba(255,255,255,.14);
   display:grid;place-items:center;padding:24px;text-align:center;color:rgba(255,255,255,.55)
 }
+.quick-image-detail-dialog{width:min(760px,calc(100vw - 24px))}.quick-image-detail-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(260px,.95fr);gap:16px}.quick-image-detail-reference{min-width:0}.quick-image-detail-reference img{display:block;width:100%;max-height:52vh;aspect-ratio:1/1;object-fit:cover;border-radius:18px;background:#191a1f}.quick-image-detail-reference p{margin:9px 2px 0;color:rgba(255,255,255,.58);font-size:11px;line-height:1.45}.quick-image-detail-form{display:flex;flex-direction:column;gap:10px}.quick-image-detail-upload{position:relative;min-height:180px;overflow:hidden;border:1px dashed rgba(255,255,255,.22);border-radius:17px;background:rgba(255,255,255,.04) center/cover no-repeat;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font:inherit;cursor:pointer}.quick-image-detail-upload.has-image::after{content:"";position:absolute;inset:35% 0 0;background:linear-gradient(transparent,rgba(0,0,0,.78))}.quick-image-detail-upload span,.quick-image-detail-upload b,.quick-image-detail-upload small{position:relative;z-index:1}.quick-image-detail-upload span{font-size:28px}.quick-image-detail-upload b{font-size:13px}.quick-image-detail-upload small{font-size:9px;color:rgba(255,255,255,.58)}.quick-image-detail-upload.has-image b,.quick-image-detail-upload.has-image small{margin-top:auto;text-shadow:0 1px 5px #000}.quick-image-detail-form textarea{width:100%;min-height:105px;box-sizing:border-box;resize:vertical;border:1px solid rgba(255,255,255,.11);border-radius:15px;background:rgba(255,255,255,.045);color:#fff;padding:12px;font:inherit;font-size:12px;outline:none}.quick-image-detail-form textarea[hidden]{display:none}
 
 .expired-subscription-modal{
   position:fixed;inset:0;z-index:1200000;display:none;align-items:center;justify-content:center;
@@ -6789,6 +6791,7 @@ CSS-БЛОК: .generation-info-actions button
   .photo-catalog-card>span{left:5px;right:5px;bottom:5px}
   .photo-catalog-card>span>b{font-size:8px}
   .photo-catalog-card>span>small{display:none}
+  .photo-catalog-tabs{margin-bottom:8px}.photo-catalog-tabs button{padding:7px 10px;font-size:9px}.quick-image-detail-dialog{width:100%}.quick-image-detail-layout{grid-template-columns:1fr;overflow-y:auto}.quick-image-detail-reference img{max-height:34vh}.quick-image-detail-upload{min-height:112px}.quick-image-detail-form textarea{min-height:76px}
   .photo-tool-upload-slot{min-height:112px}
   .photo-tool-head h3{font-size:20px}
 }
