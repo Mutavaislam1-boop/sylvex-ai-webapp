@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-TEMPLATES_DIR = BASE_DIR / "webapp" / "video-templates"
+TEMPLATES_DIR = BASE_DIR / "webapp" / "assets" / "video-templates"
 
 
 def get_all_templates() -> List[Dict]:

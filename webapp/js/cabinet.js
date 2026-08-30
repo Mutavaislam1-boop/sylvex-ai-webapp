@@ -14084,9 +14084,10 @@ function maybeShowVideoTemplateIntro(force) {
       // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
       // =====================================================
       const data = await res.json().catch(() => ({}));
-      videoTemplatesCache = normalizeVideoTemplateList(data.templates);
+      const templates = Array.isArray(data.templates) ? data.templates : [];
+      videoTemplatesCache = normalizeVideoTemplateList(templates, false);
     } catch {
-      videoTemplatesCache = normalizeVideoTemplateList([]);
+      videoTemplatesCache = [];
     }
     return videoTemplatesCache;
   }
@@ -14444,7 +14445,7 @@ function maybeShowVideoTemplateIntro(force) {
       return;
     }
     const isKlingEffect = !!template.is_kling_effect || template.catalog_type === 'kling_effect';
-    const referenceVideo = videoTemplateReferenceVideo(template);
+    const referenceVideo = isKlingEffect ? '' : videoTemplateReferenceVideo(template);
     const modelId = isKlingEffect ? 'kling_effects' : templatePreferredModel(template);
     const uploadedImage = videoTemplateUploadUrl;
     const selectedRatio = videoTemplateRatio;
