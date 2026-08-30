@@ -6704,6 +6704,7 @@ CSS-БЛОК: .generation-info-actions button
 .photo-catalog-card>span{position:absolute;z-index:2;left:7px;right:7px;bottom:7px;display:flex;flex-direction:column;gap:2px}
 .photo-catalog-card>span>b{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .photo-catalog-card>span>small{font-size:8px;color:rgba(255,255,255,.68)}
+.photo-catalog-tool-card{aspect-ratio:auto;min-height:150px}.photo-catalog-tool-card .photo-tool-demo{height:150px;aspect-ratio:auto;border-radius:inherit}.photo-catalog-tool-card>span{pointer-events:none}.photo-catalog-tool-card::after{pointer-events:none}
 .photo-catalog-empty{
   grid-column:1/-1;min-height:220px;border-radius:18px;border:1px dashed rgba(255,255,255,.14);
   display:grid;place-items:center;padding:24px;text-align:center;color:rgba(255,255,255,.55)

@@ -13120,9 +13120,15 @@ def prostudio_quick_image_catalog_items() -> dict:
             relative = image_file.relative_to(WEBAPP_DIR).parts
             image_url = "/webapp/" + "/".join(urllib.parse.quote(part, safe="") for part in relative)
             slot = slot_path.stem if slot_path.is_file() else slot_path.name
+            default_title = f"{slot}"
+            metadata_title = str(metadata.get("title") or metadata.get("name") or "").strip()
+            if category == "styles" and (not metadata_title or metadata_title.lower() == "название фотографии"):
+                metadata_title = f"Стиль {slot}"
+            elif category == "objects" and (not metadata_title or metadata_title.lower() == "название фотографии"):
+                metadata_title = f"Объект {slot}"
             result[category].append({
                 "id": str(metadata.get("id") or f"quick_{category}_{slot}"),
-                "title": str(metadata.get("title") or metadata.get("name") or f"{slot}"),
+                "title": metadata_title or default_title,
                 "description": str(metadata.get("description") or ""),
                 "prompt": str(metadata.get("prompt") or ""),
                 "image_url": image_url,
