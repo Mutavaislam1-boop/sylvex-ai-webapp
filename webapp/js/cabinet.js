@@ -6225,6 +6225,7 @@ async function generateQuickImageDetail(e) {
   let prompt = extra;
   if (item.kind === 'styles') {
     imageState.style = item.styleId || 'auto';
+    if (!item.styleId) imageState.referenceImageUrls = [state.uploadedUrl, item.url];
     prompt = item.prompt || ('Примени выбранный стиль «' + item.title + '» к загруженному изображению, сохранив узнаваемость и композицию.');
   } else if (item.kind === 'objects') {
     imageState.objectId = item.id; imageState.objectName = item.title;
@@ -6232,6 +6233,7 @@ async function generateQuickImageDetail(e) {
       ? (item.objectItem.referenceImages || item.objectItem.reference_images || item.objectItem.photos || [visualPreviewUrl(item.objectItem)]).filter(Boolean)
       : [item.url];
     imageState.objectPrompt = item.prompt || '';
+    if (!item.objectItem) imageState.referenceImageUrls = [state.uploadedUrl, item.url];
     prompt = [item.prompt || ('Добавь выбранный объект «' + item.title + '» в загруженное изображение.'), extra].filter(Boolean).join('\n\n');
   } else {
     imageState.referenceImageUrls = [state.uploadedUrl, item.url]; imageState.referenceImageUrl = state.uploadedUrl;
