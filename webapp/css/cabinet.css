@@ -6623,7 +6623,7 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-demo video,.photo-tool-demo img{width:100%;height:100%;display:block;object-fit:cover}
 .photo-tool-compare{touch-action:pan-y;user-select:none;-webkit-user-select:none}
 .photo-tool-compare .photo-tool-after,.photo-tool-compare .photo-tool-before{position:absolute;inset:0}
-.photo-tool-compare .photo-tool-before{z-index:2;clip-path:inset(0 calc(100% - var(--compare-position)) 0 0);filter:grayscale(.72) brightness(.72) contrast(.92)}
+.photo-tool-compare .photo-tool-before{z-index:2;clip-path:inset(0 calc(100% - var(--compare-position)) 0 0)}
 .photo-tool-compare-line{position:absolute;z-index:3;top:0;bottom:0;left:var(--compare-position);width:2px;background:#fff;box-shadow:0 0 12px rgba(0,0,0,.7);transform:translateX(-1px);pointer-events:none}
 .photo-tool-compare-line::after{content:"↔";position:absolute;left:50%;top:50%;width:35px;height:35px;border-radius:50%;display:grid;place-items:center;transform:translate(-50%,-50%);background:rgba(14,15,18,.82);border:2px solid #fff;color:#fff;font-size:15px}
 .photo-tool-compare input[type="range"]{position:absolute;z-index:5;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize;touch-action:pan-y}
