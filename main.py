@@ -7501,7 +7501,8 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
 
     stored_name = f"{uuid4().hex}{suffix}"
     public_folder = "documents" if is_file else "video-inputs"
-    public_url = storage_put_bytes(content, generated_key(public_folder, stored_name), content_type)
+    public_path = generated_key(public_folder, stored_name)
+    public_url = storage_put_bytes(content, public_path, content_type)
     uploaded_kind = "video" if is_video else ("audio" if is_audio else ("file" if is_file else "image"))
     print("PROSTUDIO MEDIA UPLOAD:", {
         "kind": uploaded_kind,
