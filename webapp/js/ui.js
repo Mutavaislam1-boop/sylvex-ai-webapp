@@ -115,6 +115,7 @@
       if (name !== 'tools') sc.scrollTo({ top: 0, behavior: 'smooth' });
     }
     if (name === 'tools' && window.SYLVEX) {
+      window.SYLVEX.setStudioLayout && window.SYLVEX.setStudioLayout('classic');
       window.SYLVEX.renderChat && window.SYLVEX.renderChat();
       const ci = document.getElementById('chatInput');
       if (ci && window.SYLVEX.autoGrow) window.SYLVEX.autoGrow(ci);
