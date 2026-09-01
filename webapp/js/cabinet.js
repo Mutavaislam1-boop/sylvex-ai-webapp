@@ -6272,8 +6272,9 @@ async function onQuickImageDetailFile(e) {
   }
   catch (error) {
     toast((error && error.message) || 'Не удалось загрузить фото');
-    if (upload) { upload.classList.remove('has-image', 'is-uploading'); upload.style.backgroundImage = ''; upload.querySelector('b').textContent = 'Загрузить своё фото'; }
-    if (button) { button.hidden = false; button.disabled = true; button.textContent = 'Сгенерировать'; button.classList.remove('is-ready'); }
+    quickImageDetailState.uploadedUrl = '';
+    if (upload) { upload.classList.remove('is-uploading'); upload.querySelector('b').textContent = ''; }
+    if (button) { button.hidden = false; button.disabled = true; button.textContent = 'Повторите загрузку'; button.classList.remove('is-ready'); }
   }
   finally { quickImageDetailState.uploading = false; }
 }
