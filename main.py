@@ -12888,15 +12888,16 @@ def prostudio_builtin_video_template_slots() -> list:
         effect_scene = str(metadata.get("effect_scene") or "").strip()
         is_provider_effect = index in {64, 65, 66} and bool(effect_scene)
         title = russian_titles[index - 1] if index <= len(russian_titles) else str(metadata.get("name") or template_id)
+        folder_description = str(metadata.get("description") or "").strip()
         if is_provider_effect:
             descriptions = {
                 64: "Оживляет мордочку питомца фирменным эффектом Wiggle Faces.",
                 65: "Создаёт забавную анимацию лица с надутыми щёками.",
                 66: "Превращает фото питомца в энергичную рок-анимацию.",
             }
-            description = descriptions[index]
+            description = folder_description or descriptions[index]
         else:
-            description = f"Загрузите изображение. SYLVEX сохранит движение, камеру и постановку референсного видео «{title}», заменив главного персонажа или объект."
+            description = folder_description or f"Загрузите изображение для видео «{title}»."
         item = {
             "id": template_id,
             "slot": slot,
@@ -13084,6 +13085,41 @@ async def public_prostudio_photo_catalog():
     return JSONResponse(payload, headers={"Cache-Control": f"public, max-age={PHOTO_CATALOG_CACHE_TTL}"})
 
 
+@app.get("/api/public/prostudio/photo-tool-demos")
+async def public_prostudio_photo_tool_demos():
+    """Return the first two still images in every photo-tool folder as before/after."""
+    base_dir = WEBAPP_DIR / "assets" / "photo-tools"
+    image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+    tool_aliases = {
+        "try-on": "try_on",
+        "remove-background": "remove_bg",
+        "replace-character": "replace_character",
+        "animate-photo": "animate_photo",
+    }
+
+    def natural_key(path: pathlib.Path):
+        return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", path.name)]
+
+    demos = {}
+    if base_dir.exists():
+        for folder in sorted((path for path in base_dir.iterdir() if path.is_dir()), key=lambda path: path.name.lower()):
+            images = sorted(
+                (path for path in folder.iterdir() if path.is_file() and path.suffix.lower() in image_extensions),
+                key=natural_key,
+            )
+            if len(images) < 2:
+                continue
+            urls = [
+                f"/webapp/assets/photo-tools/{urllib.parse.quote(folder.name, safe='')}/{urllib.parse.quote(path.name, safe='')}"
+                for path in images[:2]
+            ]
+            demos[tool_aliases.get(folder.name, folder.name.replace("-", "_"))] = {
+                "before": urls[0],
+                "after": urls[1],
+            }
+    return JSONResponse({"ok": True, "demos": demos}, headers={"Cache-Control": "public, max-age=60"})
+
+
 def prostudio_quick_image_catalog_items() -> dict:
     base_dir = WEBAPP_DIR / "assets" / "quick-generator" / "image"
     image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -13153,7 +13189,15 @@ def prostudio_quick_image_catalog_items() -> dict:
             if category == "styles":
                 metadata_title = style_names.get(slot, metadata_title or "Visual Style")
             elif category == "objects" and (not metadata_title or metadata_title.lower() == "название фотографии"):
-                metadata_title = f"Объект {slot}"
+                prompt_lower = str(metadata.get("prompt") or "").lower()
+                if "magenta" in prompt_lower and "cyan" in prompt_lower and "portrait" in prompt_lower:
+                    metadata_title = "Dual Neon Portrait"
+                elif "portrait" in prompt_lower:
+                    metadata_title = "Editorial Portrait"
+                elif "product" in prompt_lower:
+                    metadata_title = "Studio Product"
+                else:
+                    metadata_title = "Visual Object"
             result[category].append({
                 "id": str(metadata.get("id") or f"quick_{category}_{slot}"),
                 "title": metadata_title or default_title,

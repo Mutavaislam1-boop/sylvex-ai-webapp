@@ -310,6 +310,7 @@ const PHOTO_TOOL_CONFIG = {
 };
 const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
 let activePhotoTool = '';
+let photoToolDemosPromise = null;
 
 let videoState = {
   modelId: 'seedance_2_fast',
@@ -6130,15 +6131,19 @@ function renderPhotoCatalog() {
     }).join('');
     return;
   }
-  const items = (quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || [];
+  let items = (quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || [];
+  if (quickImageCatalogSection === 'styles' || quickImageCatalogSection === 'objects') {
+    items = items.slice().sort((a,b) => { const hash=value=>[...String(value)].reduce((sum,char,index)=>sum+char.charCodeAt(0)*(index+7),0); return (hash(a.id)%17)-(hash(b.id)%17) || hash(a.id)-hash(b.id); });
+  }
   if (!items.length) {
     grid.innerHTML = '<div class="photo-catalog-empty">В этом разделе пока нет изображений.</div>';
     return;
   }
   grid.innerHTML = items.map((item) => {
-    return '<button class="photo-catalog-card square" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.id) + '\')">'
+    const hideTitle = quickImageCatalogSection === 'references' || quickImageCatalogSection === 'popular_references';
+    return '<button class="photo-catalog-card square ' + (hideTitle ? 'no-caption' : 'minimal-caption') + '" type="button" onclick="SYLVEX.selectPhotoCatalogItem(event,\'' + S.escapeHtml(item.id) + '\')">'
     + '<img src="' + S.escapeHtml(item.url) + '" alt="' + S.escapeHtml(item.title) + '" loading="lazy" decoding="async" onload="SYLVEX.syncPhotoCatalogCardRatio(event)" />'
-    + '<span><b>' + S.escapeHtml(item.title) + '</b><small>Использовать фото</small></span>'
+    + (hideTitle ? '' : '<span><b>' + S.escapeHtml(item.title) + '</b></span>')
     + '</button>';
   }).join('');
 }
@@ -6294,10 +6299,34 @@ async function generateQuickImageDetail(e) {
   closeQuickImageDetail(); closePhotoCatalog(); await sendChat();
 }
 
+function photoToolMediaHtml(source, extra) {
+  const value = String(source || '');
+  return /\.mp4(?:$|\?)/i.test(value)
+    ? '<video class="'+extra+'" src="'+S.escapeHtml(value)+'" autoplay muted loop playsinline preload="metadata"></video>'
+    : '<img class="'+extra+'" src="'+S.escapeHtml(value)+'" alt="">';
+}
+
 function photoToolDemoHtml(config) {
-  const source=String(config.demo||config.preview||''),isVideo=/\.mp4(?:$|\?)/i.test(source),media=(extra)=>isVideo?'<video class="'+extra+'" src="'+S.escapeHtml(source)+'" autoplay muted loop playsinline preload="metadata"></video>':'<img class="'+extra+'" src="'+S.escapeHtml(source)+'" alt="">';
-  if(source&&config.compare!==false)return '<div class="photo-tool-demo photo-tool-compare" style="--compare-position:50%">'+media('photo-tool-after')+media('photo-tool-before')+'<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить до и после" oninput="SYLVEX.updatePhotoToolComparison(event)"><b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
-  return '<div class="photo-tool-demo">'+(source?media('photo-tool-demo-media'):'')+'<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Референс будет добавлен позже</small></div></div>';
+  const fallback=String(config.demo||config.preview||''),before=String(config.demoBefore||fallback),after=String(config.demoAfter||fallback),source=after||before;
+  if(before&&after&&config.compare!==false)return '<div class="photo-tool-demo photo-tool-compare" style="--compare-position:50%">'+photoToolMediaHtml(after,'photo-tool-after')+photoToolMediaHtml(before,'photo-tool-before')+'<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить до и после" oninput="SYLVEX.updatePhotoToolComparison(event)"><b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+  return '<div class="photo-tool-demo">'+(source?photoToolMediaHtml(source,'photo-tool-demo-media'):'')+'<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Референс будет добавлен позже</small></div></div>';
+}
+
+function loadPhotoToolDemos() {
+  if (photoToolDemosPromise) return photoToolDemosPromise;
+  photoToolDemosPromise = fetch('/api/public/prostudio/photo-tool-demos', { credentials:'same-origin' })
+    .then(response => response.ok ? response.json() : Promise.reject(new Error('photo tool demos')))
+    .then(payload => {
+      Object.entries((payload && payload.demos) || {}).forEach(([key, demo]) => {
+        const config = PHOTO_TOOL_CONFIG[key];
+        if (!config || !demo) return;
+        config.demoBefore = String(demo.before || '');
+        config.demoAfter = String(demo.after || '');
+      });
+      return payload;
+    })
+    .catch(() => null);
+  return photoToolDemosPromise;
 }
 
 function updatePhotoToolComparison(e){const input=e&&e.currentTarget,host=input&&input.closest('.photo-tool-compare');if(host)host.style.setProperty('--compare-position',Math.max(0,Math.min(100,Number(input.value)||0))+'%')}
@@ -6372,6 +6401,9 @@ function openPhotoToolModal(e, kind) {
   const modal = ensurePhotoToolModal();
   modal.classList.add('show');
   renderPhotoToolModal();
+  loadPhotoToolDemos().then(() => {
+    if (modal.classList.contains('show') && activePhotoTool === kind) renderPhotoToolModal();
+  });
 }
 
 function closePhotoToolModal(e) {
@@ -19141,7 +19173,7 @@ async function waitGeneration(jobId, options) {
     if(context)context.addEventListener('click',event=>{const add=event.target.closest('[data-grid-add-type]');if(add){addStudioGridNode(add.dataset.gridAddType,context._gridPosition);return}const action=event.target.closest('[data-grid-node-action]');if(!action)return;const id=action.dataset.gridNodeId,node=loadStudioGridState().nodes.find(item=>item.id===id);if(action.dataset.gridNodeAction==='duplicate')duplicateStudioGridNode(id);else if(action.dataset.gridNodeAction==='lock'&&node){node.position_locked=!node.position_locked;saveStudioGridState();renderStudioGrid()}else if(action.dataset.gridNodeAction==='open')openStudioGridNode(id);hideStudioGridContext()});
     document.addEventListener('pointerdown',event=>{if(!event.target.closest('#studioGridContext')&&!event.target.closest('[data-grid-more]'))hideStudioGridContext();if(!event.target.closest('#studioGridProjectsPanel')&&!event.target.closest('#studioGridProjectsButton'))closeStudioGridProjects()});
     document.addEventListener('keydown',event=>{if(!document.querySelector('.studio.grid-mode'))return;if(event.key==='Escape'){clearStudioGridConnectionMode();hideStudioGridContext();return}if(event.target.closest('textarea,input,select'))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){event.preventDefault();[...studioGridSelectedIds].forEach(duplicateStudioGridNode)}if(event.key==='Delete'||event.key==='Backspace'){[...studioGridSelectedIds].forEach(deleteStudioGridNode)}});
-    setStudioLayout(localStorage.getItem('sylvex-prostudio-layout') || 'classic');
+    setStudioLayout('classic');
     restoreStudioGridJobs();
   }
 
