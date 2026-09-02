@@ -364,6 +364,7 @@ let photoCatalogCache = null;
 let quickImageCatalogCache = null;
 let quickImageCatalogSection = 'references';
 let quickImageDetailState = null;
+let pendingCatalogImageGeneration = null;
 let klingEffectsCache = null;
 let activeVideoTemplate = null;
 let videoTemplateUploadUrl = '';
@@ -6214,14 +6215,15 @@ function renderQuickImageDetailFields(item) {
     : '<label><span>' + field.label + '</span><input type="text" data-quick-image-field="' + field.key + '" placeholder="' + field.label + '" /></label>').join('');
 }
 
-function selectPhotoCatalogItem(e, id) {
+function selectPhotoCatalogItem(e, id, source) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
-  quickImageDetailState = { item, uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
+  quickImageDetailState = { item, source:source === 'quick' ? 'quick' : 'prostudio', uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
+  closePhotoCatalog();
   const modal = ensureQuickImageDetailModal();
   document.getElementById('quickImageDetailTitle').textContent = item.title;
   document.getElementById('quickImageDetailKind').textContent = item.kind === 'styles' ? 'Стиль' : (item.kind === 'objects' ? 'Объект' : 'Референс');
@@ -6288,12 +6290,13 @@ async function generateQuickImageDetail(e) {
   const customValues = {};
   document.querySelectorAll('#quickImageDetailFields [data-quick-image-field]').forEach((field) => { if (String(field.value || '').trim()) customValues[field.dataset.quickImageField] = String(field.value).trim(); });
   Object.assign(customValues, state.extraUploads || {});
-  updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
+  if (state.source === 'quick') switchView('tools');
+  updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [item.url, state.uploadedUrl]; imageState.referenceImageUrl = item.url;
   let prompt = extra;
   if (item.kind === 'styles') {
     imageState.modelId = 'seedream_5_0_lite';
     imageState.style = item.styleId || 'auto';
-    if (!item.styleId) imageState.referenceImageUrls = [state.uploadedUrl, item.url].concat(Object.values(state.extraUploads || {}));
+    imageState.referenceImageUrls = [item.url, state.uploadedUrl].concat(Object.values(state.extraUploads || {}));
     prompt = item.prompt || ('Примени выбранный стиль «' + item.title + '» к загруженному изображению, сохранив узнаваемость и композицию.');
     const customization = Object.entries(customValues).map(([key,value]) => key + ': ' + value).join('\n');
     if (customization) prompt += '\n\nUSER CUSTOMIZATION (use these values exactly):\n' + customization;
@@ -6303,14 +6306,16 @@ async function generateQuickImageDetail(e) {
       ? (item.objectItem.referenceImages || item.objectItem.reference_images || item.objectItem.photos || [visualPreviewUrl(item.objectItem)]).filter(Boolean)
       : [item.url];
     imageState.objectPrompt = item.prompt || '';
-    if (!item.objectItem) imageState.referenceImageUrls = [state.uploadedUrl, item.url];
+    if (!item.objectItem) imageState.referenceImageUrls = [item.url, state.uploadedUrl];
     prompt = [item.prompt || ('Добавь выбранный объект «' + item.title + '» в загруженное изображение.'), extra].filter(Boolean).join('\n\n');
   } else {
-    imageState.referenceImageUrls = [state.uploadedUrl, item.url]; imageState.referenceImageUrl = state.uploadedUrl;
+    imageState.referenceImageUrls = [item.url, state.uploadedUrl]; imageState.referenceImageUrl = item.url;
     prompt = [item.prompt || 'Создай новое изображение на основе выбранного визуального референса, сохранив персонажа с загруженного фото.', extra].filter(Boolean).join('\n\n');
   }
   const input = document.getElementById('chatInput'); if (!input) return;
-  input.value = prompt; autoGrow(input); renderImageControls(); renderImageUploadPreview(); renderUploadedPhotoGrid(); updateSendButton();
+  const displayPrompt = (item.kind === 'styles' ? 'Стиль: ' : item.kind === 'objects' ? 'Объект: ' : 'Референс: ') + String(item.title || 'Выбрано из каталога');
+  pendingCatalogImageGeneration = { prompt, displayPrompt, catalogUrl:item.url, userUrl:state.uploadedUrl, itemId:item.id, kind:item.kind };
+  input.value = displayPrompt; autoGrow(input); renderImageControls(); renderImageUploadPreview(); renderUploadedPhotoGrid(); updateSendButton();
   closeQuickImageDetail(); closePhotoCatalog(); await sendChat();
 }
 
@@ -10790,7 +10795,11 @@ function renderGeneratedTelegramButton(url, kind) {
       model: modelId || model.id || '',
       model_label: backendMeta.model_label || model.label || model.name || modelId || '',
       provider: backendMeta.provider || (result && result.provider) || providerHintForModel(modelId),
-      prompt: backendMeta.prompt || prompt || '',
+      prompt: options.catalog_prompt_hidden ? String(options.catalog_display_prompt || '') : (backendMeta.prompt || prompt || ''),
+      catalog_prompt_hidden: !!options.catalog_prompt_hidden,
+      catalog_display_prompt: String(options.catalog_display_prompt || ''),
+      catalog_reference_url: String(options.catalog_reference_url || ''),
+      user_reference_url: String(options.user_reference_url || ''),
       style: backendMeta.style || options.style || '',
       character: backendMeta.character || options.character || '',
       objects: backendMeta.objects || options.objects || '',
@@ -11031,7 +11040,10 @@ function renderGeneratedTelegramButton(url, kind) {
       ? String(meta.cost_credits) + ' ⚡️'
       : '';
     const cost = [usd, creditsValue].filter(Boolean).join(' / ') || String(meta.generation_cost || '');
-    const prompt = String(meta.prompt || '');
+    const hiddenCatalogPrompt = !!(meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden);
+    const prompt = hiddenCatalogPrompt
+      ? String(meta.catalog_display_prompt || meta.image_options?.catalog_display_prompt || meta.settings?.catalog_display_prompt || '')
+      : String(meta.prompt || '');
     const titleMap = {
       image: 'Изображение готово',
       video: 'Видео готово',
@@ -11661,7 +11673,7 @@ function renderGeneratedTelegramButton(url, kind) {
       await loadPhotoCatalog(false);
       quickImageCatalogSection = String(message.kind || 'references');
       closeKnowledgeWorkspace();
-      selectPhotoCatalogItem(null, String(message.itemId || ''));
+      selectPhotoCatalogItem(null, String(message.itemId || ''), 'quick');
       return;
     }
     if (message.action === 'photo-tool') {
@@ -12732,7 +12744,7 @@ function restoreImageStateFromGenerationMetadata(meta) {
   imageState.uploadedImageUrls = refs.slice();
   imageState.referenceImageUrl = refs[0] || '';
   const ta = document.getElementById('chatInput');
-  if (ta && meta.prompt) {
+  if (ta && meta.prompt && !(meta.catalog_prompt_hidden || settings.catalog_prompt_hidden)) {
     ta.value = meta.prompt;
     autoGrow(ta);
     updateSendButton();
@@ -13169,7 +13181,7 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Created', created)
     + generationInfoRow('Telegram', meta.sent_to_telegram ? 'sent' : 'not sent')
     + '</div>'
-    + (meta.prompt ? '<div class="generation-info-section generation-prompt-block"><div class="generation-info-label">Промт</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p>' + (String(meta.prompt).length > 180 ? '<button class="generation-prompt-toggle" type="button" aria-expanded="false" onclick="SYLVEX.toggleGenerationPrompt(event)">Развернуть</button>' : '') + '</div>' : '')
+      + ((meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden) ? '' : (meta.prompt ? '<div class="generation-info-section generation-prompt-block"><div class="generation-info-label">Промт</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p>' + (String(meta.prompt).length > 180 ? '<button class="generation-prompt-toggle" type="button" aria-expanded="false" onclick="SYLVEX.toggleGenerationPrompt(event)">Развернуть</button>' : '') + '</div>' : ''))
     + (refImages.length ? '<div class="generation-info-section"><div class="generation-info-label">Reference images</div><div class="generation-info-ref-row">' + refImages.map((url) => '<img src="' + S.escapeHtml(url) + '" alt="reference" />').join('') + '</div></div>' : '')
     + (actionHtml ? '<div class="generation-info-actions">' + actionHtml + '</div>' : '');
 
@@ -15066,7 +15078,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
 
   const imageOptions = isImageMode()
-    ? imageOptionsPayload(imageReferenceImages)
+    ? Object.assign(imageOptionsPayload(imageReferenceImages), (generationOptions && generationOptions.imageOptions) || {})
     : null;
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
@@ -15525,7 +15537,10 @@ async function waitGeneration(jobId, options) {
       startedAt: Date.now(),
     });
     const ta = document.getElementById('chatInput');
-    const v = (ta.value || '').trim();
+    const catalogGeneration = isImageMode() ? pendingCatalogImageGeneration : null;
+    pendingCatalogImageGeneration = null;
+    const visibleInputValue = (ta.value || '').trim();
+    const v = String((catalogGeneration && catalogGeneration.prompt) || visibleInputValue).trim();
     if (studioMode === 'text' && textState.attachment && textState.attachment.uploading) {
       toast('Файл ещё загружается');
       clearActiveProStudioJob();
@@ -15549,6 +15564,17 @@ async function waitGeneration(jobId, options) {
     const imageOptionsSnapshot = isImageMode()
       ? imageOptionsPayload(referenceImages)
       : null;
+    if (imageOptionsSnapshot && catalogGeneration) {
+      Object.assign(imageOptionsSnapshot, {
+        catalog_prompt_hidden: true,
+        catalog_display_prompt: catalogGeneration.displayPrompt,
+        catalog_reference_url: catalogGeneration.catalogUrl,
+        user_reference_url: catalogGeneration.userUrl,
+        catalog_item_id: catalogGeneration.itemId,
+        catalog_item_kind: catalogGeneration.kind,
+        reference_roles: ['catalog', 'user'],
+      });
+    }
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
     const referenceVideos = isVideoMode() && videoOptionsSnapshot
       ? Array.from(new Set([
@@ -15660,6 +15686,7 @@ async function waitGeneration(jobId, options) {
           loadingIndex,
           audioUploads,
           voiceOptions: voiceOptionsSnapshot,
+          imageOptions: imageOptionsSnapshot,
         }
       );
       renderChat();
@@ -15774,7 +15801,7 @@ async function waitGeneration(jobId, options) {
       rememberCurrentChatSpace();
       if (err && err.terminalStatus) unlockAfterRender = true;
       else if (!activeGeneration.jobId) {
-        ta.value = v;
+        ta.value = catalogGeneration ? String(catalogGeneration.displayPrompt || '') : v;
         autoGrow(ta);
         setCurrentModeAttachment(attachment);
         if (photoMode) {
@@ -16901,6 +16928,13 @@ async function waitGeneration(jobId, options) {
     document.getElementById('saPlan').textContent = plan === 'year' ? 'SYLVEX Pro · 1 год' : 'SYLVEX Pro · 1 месяц';
     document.getElementById('saExpires').textContent = fmtDate(exp);
     document.getElementById('saCountdown').textContent = exp ? fmtCountdown(new Date(exp).getTime() - Date.now()) : '—';
+    const renewButton = document.querySelector('#subActiveModal .btn-primary');
+    const remainingMs = exp ? new Date(exp).getTime() - Date.now() : 0;
+    const yearlyRenewalLocked = plan === 'year' && remainingMs > 7 * 24 * 60 * 60 * 1000;
+    if (renewButton) {
+      renewButton.disabled = yearlyRenewalLocked;
+      renewButton.textContent = yearlyRenewalLocked ? 'Продление доступно за 7 дней' : 'Продлить подписку';
+    }
     document.getElementById('subActiveModal').classList.add('show');
     pendingPack = 'sub_' + plan;
   }
@@ -16909,6 +16943,12 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function renewFromModal() {
+    const user = S.user || {};
+    const remainingMs = user.subscription_expires_at ? new Date(user.subscription_expires_at).getTime() - Date.now() : 0;
+    if (user.subscription_plan === 'year' && remainingMs > 7 * 24 * 60 * 60 * 1000) {
+      toast('Годовую подписку можно продлить за 7 дней до окончания');
+      return;
+    }
     closeModal(null, 'subActiveModal');
     // Force purchase flow (bypass "already subscribed" branch).
     const pack = pendingPack || 'sub_month';
