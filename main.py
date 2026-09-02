@@ -2100,28 +2100,46 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        # Serialize subscription changes for this user so two confirmations
+        # cannot overwrite one another or lose already-paid remaining time.
+        cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = %s FOR UPDATE", (telegram_id,))
         cursor.execute("""
             DELETE FROM subscription_reminders
             WHERE status = 'sending'
               AND created_at < NOW() - INTERVAL '1 hour'
         """)
         cursor.execute("""
-            UPDATE subscriptions
-            SET status = 'cancelled'
-            WHERE telegram_id = %s
-              AND status = 'active'
-        """, (telegram_id,))
-        cursor.execute("""
             INSERT INTO subscriptions (
                 telegram_id, subscription_type, payment_method, amount, currency, expires_at, status, charge_id
             )
             VALUES (
-                %s, %s, %s, %s, %s, CURRENT_TIMESTAMP + (%s || ' days')::interval, 'active', %s
+                %s, %s, %s, %s, %s,
+                (
+                    SELECT GREATEST(
+                        CURRENT_TIMESTAMP,
+                        COALESCE(MAX(expires_at::timestamp), CURRENT_TIMESTAMP)
+                    ) + (%s || ' days')::interval
+                    FROM subscriptions
+                    WHERE telegram_id = %s
+                      AND status = 'active'
+                      AND expires_at::timestamp > CURRENT_TIMESTAMP
+                ),
+                'active', %s
             )
             ON CONFLICT (charge_id) DO NOTHING
-        """, (telegram_id, item["plan_key"], provider, amount, currency, item["days"], charge_id))
-        inserted = cursor.rowcount > 0
-        cursor.execute("UPDATE users SET subscription = %s WHERE telegram_id = %s", (item.get("plan_key") or "active", telegram_id))
+            RETURNING id
+        """, (telegram_id, item["plan_key"], provider, amount, currency, item["days"], telegram_id, charge_id))
+        inserted_row = cursor.fetchone()
+        inserted = bool(inserted_row)
+        if inserted:
+            cursor.execute("""
+                UPDATE subscriptions
+                SET status = 'cancelled'
+                WHERE telegram_id = %s
+                  AND status = 'active'
+                  AND id <> %s
+            """, (telegram_id, inserted_row[0]))
+            cursor.execute("UPDATE users SET subscription = %s WHERE telegram_id = %s", (item.get("plan_key") or "active", telegram_id))
         conn.commit()
         return inserted
     finally:
