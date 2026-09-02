@@ -1508,6 +1508,7 @@ HTML-страница Mini App. Комментарии подписывают э
 
       <div class="section-title"><h3 data-i18n="help_legal">Help & Legal</h3></div>
       <div class="list">
+        <div class="row admin-panel-entry" id="adminPanelEntry" onclick="SYLVEX.openAdminPanel()" hidden><div class="ico">◈</div><div class="label"><span>Панель администратора</span><small>Пользователи, баланс, подписки и доступ</small></div><div class="chev">›</div></div>
         <div class="row" onclick="window.location.href='docs.html'"><div class="ico">📖</div><div class="label"><span>Documentation Center</span><small>Руководства, модели, функции и цены</small></div><div class="chev">›</div></div>
         <!-- ==================================================
         HTML-ЭЛЕМЕНТ: 💬   Support  Get help from our team   ›
@@ -1531,6 +1532,21 @@ HTML-страница Mini App. Комментарии подписывают э
         <p>Build 132</p>
         <dl><div><dt>Последнее обновление</dt><dd>30 августа 2026</dd></div><div><dt>Статус</dt><dd>Актуальная версия</dd></div></dl>
       </section>
+    </div>
+
+    <div class="admin-panel-modal" id="adminPanelModal" hidden aria-hidden="true">
+      <header class="admin-panel-head">
+        <button type="button" onclick="SYLVEX.closeAdminPanel()" aria-label="Закрыть">×</button>
+        <div><small>SYLVEX</small><h2>Панель администратора</h2></div>
+        <span id="adminRoleBadge">ADMIN</span>
+      </header>
+      <nav class="admin-panel-tabs" aria-label="Разделы панели">
+        <button class="active" data-admin-tab="dashboard" onclick="SYLVEX.openAdminTab('dashboard',this)">Обзор</button>
+        <button data-admin-tab="users" onclick="SYLVEX.openAdminTab('users',this)">Пользователи</button>
+        <button data-admin-owner data-admin-tab="admins" onclick="SYLVEX.openAdminTab('admins',this)" hidden>Администраторы</button>
+        <button data-admin-tab="audit" onclick="SYLVEX.openAdminTab('audit',this)">Журнал</button>
+      </nav>
+      <div class="admin-panel-body" id="adminPanelBody"><div class="admin-loading">Загрузка…</div></div>
     </div>
   </main>
 

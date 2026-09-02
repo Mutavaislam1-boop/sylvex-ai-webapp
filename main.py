@@ -140,7 +140,8 @@ SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_E
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
-PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)
+SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "1005114896") or 1005114896)
+PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
@@ -7769,6 +7770,339 @@ def _telegram_id_from_init_data(init_data: str) -> int:
     """Return the signed Telegram user id, or zero for invalid init data."""
     if not verify_telegram_init_data(init_data):
         return 0
+
+
+# =====================================================
+# SYLVEX ADMIN PANEL
+# Server-side role checks are mandatory for every action. The UI visibility is
+# only a convenience and is never used as an authorization boundary.
+# =====================================================
+def ensure_admin_tables():
+    if not DATABASE_URL:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_users (
+                telegram_id BIGINT PRIMARY KEY,
+                role TEXT NOT NULL DEFAULT 'admin',
+                permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                granted_by BIGINT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_audit_log (
+                id BIGSERIAL PRIMARY KEY,
+                actor_telegram_id BIGINT NOT NULL,
+                action TEXT NOT NULL,
+                target_telegram_id BIGINT,
+                before_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                after_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                reason TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_messages (
+                id BIGSERIAL PRIMARY KEY,
+                admin_telegram_id BIGINT NOT NULL,
+                user_telegram_id BIGINT NOT NULL,
+                message TEXT NOT NULL,
+                telegram_sent BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO admin_users (telegram_id, role, permissions, active, granted_by, updated_at)
+            VALUES (%s, 'owner', '["all"]'::jsonb, TRUE, %s, NOW())
+            ON CONFLICT (telegram_id) DO UPDATE
+            SET role = 'owner', permissions = '["all"]'::jsonb, active = TRUE, updated_at = NOW()
+        """, (SUPERADMIN_TELEGRAM_ID, SUPERADMIN_TELEGRAM_ID))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) -> dict:
+    init_data = str((payload or {}).get("initData") or (payload or {}).get("init_data") or "")
+    telegram_id = _telegram_id_from_init_data(init_data)
+    if not telegram_id:
+        raise HTTPException(status_code=403, detail="telegram_auth_required")
+    try:
+        auth_date = int(dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True)).get("auth_date") or 0)
+    except (TypeError, ValueError):
+        auth_date = 0
+    if not auth_date or abs(int(time.time()) - auth_date) > 86400:
+        raise HTTPException(status_code=403, detail="telegram_auth_expired")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="database_unavailable")
+    ensure_admin_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT role, permissions, active FROM admin_users WHERE telegram_id = %s", (telegram_id,))
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+    if not row or not row[2]:
+        raise HTTPException(status_code=403, detail="admin_access_denied")
+    permissions = row[1] or []
+    if isinstance(permissions, str):
+        try:
+            permissions = json.loads(permissions)
+        except Exception:
+            permissions = []
+    actor = {"telegram_id": telegram_id, "role": row[0], "permissions": permissions}
+    if owner_only and actor["role"] != "owner":
+        raise HTTPException(status_code=403, detail="owner_access_required")
+    if permission and actor["role"] != "owner" and "all" not in permissions and permission not in permissions:
+        raise HTTPException(status_code=403, detail="admin_permission_denied")
+    return actor
+
+
+def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=None, after=None, reason: str = ""):
+    cursor.execute("""
+        INSERT INTO admin_audit_log
+            (actor_telegram_id, action, target_telegram_id, before_data, after_data, reason)
+        VALUES (%s, %s, NULLIF(%s, 0), %s::jsonb, %s::jsonb, %s)
+    """, (actor_id, action, int(target_id or 0), json.dumps(before or {}, default=str),
+          json.dumps(after or {}, default=str), str(reason or "")[:500]))
+
+
+@app.post("/api/admin/me")
+async def admin_me(request: Request):
+    actor = _admin_actor(await request.json())
+    return {"ok": True, "admin": actor}
+
+
+@app.post("/api/admin/dashboard")
+async def admin_dashboard(request: Request):
+    actor = _admin_actor(await request.json(), "view_dashboard")
+    ensure_payment_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users")
+        users_count, total_balance = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND expires_at > NOW()")
+        active_subscriptions = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM generations WHERE created_at >= NOW() - INTERVAL '24 hours'")
+        generations_today = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM admin_users WHERE active = TRUE")
+        admins_count = cursor.fetchone()[0]
+        return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
+                "subscriptions": int(active_subscriptions or 0), "generations_today": int(generations_today or 0),
+                "admins": int(admins_count or 0)}, "admin": actor}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/users/search")
+async def admin_users_search(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, "view_users")
+    query = str(payload.get("query") or "").strip()[:100]
+    limit = max(1, min(int(payload.get("limit") or 30), 100))
+    pattern = f"%{query}%"
+    ensure_user_profiles_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User'),
+                   COALESCE(u.username, ''), COALESCE(u.balance, 0), COALESCE(u.subscription, 'free'),
+                   u.created_at,
+                   (SELECT MAX(s.expires_at) FROM subscriptions s
+                    WHERE s.telegram_id=u.telegram_id AND s.status='active' AND s.expires_at>NOW())
+            FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
+            WHERE %s = '' OR u.telegram_id::text ILIKE %s OR COALESCE(u.username,'') ILIKE %s
+                  OR COALESCE(p.display_name,u.first_name,'') ILIKE %s
+            ORDER BY u.created_at DESC NULLS LAST LIMIT %s
+        """, (query, pattern, pattern, pattern, limit))
+        items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
+                  "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6])} for r in cursor.fetchall()]
+        return {"ok": True, "items": items}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/users/balance")
+async def admin_user_balance(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "manage_balance")
+    target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
+    reason = str(payload.get("reason") or "Ручная корректировка")[:500]
+    if not target_id or not delta or abs(delta) > 1000000:
+        raise HTTPException(status_code=400, detail="invalid_balance_change")
+    ensure_user_exists(target_id)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COALESCE(balance,0) FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
+        before = int(cursor.fetchone()[0] or 0)
+        after = max(0, before + delta)
+        cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
+        _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before}, {"balance": after}, reason)
+        conn.commit()
+        return {"ok": True, "balance": after}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/users/subscription")
+async def admin_user_subscription(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "manage_subscriptions")
+    target_id = int(payload.get("user_id") or 0)
+    action = str(payload.get("action") or "extend")
+    days = max(1, min(int(payload.get("days") or 30), 730))
+    reason = str(payload.get("reason") or "Изменение администратором")[:500]
+    if not target_id or action not in {"extend", "cancel"}:
+        raise HTTPException(status_code=400, detail="invalid_subscription_change")
+    ensure_user_exists(target_id)
+    ensure_payment_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
+        before_plan = (cursor.fetchone() or [None])[0]
+        cursor.execute("SELECT MAX(expires_at) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
+        before_expiry = (cursor.fetchone() or [None])[0]
+        if action == "cancel":
+            cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active'", (target_id,))
+            cursor.execute("UPDATE users SET subscription=NULL WHERE telegram_id=%s", (target_id,))
+            after = {"subscription": "free", "expires_at": None}
+        else:
+            plan = str(payload.get("plan") or ("year" if days >= 365 else "month"))[:40]
+            cursor.execute("""
+                INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, amount, currency,
+                                           starts_at, expires_at, status, charge_id)
+                VALUES (%s,%s,'admin',0,'CVX',NOW(),GREATEST(COALESCE(%s,NOW()),NOW()) + (%s * INTERVAL '1 day'),
+                        'active',%s) RETURNING id, expires_at
+            """, (target_id, plan, before_expiry, days, f"admin:{actor['telegram_id']}:{uuid4()}"))
+            inserted_id, expires_at = cursor.fetchone()
+            cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active' AND id<>%s", (target_id, inserted_id))
+            cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
+            after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
+        _admin_audit(cursor, actor["telegram_id"], "subscription_changed", target_id,
+                     {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
+        conn.commit()
+        return {"ok": True, **after}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/users/message")
+async def admin_user_message(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "message_users")
+    target_id = int(payload.get("user_id") or 0)
+    message = str(payload.get("message") or "").strip()
+    if not target_id or not message or len(message) > 4000:
+        raise HTTPException(status_code=400, detail="invalid_message")
+    if not BOT_TOKEN:
+        raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+    def send_message():
+        return requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                             json={"chat_id": target_id, "text": message}, timeout=20)
+    response = await asyncio.to_thread(send_message)
+    result = response.json() if response.content else {}
+    sent = response.status_code < 400 and bool(result.get("ok"))
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
+                       (actor["telegram_id"], target_id, message, sent))
+        _admin_audit(cursor, actor["telegram_id"], "message_sent" if sent else "message_failed", target_id,
+                     {}, {"length": len(message), "sent": sent}, "")
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    if not sent:
+        raise HTTPException(status_code=502, detail="telegram_send_failed")
+    return {"ok": True}
+
+
+@app.post("/api/admin/admins/list")
+async def admin_list(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, owner_only=True)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT telegram_id,role,permissions,active,granted_by,created_at FROM admin_users ORDER BY role='owner' DESC,created_at")
+        return {"ok": True, "items": [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
+                "granted_by":r[4],"created_at":_to_iso(r[5])} for r in cursor.fetchall()]}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/admins/set")
+async def admin_set(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, owner_only=True)
+    target_id = int(payload.get("user_id") or 0)
+    active = bool(payload.get("active", True))
+    permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
+    allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users", "view_audit"}
+    permissions = [p for p in permissions if p in allowed]
+    if not target_id or target_id == SUPERADMIN_TELEGRAM_ID:
+        raise HTTPException(status_code=400, detail="invalid_admin_target")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT role,permissions,active FROM admin_users WHERE telegram_id=%s", (target_id,))
+        before_row = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO admin_users (telegram_id,role,permissions,active,granted_by,updated_at)
+            VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
+            ON CONFLICT (telegram_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
+                active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
+        """, (target_id, json.dumps(permissions), active, actor["telegram_id"]))
+        _admin_audit(cursor, actor["telegram_id"], "admin_access_changed", target_id,
+                     {"role": before_row[0], "permissions": before_row[1], "active": before_row[2]} if before_row else {},
+                     {"role": "admin", "permissions": permissions, "active": active}, "")
+        conn.commit()
+        return {"ok": True}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/audit")
+async def admin_audit(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, "view_audit")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
+        return {"ok": True, "items": [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
+                "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]}
+    finally:
+        cursor.close()
+        conn.close()
     try:
         parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
         user = json.loads(parsed.get("user") or "{}")
