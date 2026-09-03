@@ -8218,6 +8218,7 @@ body.community-menu-visible{overflow:hidden}.community-delete-post{width:32px;he
 
 /* ===== SYLVEX admin panel ===== */
 .admin-panel-entry{border-color:color-mix(in srgb,var(--accent) 38%,var(--border));background:color-mix(in srgb,var(--surface) 88%,var(--accent) 12%)}
+.admin-panel-entry[hidden]{display:none!important}
 .admin-panel-entry .ico{color:var(--accent)}
 .admin-panel-modal{position:fixed;inset:0;z-index:1200;display:flex;flex-direction:column;background:var(--bg,#090a0d);color:var(--text);overflow:hidden}
 .admin-panel-modal[hidden]{display:none}
