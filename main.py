@@ -112,7 +112,12 @@ async def public_storage_object(object_key: str, request: Request):
         headers["Content-Range"] = f"bytes {start}-{end}/{total}"
     return StreamingResponse(storage_iter_object(body, max_bytes=content_length), media_type=content_type, headers=headers, status_code=status_code)
 
-BOT_TOKEN = (os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+_BOT_TOKEN_VALUES = [
+    str(os.getenv("BOT_TOKEN") or "").strip(),
+    str(os.getenv("TELEGRAM_BOT_TOKEN") or "").strip(),
+]
+TELEGRAM_AUTH_TOKENS = tuple(dict.fromkeys(token for token in _BOT_TOKEN_VALUES if token))
+BOT_TOKEN = TELEGRAM_AUTH_TOKENS[0] if TELEGRAM_AUTH_TOKENS else ""
 TELEGRAM_PAYMENT_WEBHOOK_SECRET = (os.getenv("TELEGRAM_PAYMENT_WEBHOOK_SECRET") or "").strip()
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
 print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
@@ -4307,7 +4312,7 @@ async def save_settings(request: Request):
 # Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
 # =====================================================
 def verify_telegram_init_data(init_data: str) -> bool:
-    if not init_data or not BOT_TOKEN:
+    if not init_data or not TELEGRAM_AUTH_TOKENS:
         return False
 
     parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
@@ -4316,9 +4321,12 @@ def verify_telegram_init_data(init_data: str) -> bool:
         return False
 
     data_check = "\n".join(f"{key}={parsed[key]}" for key in sorted(parsed))
-    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    calculated_hash = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(calculated_hash, received_hash)
+    for token in TELEGRAM_AUTH_TOKENS:
+        secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(calculated_hash, received_hash):
+            return True
+    return False
 
 # =====================================================
 # PYTHON-БЛОК: fallback_public_user
@@ -7830,9 +7838,15 @@ def ensure_admin_tables():
 
 def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) -> dict:
     init_data = str((payload or {}).get("initData") or (payload or {}).get("init_data") or "")
+    if not init_data:
+        raise HTTPException(status_code=403, detail="telegram_init_data_missing")
+    if not TELEGRAM_AUTH_TOKENS:
+        raise HTTPException(status_code=503, detail="telegram_bot_token_missing")
+    if not verify_telegram_init_data(init_data):
+        raise HTTPException(status_code=403, detail="telegram_signature_invalid")
     telegram_id = _telegram_id_from_init_data(init_data)
     if not telegram_id:
-        raise HTTPException(status_code=403, detail="telegram_auth_required")
+        raise HTTPException(status_code=403, detail="telegram_user_missing")
     # The project owner is defined by the signed Telegram user id. Do not make
     # first access depend on an admin_users row that may not exist yet.
     if telegram_id == SUPERADMIN_TELEGRAM_ID:
