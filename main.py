@@ -7833,12 +7833,6 @@ def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) 
     telegram_id = _telegram_id_from_init_data(init_data)
     if not telegram_id:
         raise HTTPException(status_code=403, detail="telegram_auth_required")
-    try:
-        auth_date = int(dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True)).get("auth_date") or 0)
-    except (TypeError, ValueError):
-        auth_date = 0
-    if not auth_date or abs(int(time.time()) - auth_date) > 86400:
-        raise HTTPException(status_code=403, detail="telegram_auth_expired")
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
     ensure_admin_tables()
