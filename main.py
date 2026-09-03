@@ -140,7 +140,7 @@ SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_E
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
-SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "1005114896") or 1005114896)
+SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
@@ -7833,6 +7833,10 @@ def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) 
     telegram_id = _telegram_id_from_init_data(init_data)
     if not telegram_id:
         raise HTTPException(status_code=403, detail="telegram_auth_required")
+    # The project owner is defined by the signed Telegram user id. Do not make
+    # first access depend on an admin_users row that may not exist yet.
+    if telegram_id == SUPERADMIN_TELEGRAM_ID:
+        return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
     ensure_admin_tables()
@@ -7878,6 +7882,7 @@ async def admin_me(request: Request):
 @app.post("/api/admin/dashboard")
 async def admin_dashboard(request: Request):
     actor = _admin_actor(await request.json(), "view_dashboard")
+    ensure_admin_tables()
     ensure_payment_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -7932,6 +7937,7 @@ async def admin_users_search(request: Request):
 async def admin_user_balance(request: Request):
     payload = await request.json()
     actor = _admin_actor(payload, "manage_balance")
+    ensure_admin_tables()
     target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
     reason = str(payload.get("reason") or "Ручная корректировка")[:500]
     if not target_id or not delta or abs(delta) > 1000000:
@@ -7959,6 +7965,7 @@ async def admin_user_balance(request: Request):
 async def admin_user_subscription(request: Request):
     payload = await request.json()
     actor = _admin_actor(payload, "manage_subscriptions")
+    ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     action = str(payload.get("action") or "extend")
     days = max(1, min(int(payload.get("days") or 30), 730))
@@ -8006,6 +8013,7 @@ async def admin_user_subscription(request: Request):
 async def admin_user_message(request: Request):
     payload = await request.json()
     actor = _admin_actor(payload, "message_users")
+    ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     message = str(payload.get("message") or "").strip()
     if not target_id or not message or len(message) > 4000:
@@ -8038,6 +8046,7 @@ async def admin_user_message(request: Request):
 async def admin_list(request: Request):
     payload = await request.json()
     _admin_actor(payload, owner_only=True)
+    ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -8053,6 +8062,7 @@ async def admin_list(request: Request):
 async def admin_set(request: Request):
     payload = await request.json()
     actor = _admin_actor(payload, owner_only=True)
+    ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     active = bool(payload.get("active", True))
     permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
@@ -8088,6 +8098,7 @@ async def admin_set(request: Request):
 async def admin_audit(request: Request):
     payload = await request.json()
     _admin_actor(payload, "view_audit")
+    ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
