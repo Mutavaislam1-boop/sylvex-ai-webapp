@@ -112,7 +112,7 @@ async def public_storage_object(object_key: str, request: Request):
         headers["Content-Range"] = f"bytes {start}-{end}/{total}"
     return StreamingResponse(storage_iter_object(body, max_bytes=content_length), media_type=content_type, headers=headers, status_code=status_code)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = (os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 TELEGRAM_PAYMENT_WEBHOOK_SECRET = (os.getenv("TELEGRAM_PAYMENT_WEBHOOK_SECRET") or "").strip()
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
 print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
