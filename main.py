@@ -7778,6 +7778,35 @@ def _telegram_id_from_init_data(init_data: str) -> int:
     """Return the signed Telegram user id, or zero for invalid init data."""
     if not verify_telegram_init_data(init_data):
         return 0
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        # Regular Mini App launches use `user`; attachment-menu launches may
+        # use `receiver`. Both values are covered by Telegram's signature.
+        for field in ("user", "receiver"):
+            raw = parsed.get(field)
+            if not raw:
+                continue
+            value = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(value, dict) and value.get("id"):
+                return int(value["id"])
+
+        # A signed private-chat id identifies the same Telegram user.
+        raw_chat = parsed.get("chat")
+        if raw_chat:
+            chat = json.loads(raw_chat) if isinstance(raw_chat, str) else raw_chat
+            if isinstance(chat, dict) and str(chat.get("type") or "").lower() == "private" and chat.get("id"):
+                return int(chat["id"])
+
+        # Telegram-compatible launchers can place a direct id in the signed
+        # data-check string. Unsigned frontend values are never accepted.
+        for field in ("user_id", "telegram_id"):
+            if parsed.get(field):
+                return int(parsed[field])
+
+        print("ADMIN TELEGRAM AUTH USER MISSING:", {"signed_fields": sorted(parsed.keys())})
+        return 0
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return 0
 
 
 # =====================================================
@@ -8122,12 +8151,6 @@ async def admin_audit(request: Request):
     finally:
         cursor.close()
         conn.close()
-    try:
-        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
-        user = json.loads(parsed.get("user") or "{}")
-        return int(user.get("id") or 0)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return 0
 
 
 def _prostudio_download_filename(mode: str, job_id: str, content_type: str, object_key: str) -> str:
