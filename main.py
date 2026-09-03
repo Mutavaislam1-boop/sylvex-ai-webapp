@@ -7814,13 +7814,23 @@ def _telegram_id_from_init_data(init_data: str) -> int:
 # Server-side role checks are mandatory for every action. The UI visibility is
 # only a convenience and is never used as an authorization boundary.
 # =====================================================
+ADMIN_SCHEMA_LOCK = threading.Lock()
+ADMIN_SCHEMA_READY = False
+
+
 def ensure_admin_tables():
+    global ADMIN_SCHEMA_READY
     if not DATABASE_URL:
         return
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
+    if ADMIN_SCHEMA_READY:
+        return
+    with ADMIN_SCHEMA_LOCK:
+        if ADMIN_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_users (
                 telegram_id BIGINT PRIMARY KEY,
                 role TEXT NOT NULL DEFAULT 'admin',
@@ -7830,8 +7840,8 @@ def ensure_admin_tables():
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )
-        """)
-        cursor.execute("""
+            """)
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_audit_log (
                 id BIGSERIAL PRIMARY KEY,
                 actor_telegram_id BIGINT NOT NULL,
@@ -7842,8 +7852,8 @@ def ensure_admin_tables():
                 reason TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
-        """)
-        cursor.execute("""
+            """)
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS admin_messages (
                 id BIGSERIAL PRIMARY KEY,
                 admin_telegram_id BIGINT NOT NULL,
@@ -7852,17 +7862,31 @@ def ensure_admin_tables():
                 telegram_sent BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW()
             )
-        """)
-        cursor.execute("""
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_presence (
+                telegram_id BIGINT PRIMARY KEY,
+                current_view TEXT,
+                platform TEXT,
+                last_seen TIMESTAMP NOT NULL DEFAULT NOW(),
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_app_presence_last_seen ON app_presence(last_seen DESC)")
+            cursor.execute("""
             INSERT INTO admin_users (telegram_id, role, permissions, active, granted_by, updated_at)
             VALUES (%s, 'owner', '["all"]'::jsonb, TRUE, %s, NOW())
             ON CONFLICT (telegram_id) DO UPDATE
             SET role = 'owner', permissions = '["all"]'::jsonb, active = TRUE, updated_at = NOW()
-        """, (SUPERADMIN_TELEGRAM_ID, SUPERADMIN_TELEGRAM_ID))
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+            """, (SUPERADMIN_TELEGRAM_ID, SUPERADMIN_TELEGRAM_ID))
+            conn.commit()
+            ADMIN_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 
 def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) -> dict:
@@ -7922,25 +7946,70 @@ async def admin_me(request: Request):
     return {"ok": True, "admin": actor}
 
 
+@app.post("/api/public/presence")
+async def public_presence(request: Request):
+    payload = await request.json()
+    telegram_id = _telegram_id_from_init_data(str(payload.get("initData") or payload.get("init_data") or ""))
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_auth_required"}, status_code=403)
+    ensure_admin_tables()
+    current_view = re.sub(r"[^a-z0-9_-]", "", str(payload.get("view") or "home").lower())[:40] or "home"
+    platform = re.sub(r"[^a-z0-9_.-]", "", str(payload.get("platform") or "telegram").lower())[:40] or "telegram"
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO app_presence (telegram_id,current_view,platform,last_seen)
+            VALUES (%s,%s,%s,NOW())
+            ON CONFLICT (telegram_id) DO UPDATE
+            SET current_view=EXCLUDED.current_view,platform=EXCLUDED.platform,last_seen=NOW()
+        """, (telegram_id, current_view, platform))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.post("/api/admin/dashboard")
 async def admin_dashboard(request: Request):
     actor = _admin_actor(await request.json(), "view_dashboard")
     ensure_admin_tables()
-    ensure_payment_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT COUNT(*), COALESCE(SUM(balance), 0) FROM users")
-        users_count, total_balance = cursor.fetchone()
-        cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status = 'active' AND expires_at > NOW()")
+        cursor.execute("""
+            SELECT COUNT(*), COALESCE(SUM(balance),0),
+                   COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
+            FROM users
+        """)
+        users_count, total_balance, new_users_today = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
         active_subscriptions = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM generations WHERE created_at >= NOW() - INTERVAL '24 hours'")
-        generations_today = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'),
+                   COUNT(*) FILTER (WHERE status='failed' AND created_at >= NOW() - INTERVAL '24 hours'),
+                   COUNT(*),
+                   COUNT(*) FILTER (WHERE status IN ('queued','processing','running'))
+            FROM prostudio_generation_jobs
+        """)
+        generations_today, failed_today, generations_total, active_jobs = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM app_presence WHERE last_seen >= NOW() - INTERVAL '5 minutes'")
+        online_count = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM admin_users WHERE active = TRUE")
         admins_count = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COALESCE(NULLIF(mode,''),'unknown'), COUNT(*),
+                   COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')
+            FROM prostudio_generation_jobs GROUP BY 1 ORDER BY COUNT(*) DESC
+        """)
+        tools = [{"type": row[0], "total": int(row[1] or 0), "today": int(row[2] or 0)} for row in cursor.fetchall()]
         return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
                 "subscriptions": int(active_subscriptions or 0), "generations_today": int(generations_today or 0),
-                "admins": int(admins_count or 0)}, "admin": actor}
+                "generations_total": int(generations_total or 0), "failed_today": int(failed_today or 0),
+                "active_jobs": int(active_jobs or 0),
+                "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
+                "admins": int(admins_count or 0)}, "tools": tools, "admin": actor}
     finally:
         cursor.close()
         conn.close()
@@ -7953,7 +8022,6 @@ async def admin_users_search(request: Request):
     query = str(payload.get("query") or "").strip()[:100]
     limit = max(1, min(int(payload.get("limit") or 30), 100))
     pattern = f"%{query}%"
-    ensure_user_profiles_table()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -7961,15 +8029,18 @@ async def admin_users_search(request: Request):
             SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User'),
                    COALESCE(u.username, ''), COALESCE(u.balance, 0), COALESCE(u.subscription, 'free'),
                    u.created_at,
-                   (SELECT MAX(s.expires_at) FROM subscriptions s
-                    WHERE s.telegram_id=u.telegram_id AND s.status='active' AND s.expires_at>NOW())
+                   (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
+                    WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()),
+                   EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
+                          AND ap.last_seen >= NOW() - INTERVAL '5 minutes')
             FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
             WHERE %s = '' OR u.telegram_id::text ILIKE %s OR COALESCE(u.username,'') ILIKE %s
                   OR COALESCE(p.display_name,u.first_name,'') ILIKE %s
-            ORDER BY u.created_at DESC NULLS LAST LIMIT %s
+            ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s
         """, (query, pattern, pattern, pattern, limit))
         items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
-                  "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6])} for r in cursor.fetchall()]
+                  "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
+                  "online": bool(r[7])} for r in cursor.fetchall()]
         return {"ok": True, "items": items}
     finally:
         cursor.close()
@@ -8022,7 +8093,7 @@ async def admin_user_subscription(request: Request):
     try:
         cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
         before_plan = (cursor.fetchone() or [None])[0]
-        cursor.execute("SELECT MAX(expires_at) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
+        cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
         before_expiry = (cursor.fetchone() or [None])[0]
         if action == "cancel":
             cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active'", (target_id,))
@@ -8033,7 +8104,7 @@ async def admin_user_subscription(request: Request):
             cursor.execute("""
                 INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, amount, currency,
                                            starts_at, expires_at, status, charge_id)
-                VALUES (%s,%s,'admin',0,'CVX',NOW(),GREATEST(COALESCE(%s,NOW()),NOW()) + (%s * INTERVAL '1 day'),
+                VALUES (%s,%s,'admin',0,'CVX',NOW(),GREATEST(COALESCE(%s::timestamp,NOW()),NOW()) + (%s * INTERVAL '1 day'),
                         'active',%s) RETURNING id, expires_at
             """, (target_id, plan, before_expiry, days, f"admin:{actor['telegram_id']}:{uuid4()}"))
             inserted_id, expires_at = cursor.fetchone()
@@ -8109,7 +8180,7 @@ async def admin_set(request: Request):
     target_id = int(payload.get("user_id") or 0)
     active = bool(payload.get("active", True))
     permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
-    allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users", "view_audit"}
+    allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users", "view_audit", "view_errors"}
     permissions = [p for p in permissions if p in allowed]
     if not target_id or target_id == SUPERADMIN_TELEGRAM_ID:
         raise HTTPException(status_code=400, detail="invalid_admin_target")
@@ -8148,6 +8219,28 @@ async def admin_audit(request: Request):
         cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
         return {"ok": True, "items": [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
                 "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/errors")
+async def admin_errors(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, "view_errors")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT id,telegram_id,job_id,provider,model,status,error_text,created_at
+            FROM prostudio_errors
+            ORDER BY created_at DESC LIMIT 100
+        """)
+        return {"ok": True, "items": [{
+            "id": row[0], "telegram_id": row[1], "job_id": row[2] or "",
+            "provider": row[3] or "", "model": row[4] or "", "status": row[5] or "",
+            "error": str(row[6] or "")[:1000], "created_at": _to_iso(row[7]),
+        } for row in cursor.fetchall()]}
     finally:
         cursor.close()
         conn.close()
