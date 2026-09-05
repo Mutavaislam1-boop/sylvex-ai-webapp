@@ -1551,17 +1551,23 @@ def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[s
     speaker_voices = voice_options.get("speaker_voices") or voice_options.get("speakerVoices") or []
     if not isinstance(speaker_voices, list):
         speaker_voices = []
-    voices = [str(value) for value in speaker_voices[:7] if value]
+    # Preserve the slot index: Speaker2 must resolve to speaker_voices[1].
+    # Filtering empty values shifted IDs and could assign a wrong voice.
+    voices = [str(value or "").strip() for value in speaker_voices[:7]]
     while len(voices) < 7:
-        fallback = voice_options.get("elevenlabs_second_voice") or voice_options.get("secondVoice") or primary
-        voices.append(str(primary if not voices else fallback))
+        voices.append("")
+    fallback = str(voice_options.get("elevenlabs_second_voice") or voice_options.get("secondVoice") or primary)
+    for index in range(7):
+        if not voices[index]:
+            voices[index] = primary if index == 0 else fallback
     inputs = []
+    active_voice_id = voices[0]
     for raw_line in str(prompt or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
         lower = line.lower()
-        voice_id = voices[0]
+        voice_id = active_voice_id
         text = line
         prefixes = tuple(
             ((f"speaker{index}:", f"speaker {index}:", f"диктор {index}:", f"персонаж {index}:", f"герой {index}:"), voices[index - 1])
@@ -1572,16 +1578,23 @@ def _elevenlabs_dialogue_inputs(prompt: str, voice_options: dict) -> list[dict[s
             for prefix in variants:
                 if lower.startswith(prefix):
                     voice_id = selected_voice
+                    active_voice_id = selected_voice
                     text = line[len(prefix):].strip()
                     matched = True
                     break
             if matched:
                 break
         if text:
-            inputs.append({"text": text, "voice_id": voice_id})
+            # Keep paragraph breaks inside the same turn while reducing the
+            # number of API inputs. Continuation lines inherit the last
+            # explicitly selected speaker instead of falling back to Speaker1.
+            if inputs and inputs[-1]["voice_id"] == voice_id and not matched:
+                inputs[-1]["text"] += "\n" + text
+            else:
+                inputs.append({"text": text, "voice_id": voice_id})
     if not inputs and prompt:
         inputs.append({"text": str(prompt).strip(), "voice_id": voices[0]})
-    return inputs[:20]
+    return inputs
 
 
 # =====================================================
@@ -1753,7 +1766,7 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
         return cached
     api_key = _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY")
     if not api_key:
-        return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True})
+        return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True, "retryable": False}
     voices = []
     next_page_token = ""
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -1766,10 +1779,12 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
                 data = await safe_audio_json_response(response, "elevenlabs", f"{ELEVENLABS_BASE_URL}/v2/voices")
             except Exception as exc:
                 print("ELEVENLABS VOICES FAILED:", repr(exc))
-                return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True})
+                # Never cache a temporary fallback for the normal 15-minute
+                # catalogue TTL; otherwise the UI remains stuck on Rachel.
+                return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True, "retryable": True}
             if response.status_code >= 400:
                 print("ELEVENLABS VOICES ERROR:", json.dumps(data, ensure_ascii=False)[:900] if isinstance(data, (dict, list)) else str(data)[:900])
-                return _voice_list_cache_set("elevenlabs", {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True})
+                return {"ok": True, "success": True, "provider": "elevenlabs", "voices": ELEVENLABS_VOICE_FALLBACKS, "fallback": True, "retryable": response.status_code >= 500 or response.status_code == 429}
             page_voices = data.get("voices") if isinstance(data, dict) else []
             if isinstance(page_voices, list):
                 voices.extend(page_voices)
@@ -1967,6 +1982,17 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         return _audio_error(provider, frontend_model, provider_model, "ELEVENLABS_API_KEY is not configured", type="voice")
 
     prompt = (payload.get("prompt") or voice_options.get("prompt") or "").strip()
+    if tool == "dialogue" and len(prompt) > 2000:
+        return _audio_error(
+            provider,
+            frontend_model,
+            provider_model,
+            "Dialogue is too long. ElevenLabs Text to Dialogue supports up to 2000 characters per reliable request.",
+            type="voice",
+            tool=tool,
+            prompt_length=len(prompt),
+            prompt_limit=2000,
+        )
     voice_id = str(voice_options.get("elevenlabs_voice") or voice_options.get("voice") or ELEVENLABS_DEFAULT_VOICE_ID)
     output_format = str(voice_options.get("output_format") or voice_options.get("outputFormat") or ELEVENLABS_DEFAULT_OUTPUT_FORMAT)
     voice_settings = _elevenlabs_voice_settings(voice_options)
