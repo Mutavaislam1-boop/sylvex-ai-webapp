@@ -2903,8 +2903,9 @@ function renderVoiceSpeakerComposer() {
     const provider = isElevenLabsVoiceModel(voiceState.modelId) ? 'elevenlabs' : (isRunwayVoiceModel(voiceState.modelId) ? 'runway' : 'gemini');
     const avatarUrl = item ? voiceAvatarUrlFor(item, provider) : '';
     const avatar = avatarUrl ? '<img src="' + S.escapeHtml(avatarUrl) + '" alt="">' : '<span>' + (name ? S.escapeHtml(voiceInitials(name)) : String(index + 1)) + '</span>';
-    const replace = voiceId ? '<span class="voice-speaker-replace" role="button" tabindex="0" aria-label="Заменить голос" title="Заменить голос" onclick="SYLVEX.replaceVoiceSpeaker(event,' + (index + 1) + ')">↻</span>' : '';
-    return '<button class="voice-speaker-chip ' + (voiceState.activeSpeakerIndex === index ? 'active' : '') + '" type="button" onclick="SYLVEX.handleVoiceSpeakerClick(event,' + (index + 1) + ')"><span class="voice-speaker-avatar" style="' + (item ? voiceAvatarStyle(voiceId || name) : '') + '">' + avatar + '</span><span class="voice-speaker-copy"><b>Диктор ' + (index + 1) + '</b><small>' + S.escapeHtml(name || 'Выбрать голос') + '</small></span>' + replace + (index ? '<span class="voice-speaker-remove" role="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</span>' : '') + '</button>';
+    const replace = voiceId ? '<button class="voice-speaker-replace" type="button" aria-label="Сменить голос диктора ' + (index + 1) + '" onclick="SYLVEX.replaceVoiceSpeaker(event,' + (index + 1) + ')"><span aria-hidden="true">↻</span><small>Сменить</small></button>' : '';
+    const remove = index ? '<button class="voice-speaker-remove" type="button" aria-label="Убрать диктора" onclick="SYLVEX.removeVoiceSpeaker(event,' + (index + 1) + ')">×</button>' : '';
+    return '<div class="voice-speaker-card ' + (voiceId ? 'has-voice' : 'is-empty') + '"><button class="voice-speaker-chip ' + (voiceState.activeSpeakerIndex === index ? 'active' : '') + '" type="button" onclick="SYLVEX.handleVoiceSpeakerClick(event,' + (index + 1) + ')"><span class="voice-speaker-avatar" style="' + (item ? voiceAvatarStyle(voiceId || name) : '') + '">' + avatar + '</span><span class="voice-speaker-copy"><b>Диктор ' + (index + 1) + '</b><small>' + S.escapeHtml(name || 'Выбрать голос') + '</small></span></button>' + replace + remove + '</div>';
   }).join('');
   const maxSpeakers = isElevenLabsVoiceModel(voiceState.modelId) ? 7 : 2;
   const addSpeaker = count < maxSpeakers ? '<button class="voice-dialogue-add-speaker" type="button" onclick="SYLVEX.addVoiceSpeaker(event)" aria-label="Добавить диктора">+</button>' : '';
@@ -9217,19 +9218,21 @@ function imageModelButton(model) {
         const index = Math.max(0, Number(kind.slice(-1)) - 1);
         const optionKind = 'voiceSpeaker' + (index + 1);
         const activeVoice = voiceSpeakerVoiceValue(index);
-        const selectedByOtherSpeakers = new Set(Array.from({ length: Number(voiceState.numSpeakers || 1) }, (_, speakerIndex) => speakerIndex === index ? '' : voiceSpeakerVoiceValue(speakerIndex)).filter(Boolean).map(String));
-        const availableVoices = currentVoiceListForPanel().filter((item) => !selectedByOtherSpeakers.has(String(item.id || item.voice_id || '')));
-        const openSpeakerSheet = () => openVoiceSheet('Диктор ' + (index + 1), availableVoices, optionKind, activeVoice);
+        const openSpeakerSheet = () => {
+          const selectedByOtherSpeakers = new Set(Array.from({ length: Number(voiceState.numSpeakers || 1) }, (_, speakerIndex) => speakerIndex === index ? '' : voiceSpeakerVoiceValue(speakerIndex)).filter(Boolean).map(String));
+          const availableVoices = currentVoiceListForPanel().filter((item) => !selectedByOtherSpeakers.has(String(item.id || item.voice_id || '')));
+          openVoiceSheet('Диктор ' + (index + 1) + ' · выберите новый голос', availableVoices, optionKind, activeVoice);
+        };
+        openSpeakerSheet();
         if (isElevenLabsVoiceModel(voiceState.modelId)) {
-          loadElevenLabsVoices(true).then(() => {
-            if (isVoiceMode()) openSpeakerSheet();
+          loadElevenLabsVoices(false).then(() => {
+            if (isVoiceMode() && el.classList.contains('show') && voiceState.activeSpeakerIndex === index) openSpeakerSheet();
           });
         } else if (isRunwayVoiceModel(voiceState.modelId)) {
-          loadRunwayVoices(true).then(() => {
-            if (isVoiceMode()) openSpeakerSheet();
+          loadRunwayVoices(false).then(() => {
+            if (isVoiceMode() && el.classList.contains('show') && voiceState.activeSpeakerIndex === index) openSpeakerSheet();
           });
         }
-        openSpeakerSheet();
         return;
       }
       if (kind === 'voice') {
