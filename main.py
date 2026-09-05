@@ -4096,10 +4096,11 @@ async def public_prostudio_runway_voices():
 @app.get("/api/public/prostudio/elevenlabs-voices")
 async def public_prostudio_elevenlabs_voices():
     result = await fetch_elevenlabs_prostudio_voices()
-    if isinstance(result, dict) and isinstance(result.get("voices"), list):
-        result["voices"] = attach_voice_avatars(result["voices"], "elevenlabs")
+    # Do not make the voice catalogue wait for avatar DB work/generation.
+    # The frontend renders voices immediately and loads available avatars via
+    # the dedicated background endpoint.
     status_code = 200 if result.get("ok") or result.get("success") else 502
-    return JSONResponse(result, status_code=status_code)
+    return JSONResponse(result, status_code=status_code, headers={"Cache-Control": "private, max-age=900"})
 
 # =====================================================
 # API ENDPOINT: heygen_voice_bootstrap
