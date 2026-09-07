@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.git
+.venv
+venv
+__pycache__
+*.pyc
+webapp/generated
+work
+outputs
+provider_limits_report.*
+
+.venv-secure/

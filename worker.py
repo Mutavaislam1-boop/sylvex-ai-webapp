@@ -27,6 +27,8 @@ from main import (  # noqa: E402
 
 
 async def run_worker() -> None:
+    from services.runtime_checks import validate_runtime
+    validate_runtime()
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL or DATABASE_PUBLIC_URL is required for worker")
     if not BOT_TOKEN:

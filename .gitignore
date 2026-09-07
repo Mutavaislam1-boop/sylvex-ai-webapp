@@ -3,3 +3,9 @@
 !.env.example
 __pycache__/
 *.pyc
+.venv/
+venv/
+.pytest_cache/
+webapp/generated/
+
+.venv-secure/
