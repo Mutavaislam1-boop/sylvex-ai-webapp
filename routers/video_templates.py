@@ -1,5 +1,5 @@
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Request
 
 from services.video_templates import (
     get_all_templates,
@@ -33,7 +33,7 @@ async def template_info(template_id: str):
 
 # Новый POST-эндпоинт: генерация видео по шаблону (точка входа для Template → Video)
 @router.post("/{template_id}/generate")
-async def generate_video_from_template(template_id: str, body: dict = Body(...)):
+async def generate_video_from_template(template_id: str, request: Request, body: dict = Body(...)):
     template = get_template(template_id)
     if template is None:
         raise HTTPException(
@@ -126,5 +126,9 @@ async def generate_video_from_template(template_id: str, body: dict = Body(...))
         },
     }
 
-    result = await video_generation(package)
-    return result
+    from main import public_prostudio_generate
+    package["telegram_id"] = request.state.telegram_id
+    class TemplateRequest:
+        async def json(self):
+            return package
+    return await public_prostudio_generate(TemplateRequest())

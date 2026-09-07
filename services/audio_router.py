@@ -1,3 +1,4 @@
+from services.safe_io import safe_get, safe_client_get, safe_local_path, read_upload, validated_upload_type
 # =====================================================
 # АВТОДОКУМЕНТАЦИЯ SYLVEX: services/audio_router.py
 # Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
@@ -514,7 +515,7 @@ def _local_webapp_path_from_url(url: str) -> Optional[pathlib.Path]:
     parsed_path = urllib.parse.urlparse(value).path if value.startswith(("http://", "https://")) else value
     if not parsed_path.startswith("/webapp/"):
         return None
-    local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
+    local_path = safe_local_path(WEBAPP_DIR, parsed_path.replace("/webapp/", "", 1))
     return local_path if local_path.exists() else None
 
 
@@ -553,8 +554,8 @@ def _mux_video_with_audio(video_url: str, audio_url: str) -> str:
     command = [
         ffmpeg,
         "-y",
-        "-i", str(video_path),
-        "-i", str(audio_path),
+        "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm,mp3,wav,ogg,flac,aac,aiff,avi,mpeg,mpegts", "-i", str(video_path),
+        "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm,mp3,wav,ogg,flac,aac,aiff,avi,mpeg,mpegts", "-i", str(audio_path),
         "-map", "0:v:0",
         "-map", "1:a:0",
         "-c:v", "copy",
@@ -598,7 +599,7 @@ def _extract_audio_from_video_for_dubbing(video_url: str) -> tuple[bytes, str, s
     command = [
         ffmpeg,
         "-y",
-        "-i", str(video_path),
+        "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm,mp3,wav,ogg,flac,aac,aiff,avi,mpeg,mpegts", "-i", str(video_path),
         "-vn",
         "-ac", "2",
         "-ar", "44100",
@@ -701,7 +702,7 @@ async def _download_runway_audio(client: httpx.AsyncClient, audio_url: str) -> s
         return ""
     if str(audio_url).startswith("/webapp/"):
         return str(audio_url)
-    response = await client.get(audio_url)
+    response = await safe_client_get(client, audio_url)
     if response.status_code >= 400 or not response.content:
         return ""
     ext = _audio_extension_from_response(audio_url, response.headers.get("content-type") or "")
@@ -723,13 +724,13 @@ async def _load_provider_media(client: httpx.AsyncClient, media_url: str) -> tup
         content_type = mimetypes.guess_type(filename)[0] or "audio/mpeg"
         return content, filename, content_type
     if parsed_path.startswith("/webapp/"):
-        local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
+        local_path = safe_local_path(WEBAPP_DIR, parsed_path.replace("/webapp/", "", 1))
         if not local_path.exists():
             return b"", "input-audio.mp3", "audio/mpeg"
         content = local_path.read_bytes()
         content_type = mimetypes.guess_type(str(local_path))[0] or "audio/mpeg"
         return content, local_path.name or "input-audio.mp3", content_type
-    response = await client.get(value)
+    response = await safe_client_get(client, value)
     if response.status_code >= 400 or not response.content:
         return b"", "input-audio.mp3", "audio/mpeg"
     content_type = response.headers.get("content-type") or mimetypes.guess_type(value)[0] or "audio/mpeg"
@@ -1187,11 +1188,11 @@ async def _send_generated_audio_to_telegram(
                 audio_content = storage_read_bytes(str(audio_url))
                 content_type = mimetypes.guess_type(urllib.parse.urlparse(str(audio_url)).path)[0] or "audio/mpeg"
             elif str(audio_url).startswith("/webapp/"):
-                local_path = WEBAPP_DIR / str(audio_url).replace("/webapp/", "", 1)
+                local_path = safe_local_path(WEBAPP_DIR, str(audio_url).replace("/webapp/", "", 1))
                 audio_content = local_path.read_bytes() if local_path.exists() else b""
                 content_type = "audio/wav" if local_path.suffix.lower() == ".wav" else "audio/mpeg"
             else:
-                audio_response = await client.get(audio_url)
+                audio_response = await safe_client_get(client, audio_url)
                 if audio_response.status_code >= 400 or not audio_response.content:
                     print("TELEGRAM AUDIO SEND:", {
                         "telegram_id": telegram_id,
@@ -1450,7 +1451,7 @@ async def audio_generation(payload: dict) -> dict:
 
         for attempt in range(1, attempts + 1):
             try:
-                poll_response = await client.get(
+                poll_response = await safe_client_get(client, 
                     feed_url,
                     headers=_audio_headers(api_key),
                     params={"workId": work_id},
@@ -1641,7 +1642,7 @@ async def _poll_elevenlabs_dubbing(
 
     for attempt in range(1, attempts + 1):
         try:
-            response = await client.get(status_url, headers=_elevenlabs_headers(None))
+            response = await safe_client_get(client, status_url, headers=_elevenlabs_headers(None))
             data = await safe_audio_json_response(response, "elevenlabs", status_url)
         except Exception as exc:
             return _audio_error("elevenlabs", frontend_model, provider_model, exc, type="voice", endpoint=status_url, dubbing_id=dubbing_id, details=repr(exc))
@@ -1659,7 +1660,7 @@ async def _poll_elevenlabs_dubbing(
             return _audio_error("elevenlabs", frontend_model, provider_model, data, type="voice", endpoint=status_url, status_code=response.status_code, response=data, dubbing_id=dubbing_id)
 
         if status in {"dubbed", "done", "completed", "complete", "succeeded", "success"}:
-            audio_response = await client.get(audio_url, headers={"xi-api-key": _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"), "Accept": "audio/mpeg"})
+            audio_response = await safe_client_get(client, audio_url, headers={"xi-api-key": _get_env("ELEVENLABS_API_KEY", "ELEVENLABS-API-KEY"), "Accept": "audio/mpeg"})
             if audio_response.status_code >= 400 or not audio_response.content:
                 return _audio_error("elevenlabs", frontend_model, provider_model, await safe_audio_json_response(audio_response, "elevenlabs", audio_url), type="voice", endpoint=audio_url, status_code=audio_response.status_code, dubbing_id=dubbing_id)
             return await _completed_elevenlabs_voice_response(
@@ -1775,7 +1776,7 @@ async def fetch_elevenlabs_prostudio_voices(limit: int = 80) -> dict:
             if next_page_token:
                 params["next_page_token"] = next_page_token
             try:
-                response = await client.get(f"{ELEVENLABS_BASE_URL}/v2/voices", headers=_elevenlabs_headers(None), params=params)
+                response = await safe_client_get(client, f"{ELEVENLABS_BASE_URL}/v2/voices", headers=_elevenlabs_headers(None), params=params)
                 data = await safe_audio_json_response(response, "elevenlabs", f"{ELEVENLABS_BASE_URL}/v2/voices")
             except Exception as exc:
                 print("ELEVENLABS VOICES FAILED:", repr(exc))
@@ -1857,7 +1858,7 @@ def _prepare_voice_clone_sample(content: bytes, filename: str, content_type: str
             output_path = pathlib.Path(directory) / "prepared.wav"
             input_path.write_bytes(content)
             completed = subprocess.run(
-                [ffmpeg, "-y", "-i", str(input_path), "-vn", "-af", filters, "-ar", "48000", "-ac", "1", str(output_path)],
+                [ffmpeg, "-y", "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm,mp3,wav,ogg,flac,aac,aiff,avi,mpeg,mpegts", "-i", str(input_path), "-vn", "-af", filters, "-ar", "48000", "-ac", "1", str(output_path)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, check=False,
             )
             if completed.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
@@ -2339,7 +2340,7 @@ async def _poll_runway_voice_task(
 
     for attempt in range(1, attempts + 1):
         try:
-            response = await client.get(task_url, headers=_runway_headers(api_key))
+            response = await safe_client_get(client, task_url, headers=_runway_headers(api_key))
             data = await safe_audio_json_response(response, "runway", task_url)
         except Exception as exc:
             return _audio_error("runway", frontend_model, provider_model, exc, type="voice", endpoint=task_url, task_id=task_id, details=repr(exc))
@@ -2485,7 +2486,7 @@ async def fetch_runway_voices() -> dict:
     endpoint = f"{RUNWAY_API_BASE_URL}/v1/voices"
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            response = await client.get(endpoint, headers=_runway_headers(api_key))
+            response = await safe_client_get(client, endpoint, headers=_runway_headers(api_key))
             data = await safe_audio_json_response(response, "runway", endpoint)
         except Exception as exc:
             print("RUNWAY VOICES FAILED:", repr(exc))

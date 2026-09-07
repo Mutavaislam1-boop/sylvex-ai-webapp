@@ -1,3 +1,4 @@
+from services.safe_io import safe_get, safe_client_get, safe_local_path, read_upload, validated_upload_type
 # =====================================================
 # АВТОДОКУМЕНТАЦИЯ SYLVEX: main.py
 # Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
@@ -50,7 +51,14 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-app = FastAPI()
+from services.security import SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data
+from services.request_limits import check_request_quota, ensure_limit_table
+from services.paypal_binding import make_binding, read_binding
+from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
+
 
 STATIC_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif", ".ico")
 
@@ -60,7 +68,7 @@ async def cache_static_images(request: Request, call_next):
     """Keep version-stable visual assets in the Telegram WebView cache."""
     response = await call_next(request)
     path = request.url.path.lower()
-    if response.status_code in {200, 206} and path.endswith(STATIC_IMAGE_EXTENSIONS):
+    if response.status_code in {200, 206} and path.endswith(STATIC_IMAGE_EXTENSIONS) and "/generated/" not in path and not path.startswith("/api/"):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
@@ -399,7 +407,7 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
         if image_item.get("b64_json"):
             image_bytes = base64.b64decode(image_item["b64_json"])
         elif image_item.get("url"):
-            download = requests.get(image_item["url"], timeout=120)
+            download = safe_get(image_item["url"], timeout=120)
             download.raise_for_status(); image_bytes = download.content
         else:
             raise RuntimeError("OpenAI image response has no image")
@@ -2205,97 +2213,15 @@ def add_user_balance(telegram_id: int, credits: int):
 # =====================================================
 def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
     credits = int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
-    if not DATABASE_URL or not telegram_id or not generation_id or credits <= 0:
-        print("PROSTUDIO CHARGE SKIPPED:", {
-            "telegram_id": telegram_id,
-            "generation_id": generation_id,
-            "credits": max(0, credits),
-            "has_database": bool(DATABASE_URL),
-        })
-        return {"charged": False, "credits": max(0, credits), "balance_after": None}
-
+    if not DATABASE_URL or not telegram_id or not generation_id:
+        return {"charged": False, "credits": max(0, credits), "balance_after": None, "error": "billing_unavailable"}
     ensure_user_exists(telegram_id)
     ensure_prostudio_table()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
+    ensure_reservations(lambda: db_connect(DATABASE_URL))
     try:
-        cursor.execute("""
-            INSERT INTO generation_charges (
-                generation_id, telegram_id, mode, model, provider, credits
-            ) VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (generation_id) DO NOTHING
-            RETURNING id
-        """, (
-            generation_id,
-            telegram_id,
-            payload.get("mode") or payload.get("category") or result.get("type") or "",
-            payload.get("model") or result.get("model") or "",
-            payload.get("provider") or result.get("provider") or "",
-            credits,
-        ))
-        inserted = cursor.fetchone()
-        if inserted:
-            cursor.execute("""
-                UPDATE users
-                SET balance = COALESCE(balance, 0) - %s
-                WHERE telegram_id = %s
-                  AND COALESCE(balance, 0) >= %s
-                RETURNING COALESCE(balance, 0)
-            """, (credits, telegram_id, credits))
-            row = cursor.fetchone()
-            if not row:
-                cursor.execute("DELETE FROM generation_charges WHERE generation_id = %s", (generation_id,))
-                conn.commit()
-                print("PROSTUDIO CHARGE INSUFFICIENT:", {
-                    "telegram_id": telegram_id,
-                    "generation_id": generation_id,
-                    "credits": credits,
-                })
-                return {"charged": False, "credits": credits, "balance_after": None, "insufficient_balance": True}
-            balance_after = int(row[0])
-            cursor.execute(
-                "UPDATE generation_charges SET balance_after = %s WHERE generation_id = %s",
-                (balance_after, generation_id),
-            )
-            conn.commit()
-            print("PROSTUDIO CHARGE SUCCESS:", {
-                "telegram_id": telegram_id,
-                "generation_id": generation_id,
-                "credits": credits,
-                "balance_after": balance_after,
-            })
-            return {"charged": True, "credits": credits, "balance_after": balance_after}
-
-        cursor.execute(
-            "SELECT credits, balance_after FROM generation_charges WHERE generation_id = %s",
-            (generation_id,),
-        )
-        row = cursor.fetchone()
-        conn.commit()
-        print("PROSTUDIO CHARGE ALREADY_EXISTS:", {
-            "telegram_id": telegram_id,
-            "generation_id": generation_id,
-            "credits": int(row[0]) if row else credits,
-            "balance_after": int(row[1]) if row and row[1] is not None else None,
-        })
-        return {
-            "charged": False,
-            "already_charged": True,
-            "credits": int(row[0]) if row else credits,
-            "balance_after": int(row[1]) if row and row[1] is not None else None,
-        }
-    except Exception as exc:
-        conn.rollback()
-        print("PROSTUDIO CHARGE ERROR:", {
-            "telegram_id": telegram_id,
-            "generation_id": generation_id,
-            "credits": credits,
-            "error": str(exc),
-        })
-        return {"charged": False, "credits": credits, "balance_after": None, "error": str(exc)}
-    finally:
-        cursor.close()
-        conn.close()
+        return settle_generation(lambda: db_connect(DATABASE_URL), telegram_id, generation_id, credits, payload, result)
+    except SecurityError as exc:
+        return {"charged": False, "credits": max(0, credits), "balance_after": None, "error": exc.code, "insufficient_balance": exc.status == 402}
 
 
 # =====================================================
@@ -2304,69 +2230,73 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: int, currency: str, payload: str, charge_id: str):
+    if not DATABASE_URL:
+        raise RuntimeError("database_not_configured")
     credits = int(item.get("credits") or 0)
     bonus_credits = int(item.get("bonus_credits") or 0)
-    created = create_purchase_once(telegram_id, provider, credits or bonus_credits, amount, currency, payload, charge_id)
-
+    ensure_user_exists(telegram_id)
+    ensure_payment_tables()
+    created = apply_payment(lambda: db_connect(DATABASE_URL), telegram_id, provider, item, amount, currency, payload, charge_id)
     if not created:
         return False
+    # Preserve referral/reporting events after the atomic financial commit.
+    try:
+        log_user_event(
+            telegram_id=telegram_id,
+            source="payment",
+            event_type="payment_success",
+            event_name="payment_success",
+            payload={
+                "provider": provider,
+                "pack_id": item.get("plan_key") or f"credits_{credits}",
+                "amount": amount,
+                "currency": currency,
+                "charge_id": charge_id,
+                "payload": payload,
+            },
+        )
 
-    log_user_event(
-        telegram_id=telegram_id,
-        source="payment",
-        event_type="payment_success",
-        event_name="payment_success",
-        payload={
-            "provider": provider,
-            "pack_id": item.get("plan_key") or f"credits_{credits}",
-            "amount": amount,
-            "currency": currency,
-            "charge_id": charge_id,
-            "payload": payload,
-        },
-    )
-
-    if item["kind"] == "subscription":
-        activated = activate_subscription(telegram_id, item, provider, amount, currency, payload, charge_id)
-        if activated:
-            log_user_event(
-                telegram_id=telegram_id,
-                source="payment",
-                event_type="subscription_activated",
-                event_name=f"activate_{item.get('plan_key')}",
-                payload={
-                    "subscription_type": item.get("plan_key"),
-                    "expires_in_days": item.get("days"),
-                    "charge_id": charge_id,
-                },
-            )
-        if bonus_credits:
-            add_user_balance(telegram_id, bonus_credits)
+        if item["kind"] == "subscription":
+            activated = True
+            if activated:
+                log_user_event(
+                    telegram_id=telegram_id,
+                    source="payment",
+                    event_type="subscription_activated",
+                    event_name=f"activate_{item.get('plan_key')}",
+                    payload={
+                        "subscription_type": item.get("plan_key"),
+                        "expires_in_days": item.get("days"),
+                        "charge_id": charge_id,
+                    },
+                )
+            if bonus_credits:
+                log_user_event(
+                    telegram_id=telegram_id,
+                    source="payment",
+                    event_type="credits_added",
+                    event_name="subscription_bonus_credits",
+                    payload={
+                        "credits": bonus_credits,
+                        "charge_id": charge_id,
+                    },
+                )
+            if activated:
+                send_subscription_congratulations(telegram_id, item, provider)
+        else:
             log_user_event(
                 telegram_id=telegram_id,
                 source="payment",
                 event_type="credits_added",
-                event_name="subscription_bonus_credits",
+                event_name="credits_purchase",
                 payload={
-                    "credits": bonus_credits,
+                    "credits": credits,
                     "charge_id": charge_id,
                 },
             )
-        if activated:
-            send_subscription_congratulations(telegram_id, item, provider)
-    else:
-        add_user_balance(telegram_id, credits)
-        log_user_event(
-            telegram_id=telegram_id,
-            source="payment",
-            event_type="credits_added",
-            event_name="credits_purchase",
-            payload={
-                "credits": credits,
-                "charge_id": charge_id,
-            },
-        )
 
+    except Exception as exc:
+        print("PAYMENT POST-COMMIT NOTIFICATION FAILED:", type(exc).__name__)
     return True
 
 
@@ -2877,14 +2807,15 @@ def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: st
             )
             VALUES (%s, %s, %s, %s, %s, 'USD', 'pending', %s)
             ON CONFLICT (paypal_subscription_id) DO UPDATE
-            SET telegram_id = EXCLUDED.telegram_id,
-                pack_id = EXCLUDED.pack_id,
+            SET pack_id = EXCLUDED.pack_id,
                 plan_id = EXCLUDED.plan_id,
                 status = CASE
                     WHEN paypal_subscriptions.status = 'active' THEN paypal_subscriptions.status
                     ELSE 'pending'
                 END,
                 updated_at = CURRENT_TIMESTAMP
+            WHERE paypal_subscriptions.telegram_id = EXCLUDED.telegram_id
+              AND paypal_subscriptions.plan_id = EXCLUDED.plan_id
         """, (
             telegram_id,
             pack_id,
@@ -2893,8 +2824,9 @@ def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: st
             int(round(float(item["usd"]) * 100)),
             shop_payload("paypal_subscription", telegram_id, pack_id, item),
         ))
+        saved = cursor.rowcount > 0
         conn.commit()
-        return True
+        return saved
     finally:
         cursor.close()
         conn.close()
@@ -2947,6 +2879,8 @@ def paypal_subscription_payment_details(event: dict) -> dict:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def activate_paypal_subscription_from_event(event: dict) -> bool:
+    if event.get("event_type") != "PAYMENT.SALE.COMPLETED":
+        return False
     subscription_id = paypal_subscription_id_from_event(event)
     if not subscription_id or not DATABASE_URL:
         return False
@@ -2963,7 +2897,16 @@ def activate_paypal_subscription_from_event(event: dict) -> bool:
         """, (subscription_id,))
         row = cursor.fetchone()
         if not row:
-            return False
+            # Webhook may arrive before browser onApprove. Recover ownership from PayPal's signed binding.
+            verified = verified_paypal_subscription(subscription_id)
+            plan = str(verified.get("plan_id") or "")
+            uid = read_binding(verified.get("custom_id"), plan)
+            if not save_paypal_subscription(uid, subscription_id, plan):
+                raise HTTPException(status_code=503, detail="paypal_subscription_binding_pending")
+            cursor.execute("SELECT telegram_id, pack_id, amount, currency, status, payload FROM paypal_subscriptions WHERE paypal_subscription_id=%s", (subscription_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=503, detail="paypal_subscription_binding_pending")
 
         telegram_id, pack_id, stored_amount, stored_currency, status, payload = row
         item = shop_item(pack_id or "sub_month")
@@ -2971,21 +2914,8 @@ def activate_paypal_subscription_from_event(event: dict) -> bool:
             return False
 
         event_type = event.get("event_type") or ""
-        if status == "active":
-            cursor.execute("""
-                SELECT expires_at
-                FROM subscriptions
-                WHERE telegram_id = %s
-                  AND status = 'active'
-                ORDER BY expires_at DESC
-                LIMIT 1
-            """, (telegram_id,))
-            active_row = cursor.fetchone()
-            if active_row and active_row[0]:
-                cursor.execute("SELECT CURRENT_TIMESTAMP + INTERVAL '7 days'")
-                renewal_window = cursor.fetchone()[0]
-                if active_row[0] > renewal_window:
-                    return False
+        if not details.get("charge_id") or int(details.get("amount") or 0) != int(stored_amount) or details.get("currency") != stored_currency:
+            raise HTTPException(status_code=400, detail="paypal_payment_amount_mismatch")
 
         charge_prefix = "paypal_sale" if event_type == "PAYMENT.SALE.COMPLETED" else "paypal_subscription"
         charge_source = details["charge_id"] or subscription_id
@@ -3231,7 +3161,7 @@ def elevenlabs_headers(content_type: str = "application/json") -> dict:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def fetch_elevenlabs_models() -> list:
-    response = requests.get(
+    response = safe_get(
         f"{ELEVENLABS_BASE_URL}/v1/models",
         headers=elevenlabs_headers(None),
         timeout=30,
@@ -3268,7 +3198,7 @@ def fetch_elevenlabs_voices(limit: int = 80) -> list:
         if next_page_token:
             params["next_page_token"] = next_page_token
 
-        response = requests.get(
+        response = safe_get(
             f"{ELEVENLABS_BASE_URL}/v2/voices",
             headers=elevenlabs_headers(None),
             params=params,
@@ -3463,7 +3393,7 @@ def heygen_headers() -> dict:
 # Возвращает только данные, нужные Mini App для выбора brand_kit_id.
 # =====================================================
 def fetch_heygen_brand_kits() -> dict:
-    response = requests.get(
+    response = safe_get(
         f"{HEYGEN_BASE_URL}/brand-kits",
         headers=heygen_headers(),
         timeout=30,
@@ -3498,7 +3428,7 @@ def fetch_heygen_avatar_look(avatar_id: str) -> dict:
     if cached and now < float(cached.get("expires_at") or 0):
         return dict(cached.get("value") or {})
     for ownership in ("private", "public"):
-        response = requests.get(
+        response = safe_get(
             f"{HEYGEN_BASE_URL}/avatars/looks",
             headers=heygen_headers(),
             params={"ownership": ownership, "limit": 100},
@@ -3653,7 +3583,7 @@ def fetch_heygen_voice_page(
     if token:
         params["token"] = token
 
-    response = requests.get(
+    response = safe_get(
         f"{HEYGEN_BASE_URL}/voices",
         headers=heygen_headers(),
         params=params,
@@ -4313,21 +4243,11 @@ async def save_settings(request: Request):
 # Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
 # =====================================================
 def verify_telegram_init_data(init_data: str) -> bool:
-    if not init_data or not TELEGRAM_AUTH_TOKENS:
+    try:
+        validated_user(init_data, TELEGRAM_AUTH_TOKENS)
+        return True
+    except SecurityError:
         return False
-
-    parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
-    received_hash = parsed.pop("hash", None)
-    if not received_hash:
-        return False
-
-    data_check = "\n".join(f"{key}={parsed[key]}" for key in sorted(parsed))
-    for token in TELEGRAM_AUTH_TOKENS:
-        secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
-        calculated_hash = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(calculated_hash, received_hash):
-            return True
-    return False
 
 # =====================================================
 # PYTHON-БЛОК: fallback_public_user
@@ -4732,8 +4652,9 @@ def create_prostudio_generation_job(payload: dict) -> str:
     )
     if not DATABASE_URL or not telegram_id:
         prostudio_debug("JOB_CREATE_SKIPPED_DB", job_id=job_id, has_database=bool(DATABASE_URL), telegram_id=telegram_id)
-        return job_id
+        raise SecurityError("generation_queue_unavailable", 503)
     ensure_prostudio_table()
+    ensure_reservations(lambda: db_connect(DATABASE_URL))
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -4753,6 +4674,7 @@ def create_prostudio_generation_job(payload: dict) -> str:
         if active:
             conn.rollback()
             raise ActiveProstudioJobError(active[0], active[1])
+        reserve_generation(cursor, telegram_id, job_id, int(estimate_generation_cost(payload).get("credits") or 0))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
                 id, telegram_id, conversation_id, mode, model, provider, prompt, status, request_json
@@ -4796,10 +4718,22 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
     if not DATABASE_URL or not job_id:
         prostudio_debug("JOB_UPDATE_SKIPPED_DB", job_id=job_id, status=status, has_database=bool(DATABASE_URL))
         return False
+    conn = cursor = None
     try:
         ensure_prostudio_table()
+        ensure_reservations(lambda: db_connect(DATABASE_URL))
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
+        cursor.execute("SELECT status FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE", (job_id,))
+        current = cursor.fetchone()
+        if not current:
+            conn.rollback()
+            return False
+        if current[0] == "completed" and status != "completed":
+            conn.rollback()
+            return False
+        if status in {"failed", "cancelled", "canceled"}:
+            release_generation(cursor, job_id)
         cursor.execute("""
             UPDATE prostudio_generation_jobs
             SET status = %s,
@@ -4824,13 +4758,19 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         ))
         rowcount = cursor.rowcount
         conn.commit()
-        cursor.close()
-        conn.close()
         prostudio_debug("JOB_UPDATE_DONE", job_id=job_id, status=status, rowcount=rowcount)
         return rowcount > 0
     except Exception as exc:
+        if conn is not None:
+            conn.rollback()
         prostudio_error("JOB_UPDATE_FAILED", exc, job_id=job_id, status=status)
         return False
+
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: claim_next_prostudio_generation_job
@@ -4927,6 +4867,7 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
     if not DATABASE_URL or not job_id:
         return {"recovered": False, "reason": "database_or_job_missing"}
     ensure_prostudio_table()
+    ensure_reservations(lambda: db_connect(DATABASE_URL))
     ensure_provider_slot_table(DATABASE_URL)
     threshold_seconds = max(60, int(PROSTUDIO_STALE_PROCESSING_MINUTES) * 60)
     conn = db_connect(DATABASE_URL)
@@ -5016,6 +4957,7 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
         if cursor.rowcount != 1:
             conn.rollback()
             return {"recovered": False, "reason": "job_changed_concurrently"}
+        release_generation(cursor, job_id)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -5782,7 +5724,7 @@ def _persist_remote_media_url(url: str, category: str) -> str:
             return raw
         if not raw.startswith(("http://", "https://")):
             return raw
-        response = requests.get(raw, timeout=240)
+        response = safe_get(raw, timeout=240)
         response.raise_for_status()
         content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
         suffix = pathlib.Path(urllib.parse.urlparse(raw).path).suffix.lower()
@@ -5927,11 +5869,11 @@ def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") ->
             content = storage_read_bytes(raw)
             filename = pathlib.Path(urllib.parse.urlparse(raw).path).name or filename
         elif raw.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            local_path = safe_local_path(WEBAPP_DIR, raw.replace("/webapp/", "", 1))
             content = local_path.read_bytes()
             filename = local_path.name or filename
         elif raw.startswith("/generated/"):
-            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            local_path = safe_local_path(WEBAPP_DIR, raw.replace("/generated/", "generated/", 1))
             content = local_path.read_bytes()
             filename = local_path.name or filename
         elif raw.startswith("/preset_catalog/"):
@@ -5943,7 +5885,7 @@ def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") ->
             content = local_path.read_bytes()
             filename = local_path.name or filename
         elif raw.startswith("http://") or raw.startswith("https://"):
-            response = requests.get(raw, timeout=90)
+            response = safe_get(raw, timeout=90)
             response.raise_for_status()
             content = response.content
             content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
@@ -6037,7 +5979,7 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
             elif storage_key_from_url(str(url)):
                 content = storage_read_bytes(str(url))
             else:
-                r = requests.get(url, timeout=45)
+                r = safe_get(url, timeout=45)
                 if r.status_code >= 400 or not r.content:
                     raise ValueError("source_download_failed")
                 content = r.content
@@ -6611,7 +6553,7 @@ async def public_community_delete_post(post_id: int, request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -6639,7 +6581,7 @@ async def public_community_publish(request: Request):
     if not telegram_id or not message_id:
         return JSONResponse({"ok": False, "error": "invalid_request"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -6703,7 +6645,7 @@ async def public_community_like(post_id: int, request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -6766,7 +6708,7 @@ async def public_community_comment(post_id: int, request: Request):
     if not telegram_id or not body:
         return JSONResponse({"ok": False, "error": "invalid_comment"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -6798,7 +6740,7 @@ async def public_community_edit_comment(comment_id: int, request: Request):
     if not telegram_id or not body:
         return JSONResponse({"ok": False, "error": "invalid_comment"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -6823,7 +6765,7 @@ async def public_community_delete_comment(comment_id: int, request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -6848,7 +6790,7 @@ async def public_community_comment_like(comment_id: int, request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     if init_data and BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
     ensure_community_tables()
@@ -7521,9 +7463,10 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     if suffix not in allowed_exts:
         return JSONResponse({"ok": False, "error": "Unsupported media format"}, status_code=400)
 
-    content = await file.read()
+    content = await read_upload(file, max_bytes)
     if not content:
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
+    content_type = validated_upload_type(content, suffix)
     if len(content) > max_bytes:
         return JSONResponse({"ok": False, "error": "File is too large"}, status_code=400)
 
@@ -7708,9 +7651,9 @@ async def public_prostudio_job(job_id: str):
                 conversation_id,
                 mode
             FROM prostudio_generation_jobs
-            WHERE id = %s
+            WHERE id = %s AND telegram_id = %s
             LIMIT 1
-        """, (job_id,))
+        """, (job_id, actor_id.get()))
 
         row = cursor.fetchone()
 
@@ -7724,6 +7667,8 @@ async def public_prostudio_job(job_id: str):
             )
         result_json = _json_obj(row[1])
         error_json = _json_obj(row[2])
+        if isinstance(error_json, dict):
+            error_json = {k: v for k, v in error_json.items() if k in {"ok", "error", "message", "status_code", "provider", "type"}}
         if isinstance(error_json, dict) and error_json:
             normalized_error = user_generation_error_text(error_json.get("error") or error_json.get("message") or error_json)
             error_json["error"] = normalized_error
@@ -7738,9 +7683,9 @@ async def public_prostudio_job(job_id: str):
         image_exists = None
         thumb_exists = None
         if isinstance(image_url, str) and image_url.startswith("/webapp/"):
-            image_exists = (WEBAPP_DIR / image_url.replace("/webapp/", "", 1)).exists()
+            image_exists = (safe_local_path(WEBAPP_DIR, image_url.replace("/webapp/", "", 1))).exists()
         if isinstance(thumb_url, str) and thumb_url.startswith("/webapp/"):
-            thumb_exists = (WEBAPP_DIR / thumb_url.replace("/webapp/", "", 1)).exists()
+            thumb_exists = (safe_local_path(WEBAPP_DIR, thumb_url.replace("/webapp/", "", 1))).exists()
         print("PROSTUDIO JOB GET DEBUG:", {
             "job_id": job_id,
             "status": effective_status,
@@ -7776,37 +7721,9 @@ async def public_prostudio_job(job_id: str):
 
 
 def _telegram_id_from_init_data(init_data: str) -> int:
-    """Return the signed Telegram user id, or zero for invalid init data."""
-    if not verify_telegram_init_data(init_data):
-        return 0
     try:
-        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
-        # Regular Mini App launches use `user`; attachment-menu launches may
-        # use `receiver`. Both values are covered by Telegram's signature.
-        for field in ("user", "receiver"):
-            raw = parsed.get(field)
-            if not raw:
-                continue
-            value = json.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(value, dict) and value.get("id"):
-                return int(value["id"])
-
-        # A signed private-chat id identifies the same Telegram user.
-        raw_chat = parsed.get("chat")
-        if raw_chat:
-            chat = json.loads(raw_chat) if isinstance(raw_chat, str) else raw_chat
-            if isinstance(chat, dict) and str(chat.get("type") or "").lower() == "private" and chat.get("id"):
-                return int(chat["id"])
-
-        # Telegram-compatible launchers can place a direct id in the signed
-        # data-check string. Unsigned frontend values are never accepted.
-        for field in ("user_id", "telegram_id"):
-            if parsed.get(field):
-                return int(parsed[field])
-
-        print("ADMIN TELEGRAM AUTH USER MISSING:", {"signed_fields": sorted(parsed.keys())})
-        return 0
-    except (TypeError, ValueError, json.JSONDecodeError):
+        return int(validated_user(init_data, TELEGRAM_AUTH_TOKENS)["id"])
+    except SecurityError:
         return 0
 
 
@@ -8272,13 +8189,11 @@ async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data
     if not telegram_id:
         raise HTTPException(status_code=400, detail="telegram_id_required")
     if BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != int(telegram_id):
             raise HTTPException(status_code=403, detail="telegram_auth_failed")
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_not_configured")
-    if not r2_enabled():
-        raise HTTPException(status_code=503, detail="r2_not_configured")
 
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8373,7 +8288,7 @@ def _share_request_identity(data: dict) -> tuple[int, str]:
     if not telegram_id:
         raise HTTPException(status_code=400, detail="telegram_id_required")
     if BOT_TOKEN:
-        signed_telegram_id = _telegram_id_from_init_data(init_data)
+        signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             raise HTTPException(status_code=403, detail="telegram_auth_failed")
     return telegram_id, init_data
@@ -8385,8 +8300,6 @@ async def public_prostudio_create_share(job_id: str, request: Request):
     telegram_id, _ = _share_request_identity(data)
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_not_configured")
-    if not r2_enabled():
-        raise HTTPException(status_code=503, detail="r2_not_configured")
 
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8708,7 +8621,10 @@ async def public_paypal_subscription_created(request: Request):
     if not pack_id:
         return JSONResponse({"ok": False, "error": "unknown_plan"}, status_code=400)
 
-    saved = save_paypal_subscription(telegram_id, subscription_id, plan_id, plan_type)
+    verified = await asyncio.to_thread(verified_paypal_subscription, subscription_id)
+    if verified.get("plan_id") != plan_id or read_binding(verified.get("custom_id"), plan_id) != telegram_id:
+        raise HTTPException(status_code=403, detail="paypal_owner_mismatch")
+    saved = await asyncio.to_thread(save_paypal_subscription, telegram_id, subscription_id, plan_id, plan_type)
     if not saved:
         return JSONResponse({"ok": False, "error": "subscription_save_failed"}, status_code=500)
 
@@ -8837,6 +8753,8 @@ def _answer_stars_pre_checkout(query_id: str, ok: bool, error_message: str = "")
 
 @app.post("/api/public/payments/stars/webhook")
 async def public_stars_webhook(request: Request):
+    if not TELEGRAM_PAYMENT_WEBHOOK_SECRET:
+        return JSONResponse({"ok": False, "error": "webhook_not_configured"}, status_code=503)
     if TELEGRAM_PAYMENT_WEBHOOK_SECRET:
         supplied_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if not hmac.compare_digest(supplied_secret, TELEGRAM_PAYMENT_WEBHOOK_SECRET):
@@ -8992,7 +8910,7 @@ async def public_dev_payment(request: Request):
     pack_id = data.get("pack_id") or ""
     item = shop_item(pack_id)
 
-    if telegram_id != DEV_TELEGRAM_ID:
+    if os.getenv("APP_ENV", "development") == "production" or os.getenv("ENABLE_DEV_PAYMENTS", "0") != "1" or actor_id.get() != DEV_TELEGRAM_ID or telegram_id != DEV_TELEGRAM_ID:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
 
     if not item:
@@ -9062,7 +8980,7 @@ async def public_dev_reset(request: Request):
     telegram_id = int(data.get("telegram_id") or 0)
     reset_credits = bool(data.get("reset_credits", False))
 
-    if telegram_id != DEV_TELEGRAM_ID:
+    if os.getenv("APP_ENV", "development") == "production" or os.getenv("ENABLE_DEV_PAYMENTS", "0") != "1" or actor_id.get() != DEV_TELEGRAM_ID or telegram_id != DEV_TELEGRAM_ID:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
 
     try:
@@ -9156,20 +9074,12 @@ async def public_crypto_invoice(request: Request):
 # =====================================================
 async def public_telegram_sync(request: Request):
     payload = await request.json()
-    init_data = payload.get("initData") or ""
-    user_data = fallback_public_user(payload)
-
-    # Telegram clients provide signed initData. In browser/dev preview we still
-    # return optimistic initDataUnsafe fields so the Mini App can render.
-    if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
-        return JSONResponse({"ok": False, "error": "invalid_init_data", "user": user_data}, status_code=401)
-
+    signed = validated_user(payload.get("initData") or "", TELEGRAM_AUTH_TOKENS)
+    user_data = fallback_public_user({"initDataUnsafe": {"user": signed}})
     try:
         user = await asyncio.to_thread(sync_user_to_db, user_data)
-    except Exception as exc:
-        print("USER SYNC FAILED:", exc)
-        user = user_data
-
+    except Exception:
+        return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
     return {"ok": True, "user": user}
 
 
@@ -10412,7 +10322,7 @@ async def send_generated_images_to_telegram(telegram_id: int, images: list, capt
 
             # 2. URL — сначала скачиваем сами, потом отправляем как файл
             elif is_http_url:
-                download_response = requests.get(
+                download_response = safe_get(
                     image_value,
                     timeout=120,
                     headers={
@@ -10657,12 +10567,12 @@ def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:
         if storage_key_from_url(url):
             return storage_read_bytes(url), name, mime
         if parsed_path.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / parsed_path.replace("/webapp/", "", 1)
+            local_path = safe_local_path(WEBAPP_DIR, parsed_path.replace("/webapp/", "", 1))
             return local_path.read_bytes(), name or local_path.name, mime
         if parsed_path.startswith("/generated/"):
-            local_path = WEBAPP_DIR / parsed_path.replace("/generated/", "generated/", 1)
+            local_path = safe_local_path(WEBAPP_DIR, parsed_path.replace("/generated/", "generated/", 1))
             return local_path.read_bytes(), name or local_path.name, mime
-        response = requests.get(url, timeout=120)
+        response = safe_get(url, timeout=120)
         response.raise_for_status()
         return response.content, name, (response.headers.get("content-type") or mime)
     except Exception as exc:
@@ -11300,7 +11210,7 @@ def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
             content = storage_read_bytes(raw)
             filename = pathlib.Path(urllib.parse.urlparse(raw).path).name or filename
         elif raw.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            local_path = safe_local_path(WEBAPP_DIR, raw.replace("/webapp/", "", 1))
             content = local_path.read_bytes()
             filename = local_path.name or filename
             suffix = local_path.suffix.lower()
@@ -11311,7 +11221,7 @@ def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
             elif suffix == ".png":
                 mime_type = "image/png"
         elif raw.startswith("/generated/"):
-            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            local_path = safe_local_path(WEBAPP_DIR, raw.replace("/generated/", "generated/", 1))
             content = local_path.read_bytes()
             filename = local_path.name or filename
             suffix = local_path.suffix.lower()
@@ -11322,7 +11232,7 @@ def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
             elif suffix == ".png":
                 mime_type = "image/png"
         else:
-            response = requests.get(raw, timeout=60)
+            response = safe_get(raw, timeout=60)
             response.raise_for_status()
             content = response.content
             content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
@@ -11488,7 +11398,7 @@ def poll_flux_image(polling_url: str, frontend_model: str, provider_model: str, 
     headers = flux_headers()
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(polling_url, headers=headers, timeout=60)
+            response = safe_get(polling_url, headers=headers, timeout=60)
         except requests.RequestException as exc:
             return [], image_error_response("flux", frontend_model, provider_model, polling_url, "Provider request failed", data={"body_preview": str(exc)[:1000]})
         data = safe_provider_json(response, "flux", polling_url)
@@ -11945,7 +11855,7 @@ def qwen_image_reference_value(value: str) -> str:
         if storage_key_from_url(public_url):
             content = storage_read_bytes(public_url)
         elif public_url.startswith(("http://", "https://")):
-            response = requests.get(public_url, timeout=60)
+            response = safe_get(public_url, timeout=60)
             response.raise_for_status()
             content = response.content
             content_type = str(response.headers.get("content-type") or content_type).split(";", 1)[0].strip()
@@ -12450,7 +12360,7 @@ def google_local_or_remote_image_part(url: str) -> dict:
                 mime_type = "image/webp"
             return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(data).decode("utf-8")}
         if raw.startswith("/webapp/"):
-            local_path = WEBAPP_DIR / raw.replace("/webapp/", "", 1)
+            local_path = safe_local_path(WEBAPP_DIR, raw.replace("/webapp/", "", 1))
             data = local_path.read_bytes()
             suffix = local_path.suffix.lower()
             if suffix in {".jpg", ".jpeg"}:
@@ -12459,7 +12369,7 @@ def google_local_or_remote_image_part(url: str) -> dict:
                 mime_type = "image/webp"
             return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(data).decode("utf-8")}
         if raw.startswith("/generated/"):
-            local_path = WEBAPP_DIR / raw.replace("/generated/", "generated/", 1)
+            local_path = safe_local_path(WEBAPP_DIR, raw.replace("/generated/", "generated/", 1))
             data = local_path.read_bytes()
             suffix = local_path.suffix.lower()
             if suffix in {".jpg", ".jpeg"}:
@@ -12467,7 +12377,7 @@ def google_local_or_remote_image_part(url: str) -> dict:
             elif suffix == ".webp":
                 mime_type = "image/webp"
             return {"type": "image", "mime_type": mime_type, "data": base64.b64encode(data).decode("utf-8")}
-        response = requests.get(raw, timeout=30)
+        response = safe_get(raw, timeout=30)
         response.raise_for_status()
         content_type = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
         if content_type.startswith("image/"):
@@ -13749,7 +13659,7 @@ async def download_prostudio_content(url: str, kind: str = "file"):
 
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            r = await client.get(url)
+            r = await safe_client_get(client, url)
     except Exception:
         raise HTTPException(status_code=502, detail="content_download_failed")
 
@@ -13969,7 +13879,9 @@ async def public_home_idea_realtime(request: Request):
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def public_prostudio_generate(request: Request):
-    payload = await request.json()
+    payload = dict(await request.json())
+    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "initData", "init_data", "initDataUnsafe"):
+        payload.pop(internal_key, None)
     telegram_id = int(payload.get("telegram_id") or 0)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
     category = (payload.get("category") or mode).lower()
@@ -14015,6 +13927,8 @@ async def public_prostudio_generate(request: Request):
 
     generation_modes = {"image", "video", "music", "voice"}
     text_modes = {"text", "chat", "pro", "lite"}
+    if mode not in generation_modes | text_modes:
+        return JSONResponse({"ok": False, "error": "unsupported_generation_mode"}, status_code=422)
     try:
         active_job = get_active_prostudio_job(telegram_id) if telegram_id else {}
     except Exception as exc:
@@ -14122,10 +14036,10 @@ async def public_prostudio_generate(request: Request):
             return PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key]
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-5.5"
-        result = text_generation(payload)
+        result = await asyncio.to_thread(text_generation, payload)
         if not result.get("ok"):
             return JSONResponse(result, status_code=502)
-        result["conversation_id"] = save_prostudio_message(payload, result)
+        result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
         if cache_key:
             if len(PROSTUDIO_TEXT_RESPONSE_CACHE) > 200:
                 PROSTUDIO_TEXT_RESPONSE_CACHE.clear()
@@ -14138,6 +14052,8 @@ async def public_prostudio_generate(request: Request):
         payload["skip_telegram"] = True
     try:
         job_id = create_prostudio_generation_job(payload) if mode in generation_modes else ""
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     except ActiveProstudioJobError as exc:
         return JSONResponse({
             "ok": False,
@@ -14704,7 +14620,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 images_count=len(_json_list(result.get("images"))),
                 thumbs_count=len(_json_list(result.get("thumbnails"))),
             )
-            result["conversation_id"] = save_prostudio_message(payload, result)
+            result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
             prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
             update_prostudio_generation_job(
                 job_id, "completed", result=result, conversation_id=result["conversation_id"]
@@ -15078,17 +14994,26 @@ async def subscription_reminder_worker_loop():
 # Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
 # =====================================================
 async def start_prostudio_generation_worker():
+    from services.runtime_checks import validate_runtime
+    validate_runtime()
+    app.state.background_tasks = []
     if DATABASE_URL:
         await asyncio.to_thread(start_db_pool, DATABASE_URL)
+        await asyncio.to_thread(ensure_limit_table, DATABASE_URL)
         db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
-        asyncio.create_task(prostudio_generation_worker_loop())
+        app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))
     if SUBSCRIPTION_REMINDER_WORKER_ENABLED and DATABASE_URL and BOT_TOKEN:
-        asyncio.create_task(subscription_reminder_worker_loop())
+        app.state.background_tasks.append(asyncio.create_task(subscription_reminder_worker_loop()))
 
 
 @app.on_event("shutdown")
 async def close_postgresql_pool():
+    tasks = getattr(app.state, "background_tasks", [])
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
     await asyncio.to_thread(close_db_pool)
 
 # =====================================================
@@ -15109,7 +15034,7 @@ async def public_prostudio_transcribe(request: Request):
     if not file or not hasattr(file, "read"):
         return JSONResponse({"ok": False, "error": "File is required"}, status_code=400)
 
-    content = await file.read()
+    content = await read_upload(file, 25 * 1024 * 1024)
     if not content:
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
     if len(content) > 25 * 1024 * 1024:
@@ -15242,14 +15167,14 @@ async def public_prostudio_elevenlabs_voice_clone(request: Request):
     if not file or not hasattr(file, "read"):
         return JSONResponse({"ok": False, "error": "File is required"}, status_code=400)
 
-    content = await file.read()
+    content = await read_upload(file, 25 * 1024 * 1024)
     if not content:
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
 
-    try:
-        telegram_id = int(form.get("telegram_id") or 0)
-    except Exception:
-        telegram_id = 0
+    telegram_id = request.state.telegram_id
+    claimed_id = form.get("telegram_id")
+    if claimed_id and str(claimed_id) != str(telegram_id):
+        raise HTTPException(status_code=403, detail="user_mismatch")
     try:
         clone_settings = json.loads(str(form.get("settings") or "{}"))
     except Exception:
@@ -15346,3 +15271,53 @@ async def get_cabinet(telegram_id: int):
             for row in generations
         ]
     }
+
+
+@app.get("/health/live")
+async def health_live():
+    return {"ok": True}
+
+@app.get("/health/ready")
+async def health_ready():
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False}, status_code=503)
+    def probe():
+        conn = db_connect(DATABASE_URL)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                return cursor.fetchone()[0] == 1
+        finally:
+            conn.close()
+    try:
+        if await asyncio.to_thread(probe):
+            return {"ok": True}
+    except Exception:
+        pass
+    return JSONResponse({"ok": False}, status_code=503)
+
+
+@app.exception_handler(SecurityError)
+async def security_error_handler(request: Request, exc: SecurityError):
+    return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+
+
+@app.post("/api/public/payments/paypal/subscription-binding")
+async def public_paypal_subscription_binding(request: Request):
+    data = await request.json()
+    plan = str(data.get("plan_id") or "")
+    if not paypal_subscription_pack_for_plan(plan):
+        raise HTTPException(status_code=400, detail="unknown_plan")
+    return {"ok": True, "custom_id": make_binding(request.state.telegram_id, plan)}
+
+
+def verified_paypal_subscription(subscription_id: str) -> dict:
+    if not re.fullmatch(r"I-[A-Za-z0-9]+", subscription_id):
+        raise HTTPException(status_code=400, detail="invalid_subscription_id")
+    response = safe_get(f"{PAYPAL_API_BASE}/v1/billing/subscriptions/{subscription_id}", headers=paypal_headers(), timeout=30)
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="paypal_subscription_verification_failed")
+    result = response.json()
+    if result.get("id") != subscription_id or result.get("status") not in {"APPROVED", "ACTIVE"}:
+        raise HTTPException(status_code=403, detail="paypal_subscription_not_approved")
+    return result

@@ -1,3 +1,4 @@
+from services.safe_io import safe_get, safe_client_get, safe_local_path, read_upload, validated_upload_type
 # =====================================================
 # АВТОДОКУМЕНТАЦИЯ SYLVEX: services/video_router.py
 # Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
@@ -753,7 +754,7 @@ def _load_media_content_part(url: str, media_type: str):
                 "mime_type": _guess_mime_from_url(raw, default_mime),
                 "data": base64.b64encode(content).decode("utf-8"),
             }
-        response = requests.get(raw, timeout=60)
+        response = safe_get(raw, timeout=60)
         response.raise_for_status()
         mime_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip() or _guess_mime_from_url(raw, default_mime)
         return {
@@ -784,7 +785,7 @@ def _read_media_bytes(url: str, media_type: str):
         local_path = _local_webapp_media_path(raw)
         if local_path:
             return local_path.read_bytes(), _guess_mime_from_url(raw, default_mime)
-        response = requests.get(raw, timeout=120)
+        response = safe_get(raw, timeout=120)
         response.raise_for_status()
         mime_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip() or _guess_mime_from_url(raw, default_mime)
         return response.content, mime_type
@@ -841,7 +842,7 @@ def _gemini_upload_file_from_url(url: str, api_key: str, media_type: str):
                 break
             time.sleep(5)
             status_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}"
-            status_response = requests.get(status_url, headers={"x-goog-api-key": api_key}, timeout=30)
+            status_response = safe_get(status_url, headers={"x-goog-api-key": api_key}, timeout=30)
             status_data = _safe_provider_json_response(status_response, "gemini", status_url)
             file_info = status_data.get("file") if isinstance(status_data.get("file"), dict) else status_data
             file_uri = file_info.get("uri") if isinstance(file_info, dict) else file_uri
@@ -886,7 +887,7 @@ def _download_gemini_video_uri(uri: str, api_key: str):
         status_url = f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}"
         for _ in range(24):
             try:
-                status_response = requests.get(status_url, headers=headers, timeout=30)
+                status_response = safe_get(status_url, headers=headers, timeout=30)
                 info = _safe_provider_json_response(status_response, "gemini", status_url)
                 raw_state = info.get("state")
                 state = str(raw_state.get("name") if isinstance(raw_state, dict) else raw_state or "").upper()
@@ -901,7 +902,7 @@ def _download_gemini_video_uri(uri: str, api_key: str):
     if file_id:
         download_url = f"https://generativelanguage.googleapis.com/v1beta/files/{file_id}:download?alt=media"
     try:
-        response = requests.get(download_url, headers=headers, timeout=180)
+        response = safe_get(download_url, headers=headers, timeout=180)
         if response.status_code < 400 and response.content:
             return _save_gemini_video_bytes(response.content, "mp4")
     except Exception as exc:
@@ -988,7 +989,7 @@ def _request_json(url: str, headers: dict, payload: dict):
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def _request_get(url: str, headers: dict):
-    return requests.get(url, headers=headers, timeout=60)
+    return safe_get(url, headers=headers, timeout=60)
 
 
 # =====================================================
@@ -2505,11 +2506,11 @@ async def _send_generated_videos_to_telegram(telegram_id: int, videos: list[str]
                     video_content = storage_read_bytes(str(video_url))
                     content_type = mimetypes.guess_type(urlparse(str(video_url)).path)[0] or "video/mp4"
                 elif str(video_url).startswith("/webapp/"):
-                    local_path = WEBAPP_DIR / str(video_url).replace("/webapp/", "", 1)
+                    local_path = safe_local_path(WEBAPP_DIR, str(video_url).replace("/webapp/", "", 1))
                     video_content = local_path.read_bytes() if local_path.exists() else b""
                     content_type = "video/mp4" if local_path.suffix.lower() == ".mp4" else (mimetypes.guess_type(str(local_path))[0] or "video/mp4")
                 else:
-                    video_response = await client.get(video_url)
+                    video_response = await safe_client_get(client, video_url)
                     if video_response.status_code >= 400 or not video_response.content:
                         print("TELEGRAM VIDEO SEND:", {
                             "telegram_id": telegram_id,

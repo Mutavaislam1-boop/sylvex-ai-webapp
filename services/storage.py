@@ -16,6 +16,9 @@ from typing import BinaryIO, Iterator, Optional
 
 from dotenv import load_dotenv
 from db_pool import db_connect
+from services.safe_io import safe_local_path
+from services.security import SecurityError
+from services.media_access import sign_media_url
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -100,7 +103,9 @@ def r2_client():
 
 def normalize_key(key: str) -> str:
     value = urllib.parse.unquote(str(key or "")).replace("\\", "/").lstrip("/")
-    parts = [part for part in value.split("/") if part and part not in {".", ".."}]
+    if any(part.startswith(".") for part in value.split("/") if part):
+        raise SecurityError("invalid_storage_key", 400)
+    parts = [part for part in value.split("/") if part]
     return "/".join(parts)
 
 
@@ -111,26 +116,28 @@ def generated_key(category: str, filename: str) -> str:
 def object_url(key: str) -> str:
     clean = normalize_key(key)
     encoded = "/".join(urllib.parse.quote(part, safe="") for part in clean.split("/"))
+    # Application proxy enforces expiry even when R2 is configured.
     if r2_enabled():
-        if R2_PUBLIC_BASE_URL:
-            return f"{R2_PUBLIC_BASE_URL}/{encoded}"
-        prefix = WEBAPP_URL if WEBAPP_URL else ""
-        return f"{prefix}/api/public/storage/{encoded}"
-    if clean.startswith("generated/"):
-        return "/webapp/" + clean
-    return "/webapp/generated/" + encoded
+        return sign_media_url(f"{WEBAPP_URL}/api/public/storage/{encoded}")
+    return sign_media_url("/webapp/" + encoded if clean.startswith("generated/") else "/webapp/generated/" + encoded)
 
 
 def key_from_url(url: str) -> str:
     raw = str(url or "").strip()
     if not raw:
         return ""
-    path = urllib.parse.unquote(urllib.parse.urlparse(raw).path)
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.netloc:
+        allowed = {urllib.parse.urlparse(base).netloc for base in (R2_PUBLIC_BASE_URL, WEBAPP_URL, _env("LEGACY_R2_PUBLIC_BASE_URL")) if base}
+        if parsed.netloc not in allowed:
+            return ""
+    path = urllib.parse.unquote(parsed.path)
     marker = "/api/public/storage/"
     if marker in path:
         return normalize_key(path.split(marker, 1)[1])
-    if R2_PUBLIC_BASE_URL and raw.startswith(R2_PUBLIC_BASE_URL + "/"):
-        return normalize_key(raw[len(R2_PUBLIC_BASE_URL) + 1 :])
+    for base in (R2_PUBLIC_BASE_URL, _env("LEGACY_R2_PUBLIC_BASE_URL").rstrip("/")):
+        if base and raw.startswith(base + "/"):
+            return normalize_key(urllib.parse.urlparse(raw[len(base) + 1:]).path)
     if path.startswith("/webapp/generated/"):
         return normalize_key(path[len("/webapp/") :])
     if path.startswith("/generated/"):
@@ -146,7 +153,7 @@ def put_bytes(data: bytes, key: str, content_type: str = "", cache_control: str 
     if r2_enabled():
         r2_client().put_object(Bucket=R2_BUCKET, Key=clean, Body=data, ContentType=mime, CacheControl=cache_control)
     else:
-        path = LOCAL_GENERATED_DIR.parent / clean
+        path = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
     url = object_url(clean)
@@ -165,7 +172,7 @@ def put_file(path: pathlib.Path | str, key: str, content_type: str = "", remove_
             url = object_url(clean)
             _record_object(clean, url, mime, source.stat().st_size)
             return url
-        target = LOCAL_GENERATED_DIR.parent / clean
+        target = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.resolve() != target.resolve():
             target.write_bytes(source.read_bytes())
@@ -182,7 +189,7 @@ def get_object(key: str) -> tuple[BinaryIO, str, Optional[int]]:
     if r2_enabled():
         response = r2_client().get_object(Bucket=R2_BUCKET, Key=clean)
         return response["Body"], response.get("ContentType") or mimetypes.guess_type(clean)[0] or "application/octet-stream", response.get("ContentLength")
-    path = LOCAL_GENERATED_DIR.parent / clean
+    path = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
     return path.open("rb"), mimetypes.guess_type(path.name)[0] or "application/octet-stream", path.stat().st_size
 
 
@@ -210,7 +217,7 @@ def get_object_range(key: str, range_header: str = "") -> tuple[BinaryIO, str, i
         total = int(head.get("ContentLength") or 0)
         mime = head.get("ContentType") or mime
     else:
-        path = LOCAL_GENERATED_DIR.parent / clean
+        path = safe_local_path(LOCAL_GENERATED_DIR.parent, clean)
         total = path.stat().st_size
     start, end = 0, max(0, total - 1)
     if range_header.startswith("bytes="):
@@ -223,7 +230,7 @@ def get_object_range(key: str, range_header: str = "") -> tuple[BinaryIO, str, i
     if r2_enabled():
         response = r2_client().get_object(Bucket=R2_BUCKET, Key=clean, Range=f"bytes={start}-{end}")
         return response["Body"], response.get("ContentType") or mime, length, total, start, end
-    body = (LOCAL_GENERATED_DIR.parent / clean).open("rb")
+    body = (safe_local_path(LOCAL_GENERATED_DIR.parent, clean)).open("rb")
     body.seek(start)
     return body, mime, length, total, start, end
 

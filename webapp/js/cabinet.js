@@ -16738,14 +16738,21 @@ async function waitGeneration(jobId, options) {
         label: 'subscribe',
         height: 45,
       },
-      createSubscription(data, actions) {
+      async createSubscription(data, actions) {
         const tg = getTelegramId();
         if (!tg) {
           toast('Telegram ID не найден');
           return Promise.reject(new Error('telegram_id_required'));
         }
+        const bindingResponse = await fetch('/api/public/payments/paypal/subscription-binding', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({plan_id: config.planId})
+        });
+        const binding = await bindingResponse.json();
+        if (!bindingResponse.ok || !binding.custom_id) throw new Error(binding.error || 'subscription_binding_failed');
         return actions.subscription.create({
           plan_id: config.planId,
+          custom_id: binding.custom_id,
         });
       },
       async onApprove(data) {
