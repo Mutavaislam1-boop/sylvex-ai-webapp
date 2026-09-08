@@ -5,7 +5,7 @@
   const scrim = document.getElementById('sectionsScrim');
   const title = document.getElementById('currentTitle');
   const theme = document.getElementById('centerTheme');
-  const pages = { general: 'docs-general.html', images: 'docs-images.html', video: 'docs-video.html', music: 'docs-music.html', voice: 'docs-voice.html', text: 'docs-text.html' };
+  const pages = { pricing: 'docs-pricing.html', general: 'docs-general.html', images: 'docs-images.html', video: 'docs-video.html', music: 'docs-music.html', voice: 'docs-voice.html', text: 'docs-text.html' };
   document.documentElement.dataset.theme = localStorage.getItem('sylvex-theme') || 'dark';
   function applyTheme(value) {
     document.documentElement.dataset.theme = value;
@@ -25,7 +25,7 @@
 
   function openPage(page, anchor) {
     if (!pages[page]) return;
-    const pageTitles = { general: 'Общее', images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Голос', text: 'Текст' };
+    const pageTitles = { pricing: 'Прайс', general: 'Общее', images: 'Изображения', video: 'Видео', music: 'Музыка', voice: 'Голос', text: 'Текст' };
     title.textContent = pageTitles[page];
     document.querySelectorAll('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === page));
     const target = pages[page] + '?embed=1';

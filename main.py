@@ -707,15 +707,17 @@ SEEDREAM_MODEL_VARIANTS = {
         "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"],
         "label": "Seedream 5.0 Pro",
         "seed": True,
-        "cost_credits": 7,
-        "cost_usd": 0.0675,
+        # The published BytePlus tariff has two output tiers. Keep both here
+        # so the API estimate, reservation and final charge use one source.
+        "cost_credits": {"lte_1_5k": 7, "gt_1_5k": 14},
+        "cost_usd": {"lte_1_5k": 0.0675, "gt_1_5k": 0.135},
     },
     "seedream_4_0": {
         "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"],
         "label": "Seedream 4.0",
         "seed": True,
-        "cost_credits": 6,
-        "cost_usd": 0.0525,
+        "cost_credits": 5,
+        "cost_usd": 0.045,
     },
 }
 FLUX_MODEL_VARIANTS = {
@@ -4701,6 +4703,42 @@ def create_prostudio_generation_job(payload: dict) -> str:
         cursor.close()
         conn.close()
     return job_id
+
+
+def reserve_direct_text_generation(telegram_id: int, credits: int) -> str:
+    """Reserve text credits before calling a provider; text is not queued as a media job."""
+    if not DATABASE_URL or not telegram_id:
+        raise SecurityError("generation_queue_unavailable", 503)
+    generation_id = f"text-{uuid4()}"
+    ensure_reservations(lambda: db_connect(DATABASE_URL))
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        reserve_generation(cursor, telegram_id, generation_id, credits)
+        conn.commit()
+        return generation_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def release_direct_text_generation(generation_id: str) -> None:
+    if not DATABASE_URL or not generation_id:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        release_generation(cursor, generation_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: update_prostudio_generation_job
@@ -11707,12 +11745,18 @@ def seedream_size_value(size: str) -> str:
 # БАЛАНС И СТОИМОСТЬ: seedream_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
-def seedream_cost_info(frontend_model: str, provider_model: str, count: int) -> dict:
+def seedream_cost_info(frontend_model: str, provider_model: str, count: int, size: str = "") -> dict:
     key = seedream_frontend_model(frontend_model, provider_model)
     cfg = SEEDREAM_MODEL_VARIANTS.get(key) or SEEDREAM_MODEL_VARIANTS["seedream_5_0_lite"]
     image_count = max(1, int(count or 1))
-    unit_credits = int(cfg.get("cost_credits") or 0)
-    unit_usd = float(cfg.get("cost_usd") or 0)
+    tier = "lte_1_5k"
+    normalized_size = str(size or "").lower().replace(" ", "")
+    if any(value in normalized_size for value in ("2k", "4k", "2048", "2304", "2560", "2880")):
+        tier = "gt_1_5k"
+    configured_credits = cfg.get("cost_credits") or 0
+    configured_usd = cfg.get("cost_usd") or 0
+    unit_credits = int(configured_credits.get(tier, 0) if isinstance(configured_credits, dict) else configured_credits)
+    unit_usd = float(configured_usd.get(tier, 0) if isinstance(configured_usd, dict) else configured_usd)
     return {
         "cost": unit_credits * image_count,
         "cost_credits": unit_credits * image_count,
@@ -11721,6 +11765,7 @@ def seedream_cost_info(frontend_model: str, provider_model: str, count: int) -> 
         "unit_cost_usd": unit_usd,
         "generation_cost": f"${unit_usd * image_count:.4f}",
         "model_label": cfg.get("label") or frontend_model or provider_model,
+        "resolution_tier": tier,
     }
 
 
@@ -12584,8 +12629,51 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
 # =====================================================
 def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
-    if mode == "voice" and is_voice_video_voiceover_request(payload):
-        return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+    if mode == "music":
+        model = str((payload.get("music_options") or {}).get("model") or payload.get("model") or "").lower()
+        fixed_prices = {"google_lyria_3_pro": 12, "google_lyria_3_clip": 6}
+        credits = fixed_prices.get(model)
+        if credits is None:
+            return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
+        return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True}
+    if mode == "voice":
+        options = payload.get("voice_options") or {}
+        model = str(options.get("model") or payload.get("model") or "").lower()
+        tool = str(options.get("runway_tool") or options.get("elevenlabs_tool") or "text_to_speech").lower()
+        duration = max(1, int(float(options.get("duration") or 5)))
+        characters = max(1, len(str(payload.get("prompt") or "")))
+        if model.startswith("elevenlabs_"):
+            credits = max(1, (characters + 49) // 50 * 2)
+        elif model.startswith("runway_") and tool == "sound_effect":
+            credits = max(1, duration * 2)
+        elif model.startswith("runway_") and tool == "voice_isolation":
+            credits = max(1, (duration + 5) // 6 * 2)
+        elif model.startswith("runway_") and tool == "voice_dubbing":
+            credits = max(1, (duration + 1) // 2 * 2)
+        elif model.startswith("runway_") and tool == "speech_to_speech":
+            credits = max(1, (duration + 2) // 3 * 2)
+        elif model.startswith("runway_"):
+            credits = max(1, (characters + 49) // 50 * 2)
+        else:
+            return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
+        return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True}
+    if mode in {"text", "chat", "pro", "lite"}:
+        model = normalize_text_model(payload.get("model") or "gpt-5.5")
+        per_million = {
+            "byteplus_seed_2_lite": (38, 300), "gpt-5.6": (600, 3000), "gpt-5.5": (750, 4500),
+            "gpt-5": (188, 1500), "gpt-5-mini": (38, 300), "gpt-4.1": (300, 1200),
+            "gpt-4.1-mini": (60, 240), "gpt-4o": (375, 1500), "gpt-4o-mini": (23, 90),
+            "gemini_3_1_pro": (300, 1800), "gemini_3_1_flash": (113, 563),
+            "gemini_2_5_pro": (188, 1500), "gemini_2_5_flash": (45, 375),
+            "grok_4_1": (300, 900), "grok_4_fast": (188, 375),
+        }.get(model)
+        if not per_million:
+            return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
+        source_text = str(payload.get("prompt") or "") + " ".join(str(item.get("content") or "") for item in (payload.get("history") or []) if isinstance(item, dict))
+        input_tokens = max(1, (len(source_text) + 3) // 4)
+        output_tokens = max(256, int((payload.get("text_options") or {}).get("max_output_tokens") or 512))
+        credits = max(1, int(__import__("math").ceil((input_tokens * per_million[0] + output_tokens * per_million[1]) / 1_000_000)))
+        return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "estimated_input_tokens": input_tokens, "estimated_output_tokens": output_tokens}
     if mode == "video":
         return estimate_video_generation_cost(payload)
     if mode != "image":
@@ -12621,7 +12709,8 @@ def estimate_generation_cost(payload: dict) -> dict:
         }
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", f"{requested_model or ''} {api_model or ''}", re.I):
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
-        info = seedream_cost_info(requested_model, api_model, count)
+        requested_size = opts.get("size") or opts.get("resolution") or ""
+        info = seedream_cost_info(requested_model, api_model, count, seedream_size_value(requested_size))
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -13695,6 +13784,57 @@ async def download_prostudio_content(url: str, kind: str = "file"):
 # Маршрут FastAPI: @app.post("/api/public/prostudio/generate")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
+@app.get("/api/public/prostudio/pricing-catalog")
+async def public_prostudio_pricing_catalog():
+    """Canonical published prices. Generation itself always uses estimate_generation_cost."""
+    rows = [
+        ("BytePlus", "Фото", "Seedream 5.0 Pro", "≤1.5K", "7 ⚡ / фото"),
+        ("BytePlus", "Фото", "Seedream 5.0 Pro", ">1.5K", "14 ⚡ / фото"),
+        ("BytePlus", "Фото", "Seedream 5.0 Lite", "стандарт", "6 ⚡ / фото"),
+        ("BytePlus", "Фото", "Seedream 4.5", "стандарт", "6 ⚡ / фото"),
+        ("BytePlus", "Фото", "Seedream 4.0 / SeedEdit 3", "стандарт / image-to-image", "5 ⚡ / фото"),
+        ("BytePlus", "Видео", "Seedance 2.5", "480p / 720p / 1080p", "16 / 35 / 86 ⚡ / сек"),
+        ("BytePlus", "Видео", "Seedance 2.0", "480p / 720p / 1080p / 4K", "11 / 23 / 56 / 117 ⚡ / сек"),
+        ("BytePlus", "Видео", "Seedance 2.0 Fast", "480p / 720p", "9 / 18 ⚡ / сек"),
+        ("BytePlus", "Видео", "Seedance 2.0 Mini", "480p / 720p", "6 / 12 ⚡ / сек"),
+        ("BytePlus", "Текст", "Seed 2.0 Lite", "input / output, 1M токенов", "38 / 300 ⚡"),
+        ("BytePlus", "3D", "Hyper3D Gen2", "генерация", "60 ⚡"),
+        ("BytePlus", "3D", "Hitem3D 2.0", "standard white / textured", "120 / 210 ⚡"),
+        ("Google", "Фото", "Nano Banana 2", "0.5K / 1K / 2K / 4K", "7 / 11 / 16 / 23 ⚡"),
+        ("Google", "Фото", "Nano Banana Pro", "1K / 2K / 4K", "21 / 21 / 36 ⚡"),
+        ("Google", "Фото", "Imagen 4 Fast / Standard / Ultra", "фото", "3 / 6 / 9 ⚡"),
+        ("Google", "Видео", "Veo 3.1", "720/1080p audio / no audio", "60 / 30 ⚡"),
+        ("Google", "Музыка", "Lyria 3 Pro / Lyria 3", "полная песня / 30 сек", "12 / 6 ⚡"),
+        ("Google", "Текст", "Gemini 3.1 Pro", "input / output, 1M токенов", "300 / 1,800 ⚡"),
+        ("Google", "Текст", "Gemini 2.5 Flash", "input / output, 1M токенов", "45 / 375 ⚡"),
+        ("Runway", "Видео", "Gen-4.5 / Gen-4 Turbo", "за секунду", "18 / 8 ⚡ / сек"),
+        ("Runway", "Видео", "Aleph 2", "за секунду", "42 ⚡ / сек"),
+        ("Runway", "Видео", "Seedance 2 / Fast / Mini", "480–720p, за секунду", "54 / 44 / 24 ⚡ / сек"),
+        ("Runway", "Фото", "Gen-4 Image / Turbo / Muse", "фото", "8 / 3 / 2 ⚡"),
+        ("Runway", "Голос", "Eleven v3 / Multilingual", "50 символов", "2 ⚡"),
+        ("Runway", "Голос", "Text-to-Sound", "за секунду", "2 ⚡"),
+        ("OpenAI", "Текст", "GPT-5.6 / GPT-5.5", "input / output, 1M токенов", "600/3,000 · 750/4,500 ⚡"),
+        ("OpenAI", "Текст", "GPT-5 mini / GPT-4.1 mini", "input / output, 1M токенов", "38/300 · 60/240 ⚡"),
+        ("OpenAI", "Видео", "Sora 2 / Sora 2 Pro", "720p, за секунду", "15 / 45 ⚡"),
+        ("xAI", "Фото", "Grok Imagine Image 2", "1K low / medium", "6 / 9 ⚡"),
+        ("xAI", "Видео", "Grok Imagine Video 1.5", "480p / 720p / 1080p, за секунду", "12 / 21 / 38 ⚡"),
+        ("xAI", "Текст", "Grok 4.6 / 4.5", "input / output, 1M токенов", "300 / 900 ⚡"),
+        ("ElevenLabs", "Голос", "Eleven v3", "50 символов", "2 ⚡"),
+        ("Kling", "Видео", "Kling 3.0 / 2.6 / 2.1", "см. выбор модели", "цена рассчитывается до запуска"),
+        ("Luma", "Видео", "Ray 3.2", "см. выбор модели", "цена рассчитывается до запуска"),
+        ("PixVerse", "Видео", "PixVerse V6", "см. выбор модели", "цена рассчитывается до запуска"),
+        ("MiniMax", "Музыка / видео", "Hailuo / Music 2.5", "см. выбор модели", "запуск доступен только после добавления подтверждённой цены"),
+        ("Qwen", "Фото / текст", "Qwen Image / Qwen Plus", "см. выбор модели", "цена рассчитывается до запуска"),
+        ("Ideogram", "Фото", "Ideogram 3 / 4", "Turbo / Default / Quality", "5 / 9 / 14–15 ⚡"),
+        ("Recraft", "Фото и инструменты", "V3 / V4.1 / V4.1 Pro", "фото", "6 / 6 / 21 ⚡"),
+        ("FLUX", "Фото", "FLUX.2 / Turbo", "фото", "5 / 11 ⚡"),
+    ]
+    return {"ok": True, "currency": "⚡", "pricing_version": "2026-09", "rows": [
+        {"provider": provider, "category": category, "model": model, "mode": price_mode, "price": price}
+        for provider, category, model, price_mode, price in rows
+    ]}
+
+
 @app.post("/api/public/prostudio/estimate")
 async def public_prostudio_estimate(request: Request):
     """Return the existing authoritative Pro Studio estimate without creating a job."""
@@ -13929,6 +14069,28 @@ async def public_prostudio_generate(request: Request):
     text_modes = {"text", "chat", "pro", "lite"}
     if mode not in generation_modes | text_modes:
         return JSONResponse({"ok": False, "error": "unsupported_generation_mode"}, status_code=422)
+    # Pro Studio is a subscription feature. This server-side check is the
+    # enforcement point; hiding the button in the Mini App is only cosmetic.
+    user_state = get_user_state(telegram_id) if telegram_id else {}
+    if not telegram_id or user_state.get("subscription_status") != "active":
+        return JSONResponse({
+            "ok": False,
+            "paywall": True,
+            "subscription_required": True,
+            "error": "prostudio_subscription_required",
+            "message": "Pro Studio доступна после активации подписки.",
+            "shop_url": SHOP_WEBAPP_URL,
+        }, status_code=403)
+    cost_estimate = estimate_generation_cost(payload)
+    if not cost_estimate.get("pricing_available", mode in {"image", "video"}):
+        return JSONResponse({
+            "ok": False,
+            "error": "pricing_not_configured",
+            "message": "Для выбранной модели ещё нет подтверждённой цены. Запуск остановлен.",
+        }, status_code=422)
+    required_credits = int(cost_estimate.get("credits") or 0)
+    if required_credits <= 0:
+        return JSONResponse({"ok": False, "error": "pricing_not_configured", "message": "Не удалось определить стоимость генерации."}, status_code=422)
     try:
         active_job = get_active_prostudio_job(telegram_id) if telegram_id else {}
     except Exception as exc:
@@ -14036,9 +14198,24 @@ async def public_prostudio_generate(request: Request):
             return PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key]
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-5.5"
-        result = await asyncio.to_thread(text_generation, payload)
+        try:
+            generation_id = reserve_direct_text_generation(telegram_id, required_credits)
+        except SecurityError as exc:
+            return JSONResponse({"ok": False, "paywall": exc.status == 402, "error": exc.code}, status_code=exc.status)
+        try:
+            result = await asyncio.to_thread(text_generation, payload)
+        except Exception:
+            release_direct_text_generation(generation_id)
+            raise
         if not result.get("ok"):
+            release_direct_text_generation(generation_id)
             return JSONResponse(result, status_code=502)
+        result["cost_credits"] = required_credits
+        result["generation_cost"] = cost_estimate.get("generation_cost") or f"{required_credits} ⚡"
+        billing = charge_generation_balance(telegram_id, generation_id, result, payload)
+        if not billing.get("charged") and not billing.get("already_charged"):
+            release_direct_text_generation(generation_id)
+            return JSONResponse({"ok": False, "error": "billing_failed"}, status_code=503)
         result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
         if cache_key:
             if len(PROSTUDIO_TEXT_RESPONSE_CACHE) > 200:
@@ -14551,6 +14728,13 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         )
 
         telegram_id = int(payload.get("telegram_id") or 0)
+        # Provider adapters do not all return a tariff. The reservation was
+        # made from this same authoritative estimate, so use it at settlement
+        # instead of silently releasing the whole reserved amount.
+        if not int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0):
+            settled_estimate = estimate_generation_cost(payload)
+            result["cost_credits"] = int(settled_estimate.get("credits") or 0)
+            result["generation_cost"] = settled_estimate.get("generation_cost") or ""
         print("PROSTUDIO RESULT BEFORE CHARGE:", {
             "job_id": job_id,
             "mode": mode,
