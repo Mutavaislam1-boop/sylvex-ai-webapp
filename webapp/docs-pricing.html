@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Прайс · SYLVEX</title><link rel="stylesheet" href="css/docs-center.css">
+  <style>body{padding:28px;max-width:1120px;margin:auto}.lead{color:var(--muted,#8d94a7)}table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}th,td{padding:11px;border-bottom:1px solid rgba(128,140,165,.22);text-align:left;vertical-align:top}th{color:#aeb6c8}h2{margin-top:34px}.notice{padding:14px 16px;border-radius:12px;background:rgba(100,130,255,.12);line-height:1.5}.error{color:#ff8b8b}</style>
+</head>
+<body>
+  <h1>Прайс SYLVEX</h1>
+  <p class="lead">Единый каталог стоимости. Перед запуском сервер повторно рассчитывает цену и резервирует кредиты; интерфейс не является источником списания.</p>
+  <div class="notice">Если для модели нет подтверждённой строки тарифа, генерация не запускается. При ошибке провайдера резерв возвращается.</div>
+  <div id="catalog">Загружаем прайс…</div>
+  <script>
+  (async () => {
+    const target = document.getElementById('catalog');
+    try {
+      const res = await fetch('/api/public/prostudio/pricing-catalog', {cache:'no-store'});
+      const data = await res.json(); if (!res.ok || !data.ok) throw new Error();
+      const groups = data.rows.reduce((all, row) => ((all[row.provider] ||= []).push(row), all), {});
+      target.innerHTML = Object.entries(groups).map(([provider, rows]) => `<h2>${provider}</h2><table><thead><tr><th>Категория</th><th>Модель</th><th>Режим</th><th>Цена</th></tr></thead><tbody>${rows.map(row => `<tr><td>${row.category}</td><td>${row.model}</td><td>${row.mode}</td><td>${row.price}</td></tr>`).join('')}</tbody></table>`).join('');
+    } catch (_) { target.innerHTML = '<p class="error">Не удалось загрузить каталог. Обновите страницу.</p>'; }
+  })();
+  </script>
+</body></html>
