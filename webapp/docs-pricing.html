@@ -7,15 +7,15 @@
 </head>
 <body>
   <h1>Прайс SYLVEX</h1>
-  <p class="lead">Единый каталог стоимости. Перед запуском сервер повторно рассчитывает цену и резервирует кредиты; интерфейс не является источником списания.</p>
-  <div class="notice">Если для модели нет подтверждённой строки тарифа, генерация не запускается. При ошибке провайдера резерв возвращается.</div>
+  <p class="lead">Полный каталог цен SYLVEX. Для каждой модели указаны инструмент, единица тарификации и стоимость в ⚡.</p>
+  <div class="notice">Перед запуском сервер только применяет опубликованный тариф к выбранным параметрам — длительности, разрешению, звуку и референсам — и показывает итог. При ошибке провайдера резерв возвращается.</div>
   <nav class="providers" id="providers" aria-label="Страницы прайса по провайдерам"></nav>
   <div id="catalog">Загружаем прайс…</div>
   <script>
   (async () => {
     const target = document.getElementById('catalog');
     try {
-      const cacheKey = 'sylvex-pricing-catalog-v1';
+      const cacheKey = 'sylvex-pricing-catalog-v2';
       let data;
       try { data = JSON.parse(sessionStorage.getItem(cacheKey) || 'null'); } catch (_) {}
       if (!data || !data.ok) {

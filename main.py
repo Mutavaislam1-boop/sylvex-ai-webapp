@@ -13813,8 +13813,8 @@ async def public_prostudio_pricing_catalog():
         ("BytePlus", "Фото", "Seedream 5.0 Lite", "стандарт", "6 ⚡ / фото"),
         ("BytePlus", "Фото", "Seedream 4.5", "стандарт", "6 ⚡ / фото"),
         ("BytePlus", "Фото", "Seedream 4.0 / SeedEdit 3", "стандарт / image-to-image", "5 ⚡ / фото"),
-        ("BytePlus", "Видео", "Seedance 2.5", "480p / 720p / 1080p", "16 / 35 / 86 ⚡ / сек"),
-        ("BytePlus", "Видео", "Seedance 2.0", "480p / 720p / 1080p / 4K", "11 / 23 / 56 / 117 ⚡ / сек"),
+        ("BytePlus", "Видео", "Seedance 2.5", "480p / 720p / 1080p, 1 сек", "15.45 / 34.65 / 85.35 ⚡"),
+        ("BytePlus", "Видео", "Seedance 2.0", "480p / 720p / 1080p / 4K, 1 сек", "10.5 / 22.5 / 55.5 / 117 ⚡"),
         ("BytePlus", "Видео", "Seedance 2.0 Fast", "480p / 720p", "9 / 18 ⚡ / сек"),
         ("BytePlus", "Видео", "Seedance 2.0 Mini", "480p / 720p", "6 / 12 ⚡ / сек"),
         ("BytePlus", "Текст", "Seed 2.0 Lite", "input / output, 1M токенов", "38 / 300 ⚡"),
@@ -13827,7 +13827,7 @@ async def public_prostudio_pricing_catalog():
         ("Google", "Музыка", "Lyria 3 Pro / Lyria 3", "полная песня / 30 сек", "12 / 6 ⚡"),
         ("Google", "Текст", "Gemini 3.1 Pro", "input / output, 1M токенов", "300 / 1,800 ⚡"),
         ("Google", "Текст", "Gemini 2.5 Flash", "input / output, 1M токенов", "45 / 375 ⚡"),
-        ("Runway", "Видео", "Gen-4.5 / Gen-4 Turbo", "за секунду", "18 / 8 ⚡ / сек"),
+        ("Runway", "Видео", "Gen-4.5 / Gen-4 Turbo", "1 сек", "18 / 7.5 ⚡"),
         ("Runway", "Видео", "Aleph 2", "за секунду", "42 ⚡ / сек"),
         ("Runway", "Видео", "Seedance 2 / Fast / Mini", "480–720p, за секунду", "54 / 44 / 24 ⚡ / сек"),
         ("Runway", "Фото", "Gen-4 Image / Turbo / Muse", "фото", "8 / 3 / 2 ⚡"),
@@ -13837,16 +13837,16 @@ async def public_prostudio_pricing_catalog():
         ("OpenAI", "Текст", "GPT-5 mini / GPT-4.1 mini", "input / output, 1M токенов", "38/300 · 60/240 ⚡"),
         ("OpenAI", "Видео", "Sora 2 / Sora 2 Pro", "720p, за секунду", "15 / 45 ⚡"),
         ("xAI", "Фото", "Grok Imagine Image 2", "1K low / medium", "6 / 9 ⚡"),
-        ("xAI", "Видео", "Grok Imagine Video 1.5", "480p / 720p / 1080p, за секунду", "12 / 21 / 38 ⚡"),
-        ("xAI", "Текст", "Grok 4.6 / 4.5", "input / output, 1M токенов", "300 / 900 ⚡"),
-        ("ElevenLabs", "Голос", "Eleven v3", "50 символов", "2 ⚡"),
-        ("Kling", "Видео", "Kling 3.0 / 2.6 / 2.1", "см. выбор модели", "цена рассчитывается до запуска"),
-        ("Luma", "Видео", "Ray 3.2", "см. выбор модели", "цена рассчитывается до запуска"),
-        ("PixVerse", "Видео", "PixVerse V6", "см. выбор модели", "цена рассчитывается до запуска"),
-        ("MiniMax", "Музыка / видео", "Hailuo / Music 2.5", "см. выбор модели", "запуск доступен только после добавления подтверждённой цены"),
-        ("Qwen", "Фото / текст", "Qwen Image / Qwen Plus", "см. выбор модели", "цена рассчитывается до запуска"),
+        ("xAI", "Видео", "Grok Imagine Video 1.5", "480p / 720p / 1080p, 1 сек", "12 / 21 / 37.5 ⚡"),
+        ("xAI", "Текст", "Grok 4.6 / 4.5", "Input / Output, 1M токенов", "300 / 900 ⚡"),
+        ("ElevenLabs", "Голос", "Eleven v3 / Multilingual v2", "1 000 символов", "15 ⚡"),
+        ("Kling", "Видео", "Kling 3.0 / 2.6 / 2.1", "режим, разрешение и длительность", "от 32 ⚡; точные варианты ниже"),
+        ("Luma", "Видео", "Ray 3.2", "720p / 1080p, 5 / 10 сек", "45 / 135 · 180 / 540 ⚡"),
+        ("PixVerse", "Видео", "PixVerse V6", "720p, 5 сек без / со звуком", "68 / 90 ⚡"),
+        ("MiniMax", "Музыка / видео", "H3 / H3 Max / Music", "768p, 5 сек / до 5 мин", "60 / 38 / 23 ⚡"),
+        ("Qwen", "Фото", "Qwen Image 3 Pro / Image 3", "1K / 2K, 1 фото", "6 / 12 · 5 / 5 ⚡"),
         ("Ideogram", "Фото", "Ideogram 3 / 4", "Turbo / Default / Quality", "5 / 9 / 14–15 ⚡"),
-        ("Recraft", "Фото и инструменты", "V3 / V4.1 / V4.1 Pro", "фото", "6 / 6 / 21 ⚡"),
+        ("Recraft", "Фото и инструменты", "V3 / V4.1 / V4.1 Pro", "1 фото", "6 / 6 / 32 ⚡"),
         ("FLUX", "Фото", "FLUX.2 / Turbo", "фото", "5 / 11 ⚡"),
         # Full published catalog. Prices are in SYLVEX credits; 1 ⚡ = $0.01.
         ("BytePlus", "Видео", "Seedance 1.5 Pro", "480p / 720p / 1080p, 5 сек", "45 / 90 / 225 ⚡"),
@@ -13911,7 +13911,7 @@ async def public_prostudio_pricing_catalog():
         ("MiniMax", "Музыка", "Music 3.0 / 2.6", "до 5 мин", "23 ⚡"),
         ("MiniMax", "Фото", "image-01", "1 фото", "1 ⚡"),
     ]
-    return {"ok": True, "currency": "⚡", "pricing_version": "2026-09", "rows": [
+    return {"ok": True, "currency": "⚡", "pricing_version": "2026-09-full", "rows": [
         {"provider": provider, "category": category, "model": model, "mode": price_mode, "price": price}
         for provider, category, model, price_mode, price in rows
     ]}
