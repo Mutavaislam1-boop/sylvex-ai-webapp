@@ -44,8 +44,10 @@ def sylvex_additions(payload: dict) -> dict[str, Decimal]:
     for key in ("references", "reference_images", "referenceImageUrls", "referenceImages", "video_references"):
         references.extend(_as_list(_option(payload, key)))
     video_template = _option(payload, "video_template")
+    # Video catalog cards include their separate fixed video-reference fee in
+    # their Kling base tariff. Do not add the ordinary image-reference fee too.
     if isinstance(video_template, dict) and any(video_template.get(key) for key in ("reference_video", "video_url", "template_video_url", "preview_video")):
-        references.append("video-template")
+        return additions
     if references:
         additions["references"] = REFERENCE_CREDITS * len(references)
     return additions

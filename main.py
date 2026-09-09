@@ -5,6 +5,7 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
 import os
+import math
 import pathlib
 import json
 import hmac
@@ -12813,6 +12814,16 @@ def estimate_generation_cost(payload: dict) -> dict:
 def calculate_generation_price(payload: dict) -> dict:
     """Single entry point for all new estimates, reservations and settlements."""
     estimate = estimate_generation_cost(payload)
+    video_options = payload.get("video_options") if isinstance(payload.get("video_options"), dict) else {}
+    video_template = video_options.get("video_template") if isinstance(video_options.get("video_template"), dict) else {}
+    if (payload.get("mode") or payload.get("category")) == "video" and video_template:
+        model = str(video_template.get("preferred_model") or video_options.get("model") or payload.get("model") or "kling_o3_omni")
+        duration = video_template.get("duration") or video_options.get("duration") or 5
+        resolution = video_template.get("resolution") or video_options.get("resolution") or "720p"
+        has_reference = bool(video_template.get("reference_video") or video_template.get("video_url") or video_template.get("template_video_url") or video_template.get("preview_video"))
+        if has_reference:
+            exact = video_catalog_template_price(model, int(duration), str(resolution), True)
+            estimate = {**estimate, "credits": exact, "cost_credits": exact, "generation_cost": f"{exact} ⚡", "pricing_available": True}
     if not estimate.get("pricing_available", bool(estimate.get("credits"))):
         return estimate
     return apply_snapshot_to_estimate(payload, estimate)
@@ -13310,30 +13321,9 @@ def prostudio_video_templates_from_env() -> list:
         if default_ratio not in ratios:
             default_ratio = ratios[0]
 
-        cost_payload = {
-            "mode": "video",
-            "provider": "kling",
-            "model": preferred_model,
-            "prompt": "",
-            "video_options": {
-                "model": preferred_model,
-                "generation_mode": "motion_control",
-                "mode": "motion_control",
-                "ratio": default_ratio,
-                "duration": duration,
-                "resolution": resolution,
-                "start_image": "template-image",
-                "input_video": reference_video,
-                "video_url": reference_video,
-                "video_input": True,
-                "motion_control": True,
-                "character_orientation": "image",
-            },
-        }
-        cost = estimate_video_generation_cost(cost_payload)
-
-        fallback_cost = _template_int(item.get("cost_credits") or item.get("cost"), 0)
-        calculated_cost = _template_int(cost.get("credits"), 0)
+        # Environment-defined cards use the same per-second Kling reference
+        # tariff and the same fixed 20 ⚡ video-reference fee as built-in cards.
+        calculated_cost = video_catalog_template_price(preferred_model, duration, resolution, True)
 
         templates.append({
             "id": template_id,
@@ -13347,9 +13337,9 @@ def prostudio_video_templates_from_env() -> list:
             "preferred_model": preferred_model,
             "duration": duration,
             "resolution": resolution,
-            "cost": calculated_cost or fallback_cost,
-            "cost_credits": calculated_cost or fallback_cost,
-            "generation_cost": cost.get("generation_cost") or (f"{fallback_cost} ⚡" if fallback_cost else ""),
+            "cost": calculated_cost,
+            "cost_credits": calculated_cost,
+            "generation_cost": f"{calculated_cost} ⚡",
         })
     return templates
 
@@ -13358,6 +13348,20 @@ def prostudio_video_templates_from_env() -> list:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+def video_catalog_template_price(model: str, duration: int, resolution: str, has_video_reference: bool) -> int:
+    """Exact fixed catalog-card price: Kling output seconds plus its reference fee."""
+    resolution_key = str(resolution or "720p").lower()
+    if resolution_key in {"1080", "1080p", "fhd"}:
+        rate = 25.2 if has_video_reference else 16.8
+    elif resolution_key in {"4k", "2160p", "uhd"}:
+        rate = 63.0
+    else:
+        # Kling Omni with an input video costs 18.9 ⚡/sec at 720p.
+        rate = 18.9 if has_video_reference or model == "kling_effects" else 12.6
+    reference_fee = 20 if has_video_reference else 0
+    return int(math.ceil(max(1, int(duration or 1)) * rate + reference_fee))
+
+
 def prostudio_builtin_video_template_slots() -> list:
     russian_titles = [
         "Сброс сумки", "Ангел на шоссе", "Чемпион мира", "Воздушная доставка", "Масштабный отлёт камеры",
@@ -13418,6 +13422,11 @@ def prostudio_builtin_video_template_slots() -> list:
             description = folder_description or descriptions[index]
         else:
             description = folder_description or f"Загрузите изображение для видео «{title}»."
+        preferred_model = "kling_effects" if is_provider_effect else "kling_o3_omni"
+        duration = max(1, int(output.get("duration") or metadata.get("duration") or 5))
+        resolution = str(output.get("resolution") or metadata.get("resolution") or "720p")
+        has_video_reference = not is_provider_effect
+        credits = video_catalog_template_price(preferred_model, duration, resolution, has_video_reference)
         item = {
             "id": template_id,
             "slot": slot,
@@ -13434,7 +13443,7 @@ def prostudio_builtin_video_template_slots() -> list:
             "aspect_ratio": str(output.get("aspect_ratio") or "9:16"),
             "ratios": ["16:9", "1:1", "9:16"],
             "duration": duration,
-            "resolution": "720p",
+            "resolution": resolution,
             "catalog_type": "kling_effect" if is_provider_effect else "video_template",
             "is_kling_effect": is_provider_effect,
             "effect_scene": effect_scene if is_provider_effect else "",
@@ -13445,7 +13454,7 @@ def prostudio_builtin_video_template_slots() -> list:
             "preferred_model": preferred_model,
             "cost": credits,
             "cost_credits": credits,
-            "generation_cost": cost_info.get("generation_cost") or "",
+            "generation_cost": f"{credits} ⚡",
         }
         templates.append(item)
     return templates
@@ -14114,7 +14123,7 @@ async def public_home_idea_realtime(request: Request):
 # =====================================================
 async def public_prostudio_generate(request: Request):
     payload = dict(await request.json())
-    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "initData", "init_data", "initDataUnsafe"):
+    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe"):
         payload.pop(internal_key, None)
     telegram_id = int(payload.get("telegram_id") or 0)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
@@ -14825,13 +14834,12 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         )
 
         telegram_id = int(payload.get("telegram_id") or 0)
-        # Provider adapters do not all return a tariff. The reservation was
-        # made from this same authoritative estimate, so use it at settlement
-        # instead of silently releasing the whole reserved amount.
-        if not int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0):
-            snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
-            result["cost_credits"] = int(snapshot.get("final_credits") or 0)
-            result["generation_cost"] = f"{result['cost_credits']} ⚡" if result["cost_credits"] else ""
+        # Provider adapters never decide the customer price. The snapshot was
+        # fixed before dispatch and is the only amount shown and settled after
+        # a successful callback, even if a provider returns its own tariff.
+        snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+        result["cost_credits"] = int(snapshot.get("final_credits") or 0)
+        result["generation_cost"] = f"{result['cost_credits']} ⚡" if result["cost_credits"] else ""
         print("PROSTUDIO RESULT BEFORE CHARGE:", {
             "job_id": job_id,
             "mode": mode,
