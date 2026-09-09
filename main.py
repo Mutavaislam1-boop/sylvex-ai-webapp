@@ -55,6 +55,7 @@ from services.security import SecurityMiddleware, SecurityError, validated_user,
 from services.request_limits import check_request_quota, ensure_limit_table
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
+from services.price_engine import apply_snapshot_to_estimate
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
@@ -2234,7 +2235,8 @@ def add_user_balance(telegram_id: int, credits: int):
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
 # =====================================================
 def charge_generation_balance(telegram_id: int, generation_id: str, result: dict, payload: dict) -> dict:
-    credits = int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
+    snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+    credits = int(snapshot.get("final_credits") or result.get("cost_credits") or result.get("cost") or result.get("price") or 0)
     if not DATABASE_URL or not telegram_id or not generation_id:
         return {"charged": False, "credits": max(0, credits), "balance_after": None, "error": "billing_unavailable"}
     ensure_user_exists(telegram_id)
@@ -4696,7 +4698,9 @@ def create_prostudio_generation_job(payload: dict) -> str:
         if active:
             conn.rollback()
             raise ActiveProstudioJobError(active[0], active[1])
-        reserve_generation(cursor, telegram_id, job_id, int(estimate_generation_cost(payload).get("credits") or 0))
+        price = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else calculate_generation_price(payload).get("price_snapshot", {})
+        payload["price_snapshot"] = price
+        reserve_generation(cursor, telegram_id, job_id, int(price.get("final_credits") or 0))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
                 id, telegram_id, conversation_id, mode, model, provider, prompt, status, request_json
@@ -12806,6 +12810,14 @@ def estimate_generation_cost(payload: dict) -> dict:
     }
 
 
+def calculate_generation_price(payload: dict) -> dict:
+    """Single entry point for all new estimates, reservations and settlements."""
+    estimate = estimate_generation_cost(payload)
+    if not estimate.get("pricing_available", bool(estimate.get("credits"))):
+        return estimate
+    return apply_snapshot_to_estimate(payload, estimate)
+
+
 # =====================================================
 # ЗАГРУЗКА ФАЙЛОВ: ideogram_form_files
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
@@ -13922,7 +13934,7 @@ async def public_prostudio_estimate(request: Request):
     """Return the existing authoritative Pro Studio estimate without creating a job."""
     try:
         payload = await request.json()
-        estimate = estimate_generation_cost(payload if isinstance(payload, dict) else {})
+        estimate = calculate_generation_price(payload if isinstance(payload, dict) else {})
         return {"ok": True, **estimate}
     except Exception as exc:
         prostudio_error("GENERATION_ESTIMATE_FAILED", exc)
@@ -14163,7 +14175,8 @@ async def public_prostudio_generate(request: Request):
             "message": "Pro Studio доступна после активации подписки.",
             "shop_url": SHOP_WEBAPP_URL,
         }, status_code=403)
-    cost_estimate = estimate_generation_cost(payload)
+    cost_estimate = calculate_generation_price(payload)
+    payload["price_snapshot"] = cost_estimate.get("price_snapshot") or {}
     if not cost_estimate.get("pricing_available", mode in {"image", "video"}):
         return JSONResponse({
             "ok": False,
@@ -14211,7 +14224,8 @@ async def public_prostudio_generate(request: Request):
             return JSONResponse(feature_error, status_code=400)
 
         telegram_id = int(payload.get("telegram_id") or 0)
-        cost_estimate = estimate_generation_cost(payload)
+        cost_estimate = calculate_generation_price(payload)
+        payload["price_snapshot"] = cost_estimate.get("price_snapshot") or payload.get("price_snapshot") or {}
         required_credits = int(cost_estimate.get("credits") or 0)
         if required_credits > 0:
             user_state = get_user_state(telegram_id) if telegram_id else {"balance": 0}
@@ -14231,7 +14245,8 @@ async def public_prostudio_generate(request: Request):
 
     if mode == "video":
         telegram_id = int(payload.get("telegram_id") or 0)
-        cost_estimate = estimate_generation_cost(payload)
+        cost_estimate = calculate_generation_price(payload)
+        payload["price_snapshot"] = cost_estimate.get("price_snapshot") or payload.get("price_snapshot") or {}
         required_credits = int(cost_estimate.get("credits") or 0)
         if required_credits > 0:
             user_state = get_user_state(telegram_id) if telegram_id else {"balance": 0}
@@ -14814,9 +14829,9 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         # made from this same authoritative estimate, so use it at settlement
         # instead of silently releasing the whole reserved amount.
         if not int(result.get("cost_credits") or result.get("cost") or result.get("price") or 0):
-            settled_estimate = estimate_generation_cost(payload)
-            result["cost_credits"] = int(settled_estimate.get("credits") or 0)
-            result["generation_cost"] = settled_estimate.get("generation_cost") or ""
+            snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+            result["cost_credits"] = int(snapshot.get("final_credits") or 0)
+            result["generation_cost"] = f"{result['cost_credits']} ⚡" if result["cost_credits"] else ""
         print("PROSTUDIO RESULT BEFORE CHARGE:", {
             "job_id": job_id,
             "mode": mode,
