@@ -23,6 +23,9 @@ PUBLIC_GETS = frozenset({
  '/api/public/prostudio/pricing-catalog',
  '/api/public/video/templates',
 })
+PUBLIC_POSTS = frozenset({
+ '/api/public/prostudio/estimate',
+})
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook'})
 PUBLIC_PATTERNS = [re.compile(x) for x in (
@@ -87,7 +90,7 @@ class SecurityMiddleware:
     return await JSONResponse({'ok':False,'error':'media_authorization_required'},status_code=403)(scope,receive,send)
   protected=path.startswith('/api/') or path=='/save-settings' or media_path
   if not protected:return await self.app(scope,receive,send)
-  is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS)))
+  is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method == 'POST' and path in PUBLIC_POSTS)
   is_webhook=path in WEBHOOKS
   if path.startswith('/api/public/payments/dev/') and (os.getenv('APP_ENV','development')=='production' or os.getenv('ENABLE_DEV_PAYMENTS','0')!='1'):
    return await JSONResponse({'ok':False,'error':'not_found'},status_code=404)(scope,receive,send)
