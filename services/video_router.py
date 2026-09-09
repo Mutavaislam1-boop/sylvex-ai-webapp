@@ -1573,12 +1573,18 @@ def estimate_video_generation_cost(payload: dict):
             per_second = {"720p": 18, "1080p": 18}.get(resolution, 9)
         elif model_key == "seedance_2_0":
             per_second = {"720p": 22.5, "1080p": 55.5, "4k": 117}.get(resolution, 10.5)
-        elif model_key == "seedance_1_5_pro":
-            per_second = {"720p": 18, "1080p": 45}.get(resolution, 9)
+        elif model_key == "seedance_1_5_pro" and duration == 5:
+            seedance_15 = {
+                False: {"480p": 9, "720p": 20, "1080p": 44},
+                True: {"480p": 18, "720p": 39, "1080p": 87},
+            }
+            fixed = seedance_15[bool(options.get("sound") or options.get("generate_audio"))].get(resolution, 20)
         elif model_key == "runway_gen4_5":
             per_second = 18
         elif model_key in {"runway_gen4_turbo", "runway_gen"}:
             per_second = 7.5
+        elif model_key in {"runway_aleph2", "runway_aleph"}:
+            per_second = 42
         elif model_key == "runway_seedance2":
             per_second = {"720p": 54, "1080p": 60, "4k": 225}.get(resolution, 54)
         elif model_key == "runway_seedance2_fast":
@@ -1589,13 +1595,41 @@ def estimate_video_generation_cost(payload: dict):
             per_second = 45 if model_key.endswith("_pro") else 15
         elif model_key in {"veo_3_1", "runway_veo3_1", "runway_veo3"}:
             per_second = 60 if options.get("sound") or options.get("generate_audio") else 30
-        elif model_key == "veo_3_1_fast" or model_key == "runway_veo3_1_fast":
+        elif model_key in {"veo_3_1_fast", "runway_veo3_1_fast"}:
+            with_audio = bool(options.get("sound") or options.get("generate_audio"))
+            fast_rates = {True: {"720p": 15, "1080p": 18, "4k": 45}, False: {"720p": 12, "1080p": 15, "4k": 38}}
+            per_second = fast_rates[with_audio].get(resolution, fast_rates[with_audio]["720p"])
+        elif model_key == "runway_happyhorse_1_0":
+            per_second = {"720p": 16.8, "1080p": 28.8}.get(resolution, 16.8)
+        elif model_key in {"runway_gemini_omni_flash", "gemini_omni_flash"}:
             per_second = 15
         elif model_key in {"luma_ray_v3_2", "luma_dream_machine"}:
             luma = {"720p": {5: 45, 10: 135}, "1080p": {5: 180, 10: 540}}
             fixed = (luma.get(resolution) or luma["720p"]).get(duration)
         elif model_key == "grok_video":
             per_second = {"720p": 21, "1080p": 37.5}.get(resolution, 12)
+        elif model_key in {"wan_2_7", "wan_2_6"}:
+            per_second = {"720p": 15, "1080p": 22.5}.get(resolution, 15)
+        elif model_key == "pixverse_v6":
+            with_audio = bool(options.get("sound") or options.get("generate_audio"))
+            pixverse_rates = {False: {"720p": 13.5, "1080p": 27}, True: {"720p": 18, "1080p": 34.5}}
+            per_second = pixverse_rates[with_audio].get(resolution, pixverse_rates[with_audio]["720p"])
+        elif model_key == "minimax_hailuo_2_3":
+            # Published Hailuo 2.3 tariffs are request prices, not a flat rate.
+            minimax = {"720p": {6: 42, 10: 84}, "768p": {6: 42, 10: 84}, "1080p": {6: 74}}
+            fixed = (minimax.get(resolution) or minimax["720p"]).get(duration)
+        elif model_key == "heygen_v3_video_agent":
+            per_second = 14.55
+        elif model_key == "heygen_avatar_v":
+            per_second = 18
+        elif model_key == "heygen_avatar_iv":
+            per_second = 12.075
+        elif model_key == "heygen_image_video":
+            per_second = 5.775
+        elif model_key == "heygen_avatar_iii":
+            per_second = 1.5
+        elif model_key == "heygen_cinematic_avatar":
+            fixed = {"720p": 1098, "1080p": 2655}.get(resolution, 1098)
         credits = int(math.ceil(fixed if fixed is not None else (duration * per_second))) if (fixed is not None or per_second is not None) else 0
         return {
             "credits": credits,
