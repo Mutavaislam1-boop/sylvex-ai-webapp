@@ -14291,8 +14291,9 @@ function closeUploadPanel(e) {
       preferred_model: 'kling_o3_omni',
       duration: 5,
       resolution: '720p',
-      cost_credits: 95,
-      generation_cost: '95 ⚡',
+      // The server supplies the authoritative tariff.  Never invent a fallback price.
+      cost_credits: 0,
+      generation_cost: '',
     }));
   }
 
@@ -14445,7 +14446,7 @@ function maybeShowVideoTemplateIntro(force) {
       if (!item || typeof item !== 'object') return;
       const id = String(item.id || '').trim();
       if (!id) return;
-      const credits = Number(item.cost_credits || item.cost || 0) || 95;
+      const credits = Number(item.cost_credits || item.cost || 0);
       byId.set(id, Object.assign({}, item, {
         prompt: item.prompt || item.video_prompt || item.description || item.title || '',
         ratios: videoTemplateRatios(item),
@@ -14459,7 +14460,7 @@ function maybeShowVideoTemplateIntro(force) {
       if (!id) return;
       const existing = byId.get(id) || {};
       const merged = Object.assign({}, existing, item);
-      const credits = Number(merged.cost_credits || merged.cost || 0) || 95;
+      const credits = Number(merged.cost_credits || merged.cost || 0);
       byId.set(id, Object.assign({}, merged, {
         prompt: merged.prompt || merged.video_prompt || merged.description || merged.title || '',
         ratios: videoTemplateRatios(merged),
