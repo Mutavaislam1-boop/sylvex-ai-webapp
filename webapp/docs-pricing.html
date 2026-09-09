@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Прайс · SYLVEX</title><link rel="stylesheet" href="css/docs-center.css">
-  <style>body{padding:28px;max-width:1120px;margin:auto}.lead{color:var(--muted,#8d94a7)}table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}th,td{padding:11px;border-bottom:1px solid rgba(128,140,165,.22);text-align:left;vertical-align:top}th{color:#aeb6c8}h2{margin-top:34px}.notice{padding:14px 16px;border-radius:12px;background:rgba(100,130,255,.12);line-height:1.5}.error{color:#ff8b8b}</style>
+  <style>html,body{height:auto;min-height:100%;overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}body{padding:28px;max-width:1120px;margin:auto}.lead{color:var(--muted,#8d94a7)}table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}th,td{padding:11px;border-bottom:1px solid rgba(128,140,165,.22);text-align:left;vertical-align:top}th{color:#aeb6c8}h2{margin-top:34px}.notice{padding:14px 16px;border-radius:12px;background:rgba(100,130,255,.12);line-height:1.5}.error{color:#ff8b8b}@media(max-width:640px){body{padding:20px 14px 36px}table{font-size:12px}th,td{padding:9px 6px;overflow-wrap:anywhere}}</style>
 </head>
 <body>
   <h1>Прайс SYLVEX</h1>
@@ -14,8 +14,14 @@
   (async () => {
     const target = document.getElementById('catalog');
     try {
-      const res = await fetch('/api/public/prostudio/pricing-catalog', {cache:'no-store'});
-      const data = await res.json(); if (!res.ok || !data.ok) throw new Error();
+      const cacheKey = 'sylvex-pricing-catalog-v1';
+      let data;
+      try { data = JSON.parse(sessionStorage.getItem(cacheKey) || 'null'); } catch (_) {}
+      if (!data || !data.ok) {
+        const res = await fetch('/api/public/prostudio/pricing-catalog', {cache:'force-cache'});
+        data = await res.json(); if (!res.ok || !data.ok) throw new Error();
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch (_) {}
+      }
       const groups = data.rows.reduce((all, row) => ((all[row.provider] ||= []).push(row), all), {});
       target.innerHTML = Object.entries(groups).map(([provider, rows]) => `<h2>${provider}</h2><table><thead><tr><th>Категория</th><th>Модель</th><th>Режим</th><th>Цена</th></tr></thead><tbody>${rows.map(row => `<tr><td>${row.category}</td><td>${row.model}</td><td>${row.mode}</td><td>${row.price}</td></tr>`).join('')}</tbody></table>`).join('');
     } catch (_) { target.innerHTML = '<p class="error">Не удалось загрузить каталог. Обновите страницу.</p>'; }
