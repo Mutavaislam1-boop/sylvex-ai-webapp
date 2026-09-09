@@ -14732,6 +14732,13 @@ function maybeShowVideoTemplateIntro(force) {
       preview_video: template.preview_video || '',
       reference_video: referenceVideo,
       aspect_ratio: selectedRatio,
+      // These values are copied from the catalogue card only as generation
+      // parameters. The server recalculates the price and does not trust a
+      // client-supplied amount.
+      duration: Number(template.duration || 5),
+      resolution: template.resolution || '720p',
+      preferred_model: modelId,
+      cost_credits: Number(template.cost_credits || template.cost || 0),
       catalog_type: isKlingEffect ? 'kling_effect' : 'video_template',
       effect_scene: isKlingEffect ? (template.effect_scene || template.id || '') : '',
       input_count: template.input_count || 1,

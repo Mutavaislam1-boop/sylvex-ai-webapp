@@ -12816,7 +12816,7 @@ def calculate_generation_price(payload: dict) -> dict:
     estimate = estimate_generation_cost(payload)
     video_options = payload.get("video_options") if isinstance(payload.get("video_options"), dict) else {}
     video_template = video_options.get("video_template") if isinstance(video_options.get("video_template"), dict) else {}
-    if (payload.get("mode") or payload.get("category")) == "video" and video_template:
+    if str(payload.get("mode") or payload.get("category") or "").lower() == "video" and video_template:
         model = str(video_template.get("preferred_model") or video_options.get("model") or payload.get("model") or "kling_o3_omni")
         duration = video_template.get("duration") or video_options.get("duration") or 5
         resolution = video_template.get("resolution") or video_options.get("resolution") or "720p"
