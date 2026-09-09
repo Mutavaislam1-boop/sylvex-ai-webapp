@@ -14328,9 +14328,12 @@ function maybeShowVideoTemplateIntro(force) {
       // =====================================================
       const data = await res.json().catch(() => ({}));
       const templates = Array.isArray(data.templates) ? data.templates : [];
-      videoTemplatesCache = normalizeVideoTemplateList(templates, false);
+      // The catalog API enriches built-in cards with real media and tariffs.
+      // It must never turn the whole catalog into an empty screen when it is
+      // temporarily empty, unavailable, or still rebuilding after deployment.
+      videoTemplatesCache = normalizeVideoTemplateList(templates, templates.length === 0);
     } catch {
-      videoTemplatesCache = [];
+      videoTemplatesCache = normalizeVideoTemplateList([], true);
     }
     return videoTemplatesCache;
   }
