@@ -5,6 +5,7 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
 import os
+import math
 import json
 import re
 import time
@@ -1557,7 +1558,51 @@ def estimate_video_generation_cost(payload: dict):
     mapping = _video_model_mapping(model_id)
     provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
     if provider != "kling":
-        return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
+        options = payload.get("video_options") or {}
+        resolution = _kling_resolution_key(options.get("resolution") or payload.get("resolution"))
+        try:
+            duration = int(float(options.get("duration") or payload.get("duration") or 5))
+        except (TypeError, ValueError):
+            duration = 5
+        model_key = str(model_id).lower()
+        per_second = None
+        fixed = None
+        # Prices below come from the published SYLVEX catalog.  Multiply first,
+        # then round the total once, so fractional per-second rates stay correct.
+        if model_key == "seedance_2_fast":
+            per_second = {"720p": 18, "1080p": 18}.get(resolution, 9)
+        elif model_key == "seedance_2_0":
+            per_second = {"720p": 22.5, "1080p": 55.5, "4k": 117}.get(resolution, 10.5)
+        elif model_key == "seedance_1_5_pro":
+            per_second = {"720p": 18, "1080p": 45}.get(resolution, 9)
+        elif model_key == "runway_gen4_5":
+            per_second = 18
+        elif model_key in {"runway_gen4_turbo", "runway_gen"}:
+            per_second = 7.5
+        elif model_key == "runway_seedance2":
+            per_second = {"720p": 54, "1080p": 60, "4k": 225}.get(resolution, 54)
+        elif model_key == "runway_seedance2_fast":
+            per_second = 43.5
+        elif model_key == "runway_seedance2_mini":
+            per_second = 24
+        elif model_key in {"sora_2", "sora_2_pro"}:
+            per_second = 45 if model_key.endswith("_pro") else 15
+        elif model_key in {"veo_3_1", "runway_veo3_1", "runway_veo3"}:
+            per_second = 60 if options.get("sound") or options.get("generate_audio") else 30
+        elif model_key == "veo_3_1_fast" or model_key == "runway_veo3_1_fast":
+            per_second = 15
+        elif model_key in {"luma_ray_v3_2", "luma_dream_machine"}:
+            luma = {"720p": {5: 45, 10: 135}, "1080p": {5: 180, 10: 540}}
+            fixed = (luma.get(resolution) or luma["720p"]).get(duration)
+        elif model_key == "grok_video":
+            per_second = {"720p": 21, "1080p": 37.5}.get(resolution, 12)
+        credits = int(math.ceil(fixed if fixed is not None else (duration * per_second))) if (fixed is not None or per_second is not None) else 0
+        return {
+            "credits": credits,
+            "cost_usd": round(credits / 150, 4) if credits else 0,
+            "generation_cost": f"{credits} ⚡" if credits else "",
+            "pricing_available": bool(credits),
+        }
     body = _build_video_payload(model_id, payload.get("prompt") or "", payload)
     info = _kling_cost_info(model_id, body)
     return {
