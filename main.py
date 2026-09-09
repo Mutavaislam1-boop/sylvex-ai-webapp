@@ -12704,6 +12704,25 @@ def estimate_generation_cost(payload: dict) -> dict:
     if mode != "image":
         return {"credits": 0, "cost_usd": 0, "generation_cost": ""}
     opts = payload.get("image_options") or {}
+    # Operations below are existing product tools.  Their published tariffs
+    # live here with every other authoritative estimate, not in either client.
+    tool = str(opts.get("image_tool") or opts.get("tool") or opts.get("operation") or "").strip().lower()
+    tool_prices = {
+        "tryon": 9,             # Google Virtual Try-On
+        "remove_bg": 2,         # Recraft Remove Background
+        "upscaler": 1,          # Recraft Upscale / Refine
+        "face_swap": 21,        # Nano Banana Pro image edit
+    }
+    if tool in tool_prices:
+        credits = tool_prices[tool]
+        return {
+            "credits": credits,
+            "cost_credits": credits,
+            "cost_usd": round(credits / 150, 4),
+            "generation_cost": f"{credits} ⚡",
+            "pricing_available": True,
+            "operation": tool,
+        }
     requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
     mapping = image_provider_mapping(requested_model) if requested_model else {}
     provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()

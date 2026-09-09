@@ -1581,7 +1581,7 @@ def estimate_video_generation_cost(payload: dict):
             fixed = seedance_15[bool(options.get("sound") or options.get("generate_audio"))].get(resolution, 20)
         elif model_key == "runway_gen4_5":
             per_second = 18
-        elif model_key in {"runway_gen4_turbo", "runway_gen"}:
+        elif model_key in {"runway_gen4_turbo", "runway_gen", "runway_gen3a_turbo", "runway_act_two"}:
             per_second = 7.5
         elif model_key in {"runway_aleph2", "runway_aleph"}:
             per_second = 42
@@ -1606,9 +1606,9 @@ def estimate_video_generation_cost(payload: dict):
         elif model_key in {"luma_ray_v3_2", "luma_dream_machine"}:
             luma = {"720p": {5: 45, 10: 135}, "1080p": {5: 180, 10: 540}}
             fixed = (luma.get(resolution) or luma["720p"]).get(duration)
-        elif model_key == "grok_video":
+        elif model_key in {"grok_video", "grok_video_edit"}:
             per_second = {"720p": 21, "1080p": 37.5}.get(resolution, 12)
-        elif model_key in {"wan_2_7", "wan_2_6"}:
+        elif model_key in {"wan_2_7", "wan_2_7_edit", "wan_2_6"}:
             per_second = {"720p": 15, "1080p": 22.5}.get(resolution, 15)
         elif model_key == "pixverse_v6":
             with_audio = bool(options.get("sound") or options.get("generate_audio"))
