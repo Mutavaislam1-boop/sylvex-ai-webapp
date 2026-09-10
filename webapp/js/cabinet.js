@@ -15246,15 +15246,39 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     text_options: payload.text_options,
   });
 
-  const generateRequest = () => fetch('/api/public/prostudio/generate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
-      },
-      cache: 'no-store',
-      body: JSON.stringify(payload),
-    });
+  // Text requests are synchronous by design.  A browser or proxy must not keep
+  // the chat's lightweight "…" indicator alive indefinitely when that request
+  // gets stranded in transit.  Media generation keeps its existing job/polling
+  // lifecycle and is intentionally not given this client-side deadline.
+  const textRequestController = isDirectTextRequest ? new AbortController() : null;
+  let textRequestTimedOut = false;
+  const textRequestTimeout = textRequestController
+    ? setTimeout(() => {
+        textRequestTimedOut = true;
+        textRequestController.abort();
+      }, 75_000)
+    : null;
+  const generateRequest = async () => {
+    try {
+      return await fetch('/api/public/prostudio/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        cache: 'no-store',
+        body: JSON.stringify(payload),
+        signal: textRequestController ? textRequestController.signal : undefined,
+      });
+    } catch (err) {
+      if (textRequestTimedOut) {
+        const timeoutError = new Error('TEXT_REQUEST_TIMEOUT');
+        timeoutError.textRequestTimeout = true;
+        throw timeoutError;
+      }
+      throw err;
+    }
+  };
   let res;
   try {
     res = await generateRequest();
@@ -15265,6 +15289,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     } else {
       throw err;
     }
+  } finally {
+    if (textRequestTimeout) clearTimeout(textRequestTimeout);
   }
 
   // =====================================================
@@ -15346,6 +15372,9 @@ function isNetworkLoadError(value) {
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
 function translateGenerationError(value, fallback) {
+  if (value && typeof value === 'object' && value.textRequestTimeout) {
+    return 'Ответ не получен за отведённое время. Повторите запрос ещё раз.';
+  }
   const text = errorMessage(value, fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
   const low = String(text || '').toLowerCase();
   if (isNetworkLoadError(text)) {
@@ -15678,7 +15707,10 @@ async function waitGeneration(jobId, options) {
         role: 'ai',
         text: '⚠️ ' + translateGenerationError(err, 'Не удалось получить ответ. Попробуйте ещё раз.'),
         textGenerationFailed: true,
-        textGenerationRequest: { prompt, attachment },
+        // Keep the same id on a retry.  If the original HTTP response was only
+        // delayed, the server-side idempotency record returns that result rather
+        // than creating a second text generation.
+        textGenerationRequest: { prompt, attachment, requestId },
       };
     } finally {
       textRequestInFlight = false;
@@ -15726,7 +15758,11 @@ async function waitGeneration(jobId, options) {
     const prompt = String((saved && saved.prompt) || previous.text || '').trim();
     const attachment = (saved && saved.attachment) || previous.attachment || null;
     if (!prompt && !attachment) return;
-    runTextGeneration({ prompt, attachment, requestId: newTextRequestId() }, index);
+    runTextGeneration({
+      prompt,
+      attachment,
+      requestId: String((saved && saved.requestId) || newTextRequestId()),
+    }, index);
   }
 
    // =====================================================
