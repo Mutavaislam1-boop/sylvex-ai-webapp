@@ -241,26 +241,6 @@ def _scan_preset_catalog_section(section_dir: pathlib.Path, kind: str) -> list[d
             except UnicodeDecodeError:
                 prompt = prompt_path.read_text(errors="ignore").strip()
         avatar_image = avatar or (references[0] if references else None)
-        preferred_model = "kling_effects" if is_provider_effect else "kling_o3_omni"
-        duration = int(output.get("duration") or 5)
-        cost_payload = {
-            "mode": "video",
-            "provider": "kling",
-            "model": preferred_model,
-            "prompt": "",
-            "video_options": {
-                "model": preferred_model,
-                "duration": duration,
-                "resolution": "720p",
-                # A template with a reference clip must use Kling's video-input tariff.
-                "video_input": not is_provider_effect,
-                "input_video": "template-reference" if not is_provider_effect else "",
-                "video_effects": is_provider_effect,
-                "generation_mode": "video_effects" if is_provider_effect else "standard",
-            },
-        }
-        cost_info = estimate_video_generation_cost(cost_payload)
-        credits = _template_int(cost_info.get("credits"), 0)
         item = {
             "id": f"{kind}_{folder.name}",
             "name": _catalog_folder_label(folder),
@@ -4639,6 +4619,7 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
             FROM prostudio_generation_jobs
             WHERE telegram_id = %s
               AND status IN ('queued', 'processing', 'provider_processing')
+              AND LOWER(COALESCE(mode, '')) NOT IN ('text', 'chat', 'pro', 'lite')
             ORDER BY created_at ASC
             LIMIT 1
         """, (int(telegram_id),))
@@ -10647,8 +10628,8 @@ TEXT_MODEL_VARIANTS = {
     "gpt-4.1-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT41_MINI_MODEL", default="gpt-4.1-mini")},
     "gpt-4o": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT4O_MODEL", default="gpt-4o")},
     "gpt-4o-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT4O_MINI_MODEL", default="gpt-4o-mini")},
-    "gemini_3_1_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_PRO_MODEL", "GEMINI-TEXT-PRO-MODEL", default="gemini-3.1-pro")},
-    "gemini_3_1_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_FLASH_MODEL", "GEMINI-TEXT-FLASH-MODEL", default="gemini-3.1-flash")},
+    "gemini_3_1_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_PRO_MODEL", "GEMINI-TEXT-PRO-MODEL", default="gemini-3.1-pro-preview")},
+    "gemini_3_1_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_FLASH_MODEL", "GEMINI-TEXT-FLASH-MODEL", default="gemini-3-flash-preview")},
     "gemini_2_5_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_PRO_MODEL", "GEMINI-TEXT-25-PRO-MODEL", default="gemini-2.5-pro")},
     "gemini_2_5_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_FLASH_MODEL", "GEMINI-TEXT-25-FLASH-MODEL", default="gemini-2.5-flash")},
     "grok_4_1": {"provider": "grok", "provider_model": env_value("GROK_TEXT_4_1_MODEL", "XAI_TEXT_4_1_MODEL", default="grok-4.1")},
@@ -11044,6 +11025,13 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
         return False, "GEMINI_API_KEY is not configured", {}
+    # Older deployments used shorthand names that are not valid for the
+    # Gemini v1beta generateContent endpoint.  Keep the UI model IDs stable
+    # while sending the provider's published endpoint-compatible names.
+    provider_model = {
+        "gemini-3.1-pro": "gemini-3.1-pro-preview",
+        "gemini-3.1-flash": "gemini-3-flash-preview",
+    }.get(str(provider_model or "").strip(), provider_model)
     system_text = "\n\n".join(str(item.get("content") or "") for item in messages if item.get("role") == "system")
     contents = []
     for item in messages:
