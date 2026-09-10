@@ -209,6 +209,8 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   };
   const expandedHistorySections = {};
   const activeGenerationWatchers = new Set();
+  const activeGenerationWatchControllers = new Map();
+  let textRequestInFlight = false;
   const activeGeneration = {
     locked: false,
     status: '',
@@ -4909,6 +4911,15 @@ function localizedGreeting() {
     return !!activeGeneration.locked;
   }
 
+  function isTextGenerationMode(mode) {
+    return chatTypeForMode(mode || studioMode) === 'text';
+  }
+
+  function newTextRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    return 'text_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+  }
+
   function persistActiveGeneration() {
     try {
       if (!activeGeneration.locked) localStorage.removeItem(activeGenerationStorageKey());
@@ -5060,6 +5071,13 @@ function localizedGreeting() {
     try {
       const snapshot = JSON.parse(localStorage.getItem(activeGenerationStorageKey()) || '{}');
       if (!snapshot || !snapshot.mode || !snapshot.status) return;
+      // Text is a direct request, never a worker job.  Old persisted text
+      // locks came from the former shared media queue and must not survive a
+      // close/reopen of the Mini App.
+      if (isTextGenerationMode(snapshot.mode)) {
+        localStorage.removeItem(activeGenerationStorageKey());
+        return;
+      }
       if (!isActiveGenerationStatus(snapshot.status) && snapshot.status !== 'submitting') return;
       transitionActiveGeneration('restore', snapshot);
     } catch {}
@@ -5073,6 +5091,10 @@ function localizedGreeting() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) return;
       if (data.active && data.job) {
+        if (isTextGenerationMode(data.job.mode)) {
+          clearActiveProStudioJob();
+          return;
+        }
         applyActiveProStudioJob(data.job);
         if (activeGeneration.mode && currentChatType() !== activeGeneration.mode) {
           activeGeneration.restoringMode = true;
@@ -5095,7 +5117,9 @@ function localizedGreeting() {
   // Опрашивает backend до финального статуса и обновляет карточку генерации в чате.
   // =====================================================
   function restoreActiveGenerationJobs(jobs) {
-    const activeJob = (jobs || []).find((job) => job && job.id && isActiveGenerationStatus(job.status));
+    const activeJob = (jobs || []).find((job) => job && job.id
+      && !isTextGenerationMode(job.mode)
+      && isActiveGenerationStatus(job.status));
     if (!activeJob) return;
     applyActiveProStudioJob(activeJob);
     watchGenerationJob(activeJob.id, activeJob);
@@ -5109,14 +5133,15 @@ function localizedGreeting() {
     if (!jobId || activeGenerationWatchers.has(jobId)) return;
     applyActiveProStudioJob(Object.assign({}, jobInfo || {}, { id: jobId, status: (jobInfo && jobInfo.status) || 'queued' }));
     activeGenerationWatchers.add(jobId);
-    waitGeneration(jobId)
+    const controller = new AbortController();
+    activeGenerationWatchControllers.set(jobId, controller);
+    waitGeneration(jobId, { signal: controller.signal })
       .then((result) => {
-        activeGenerationWatchers.delete(jobId);
         renderRestoredActiveGenerationResult(result, jobInfo || {});
         loadConversations();
       })
       .catch((err) => {
-        activeGenerationWatchers.delete(jobId);
+        if (err && err.name === 'AbortError') return;
         console.warn('[SYLVEX] generation watcher failed', jobId, err);
         if (err && err.terminalStatus) {
           const index = activeGenerationPlaceholderIndex();
@@ -5130,8 +5155,20 @@ function localizedGreeting() {
           rememberCurrentChatSpace();
           clearActiveProStudioJob(jobId);
         }
+      })
+      .finally(() => {
+        if (activeGenerationWatchControllers.get(jobId) === controller) {
+          activeGenerationWatchControllers.delete(jobId);
+          activeGenerationWatchers.delete(jobId);
+        }
       });
   }
+
+  window.addEventListener('pagehide', () => {
+    activeGenerationWatchControllers.forEach((controller) => controller.abort());
+    activeGenerationWatchControllers.clear();
+    activeGenerationWatchers.clear();
+  });
 
   function renderRestoredActiveGenerationResult(result, jobInfo) {
     const data = result || {};
@@ -11220,7 +11257,9 @@ function renderGeneratedTelegramButton(url, kind) {
       }
       const actions = '<div class="msg-actions">'
         + '<button onclick="SYLVEX.copyMsg(' + i + ')" title="Copy">Copy</button>'
-        + (m.role === 'ai' ? '<button onclick="SYLVEX.regenMsg(' + i + ')" title="Regenerate">Regenerate</button>' : '')
+        + (m.textGenerationFailed
+          ? '<button onclick="SYLVEX.retryTextGeneration(' + i + ')" title="Retry">Повторить</button>'
+          : (m.role === 'ai' ? '<button onclick="SYLVEX.regenMsg(' + i + ')" title="Regenerate">Regenerate</button>' : ''))
         + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
@@ -15103,14 +15142,16 @@ function maybeShowVideoTemplateIntro(force) {
 // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
 // =====================================================
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
-  if (!activeGenerationLocked()) {
+  const requestMode = studioMode;
+  const isDirectTextRequest = isTextGenerationMode(requestMode);
+  if (!isDirectTextRequest && !activeGenerationLocked()) {
     transitionActiveGeneration('begin', {
       mode: currentChatType(),
       model: pickStudioModel(),
       startedAt: Date.now(),
     });
   }
-  if (activeGenerationPlaceholderIndex() < 0) {
+  if (!isDirectTextRequest && activeGenerationPlaceholderIndex() < 0) {
     const requestedLoadingIndex = Number(generationOptions && generationOptions.loadingIndex);
     if (Number.isInteger(requestedLoadingIndex) && requestedLoadingIndex >= 0) {
       adoptActiveGenerationPlaceholder(requestedLoadingIndex);
@@ -15176,8 +15217,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   const payload = {
     telegram_id: getTelegramId(),
     prompt: promptText,
-    mode: studioMode,
-    category: studioMode,
+    mode: requestMode,
+    category: requestMode,
     model: pickStudioModel(),
     provider: isVideoMode() ? currentVideoProvider() : pickProviderHint(),
     image_options: imageOptions,
@@ -15188,7 +15229,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     history,
     attachment: attachment || null,
     conversation_id: currentConvId,
-    client_request_id: 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
+    client_request_id: (generationOptions && generationOptions.clientRequestId)
+      || 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
     language: uiLang(),
   };
 
@@ -15217,7 +15259,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   try {
     res = await generateRequest();
   } catch (err) {
-    if (studioMode === 'text' && isNetworkLoadError(err)) {
+    if (isDirectTextRequest && isNetworkLoadError(err)) {
       await new Promise((resolve) => setTimeout(resolve, 700));
       res = await generateRequest();
     } else {
@@ -15231,6 +15273,9 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   // =====================================================
   const j = await res.json().catch(() => ({}));
   if (res.status === 409 && j && j.active_job_id) {
+    if (isDirectTextRequest) {
+      throw new Error('Сейчас выполняется другая генерация. Попробуйте ещё раз после её завершения.');
+    }
     // The backend is authoritative here: the active job may belong to a
     // different mode than the locally attempted request.
     clearActiveProStudioJob();
@@ -15260,6 +15305,9 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
     rememberCurrentChatSpace();
   }
   if (j.job_id) {
+    if (isDirectTextRequest) {
+      throw new Error('Текстовый запрос не был завершён. Попробуйте ещё раз.');
+    }
     transitionActiveGeneration('job', { id: j.job_id, status: j.status || 'queued', mode: activeGeneration.mode || studioMode });
     j.result = await waitGeneration(j.job_id, generationOptions || {});
   }
@@ -15414,6 +15462,27 @@ function updateGenerationLoadingProgress(index, completed) {
 // =====================================================
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
+  const signal = options && options.signal ? options.signal : null;
+  const wait = (milliseconds) => new Promise((resolve, reject) => {
+    if (!signal) {
+      setTimeout(resolve, milliseconds);
+      return;
+    }
+    if (signal.aborted) {
+      reject(new DOMException('Generation watcher stopped', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      reject(new DOMException('Generation watcher stopped', 'AbortError'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+  });
   let transientErrors = 0;
   const startedAt = Date.now();
   const networkGraceMs = 15 * 60 * 1000;
@@ -15423,12 +15492,13 @@ async function waitGeneration(jobId, options) {
     try {
       res = await fetch(
         `/api/public/prostudio/job/${jobId}`,
-        { cache: 'no-store' }
+        { cache: 'no-store', signal }
       );
     } catch (err) {
+      if (signal && signal.aborted) throw err;
       transientErrors += 1;
       if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw err;
-      await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
+      await wait(Math.min(8000, 1500 + transientErrors * 250));
       continue;
     }
 
@@ -15440,7 +15510,7 @@ async function waitGeneration(jobId, options) {
     if (!res.ok || !job.ok) {
       transientErrors += 1;
       if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
-      await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1500 + transientErrors * 250)));
+      await wait(Math.min(8000, 1500 + transientErrors * 250));
       continue;
     }
     transientErrors = 0;
@@ -15488,7 +15558,7 @@ async function waitGeneration(jobId, options) {
       throw new Error('Генерация не завершилась. Попробуйте повторить немного позже.');
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await wait(1500);
   }
 }
 
@@ -15578,11 +15648,93 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  async function runTextGeneration(request, placeholderIndex) {
+    if (textRequestInFlight) return;
+    const prompt = String(request && request.prompt || '').trim();
+    const attachment = request && request.attachment ? Object.assign({}, request.attachment) : null;
+    const requestId = String(request && request.requestId || newTextRequestId());
+    const index = Number.isInteger(placeholderIndex) && placeholderIndex >= 0
+      ? placeholderIndex
+      : chatMessages.push({ role: 'ai', textLoading: true, textRequestId: requestId }) - 1;
+    chatMessages[index] = { role: 'ai', textLoading: true, textRequestId: requestId };
+    textRequestInFlight = true;
+    renderChat();
+    rememberCurrentChatSpace();
+    try {
+      const result = await callGenerate(prompt, attachment, [], null, {
+        clientRequestId: requestId,
+        textDirect: true,
+      });
+      if (!result || !result.text) throw new Error('Не удалось получить текстовый ответ.');
+      chatMessages[index] = {
+        role: 'ai',
+        text: result.text,
+        files: Array.isArray(result.files) ? result.files : (result.file_url ? [result.file_url] : []),
+      };
+      if (result.conversation_id) currentConvId = result.conversation_id;
+      loadConversations();
+    } catch (err) {
+      chatMessages[index] = {
+        role: 'ai',
+        text: '⚠️ ' + translateGenerationError(err, 'Не удалось получить ответ. Попробуйте ещё раз.'),
+        textGenerationFailed: true,
+        textGenerationRequest: { prompt, attachment },
+      };
+    } finally {
+      textRequestInFlight = false;
+      renderChat();
+      rememberCurrentChatSpace();
+      updateSendButton();
+    }
+  }
+
+  async function sendTextChat() {
+    if (textRequestInFlight) return;
+    const ta = document.getElementById('chatInput');
+    if (!ta) return;
+    if (textState.attachment && textState.attachment.uploading) {
+      toast('Файл ещё загружается');
+      return;
+    }
+    const prompt = String(ta.value || '').trim();
+    const attachment = currentModeAttachment();
+    if (!prompt && !attachment) return;
+
+    chatMessages.push({
+      role: 'user',
+      text: prompt,
+      attachment: attachment ? Object.assign({}, attachment) : null,
+      attachmentName: null,
+    });
+    const loadingIndex = chatMessages.push({ role: 'ai', textLoading: true }) - 1;
+    ta.value = '';
+    autoGrow(ta);
+    clearAttachment();
+    dismissGenerationInputUi();
+    renderChat();
+    rememberCurrentChatSpace();
+    S.haptic.impact('light');
+    await runTextGeneration({ prompt, attachment, requestId: newTextRequestId() }, loadingIndex);
+  }
+
+  function retryTextGeneration(index) {
+    if (textRequestInFlight) return;
+    const message = chatMessages[index];
+    const previous = chatMessages[index - 1];
+    const saved = message && message.textGenerationRequest;
+    if (!saved && (!previous || previous.role !== 'user')) return;
+    const prompt = String((saved && saved.prompt) || previous.text || '').trim();
+    const attachment = (saved && saved.attachment) || previous.attachment || null;
+    if (!prompt && !attachment) return;
+    runTextGeneration({ prompt, attachment, requestId: newTextRequestId() }, index);
+  }
+
    // =====================================================
    // ЗАПУСК ГЕНЕРАЦИИ: sendChat
    // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
    // =====================================================
    async function sendChat() {
+    if (studioMode === 'text') return sendTextChat();
     if (activeGenerationLocked()) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
@@ -15909,6 +16061,10 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function regenMsg(i) {
+  if (studioMode === 'text') {
+    retryTextGeneration(i);
+    return;
+  }
   const prev = chatMessages[i - 1];
   if (!prev || prev.role !== 'user') return;
 
@@ -17597,6 +17753,15 @@ async function waitGeneration(jobId, options) {
     const send = document.getElementById('sendBtn');
     if (!ta || !send) return;
     const label = send.querySelector('.studio-generate-label');
+    if (studioMode === 'text' && textRequestInFlight) {
+      send.disabled = true;
+      send.hidden = false;
+      send.classList.remove('has-active-job');
+      if (label) label.textContent = 'Отправка…';
+      send.setAttribute('aria-label', 'Отправка сообщения');
+      send.title = 'Отправка сообщения';
+      return;
+    }
     if (activeGenerationLocked()) {
       send.disabled = true;
       send.hidden = false;
@@ -19396,7 +19561,7 @@ async function waitGeneration(jobId, options) {
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
-    sendChat, copyMsg, regenMsg, deleteMsg, newChat,
+    sendChat, copyMsg, regenMsg, retryTextGeneration, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,

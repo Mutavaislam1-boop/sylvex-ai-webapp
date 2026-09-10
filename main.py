@@ -158,6 +158,8 @@ PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
+PROSTUDIO_TEXT_INFLIGHT = {}
+PROSTUDIO_TEXT_INFLIGHT_LOCK = threading.Lock()
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
 SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=shop")
@@ -4623,6 +4625,12 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
     ensure_prostudio_table()
+    # Text responses are synchronous and never belong to the media worker
+    # queue.  Jobs from the older implementation can still be present after a
+    # deploy; treating them as active would restore a permanent UI lock on
+    # every Mini App start.  Finish those legacy records explicitly instead of
+    # silently deleting them, then continue looking for a real media job.
+    cleanup_orphaned_text_prostudio_jobs(telegram_id)
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -4657,6 +4665,55 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
         if recovery.get("recovered"):
             return {}
     return job
+
+
+def cleanup_orphaned_text_prostudio_jobs(telegram_id: int):
+    """Terminally fail legacy text jobs that cannot be handled by a worker."""
+    if not DATABASE_URL or not telegram_id:
+        return
+    conn = None
+    cursor = None
+    try:
+        ensure_reservations(lambda: db_connect(DATABASE_URL))
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id
+            FROM prostudio_generation_jobs
+            WHERE telegram_id = %s
+              AND status IN ('queued', 'processing', 'provider_processing')
+              AND LOWER(COALESCE(mode, '')) IN ('text', 'chat', 'pro', 'lite')
+            FOR UPDATE
+        """, (int(telegram_id),))
+        job_ids = [str(row[0]) for row in cursor.fetchall()]
+        if not job_ids:
+            conn.rollback()
+            return
+        error_payload = _safe_json_dumps({
+            "ok": False,
+            "error": "stale_task_cleanup",
+            "message": "Текстовый запрос был остановлен после обновления приложения.",
+        })
+        cursor.execute("""
+            UPDATE prostudio_generation_jobs
+            SET status = 'failed', error_json = %s::jsonb,
+                locked_at = NULL, heartbeat_at = NULL, provider_wait_until = NULL,
+                updated_at = NOW(), completed_at = NOW()
+            WHERE id = ANY(%s)
+        """, (error_payload, job_ids))
+        for job_id in job_ids:
+            release_generation(cursor, job_id)
+        conn.commit()
+        prostudio_debug("LEGACY_TEXT_JOBS_CLEANED", telegram_id=int(telegram_id), count=len(job_ids))
+    except Exception as exc:
+        if conn is not None:
+            conn.rollback()
+        prostudio_error("LEGACY_TEXT_JOBS_CLEANUP_FAILED", exc, telegram_id=telegram_id)
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 
 # =====================================================
@@ -10942,19 +10999,24 @@ def openai_responses_text_request(provider_model: str, messages: list) -> tuple[
     for message in messages or []:
         role = str(message.get("role") or "user")
         raw_content = message.get("content")
+        # In the Responses API, prior assistant turns are response output
+        # items.  They must use output_text, while user/system/developer turns
+        # use input_text.  Sending input_text for an assistant history item
+        # causes the API error: "Supported values are output_text and refusal".
+        text_part_type = "output_text" if role == "assistant" else "input_text"
         if isinstance(raw_content, list):
             content = []
             for part in raw_content:
                 if not isinstance(part, dict):
                     continue
                 if part.get("type") == "text":
-                    content.append({"type": "input_text", "text": str(part.get("text") or "")})
-                elif part.get("type") == "image_url":
+                    content.append({"type": text_part_type, "text": str(part.get("text") or "")})
+                elif part.get("type") == "image_url" and role != "assistant":
                     image_url = (part.get("image_url") or {}).get("url")
                     if image_url:
                         content.append({"type": "input_image", "image_url": image_url})
         else:
-            content = [{"type": "input_text", "text": str(raw_content or "")}]
+            content = [{"type": text_part_type, "text": str(raw_content or "")}]
         response_input.append({"role": role, "content": content})
     response = requests.post(
         OPENAI_API_BASE.rstrip("/") + "/responses",
@@ -14319,34 +14381,76 @@ async def public_prostudio_generate(request: Request):
     if mode in text_modes:
         request_key = str(payload.get("client_request_id") or "").strip()
         cache_key = f"{int(payload.get('telegram_id') or 0)}:{request_key}" if request_key else ""
-        if cache_key and cache_key in PROSTUDIO_TEXT_RESPONSE_CACHE:
-            return PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key]
+        response_future = None
+        owns_request = True
+        if cache_key:
+            with PROSTUDIO_TEXT_INFLIGHT_LOCK:
+                cached = PROSTUDIO_TEXT_RESPONSE_CACHE.get(cache_key)
+                response_future = PROSTUDIO_TEXT_INFLIGHT.get(cache_key)
+                if cached is not None:
+                    pass
+                elif response_future is None:
+                    response_future = asyncio.get_running_loop().create_future()
+                    PROSTUDIO_TEXT_INFLIGHT[cache_key] = response_future
+                else:
+                    owns_request = False
+            if cached is not None:
+                return cached
+            if not owns_request:
+                # A transport retry must receive the first request's outcome,
+                # never open a second provider call or balance reservation.
+                return await asyncio.shield(response_future)
+
+        def complete_text_request(response, cache_success: bool = False):
+            if not cache_key or not owns_request:
+                return response
+            with PROSTUDIO_TEXT_INFLIGHT_LOCK:
+                if cache_success:
+                    if len(PROSTUDIO_TEXT_RESPONSE_CACHE) > 200:
+                        PROSTUDIO_TEXT_RESPONSE_CACHE.clear()
+                    PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key] = response
+                pending = PROSTUDIO_TEXT_INFLIGHT.pop(cache_key, None)
+                if pending is not None and not pending.done():
+                    pending.set_result(response)
+            return response
+
+        def fail_text_request(exc: Exception):
+            if cache_key and owns_request:
+                with PROSTUDIO_TEXT_INFLIGHT_LOCK:
+                    pending = PROSTUDIO_TEXT_INFLIGHT.pop(cache_key, None)
+                    if pending is not None and not pending.done():
+                        pending.set_result(JSONResponse({"ok": False, "error": "text_generation_failed"}, status_code=503))
+
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-5.5"
         try:
             generation_id = reserve_direct_text_generation(telegram_id, required_credits)
         except SecurityError as exc:
-            return JSONResponse({"ok": False, "paywall": exc.status == 402, "error": exc.code}, status_code=exc.status)
+            return complete_text_request(JSONResponse({"ok": False, "paywall": exc.status == 402, "error": exc.code}, status_code=exc.status))
+        except Exception as exc:
+            fail_text_request(exc)
+            raise
         try:
             result = await asyncio.to_thread(text_generation, payload)
-        except Exception:
+        except Exception as exc:
             release_direct_text_generation(generation_id)
+            fail_text_request(exc)
             raise
         if not result.get("ok"):
             release_direct_text_generation(generation_id)
-            return JSONResponse(result, status_code=502)
+            return complete_text_request(JSONResponse(result, status_code=502))
         result["cost_credits"] = required_credits
         result["generation_cost"] = cost_estimate.get("generation_cost") or f"{required_credits} ⚡"
         billing = charge_generation_balance(telegram_id, generation_id, result, payload)
         if not billing.get("charged") and not billing.get("already_charged"):
             release_direct_text_generation(generation_id)
-            return JSONResponse({"ok": False, "error": "billing_failed"}, status_code=503)
-        result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
-        if cache_key:
-            if len(PROSTUDIO_TEXT_RESPONSE_CACHE) > 200:
-                PROSTUDIO_TEXT_RESPONSE_CACHE.clear()
-            PROSTUDIO_TEXT_RESPONSE_CACHE[cache_key] = result
-        return result
+            return complete_text_request(JSONResponse({"ok": False, "error": "billing_failed"}, status_code=503))
+        try:
+            result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
+        except Exception as exc:
+            fail_text_request(exc)
+            raise
+        return complete_text_request(result, cache_success=True)
 
     # Worker owns Telegram delivery. Persist this flag in request_json before
     # the job is inserted so provider adapters cannot send the result early.
