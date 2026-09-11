@@ -153,7 +153,15 @@ PROSTUDIO_MOCK_GENERATION = os.getenv("PROSTUDIO_MOCK_GENERATION", "0").strip().
 }
 SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
-PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
+# A job at this age with no live provider_slot lease is recovered (marked
+# failed, credits released) by _recover_stale_prostudio_job_once - a job
+# that's still genuinely running always has a live lease (renewed every
+# PROVIDER_SLOT_HEARTBEAT_SECONDS), so this only bounds how long an already-
+# abandoned job (crashed/redeployed worker) sits stuck before cleanup, not
+# how long a real generation may run. 5 minutes keeps a safe 5x margin over
+# the 60s job heartbeat interval while cutting the previous 30-minute
+# worst-case stuck time down to something a user won't just give up on.
+PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "5"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
