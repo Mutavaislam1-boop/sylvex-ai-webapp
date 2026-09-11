@@ -3876,7 +3876,8 @@ async def elevenlabs_preview(request: Request):
     print("ELEVENLABS PREVIEW SELECTED MODEL:", model_id)
 
     try:
-        response = requests.post(
+        response = await asyncio.to_thread(
+            requests.post,
             f"{ELEVENLABS_BASE_URL}/v1/text-to-speech/{voice_id}",
             headers=elevenlabs_headers(),
             params={"output_format": output_format},
@@ -4545,6 +4546,17 @@ def _json_obj(value) -> dict:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+# Job error records may carry raw provider/exception text (repr(exc), raw_error,
+# traceback) that can embed secrets from a failed HTTP call. Any route that
+# returns a job's stored error to its owner must go through this whitelist.
+_PUBLIC_JOB_ERROR_FIELDS = {"ok", "error", "message", "status_code", "provider", "type"}
+
+
+def _public_error_json(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    return {k: v for k, v in value.items() if k in _PUBLIC_JOB_ERROR_FIELDS}
 
 # =====================================================
 # PYTHON-БЛОК: _safe_json_dumps
@@ -7101,7 +7113,7 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
                     "status": row[6],
                     "cost": row[7] or 0,
                     "result": _json_obj(row[8]),
-                    "error": _json_obj(row[9]),
+                    "error": _public_error_json(_json_obj(row[9])),
                     "created_at": _to_iso(row[10]),
                     "updated_at": _to_iso(row[11]),
                     "completed_at": _to_iso(row[12]),
@@ -7669,7 +7681,7 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
                     "status": row[6],
                     "cost": row[7] or 0,
                     "result": _json_obj(row[8]),
-                    "error": _json_obj(row[9]),
+                    "error": _public_error_json(_json_obj(row[9])),
                     "created_at": _to_iso(row[10]),
                     "updated_at": _to_iso(row[11]),
                     "completed_at": _to_iso(row[12]),
@@ -7767,10 +7779,8 @@ async def public_prostudio_job(job_id: str):
                 status_code=404,
             )
         result_json = _json_obj(row[1])
-        error_json = _json_obj(row[2])
-        if isinstance(error_json, dict):
-            error_json = {k: v for k, v in error_json.items() if k in {"ok", "error", "message", "status_code", "provider", "type"}}
-        if isinstance(error_json, dict) and error_json:
+        error_json = _public_error_json(_json_obj(row[2]))
+        if error_json:
             normalized_error = user_generation_error_text(error_json.get("error") or error_json.get("message") or error_json)
             error_json["error"] = normalized_error
             error_json["message"] = normalized_error
@@ -8806,8 +8816,10 @@ async def public_stars_invoice(request: Request):
     try:
         invoice_url = create_telegram_stars_invoice_link(telegram_id, pack_id, item, charge_id)
     except Exception as exc:
+        # Do not return str(exc) here: on a network-level failure it can embed
+        # the full Telegram Bot API URL, which contains BOT_TOKEN.
         prostudio_error("STARS_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id, charge_id=charge_id)
-        return JSONResponse({"ok": False, "error": "stars_invoice_failed", "detail": str(exc)}, status_code=502)
+        return JSONResponse({"ok": False, "error": "stars_invoice_failed"}, status_code=502)
 
     log_user_event(
         telegram_id=telegram_id,
@@ -9136,8 +9148,10 @@ async def public_crypto_invoice(request: Request):
     try:
         invoice = create_crypto_invoice(telegram_id, pack_id, item)
     except Exception as exc:
-        print("CRYPTO INVOICE ERROR:", exc)
-        return JSONResponse({"ok": False, "error": "crypto_not_configured", "detail": str(exc)}, status_code=502)
+        # Do not return str(exc) here: it can embed provider credentials or
+        # request URLs. Log server-side only, return a generic error code.
+        prostudio_error("CRYPTO_INVOICE_ERROR", exc, telegram_id=telegram_id, pack_id=pack_id)
+        return JSONResponse({"ok": False, "error": "crypto_not_configured"}, status_code=502)
 
     invoice_id = int(invoice.get("invoice_id"))
     asyncio.create_task(poll_crypto_invoice(invoice_id, telegram_id, pack_id))
@@ -14068,7 +14082,7 @@ Media generation must not start. Prompts must remain editable.
 User task:
 {task}
 """.strip()
-        generated = text_generation({
+        generated = await asyncio.to_thread(text_generation, {
             "prompt": planner_prompt,
             "mode": "text",
             "category": "text",
