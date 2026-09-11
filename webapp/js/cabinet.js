@@ -211,6 +211,8 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   const activeGenerationWatchers = new Set();
   const activeGenerationWatchControllers = new Map();
   let textRequestInFlight = false;
+  let textSpeechMessageIndex = -1;
+  let textSpeechUtterance = null;
   const activeGeneration = {
     locked: false,
     status: '',
@@ -5165,6 +5167,7 @@ function localizedGreeting() {
   }
 
   window.addEventListener('pagehide', () => {
+    stopTextListen(false);
     activeGenerationWatchControllers.forEach((controller) => controller.abort());
     activeGenerationWatchControllers.clear();
     activeGenerationWatchers.clear();
@@ -11264,7 +11267,7 @@ function renderGeneratedTelegramButton(url, kind) {
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.role === 'ai' && currentChatType() === 'text' && m.text && !m.textGenerationFailed) {
-        inner += renderTextSpeechControl(m, i);
+        inner += renderTextListenControl(i);
       }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (m.referenceImages && m.referenceImages.length) {
@@ -11903,6 +11906,7 @@ function renderGeneratedTelegramButton(url, kind) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function selMode(k) {
+    if (k !== studioMode) stopTextListen(false);
     studioMode = k;
     activeCat = k;
     renderModeStrip();
@@ -14916,6 +14920,7 @@ function maybeShowVideoTemplateIntro(force) {
 
   function updateComposerMode(kind) {
     const requestedMode = chatTypeForMode(kind);
+    if (requestedMode !== currentChatType()) stopTextListen(false);
     if (activeGenerationLocked() && !activeGeneration.restoringMode && activeGeneration.mode && requestedMode !== activeGeneration.mode) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
@@ -15495,7 +15500,6 @@ function updateGenerationLoadingProgress(index, completed) {
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   const signal = options && options.signal ? options.signal : null;
-  const trackActiveGeneration = !(options && options.trackActiveGeneration === false);
   const wait = (milliseconds) => new Promise((resolve, reject) => {
     if (!signal) {
       setTimeout(resolve, milliseconds);
@@ -15548,7 +15552,7 @@ async function waitGeneration(jobId, options) {
     }
     transientErrors = 0;
 
-    if (trackActiveGeneration && isActiveGenerationStatus(job.status)) {
+    if (isActiveGenerationStatus(job.status)) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: job.status,
@@ -15562,13 +15566,11 @@ async function waitGeneration(jobId, options) {
     }
 
     if (job.status === 'completed') {
-      if (trackActiveGeneration) {
-        transitionActiveGeneration('status', {
-          id: job.job_id || job.generation_id || jobId,
-          status: 'completed',
-          mode: job.mode || '',
-        });
-      }
+      transitionActiveGeneration('status', {
+        id: job.job_id || job.generation_id || jobId,
+        status: 'completed',
+        mode: job.mode || '',
+      });
       const result = job.result || {};
       result.job_id = result.job_id || job.job_id || jobId;
       result.generation_id = result.generation_id || job.generation_id || jobId;
@@ -15577,13 +15579,11 @@ async function waitGeneration(jobId, options) {
     }
 
     if (job.status === 'failed' || job.status === 'cancelled') {
-      if (trackActiveGeneration) {
-        transitionActiveGeneration('status', {
-          id: job.job_id || job.generation_id || jobId,
-          status: job.status,
-          mode: job.mode || '',
-        });
-      }
+      transitionActiveGeneration('status', {
+        id: job.job_id || job.generation_id || jobId,
+        status: job.status,
+        mode: job.mode || '',
+      });
       const error = job.error || {};
       const terminalError = new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
       terminalError.terminalStatus = job.status;
@@ -15693,6 +15693,7 @@ async function waitGeneration(jobId, options) {
     const index = Number.isInteger(placeholderIndex) && placeholderIndex >= 0
       ? placeholderIndex
       : chatMessages.push({ role: 'ai', textLoading: true, textRequestId: requestId }) - 1;
+    stopTextListen(false);
     chatMessages[index] = { role: 'ai', textLoading: true, textRequestId: requestId };
     textRequestInFlight = true;
     renderChat();
@@ -15709,9 +15710,6 @@ async function waitGeneration(jobId, options) {
         files: Array.isArray(result.files) ? result.files : (result.file_url ? [result.file_url] : []),
       };
       if (result.conversation_id) currentConvId = result.conversation_id;
-      // Load the server-side price after the answer is visible, so the
-      // narration button already shows the exact charge before it is pressed.
-      void loadTextSpeechEstimate(index);
       loadConversations();
     } catch (err) {
       chatMessages[index] = {
@@ -16097,153 +16095,81 @@ async function waitGeneration(jobId, options) {
   // JAVASCRIPT-БЛОК: copyMsg
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  function textSpeechPayload(text) {
-    return {
-      telegram_id: getTelegramId(),
-      prompt: String(text || '').trim(),
-      mode: 'voice',
-      category: 'voice',
-      model: 'gemini_3_1_flash_tts_preview',
-      provider: 'gemini',
-      voice_options: {
-        model: 'gemini_3_1_flash_tts_preview',
-        voice: 'Kore',
-        speaker_mode: 'single',
-        num_speakers: 1,
-        speaker_voices: ['Kore'],
-        source: 'text_response_read_aloud',
-      },
-      attachment: null,
-      conversation_id: currentConvId,
-      client_request_id: 'text_speech_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
-      language: uiLang(),
+  function sanitizeTextForSpeech(text) {
+    return String(text || '')
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/```[a-zA-Z0-9_-]*/g, ' ')
+      .replace(/[\*#_`~>|]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function speechLanguageForText(text) {
+    const value = String(text || '');
+    if (/[А-Яа-яЁё]/.test(value)) return 'ru-RU';
+    if (/[\u0600-\u06FF]/.test(value)) return 'ar-SA';
+    const language = uiLang();
+    return { ru: 'ru-RU', tr: 'tr-TR', ar: 'ar-SA', en: 'en-US' }[language] || 'en-US';
+  }
+
+  function textSpeechSupported() {
+    return typeof window !== 'undefined'
+      && 'speechSynthesis' in window
+      && typeof window.SpeechSynthesisUtterance === 'function';
+  }
+
+  function renderTextListenControl(index) {
+    const speaking = textSpeechMessageIndex === index;
+    return '<div class="text-listen-control">'
+      + '<button class="' + (speaking ? 'is-playing' : '') + '" type="button" onclick="SYLVEX.toggleTextListen(' + index + ')" aria-pressed="' + String(speaking) + '">'
+      + (speaking ? '■ Остановить' : '🔊 Слушать')
+      + '</button></div>';
+  }
+
+  function stopTextListen(render) {
+    const current = textSpeechUtterance;
+    textSpeechMessageIndex = -1;
+    textSpeechUtterance = null;
+    if (textSpeechSupported()) window.speechSynthesis.cancel();
+    if (current && render) renderChat();
+  }
+
+  function toggleTextListen(index) {
+    const message = chatMessages[index];
+    const text = sanitizeTextForSpeech(message && message.text);
+    if (!text) {
+      toast('В ответе нет текста для озвучки.');
+      return;
+    }
+    if (!textSpeechSupported()) {
+      toast('Ваш браузер не поддерживает озвучивание текста.');
+      return;
+    }
+    if (textSpeechMessageIndex === index) {
+      stopTextListen(true);
+      return;
+    }
+
+    stopTextListen(false);
+    const utterance = new window.SpeechSynthesisUtterance(text);
+    utterance.lang = speechLanguageForText(text);
+    utterance.rate = 1;
+    utterance.onend = utterance.onerror = () => {
+      if (textSpeechUtterance !== utterance) return;
+      textSpeechMessageIndex = -1;
+      textSpeechUtterance = null;
+      renderChat();
     };
-  }
-
-  function textSpeechCostLabel(speech) {
-    return String(speech && (speech.generationCost || speech.estimatedCost) || '').trim();
-  }
-
-  function renderTextSpeechControl(message, index) {
-    const speech = message.textSpeech || {};
-    const cost = textSpeechCostLabel(speech);
-    const status = String(speech.status || 'idle');
-    if (status === 'ready' && speech.audioUrl) {
-      return '<div class="text-listen-control text-speech-ready">'
-        + '<span>AI-озвучка' + (cost ? ' · ' + S.escapeHtml(cost) : '') + '</span>'
-        + '<audio src="' + S.escapeHtml(speech.audioUrl) + '" controls preload="metadata" controlsList="nodownload"></audio>'
-        + '</div>';
-    }
-    if (status === 'estimating' || status === 'loading') {
-      return '<div class="text-listen-control"><button type="button" disabled>••• Озвучиваем</button></div>';
-    }
-    const failed = status === 'failed';
-    return '<div class="text-listen-control' + (failed ? ' text-speech-failed' : '') + '">'
-      + '<button type="button" onclick="SYLVEX.generateTextSpeech(' + index + ')">'
-      + (failed ? '↻ Повторить озвучку' : '🔊 Озвучить')
-      + (cost ? ' · ' + S.escapeHtml(cost) : '')
-      + '</button>'
-      + (failed ? '<small>Не удалось создать AI-озвучку.</small>' : '')
-      + '</div>';
-  }
-
-  async function loadTextSpeechEstimate(index) {
-    const message = chatMessages[index];
-    const text = String(message && message.text || '').trim();
-    if (!message || !text || message.textSpeech?.status === 'loading') return null;
+    textSpeechMessageIndex = index;
+    textSpeechUtterance = utterance;
     try {
-      const response = await fetch('/api/public/prostudio/estimate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-        cache: 'no-store',
-        body: JSON.stringify(textSpeechPayload(text)),
-      });
-      const estimate = await response.json().catch(() => ({}));
-      if (!response.ok || !estimate.ok || !estimate.pricing_available || !estimate.generation_cost) return null;
-      if (chatMessages[index] !== message || message.textSpeech?.status === 'loading') return estimate;
-      message.textSpeech = Object.assign({}, message.textSpeech || {}, {
-        estimatedCost: estimate.generation_cost,
-      });
-      renderChat();
-      rememberCurrentChatSpace();
-      return estimate;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function confirmTextSpeechCharge(cost) {
-    const prompt = 'Создать AI-озвучку этого ответа за ' + cost + '?';
-    const tg = S.tg || (window.Telegram && window.Telegram.WebApp);
-    if (tg && typeof tg.showConfirm === 'function') {
-      return new Promise((resolve) => tg.showConfirm(prompt, (confirmed) => resolve(!!confirmed)));
-    }
-    return Promise.resolve(window.confirm(prompt));
-  }
-
-  async function generateTextSpeech(index) {
-    const message = chatMessages[index];
-    const text = String(message && message.text || '').trim();
-    if (!message || !text || message.textSpeech?.status === 'loading' || message.textSpeech?.status === 'estimating') return;
-
-    const previousSpeech = message.textSpeech || {};
-    message.textSpeech = Object.assign({}, previousSpeech, { status: 'estimating', error: '' });
-    renderChat();
-    rememberCurrentChatSpace();
-    try {
-      const payload = textSpeechPayload(text);
-      const estimate = await loadTextSpeechEstimate(index);
-      const generationCost = String(estimate && estimate.generation_cost || previousSpeech.estimatedCost || '').trim();
-      if (!generationCost) throw new Error('Стоимость озвучки сейчас недоступна.');
-      if (!(await confirmTextSpeechCharge(generationCost))) {
-        message.textSpeech = Object.assign({}, message.textSpeech || {}, { status: 'idle', estimatedCost: generationCost });
-        renderChat();
-        rememberCurrentChatSpace();
-        return;
-      }
-
-      message.textSpeech = Object.assign({}, message.textSpeech || {}, {
-        status: 'loading',
-        estimatedCost: generationCost,
-      });
-      renderChat();
-      rememberCurrentChatSpace();
+      window.speechSynthesis.speak(utterance);
       S.haptic && S.haptic.impact && S.haptic.impact('light');
-
-      const response = await fetch('/api/public/prostudio/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-        cache: 'no-store',
-        body: JSON.stringify(payload),
-      });
-      const start = await response.json().catch(() => ({}));
-      if (!response.ok || !start.ok || !start.job_id) {
-        throw new Error(translateGenerationError(start, 'Не удалось запустить AI-озвучку.'));
-      }
-
-      // This short TTS task has its own in-message indicator. It must not
-      // lock the text chat or convert it into the full media progress UI.
-      const result = await waitGeneration(start.job_id, { trackActiveGeneration: false });
-      const audioUrl = generatedUrlsFromResponse(result, 'audio')[0];
-      if (!audioUrl) throw new Error('AI-озвучка не вернула аудиофайл.');
-      message.textSpeech = {
-        status: 'ready',
-        audioUrl,
-        generationCost: String(result.generation_cost || generationCost),
-        jobId: result.job_id || start.job_id,
-      };
       renderChat();
-      rememberCurrentChatSpace();
-      S.haptic && S.haptic.notify && S.haptic.notify('success');
-      if (S.syncUser) Promise.resolve(S.syncUser()).catch(() => {});
-    } catch (err) {
-      message.textSpeech = Object.assign({}, message.textSpeech || {}, {
-        status: 'failed',
-        error: translateGenerationError(err, 'Не удалось создать AI-озвучку.'),
-      });
-      renderChat();
-      rememberCurrentChatSpace();
-      toast('Не удалось создать AI-озвучку.');
+    } catch (_) {
+      stopTextListen(true);
+      toast('Не удалось запустить озвучивание текста.');
     }
   }
 
@@ -16673,6 +16599,7 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function deleteMsg(i) {
+    stopTextListen(false);
     chatMessages.splice(i, 1); renderChat();
     rememberCurrentChatSpace();
     S.haptic.impact('light');
@@ -16682,6 +16609,7 @@ async function waitGeneration(jobId, options) {
   // Работает с независимыми чатами, историей генераций и восстановлением сообщений пользователя.
   // =====================================================
   function newChat() {
+    stopTextListen(false);
     const type = currentChatType();
     currentConvId = null;
     chatMessages = [];
@@ -16765,6 +16693,7 @@ async function waitGeneration(jobId, options) {
   async function openConv(id, type, opts) {
     const tg = getTelegramId(); if (!tg) return;
     if (!id) return;
+    stopTextListen(false);
     let openKey = '';
     try {
       const options = opts || {};
@@ -19758,7 +19687,7 @@ async function waitGeneration(jobId, options) {
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
-    sendChat, copyMsg, generateTextSpeech, regenMsg, retryTextGeneration, deleteMsg, newChat,
+    sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
