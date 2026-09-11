@@ -14441,6 +14441,8 @@ async def public_prostudio_generate(request: Request):
         worker_enabled=PROSTUDIO_WORKER_ENABLED,
     )
     if mode in text_modes:
+        text_timing_start = time.monotonic()
+        prostudio_debug("TEXT_REQUEST_RECEIVED", telegram_id=telegram_id, model=selected_model, timestamp=round(text_timing_start, 6))
         request_key = str(payload.get("client_request_id") or "").strip()
         cache_key = f"{int(payload.get('telegram_id') or 0)}:{request_key}" if request_key else ""
         response_future = None
@@ -14485,6 +14487,10 @@ async def public_prostudio_generate(request: Request):
 
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-5.5"
+        prostudio_debug(
+            "TEXT_VALIDATION_DONE", telegram_id=telegram_id,
+            elapsed_ms=round((time.monotonic() - text_timing_start) * 1000),
+        )
         try:
             generation_id = reserve_direct_text_generation(telegram_id, required_credits)
         except SecurityError as exc:
@@ -14492,12 +14498,19 @@ async def public_prostudio_generate(request: Request):
         except Exception as exc:
             fail_text_request(exc)
             raise
+        provider_call_started_at = time.monotonic()
+        prostudio_debug("TEXT_PROVIDER_REQUEST_SENT", telegram_id=telegram_id, model=selected_model)
         try:
             result = await asyncio.to_thread(text_generation, payload)
         except Exception as exc:
             release_direct_text_generation(generation_id)
             fail_text_request(exc)
             raise
+        provider_done_at = time.monotonic()
+        prostudio_debug(
+            "TEXT_PROVIDER_RESPONSE_RECEIVED", telegram_id=telegram_id, ok=bool(result.get("ok")),
+            provider_elapsed_ms=round((provider_done_at - provider_call_started_at) * 1000),
+        )
         if not result.get("ok"):
             release_direct_text_generation(generation_id)
             return complete_text_request(JSONResponse(result, status_code=502))
@@ -14507,11 +14520,22 @@ async def public_prostudio_generate(request: Request):
         if not billing.get("charged") and not billing.get("already_charged"):
             release_direct_text_generation(generation_id)
             return complete_text_request(JSONResponse({"ok": False, "error": "billing_failed"}, status_code=503))
+        prostudio_debug(
+            "TEXT_RESULT_PERSISTED", telegram_id=telegram_id,
+            elapsed_ms_since_provider_response=round((time.monotonic() - provider_done_at) * 1000),
+        )
+        # History/conversation save enriches an already-successful, already-
+        # billed response. Its failure must never turn a successful
+        # generation into an error response for the user.
         try:
             result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
         except Exception as exc:
-            fail_text_request(exc)
-            raise
+            prostudio_error("TEXT_HISTORY_SAVE_FAILED", exc, telegram_id=telegram_id)
+            result.setdefault("conversation_id", "")
+        prostudio_debug(
+            "TEXT_CLIENT_VISIBLE_COMPLETION", telegram_id=telegram_id,
+            total_elapsed_ms=round((time.monotonic() - text_timing_start) * 1000),
+        )
         return complete_text_request(result, cache_success=True)
 
     # Worker owns Telegram delivery. Persist this flag in request_json before
