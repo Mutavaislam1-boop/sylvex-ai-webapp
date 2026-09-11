@@ -211,6 +211,8 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   const activeGenerationWatchers = new Set();
   const activeGenerationWatchControllers = new Map();
   let textRequestInFlight = false;
+  let textSpeechMessageIndex = -1;
+  let textSpeechUtterance = null;
   const activeGeneration = {
     locked: false,
     status: '',
@@ -11263,6 +11265,13 @@ function renderGeneratedTelegramButton(url, kind) {
         + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
+      if (m.role === 'ai' && currentChatType() === 'text' && m.text && !m.textGenerationFailed) {
+        const speaking = textSpeechMessageIndex === i;
+        inner += '<div class="text-listen-control">'
+          + '<button class="' + (speaking ? 'is-playing' : '') + '" type="button" onclick="SYLVEX.toggleTextListen(' + i + ')" aria-pressed="' + String(speaking) + '">'
+          + (speaking ? '■ Стоп' : '🔊 Слушать')
+          + '</button></div>';
+      }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (m.referenceImages && m.referenceImages.length) {
         inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
@@ -16086,6 +16095,60 @@ async function waitGeneration(jobId, options) {
   // JAVASCRIPT-БЛОК: copyMsg
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
+  function speechLanguageForText(text) {
+    if (/[А-Яа-яЁё]/.test(String(text || ''))) return 'ru-RU';
+    const language = uiLang();
+    return { ru: 'ru-RU', tr: 'tr-TR', ar: 'ar-SA', en: 'en-US' }[language] || 'en-US';
+  }
+
+  function textSpeechSupported() {
+    return typeof window !== 'undefined'
+      && 'speechSynthesis' in window
+      && typeof window.SpeechSynthesisUtterance === 'function';
+  }
+
+  function stopTextListen(render) {
+    if (textSpeechSupported()) window.speechSynthesis.cancel();
+    textSpeechMessageIndex = -1;
+    textSpeechUtterance = null;
+    if (render) renderChat();
+  }
+
+  function toggleTextListen(index) {
+    const message = chatMessages[index];
+    const text = String(message && message.text || '').trim();
+    if (!text) return;
+    if (!textSpeechSupported()) {
+      toast('На этом устройстве прослушивание текста недоступно.');
+      return;
+    }
+    if (textSpeechMessageIndex === index) {
+      stopTextListen(true);
+      return;
+    }
+
+    stopTextListen(false);
+    const utterance = new window.SpeechSynthesisUtterance(text);
+    utterance.lang = speechLanguageForText(text);
+    utterance.rate = 1;
+    utterance.onend = utterance.onerror = () => {
+      if (textSpeechUtterance !== utterance) return;
+      textSpeechMessageIndex = -1;
+      textSpeechUtterance = null;
+      renderChat();
+    };
+    textSpeechMessageIndex = index;
+    textSpeechUtterance = utterance;
+    try {
+      window.speechSynthesis.speak(utterance);
+      S.haptic.impact('light');
+      renderChat();
+    } catch (_) {
+      stopTextListen(true);
+      toast('Не удалось запустить прослушивание текста.');
+    }
+  }
+
   function copyMsg(i) {
     const m = chatMessages[i]; if (!m) return;
     if (navigator.clipboard) navigator.clipboard.writeText(m.text || '');
@@ -19554,6 +19617,7 @@ async function waitGeneration(jobId, options) {
     initHomeIdeaAi();
     initAiAssistantFab();
     window.addEventListener('message', handleKnowledgeWorkspaceMessage);
+    window.addEventListener('pagehide', () => stopTextListen(false), { passive: true });
     initAudioPlayer();
     restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
@@ -19597,7 +19661,7 @@ async function waitGeneration(jobId, options) {
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
-    sendChat, copyMsg, regenMsg, retryTextGeneration, deleteMsg, newChat,
+    sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, deleteMsg, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
