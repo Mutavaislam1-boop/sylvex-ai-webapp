@@ -416,8 +416,11 @@ body::before{content:none}
 .studio .msg-actions button:hover{color:var(--st-text);background:var(--st-bg-2)}
 .text-listen-control{margin-top:10px}
 .text-listen-control button{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 10px;border:1px solid var(--st-line);border-radius:9px;background:var(--st-bg-2);color:var(--st-text);font-size:12px;font-weight:600;line-height:1;cursor:pointer}
-.text-listen-control button.is-playing{border-color:var(--accent);color:var(--accent)}
+.text-listen-control button:disabled{cursor:default;opacity:.7}
 .text-listen-control button:active{transform:scale(.97)}
+.text-speech-ready{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--st-dim);font-size:12px}
+.text-speech-ready audio{height:32px;max-width:250px}
+.text-speech-failed small{display:block;margin-top:6px;color:var(--st-dim);font-size:11px}
 .studio .typing,
 .studio .typing span{display:none !important;opacity:0 !important;animation:none !important}
 

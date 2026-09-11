@@ -4620,6 +4620,10 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
             WHERE telegram_id = %s
               AND status IN ('queued', 'processing', 'provider_processing')
               AND LOWER(COALESCE(mode, '')) NOT IN ('text', 'chat', 'pro', 'lite')
+              -- Read-aloud is a short assistant action. It is still a durable
+              -- media job, but must not restore the full media lock over a
+              -- user's text chat on another device.
+              AND COALESCE(request_json #>> '{voice_options,source}', '') <> 'text_response_read_aloud'
             ORDER BY created_at ASC
             LIMIT 1
         """, (int(telegram_id),))
@@ -12719,6 +12723,21 @@ def estimate_generation_cost(payload: dict) -> dict:
         characters = max(1, len(str(payload.get("prompt") or "")))
         if model.startswith("elevenlabs_"):
             credits = max(1, (characters + 49) // 50 * 2)
+        elif model in {
+            "gemini_3_1_flash_tts_preview",
+            "gemini_2_5_flash_preview_tts",
+            "gemini-3.1-flash-tts-preview",
+            "gemini-2.5-flash-preview-tts",
+        }:
+            # Published Gemini Flash TTS tariff: 15 ⚡ per 1M characters.
+            # A generation is charged in whole credits, with a one-credit minimum.
+            credits = max(1, __import__("math").ceil(characters * 15 / 1_000_000))
+        elif model in {
+            "gemini_2_5_pro_preview_tts",
+            "gemini-2.5-pro-preview-tts",
+        }:
+            # Published Gemini Pro TTS tariff: 30 ⚡ per 1M characters.
+            credits = max(1, __import__("math").ceil(characters * 30 / 1_000_000))
         elif model.startswith("runway_") and tool == "sound_effect":
             credits = max(1, duration * 2)
         elif model.startswith("runway_") and tool == "voice_isolation":
@@ -14273,7 +14292,9 @@ async def public_prostudio_generate(request: Request):
             "error": "active_job_lookup_failed",
             "message": "Не удалось проверить активную генерацию.",
         }, status_code=503)
-    if active_job:
+    # Direct text requests remain available while a media task is running.
+    # They do not use the worker queue and have independent, idempotent billing.
+    if active_job and mode not in text_modes:
         return JSONResponse({
             "ok": False,
             "error": "active_generation_exists",
@@ -14346,14 +14367,15 @@ async def public_prostudio_generate(request: Request):
         telegram_id = int(payload.get("telegram_id") or 0)
         user_state = get_user_state(telegram_id) if telegram_id else {"balance": 0}
         balance = int(user_state.get("balance") or 0)
-        if balance <= 0:
+        if balance < required_credits:
             return JSONResponse({
                 "ok": False,
                 "paywall": True,
                 "insufficient_balance": True,
                 "error": "Недостаточно токенов для генерации",
-                "required_credits": 1,
+                "required_credits": required_credits,
                 "balance": balance,
+                "generation_cost": cost_estimate.get("generation_cost") or "",
                 "shop_url": SHOP_WEBAPP_URL,
             }, status_code=402)
 
