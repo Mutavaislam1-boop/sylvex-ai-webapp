@@ -36,14 +36,44 @@ def normalize_provider(value: str) -> str:
     return PROVIDER_ALIASES.get(name, name)
 
 
+# Conservative starting points, not a guess of any specific account's real
+# tier. Chosen from each provider's lowest commonly documented paid/trial
+# concurrency ceiling as of 2026 (see .env.example for the per-provider
+# reasoning and sources), so the default is safe on an unconfirmed account
+# while no longer serializing every request behind a single global slot.
+# Raise via PROVIDER_CONCURRENCY_<PROVIDER> once the account's real tier is
+# confirmed with that provider.
+_DEFAULT_PROVIDER_LIMITS = {
+    "KLING": 3,
+    "RUNWAY": 1,
+    "BYTEPLUS": 2,
+    "QWEN": 3,
+    "OPENAI": 4,
+    "GEMINI": 4,
+    "ELEVENLABS": 2,
+    "HEYGEN": 2,
+    "HEDRA": 2,
+    "HIGGSFIELD": 2,
+    "LUMA": 2,
+    "FLUX": 3,
+    "IDEOGRAM": 3,
+    "RECRAFT": 3,
+    "FASHN": 2,
+    "GROK": 4,
+}
+
+
 def provider_limit(provider: str) -> int:
-    """Return a bounded configured limit; missing values default safely to 1."""
+    """Return a bounded configured limit; missing values fall back to a
+    provider-specific conservative default, never a single flat "1" for
+    every provider regardless of what it actually supports."""
     normalized = normalize_provider(provider)
-    raw = os.getenv(f"PROVIDER_CONCURRENCY_{normalized}", "1")
+    default = _DEFAULT_PROVIDER_LIMITS.get(normalized, 1)
+    raw = os.getenv(f"PROVIDER_CONCURRENCY_{normalized}", str(default))
     try:
         value = int(str(raw).strip())
     except (TypeError, ValueError):
-        value = 1
+        value = default
     return max(1, min(1000, value))
 
 
