@@ -5702,7 +5702,7 @@ async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, pay
                 or ([result.get("image_url")] if result.get("image_url") else [])
                 or ([result.get("result_url")] if result.get("result_url") else [])
             )
-            sent = await send_generated_images_to_telegram(telegram_id, images, caption=caption)
+            sent = await asyncio.to_thread(send_generated_images_to_telegram, telegram_id, images, caption)
         elif mode == "video":
             videos = (
                 _json_list(result.get("videos"))
@@ -5736,15 +5736,17 @@ async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, pay
             if not text:
                 sent = False
             else:
-                response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": telegram_id,
-                        "text": f"{caption}\n\n{text}"[:4096],
-                        "disable_web_page_preview": True,
-                    },
-                    timeout=60,
-                )
+                def send_text_message():
+                    return requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={
+                            "chat_id": telegram_id,
+                            "text": f"{caption}\n\n{text}"[:4096],
+                            "disable_web_page_preview": True,
+                        },
+                        timeout=60,
+                    )
+                response = await asyncio.to_thread(send_text_message)
                 sent = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
         else:
             sent = bool(result.get("sent_to_telegram"))
@@ -7352,7 +7354,7 @@ async def _generate_openai_character_images(name: str, gender: str, description:
                 "referenceImageUrls": photos[:3],
             },
         }
-        result = await image_generation(payload)
+        result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
         if not result.get("ok"):
             diagnostic = (
                 result.get("raw_error")
@@ -10386,7 +10388,10 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
 # СИНХРОНИЗАЦИЯ С TELEGRAM: send_generated_images_to_telegram
 # Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
 # =====================================================
-async def send_generated_images_to_telegram(telegram_id: int, images: list, caption: str = "") -> bool:
+def send_generated_images_to_telegram(telegram_id: int, images: list, caption: str = "") -> bool:
+    # Synchronous by design (no internal await): every caller must run this
+    # via asyncio.to_thread so the blocking requests.post calls inside it
+    # never run on the shared event loop.
     if not BOT_TOKEN or not telegram_id or not images:
         return False
 
@@ -10597,10 +10602,11 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     sent_to_telegram = False
     if telegram_id and not payload.get("skip_telegram"):
         try:
-            sent_to_telegram = await send_generated_images_to_telegram(
-                telegram_id=telegram_id,
-                images=images,
-                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nСгенерировано в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -11494,10 +11500,11 @@ async def finalize_image_result(payload: dict, images: list) -> dict:
     result["sent_to_telegram"] = False
     if telegram_id and not payload.get("skip_telegram"):
         try:
-            result["sent_to_telegram"] = await send_generated_images_to_telegram(
-                telegram_id=telegram_id,
-                images=images,
-                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            result["sent_to_telegram"] = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nСгенерировано в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -14568,10 +14575,14 @@ async def dispatch_prostudio_provider_request(
     result = None
     if mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
-        result = await generateBytePlusSeedreamImage(payload)
+        # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
+        result = await run_provider_coroutine_off_loop(lambda: generateBytePlusSeedreamImage(payload))
     elif mode == "image":
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="image_generation")
-        result = await image_generation(payload)
+        # image_generation() calls synchronous per-provider adapters (OpenAI, Flux,
+        # Recraft, Gemini, Qwen, Grok, Ideogram) that block on requests.post; keep
+        # them off the shared event loop, same as video_generation below.
+        result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
     elif mode == "video":
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
         result = await run_provider_coroutine_off_loop(lambda: video_generation(payload))
