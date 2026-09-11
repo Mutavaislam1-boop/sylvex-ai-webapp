@@ -14701,14 +14701,24 @@ async def run_prostudio_provider_request(
     text_modes: set,
     provider: str,
 ) -> tuple[dict, str]:
-    """Submit and poll a provider with retry while owning one provider slot."""
-    result = await provider_call_with_retry(
-        job_id,
-        provider,
-        lambda: dispatch_prostudio_provider_request(
-            job_id, payload, mode, selected_model, selected_provider, text_modes
-        ),
-    )
+    """Submit and poll a provider with retry.
+
+    A concurrency slot is held only while a real dispatch attempt is in
+    flight: retrying after a transient failure sleeps for backoff with no
+    slot held, since nothing is actually running at the provider during that
+    wait. Once the provider accepts an async job, one slot is held
+    continuously through the poll loop - that job is genuinely occupying the
+    account's real capacity at the provider regardless of our poll cadence.
+    """
+    async def dispatch_attempt():
+        async with provider_slot(
+            DATABASE_URL, provider, job_id, prostudio_debug, wait_for_slot=False,
+        ):
+            return await dispatch_prostudio_provider_request(
+                job_id, payload, mode, selected_model, selected_provider, text_modes
+            )
+
+    result = await provider_call_with_retry(job_id, provider, dispatch_attempt)
     if not isinstance(result, dict) or not result.get("ok"):
         return result, "failed"
 
@@ -14725,21 +14735,26 @@ async def run_prostudio_provider_request(
             "generation_provider_processing",
             {"job_id": job_id, "mode": mode, "task_id": result.get("task_id") or result.get("workId"), "poll_url": result.get("poll_url")},
         )
-        while True:
-            await asyncio.sleep(5)
-            heartbeat_prostudio_generation_job(job_id)
-            poll = await provider_call_with_retry(
-                job_id,
-                provider,
-                lambda: run_provider_coroutine_off_loop(lambda: poll_video_generation(result)),
-            )
-            if not poll.get("ok"):
-                return poll, "failed"
-            status = poll.get("status")
-            if status == "completed":
-                return poll, "completed"
-            if status == "failed":
-                return poll, "failed"
+        # A dispatch failure here would mean abandoning an already-accepted
+        # provider job, so wait for the slot rather than deferring the job.
+        async with provider_slot(
+            DATABASE_URL, provider, job_id, prostudio_debug, wait_for_slot=True,
+        ):
+            while True:
+                await asyncio.sleep(5)
+                heartbeat_prostudio_generation_job(job_id)
+                poll = await provider_call_with_retry(
+                    job_id,
+                    provider,
+                    lambda: run_provider_coroutine_off_loop(lambda: poll_video_generation(result)),
+                )
+                if not poll.get("ok"):
+                    return poll, "failed"
+                status = poll.get("status")
+                if status == "completed":
+                    return poll, "completed"
+                if status == "failed":
+                    return poll, "failed"
 
     return result, final_status
 
@@ -14942,19 +14957,20 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             return
         try:
             try:
-                async with provider_slot(
-                    DATABASE_URL, provider_for_slot, job_id, prostudio_debug,
-                    wait_for_slot=False,
-                ):
-                    log_user_event(
-                        int(payload.get("telegram_id") or 0), "worker", "generation",
-                        "generation_started",
-                        {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
-                    )
-                    result, final_status = await run_prostudio_provider_request(
-                        job_id, payload, mode, selected_model, selected_provider,
-                        text_modes, provider_for_slot,
-                    )
+                # run_prostudio_provider_request owns its own provider-slot
+                # lifecycle: one slot per real dispatch attempt (so a failed
+                # attempt's retry backoff doesn't hold capacity nothing is
+                # using), then one continuously-held slot for as long as the
+                # provider's own async job is actually processing.
+                log_user_event(
+                    int(payload.get("telegram_id") or 0), "worker", "generation",
+                    "generation_started",
+                    {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
+                )
+                result, final_status = await run_prostudio_provider_request(
+                    job_id, payload, mode, selected_model, selected_provider,
+                    text_modes, provider_for_slot,
+                )
             except ProviderSlotUnavailable:
                 await asyncio.to_thread(defer_prostudio_job_for_provider, job_id)
                 return
