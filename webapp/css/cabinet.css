@@ -414,6 +414,10 @@ body::before{content:none}
 .studio .msg:hover .msg-actions,.studio .msg:focus-within .msg-actions{opacity:1}
 .studio .msg-actions button{background:transparent;border:1px solid var(--st-line);color:var(--st-dim);width:26px;height:26px;border-radius:8px;display:grid;place-items:center;cursor:pointer;font-size:11px}
 .studio .msg-actions button:hover{color:var(--st-text);background:var(--st-bg-2)}
+.text-listen-control{margin-top:10px}
+.text-listen-control button{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 10px;border:1px solid var(--st-line);border-radius:9px;background:var(--st-bg-2);color:var(--st-text);font-size:12px;font-weight:600;line-height:1;cursor:pointer}
+.text-listen-control button.is-playing{border-color:var(--accent);color:var(--accent)}
+.text-listen-control button:active{transform:scale(.97)}
 .studio .typing,
 .studio .typing span{display:none !important;opacity:0 !important;animation:none !important}
 
