@@ -4850,7 +4850,13 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         if not current:
             conn.rollback()
             return False
-        if current[0] == "completed" and status != "completed":
+        # A terminal job (completed or failed) must never be overwritten by a
+        # late/duplicate callback - e.g. a straggling poll response arriving
+        # after stale-job recovery already marked the job failed and
+        # refunded its reservation, or a retried provider call resolving
+        # after the first attempt's response already settled the job.
+        # Re-affirming the same terminal status is harmless and allowed.
+        if current[0] in {"completed", "failed"} and status != current[0]:
             conn.rollback()
             return False
         if status in {"failed", "cancelled", "canceled"}:
