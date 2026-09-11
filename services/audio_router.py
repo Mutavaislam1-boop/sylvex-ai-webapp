@@ -1039,7 +1039,11 @@ async def lyria_music_generation(payload: dict, frontend_model: str, provider_mo
                     await session.stop()
             await asyncio.wait_for(collect_stream(), timeout=requested_seconds + 90)
         except Exception as exc:
-            return _audio_error(provider, frontend_model, provider_model, exc, details=repr(exc))
+            # Do not attach repr(exc)/details here: the Lyria SDK embeds the
+            # Gemini API key in its WebSocket connection URL, and a network-level
+            # exception's text can include it. _audio_error already stores a
+            # translated message plus raw_error for admin diagnostics.
+            return _audio_error(provider, frontend_model, provider_model, exc)
         audio_url = _save_lyria_realtime_wav(b"".join(chunks))
         if not audio_url:
             return _audio_error(provider, frontend_model, provider_model, "Lyria RealTime returned no audio")
