@@ -4620,10 +4620,6 @@ def get_active_prostudio_job(telegram_id: int) -> dict:
             WHERE telegram_id = %s
               AND status IN ('queued', 'processing', 'provider_processing')
               AND LOWER(COALESCE(mode, '')) NOT IN ('text', 'chat', 'pro', 'lite')
-              -- Read-aloud is a short assistant action. It is still a durable
-              -- media job, but must not restore the full media lock over a
-              -- user's text chat on another device.
-              AND COALESCE(request_json #>> '{voice_options,source}', '') <> 'text_response_read_aloud'
             ORDER BY created_at ASC
             LIMIT 1
         """, (int(telegram_id),))
