@@ -85,7 +85,13 @@ def _positive_float(name: str, default: float, minimum: float) -> float:
     return max(minimum, value)
 
 
-PROVIDER_SLOT_TTL_SECONDS = _positive_float("PROVIDER_SLOT_TTL_SECONDS", 180.0, 30.0)
+# A dead worker (crash, unhandled exception before the finally block, a
+# Railway redeploy mid-job) leaves its slot occupied until this TTL expires -
+# every other request for that provider queues behind it for up to this long.
+# 90s keeps a comfortable 3x margin over the 30s heartbeat (a lease renews
+# three times before it would expire), while cutting the previous 180s
+# worst-case wait for every other user in half.
+PROVIDER_SLOT_TTL_SECONDS = _positive_float("PROVIDER_SLOT_TTL_SECONDS", 90.0, 30.0)
 PROVIDER_SLOT_HEARTBEAT_SECONDS = min(
     _positive_float("PROVIDER_SLOT_HEARTBEAT_SECONDS", 30.0, 5.0),
     PROVIDER_SLOT_TTL_SECONDS / 2,
@@ -265,16 +271,39 @@ async def provider_slot(
     stopped = asyncio.Event()
 
     async def maintain_lease() -> None:
+        # A transient DB error while renewing (a momentary pool/network hiccup)
+        # must not fail an otherwise-successful long-running job. Only a
+        # heartbeat call that actually reaches the DB and confirms the row is
+        # gone (lease expired or stolen by another worker) is a real loss.
+        # Consecutive transient failures spanning past the lease TTL are the
+        # one case that still must surface, since the slot may already be
+        # gone even though we can't confirm it.
+        consecutive_errors = 0
         while not stopped.is_set():
             try:
                 await asyncio.wait_for(stopped.wait(), timeout=PROVIDER_SLOT_HEARTBEAT_SECONDS)
                 return
             except asyncio.TimeoutError:
+                pass
+            try:
                 alive = await asyncio.to_thread(
                     heartbeat_slot, database_url, normalized, job_id, owner
                 )
-                if not alive:
-                    raise RuntimeError(f"Provider slot lease lost: {normalized}/{job_id}")
+            except Exception as exc:
+                consecutive_errors += 1
+                log(
+                    "PROVIDER_SLOT_HEARTBEAT_ERROR", provider=normalized, job_id=job_id,
+                    active=0, limit=0, worker_id=owner,
+                    error=repr(exc), consecutive_errors=consecutive_errors,
+                )
+                if consecutive_errors * PROVIDER_SLOT_HEARTBEAT_SECONDS >= PROVIDER_SLOT_TTL_SECONDS:
+                    raise RuntimeError(
+                        f"Provider slot heartbeat failing long enough to risk lease loss: {normalized}/{job_id}"
+                    ) from exc
+                continue
+            consecutive_errors = 0
+            if not alive:
+                raise RuntimeError(f"Provider slot lease lost: {normalized}/{job_id}")
 
     heartbeat_task = asyncio.create_task(maintain_lease(), name=f"provider-slot-{normalized}-{job_id}")
     try:
