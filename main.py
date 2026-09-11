@@ -13099,7 +13099,7 @@ async def image_generation(payload: dict) -> dict:
                 "prompt": prompt,
                 "size": openai_size,
                 "quality": openai_quality,
-                "n": "1",
+                "n": str(count),
                 "input_fidelity": "high",
             }
             response = None
@@ -13143,10 +13143,11 @@ async def image_generation(payload: dict) -> dict:
                 return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
             data = safe_provider_json(response, provider, endpoint)
             images = normalize_image_response(data)
-            print("OPENAI IMAGE EDIT PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "references": len(files), "has_image": bool(images)})
+            print("OPENAI IMAGE EDIT PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "references": len(files), "requested_count": count, "images_returned": len(images)})
             if images:
-                result = await finalize_image_result(payload, images[:1])
-                result.update(openai_image_cost_info(requested_model, api_model, openai_quality, 1))
+                final_images = images[:count]
+                result = await finalize_image_result(payload, final_images)
+                result.update(openai_image_cost_info(requested_model, api_model, openai_quality, len(final_images) or count))
                 result["provider"] = "openai"
                 result["model"] = requested_model
                 result["provider_model"] = api_model
@@ -13157,37 +13158,36 @@ async def image_generation(payload: dict) -> dict:
 
         endpoint = f"{OPENAI_API_BASE}/images/generations"
         images = []
-        last_payload = {}
-        for index in range(1, count + 1):
-            request_payload = {
-                "model": api_model,
-                "prompt": prompt,
-                "size": openai_size,
-                "quality": openai_quality,
-                "n": 1,
-            }
-            last_payload = request_payload
-            try:
-                response = requests.post(
-                    endpoint,
-                    headers=openai_headers(),
-                    data=json.dumps(request_payload),
-                    timeout=120,
-                )
-            except requests.RequestException as exc:
-                return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
-            if response.status_code >= 400:
-                data = safe_provider_json(response, provider, endpoint)
-                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+        # gpt-image-1/gpt-image-2 support n=1..4 natively on this endpoint; request
+        # the whole batch in one call instead of one request per image so quantity
+        # 1-4 costs one provider round trip, not up to four sequential ones.
+        request_payload = {
+            "model": api_model,
+            "prompt": prompt,
+            "size": openai_size,
+            "quality": openai_quality,
+            "n": count,
+        }
+        last_payload = request_payload
+        try:
+            response = requests.post(
+                endpoint,
+                headers=openai_headers(),
+                data=json.dumps(request_payload),
+                timeout=180,
+            )
+        except requests.RequestException as exc:
+            return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+        if response.status_code >= 400:
             data = safe_provider_json(response, provider, endpoint)
-            if data.get("ok") is False:
-                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
-            for url in normalize_image_response(data):
-                if url and url not in images:
-                    images.append(url)
-            print("OPENAI IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "attempt": index, "payload": request_payload, "has_image": bool(images)})
-            if len(images) >= count:
-                break
+            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+        data = safe_provider_json(response, provider, endpoint)
+        if data.get("ok") is False:
+            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
+        for url in normalize_image_response(data):
+            if url and url not in images:
+                images.append(url)
+        print("OPENAI IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "requested_count": count, "payload": request_payload, "images_returned": len(images)})
         if images:
             final_images = images[:count]
             result = await finalize_image_result(payload, final_images)
@@ -13241,14 +13241,32 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "google":
-        images, error, request_payload = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
-        print("GOOGLE IMAGE PAYLOAD:", {
-            "frontend_model": requested_model,
-            "provider_model": api_model,
-            "endpoint": endpoint,
-            "payload_keys": list((request_payload or {}).keys()),
-            "has_references": bool(image_reference_urls(payload)),
-        })
+        # Imagen models batch natively via sampleCount and return `count` images
+        # in one call. Gemini's generateContent-based image models (nano banana)
+        # have no batching parameter and always return exactly one image per
+        # call, so repeat the call until `count` is reached, same as BytePlus.
+        images = []
+        error = None
+        request_payload = {}
+        for attempt in range(1, count + 1):
+            call_images, call_error, request_payload = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+            print("GOOGLE IMAGE PAYLOAD:", {
+                "frontend_model": requested_model,
+                "provider_model": api_model,
+                "endpoint": endpoint,
+                "payload_keys": list((request_payload or {}).keys()),
+                "has_references": bool(image_reference_urls(payload)),
+                "attempt": attempt,
+            })
+            if call_error:
+                if not images:
+                    error = call_error
+                break
+            for url in call_images or []:
+                if url and url not in images:
+                    images.append(url)
+            if len(images) >= count:
+                break
         if error:
             return error
         if images:
@@ -13270,22 +13288,39 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "qwen":
-        images, error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
-        qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
-        qwen_payload_image_count = sum(
-            1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
-        )
-        print("QWEN IMAGE PAYLOAD:", {
-            "frontend_model": requested_model,
-            "provider_model": (request_payload or {}).get("model") or api_model,
-            "endpoint": endpoint,
-            "image_count": qwen_payload_image_count,
-            "has_references": qwen_payload_image_count > 0,
-            "content_types": [
-                "image" if isinstance(item, dict) and item.get("image") else "text"
-                for item in qwen_content
-            ],
-        })
+        # qwen_image_2/qwen_image_2_pro batch natively (n up to 6) and return
+        # `count` images in one call; other Qwen models are forced to n=1
+        # internally, so repeat the call until `count` is reached.
+        images = []
+        error = None
+        request_payload = {}
+        for attempt in range(1, count + 1):
+            call_images, call_error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+            qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
+            qwen_payload_image_count = sum(
+                1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
+            )
+            print("QWEN IMAGE PAYLOAD:", {
+                "frontend_model": requested_model,
+                "provider_model": (request_payload or {}).get("model") or api_model,
+                "endpoint": endpoint,
+                "image_count": qwen_payload_image_count,
+                "has_references": qwen_payload_image_count > 0,
+                "attempt": attempt,
+                "content_types": [
+                    "image" if isinstance(item, dict) and item.get("image") else "text"
+                    for item in qwen_content
+                ],
+            })
+            if call_error:
+                if not images:
+                    error = call_error
+                break
+            for url in call_images or []:
+                if url and url not in images:
+                    images.append(url)
+            if len(images) >= count:
+                break
         if error:
             return error
         if images:
