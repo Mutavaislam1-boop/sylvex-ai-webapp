@@ -119,7 +119,12 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "heygen_image_video": {"provider": "heygen", "provider_model": "image", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "heygen_cinematic_avatar": {"provider": "heygen", "provider_model": "cinematic_avatar", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
-    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
+    # Dream Machine is Luma's earlier/lighter model tier, not the same
+    # model as Ray v3.2 - it must not silently fall back to
+    # LUMA_VIDEO_MODEL/ray-3.2 the way it did before, or selecting either
+    # frontend model produced an identical result. Estimated default,
+    # verify against Luma's actual published model id.
+    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", "ray-1-6"), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
     "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
     "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL", "v6"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://app-api.pixverse.ai/openapi/v2")},
     "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},

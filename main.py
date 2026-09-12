@@ -10906,7 +10906,7 @@ TEXT_MODEL_VARIANTS = {
     "gpt-4o": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT4O_MODEL", default="gpt-4o")},
     "gpt-4o-mini": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT4O_MINI_MODEL", default="gpt-4o-mini")},
     "gemini_3_1_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_PRO_MODEL", "GEMINI-TEXT-PRO-MODEL", default="gemini-3.1-pro-preview")},
-    "gemini_3_1_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_FLASH_MODEL", "GEMINI-TEXT-FLASH-MODEL", default="gemini-3-flash-preview")},
+    "gemini_3_1_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_FLASH_MODEL", "GEMINI-TEXT-FLASH-MODEL", default="gemini-3.1-flash-preview")},
     "gemini_2_5_pro": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_PRO_MODEL", "GEMINI-TEXT-25-PRO-MODEL", default="gemini-2.5-pro")},
     "gemini_2_5_flash": {"provider": "gemini", "provider_model": env_value("GEMINI_TEXT_25_FLASH_MODEL", "GEMINI-TEXT-25-FLASH-MODEL", default="gemini-2.5-flash")},
     "grok_4_1": {"provider": "grok", "provider_model": env_value("GROK_TEXT_4_1_MODEL", "XAI_TEXT_4_1_MODEL", default="grok-4.1")},
@@ -13578,39 +13578,26 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "qwen":
-        # qwen_image_2/qwen_image_2_pro batch natively (n up to 6) and return
-        # `count` images in one call; other Qwen models are forced to n=1
-        # internally, so repeat the call until `count` is reached.
-        images = []
-        error = None
-        request_payload = {}
-        for attempt in range(1, count + 1):
-            call_images, call_error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
-            qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
-            qwen_payload_image_count = sum(
-                1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
-            )
-            print("QWEN IMAGE PAYLOAD:", {
-                "frontend_model": requested_model,
-                "provider_model": (request_payload or {}).get("model") or api_model,
-                "endpoint": endpoint,
-                "image_count": qwen_payload_image_count,
-                "has_references": qwen_payload_image_count > 0,
-                "attempt": attempt,
-                "content_types": [
-                    "image" if isinstance(item, dict) and item.get("image") else "text"
-                    for item in qwen_content
-                ],
-            })
-            if call_error:
-                if not images:
-                    error = call_error
-                break
-            for url in call_images or []:
-                if url and url not in images:
-                    images.append(url)
-            if len(images) >= count:
-                break
+        # call_qwen_image already loops internally until `count` images are
+        # collected (qwen_image_2/qwen_image_2_pro batch natively via n up
+        # to 6 in one call; other Qwen models are forced to n=1 and it
+        # repeats the call itself) - no outer retry loop is needed here.
+        images, error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
+        qwen_payload_image_count = sum(
+            1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
+        )
+        print("QWEN IMAGE PAYLOAD:", {
+            "frontend_model": requested_model,
+            "provider_model": (request_payload or {}).get("model") or api_model,
+            "endpoint": endpoint,
+            "image_count": qwen_payload_image_count,
+            "has_references": qwen_payload_image_count > 0,
+            "content_types": [
+                "image" if isinstance(item, dict) and item.get("image") else "text"
+                for item in qwen_content
+            ],
+        })
         if error:
             return error
         if images:
