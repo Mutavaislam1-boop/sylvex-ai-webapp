@@ -441,33 +441,27 @@ body::before{content:none}
 .msg-error .bubble.error-bubble{background:var(--surface-2);color:var(--text-dim);border-radius:14px;padding:9px 13px;font-size:13px;line-height:1.4}
 .studio .msg-error .bubble.error-bubble{background:var(--st-bg-2);color:var(--st-dim)}
 
-/* Pro Studio subscription-required card - an upgrade/access card, not an
-   error: same warm gold accent as the real subscription screen (.sub-card-gold)
-   so tapping through feels continuous, not like a different feature. */
+/* Pro Studio subscription-required card - a clean, theme-adaptive upgrade
+   card (reads the same --st-* variables as the rest of Pro Studio, so it
+   follows the Gray/White/Black toggle automatically). No gold/yellow -
+   the accent is the app's own primary color, kept purely as the CTA. The
+   model marquee reuses .ai-strip/.ai-chip verbatim (see
+   renderSubscriptionRequiredCard) so it's visually secondary to the
+   title/text/CTA above it, exactly like the Home screen's own strip. */
 .pro-subscription-card{
   position:relative;min-width:240px;max-width:320px;padding:16px 16px 14px;border-radius:18px;
-  background:linear-gradient(160deg,#2a2010,#0e0e0e);border:1px solid rgba(201,168,76,.35);
-  box-shadow:0 18px 40px -22px rgba(0,0,0,.8);overflow:hidden
+  background:var(--st-bg-2);border:1px solid var(--st-line-2);
+  box-shadow:0 18px 40px -22px rgba(0,0,0,.5);overflow:hidden
 }
-.pro-subscription-card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
-  background:radial-gradient(circle at 20% 0%,rgba(201,168,76,.18),transparent 65%)}
-.pro-subscription-title{position:relative;z-index:1;font-size:14.5px;font-weight:750;color:#f0d78c;margin-bottom:5px}
-.pro-subscription-text{position:relative;z-index:1;font-size:12.5px;line-height:1.45;color:rgba(255,255,255,.72);margin-bottom:12px}
+.pro-subscription-title{position:relative;z-index:1;font-size:14.5px;font-weight:750;color:var(--st-text);margin-bottom:5px}
+.pro-subscription-text{position:relative;z-index:1;font-size:12.5px;line-height:1.45;color:var(--st-dim);margin-bottom:12px}
 .pro-subscription-cta{
   position:relative;z-index:1;display:block;width:100%;min-height:38px;border:0;border-radius:12px;cursor:pointer;
-  background:linear-gradient(135deg,#f0d78c,#c9a84c);color:#1a1407;font:inherit;font-size:13px;font-weight:750;
+  background:var(--primary);color:#fff;font:inherit;font-size:13px;font-weight:750;
   letter-spacing:.2px;transition:transform .15s ease
 }
 .pro-subscription-cta:active{transform:scale(.97)}
-.pro-subscription-models{
-  position:relative;z-index:1;display:flex;gap:7px;margin-top:12px;padding-bottom:2px;overflow-x:auto;
-  scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch
-}
-.pro-subscription-models::-webkit-scrollbar{height:0}
-.pro-subscription-model-chip{
-  flex:0 0 auto;scroll-snap-align:start;padding:6px 11px;border-radius:999px;font-size:11px;font-weight:650;
-  white-space:nowrap;color:#f0d78c;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3)
-}
+.pro-subscription-models{position:relative;z-index:1;margin-top:12px}
 .studio .typing,
 .studio .typing span{display:none !important;opacity:0 !important;animation:none !important}
 
