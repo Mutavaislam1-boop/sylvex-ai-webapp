@@ -165,6 +165,14 @@ PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_M
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
+# Lets the separate SYLVEX Support Bot (its own Telegram bot/token, so it can
+# never produce a valid Telegram-WebApp initData signature for this bot's
+# BOT_TOKEN) call the /api/admin/* endpoints below as a trusted backend
+# client. Presenting this shared secret only proves the *caller* is the
+# support bot's backend - the admin_users role/permission lookup in
+# _admin_actor still runs exactly as it does for the Mini App, so a stolen
+# token still can't act as an admin who was never granted access.
+ADMIN_SERVICE_TOKEN = os.getenv("ADMIN_SERVICE_TOKEN", "").strip()
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
 PROSTUDIO_TEXT_INFLIGHT = {}
 PROSTUDIO_TEXT_INFLIGHT_LOCK = threading.Lock()
@@ -8193,16 +8201,28 @@ def ensure_admin_tables():
 
 
 def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) -> dict:
-    init_data = str((payload or {}).get("initData") or (payload or {}).get("init_data") or "")
-    if not init_data:
-        raise HTTPException(status_code=403, detail="telegram_init_data_missing")
-    if not TELEGRAM_AUTH_TOKENS:
-        raise HTTPException(status_code=503, detail="telegram_bot_token_missing")
-    if not verify_telegram_init_data(init_data):
-        raise HTTPException(status_code=403, detail="telegram_signature_invalid")
-    telegram_id = _telegram_id_from_init_data(init_data)
-    if not telegram_id:
-        raise HTTPException(status_code=403, detail="telegram_user_missing")
+    payload = payload or {}
+    service_token = str(payload.get("service_token") or "").strip()
+    service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
+    if service_authenticated:
+        # The Support Bot already verified the Telegram user calling it is
+        # one of ITS admins before ever making this request; this call still
+        # goes through the exact same admin_users role/permission check
+        # below as any Mini App request would.
+        telegram_id = int(payload.get("telegram_id") or 0)
+        if not telegram_id:
+            raise HTTPException(status_code=403, detail="telegram_user_missing")
+    else:
+        init_data = str(payload.get("initData") or payload.get("init_data") or "")
+        if not init_data:
+            raise HTTPException(status_code=403, detail="telegram_init_data_missing")
+        if not TELEGRAM_AUTH_TOKENS:
+            raise HTTPException(status_code=503, detail="telegram_bot_token_missing")
+        if not verify_telegram_init_data(init_data):
+            raise HTTPException(status_code=403, detail="telegram_signature_invalid")
+        telegram_id = _telegram_id_from_init_data(init_data)
+        if not telegram_id:
+            raise HTTPException(status_code=403, detail="telegram_user_missing")
     # The project owner is defined by the signed Telegram user id. Do not make
     # first access depend on an admin_users row that may not exist yet.
     if telegram_id == SUPERADMIN_TELEGRAM_ID:
