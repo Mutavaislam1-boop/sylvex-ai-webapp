@@ -341,10 +341,18 @@ body::before{content:none}
 .bubble{padding:11px 14px;border-radius:18px;font-size:14px;line-height:1.45;border:1px solid var(--border);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur))}
 .msg.user .bubble{background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;border-color:transparent;border-bottom-right-radius:6px;box-shadow:0 10px 24px -10px rgba(37,99,235,.65)}
 .msg.ai .bubble{background:var(--surface-2);color:var(--text);border-bottom-left-radius:6px}
-.msg-actions{display:flex;gap:6px;opacity:.7}
-.msg-actions button{background:var(--surface);border:1px solid var(--border);color:var(--text-dim);width:28px;height:28px;border-radius:9px;display:grid;place-items:center;cursor:pointer;font-size:12px;transition:.2s}
-.msg-actions button:hover{color:var(--text);background:var(--surface-2)}
-.msg-actions button:active{transform:scale(.9)}
+/* Single-row, icon-only, semi-transparent message action bar - shared by
+   user/AI text messages, error bubbles and generation result cards. Fixed
+   equal-size buttons in a non-wrapping flex row so it can never overlap
+   itself, on mobile or desktop. */
+.msg-actions{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;margin-top:2px}
+.msg-action-btn{flex:0 0 auto;width:30px;height:30px;padding:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10);color:var(--text-dim);border-radius:10px;display:grid;place-items:center;cursor:pointer;transition:.15s;opacity:.72}
+.msg-action-btn:hover{opacity:1;color:var(--text);background:rgba(255,255,255,.14)}
+.msg-action-btn:active{transform:scale(.9)}
+.msg-action-btn[disabled]{cursor:default;opacity:.4}
+.msg-action-btn .generation-action-icon{width:15px;height:15px}
+.msg-action-btn.is-playing{color:var(--accent,#3b82f6);border-color:var(--accent,#3b82f6);opacity:1}
+.msg-action-report.is-sent{color:#22c55e;border-color:rgba(34,197,94,.4)}
 .ai-avatar{width:24px;height:24px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:inline-grid;place-items:center;color:var(--text-dim);font-size:11px;font-weight:700;margin-bottom:4px}
 .typing{display:none !important}
 .typing span{display:none !important;width:0;height:0;opacity:0;animation:none !important}
@@ -416,14 +424,24 @@ body::before{content:none}
 .studio .msg.ai .bubble{background:transparent;color:var(--st-text);border:none;padding-left:0;padding-right:0;border-bottom-left-radius:16px}
 .studio .ai-avatar{width:26px;height:26px;border-radius:8px;background:transparent;color:var(--st-text);font-weight:700;font-size:11px;letter-spacing:.5px;display:inline-grid;place-items:center;margin-bottom:6px;border:1px solid var(--st-line-2);background-image:url('../assets/logo.png');background-size:18px 18px;background-repeat:no-repeat;background-position:center;text-indent:-9999px}
 [data-theme="light"] .studio .ai-avatar{background-color:transparent}
-.studio .msg-actions{opacity:0;transition:opacity .15s}
-.studio .msg:hover .msg-actions,.studio .msg:focus-within .msg-actions{opacity:1}
-.studio .msg-actions button{background:transparent;border:1px solid var(--st-line);color:var(--st-dim);width:26px;height:26px;border-radius:8px;display:grid;place-items:center;cursor:pointer;font-size:11px}
-.studio .msg-actions button:hover{color:var(--st-text);background:var(--st-bg-2)}
-.text-listen-control{margin-top:10px}
-.text-listen-control button{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 10px;border:1px solid var(--st-line);border-radius:9px;background:var(--st-bg-2);color:var(--st-text);font-size:12px;font-weight:600;line-height:1;cursor:pointer}
-.text-listen-control button.is-playing{border-color:var(--accent);color:var(--accent)}
-.text-listen-control button:active{transform:scale(.97)}
+/* Always visible (not hover-only - there is no reliable hover on touch)
+   but kept semi-transparent so it stays visually quiet until used. */
+.studio .msg-actions{opacity:.8}
+.studio .msg-action-btn{background:rgba(255,255,255,.05);border:1px solid var(--st-line);color:var(--st-dim);width:28px;height:28px;border-radius:9px}
+[data-theme="light"] .studio .msg-action-btn{background:rgba(0,0,0,.04)}
+.studio .msg-action-btn:hover{color:var(--st-text);background:var(--st-bg-2);opacity:1}
+.studio .msg-action-btn.is-playing{color:var(--accent);border-color:var(--accent)}
+.studio .msg-action-report.is-sent{color:#22c55e;border-color:rgba(34,197,94,.4)}
+
+/* Compact error bubble - visually distinct from a normal AI reply so the
+   user immediately recognizes a system/error message rather than reading
+   a raw wall of text. */
+.msg-error .bubble.error-bubble{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.28);border-radius:16px;padding:12px 14px}
+[data-theme="light"] .msg-error .bubble.error-bubble{background:rgba(239,68,68,.06)}
+.error-bubble-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#f87171;font-weight:700;font-size:13px}
+.error-bubble-icon{display:inline-flex;flex:0 0 auto}
+.error-bubble-icon .generation-action-icon{width:16px;height:16px}
+.error-bubble-text{color:var(--st-text,var(--text));font-size:13.5px;line-height:1.5;white-space:pre-wrap}
 .studio .typing,
 .studio .typing span{display:none !important;opacity:0 !important;animation:none !important}
 
