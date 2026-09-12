@@ -18779,6 +18779,17 @@ async function waitGeneration(jobId, options) {
       document.addEventListener('focusout', () => setTimeout(updateKb, 80));
       updateKb();
     }
+
+    // Tap-outside-to-close: while the mobile keyboard is open, tapping any
+    // control other than the prompt textarea itself should dismiss the
+    // keyboard without swallowing that tap - the control's own click still
+    // fires normally right after, since we only blur here (pointerdown),
+    // never preventDefault/stopPropagation.
+    document.addEventListener('pointerdown', (event) => {
+      if (!document.body.classList.contains('kb-open')) return;
+      if (event.target.closest('#chatInput')) return;
+      hideMobileKeyboard();
+    }, true);
   }
 
   // =====================================================

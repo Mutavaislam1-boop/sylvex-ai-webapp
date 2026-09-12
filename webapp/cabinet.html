@@ -701,9 +701,6 @@ HTML-страница Mini App. Комментарии подписывают э
               ID используется JavaScript/CSS как точка подключения: chatInput
               =================================================== -->
               <textarea id="chatInput" rows="3" placeholder="Describe your video" oninput="autoGrow(this)"></textarea>
-              <button class="mobile-keyboard-close" id="mobileKeyboardClose" type="button" aria-label="Закрыть клавиатуру" onclick="SYLVEX.hideMobileKeyboard(event)">
-                <svg viewBox="0 0 24 24"><path d="M5 7h14v8H5zM8 10h.01M11 10h.01M14 10h.01M8 13h8M8 19l4 2 4-2"/></svg>
-              </button>
               <div class="voice-text-estimate voice-only" id="voiceTextEstimate"><span id="voiceDurationEstimate">0:00</span></div>
               <div class="text-recording-bar text-only" id="textRecordingBar" hidden aria-live="polite">
                 <div class="text-recording-equalizer" id="textRecordingEqualizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -714,6 +711,9 @@ HTML-страница Mini App. Комментарии подписывают э
               CSS-класс задаёт внешний вид и расположение: studio-control-row
               =================================================== -->
               <div class="studio-control-row">
+                <button class="mobile-keyboard-close" id="mobileKeyboardClose" type="button" aria-label="Закрыть клавиатуру" onclick="SYLVEX.hideMobileKeyboard(event)">
+                  <svg viewBox="0 0 24 24"><path d="M5 7h14v8H5zM8 10h.01M11 10h.01M14 10h.01M8 13h8M8 19l4 2 4-2"/></svg>
+                </button>
                 <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: studio-select-pill wide
                 При нажатии вызывает: SYLVEX.toggleModelPop(event)
