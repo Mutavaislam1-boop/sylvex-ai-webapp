@@ -16,7 +16,7 @@ from typing import Any, Optional
 import requests
 
 from db_pool import db_connection
-from provider_concurrency import normalize_provider
+from provider_concurrency import ProviderSlotUnavailable, normalize_provider
 
 
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
@@ -203,6 +203,13 @@ async def run_with_provider_retry(
         )
         try:
             result = await operation()
+        except ProviderSlotUnavailable:
+            # No real provider request was made - the concurrency slot itself
+            # wasn't free. This is not a provider failure: don't record a
+            # circuit outcome or spend a retry attempt on it, and don't let
+            # it be reclassified as a permanent error. Propagate immediately
+            # so the caller can defer the whole job back to the queue.
+            raise
         except Exception as exc:
             result = {"ok": False, "error": str(exc), "exception_type": type(exc).__name__}
             classification = classify_provider_failure(exc)
