@@ -14899,7 +14899,13 @@ async def run_prostudio_provider_request(
         ):
             while True:
                 await asyncio.sleep(5)
-                heartbeat_prostudio_generation_job(job_id)
+                # No heartbeat write here: _prostudio_job_heartbeat_loop
+                # already heartbeats this job_id independently every ~60s
+                # for as long as this worker slot is occupied (see
+                # _run_prostudio_generation_pool). A second heartbeat call
+                # tied to this 5s poll cadence would be pure duplicate DB
+                # traffic - and this one wasn't even off-loop, unlike the
+                # background loop's asyncio.to_thread-wrapped version.
                 poll = await provider_call_with_retry(
                     job_id,
                     provider,
