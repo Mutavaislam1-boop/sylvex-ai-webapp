@@ -433,15 +433,39 @@ body::before{content:none}
 .studio .msg-action-btn.is-playing{color:var(--accent);border-color:var(--accent)}
 .studio .msg-action-report.is-sent{color:#22c55e;border-color:rgba(34,197,94,.4)}
 
-/* Compact error bubble - visually distinct from a normal AI reply so the
-   user immediately recognizes a system/error message rather than reading
-   a raw wall of text. */
-.msg-error .bubble.error-bubble{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.28);border-radius:16px;padding:12px 14px}
-[data-theme="light"] .msg-error .bubble.error-bubble{background:rgba(239,68,68,.06)}
-.error-bubble-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#f87171;font-weight:700;font-size:13px}
-.error-bubble-icon{display:inline-flex;flex:0 0 auto}
-.error-bubble-icon .generation-action-icon{width:16px;height:16px}
-.error-bubble-text{color:var(--st-text,var(--text));font-size:13.5px;line-height:1.5;white-space:pre-wrap}
+/* Small, calm generation-failure notice - deliberately understated (no
+   red, no warning iconography, no title) so it reads as a quiet system
+   note inside the chat, not an alarming error. */
+.msg-error .bubble.error-bubble{background:var(--surface-2);color:var(--text-dim);border-radius:14px;padding:9px 13px;font-size:13px;line-height:1.4}
+.studio .msg-error .bubble.error-bubble{background:var(--st-bg-2);color:var(--st-dim)}
+
+/* Pro Studio subscription-required card - an upgrade/access card, not an
+   error: same warm gold accent as the real subscription screen (.sub-card-gold)
+   so tapping through feels continuous, not like a different feature. */
+.pro-subscription-card{
+  position:relative;min-width:240px;max-width:320px;padding:16px 16px 14px;border-radius:18px;
+  background:linear-gradient(160deg,#2a2010,#0e0e0e);border:1px solid rgba(201,168,76,.35);
+  box-shadow:0 18px 40px -22px rgba(0,0,0,.8);overflow:hidden
+}
+.pro-subscription-card::before{content:"";position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(circle at 20% 0%,rgba(201,168,76,.18),transparent 65%)}
+.pro-subscription-title{position:relative;z-index:1;font-size:14.5px;font-weight:750;color:#f0d78c;margin-bottom:5px}
+.pro-subscription-text{position:relative;z-index:1;font-size:12.5px;line-height:1.45;color:rgba(255,255,255,.72);margin-bottom:12px}
+.pro-subscription-cta{
+  position:relative;z-index:1;display:block;width:100%;min-height:38px;border:0;border-radius:12px;cursor:pointer;
+  background:linear-gradient(135deg,#f0d78c,#c9a84c);color:#1a1407;font:inherit;font-size:13px;font-weight:750;
+  letter-spacing:.2px;transition:transform .15s ease
+}
+.pro-subscription-cta:active{transform:scale(.97)}
+.pro-subscription-models{
+  position:relative;z-index:1;display:flex;gap:7px;margin-top:12px;padding-bottom:2px;overflow-x:auto;
+  scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch
+}
+.pro-subscription-models::-webkit-scrollbar{height:0}
+.pro-subscription-model-chip{
+  flex:0 0 auto;scroll-snap-align:start;padding:6px 11px;border-radius:999px;font-size:11px;font-weight:650;
+  white-space:nowrap;color:#f0d78c;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3)
+}
 .studio .typing,
 .studio .typing span{display:none !important;opacity:0 !important;animation:none !important}
 
