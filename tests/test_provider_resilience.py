@@ -3,6 +3,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from provider_concurrency import ProviderSlotUnavailable
 from provider_resilience import classify_provider_failure, run_with_provider_retry
 
 
@@ -125,6 +126,26 @@ class ProviderResilienceTests(unittest.TestCase):
     def test_timeout_and_connection_errors_are_transient(self):
         self.assertTrue(classify_provider_failure(TimeoutError("timed out")).transient)
         self.assertTrue(classify_provider_failure(ConnectionError("connection reset")).transient)
+
+    def test_slot_unavailable_propagates_without_retry_or_circuit_recording(self):
+        # No real provider request happens when the concurrency slot itself
+        # isn't free - this must never be treated as a provider failure
+        # (retried, or counted toward the circuit breaker), and must reach
+        # the caller so the whole job can be deferred back to the queue.
+        calls = 0
+
+        async def operation():
+            nonlocal calls
+            calls += 1
+            raise ProviderSlotUnavailable("Provider KLING is at capacity")
+
+        with self.assertRaises(ProviderSlotUnavailable):
+            asyncio.run(run_with_provider_retry(
+                "KLING", "job-test", operation, self.circuits.recorder("KLING"),
+                self.logger, "worker-test", sleep=self.no_sleep,
+            ))
+        self.assertEqual(calls, 1, "must not retry a slot-unavailable condition")
+        self.assertNotIn("KLING", self.circuits.states, "must not record a circuit outcome for it")
 
 
 if __name__ == "__main__":

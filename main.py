@@ -153,7 +153,15 @@ PROSTUDIO_MOCK_GENERATION = os.getenv("PROSTUDIO_MOCK_GENERATION", "0").strip().
 }
 SUBSCRIPTION_REMINDER_WORKER_ENABLED = os.getenv("SUBSCRIPTION_REMINDER_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_INTERVAL_SECONDS", "1800"))
-PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "30"))
+# A job at this age with no live provider_slot lease is recovered (marked
+# failed, credits released) by _recover_stale_prostudio_job_once - a job
+# that's still genuinely running always has a live lease (renewed every
+# PROVIDER_SLOT_HEARTBEAT_SECONDS), so this only bounds how long an already-
+# abandoned job (crashed/redeployed worker) sits stuck before cleanup, not
+# how long a real generation may run. 5 minutes keeps a safe 5x margin over
+# the 60s job heartbeat interval while cutting the previous 30-minute
+# worst-case stuck time down to something a user won't just give up on.
+PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "5"))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
@@ -4842,7 +4850,13 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         if not current:
             conn.rollback()
             return False
-        if current[0] == "completed" and status != "completed":
+        # A terminal job (completed or failed) must never be overwritten by a
+        # late/duplicate callback - e.g. a straggling poll response arriving
+        # after stale-job recovery already marked the job failed and
+        # refunded its reservation, or a retried provider call resolving
+        # after the first attempt's response already settled the job.
+        # Re-affirming the same terminal status is harmless and allowed.
+        if current[0] in {"completed", "failed"} and status != current[0]:
             conn.rollback()
             return False
         if status in {"failed", "cancelled", "canceled"}:
@@ -4916,7 +4930,7 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 )
-                RETURNING id, request_json, attempts
+                RETURNING id, request_json, attempts, EXTRACT(EPOCH FROM (NOW() - created_at))
             """, (PROSTUDIO_MAX_JOB_ATTEMPTS,))
             row = cursor.fetchone()
             conn.commit()
@@ -4929,7 +4943,11 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             # hide actionable errors without adding diagnostic value.
             return None
         payload = _json_obj(row[1])
-        claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1}
+        # Time between the client's submit (job row created) and a worker
+        # actually picking it up - the first place SYLVEX-side queueing
+        # latency (as opposed to provider latency) would show up.
+        queue_wait_ms = round(float(row[3] or 0) * 1000)
+        claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1, "queue_wait_ms": queue_wait_ms}
         prostudio_debug(
             "WORKER_CLAIM_DONE",
             job_id=row[0],
@@ -4937,6 +4955,7 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             mode=payload.get("mode") or payload.get("category") or "",
             model=payload.get("model") or "",
             provider=payload.get("provider") or "",
+            queue_wait_ms=queue_wait_ms,
         )
         return claimed
     except Exception as exc:
@@ -5702,7 +5721,7 @@ async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, pay
                 or ([result.get("image_url")] if result.get("image_url") else [])
                 or ([result.get("result_url")] if result.get("result_url") else [])
             )
-            sent = await send_generated_images_to_telegram(telegram_id, images, caption=caption)
+            sent = await asyncio.to_thread(send_generated_images_to_telegram, telegram_id, images, caption)
         elif mode == "video":
             videos = (
                 _json_list(result.get("videos"))
@@ -5736,15 +5755,17 @@ async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, pay
             if not text:
                 sent = False
             else:
-                response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": telegram_id,
-                        "text": f"{caption}\n\n{text}"[:4096],
-                        "disable_web_page_preview": True,
-                    },
-                    timeout=60,
-                )
+                def send_text_message():
+                    return requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={
+                            "chat_id": telegram_id,
+                            "text": f"{caption}\n\n{text}"[:4096],
+                            "disable_web_page_preview": True,
+                        },
+                        timeout=60,
+                    )
+                response = await asyncio.to_thread(send_text_message)
                 sent = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
         else:
             sent = bool(result.get("sent_to_telegram"))
@@ -7352,7 +7373,7 @@ async def _generate_openai_character_images(name: str, gender: str, description:
                 "referenceImageUrls": photos[:3],
             },
         }
-        result = await image_generation(payload)
+        result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
         if not result.get("ok"):
             diagnostic = (
                 result.get("raw_error")
@@ -10386,7 +10407,10 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
 # СИНХРОНИЗАЦИЯ С TELEGRAM: send_generated_images_to_telegram
 # Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
 # =====================================================
-async def send_generated_images_to_telegram(telegram_id: int, images: list, caption: str = "") -> bool:
+def send_generated_images_to_telegram(telegram_id: int, images: list, caption: str = "") -> bool:
+    # Synchronous by design (no internal await): every caller must run this
+    # via asyncio.to_thread so the blocking requests.post calls inside it
+    # never run on the shared event loop.
     if not BOT_TOKEN or not telegram_id or not images:
         return False
 
@@ -10597,10 +10621,11 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     sent_to_telegram = False
     if telegram_id and not payload.get("skip_telegram"):
         try:
-            sent_to_telegram = await send_generated_images_to_telegram(
-                telegram_id=telegram_id,
-                images=images,
-                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nСгенерировано в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -11494,10 +11519,11 @@ async def finalize_image_result(payload: dict, images: list) -> dict:
     result["sent_to_telegram"] = False
     if telegram_id and not payload.get("skip_telegram"):
         try:
-            result["sent_to_telegram"] = await send_generated_images_to_telegram(
-                telegram_id=telegram_id,
-                images=images,
-                caption="Готово ✅\nСгенерировано в SYLVEX Pro Studio",
+            result["sent_to_telegram"] = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nСгенерировано в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -13092,7 +13118,7 @@ async def image_generation(payload: dict) -> dict:
                 "prompt": prompt,
                 "size": openai_size,
                 "quality": openai_quality,
-                "n": "1",
+                "n": str(count),
                 "input_fidelity": "high",
             }
             response = None
@@ -13136,10 +13162,11 @@ async def image_generation(payload: dict) -> dict:
                 return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
             data = safe_provider_json(response, provider, endpoint)
             images = normalize_image_response(data)
-            print("OPENAI IMAGE EDIT PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "references": len(files), "has_image": bool(images)})
+            print("OPENAI IMAGE EDIT PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "references": len(files), "requested_count": count, "images_returned": len(images)})
             if images:
-                result = await finalize_image_result(payload, images[:1])
-                result.update(openai_image_cost_info(requested_model, api_model, openai_quality, 1))
+                final_images = images[:count]
+                result = await finalize_image_result(payload, final_images)
+                result.update(openai_image_cost_info(requested_model, api_model, openai_quality, len(final_images) or count))
                 result["provider"] = "openai"
                 result["model"] = requested_model
                 result["provider_model"] = api_model
@@ -13150,37 +13177,36 @@ async def image_generation(payload: dict) -> dict:
 
         endpoint = f"{OPENAI_API_BASE}/images/generations"
         images = []
-        last_payload = {}
-        for index in range(1, count + 1):
-            request_payload = {
-                "model": api_model,
-                "prompt": prompt,
-                "size": openai_size,
-                "quality": openai_quality,
-                "n": 1,
-            }
-            last_payload = request_payload
-            try:
-                response = requests.post(
-                    endpoint,
-                    headers=openai_headers(),
-                    data=json.dumps(request_payload),
-                    timeout=120,
-                )
-            except requests.RequestException as exc:
-                return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
-            if response.status_code >= 400:
-                data = safe_provider_json(response, provider, endpoint)
-                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+        # gpt-image-1/gpt-image-2 support n=1..4 natively on this endpoint; request
+        # the whole batch in one call instead of one request per image so quantity
+        # 1-4 costs one provider round trip, not up to four sequential ones.
+        request_payload = {
+            "model": api_model,
+            "prompt": prompt,
+            "size": openai_size,
+            "quality": openai_quality,
+            "n": count,
+        }
+        last_payload = request_payload
+        try:
+            response = requests.post(
+                endpoint,
+                headers=openai_headers(),
+                data=json.dumps(request_payload),
+                timeout=180,
+            )
+        except requests.RequestException as exc:
+            return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+        if response.status_code >= 400:
             data = safe_provider_json(response, provider, endpoint)
-            if data.get("ok") is False:
-                return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
-            for url in normalize_image_response(data):
-                if url and url not in images:
-                    images.append(url)
-            print("OPENAI IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "attempt": index, "payload": request_payload, "has_image": bool(images)})
-            if len(images) >= count:
-                break
+            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+        data = safe_provider_json(response, provider, endpoint)
+        if data.get("ok") is False:
+            return image_error_response(provider, requested_model, api_model, endpoint, data.get("error") or "Provider returned invalid response", data=data)
+        for url in normalize_image_response(data):
+            if url and url not in images:
+                images.append(url)
+        print("OPENAI IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "requested_count": count, "payload": request_payload, "images_returned": len(images)})
         if images:
             final_images = images[:count]
             result = await finalize_image_result(payload, final_images)
@@ -13234,14 +13260,32 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "google":
-        images, error, request_payload = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
-        print("GOOGLE IMAGE PAYLOAD:", {
-            "frontend_model": requested_model,
-            "provider_model": api_model,
-            "endpoint": endpoint,
-            "payload_keys": list((request_payload or {}).keys()),
-            "has_references": bool(image_reference_urls(payload)),
-        })
+        # Imagen models batch natively via sampleCount and return `count` images
+        # in one call. Gemini's generateContent-based image models (nano banana)
+        # have no batching parameter and always return exactly one image per
+        # call, so repeat the call until `count` is reached, same as BytePlus.
+        images = []
+        error = None
+        request_payload = {}
+        for attempt in range(1, count + 1):
+            call_images, call_error, request_payload = call_google_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+            print("GOOGLE IMAGE PAYLOAD:", {
+                "frontend_model": requested_model,
+                "provider_model": api_model,
+                "endpoint": endpoint,
+                "payload_keys": list((request_payload or {}).keys()),
+                "has_references": bool(image_reference_urls(payload)),
+                "attempt": attempt,
+            })
+            if call_error:
+                if not images:
+                    error = call_error
+                break
+            for url in call_images or []:
+                if url and url not in images:
+                    images.append(url)
+            if len(images) >= count:
+                break
         if error:
             return error
         if images:
@@ -13263,22 +13307,39 @@ async def image_generation(payload: dict) -> dict:
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
     if provider == "qwen":
-        images, error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
-        qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
-        qwen_payload_image_count = sum(
-            1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
-        )
-        print("QWEN IMAGE PAYLOAD:", {
-            "frontend_model": requested_model,
-            "provider_model": (request_payload or {}).get("model") or api_model,
-            "endpoint": endpoint,
-            "image_count": qwen_payload_image_count,
-            "has_references": qwen_payload_image_count > 0,
-            "content_types": [
-                "image" if isinstance(item, dict) and item.get("image") else "text"
-                for item in qwen_content
-            ],
-        })
+        # qwen_image_2/qwen_image_2_pro batch natively (n up to 6) and return
+        # `count` images in one call; other Qwen models are forced to n=1
+        # internally, so repeat the call until `count` is reached.
+        images = []
+        error = None
+        request_payload = {}
+        for attempt in range(1, count + 1):
+            call_images, call_error, request_payload = call_qwen_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+            qwen_content = (((request_payload or {}).get("input") or {}).get("messages") or [{}])[0].get("content") or []
+            qwen_payload_image_count = sum(
+                1 for item in qwen_content if isinstance(item, dict) and bool(item.get("image"))
+            )
+            print("QWEN IMAGE PAYLOAD:", {
+                "frontend_model": requested_model,
+                "provider_model": (request_payload or {}).get("model") or api_model,
+                "endpoint": endpoint,
+                "image_count": qwen_payload_image_count,
+                "has_references": qwen_payload_image_count > 0,
+                "attempt": attempt,
+                "content_types": [
+                    "image" if isinstance(item, dict) and item.get("image") else "text"
+                    for item in qwen_content
+                ],
+            })
+            if call_error:
+                if not images:
+                    error = call_error
+                break
+            for url in call_images or []:
+                if url and url not in images:
+                    images.append(url)
+            if len(images) >= count:
+                break
         if error:
             return error
         if images:
@@ -14399,6 +14460,8 @@ async def public_prostudio_generate(request: Request):
         worker_enabled=PROSTUDIO_WORKER_ENABLED,
     )
     if mode in text_modes:
+        text_timing_start = time.monotonic()
+        prostudio_debug("TEXT_REQUEST_RECEIVED", telegram_id=telegram_id, model=selected_model, timestamp=round(text_timing_start, 6))
         request_key = str(payload.get("client_request_id") or "").strip()
         cache_key = f"{int(payload.get('telegram_id') or 0)}:{request_key}" if request_key else ""
         response_future = None
@@ -14443,6 +14506,10 @@ async def public_prostudio_generate(request: Request):
 
         if not selected_model or is_internal_ui_model(selected_model):
             payload["model"] = "gpt-5.5"
+        prostudio_debug(
+            "TEXT_VALIDATION_DONE", telegram_id=telegram_id,
+            elapsed_ms=round((time.monotonic() - text_timing_start) * 1000),
+        )
         try:
             generation_id = reserve_direct_text_generation(telegram_id, required_credits)
         except SecurityError as exc:
@@ -14450,12 +14517,19 @@ async def public_prostudio_generate(request: Request):
         except Exception as exc:
             fail_text_request(exc)
             raise
+        provider_call_started_at = time.monotonic()
+        prostudio_debug("TEXT_PROVIDER_REQUEST_SENT", telegram_id=telegram_id, model=selected_model)
         try:
             result = await asyncio.to_thread(text_generation, payload)
         except Exception as exc:
             release_direct_text_generation(generation_id)
             fail_text_request(exc)
             raise
+        provider_done_at = time.monotonic()
+        prostudio_debug(
+            "TEXT_PROVIDER_RESPONSE_RECEIVED", telegram_id=telegram_id, ok=bool(result.get("ok")),
+            provider_elapsed_ms=round((provider_done_at - provider_call_started_at) * 1000),
+        )
         if not result.get("ok"):
             release_direct_text_generation(generation_id)
             return complete_text_request(JSONResponse(result, status_code=502))
@@ -14465,11 +14539,22 @@ async def public_prostudio_generate(request: Request):
         if not billing.get("charged") and not billing.get("already_charged"):
             release_direct_text_generation(generation_id)
             return complete_text_request(JSONResponse({"ok": False, "error": "billing_failed"}, status_code=503))
+        prostudio_debug(
+            "TEXT_RESULT_PERSISTED", telegram_id=telegram_id,
+            elapsed_ms_since_provider_response=round((time.monotonic() - provider_done_at) * 1000),
+        )
+        # History/conversation save enriches an already-successful, already-
+        # billed response. Its failure must never turn a successful
+        # generation into an error response for the user.
         try:
             result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
         except Exception as exc:
-            fail_text_request(exc)
-            raise
+            prostudio_error("TEXT_HISTORY_SAVE_FAILED", exc, telegram_id=telegram_id)
+            result.setdefault("conversation_id", "")
+        prostudio_debug(
+            "TEXT_CLIENT_VISIBLE_COMPLETION", telegram_id=telegram_id,
+            total_elapsed_ms=round((time.monotonic() - text_timing_start) * 1000),
+        )
         return complete_text_request(result, cache_success=True)
 
     # Worker owns Telegram delivery. Persist this flag in request_json before
@@ -14568,10 +14653,14 @@ async def dispatch_prostudio_provider_request(
     result = None
     if mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
-        result = await generateBytePlusSeedreamImage(payload)
+        # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
+        result = await run_provider_coroutine_off_loop(lambda: generateBytePlusSeedreamImage(payload))
     elif mode == "image":
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="image_generation")
-        result = await image_generation(payload)
+        # image_generation() calls synchronous per-provider adapters (OpenAI, Flux,
+        # Recraft, Gemini, Qwen, Grok, Ideogram) that block on requests.post; keep
+        # them off the shared event loop, same as video_generation below.
+        result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
     elif mode == "video":
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
         result = await run_provider_coroutine_off_loop(lambda: video_generation(payload))
@@ -14655,14 +14744,24 @@ async def run_prostudio_provider_request(
     text_modes: set,
     provider: str,
 ) -> tuple[dict, str]:
-    """Submit and poll a provider with retry while owning one provider slot."""
-    result = await provider_call_with_retry(
-        job_id,
-        provider,
-        lambda: dispatch_prostudio_provider_request(
-            job_id, payload, mode, selected_model, selected_provider, text_modes
-        ),
-    )
+    """Submit and poll a provider with retry.
+
+    A concurrency slot is held only while a real dispatch attempt is in
+    flight: retrying after a transient failure sleeps for backoff with no
+    slot held, since nothing is actually running at the provider during that
+    wait. Once the provider accepts an async job, one slot is held
+    continuously through the poll loop - that job is genuinely occupying the
+    account's real capacity at the provider regardless of our poll cadence.
+    """
+    async def dispatch_attempt():
+        async with provider_slot(
+            DATABASE_URL, provider, job_id, prostudio_debug, wait_for_slot=False,
+        ):
+            return await dispatch_prostudio_provider_request(
+                job_id, payload, mode, selected_model, selected_provider, text_modes
+            )
+
+    result = await provider_call_with_retry(job_id, provider, dispatch_attempt)
     if not isinstance(result, dict) or not result.get("ok"):
         return result, "failed"
 
@@ -14679,21 +14778,26 @@ async def run_prostudio_provider_request(
             "generation_provider_processing",
             {"job_id": job_id, "mode": mode, "task_id": result.get("task_id") or result.get("workId"), "poll_url": result.get("poll_url")},
         )
-        while True:
-            await asyncio.sleep(5)
-            heartbeat_prostudio_generation_job(job_id)
-            poll = await provider_call_with_retry(
-                job_id,
-                provider,
-                lambda: run_provider_coroutine_off_loop(lambda: poll_video_generation(result)),
-            )
-            if not poll.get("ok"):
-                return poll, "failed"
-            status = poll.get("status")
-            if status == "completed":
-                return poll, "completed"
-            if status == "failed":
-                return poll, "failed"
+        # A dispatch failure here would mean abandoning an already-accepted
+        # provider job, so wait for the slot rather than deferring the job.
+        async with provider_slot(
+            DATABASE_URL, provider, job_id, prostudio_debug, wait_for_slot=True,
+        ):
+            while True:
+                await asyncio.sleep(5)
+                heartbeat_prostudio_generation_job(job_id)
+                poll = await provider_call_with_retry(
+                    job_id,
+                    provider,
+                    lambda: run_provider_coroutine_off_loop(lambda: poll_video_generation(result)),
+                )
+                if not poll.get("ok"):
+                    return poll, "failed"
+                status = poll.get("status")
+                if status == "completed":
+                    return poll, "completed"
+                if status == "failed":
+                    return poll, "failed"
 
     return result, final_status
 
@@ -14704,6 +14808,7 @@ async def run_prostudio_provider_request(
 # Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
 # =====================================================
 async def process_prostudio_generation(job_id: str, payload: dict):
+    pipeline_started_at = time.monotonic()
     prostudio_debug(
         "JOB_PROCESS_ENTER",
         job_id=job_id,
@@ -14896,19 +15001,20 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             return
         try:
             try:
-                async with provider_slot(
-                    DATABASE_URL, provider_for_slot, job_id, prostudio_debug,
-                    wait_for_slot=False,
-                ):
-                    log_user_event(
-                        int(payload.get("telegram_id") or 0), "worker", "generation",
-                        "generation_started",
-                        {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
-                    )
-                    result, final_status = await run_prostudio_provider_request(
-                        job_id, payload, mode, selected_model, selected_provider,
-                        text_modes, provider_for_slot,
-                    )
+                # run_prostudio_provider_request owns its own provider-slot
+                # lifecycle: one slot per real dispatch attempt (so a failed
+                # attempt's retry backoff doesn't hold capacity nothing is
+                # using), then one continuously-held slot for as long as the
+                # provider's own async job is actually processing.
+                log_user_event(
+                    int(payload.get("telegram_id") or 0), "worker", "generation",
+                    "generation_started",
+                    {"job_id": job_id, "mode": mode, "model": selected_model, "provider": selected_provider},
+                )
+                result, final_status = await run_prostudio_provider_request(
+                    job_id, payload, mode, selected_model, selected_provider,
+                    text_modes, provider_for_slot,
+                )
             except ProviderSlotUnavailable:
                 await asyncio.to_thread(defer_prostudio_job_for_provider, job_id)
                 return
@@ -15033,7 +15139,15 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             timestamp=round(completed_committed_at, 6),
             elapsed_ms_since_r2_ready=round((completed_committed_at - r2_ready_at) * 1000),
         )
-        prostudio_debug("JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed")
+        prostudio_debug(
+            "JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed",
+            # End-to-end time from this worker picking up the job to the
+            # completed status being committed (client-visible on its next
+            # poll) - the number to compare against the provider's own
+            # documented generation time to see whether SYLVEX or the
+            # provider dominates total latency for this job.
+            total_pipeline_ms=round((time.monotonic() - pipeline_started_at) * 1000),
+        )
 
         # History enriches an already completed job and is intentionally not
         # allowed to roll its terminal status back on failure.
@@ -15197,6 +15311,10 @@ async def _run_prostudio_generation_pool(
                 job_id=job_id,
                 slot_id=slot_id,
                 attempts=claimed.get("attempts"),
+                # Time between the client's submit and this worker picking the
+                # job up - isolates SYLVEX-side queueing latency from whatever
+                # happens next at the provider.
+                queue_wait_ms=claimed.get("queue_wait_ms"),
             )
             try:
                 await process_prostudio_generation(job_id, claimed["payload"])

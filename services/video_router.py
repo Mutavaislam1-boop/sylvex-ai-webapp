@@ -2398,7 +2398,13 @@ def _kling_poll_until_ready(task_id: str, headers: dict):
             "has_video_url": bool(video_url),
             "video_url": video_url or "",
         })
-        if state in {"succeeded", "completed", "success", "done"} and video_url:
+        # Kling's own text2video/image2video API returns task_status "succeed"
+        # (not "succeeded") on completion - confirmed against current Kling
+        # API docs. The other three Kling poll variants below already check
+        # for "succeed"; this one was missing it, so a genuinely completed
+        # video kept polling as "processing" until the job was eventually
+        # recovered as stale, even though Kling had already delivered it.
+        if state in {"succeed", "succeeded", "completed", "success", "done"} and video_url:
             return _provider_success("kling", task_id, [video_url], status="completed", task_id=task_id)
         if state in {"failed", "error", "cancelled"}:
             return _provider_parse_error("kling", task_id, data)
