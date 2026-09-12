@@ -4724,6 +4724,7 @@ def cleanup_orphaned_text_prostudio_jobs(telegram_id: int):
 def create_prostudio_generation_job(payload: dict) -> str:
     job_id = str(uuid4())
     telegram_id = int(payload.get("telegram_id") or 0)
+    client_request_id = str(payload.get("client_request_id") or "").strip()
     prostudio_debug(
         "JOB_CREATE_START",
         job_id=job_id,
@@ -4732,6 +4733,7 @@ def create_prostudio_generation_job(payload: dict) -> str:
         model=payload.get("model") or "",
         provider=payload.get("provider") or "",
         has_database=bool(DATABASE_URL),
+        client_request_id=client_request_id,
     )
     if not DATABASE_URL or not telegram_id:
         prostudio_debug("JOB_CREATE_SKIPPED_DB", job_id=job_id, has_database=bool(DATABASE_URL), telegram_id=telegram_id)
@@ -4745,6 +4747,25 @@ def create_prostudio_generation_job(payload: dict) -> str:
         # The check and INSERT share one transaction, so simultaneous clicks
         # cannot create two active jobs.
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        if client_request_id:
+            # A repeated request carrying the same client_request_id is a
+            # transport-level retry/replay of the same user action (reload,
+            # reconnect, double-submit of an in-flight request), never a new
+            # generation - hand back the job that request already created
+            # instead of dispatching a second provider call.
+            cursor.execute("""
+                SELECT id
+                FROM prostudio_generation_jobs
+                WHERE telegram_id = %s
+                  AND request_json->>'client_request_id' = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (telegram_id, client_request_id))
+            existing = cursor.fetchone()
+            if existing:
+                conn.rollback()
+                prostudio_debug("JOB_CREATE_IDEMPOTENT_REPLAY", job_id=existing[0], client_request_id=client_request_id)
+                return existing[0]
         cursor.execute("""
             SELECT id, status
             FROM prostudio_generation_jobs
