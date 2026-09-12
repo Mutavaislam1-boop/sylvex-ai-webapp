@@ -154,6 +154,7 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
     wait_timeout = DB_POOL_TIMEOUT_SECONDS if timeout is None else max(0.1, float(timeout))
     deadline = time.monotonic() + wait_timeout
     registered_waiter = False
+    wait_started_at: Optional[float] = None
     try:
         with _condition:
             while True:
@@ -165,6 +166,7 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
                     if not registered_waiter:
                         _waiting += 1
                         registered_waiter = True
+                        wait_started_at = time.monotonic()
                         _log_wait_if_due()
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -192,6 +194,15 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
                 _waiting = max(0, _waiting - 1)
                 _check_invariant_locked()
                 _condition.notify_all()
+    if wait_started_at is not None:
+        # Every acquisition that actually had to wait for the pool gets its
+        # own timing line, not just the rate-limited DB_POOL_WAIT snapshot -
+        # this is the concrete number that answers "was this specific slow
+        # generation step blocked on DB pool contention".
+        print("DB_CONNECTION_WAIT_MS:", {
+            "wait_ms": round((time.monotonic() - wait_started_at) * 1000),
+            "thread_id": threading.get_ident(),
+        })
     _log_status_if_due()
     return connection
 
