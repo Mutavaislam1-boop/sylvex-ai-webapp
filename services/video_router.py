@@ -99,11 +99,14 @@ VIDEO_MODEL_CONFIG.update({
 BYTEPLUS_SEEDANCE_MODEL_MAP = {
     "seedance_2_fast": os.getenv("BYTEPLUS_SEEDANCE_2_FAST_MODEL", "dreamina-seedance-2-0-fast-260128"),
     "seedance_2_0": os.getenv("BYTEPLUS_SEEDANCE_2_MODEL", "dreamina-seedance-2-0-260128"),
+    # Estimated default following the sibling naming pattern above - unlike
+    # seedance_2_fast/seedance_2_0, this model had no hardcoded fallback at
+    # all, so selecting it without BYTEPLUS_SEEDANCE_1_5_PRO_MODEL set
+    # always failed with "unknown provider model mapping" before any API
+    # key or provider call was even attempted. Verify against BytePlus's
+    # actual Seedance 1.5 Pro model id.
+    "seedance_1_5_pro": os.getenv("BYTEPLUS_SEEDANCE_1_5_PRO_MODEL", "dreamina-seedance-1-5-pro-260128"),
 }
-
-_seedance_1_5_pro_model = os.getenv("BYTEPLUS_SEEDANCE_1_5_PRO_MODEL")
-if _seedance_1_5_pro_model:
-    BYTEPLUS_SEEDANCE_MODEL_MAP["seedance_1_5_pro"] = _seedance_1_5_pro_model
 
 for _provider_model_id in tuple(BYTEPLUS_SEEDANCE_MODEL_MAP.values()):
     BYTEPLUS_SEEDANCE_MODEL_MAP.setdefault(_provider_model_id, _provider_model_id)
@@ -137,7 +140,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "runway_veo3_1": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_1_MODEL", "veo3.1"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_veo3_1_fast": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_1_FAST_MODEL", "veo3.1_fast"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_gemini_omni_flash": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEMINI_OMNI_FLASH_MODEL", "gemini_omni_flash"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
-    "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": _seedance_1_5_pro_model and os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
+    "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL", "wan2.6-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
