@@ -114,11 +114,17 @@ def app(monkeypatch):
 
 @pytest.fixture
 def client(app):
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    # The service token now travels as a header on every request from this
+    # client, never inside the JSON body - matches the real Support Bot's
+    # api_client.py, which sends it via X-Admin-Service-Token.
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test",
+        headers={"X-Admin-Service-Token": SERVICE_TOKEN},
+    )
 
 
 def owner_call(user_id=OWNER_ID):
-    return {"service_token": SERVICE_TOKEN, "telegram_id": user_id}
+    return {"telegram_id": user_id}
 
 
 def _insert_user(app, telegram_id, username="alice", name="Alice", balance=100, subscription="free"):
