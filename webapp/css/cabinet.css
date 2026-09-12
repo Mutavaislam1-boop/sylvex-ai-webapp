@@ -527,6 +527,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);
   --st-text:#F3F3F3;--st-dim:#8D8D92;--st-mute:#6b6b75;
   --st-bubble-user:#24262B;--st-bubble-ai:transparent;
+  --st-grid-line:rgba(255,255,255,.05);
   background:#202020;
 }
 
@@ -547,6 +548,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-text:#0d0d0f;--st-dim:#52525b;--st-mute:#8e8e98;
   --st-bubble-user:#eeeef0;--st-bubble-ai:transparent;
   --border:rgba(0,0,0,.10);--border-strong:rgba(0,0,0,.16);
+  --st-grid-line:rgba(0,0,0,.06);
   background:#ffffff;
 }
 .view[data-view="tools"].active .studio[data-ps-theme="black"]{
@@ -555,6 +557,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-text:#f5f5f7;--st-dim:#9a9aa2;--st-mute:#6f6f78;
   --st-bubble-user:#141414;--st-bubble-ai:transparent;
   --border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.16);
+  --st-grid-line:rgba(255,255,255,.08);
   background:#000000;
 }
 
@@ -6154,15 +6157,33 @@ CSS-БЛОК: .dot-i
   pointer-events:none !important;
 }
 
-/* Remove Pro Studio decorative background dots completely. */
-.view[data-view="tools"].active .studio,
+/* Pro Studio decorative background: a subtle grid (not Grid Mode - purely
+   decorative), drawn as a plain background-image directly on .studio
+   itself, never a pseudo-element/overlay - the two attempts at a
+   pseudo-element-based decoration above were disabled specifically
+   because an absolutely-positioned overlay layer risks sitting above
+   content and swallowing clicks. A background-image can never intercept
+   pointer events, so this is safe by construction. Colors come from
+   --st-grid-line, set per Gray/White/Black theme above, so the grid
+   stays subtle and correctly-contrasted in all three. */
+.view[data-view="tools"].active .studio{
+  background-image:
+    repeating-linear-gradient(0deg, var(--st-grid-line) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, var(--st-grid-line) 0 1px, transparent 1px 28px) !important;
+}
 body.ai-generating .view[data-view="tools"].active .studio,
-.view[data-view="tools"].active .studio:has(.typing),
-.view[data-view="tools"].active .chat-area,
-body.ai-generating .view[data-view="tools"].active .chat-area,
-.view[data-view="tools"].active .chat-area:has(.typing){
+.view[data-view="tools"].active .studio:has(.typing){
+  background-image:
+    repeating-linear-gradient(0deg, var(--st-grid-line) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, var(--st-grid-line) 0 1px, transparent 1px 28px) !important;
+  animation:studioGridPulse 2.6s ease-in-out infinite !important;
+}
+@keyframes studioGridPulse{
+  0%,100%{filter:brightness(1)}
+  50%{filter:brightness(1.1)}
+}
+.view[data-view="tools"].active .chat-area{
   background-image:none !important;
-  animation:none !important;
 }
 
 .view[data-view="tools"].active .studio::before,
@@ -7306,10 +7327,16 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-select-pill.video-sound-di
   opacity:.45;
 }
 
-/* Pro Studio: gray chat background and transparent generated content */
-.view[data-view="tools"].active .studio,
+/* Pro Studio: chat background and transparent generated content.
+   Longhand background-color only (not the `background` shorthand) so this
+   doesn't reset background-image and clobber the decorative grid drawn on
+   .studio further down. .chat-area itself stays transparent so that grid
+   shows through the scrollable content area, not just the edges. */
+.view[data-view="tools"].active .studio{
+  background-color:var(--st-bg) !important;
+}
 .view[data-view="tools"].active .chat-area{
-  background:#202020 !important;
+  background-color:transparent !important;
 }
 
 .view[data-view="tools"].active .msg.ai .bubble,
