@@ -5159,10 +5159,7 @@ function localizedGreeting() {
         if (err && err.terminalStatus) {
           const index = activeGenerationPlaceholderIndex();
           if (index >= 0) {
-            chatMessages[index] = {
-              role: 'ai',
-              text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.'),
-            };
+            chatMessages[index] = buildGenerationErrorMessage(err, { mode: (jobInfo && jobInfo.mode) || '', jobId });
           }
           renderChat();
           rememberCurrentChatSpace();
@@ -6678,10 +6675,11 @@ async function generatePhotoTool(e) {
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = {
-      role: 'ai',
-      text: '⚠️ ' + translateGenerationError(error, 'Не удалось обработать фото. Попробуйте ещё раз.'),
-    };
+    chatMessages[loadingIndex] = buildGenerationErrorMessage(error, {
+      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+      mode: 'image',
+      prompt,
+    });
     renderPhotoToolModal();
     toast(translateGenerationError(error, 'Не удалось обработать фото'));
   } finally {
@@ -10711,6 +10709,13 @@ function renderGeneratedTelegramButton(url, kind) {
       lipsync: '<path d="M5 12c2-3 4.3-4.5 7-4.5S17 9 19 12c-2 3-4.3 4.5-7 4.5S7 15 5 12z"/><path d="M9 12h6"/>',
       avatar: '<circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/>',
       music: '<path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
+      copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+      restart: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>',
+      listen: '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>',
+      stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+      report: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V4"/>',
+      check: '<path d="M20 6 9 17l-5-5"/>',
+      alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
     };
     return '<svg class="generation-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[kind] || paths.open) + '</svg>';
   }
@@ -11349,23 +11354,23 @@ function renderGeneratedTelegramButton(url, kind) {
       if (m.imageResultMini) {
         return '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageResultMiniCard(m, i)
+          + renderMsgActionsBar(m, i)
           + '</div>';
       }
       if (m.typing) {
         return '<div class="msg ai" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + '<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>';
       }
-      const actions = '<div class="msg-actions">'
-        + '<button onclick="SYLVEX.copyMsg(' + i + ')" title="Copy">Copy</button>'
-        + (m.textGenerationFailed
-          ? '<button onclick="SYLVEX.retryTextGeneration(' + i + ')" title="Retry">Повторить</button>'
-          : (m.role === 'ai' ? '<button onclick="SYLVEX.regenMsg(' + i + ')" title="Regenerate">Regenerate</button>' : ''))
-        + '<button onclick="SYLVEX.deleteMsg(' + i + ')" title="Delete">Delete</button></div>';
+      if (m.isError) {
+        return '<div class="msg ai msg-error" data-i="' + i + '"><div class="ai-avatar">S</div>'
+          + '<div class="bubble error-bubble">'
+          + '<div class="error-bubble-head"><span class="error-bubble-icon">' + generationActionIcon('alert') + '</span><span class="error-bubble-title">Не удалось выполнить генерацию</span></div>'
+          + '<div class="error-bubble-text">' + S.escapeHtml(m.text || '').replace(/\n/g, '<br>') + '</div>'
+          + '</div>' + renderMsgActionsBar(m, i) + '</div>';
+      }
+      const actions = renderMsgActionsBar(m, i);
       let inner = '';
       if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
-      if (m.role === 'ai' && currentChatType() === 'text' && m.text && !m.textGenerationFailed) {
-        inner += renderTextListenControl(i);
-      }
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
       if (m.referenceImages && m.referenceImages.length) {
         inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
@@ -15063,10 +15068,7 @@ function maybeShowVideoTemplateIntro(force) {
       if (loadingIndex >= 0) {
         chatMessages[loadingIndex] = buildInsufficientBalanceMessage(err, promptLabel, null, [uploadedImage], null, videoOptions, []);
         if (!(err && err.paywall)) {
-          chatMessages[loadingIndex] = {
-            role: 'ai',
-            text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.'),
-          };
+          chatMessages[loadingIndex] = buildGenerationErrorMessage(err, { mode: 'video', prompt: promptLabel });
         }
       }
       toast(translateGenerationError(err, 'Генерация не прошла'));
@@ -15378,7 +15380,27 @@ function maybeShowVideoTemplateIntro(force) {
 // ЗАПУСК ГЕНЕРАЦИИ: callGenerate
 // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
 // =====================================================
+// Thin wrapper: decorates any error thrown by the real request logic with
+// the mode/model/provider/prompt in effect at call time, so every catch
+// site downstream (there are several near-duplicates) can build a rich
+// Report Error payload without re-deriving this context itself. Paywall
+// and active-generation errors already carry their own distinct handling
+// and are left untouched.
 async function callGenerate(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
+  try {
+    return await callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions);
+  } catch (err) {
+    if (err && typeof err === 'object' && !err.paywall && !err.activeGeneration) {
+      if (!err.mode) err.mode = studioMode;
+      if (!err.model) err.model = pickStudioModel();
+      if (!err.provider) err.provider = isVideoMode() ? currentVideoProvider() : pickProviderHint();
+      if (!err.prompt) err.prompt = String(prompt || '').trim();
+    }
+    throw err;
+  }
+}
+
+async function callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
   const requestMode = studioMode;
   const isDirectTextRequest = isTextGenerationMode(requestMode);
   if (!isDirectTextRequest && !activeGenerationLocked()) {
@@ -15662,9 +15684,42 @@ function translateGenerationError(value, fallback) {
   if (/http 4|400/.test(low)) {
     return 'Выбранные параметры не поддерживаются этой моделью.\nИзмените настройки генерации и попробуйте снова.';
   }
-  return /traceback|exception|provider|request|json|http/i.test(text)
-    ? (fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.')
-    : text;
+  // Never surface an unrecognized raw string (technical-looking or not) to
+  // the user - the exact wording lands in errorMeta.raw for the Report
+  // Error action instead. A short, clean-looking sentence with no spaces
+  // and no punctuation is most likely already a curated backend message
+  // (e.g. earlier translateProviderError output) rather than a raw trace,
+  // so it is allowed through as-is; everything else falls back.
+  const looksCurated = text.length <= 140 && !/[{}\[\]<>]|traceback|exception|stack|provider|request|response|json|http|error\s*code|status_code/i.test(low);
+  return looksCurated ? text : (fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: buildGenerationErrorMessage
+// Единая точка построения chat-сообщения об ошибке генерации - вместо
+// каждого места, собирающего свой '{role:"ai", text: ...}' вручную.
+// Хранит сырой текст ошибки и контекст (mode/model/provider/jobId) в
+// errorMeta для кнопки "Сообщить об ошибке", не показывая его пользователю.
+// =====================================================
+function buildGenerationErrorMessage(err, opts) {
+  const options = opts || {};
+  const fallback = options.fallback || 'Генерация не прошла. Попробуйте повторить немного позже.';
+  const text = translateGenerationError(err, fallback);
+  return {
+    role: 'ai',
+    isError: true,
+    text,
+    errorMeta: {
+      raw: errorMessage(err, text),
+      mode: options.mode || (err && err.mode) || currentChatType(),
+      model: options.model || (err && err.model) || (typeof pickStudioModel === 'function' ? (pickStudioModel() || '') : ''),
+      provider: options.provider || (err && err.provider) || '',
+      jobId: options.jobId || (err && (err.jobId || err.job_id)) || '',
+      prompt: options.prompt || '',
+      status: (err && err.terminalStatus) || options.status || '',
+      ts: Date.now(),
+    },
+  };
 }
 
 // =====================================================
@@ -15899,10 +15954,7 @@ async function waitGeneration(jobId, options) {
     } catch (err) {
       chatMessages[index] = buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, snapshot.imageOptions || null, videoOptions, snapshot.audioUploads || []);
       if (!(err && err.paywall)) {
-        chatMessages[index] = {
-          role: 'ai',
-          text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.'),
-        };
+        chatMessages[index] = buildGenerationErrorMessage(err, { mode, prompt });
       }
     } finally {
       document.body.classList.remove('ai-generating');
@@ -15941,15 +15993,16 @@ async function waitGeneration(jobId, options) {
       if (result.conversation_id) currentConvId = result.conversation_id;
       loadConversations();
     } catch (err) {
-      chatMessages[index] = {
-        role: 'ai',
-        text: '⚠️ ' + translateGenerationError(err, 'Не удалось получить ответ. Попробуйте ещё раз.'),
-        textGenerationFailed: true,
-        // Keep the same id on a retry.  If the original HTTP response was only
-        // delayed, the server-side idempotency record returns that result rather
-        // than creating a second text generation.
-        textGenerationRequest: { prompt, attachment, requestId },
-      };
+      chatMessages[index] = Object.assign(
+        buildGenerationErrorMessage(err, { fallback: 'Не удалось получить ответ. Попробуйте ещё раз.', mode: 'text', prompt }),
+        {
+          textGenerationFailed: true,
+          // Keep the same id on a retry.  If the original HTTP response was only
+          // delayed, the server-side idempotency record returns that result rather
+          // than creating a second text generation.
+          textGenerationRequest: { prompt, attachment, requestId },
+        }
+      );
     } finally {
       textRequestInFlight = false;
       renderChat();
@@ -16281,10 +16334,7 @@ async function waitGeneration(jobId, options) {
       }
       loadingIndex = activeGenerationPlaceholderIndex() >= 0 ? activeGenerationPlaceholderIndex() : loadingIndex;
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
-      chatMessages.push({
-        role: 'ai',
-        text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.')
-      });
+      chatMessages.push(buildGenerationErrorMessage(err, { prompt: v }));
       rememberCurrentChatSpace();
       if (err && err.terminalStatus) unlockAfterRender = true;
       else if (!activeGeneration.jobId) {
@@ -16348,14 +16398,6 @@ async function waitGeneration(jobId, options) {
       && typeof window.SpeechSynthesisUtterance === 'function';
   }
 
-  function renderTextListenControl(index) {
-    const speaking = textSpeechMessageIndex === index;
-    return '<div class="text-listen-control">'
-      + '<button class="' + (speaking ? 'is-playing' : '') + '" type="button" onclick="SYLVEX.toggleTextListen(' + index + ')" aria-pressed="' + String(speaking) + '">'
-      + (speaking ? '■ Остановить' : '🔊 Слушать')
-      + '</button></div>';
-  }
-
   function stopTextListen(render) {
     const current = textSpeechUtterance;
     textSpeechMessageIndex = -1;
@@ -16402,10 +16444,88 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderMsgActionsBar
+  // Единый ряд компактных icon-only кнопок под сообщением чата: Copy,
+  // Restart/Regenerate, Listen (где применимо), Report (только для ошибок).
+  // Заменяет старый ряд с текстовыми подписями и убирает Delete полностью.
+  // =====================================================
+  function renderMsgActionsBar(m, i) {
+    if (!m) return '';
+    const buttons = [];
+    const copyText = m.text || (m.metadata && m.metadata.prompt) || m.prompt || '';
+    if (copyText) {
+      buttons.push('<button class="msg-action-btn" type="button" onclick="SYLVEX.copyMsg(' + i + ')" aria-label="Копировать" title="Копировать">' + generationActionIcon('copy') + '</button>');
+    }
+    const hasUserPromptBefore = i > 0 && chatMessages[i - 1] && chatMessages[i - 1].role === 'user';
+    const canRestart = m.role === 'ai' && !m.typing && !m.textLoading && !m.imageLoading && !m.generationLoading && !m.insufficientBalance
+      && (studioMode === 'text' || hasUserPromptBefore);
+    if (canRestart) {
+      buttons.push('<button class="msg-action-btn" type="button" onclick="SYLVEX.regenMsg(' + i + ')" aria-label="Повторить генерацию" title="Повторить генерацию">' + generationActionIcon('restart') + '</button>');
+    }
+    const canListen = m.role === 'ai' && !m.isError && currentChatType() === 'text' && m.text && !m.textGenerationFailed;
+    if (canListen) {
+      const speaking = textSpeechMessageIndex === i;
+      buttons.push('<button class="msg-action-btn' + (speaking ? ' is-playing' : '') + '" type="button" onclick="SYLVEX.toggleTextListen(' + i + ')" aria-pressed="' + String(speaking) + '" aria-label="Слушать" title="Слушать">' + generationActionIcon(speaking ? 'stop' : 'listen') + '</button>');
+    }
+    if (m.isError) {
+      const reported = !!m.errorReported;
+      const sending = !!m.errorReporting;
+      const label = reported ? 'Жалоба отправлена' : 'Сообщить об ошибке';
+      buttons.push('<button class="msg-action-btn msg-action-report' + (reported ? ' is-sent' : '') + '" type="button" ' + (reported || sending ? 'disabled' : '') + ' onclick="SYLVEX.reportGenerationError(event,' + i + ')" aria-label="' + label + '" title="' + label + '">' + generationActionIcon(reported ? 'check' : 'report') + '</button>');
+    }
+    if (!buttons.length) return '';
+    return '<div class="msg-actions">' + buttons.join('') + '</div>';
+  }
+
   function copyMsg(i) {
     const m = chatMessages[i]; if (!m) return;
-    if (navigator.clipboard) navigator.clipboard.writeText(m.text || '');
+    const text = m.text || (m.metadata && m.metadata.prompt) || m.prompt || '';
+    if (!text) return;
+    if (navigator.clipboard) navigator.clipboard.writeText(text);
     toast(t('copied'));
+  }
+
+  // =====================================================
+  // JAVASCRIPT-БЛОК: reportGenerationError
+  // Отправляет жалобу на ошибку генерации одним нажатием - без ручного
+  // ввода: контекст (job/model/provider/prompt/текст ошибки) берётся из
+  // errorMeta, собранного при построении сообщения об ошибке.
+  // =====================================================
+  async function reportGenerationError(e, i) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const m = chatMessages[i];
+    if (!m || !m.isError || m.errorReported || m.errorReporting) return;
+    const meta = m.errorMeta || {};
+    m.errorReporting = true;
+    renderChat();
+    try {
+      const response = await fetch('/api/public/prostudio/report_error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegram_id: getTelegramId(),
+          mode: meta.mode || currentChatType(),
+          model: meta.model || '',
+          provider: meta.provider || '',
+          job_id: meta.jobId || '',
+          prompt: meta.prompt || '',
+          error_text: m.text || '',
+          raw_error: meta.raw || '',
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data || data.ok === false) throw new Error('report failed');
+      m.errorReported = true;
+      toast('Жалоба отправлена. Спасибо!');
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+    } catch (err) {
+      toast('Не удалось отправить жалобу. Попробуйте ещё раз.');
+    } finally {
+      m.errorReporting = false;
+      renderChat();
+      rememberCurrentChatSpace();
+    }
   }
 
   // =====================================================
@@ -16457,10 +16577,7 @@ async function waitGeneration(jobId, options) {
       clearActiveProStudioJob(activeGeneration.jobId);
     })
     .catch((err) => {
-      chatMessages[i] = {
-        role: 'ai',
-        text: '⚠️ ' + translateGenerationError(err, 'Генерация не прошла. Попробуйте повторить немного позже.')
-      };
+      chatMessages[i] = buildGenerationErrorMessage(err, { prompt: prev.text || '' });
 
       rememberCurrentChatSpace();
       renderChat();
@@ -16822,16 +16939,6 @@ async function waitGeneration(jobId, options) {
     if (btn) btn.classList.add('rec');
     startTextMicVisualization(mediaStream);
     S.haptic && S.haptic.impact && S.haptic.impact('light');
-  }
-  // =====================================================
-  // JAVASCRIPT-БЛОК: deleteMsg
-  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
-  // =====================================================
-  function deleteMsg(i) {
-    stopTextListen(false);
-    chatMessages.splice(i, 1); renderChat();
-    rememberCurrentChatSpace();
-    S.haptic.impact('light');
   }
   // =====================================================
   // ЧАТ И ИСТОРИЯ: newChat
@@ -19916,7 +20023,7 @@ async function waitGeneration(jobId, options) {
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
-    sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, deleteMsg, newChat,
+    sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
