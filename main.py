@@ -5880,10 +5880,12 @@ def public_media_url(url: str) -> str:
     return materialized
 
 
-def _persist_remote_media_url(url: str, category: str) -> str:
+def _persist_remote_media_url(url: str, category: str, provider: str = "") -> str:
     raw = str(url or "").strip()
     if not raw or storage_key_from_url(raw):
         return raw
+    object_key = ""
+    content_type = ""
     try:
         if raw.startswith("data:image"):
             return materialize_data_image_url(raw)
@@ -5903,8 +5905,26 @@ def _persist_remote_media_url(url: str, category: str) -> str:
         if not suffix or len(suffix) > 8:
             suffix = mimetypes.guess_extension(content_type) or {"images": ".png", "videos": ".mp4", "audio": ".mp3", "documents": ".bin", "thumbs": ".jpg"}.get(category, ".bin")
         filename = f"{uuid4().hex}{suffix}"
-        return storage_put_bytes(response.content, generated_key(category, filename), content_type)
+        object_key = generated_key(category, filename)
+        # Never logs credentials/signed headers - only the request shape, so
+        # a provider-specific R2 failure (e.g. Ideogram succeeding at the
+        # provider but failing to persist while another provider's uploads
+        # succeed) can be told apart from a global credentials problem
+        # (which would show up identically across every provider/asset_type).
+        prostudio_debug(
+            "R2_UPLOAD_START", provider=provider, asset_type=category,
+            object_key=object_key, content_type=content_type,
+        )
+        uploaded_url = storage_put_bytes(response.content, object_key, content_type)
+        prostudio_debug(
+            "R2_UPLOAD_DONE", provider=provider, asset_type=category, object_key=object_key,
+        )
+        return uploaded_url
     except Exception as exc:
+        prostudio_error(
+            "R2_UPLOAD_FAILED", exc, provider=provider, asset_type=category,
+            object_key=object_key, content_type=content_type,
+        )
         prostudio_error("R2_MEDIA_PERSIST_FAILED", exc, source=_sql_text(raw, 180), category=category)
         return raw
 
@@ -5913,13 +5933,14 @@ def persist_generation_media(result: dict, mode: str) -> dict:
     if not isinstance(result, dict):
         return result
     persisted_by_source = {}
+    provider = str(result.get("provider") or "")
 
     def persist_once(value, category):
         source = str(value or "").strip()
         if not source:
             return value
         if source not in persisted_by_source:
-            persisted_by_source[source] = _persist_remote_media_url(source, category)
+            persisted_by_source[source] = _persist_remote_media_url(source, category, provider)
         return persisted_by_source[source]
 
     scalar_fields = {
