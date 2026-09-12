@@ -1,7 +1,9 @@
+import io
 import os
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import db_pool
@@ -103,6 +105,43 @@ class DatabasePoolConcurrencyTests(unittest.TestCase):
         status = db_pool.db_pool_status()
         self.assertEqual(status["used"], 0)
         self.assertEqual(status["semaphore_available"], 10)
+
+    def test_uncontended_checkout_does_not_log_a_wait(self):
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            connection = db_pool.db_connect("mock-postgres")
+        connection.close()
+        self.assertNotIn("DB_CONNECTION_WAIT_MS", buffer.getvalue())
+
+    def test_contended_checkout_logs_its_own_wait_time(self):
+        """This is the concrete number the latency audit asked for: not just
+        a periodic pool snapshot, but the actual wait this one caller paid
+        before it could even start its DB work - the number that proves (or
+        rules out) DB pool contention as the cause of a specific slow step."""
+        os.environ["DB_POOL_MAX_SIZE"] = "1"
+        db_pool.close_db_pool(timeout=1)
+
+        held = db_pool.db_connect("mock-postgres")
+        released = threading.Event()
+
+        def hold_then_release():
+            released.wait(timeout=2)
+            held.close()
+
+        releaser = threading.Thread(target=hold_then_release)
+        releaser.start()
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            timer = threading.Timer(0.05, released.set)
+            timer.start()
+            waiter = db_pool.db_connect("mock-postgres")
+            timer.cancel()
+        waiter.close()
+        releaser.join(timeout=2)
+
+        output = buffer.getvalue()
+        self.assertIn("DB_CONNECTION_WAIT_MS", output)
 
 
 if __name__ == "__main__":
