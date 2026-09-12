@@ -131,18 +131,23 @@ class SecurityMiddleware:
    uid=0
    # The Support Bot is a separate Telegram bot/token and can never produce
    # a valid initData signature for this app's BOT_TOKEN. A matching shared
-   # secret on an /api/admin/ request lets it authenticate as the Telegram
-   # user it names - _admin_actor still runs the normal admin_users
-   # role/permission lookup for that id, so this only proves the caller is
-   # the trusted support-bot backend, not that the named id is an admin.
+   # secret, sent as a header (never in the JSON body, so it never lands in
+   # request logs of the body) on an /api/admin/ request lets it
+   # authenticate as the Telegram user it names - _admin_actor still runs
+   # the normal admin_users role/permission lookup for that id, so this
+   # only proves the caller is the trusted support-bot backend, not that
+   # the named id is an admin.
    admin_service_token=os.getenv('ADMIN_SERVICE_TOKEN','').strip()
    service_authenticated=False
-   if path.startswith('/api/admin/') and admin_service_token and json_body is not None:
-    presented=str(json_body.get('service_token') or '')
+   if path.startswith('/api/admin/') and admin_service_token:
+    presented=headers.get(b'x-admin-service-token',b'').decode().strip()
+    if not presented:
+     auth_header=headers.get(b'authorization',b'').decode().strip()
+     if auth_header.lower().startswith('bearer '):presented=auth_header[7:].strip()
     service_authenticated=bool(presented) and hmac.compare_digest(presented,admin_service_token)
    if not is_public and not is_webhook:
     if service_authenticated:
-     try:uid=int(json_body.get('telegram_id') or 0)
+     try:uid=int((json_body or {}).get('telegram_id') or 0)
      except (TypeError,ValueError):uid=0
      if not uid:raise SecurityError('telegram_user_missing')
      user={'id':uid};admin=True

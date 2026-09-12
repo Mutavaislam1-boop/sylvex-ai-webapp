@@ -70,11 +70,17 @@ def app(monkeypatch):
 
 @pytest.fixture
 def client(app):
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    # The service token now travels as a header on every request from this
+    # client, never inside the JSON body - matches the real Support Bot's
+    # api_client.py, which sends it via X-Admin-Service-Token.
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test",
+        headers={"X-Admin-Service-Token": SERVICE_TOKEN},
+    )
 
 
 def owner_call(**extra):
-    return {"service_token": SERVICE_TOKEN, "telegram_id": OWNER_ID, **extra}
+    return {"telegram_id": OWNER_ID, **extra}
 
 
 @pytest.mark.asyncio
@@ -183,7 +189,7 @@ async def test_upload_media_rejects_invalid_slot(client):
 @pytest.mark.asyncio
 async def test_non_admin_cannot_manage_references(client):
     response = await client.post("/api/admin/references/create", json={
-        "service_token": SERVICE_TOKEN, "telegram_id": 424242,
+        "telegram_id": 424242,
         "category": "photo_styles", "kind": "photo", "name": "Hack Attempt",
     })
     assert response.status_code == 403

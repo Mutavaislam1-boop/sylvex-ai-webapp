@@ -8200,15 +8200,32 @@ def ensure_admin_tables():
             conn.close()
 
 
-def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) -> dict:
+def _admin_service_token_from_headers(request: Optional[Request]) -> str:
+    """The service token travels as a header, never inside the JSON body -
+    a bearer-style Authorization header or the dedicated
+    X-Admin-Service-Token header, either is accepted."""
+    if request is None:
+        return ""
+    auth_header = str(request.headers.get("authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return str(request.headers.get("x-admin-service-token") or "").strip()
+
+
+def _admin_actor(payload: dict, request: Optional[Request] = None, permission: str = "", owner_only: bool = False) -> dict:
     payload = payload or {}
-    service_token = str(payload.get("service_token") or "").strip()
+    service_token = _admin_service_token_from_headers(request)
     service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
     if service_authenticated:
         # The Support Bot already verified the Telegram user calling it is
         # one of ITS admins before ever making this request; this call still
         # goes through the exact same admin_users role/permission check
-        # below as any Mini App request would.
+        # below as any Mini App request would. Unlike the initData path
+        # just below, a service-authenticated caller is NEVER granted the
+        # owner shortcut just for naming SUPERADMIN_TELEGRAM_ID - it must
+        # hold a real, active admin_users row (the owner's own row is
+        # auto-seeded there too), so revoking that row also revokes bot
+        # access for the owner's own id.
         telegram_id = int(payload.get("telegram_id") or 0)
         if not telegram_id:
             raise HTTPException(status_code=403, detail="telegram_user_missing")
@@ -8223,10 +8240,12 @@ def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) 
         telegram_id = _telegram_id_from_init_data(init_data)
         if not telegram_id:
             raise HTTPException(status_code=403, detail="telegram_user_missing")
-    # The project owner is defined by the signed Telegram user id. Do not make
-    # first access depend on an admin_users row that may not exist yet.
-    if telegram_id == SUPERADMIN_TELEGRAM_ID:
-        return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
+        # The project owner is defined by the signed Telegram user id. Do
+        # not make first access depend on an admin_users row that may not
+        # exist yet. This shortcut is exclusive to the Mini App's own
+        # signed-initData path - see the service-authenticated branch above.
+        if telegram_id == SUPERADMIN_TELEGRAM_ID:
+            return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
     ensure_admin_tables()
@@ -8265,7 +8284,7 @@ def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=
 
 @app.post("/api/admin/me")
 async def admin_me(request: Request):
-    actor = _admin_actor(await request.json())
+    actor = _admin_actor(await request.json(), request)
     return {"ok": True, "admin": actor}
 
 
@@ -8296,7 +8315,7 @@ async def public_presence(request: Request):
 
 @app.post("/api/admin/dashboard")
 async def admin_dashboard(request: Request):
-    actor = _admin_actor(await request.json(), "view_dashboard")
+    actor = _admin_actor(await request.json(), request, "view_dashboard")
     ensure_admin_tables()
     ensure_payment_tables()
     ensure_prostudio_table()
@@ -8374,7 +8393,7 @@ async def admin_dashboard(request: Request):
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "view_users")
+    _admin_actor(payload, request, "view_users")
     query = str(payload.get("query") or "").strip()[:100]
     limit = max(1, min(int(payload.get("limit") or 30), 100))
     pattern = f"%{query}%"
@@ -8406,7 +8425,7 @@ async def admin_users_search(request: Request):
 @app.post("/api/admin/users/balance")
 async def admin_user_balance(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_balance")
+    actor = _admin_actor(payload, request, "manage_balance")
     ensure_admin_tables()
     target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
     reason = str(payload.get("reason") or "Ручная корректировка")[:500]
@@ -8434,7 +8453,7 @@ async def admin_user_balance(request: Request):
 @app.post("/api/admin/users/subscription")
 async def admin_user_subscription(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_subscriptions")
+    actor = _admin_actor(payload, request, "manage_subscriptions")
     ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     action = str(payload.get("action") or "extend")
@@ -8482,7 +8501,7 @@ async def admin_user_subscription(request: Request):
 @app.post("/api/admin/users/message")
 async def admin_user_message(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "message_users")
+    actor = _admin_actor(payload, request, "message_users")
     ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     message = str(payload.get("message") or "").strip()
@@ -8515,7 +8534,7 @@ async def admin_user_message(request: Request):
 @app.post("/api/admin/admins/list")
 async def admin_list(request: Request):
     payload = await request.json()
-    _admin_actor(payload, owner_only=True)
+    _admin_actor(payload, request, owner_only=True)
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8531,7 +8550,7 @@ async def admin_list(request: Request):
 @app.post("/api/admin/admins/set")
 async def admin_set(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, owner_only=True)
+    actor = _admin_actor(payload, request, owner_only=True)
     ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     active = bool(payload.get("active", True))
@@ -8568,7 +8587,7 @@ async def admin_set(request: Request):
 @app.post("/api/admin/audit")
 async def admin_audit(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "view_audit")
+    _admin_actor(payload, request, "view_audit")
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8584,7 +8603,7 @@ async def admin_audit(request: Request):
 @app.post("/api/admin/errors")
 async def admin_errors(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "view_errors")
+    _admin_actor(payload, request, "view_errors")
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -8609,7 +8628,7 @@ async def admin_error_reports(request: Request):
     error' button - distinct from prostudio_errors (server-side automatic
     logging): each row here was explicitly flagged by the affected user."""
     payload = await request.json()
-    _admin_actor(payload, "view_errors")
+    _admin_actor(payload, request, "view_errors")
     ensure_prostudio_table()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8638,7 +8657,7 @@ async def admin_user_detail(request: Request):
     recent presence ping. Used both by the Mini App's own admin-less flows
     and by the separate SYLVEX Support Bot's user-profile screen."""
     payload = await request.json()
-    _admin_actor(payload, "view_users")
+    _admin_actor(payload, request, "view_users")
     ensure_admin_tables()
     ensure_payment_tables()
     ensure_prostudio_table()
@@ -8714,7 +8733,7 @@ async def admin_users_online(request: Request):
     Mini App's own presence heartbeat - this table is kept even though the
     admin UI that used to read it lives entirely in the Support Bot now."""
     payload = await request.json()
-    _admin_actor(payload, "view_users")
+    _admin_actor(payload, request, "view_users")
     ensure_admin_tables()
     limit = max(1, min(int(payload.get("limit") or 50), 200))
     window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
@@ -8746,7 +8765,7 @@ async def admin_generations(request: Request):
     """Paginated, filterable generation history across all Pro Studio modes,
     for the Support Bot's Generations section."""
     payload = await request.json()
-    _admin_actor(payload, "view_generations")
+    _admin_actor(payload, request, "view_generations")
     ensure_prostudio_table()
     mode = str(payload.get("mode") or "").strip().lower()[:20]
     status = str(payload.get("status") or "").strip().lower()[:20]
@@ -8794,7 +8813,7 @@ async def admin_subscribers(request: Request):
     """Every subscription purchase (any status), newest first, for the
     Support Bot's Subscribers section."""
     payload = await request.json()
-    _admin_actor(payload, "view_finance")
+    _admin_actor(payload, request, "view_finance")
     ensure_payment_tables()
     limit = max(1, min(int(payload.get("limit") or 30), 100))
     offset = max(0, int(payload.get("offset") or 0))
@@ -8828,7 +8847,7 @@ async def admin_top_spenders(request: Request):
     """Users ranked by total completed-purchase spend, with a
     subscription-vs-credit-pack breakdown via the shared charge_id join."""
     payload = await request.json()
-    _admin_actor(payload, "view_finance")
+    _admin_actor(payload, request, "view_finance")
     ensure_payment_tables()
     limit = max(1, min(int(payload.get("limit") or 20), 100))
     conn = db_connect(DATABASE_URL)
@@ -8864,7 +8883,7 @@ async def admin_messages_broadcast(request: Request):
     user, via the main bot's own BOT_TOKEN - mirrors /api/admin/users/message
     but for many recipients at once, for the Support Bot's broadcast flow."""
     payload = await request.json()
-    actor = _admin_actor(payload, "message_users")
+    actor = _admin_actor(payload, request, "message_users")
     ensure_admin_tables()
     message = str(payload.get("message") or "").strip()
     send_to_all = bool(payload.get("all"))
@@ -8978,7 +8997,7 @@ _REFERENCE_COLUMNS = "id,category,kind,name,description,prompt,model,workflow,pr
 @app.post("/api/admin/references/list")
 async def admin_references_list(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "manage_references")
+    _admin_actor(payload, request, "manage_references")
     ensure_references_table()
     category = str(payload.get("category") or "").strip()[:80]
     kind = str(payload.get("kind") or "").strip().lower()[:20]
@@ -9012,7 +9031,7 @@ async def admin_references_list(request: Request):
 @app.post("/api/admin/references/create")
 async def admin_references_create(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_references")
+    actor = _admin_actor(payload, request, "manage_references")
     ensure_references_table()
     category = str(payload.get("category") or "").strip()[:80]
     kind = str(payload.get("kind") or "").strip().lower()[:20]
@@ -9052,7 +9071,7 @@ async def admin_references_create(request: Request):
 @app.post("/api/admin/references/update")
 async def admin_references_update(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_references")
+    actor = _admin_actor(payload, request, "manage_references")
     ensure_references_table()
     reference_id = int(payload.get("id") or 0)
     if not reference_id:
@@ -9106,7 +9125,7 @@ async def admin_references_update(request: Request):
 @app.post("/api/admin/references/publish")
 async def admin_references_publish(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_references")
+    actor = _admin_actor(payload, request, "manage_references")
     ensure_references_table()
     reference_id = int(payload.get("id") or 0)
     published = bool(payload.get("published", True))
@@ -9138,7 +9157,7 @@ async def admin_references_publish(request: Request):
 @app.post("/api/admin/references/delete")
 async def admin_references_delete(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_references")
+    actor = _admin_actor(payload, request, "manage_references")
     ensure_references_table()
     reference_id = int(payload.get("id") or 0)
     if not reference_id:
@@ -9172,7 +9191,7 @@ async def admin_references_upload_media(request: Request):
     no R2 credentials of its own - mirrors materialize_data_image_url's
     approach but supports video too and returns a plain URL."""
     payload = await request.json()
-    _admin_actor(payload, "manage_references")
+    _admin_actor(payload, request, "manage_references")
     content_b64 = str(payload.get("content_base64") or "")
     slot = str(payload.get("slot") or "preview").strip().lower()
     if slot not in {"preview", "source"}:
