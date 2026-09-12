@@ -256,16 +256,9 @@ HTML-страница Mini App. Комментарии подписывают э
           При нажатии вызывает: switchView('home')
           CSS-класс задаёт внешний вид и расположение: sb-icon
           =================================================== -->
-          <div class="studio-header-actions">
-            <div class="studio-theme-switch" role="group" aria-label="Тема Pro Studio">
-              <button class="studio-theme-option" type="button" data-prostudio-theme="black" onclick="SYLVEX.setProStudioTheme('black')" aria-label="Чёрная тема" title="Чёрная тема"><span aria-hidden="true"></span></button>
-              <button class="studio-theme-option active" type="button" data-prostudio-theme="gray" onclick="SYLVEX.setProStudioTheme('gray')" aria-label="Серая тема" title="Серая тема"><span aria-hidden="true"></span></button>
-              <button class="studio-theme-option" type="button" data-prostudio-theme="white" onclick="SYLVEX.setProStudioTheme('white')" aria-label="Белая тема" title="Белая тема"><span aria-hidden="true"></span></button>
-            </div>
-            <button class="sb-icon" onclick="switchView('home')" title="Home" aria-label="Home">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
-            </button>
-          </div>
+          <button class="sb-icon" onclick="switchView('home')" title="Home" aria-label="Home">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
+          </button>
           <div class="model-pop" id="modelPop" role="menu"></div>
           <div class="mode-strip" id="modeStrip" hidden></div>
         </div>

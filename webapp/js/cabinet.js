@@ -19212,90 +19212,6 @@ async function waitGeneration(jobId, options) {
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
   }
 
-  const PRO_STUDIO_THEMES = new Set(['black', 'gray', 'white']);
-  let studioDotDrag = null;
-
-  function setProStudioTheme(theme) {
-    const selectedTheme = PRO_STUDIO_THEMES.has(theme) ? theme : 'gray';
-    document.documentElement.dataset.prostudioTheme = selectedTheme;
-    try { localStorage.setItem('sylvex-prostudio-theme', selectedTheme); } catch (_) {}
-    document.querySelectorAll('button[data-prostudio-theme]').forEach((button) => {
-      const isActive = button.dataset.prostudioTheme === selectedTheme;
-      button.classList.toggle('active', isActive);
-      button.setAttribute('aria-pressed', String(isActive));
-    });
-  }
-
-  function restoreProStudioTheme() {
-    let savedTheme = 'gray';
-    try { savedTheme = localStorage.getItem('sylvex-prostudio-theme') || savedTheme; } catch (_) {}
-    setProStudioTheme(savedTheme);
-  }
-
-  function ensureStudioGenerationDots() {
-    const studio = document.querySelector('[data-view="tools"] .studio');
-    if (!studio || studio.querySelector('.studio-generation-dots')) return;
-
-    const layer = document.createElement('div');
-    layer.className = 'studio-generation-dots';
-    layer.setAttribute('aria-hidden', 'true');
-    for (let index = 0; index < 46; index += 1) {
-      const dot = document.createElement('i');
-      dot.className = 'studio-generation-dot';
-      dot.style.setProperty('--dot-x', `${Math.round(Math.random() * 100)}%`);
-      dot.style.setProperty('--dot-y', `${Math.round(4 + Math.random() * 90)}%`);
-      dot.style.setProperty('--dot-size', `${(1 + Math.random() * 2.4).toFixed(2)}px`);
-      dot.style.setProperty('--dot-opacity', (0.25 + Math.random() * 0.55).toFixed(2));
-      dot.style.setProperty('--dot-delay', `${(-Math.random() * 3.4).toFixed(2)}s`);
-      dot.style.setProperty('--dot-duration', `${(1.7 + Math.random() * 3.3).toFixed(2)}s`);
-      dot.style.setProperty('--dot-drift', `${Math.round(-12 + Math.random() * 24)}px`);
-      layer.append(dot);
-    }
-    studio.append(layer);
-  }
-
-  function studioDotPan(studio) {
-    return Number.parseFloat(studio.style.getPropertyValue('--studio-dot-pan')) || 0;
-  }
-
-  function setStudioDotPan(studio, value) {
-    const patternWidth = 22;
-    const normalized = ((value % patternWidth) + patternWidth) % patternWidth;
-    studio.style.setProperty('--studio-dot-pan', `${normalized}px`);
-  }
-
-  function bindStudioChatDotPan() {
-    const chat = document.getElementById('chatArea');
-    if (!chat || chat.dataset.dotPanBound === 'true') return;
-    chat.dataset.dotPanBound = 'true';
-
-    const finishDrag = (event) => {
-      if (!studioDotDrag || event.pointerId !== studioDotDrag.pointerId) return;
-      if (chat.hasPointerCapture?.(event.pointerId)) chat.releasePointerCapture(event.pointerId);
-      studioDotDrag = null;
-      chat.classList.remove('is-panning-dots');
-    };
-
-    chat.addEventListener('pointerdown', (event) => {
-      if (event.target !== chat || (event.pointerType === 'mouse' && event.button !== 0)) return;
-      const studio = document.querySelector('[data-view="tools"] .studio');
-      if (!studio || studio.classList.contains('grid-mode')) return;
-      studioDotDrag = { pointerId: event.pointerId, startX: event.clientX, startPan: studioDotPan(studio), studio };
-      chat.setPointerCapture?.(event.pointerId);
-    });
-    chat.addEventListener('pointermove', (event) => {
-      if (!studioDotDrag || event.pointerId !== studioDotDrag.pointerId) return;
-      const distance = event.clientX - studioDotDrag.startX;
-      if (Math.abs(distance) > 3) {
-        chat.classList.add('is-panning-dots');
-        event.preventDefault();
-        setStudioDotPan(studioDotDrag.studio, studioDotDrag.startPan + distance);
-      }
-    });
-    chat.addEventListener('pointerup', finishDrag);
-    chat.addEventListener('pointercancel', finishDrag);
-  }
-
   function setStudioLayout(layout) {
     const mode = layout === 'grid' ? 'grid' : 'classic';
     const studio = document.querySelector('[data-view="tools"] .studio');
@@ -19713,7 +19629,6 @@ async function waitGeneration(jobId, options) {
     const tg = S.tg;
     const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
     S.setTheme(savedTheme);
-    restoreProStudioTheme();
 
     const initialShareId = shareStartId();
     if (initialShareId) {
@@ -19733,8 +19648,6 @@ async function waitGeneration(jobId, options) {
     restoreLocalActiveGeneration();
     initializeProStudioComposerMode();
     initStudioGrid();
-    ensureStudioGenerationDots();
-    bindStudioChatDotPan();
     applyLang();       // triggers renderDynamic
     initHero();
     renderChat();
@@ -19768,7 +19681,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, setProStudioTheme, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
+    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
