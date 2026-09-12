@@ -867,6 +867,28 @@ def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
 
 
 # =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: _download_and_persist_video_bytes
+# Некоторые провайдеры (OpenAI Sora, Google Veo) не возвращают публичную
+# ссылку на готовое видео - файл нужно скачать с той же авторизацией,
+# которой опрашивался статус, и сохранить в R2, чтобы остальной pipeline
+# (который скачивает по URL без авторизации) мог его использовать.
+# =====================================================
+def _download_and_persist_video_bytes(url: str, headers: dict, suffix: str = "mp4") -> str:
+    if not url:
+        return ""
+    try:
+        response = safe_get(url, headers=headers, timeout=180)
+        if getattr(response, "status_code", 0) >= 400 or not response.content:
+            return ""
+        ext = "mp4" if suffix not in {"mp4", "mov", "webm"} else suffix
+        filename = f"{uuid4().hex}.{ext}"
+        return storage_put_bytes(response.content, generated_key("videos", filename), mimetypes.guess_type(filename)[0] or "video/mp4")
+    except Exception as exc:
+        print("VIDEO_AUTH_DOWNLOAD_FAILED:", {"error": type(exc).__name__})
+        return ""
+
+
+# =====================================================
 # ЗАГРУЗКА ФАЙЛОВ: _gemini_file_id_from_uri
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
 # =====================================================
@@ -2920,6 +2942,101 @@ async def poll_video_generation(result: dict) -> dict:
             return _provider_success("gemini", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
         except Exception as exc:
             return _provider_error("gemini", model_id, f"Provider polling failed: {exc}")
+    if provider == "minimax":
+        api_key = _get_env("MINIMAX_API_KEY")
+        if not api_key:
+            return _provider_error("minimax", model_id, "Provider API key is missing: MINIMAX_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        query_endpoint = os.getenv("MINIMAX_QUERY_ENDPOINT", "https://api.minimax.io/v1/query/video_generation")
+        try:
+            response = _request_get(f"{query_endpoint}?task_id={task_id}", headers)
+            data = _safe_provider_json_response(response, "minimax", query_endpoint)
+            _log_provider_response("minimax", "POLL", query_endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("minimax", model_id, data)
+            status = str(data.get("status") or "").strip().lower()
+            if status in {"fail", "failed"}:
+                return _provider_parse_error("minimax", model_id, data)
+            if status not in {"success", "succeed", "succeeded"}:
+                return _provider_success("minimax", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
+            file_id = data.get("file_id") or data.get("fileId") or ""
+            if not file_id:
+                return _provider_error("minimax", model_id, "MiniMax reported success without a file_id")
+            retrieve_endpoint = os.getenv("MINIMAX_FILE_RETRIEVE_ENDPOINT", "https://api.minimax.io/v1/files/retrieve")
+            group_id = _get_env("MINIMAX_GROUP_ID")
+            retrieve_url = f"{retrieve_endpoint}?file_id={file_id}" + (f"&GroupId={group_id}" if group_id else "")
+            file_response = _request_get(retrieve_url, headers)
+            file_data = _safe_provider_json_response(file_response, "minimax", retrieve_endpoint)
+            download_url = _first_value(file_data, ("download_url", "downloadUrl", "url"))
+            if not download_url:
+                return _provider_error("minimax", model_id, "MiniMax file retrieval returned no download URL")
+            completed = _provider_success("minimax", model_id, [str(download_url)], status="completed", task_id=str(task_id))
+            completed["provider_response"] = data
+            return completed
+        except Exception as exc:
+            return _provider_error("minimax", model_id, f"Provider polling failed: {exc}")
+    if provider == "sora":
+        api_key = _get_env("OPENAI_API_KEY")
+        if not api_key:
+            return _provider_error("sora", model_id, "Provider API key is missing: OPENAI_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"}
+        endpoint = str(result.get("poll_url") or f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos/{task_id}")
+        try:
+            response = _request_get(endpoint, headers)
+            data = _safe_provider_json_response(response, "sora", endpoint)
+            _log_provider_response("sora", "POLL", endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("sora", model_id, data)
+            status = str(data.get("status") or "").strip().lower()
+            if status in {"failed", "error", "cancelled", "canceled"}:
+                return _provider_parse_error("sora", model_id, data)
+            if status != "completed":
+                return _provider_success("sora", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+            # OpenAI's video status response carries no direct URL - the
+            # finished video is only available from a separate,
+            # auth-protected content endpoint.
+            video_url = _download_and_persist_video_bytes(f"{endpoint}/content", headers)
+            if not video_url:
+                return _provider_error("sora", model_id, "Sora reported completed but the video content could not be downloaded")
+            completed = _provider_success("sora", model_id, [video_url], status="completed", task_id=str(task_id))
+            completed["provider_response"] = data
+            return completed
+        except Exception as exc:
+            return _provider_error("sora", model_id, f"Provider polling failed: {exc}")
+    if provider == "veo":
+        api_key = _get_env("GOOGLE_API_KEY")
+        if not api_key:
+            return _provider_error("veo", model_id, "Provider API key is missing: GOOGLE_API_KEY")
+        headers = {"x-goog-api-key": api_key}
+        operation_name = str(task_id).lstrip("/")
+        endpoint = str(result.get("poll_url") or f"https://generativelanguage.googleapis.com/v1beta/{operation_name}")
+        try:
+            response = _request_get(endpoint, headers)
+            data = _safe_provider_json_response(response, "veo", endpoint)
+            _log_provider_response("veo", "POLL", endpoint, {"operation": operation_name}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False or data.get("error"):
+                return _provider_parse_error("veo", model_id, data)
+            if not data.get("done"):
+                return _provider_success("veo", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+            response_payload = data.get("response") if isinstance(data.get("response"), dict) else {}
+            generate_response = response_payload.get("generateVideoResponse") if isinstance(response_payload.get("generateVideoResponse"), dict) else response_payload
+            samples = generate_response.get("generatedSamples") if isinstance(generate_response, dict) else None
+            video_uri = ""
+            if isinstance(samples, list):
+                for sample in samples:
+                    if isinstance(sample, dict):
+                        video_info = sample.get("video") if isinstance(sample.get("video"), dict) else {}
+                        video_uri = video_info.get("uri") or ""
+                        if video_uri:
+                            break
+            if not video_uri:
+                return _provider_error("veo", model_id, "Veo operation completed without a video URI")
+            video_url = _download_and_persist_video_bytes(video_uri, headers) or video_uri
+            completed = _provider_success("veo", model_id, [video_url], status="completed", task_id=str(task_id))
+            completed["provider_response"] = data
+            return completed
+        except Exception as exc:
+            return _provider_error("veo", model_id, f"Provider polling failed: {exc}")
     return _provider_success(provider or "video", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
 
 
