@@ -8661,7 +8661,7 @@ function renderImageStylePanel() {
       const selected = selectedId === id;
       const canDelete = isCustomVisualItem(item);
       return `
-        <div class="image-style-card ${selected ? 'selected' : ''}" role="button" tabindex="0" onclick="SYLVEX.openCharacterDetail(event, '${S.escapeHtml(id)}')">
+        <div class="image-style-card ${selected ? 'selected' : ''}" role="button" tabindex="0" onclick="SYLVEX.pickVisualReference(event, 'character', '${S.escapeHtml(id)}')">
           <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
             ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
           </span>
