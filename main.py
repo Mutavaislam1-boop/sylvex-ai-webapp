@@ -5952,6 +5952,82 @@ def verify_persisted_generation_media(result: dict, mode: str) -> list[str]:
     return urls
 
 
+_PROSTUDIO_STORAGE_MERGE_FIELDS = (
+    "image_url", "images", "thumbnail_url", "thumb_url", "thumbnails",
+    "video_url", "videos", "audio_url", "audio_urls", "audios", "music_url",
+    "result_url", "full_url", "url", "file_url", "files", "metadata",
+)
+
+
+def _merge_prostudio_storage_result(job_id: str, persisted_fields: dict, storage_status: str) -> None:
+    """Merge background-persisted media URLs into an already-completed job.
+
+    This is the only writer allowed to touch a completed job's result_json
+    after the fact, and it only ever updates media URLs and storage_status -
+    never the status column itself. It reads-merges-writes under a row lock
+    so it can never clobber whatever the synchronous history/Telegram steps
+    already wrote there (R2 is a side effect, not the generation provider).
+    """
+    if not DATABASE_URL or not job_id:
+        return
+    conn = cursor = None
+    try:
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT status, result_json FROM prostudio_generation_jobs WHERE id=%s FOR UPDATE",
+            (job_id,),
+        )
+        row = cursor.fetchone()
+        if not row or row[0] != "completed":
+            conn.rollback()
+            return
+        current_result = _json_obj(row[1])
+        for field in _PROSTUDIO_STORAGE_MERGE_FIELDS:
+            if persisted_fields.get(field):
+                current_result[field] = persisted_fields[field]
+        current_result["storage_status"] = storage_status
+        cursor.execute(
+            "UPDATE prostudio_generation_jobs SET result_json = %s::jsonb WHERE id=%s",
+            (
+                _safe_json_dumps(_sanitize_event_payload(current_result, max_text=1200, max_items=50, depth=5)),
+                job_id,
+            ),
+        )
+        conn.commit()
+    except Exception as exc:
+        if conn is not None:
+            conn.rollback()
+        prostudio_error("JOB_STORAGE_MERGE_FAILED", exc, job_id=job_id)
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
+
+
+async def finalize_prostudio_media_storage_background(job_id: str, mode: str, provider_result: dict) -> None:
+    """Persist already-delivered generation media to R2 in the background.
+
+    Runs after the job is already committed as completed and the user/
+    Telegram already have the provider's own (possibly temporary) result
+    URLs. A storage failure here only ever flips storage_status to failed -
+    it must never resurrect, fail, or duplicate the generation itself.
+    """
+    started_at = time.monotonic()
+    try:
+        persisted = await asyncio.to_thread(persist_generation_media, dict(provider_result), mode)
+        await asyncio.to_thread(verify_persisted_generation_media, persisted, mode)
+        _merge_prostudio_storage_result(job_id, persisted, "completed")
+        prostudio_debug(
+            "JOB_BACKGROUND_STORAGE_COMPLETED", job_id=job_id, mode=mode,
+            elapsed_ms=round((time.monotonic() - started_at) * 1000),
+        )
+    except Exception as exc:
+        prostudio_error("JOB_BACKGROUND_STORAGE_FAILED", exc, job_id=job_id, mode=mode)
+        _merge_prostudio_storage_result(job_id, {}, "failed")
+
+
 def build_completed_job_result(result: dict, mode: str) -> dict:
     """Build the small durable payload required by Mini App polling."""
     keep = {
@@ -5960,7 +6036,7 @@ def build_completed_job_result(result: dict, mode: str) -> dict:
         "video_url", "videos", "audio_url", "audio_urls", "audios", "music_url",
         "result_url", "full_url", "url", "file_url", "title", "text", "duration",
         "cost", "price", "cost_credits", "generation_cost", "unit_cost_credits",
-        "balance_charged", "balance_after", "charge_id",
+        "balance_charged", "balance_after", "charge_id", "storage_status",
     }
     final_result = {key: value for key, value in result.items() if key in keep}
     final_result["ok"] = True
@@ -15064,24 +15140,21 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             prostudio_debug("JOB_COMPLETED_WITHOUT_RESULT_HELD", job_id=job_id, mode=mode)
             return
 
-        result = await asyncio.to_thread(persist_generation_media, result, mode)
-        persisted_media_urls = await asyncio.to_thread(verify_persisted_generation_media, result, mode)
-        r2_ready_at = time.monotonic()
-        prostudio_debug("JOB_MEDIA_PERSISTED", job_id=job_id, mode=mode, storage="r2" if r2_enabled() else "local")
+        # Non-negotiable rule: the provider's own response is the critical
+        # user-facing result. R2 persistence, thumbnails, history, and
+        # Telegram delivery are side effects and must never delay or
+        # invalidate an already-successful provider result. The provider's
+        # own (possibly temporary/ephemeral) URLs are used immediately;
+        # durable R2 persistence happens afterward in the background and can
+        # only upgrade those URLs later, never flip generation_status.
+        provider_ready_at = time.monotonic()
         prostudio_debug(
-            "JOB_MEDIA_PERSIST_VERIFIED",
+            "JOB_PROVIDER_RESULT_READY",
             job_id=job_id,
             mode=mode,
-            storage="r2" if r2_enabled() else "local",
-            media_count=len(persisted_media_urls),
+            timestamp=round(provider_ready_at, 6),
         )
-        prostudio_debug(
-            "JOB_R2_READY",
-            job_id=job_id,
-            timestamp=round(r2_ready_at, 6),
-            elapsed_ms_since_r2_ready=0,
-        )
-
+        
         telegram_id = int(payload.get("telegram_id") or 0)
         # Provider adapters never decide the customer price. The snapshot was
         # fixed before dispatch and is the only amount shown and settled after
@@ -15123,13 +15196,15 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             "JOB_CHARGE_DONE",
             job_id=job_id,
             timestamp=round(charge_done_at, 6),
-            elapsed_ms_since_r2_ready=round((charge_done_at - r2_ready_at) * 1000),
+            elapsed_ms_since_provider_ready=round((charge_done_at - provider_ready_at) * 1000),
         )
 
-        # This is the only result Mini App needs to stop polling. It contains
-        # verified R2 URLs and the committed balance outcome, but no slow
-        # history/conversation or Telegram side effects.
+        # This is the only result Mini App needs to stop polling. It carries
+        # the provider's own (possibly temporary) URLs immediately - durable
+        # R2 persistence is a background side effect, never a precondition
+        # for showing the user their already-successful result.
         completed_result = build_completed_job_result(result, mode)
+        completed_result["storage_status"] = "pending"
         if not update_prostudio_generation_job(job_id, "completed", result=completed_result):
             raise RuntimeError("Failed to commit completed Pro Studio job")
         completed_committed_at = time.monotonic()
@@ -15137,7 +15212,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             "JOB_COMPLETED_COMMITTED",
             job_id=job_id,
             timestamp=round(completed_committed_at, 6),
-            elapsed_ms_since_r2_ready=round((completed_committed_at - r2_ready_at) * 1000),
+            elapsed_ms_since_provider_ready=round((completed_committed_at - provider_ready_at) * 1000),
         )
         prostudio_debug(
             "JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed",
@@ -15147,6 +15222,14 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             # documented generation time to see whether SYLVEX or the
             # provider dominates total latency for this job.
             total_pipeline_ms=round((time.monotonic() - pipeline_started_at) * 1000),
+        )
+        # Fire-and-forget: durable R2 persistence runs after the job is
+        # already visible to the user. It can only enrich result_json with
+        # permanent URLs later (see _merge_prostudio_storage_result) - it
+        # never touches generation_status, so a storage outage cannot turn
+        # this already-successful generation into a failure.
+        asyncio.create_task(
+            finalize_prostudio_media_storage_background(job_id, mode, dict(result))
         )
 
         # History enriches an already completed job and is intentionally not
@@ -15184,7 +15267,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 job_id=job_id,
                 success=True,
                 timestamp=round(history_done_at, 6),
-                elapsed_ms_since_r2_ready=round((history_done_at - r2_ready_at) * 1000),
+                elapsed_ms_since_provider_ready=round((history_done_at - provider_ready_at) * 1000),
             )
         except Exception as history_exc:
             prostudio_error("JOB_POST_COMPLETION_HISTORY_FAILED", history_exc, job_id=job_id)
@@ -15194,7 +15277,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 job_id=job_id,
                 success=False,
                 timestamp=round(history_done_at, 6),
-                elapsed_ms_since_r2_ready=round((history_done_at - r2_ready_at) * 1000),
+                elapsed_ms_since_provider_ready=round((history_done_at - provider_ready_at) * 1000),
             )
 
         # Telegram is another post-completion side effect and cannot alter the
@@ -15207,7 +15290,7 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             telegram_id=telegram_id,
             sent=bool(telegram_sent),
             timestamp=round(telegram_done_at, 6),
-            elapsed_ms_since_r2_ready=round((telegram_done_at - r2_ready_at) * 1000),
+            elapsed_ms_since_provider_ready=round((telegram_done_at - provider_ready_at) * 1000),
         )
     except Exception as exc:
         prostudio_error("JOB_PROCESS_EXCEPTION", exc, job_id=job_id)
