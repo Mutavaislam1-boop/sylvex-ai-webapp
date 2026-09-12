@@ -1,275 +1,463 @@
 {
-  "id": "photo_18",
+  "id": "photo_01",
   "title": "Название фотографии",
   "description": "",
-  "prompt": "
-  Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
+  "prompt": "Use the uploaded user image as the ONLY reference for the identity, design, shape, proportions, colors, materials, and external appearance of the object.
 
-The final image must unmistakably depict the exact same person from the uploaded photo.
+Create a premium photorealistic 3D EXPLODED-VIEW technical visualization of the EXACT SAME OBJECT shown in the uploaded image.
 
-IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
+The uploaded object must remain immediately recognizable.
 
-Preserve exactly:
-- facial identity
-- gender
-- ethnicity
-- skin tone
-- age impression
-- face shape
-- forehead
-- eyebrows
-- eye shape and eye color
-- nose
-- lips
-- cheekbones
-- jawline
-- chin
-- ears
-- hairline
-- hairstyle, length and texture
-- facial hair if present
-- all distinctive recognizable facial features
+Do NOT replace it with another product, another model, or a generic device.
 
-Do not replace the user with another person.
-Do not change the user’s gender.
-Do not turn the user into a celebrity or generic model.
-Do not significantly beautify, reshape, age, de-age, masculinize or feminize the face.
+The reference examples determine ONLY the exploded-view presentation style, technical visualization language, spacing, composition, lighting, and rendering quality.
 
-If any styling instruction conflicts with identity preservation, always preserve the uploaded user’s real identity.
+==================================================
+OBJECT IDENTITY — HIGHEST PRIORITY
+==================================================
 
---------------------------------------------------
-CONCEPT
---------------------------------------------------
+Preserve the exact external design of the uploaded object:
 
-Create an ultra-realistic premium cinematic studio portrait with dramatic magenta-and-cyan split lighting.
+- overall shape
+- proportions
+- dimensions
+- silhouette
+- corner radius
+- buttons
+- openings
+- ports
+- cameras if present
+- controls
+- surface details
+- materials
+- colors
+- textures
+- branding placement if visible
+- distinctive design characteristics
 
-The result should look like a professional modern editorial portrait photographed in a dark studio.
+The fully assembled outer shell visible at the TOP of the exploded structure must look exactly like the uploaded object.
 
-Only ONE person exists in the image.
+Do NOT redesign or modernize the product.
 
-The subject stands directly in front of the camera against a deep black / very dark charcoal background.
+Do NOT change its color.
 
-The portrait should feel minimal, powerful, clean and expensive.
+Do NOT simplify its recognizable exterior.
 
---------------------------------------------------
-POSE & EXPRESSION
---------------------------------------------------
+==================================================
+EXPLODED VIEW — CORE REQUIREMENT
+==================================================
 
-The person faces generally toward the camera.
+Transform the object into a sophisticated vertical exploded-view assembly.
 
-The head remains upright and centered.
+The product must appear carefully disassembled into multiple physical layers floating above one another.
 
-Eyes look directly toward the camera or only very slightly off-center.
+All components must remain perfectly aligned along the original assembly axis.
 
-Expression:
-- calm
-- neutral
-- composed
-- subtly confident
-- natural
-- relaxed
+The viewer should immediately understand how the separated components would physically fit back together.
 
-A very slight soft smile is acceptable, but no broad smile.
+The exploded structure must feel mechanically logical.
 
-Keep the mouth relaxed.
+Think of the object as being frozen during a precise technical disassembly.
 
-Shoulders lowered and relaxed.
+==================================================
+VERTICAL LAYER STRUCTURE
+==================================================
 
-Keep the neck clearly visible and naturally slightly elongated.
+Separate the object into approximately 6–10 major layers, depending on the actual construction of the uploaded object.
 
-Do not let the head appear compressed into the shoulders.
+The layers should be vertically spaced with clean, consistent gaps.
 
---------------------------------------------------
-FRAMING
---------------------------------------------------
+Possible layers may include, ONLY when physically appropriate:
 
-Vertical studio portrait.
+1. outer top shell / front housing
+2. protective internal plate
+3. main PCB / motherboard
+4. secondary electronic modules
+5. battery
+6. structural internal frame
+7. speakers or acoustic modules
+8. motors / actuators
+9. control modules
+10. connectors and flex cables
+11. display assembly if applicable
+12. lower structural frame
+13. bottom/rear housing
 
-Show approximately:
-- complete head
-- neck
-- shoulders
-- chest
-- upper torso
+The exact components MUST be adapted logically to the type of object shown in the uploaded image.
 
-Frame from around mid-chest or slightly below the chest upward.
+Do NOT insert obviously unrelated components.
 
-Do not crop the top of the head.
+==================================================
+CRITICAL ASSEMBLY ALIGNMENT
+==================================================
 
-Leave some clean negative space around the head.
+Every separated component must occupy the position it would have inside the assembled product.
 
-The person should occupy approximately 55–70% of the frame height.
+The exploded layers must NOT look randomly scattered.
 
-Do not use an extreme close-up.
+Maintain:
 
---------------------------------------------------
-CLOTHING
---------------------------------------------------
+- common central axis
+- matching screw locations
+- matching openings
+- matching connectors
+- logical PCB placement
+- realistic battery position
+- correct structural relationships
+- consistent orientation between layers
 
-Dress the user in a plain minimal black crew-neck T-shirt or black sweatshirt.
+If all layers were moved vertically toward one another, they should visually reconstruct the original product.
 
-No logo.
-No graphics.
-No visible branding.
-No text.
-No excessive jewelry.
+THIS IS CRITICAL.
 
-The clothing should blend naturally into the dark background and keep all visual attention on the face.
+==================================================
+TRANSPARENT SEPARATION PLATES
+==================================================
 
-Adapt the garment naturally to the user’s actual gender.
+Between selected component layers, add thin transparent glass-like technical separation plates similar to the visual references.
 
---------------------------------------------------
-HAIR
---------------------------------------------------
+These plates should:
 
-Preserve the uploaded user’s actual:
-- hairstyle
-- hairline
-- hair length
-- texture
-- volume
-- natural color
+- follow the approximate footprint of the product
+- have rounded edges when appropriate
+- be extremely thin
+- appear crystal clear
+- have subtle realistic reflections
+- have faint edge highlights
+- remain visually secondary
 
-Do NOT automatically make the hair blonde.
+The transparent plates are PRESENTATION ELEMENTS, not actual internal product components.
 
-Do NOT redesign the hairstyle.
+They help visually organize the exploded structure.
 
-The magenta and cyan light may create colored highlights on the hair, but the underlying hair color must remain faithful to the uploaded user.
+Do NOT make them thick.
 
---------------------------------------------------
-LIGHTING
---------------------------------------------------
+Do NOT make them heavily tinted.
 
-Use strong professional two-color cinematic studio lighting.
+Do NOT obscure the internal components.
 
-One side of the face:
-MAGENTA / PURPLE / DEEP PINK.
+==================================================
+INTERNAL COMPONENT DETAIL
+==================================================
 
-Opposite side:
-CYAN / TEAL / COOL BLUE.
+Internal electronics should be rendered with extremely high technical detail.
 
-The lighting should create a clean split-color effect across:
-- hair
-- temples
-- cheekbones
-- jawline
-- neck
-- shoulders
+Include realistic details where appropriate:
 
-The central facial area should remain natural enough that identity is clearly preserved.
+- printed circuit boards
+- microchips
+- processors
+- memory modules
+- capacitors
+- connectors
+- ribbon cables
+- wiring
+- batteries
+- structural brackets
+- screws
+- sensors
+- speakers
+- motors
+- mechanical controls
+- mounting points
 
-Use:
-- controlled magenta rim light
-- cyan edge light
-- soft neutral frontal fill
-- subtle highlights in the eyes
-- deep but readable shadows
+Use realistic manufacturing materials:
 
-Avoid fully coloring the entire face.
+- matte black polymer
+- anodized aluminum
+- copper
+- dark PCB substrate
+- metallic contacts
+- silicon chips
+- rubber
+- fabric mesh
+- glass
+- stainless steel
 
-The user’s real skin tone must remain visible beneath the colored lighting.
+The internal construction should feel credible and engineered rather than decorative science fiction.
 
---------------------------------------------------
+==================================================
+TOP AND BOTTOM HOUSING
+==================================================
+
+The exterior housing should be separated into clearly recognizable structural sections.
+
+The uppermost visible exterior component should preserve the recognizable face/top/exterior of the original product.
+
+The lowest housing component should show the internal cavity where the electronics would normally sit.
+
+Internal mounting structures may be visible:
+
+- screw posts
+- clips
+- structural ribs
+- mounting brackets
+- internal cavities
+
+==================================================
+FLOATING PHYSICS
+==================================================
+
+All layers float perfectly in space.
+
+There are no visible supports holding them together.
+
+The floating arrangement must feel clean and deliberate rather than chaotic.
+
+Maintain generous but controlled spacing.
+
+No component should collide with another.
+
+Small components may float slightly beside their original mounting position ONLY when necessary to make them visible.
+
+Major structural components MUST remain aligned vertically.
+
+==================================================
+CAMERA
+==================================================
+
+Use a premium technical-product visualization camera.
+
+Three-quarter elevated perspective.
+
+Camera approximately 15–30 degrees above the object.
+
+Slight perspective depth.
+
+Avoid extreme wide-angle distortion.
+
+The complete exploded assembly must fit comfortably inside the frame.
+
+Nothing important should be cropped.
+
+The viewer must clearly see:
+
+- exterior housing
+- internal electronics
+- transparent separator layers
+- mechanical components
+- bottom structure
+
+==================================================
+COMPOSITION
+==================================================
+
+Vertical composition.
+
+Place the exploded product centrally.
+
+The complete structure should occupy approximately 70–80% of the image height.
+
+Leave clean negative space around all sides.
+
+Maintain a strong central vertical axis.
+
+Layer spacing should be visually consistent.
+
+The composition should resemble a premium engineering presentation or industrial-design visualization.
+
+==================================================
 BACKGROUND
---------------------------------------------------
+==================================================
 
-Minimal dark studio background.
+Use a seamless very light neutral studio background:
 
-Use:
-- deep black
-- charcoal
-- extremely subtle blue-black gradient
+- soft white
+- extremely light cool gray
+- subtle off-white
 
 No environment.
-No furniture.
-No visible room.
-No objects.
-No patterns.
-No text.
 
---------------------------------------------------
-CAMERA
---------------------------------------------------
+No table.
 
-Professional full-frame portrait photography.
+No room.
 
-Approximately 70–100mm portrait lens.
+No scenery.
 
-Straight-on perspective.
+The object appears suspended in a clean infinite studio space.
 
-Eye-level camera.
+Add only an extremely subtle floor/contact shadow beneath the complete assembly to provide depth.
 
-Sharp focus on:
-- eyes
-- eyebrows
-- nose
-- lips
-- facial hair
-- skin texture
+==================================================
+LIGHTING
+==================================================
 
-Natural facial perspective.
+Use high-end commercial product photography lighting.
 
-No wide-angle distortion.
+Large soft studio illumination.
 
-Use:
-- realistic skin texture
-- natural pores
-- high micro-detail
-- subtle depth of field
-- fine analog film grain
-- high dynamic range
-- premium editorial sharpness
+Soft directional key light from upper front-left.
 
---------------------------------------------------
-VISUAL STYLE
---------------------------------------------------
+Gentle fill light.
 
-ultra-realistic photography
-cinematic studio portrait
-magenta and cyan split lighting
-dark minimalist studio
-premium fashion editorial
-modern celebrity-style photography without copying any real person
-high-end magazine portrait
-natural skin texture
-strong color separation
-clean black clothing
-soft rim lighting
-dramatic but controlled contrast
-subtle film grain
-luxury studio aesthetic
-professional color grading
-photorealistic
+Subtle rim highlights.
 
---------------------------------------------------
-CRITICAL CONSTRAINTS
---------------------------------------------------
+Controlled reflections on:
 
-same exact person from uploaded photo
-exact gender preserved
-same recognizable face
-same skin tone
-same ethnicity
-same age impression
-same face shape
-same eye shape
-same nose
-same lips
-same jawline
-same hairline
-same hairstyle characteristics
-same facial hair if present
-black top
-dark background
-magenta light on one side
-cyan light on opposite side
-sharp face
-natural skin
-one person only
-no identity drift
+- metal
+- glass
+- plastic
+- PCB components
+- transparent plates
 
---------------------------------------------------
-NEGATIVE PROMPT
---------------------------------------------------
+Preserve excellent visibility inside dark components.
 
-different person, changed identity, changed gender, celebrity face, generic model face, face swap, altered facial structure, altered nose, altered lips, altered jawline, different eye shape, different skin tone, different hairstyle, forced blonde hair, excessive beautification, plastic skin, over-smoothed skin, heavy makeup, exaggerated smile, aggressive expression, side profile, head turned too far, closed eyes, sunglasses, multiple people, duplicate person, motion blur, duplicated face, ghost effect, extra head, distorted face, compressed neck, raised shoulders, white clothing, colorful clothing, logos, jewelry overload, outdoor scene, room interior, furniture, bright background, neon signs, text, typography, watermark, social-media interface, CGI, 3D render, anime, cartoon, illustration, low resolution, blurry face, blurry eyes.
+No crushed blacks.
+
+No dramatic cinematic darkness.
+
+No excessive bloom.
+
+==================================================
+RENDERING STYLE
+==================================================
+
+Ultra-premium photorealistic 3D industrial-design visualization.
+
+Extremely precise geometry.
+
+Physically based rendering.
+
+Ray-traced reflections.
+
+Global illumination.
+
+Realistic material roughness.
+
+Subtle ambient occlusion.
+
+Clean anti-aliased edges.
+
+Micro-level component detail.
+
+Professional CAD visualization quality combined with luxury commercial product photography.
+
+Extremely sharp.
+
+High resolution.
+
+Clean engineering aesthetic.
+
+==================================================
+OPTIONAL TECHNICAL CALLOUTS
+==================================================
+
+If technical labels are used, keep them extremely minimal.
+
+Use thin dark-gray horizontal leader lines pointing toward selected major components.
+
+Labels should appear outside the product rather than covering components.
+
+Examples ONLY when actually applicable:
+
+PCB
+Battery
+Main Board
+Speaker Module
+Motor
+Control Module
+Structural Frame
+
+Do NOT invent specific processor names, chip models, capacities, technical specifications, or proprietary component names that cannot be determined from the uploaded image.
+
+If internal architecture is unknown, prioritize visual plausibility rather than claiming factual engineering accuracy.
+
+==================================================
+ABSOLUTE NEGATIVE CONSTRAINTS
+==================================================
+
+DO NOT:
+
+- change the identity of the uploaded product
+- replace it with another product
+- redesign the exterior
+- change its recognizable proportions
+- randomly scatter components
+- rotate individual major layers into unrelated orientations
+- create chaotic floating debris
+- create impossible overlapping parts
+- add unrelated electronic components
+- create fantasy technology
+- create glowing sci-fi circuitry
+- create holograms
+- use excessive neon lighting
+- use a dark background
+- add hands
+- add people
+- add tools
+- add a workbench
+- add packaging
+- add decorative objects
+- add unnecessary typography
+- invent technical specifications
+- crop important layers
+
+==================================================
+FINAL ASSEMBLY LOGIC — CRITICAL
+==================================================
+
+Imagine an invisible vertical assembly axis passing through the center of the product.
+
+Every major layer must follow this axis.
+
+The visual hierarchy should read clearly:
+
+EXTERIOR SHELL
+↓
+INTERNAL STRUCTURAL LAYER
+↓
+MAIN ELECTRONICS
+↓
+BATTERY / FUNCTIONAL MODULES
+↓
+SECONDARY COMPONENTS
+↓
+INTERNAL FRAME
+↓
+BOTTOM / REAR HOUSING
+
+Transparent presentation plates may separate these stages.
+
+The gaps should clearly reveal each component while preserving the relationship between them.
+
+If the exploded layers were compressed vertically together, they should reconstruct a believable version of the original uploaded object.
+
+==================================================
+FINAL PRIORITY
+==================================================
+
+PRIORITY 1:
+Preserve the EXACT recognizable uploaded object.
+
+PRIORITY 2:
+Create a mechanically logical exploded-view structure.
+
+PRIORITY 3:
+Clearly expose sophisticated internal components.
+
+PRIORITY 4:
+Maintain perfect vertical alignment between all major layers.
+
+PRIORITY 5:
+Use thin transparent separator plates to create the premium technical presentation seen in the style references.
+
+PRIORITY 6:
+Use clean white studio lighting and ultra-premium photorealistic industrial rendering.
+
+FINAL VISUAL RESULT:
+
+EXACT ORIGINAL OBJECT
++
+VERTICALLY EXPLODED CONSTRUCTION
++
+REALISTIC INTERNAL ELECTRONICS
++
+PRECISELY ALIGNED COMPONENTS
++
+THIN TRANSPARENT SEPARATOR PLATES
++
+CLEAN WHITE TECHNICAL STUDIO
++
+PREMIUM PHOTOREALISTIC 3D PRODUCT VISUALIZATION.
+
+The image must look like an expensive professional exploded-view product visualization created for an industrial-design presentation, while the original uploaded object remains immediately recognizable.

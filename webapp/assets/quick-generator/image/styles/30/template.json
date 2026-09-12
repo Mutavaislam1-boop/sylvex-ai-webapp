@@ -1,275 +1,82 @@
 {
-  "id": "photo_18",
+  "id": "photo_30",
   "title": "Название фотографии",
   "description": "",
-  "prompt": "
-  Use the uploaded user photo as the ONLY and EXCLUSIVE identity reference.
-
-The final image must unmistakably depict the exact same person from the uploaded photo.
+"prompt": "Use the uploaded user photo as the ONLY identity reference.
 
 IDENTITY PRESERVATION IS THE HIGHEST PRIORITY.
 
-Preserve exactly:
-- facial identity
-- gender
-- ethnicity
-- skin tone
-- age impression
-- face shape
-- forehead
-- eyebrows
-- eye shape and eye color
-- nose
-- lips
-- cheekbones
-- jawline
-- chin
-- ears
-- hairline
-- hairstyle, length and texture
-- facial hair if present
-- all distinctive recognizable facial features
-
-Do not replace the user with another person.
-Do not change the user’s gender.
-Do not turn the user into a celebrity or generic model.
-Do not significantly beautify, reshape, age, de-age, masculinize or feminize the face.
-
-If any styling instruction conflicts with identity preservation, always preserve the uploaded user’s real identity.
-
---------------------------------------------------
-CONCEPT
---------------------------------------------------
-
-Create an ultra-realistic premium cinematic studio portrait with dramatic magenta-and-cyan split lighting.
-
-The result should look like a professional modern editorial portrait photographed in a dark studio.
-
-Only ONE person exists in the image.
-
-The subject stands directly in front of the camera against a deep black / very dark charcoal background.
-
-The portrait should feel minimal, powerful, clean and expensive.
-
---------------------------------------------------
-POSE & EXPRESSION
---------------------------------------------------
-
-The person faces generally toward the camera.
-
-The head remains upright and centered.
-
-Eyes look directly toward the camera or only very slightly off-center.
-
-Expression:
-- calm
-- neutral
-- composed
-- subtly confident
-- natural
-- relaxed
-
-A very slight soft smile is acceptable, but no broad smile.
-
-Keep the mouth relaxed.
-
-Shoulders lowered and relaxed.
-
-Keep the neck clearly visible and naturally slightly elongated.
-
-Do not let the head appear compressed into the shoulders.
-
---------------------------------------------------
-FRAMING
---------------------------------------------------
-
-Vertical studio portrait.
-
-Show approximately:
-- complete head
-- neck
-- shoulders
-- chest
-- upper torso
-
-Frame from around mid-chest or slightly below the chest upward.
-
-Do not crop the top of the head.
-
-Leave some clean negative space around the head.
-
-The person should occupy approximately 55–70% of the frame height.
-
-Do not use an extreme close-up.
-
---------------------------------------------------
-CLOTHING
---------------------------------------------------
-
-Dress the user in a plain minimal black crew-neck T-shirt or black sweatshirt.
-
-No logo.
-No graphics.
-No visible branding.
-No text.
-No excessive jewelry.
-
-The clothing should blend naturally into the dark background and keep all visual attention on the face.
-
-Adapt the garment naturally to the user’s actual gender.
-
---------------------------------------------------
-HAIR
---------------------------------------------------
-
-Preserve the uploaded user’s actual:
-- hairstyle
-- hairline
-- hair length
-- texture
-- volume
-- natural color
-
-Do NOT automatically make the hair blonde.
-
-Do NOT redesign the hairstyle.
-
-The magenta and cyan light may create colored highlights on the hair, but the underlying hair color must remain faithful to the uploaded user.
-
---------------------------------------------------
-LIGHTING
---------------------------------------------------
-
-Use strong professional two-color cinematic studio lighting.
-
-One side of the face:
-MAGENTA / PURPLE / DEEP PINK.
-
-Opposite side:
-CYAN / TEAL / COOL BLUE.
-
-The lighting should create a clean split-color effect across:
-- hair
-- temples
-- cheekbones
-- jawline
-- neck
-- shoulders
-
-The central facial area should remain natural enough that identity is clearly preserved.
-
-Use:
-- controlled magenta rim light
-- cyan edge light
-- soft neutral frontal fill
-- subtle highlights in the eyes
-- deep but readable shadows
-
-Avoid fully coloring the entire face.
-
-The user’s real skin tone must remain visible beneath the colored lighting.
-
---------------------------------------------------
-BACKGROUND
---------------------------------------------------
-
-Minimal dark studio background.
-
-Use:
-- deep black
-- charcoal
-- extremely subtle blue-black gradient
-
-No environment.
-No furniture.
-No visible room.
-No objects.
-No patterns.
-No text.
-
---------------------------------------------------
-CAMERA
---------------------------------------------------
-
-Professional full-frame portrait photography.
-
-Approximately 70–100mm portrait lens.
-
-Straight-on perspective.
-
-Eye-level camera.
-
-Sharp focus on:
-- eyes
-- eyebrows
-- nose
-- lips
-- facial hair
-- skin texture
-
-Natural facial perspective.
-
-No wide-angle distortion.
-
-Use:
-- realistic skin texture
-- natural pores
-- high micro-detail
-- subtle depth of field
-- fine analog film grain
-- high dynamic range
-- premium editorial sharpness
-
---------------------------------------------------
-VISUAL STYLE
---------------------------------------------------
-
-ultra-realistic photography
-cinematic studio portrait
-magenta and cyan split lighting
-dark minimalist studio
-premium fashion editorial
-modern celebrity-style photography without copying any real person
-high-end magazine portrait
-natural skin texture
-strong color separation
-clean black clothing
-soft rim lighting
-dramatic but controlled contrast
-subtle film grain
-luxury studio aesthetic
-professional color grading
-photorealistic
-
---------------------------------------------------
-CRITICAL CONSTRAINTS
---------------------------------------------------
-
-same exact person from uploaded photo
-exact gender preserved
-same recognizable face
-same skin tone
-same ethnicity
-same age impression
-same face shape
-same eye shape
-same nose
-same lips
-same jawline
-same hairline
-same hairstyle characteristics
-same facial hair if present
-black top
-dark background
-magenta light on one side
-cyan light on opposite side
-sharp face
-natural skin
-one person only
-no identity drift
-
---------------------------------------------------
-NEGATIVE PROMPT
---------------------------------------------------
-
-different person, changed identity, changed gender, celebrity face, generic model face, face swap, altered facial structure, altered nose, altered lips, altered jawline, different eye shape, different skin tone, different hairstyle, forced blonde hair, excessive beautification, plastic skin, over-smoothed skin, heavy makeup, exaggerated smile, aggressive expression, side profile, head turned too far, closed eyes, sunglasses, multiple people, duplicate person, motion blur, duplicated face, ghost effect, extra head, distorted face, compressed neck, raised shoulders, white clothing, colorful clothing, logos, jewelry overload, outdoor scene, room interior, furniture, bright background, neon signs, text, typography, watermark, social-media interface, CGI, 3D render, anime, cartoon, illustration, low resolution, blurry face, blurry eyes.
+Transform the person from the uploaded photo into a sophisticated cinematic black-and-white Parisian café portrait while preserving the exact same person. Keep the original gender, facial structure, face shape, eyes, nose, lips, jawline, skin tone appearance translated naturally into monochrome, age appearance, hairstyle structure, facial hair if present, and all recognizable identity-defining features. Do not replace the person with another face, do not beautify the identity, and do not make the subject resemble any celebrity.
+
+Create a vertical editorial street-photography composition in the style of an elegant timeless European fashion photograph. The subject is seated outdoors at a classic Parisian sidewalk café on a traditional café chair, framed approximately from the knees or upper legs upward. The subject sits comfortably with one leg crossed over the other, body relaxed but confident.
+
+Dress the subject entirely in refined dark clothing: a tailored dark charcoal or black blazer, a dark open-collar shirt underneath, elegant dark trousers, and understated polished styling. Add classic rectangular black sunglasses with a clean timeless shape. The overall appearance should feel mature, sophisticated, effortless, understated, and expensive without looking flashy.
+
+POSE:
+The subject sits naturally at the café table with one leg crossed over the other. One arm rests casually near the chair or table while the other hand is raised loosely near the side of the face, fingers naturally relaxed as if caught in a spontaneous candid moment. Avoid rigid fashion posing. The posture should communicate quiet confidence and calm authority.
+
+EXPRESSION:
+The face should remain composed, calm, slightly serious, and self-assured. No exaggerated smile. The mouth remains naturally relaxed. The subject may look slightly away from the camera rather than directly into the lens, creating an authentic candid editorial feeling.
+
+ENVIRONMENT:
+Place the subject at an authentic Parisian street café. Include small round café tables, classic woven or metal café chairs, Haussmann-style stone buildings, balconies with dark railings, storefront awnings, pedestrians in the distance, parked or slowly passing European cars, subtle urban activity, and cobblestone or traditional Paris pavement.
+
+The background must feel like a real Paris street rather than a studio set. Environmental details should remain secondary to the subject and should soften naturally with depth of field.
+
+A small espresso cup and saucer may sit on the nearby café table. A folded newspaper can rest casually on the table to reinforce the classic European morning café atmosphere.
+
+PHOTOGRAPHIC STYLE:
+Pure black-and-white photography.
+No color tint.
+No selective color.
+Deep but detailed blacks.
+Soft luminous highlights.
+Rich middle-gray tonal range.
+Slightly lifted film grain.
+Classic analogue 35mm editorial photography character.
+Elegant contrast without crushed shadows.
+Natural skin texture.
+Subtle film grain and very light optical imperfection.
+
+The photograph should feel timeless, as if shot for an international luxury fashion editorial or an archival European street-photography series.
+
+LIGHTING:
+Use natural overcast or softly diffused daylight. The lighting should be soft and directional, giving gentle modeling to the face and clothing without hard commercial studio highlights. Preserve detail in dark clothing. No artificial glamour glow.
+
+CAMERA:
+Vertical portrait orientation.
+Eye-level or slightly lower-than-eye-level camera position.
+Approximately 50mm–85mm full-frame portrait perspective.
+Moderately shallow depth of field.
+Subject extremely sharp.
+Background softly separated but still recognizable as Paris.
+Natural proportions with no wide-angle distortion.
+Documentary editorial framing rather than perfectly symmetrical studio composition.
+
+The subject must remain the dominant visual focus while still showing enough environment to clearly communicate a Parisian café setting.
+
+QUALITY:
+Photorealistic.
+High-resolution.
+Detailed natural skin.
+Accurate hands and fingers.
+Realistic sunglasses.
+Realistic clothing fabrics.
+Realistic café furniture.
+Natural anatomy.
+Subtle authentic imperfections.
+Premium editorial photography.
+
+IMPORTANT:
+Do not turn the image into a fashion advertisement.
+Do not add artificial luxury props.
+Do not over-retouch the skin.
+Do not make the scene glossy or overly modern.
+Do not make the pose theatrical.
+Do not change the person's identity.
+Do not generate additional foreground people.
+Do not add cigarettes.
+Do not add text, captions, typography, logos, watermarks, signatures, borders, social-media interface elements, or branding.
+
+FINAL RESULT:
+A timeless, masculine or feminine depending on the uploaded subject, sophisticated black-and-white Paris café portrait: the same recognizable person sitting casually outdoors in dark tailoring and black sunglasses, one leg crossed, one hand raised naturally near the face, surrounded by authentic Parisian architecture and understated street life, captured with elegant cinematic 35mm monochrome editorial photography.
