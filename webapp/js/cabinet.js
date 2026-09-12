@@ -11145,14 +11145,18 @@ function renderGeneratedTelegramButton(url, kind) {
   // кнопка в магазин и горизонтальная карусель названий доступных моделей.
   // =====================================================
   function renderSubscriptionRequiredCard(m, index) {
-    const chips = PRO_STUDIO_SHOWCASE_MODELS.map((name) =>
-      '<span class="pro-subscription-model-chip">' + S.escapeHtml(name) + '</span>'
+    // Reuses the exact same model logos + continuous-marquee mechanism as
+    // the Home screen's AI model strip (HOME_AI_MODELS / existingHomeModelLogo
+    // / .ai-strip .ai-strip-track) - no new icon assets, no separate
+    // marquee implementation.
+    const chips = HOME_AI_MODELS.map(([family, label]) =>
+      '<span class="ai-chip ai-' + family + '"><i>' + existingHomeModelLogo(family) + '</i><b>' + S.escapeHtml(label) + '</b></span>'
     ).join('');
     return '<div class="pro-subscription-card">'
       + '<div class="pro-subscription-title">Доступ к Pro Studio</div>'
       + '<div class="pro-subscription-text">Подписка открывает безлимитные генерации, приоритетную очередь и все AI-модели Pro Studio в одном месте.</div>'
       + '<button type="button" class="pro-subscription-cta" onclick="SYLVEX.openShopForGeneration(event,' + index + ')">Оформить подписку</button>'
-      + '<div class="pro-subscription-models">' + chips + '</div>'
+      + '<div class="pro-subscription-models ai-strip" aria-hidden="true"><div class="ai-strip-track">' + chips + chips + '</div></div>'
       + '</div>';
   }
 
@@ -11350,6 +11354,20 @@ function renderGeneratedTelegramButton(url, kind) {
   // =====================================================
   function renderChat() {
     const el = document.getElementById('chatArea'); if (!el) return;
+    // Each retried generation that still lacks an active subscription
+    // independently produces its own subscriptionRequired message (see
+    // resolveFailureMessage) - collapse to the one card already in this
+    // conversation instead of stacking a fresh copy on every attempt. The
+    // first (oldest) card is kept in its natural place; later duplicates
+    // are dropped before render. Subscription validation itself is
+    // untouched - this only prevents duplicate insertion/rendering.
+    let firstSubscriptionCardIndex = -1;
+    for (let i = 0; i < chatMessages.length; i++) {
+      if (!chatMessages[i] || !chatMessages[i].subscriptionRequired) continue;
+      if (firstSubscriptionCardIndex === -1) { firstSubscriptionCardIndex = i; continue; }
+      chatMessages.splice(i, 1);
+      i--;
+    }
     el.innerHTML = chatMessages.map((m, i) => {
       if (m.textLoading) {
         return '<div class="msg ai text-loading-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
@@ -15771,16 +15789,6 @@ function buildGenerationErrorMessage(err, opts) {
     },
   };
 }
-
-// A representative showcase of models across Pro Studio's modes for the
-// subscription-required card's model carousel - purely presentational,
-// not required to track the live catalog exactly.
-const PRO_STUDIO_SHOWCASE_MODELS = [
-  'GPT-5.6', 'Gemini 3.1 Pro', 'Grok 4.1', 'Sora 2 Pro', 'Veo 3.1',
-  'Kling O3 Omni', 'Seedance 1.5 Pro', 'Ideogram 3.0', 'Nano Banana 2',
-  'ElevenLabs v3', 'Suno Chirp 5.5', 'Runway Gen4.5', 'MiniMax Hailuo 2.3',
-  'Qwen Image 2 Pro',
-];
 
 // =====================================================
 // JAVASCRIPT-БЛОК: buildSubscriptionRequiredMessage
