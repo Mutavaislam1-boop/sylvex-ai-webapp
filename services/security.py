@@ -21,7 +21,7 @@ PUBLIC_GETS = frozenset({
  '/api/public/prostudio/photo-catalog', '/api/public/prostudio/photo-tool-demos',
  '/api/public/prostudio/quick-image-catalog', '/api/public/prostudio/kling/effects',
  '/api/public/prostudio/pricing-catalog',
- '/api/public/video/templates',
+ '/api/public/video/templates', '/api/public/prostudio/references',
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook'})
@@ -129,20 +129,42 @@ class SecurityMiddleware:
    if not init_data and json_body:init_data=str(json_body.get('initData') or json_body.get('init_data') or '')
    if not init_data:init_data=next((v for k,v in query if k in {'init_data','initData'}),'')
    uid=0
+   # The Support Bot is a separate Telegram bot/token and can never produce
+   # a valid initData signature for this app's BOT_TOKEN. A matching shared
+   # secret, sent as a header (never in the JSON body, so it never lands in
+   # request logs of the body) on an /api/admin/ request lets it
+   # authenticate as the Telegram user it names - _admin_actor still runs
+   # the normal admin_users role/permission lookup for that id, so this
+   # only proves the caller is the trusted support-bot backend, not that
+   # the named id is an admin.
+   admin_service_token=os.getenv('ADMIN_SERVICE_TOKEN','').strip()
+   service_authenticated=False
+   if path.startswith('/api/admin/') and admin_service_token:
+    presented=headers.get(b'x-admin-service-token',b'').decode().strip()
+    if not presented:
+     auth_header=headers.get(b'authorization',b'').decode().strip()
+     if auth_header.lower().startswith('bearer '):presented=auth_header[7:].strip()
+    service_authenticated=bool(presented) and hmac.compare_digest(presented,admin_service_token)
    if not is_public and not is_webhook:
-    user=validated_user(init_data);uid=user['id']
-    admin=path.startswith('/api/admin/')
-    if not admin:
-     ids=[v for k,v in query if k=='telegram_id']
-     if json_body is not None and 'telegram_id' in json_body:ids.append(json_body['telegram_id'])
-     if path.startswith('/api/cabinet/'):ids.append(path.rsplit('/',1)[-1])
-     for claimed in ids:
-      try:
-       if isinstance(claimed, (bool, list, dict)) or int(claimed or 0) not in (0,uid):raise ValueError()
-      except (ValueError,TypeError):raise SecurityError('user_mismatch',403)
-     query=[(k,v) for k,v in query if k!='telegram_id']+[('telegram_id',str(uid))]
-     scope['query_string']=urlencode(query).encode()
-     if json_body is not None:json_body['telegram_id']=uid
+    if service_authenticated:
+     try:uid=int((json_body or {}).get('telegram_id') or 0)
+     except (TypeError,ValueError):uid=0
+     if not uid:raise SecurityError('telegram_user_missing')
+     user={'id':uid};admin=True
+    else:
+     user=validated_user(init_data);uid=user['id']
+     admin=path.startswith('/api/admin/')
+     if not admin:
+      ids=[v for k,v in query if k=='telegram_id']
+      if json_body is not None and 'telegram_id' in json_body:ids.append(json_body['telegram_id'])
+      if path.startswith('/api/cabinet/'):ids.append(path.rsplit('/',1)[-1])
+      for claimed in ids:
+       try:
+        if isinstance(claimed, (bool, list, dict)) or int(claimed or 0) not in (0,uid):raise ValueError()
+       except (ValueError,TypeError):raise SecurityError('user_mismatch',403)
+      query=[(k,v) for k,v in query if k!='telegram_id']+[('telegram_id',str(uid))]
+      scope['query_string']=urlencode(query).encode()
+      if json_body is not None:json_body['telegram_id']=uid
     if json_body is not None:
      if not admin:
       for key in ('mode','category','model','provider','prompt'):
