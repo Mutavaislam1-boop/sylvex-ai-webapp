@@ -4325,11 +4325,27 @@ def save_generation(telegram_id: int, generation_type: str, prompt: str, status:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+_PROSTUDIO_SCHEMA_READY = False
+
+
 def ensure_prostudio_table():
+    # This used to run its full ~25-statement DDL batch (CREATE TABLE/INDEX +
+    # ALTER TABLE ADD COLUMN) behind a global lock on every single call - and
+    # it's called from nearly every hot-path function (job claim, job
+    # create, active-job check, heartbeat...). With N concurrent workers
+    # that serializes all of them behind one Python lock for a full DB round
+    # trip each time, on every job. The schema only ever needs to be ensured
+    # once per process lifetime; ensure_provider_slot_table already uses
+    # this exact double-checked-locking cache pattern.
+    global _PROSTUDIO_SCHEMA_READY
+    if _PROSTUDIO_SCHEMA_READY:
+        return
     if not DATABASE_URL:
         return
 
     with PROSTUDIO_SCHEMA_LOCK:
+        if _PROSTUDIO_SCHEMA_READY:
+            return
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         advisory_locked = False
@@ -4513,6 +4529,7 @@ def ensure_prostudio_table():
             )
             """)
             conn.commit()
+            _PROSTUDIO_SCHEMA_READY = True
         finally:
             if advisory_locked:
                 try:
