@@ -12995,7 +12995,20 @@ def estimate_generation_cost(payload: dict) -> dict:
     mode = (payload.get("mode") or payload.get("category") or "").lower()
     if mode == "music":
         model = str((payload.get("music_options") or {}).get("model") or payload.get("model") or "").lower()
-        fixed_prices = {"google_lyria_3_pro": 12, "google_lyria_3_clip": 6}
+        fixed_prices = {
+            "google_lyria_3_pro": 12, "google_lyria_3_clip": 6,
+            # These 8 models were selectable in the UI and fully wired in
+            # services/audio_router.py (including a correctly-built,
+            # bounded WebSocket session for google_lyria_realtime) but had
+            # no pricing entry at all, so every request for them was
+            # rejected with pricing_not_configured before audio_generation()
+            # was ever called - regardless of API keys. Priced relative to
+            # the two existing Lyria tiers pending confirmation against the
+            # Suno/MiniMax aggregator's actual per-generation billing.
+            "suno_chirp_3_5": 8, "suno_chirp_4_0": 10, "suno_chirp_4_5": 12,
+            "suno_chirp_4_5_plus": 14, "suno_chirp_5": 16, "suno_chirp_5_5": 18,
+            "minimax_music_2_5": 10, "google_lyria_realtime": 10,
+        }
         credits = fixed_prices.get(model)
         if credits is None:
             return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
@@ -13045,6 +13058,15 @@ def estimate_generation_cost(payload: dict) -> dict:
             "gemini_3_1_pro": (300, 1800), "gemini_3_1_flash": (113, 563),
             "gemini_2_5_pro": (188, 1500), "gemini_2_5_flash": (45, 375),
             "grok_4_1": (300, 900), "grok_4_fast": (188, 375),
+            # These 4 models were selectable in the UI and fully wired in
+            # TEXT_MODEL_VARIANTS but had no pricing entry at all, so every
+            # request for them was rejected with pricing_not_configured
+            # before text_generation() was ever called - regardless of API
+            # keys. Estimated from each provider's published per-token
+            # pricing tier at the time of this fix; verify against xAI's
+            # and DashScope's current pricing pages before relying on the
+            # exact rate for real billing.
+            "grok_3": (450, 2250), "qwen_plus": (60, 240), "qwen_turbo": (8, 30), "qwen_max": (240, 960),
         }.get(model)
         if not per_million:
             return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
