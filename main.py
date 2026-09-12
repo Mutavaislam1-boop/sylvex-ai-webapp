@@ -4325,11 +4325,27 @@ def save_generation(telegram_id: int, generation_type: str, prompt: str, status:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+_PROSTUDIO_SCHEMA_READY = False
+
+
 def ensure_prostudio_table():
+    # This used to run its full ~25-statement DDL batch (CREATE TABLE/INDEX +
+    # ALTER TABLE ADD COLUMN) behind a global lock on every single call - and
+    # it's called from nearly every hot-path function (job claim, job
+    # create, active-job check, heartbeat...). With N concurrent workers
+    # that serializes all of them behind one Python lock for a full DB round
+    # trip each time, on every job. The schema only ever needs to be ensured
+    # once per process lifetime; ensure_provider_slot_table already uses
+    # this exact double-checked-locking cache pattern.
+    global _PROSTUDIO_SCHEMA_READY
+    if _PROSTUDIO_SCHEMA_READY:
+        return
     if not DATABASE_URL:
         return
 
     with PROSTUDIO_SCHEMA_LOCK:
+        if _PROSTUDIO_SCHEMA_READY:
+            return
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         advisory_locked = False
@@ -4513,6 +4529,7 @@ def ensure_prostudio_table():
             )
             """)
             conn.commit()
+            _PROSTUDIO_SCHEMA_READY = True
         finally:
             if advisory_locked:
                 try:
@@ -5863,10 +5880,12 @@ def public_media_url(url: str) -> str:
     return materialized
 
 
-def _persist_remote_media_url(url: str, category: str) -> str:
+def _persist_remote_media_url(url: str, category: str, provider: str = "") -> str:
     raw = str(url or "").strip()
     if not raw or storage_key_from_url(raw):
         return raw
+    object_key = ""
+    content_type = ""
     try:
         if raw.startswith("data:image"):
             return materialize_data_image_url(raw)
@@ -5886,8 +5905,26 @@ def _persist_remote_media_url(url: str, category: str) -> str:
         if not suffix or len(suffix) > 8:
             suffix = mimetypes.guess_extension(content_type) or {"images": ".png", "videos": ".mp4", "audio": ".mp3", "documents": ".bin", "thumbs": ".jpg"}.get(category, ".bin")
         filename = f"{uuid4().hex}{suffix}"
-        return storage_put_bytes(response.content, generated_key(category, filename), content_type)
+        object_key = generated_key(category, filename)
+        # Never logs credentials/signed headers - only the request shape, so
+        # a provider-specific R2 failure (e.g. Ideogram succeeding at the
+        # provider but failing to persist while another provider's uploads
+        # succeed) can be told apart from a global credentials problem
+        # (which would show up identically across every provider/asset_type).
+        prostudio_debug(
+            "R2_UPLOAD_START", provider=provider, asset_type=category,
+            object_key=object_key, content_type=content_type,
+        )
+        uploaded_url = storage_put_bytes(response.content, object_key, content_type)
+        prostudio_debug(
+            "R2_UPLOAD_DONE", provider=provider, asset_type=category, object_key=object_key,
+        )
+        return uploaded_url
     except Exception as exc:
+        prostudio_error(
+            "R2_UPLOAD_FAILED", exc, provider=provider, asset_type=category,
+            object_key=object_key, content_type=content_type,
+        )
         prostudio_error("R2_MEDIA_PERSIST_FAILED", exc, source=_sql_text(raw, 180), category=category)
         return raw
 
@@ -5896,13 +5933,14 @@ def persist_generation_media(result: dict, mode: str) -> dict:
     if not isinstance(result, dict):
         return result
     persisted_by_source = {}
+    provider = str(result.get("provider") or "")
 
     def persist_once(value, category):
         source = str(value or "").strip()
         if not source:
             return value
         if source not in persisted_by_source:
-            persisted_by_source[source] = _persist_remote_media_url(source, category)
+            persisted_by_source[source] = _persist_remote_media_url(source, category, provider)
         return persisted_by_source[source]
 
     scalar_fields = {
@@ -5980,16 +6018,18 @@ _PROSTUDIO_STORAGE_MERGE_FIELDS = (
 )
 
 
-def _merge_prostudio_storage_result(job_id: str, persisted_fields: dict, storage_status: str) -> None:
-    """Merge background-persisted media URLs into an already-completed job.
+def _merge_prostudio_result_fields(job_id: str, fields: dict) -> None:
+    """Merge fields into an already-completed job's result_json in place.
 
-    This is the only writer allowed to touch a completed job's result_json
-    after the fact, and it only ever updates media URLs and storage_status -
-    never the status column itself. It reads-merges-writes under a row lock
-    so it can never clobber whatever the synchronous history/Telegram steps
-    already wrote there (R2 is a side effect, not the generation provider).
+    This is the shared primitive behind every background side effect
+    (storage persistence, thumbnail generation, ...) that needs to enrich a
+    job's result after the fact. It reads-merges-writes under a row lock so
+    it can never clobber whatever another writer (history, a different
+    background task) already committed there, and it only ever touches
+    result_json - never the status column, so a side-effect failure can
+    never resurrect, fail, or duplicate the generation itself.
     """
-    if not DATABASE_URL or not job_id:
+    if not DATABASE_URL or not job_id or not fields:
         return
     conn = cursor = None
     try:
@@ -6004,10 +6044,7 @@ def _merge_prostudio_storage_result(job_id: str, persisted_fields: dict, storage
             conn.rollback()
             return
         current_result = _json_obj(row[1])
-        for field in _PROSTUDIO_STORAGE_MERGE_FIELDS:
-            if persisted_fields.get(field):
-                current_result[field] = persisted_fields[field]
-        current_result["storage_status"] = storage_status
+        current_result.update(fields)
         cursor.execute(
             "UPDATE prostudio_generation_jobs SET result_json = %s::jsonb WHERE id=%s",
             (
@@ -6019,12 +6056,61 @@ def _merge_prostudio_storage_result(job_id: str, persisted_fields: dict, storage
     except Exception as exc:
         if conn is not None:
             conn.rollback()
-        prostudio_error("JOB_STORAGE_MERGE_FAILED", exc, job_id=job_id)
+        prostudio_error("JOB_RESULT_MERGE_FAILED", exc, job_id=job_id)
     finally:
         if cursor is not None:
             cursor.close()
         if conn is not None:
             conn.close()
+
+
+def _merge_prostudio_storage_result(job_id: str, persisted_fields: dict, storage_status: str) -> None:
+    """Merge background-persisted media URLs and storage_status - never
+    touches thumbnail_status or any other field a different background
+    task owns."""
+    fields = {field: persisted_fields[field] for field in _PROSTUDIO_STORAGE_MERGE_FIELDS if persisted_fields.get(field)}
+    fields["storage_status"] = storage_status
+    _merge_prostudio_result_fields(job_id, fields)
+
+
+async def _finalize_image_thumbnails_background(job_id: str, images: list) -> None:
+    """Thumbnails are a preview convenience, not the generation result -
+    compute them after the original image is already visible to the user,
+    so a slow Pillow decode + R2 thumbnail upload (multiplied by quantity)
+    never delays result delivery. A thumbnail failure only ever sets
+    thumbnail_status; the original image result is unaffected."""
+    started_at = time.monotonic()
+    try:
+        thumbs = await asyncio.to_thread(create_image_thumbnails, images)
+        status = "completed" if thumbs and all(thumbs) else ("partial" if any(thumbs) else "failed")
+        fields = {"thumbnails": thumbs or [], "thumbnail_status": status}
+        if thumbs and thumbs[0]:
+            fields["thumbnail_url"] = thumbs[0]
+            fields["thumb_url"] = thumbs[0]
+        _merge_prostudio_result_fields(job_id, fields)
+        prostudio_debug(
+            "JOB_BACKGROUND_THUMBNAILS_DONE", job_id=job_id, status=status,
+            elapsed_ms=round((time.monotonic() - started_at) * 1000),
+        )
+    except Exception as exc:
+        prostudio_error("JOB_BACKGROUND_THUMBNAILS_FAILED", exc, job_id=job_id)
+        _merge_prostudio_result_fields(job_id, {"thumbnail_status": "failed"})
+
+
+def _build_image_result_without_thumbnails(image_urls: list) -> dict:
+    """Same URL materialization as attach_image_thumbnails, minus the
+    synchronous thumbnail computation - used on the job pipeline's critical
+    path (see _finalize_image_thumbnails_background)."""
+    images = materialize_image_urls(_json_list(image_urls))
+    if not images:
+        return {"ok": True, "type": "image", "image_url": "", "images": []}
+    return {
+        "ok": True, "type": "image",
+        "image_url": images[0], "result_url": images[0], "full_url": images[0],
+        "images": images,
+        "thumbnail_url": "", "thumb_url": "", "thumbnails": [],
+        "thumbnail_status": "pending",
+    }
 
 
 async def finalize_prostudio_media_storage_background(job_id: str, mode: str, provider_result: dict) -> None:
@@ -6058,6 +6144,7 @@ def build_completed_job_result(result: dict, mode: str) -> dict:
         "result_url", "full_url", "url", "file_url", "title", "text", "duration",
         "cost", "price", "cost_credits", "generation_cost", "unit_cost_credits",
         "balance_charged", "balance_after", "charge_id", "storage_status",
+        "thumbnail_status",
     }
     final_result = {key: value for key, value in result.items() if key in keep}
     final_result["ok"] = True
@@ -10703,16 +10790,29 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
         return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
 
     images = images[:count]
-    result = attach_image_thumbnails({
-        "ok": True,
-        "type": "image",
-        "image_url": images[0],
-        "images": images,
+    extra_fields = {
         "provider": "bytedance",
         "model": requested_model,
         "provider_model": model,
         **seedream_cost_info(requested_model, model, len(images)),
-    })
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        # Job pipeline: don't make the caller wait on thumbnail generation -
+        # see finalize_image_result for the same treatment on every other
+        # image provider.
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(
+            _finalize_image_thumbnails_background(job_id, result.get("images") or images)
+        )
+    else:
+        result = attach_image_thumbnails({
+            "ok": True,
+            "type": "image",
+            "image_url": images[0],
+            "images": images,
+            **extra_fields,
+        })
 
     telegram_id = int(payload.get("telegram_id") or 0)
     sent_to_telegram = False
@@ -11611,7 +11711,18 @@ def image_error_response(provider: str, frontend_model: str, provider_model: str
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def finalize_image_result(payload: dict, images: list) -> dict:
-    result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        # Job pipeline: the original image is the user-visible result and
+        # must not wait on thumbnail generation (Pillow decode + R2 upload,
+        # multiplied by quantity). Thumbnails are computed and merged into
+        # the job's result_json in the background afterward.
+        result = _build_image_result_without_thumbnails(images)
+        asyncio.create_task(
+            _finalize_image_thumbnails_background(job_id, result.get("images") or images)
+        )
+    else:
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images})
     telegram_id = int(payload.get("telegram_id") or 0)
     result["sent_to_telegram"] = False
     if telegram_id and not payload.get("skip_telegram"):
@@ -14882,7 +14993,13 @@ async def run_prostudio_provider_request(
         ):
             while True:
                 await asyncio.sleep(5)
-                heartbeat_prostudio_generation_job(job_id)
+                # No heartbeat write here: _prostudio_job_heartbeat_loop
+                # already heartbeats this job_id independently every ~60s
+                # for as long as this worker slot is occupied (see
+                # _run_prostudio_generation_pool). A second heartbeat call
+                # tied to this 5s poll cadence would be pure duplicate DB
+                # traffic - and this one wasn't even off-loop, unlike the
+                # background loop's asyncio.to_thread-wrapped version.
                 poll = await provider_call_with_retry(
                     job_id,
                     provider,
