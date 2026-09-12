@@ -4770,9 +4770,35 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
     prompt_extend = bool((payload.get("video_options") or {}).get("prompt_extend", True))
     watermark = bool((payload.get("video_options") or {}).get("watermark", False))
 
+    # wan_2_7_edit's real provider model is Alibaba's dedicated video-editing
+    # model (VACE, "wan2.1-vace-plus" by default) - a genuinely different
+    # model family from wan2.6/wan2.7 text/image-to-video, not just a naming
+    # variant. It must never fall through to the is_27/has_media branches
+    # below: those build an image-to-video body and require a first-frame
+    # image this edit mode's UI never collects (start_image is always
+    # false for it), discarding the uploaded input_video and guaranteeing
+    # "Wan image-to-video requires a first-frame image" on every attempt.
+    is_video_edit = model_id == "wan_2_7_edit" or "vace" in str(provider_model).lower()
     is_27 = str(provider_model).startswith("wan2.7")
     has_media = bool(start_image or end_image or input_video)
-    if is_27 and has_media:
+    if is_video_edit:
+        if not input_video:
+            return _provider_error("wan", model_id, "Wan video editing requires an input video")
+        wan_body = {
+            "model": provider_model,
+            "input": {"prompt": prompt or "", "video_url": input_video},
+            "parameters": {
+                "resolution": _wan_resolution(body.get("resolution")),
+                "duration": duration,
+                "prompt_extend": prompt_extend,
+                "watermark": watermark,
+            },
+        }
+        if negative_prompt:
+            wan_body["input"]["negative_prompt"] = negative_prompt[:500]
+        if seed is not None:
+            wan_body["parameters"]["seed"] = seed
+    elif is_27 and has_media:
         provider_model = os.getenv("WAN_2_7_I2V_MODEL", "wan2.7-i2v")
         media = []
         if input_video:
