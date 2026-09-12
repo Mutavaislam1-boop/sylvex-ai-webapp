@@ -4930,7 +4930,7 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 )
-                RETURNING id, request_json, attempts
+                RETURNING id, request_json, attempts, EXTRACT(EPOCH FROM (NOW() - created_at))
             """, (PROSTUDIO_MAX_JOB_ATTEMPTS,))
             row = cursor.fetchone()
             conn.commit()
@@ -4943,7 +4943,11 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             # hide actionable errors without adding diagnostic value.
             return None
         payload = _json_obj(row[1])
-        claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1}
+        # Time between the client's submit (job row created) and a worker
+        # actually picking it up - the first place SYLVEX-side queueing
+        # latency (as opposed to provider latency) would show up.
+        queue_wait_ms = round(float(row[3] or 0) * 1000)
+        claimed = {"id": row[0], "payload": payload, "attempts": row[2] or 1, "queue_wait_ms": queue_wait_ms}
         prostudio_debug(
             "WORKER_CLAIM_DONE",
             job_id=row[0],
@@ -4951,6 +4955,7 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
             mode=payload.get("mode") or payload.get("category") or "",
             model=payload.get("model") or "",
             provider=payload.get("provider") or "",
+            queue_wait_ms=queue_wait_ms,
         )
         return claimed
     except Exception as exc:
@@ -14803,6 +14808,7 @@ async def run_prostudio_provider_request(
 # Обрабатывает job после нажатия пользователем кнопки генерации: запускает провайдера, ждёт результат и сохраняет итог.
 # =====================================================
 async def process_prostudio_generation(job_id: str, payload: dict):
+    pipeline_started_at = time.monotonic()
     prostudio_debug(
         "JOB_PROCESS_ENTER",
         job_id=job_id,
@@ -15133,7 +15139,15 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             timestamp=round(completed_committed_at, 6),
             elapsed_ms_since_r2_ready=round((completed_committed_at - r2_ready_at) * 1000),
         )
-        prostudio_debug("JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed")
+        prostudio_debug(
+            "JOB_PROCESS_COMPLETED", job_id=job_id, conversation_id="", status="completed",
+            # End-to-end time from this worker picking up the job to the
+            # completed status being committed (client-visible on its next
+            # poll) - the number to compare against the provider's own
+            # documented generation time to see whether SYLVEX or the
+            # provider dominates total latency for this job.
+            total_pipeline_ms=round((time.monotonic() - pipeline_started_at) * 1000),
+        )
 
         # History enriches an already completed job and is intentionally not
         # allowed to roll its terminal status back on failure.
@@ -15297,6 +15311,10 @@ async def _run_prostudio_generation_pool(
                 job_id=job_id,
                 slot_id=slot_id,
                 attempts=claimed.get("attempts"),
+                # Time between the client's submit and this worker picking the
+                # job up - isolates SYLVEX-side queueing latency from whatever
+                # happens next at the provider.
+                queue_wait_ms=claimed.get("queue_wait_ms"),
             )
             try:
                 await process_prostudio_generation(job_id, claimed["payload"])
