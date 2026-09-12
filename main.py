@@ -4528,6 +4528,25 @@ def ensure_prostudio_table():
                 created_at TIMESTAMP DEFAULT NOW()
             )
             """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_error_reports (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                mode TEXT,
+                provider TEXT,
+                model TEXT,
+                job_id TEXT,
+                prompt TEXT,
+                error_text TEXT,
+                raw_error TEXT,
+                status TEXT DEFAULT 'open',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prostudio_error_reports_user
+                ON prostudio_error_reports (telegram_id, created_at DESC)
+            """)
             conn.commit()
             _PROSTUDIO_SCHEMA_READY = True
         finally:
@@ -7916,6 +7935,56 @@ async def public_prostudio_active_job(telegram_id: int = 0):
     }
 
 
+# =====================================================
+# API ENDPOINT: public_prostudio_report_error
+# Принимает жалобу пользователя на ошибку генерации одним нажатием кнопки
+# в Mini App - без ручного ввода. Привязывает карточку ошибки к
+# аутентифицированному Telegram ID (actor_id из SecurityMiddleware, а не
+# значению из тела запроса), чтобы жалобу нельзя было отправить от имени
+# другого пользователя.
+# Маршрут FastAPI: @app.post("/api/public/prostudio/report_error")
+# =====================================================
+@app.post("/api/public/prostudio/report_error")
+async def public_prostudio_report_error(request: Request):
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=500)
+    data = await request.json()
+    telegram_id = int(actor_id.get() or data.get("telegram_id") or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+    def _clean(value, limit):
+        return str(value or "").strip()[:limit]
+
+    mode = _clean(data.get("mode"), 40)
+    provider = _clean(data.get("provider"), 60)
+    model = _clean(data.get("model"), 120)
+    job_id = _clean(data.get("job_id"), 120)
+    prompt = _clean(data.get("prompt"), 4000)
+    error_text = _clean(data.get("error_text"), 2000)
+    raw_error = _clean(data.get("raw_error"), 4000)
+
+    try:
+        ensure_prostudio_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO prostudio_error_reports
+                (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error))
+        report_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as exc:
+        prostudio_error("ERROR_REPORT_INSERT_FAILED", exc, telegram_id=telegram_id, job_id=job_id)
+        return JSONResponse({"ok": False, "error": "report_failed"}, status_code=500)
+
+    return {"ok": True, "report_id": report_id}
+
+
 @app.post("/api/admin/prostudio/recover-job/{job_id}")
 async def admin_recover_prostudio_job(job_id: str, request: Request):
     data = await request.json()
@@ -8474,6 +8543,34 @@ async def admin_errors(request: Request):
             "id": row[0], "telegram_id": row[1], "job_id": row[2] or "",
             "provider": row[3] or "", "model": row[4] or "", "status": row[5] or "",
             "error": str(row[6] or "")[:1000], "created_at": _to_iso(row[7]),
+        } for row in cursor.fetchall()]}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/error-reports")
+async def admin_error_reports(request: Request):
+    """User-submitted error cards from the Mini App's one-click 'Report
+    error' button - distinct from prostudio_errors (server-side automatic
+    logging): each row here was explicitly flagged by the affected user."""
+    payload = await request.json()
+    _admin_actor(payload, "view_errors")
+    ensure_prostudio_table()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT id,telegram_id,mode,provider,model,job_id,prompt,error_text,raw_error,status,created_at
+            FROM prostudio_error_reports
+            ORDER BY created_at DESC LIMIT 100
+        """)
+        return {"ok": True, "items": [{
+            "id": row[0], "telegram_id": row[1], "mode": row[2] or "",
+            "provider": row[3] or "", "model": row[4] or "", "job_id": row[5] or "",
+            "prompt": str(row[6] or "")[:500], "error": str(row[7] or "")[:1000],
+            "raw_error": str(row[8] or "")[:2000], "status": row[9] or "open",
+            "created_at": _to_iso(row[10]),
         } for row in cursor.fetchall()]}
     finally:
         cursor.close()
