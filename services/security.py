@@ -21,7 +21,7 @@ PUBLIC_GETS = frozenset({
  '/api/public/prostudio/photo-catalog', '/api/public/prostudio/photo-tool-demos',
  '/api/public/prostudio/quick-image-catalog', '/api/public/prostudio/kling/effects',
  '/api/public/prostudio/pricing-catalog',
- '/api/public/video/templates',
+ '/api/public/video/templates', '/api/public/prostudio/references',
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook'})

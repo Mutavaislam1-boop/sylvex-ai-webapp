@@ -8923,6 +8923,324 @@ async def admin_messages_broadcast(request: Request):
         conn.close()
 
 
+REFERENCES_SCHEMA_READY = False
+
+
+def ensure_references_table():
+    """Ready-made generation templates (photo styles, video templates, etc.)
+    that admins publish from the Support Bot and users will eventually pick
+    from a Mini App catalog to generate from. Brand-new table - no legacy
+    data, so plain TIMESTAMP columns are safe here (unlike users/subscriptions)."""
+    global REFERENCES_SCHEMA_READY
+    if REFERENCES_SCHEMA_READY or not DATABASE_URL:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_references (
+                id SERIAL PRIMARY KEY,
+                category TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                prompt TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                workflow TEXT DEFAULT '',
+                preview_url TEXT DEFAULT '',
+                source_url TEXT DEFAULT '',
+                published BOOLEAN NOT NULL DEFAULT FALSE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_by BIGINT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prostudio_references_catalog ON prostudio_references (published, category, kind)")
+        conn.commit()
+        REFERENCES_SCHEMA_READY = True
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _reference_row_to_dict(row) -> dict:
+    return {"id": row[0], "category": row[1], "kind": row[2], "name": row[3], "description": row[4] or "",
+            "prompt": row[5] or "", "model": row[6] or "", "workflow": row[7] or "",
+            "preview_url": row[8] or "", "source_url": row[9] or "", "published": bool(row[10]),
+            "sort_order": int(row[11] or 0), "created_by": row[12], "created_at": _to_iso(row[13]),
+            "updated_at": _to_iso(row[14])}
+
+
+_REFERENCE_COLUMNS = "id,category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by,created_at,updated_at"
+
+
+@app.post("/api/admin/references/list")
+async def admin_references_list(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, "manage_references")
+    ensure_references_table()
+    category = str(payload.get("category") or "").strip()[:80]
+    kind = str(payload.get("kind") or "").strip().lower()[:20]
+    published = payload.get("published")
+    limit = max(1, min(int(payload.get("limit") or 50), 200))
+    offset = max(0, int(payload.get("offset") or 0))
+    conditions, params = [], []
+    if category:
+        conditions.append("category=%s"); params.append(category)
+    if kind:
+        conditions.append("kind=%s"); params.append(kind)
+    if published is not None:
+        conditions.append("published=%s"); params.append(bool(published))
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT COUNT(*) FROM prostudio_references {where}", params)
+        total = cursor.fetchone()[0]
+        cursor.execute(f"""
+            SELECT {_REFERENCE_COLUMNS} FROM prostudio_references {where}
+            ORDER BY sort_order, created_at DESC LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        items = [_reference_row_to_dict(r) for r in cursor.fetchall()]
+        return {"ok": True, "items": items, "total": int(total or 0)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/create")
+async def admin_references_create(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "manage_references")
+    ensure_references_table()
+    category = str(payload.get("category") or "").strip()[:80]
+    kind = str(payload.get("kind") or "").strip().lower()[:20]
+    name = str(payload.get("name") or "").strip()[:200]
+    if not category or kind not in {"photo", "video"} or not name:
+        raise HTTPException(status_code=400, detail="invalid_reference")
+    description = str(payload.get("description") or "").strip()[:2000]
+    prompt = str(payload.get("prompt") or "").strip()[:8000]
+    model = str(payload.get("model") or "").strip()[:200]
+    workflow = str(payload.get("workflow") or "").strip()[:200]
+    preview_url = str(payload.get("preview_url") or "").strip()[:2000]
+    source_url = str(payload.get("source_url") or "").strip()[:2000]
+    published = bool(payload.get("published", False))
+    sort_order = int(payload.get("sort_order") or 0)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            INSERT INTO prostudio_references
+                (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING {_REFERENCE_COLUMNS}
+        """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
+              published, sort_order, actor["telegram_id"]))
+        created = _reference_row_to_dict(cursor.fetchone())
+        _admin_audit(cursor, actor["telegram_id"], "reference_created", 0, {}, created, "")
+        conn.commit()
+        return {"ok": True, "item": created}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/update")
+async def admin_references_update(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "manage_references")
+    ensure_references_table()
+    reference_id = int(payload.get("id") or 0)
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="id_required")
+    fields = {
+        "category": lambda v: str(v or "").strip()[:80],
+        "kind": lambda v: str(v or "").strip().lower()[:20],
+        "name": lambda v: str(v or "").strip()[:200],
+        "description": lambda v: str(v or "").strip()[:2000],
+        "prompt": lambda v: str(v or "").strip()[:8000],
+        "model": lambda v: str(v or "").strip()[:200],
+        "workflow": lambda v: str(v or "").strip()[:200],
+        "preview_url": lambda v: str(v or "").strip()[:2000],
+        "source_url": lambda v: str(v or "").strip()[:2000],
+        "published": lambda v: bool(v),
+        "sort_order": lambda v: int(v or 0),
+    }
+    updates = {key: caster(payload[key]) for key, caster in fields.items() if key in payload}
+    if "kind" in updates and updates["kind"] not in {"photo", "video"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    if not updates:
+        raise HTTPException(status_code=400, detail="no_fields_to_update")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+        before_row = cursor.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="reference_not_found")
+        before = _reference_row_to_dict(before_row)
+        set_clause = ", ".join(f"{key}=%s" for key in updates)
+        cursor.execute(f"""
+            UPDATE prostudio_references SET {set_clause}, updated_at=NOW() WHERE id=%s
+            RETURNING {_REFERENCE_COLUMNS}
+        """, list(updates.values()) + [reference_id])
+        after = _reference_row_to_dict(cursor.fetchone())
+        _admin_audit(cursor, actor["telegram_id"], "reference_updated", 0, before, after, "")
+        conn.commit()
+        return {"ok": True, "item": after}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/publish")
+async def admin_references_publish(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "manage_references")
+    ensure_references_table()
+    reference_id = int(payload.get("id") or 0)
+    published = bool(payload.get("published", True))
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="id_required")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT published FROM prostudio_references WHERE id=%s", (reference_id,))
+        before_row = cursor.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="reference_not_found")
+        cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
+        _admin_audit(cursor, actor["telegram_id"], "reference_published" if published else "reference_unpublished",
+                     0, {"published": bool(before_row[0])}, {"published": published}, "")
+        conn.commit()
+        return {"ok": True, "id": reference_id, "published": published}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/delete")
+async def admin_references_delete(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, "manage_references")
+    ensure_references_table()
+    reference_id = int(payload.get("id") or 0)
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="id_required")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+        before_row = cursor.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="reference_not_found")
+        cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
+        _admin_audit(cursor, actor["telegram_id"], "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/upload-media")
+async def admin_references_upload_media(request: Request):
+    """Accepts base64 media (the Support Bot downloads the Telegram file and
+    forwards its bytes here) and stores it durably in R2, since the bot has
+    no R2 credentials of its own - mirrors materialize_data_image_url's
+    approach but supports video too and returns a plain URL."""
+    payload = await request.json()
+    _admin_actor(payload, "manage_references")
+    content_b64 = str(payload.get("content_base64") or "")
+    slot = str(payload.get("slot") or "preview").strip().lower()
+    if slot not in {"preview", "source"}:
+        raise HTTPException(status_code=400, detail="invalid_slot")
+    if not content_b64:
+        raise HTTPException(status_code=400, detail="content_required")
+    try:
+        content = base64.b64decode(content_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_base64")
+    if not content or len(content) > 200 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="invalid_content_size")
+    content_type = str(payload.get("content_type") or "").strip().lower()
+    extension_by_mime = {
+        "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
+        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+    }
+    extension = extension_by_mime.get(content_type)
+    if not extension:
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            extension, content_type = "png", "image/png"
+        elif content.startswith(b"\xff\xd8\xff"):
+            extension, content_type = "jpg", "image/jpeg"
+        elif content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            extension, content_type = "webp", "image/webp"
+        elif content[4:8] in (b"ftyp",) or content.startswith(b"\x00\x00\x00"):
+            extension, content_type = "mp4", "video/mp4"
+        else:
+            extension, content_type = "bin", content_type or "application/octet-stream"
+    filename = f"{uuid4().hex}.{extension}"
+    key = generated_key(f"references/{slot}", filename)
+    url = storage_put_bytes(content, key, content_type)
+    if not url:
+        raise HTTPException(status_code=502, detail="upload_failed")
+    return {"ok": True, "url": url, "content_type": content_type}
+
+
+@app.get("/api/public/prostudio/references")
+async def public_prostudio_references(category: str = "", kind: str = ""):
+    """Published references for the Mini App's future user-facing catalog -
+    only what admins have explicitly published, ordered for display."""
+    ensure_references_table()
+    if not DATABASE_URL:
+        return {"ok": True, "items": []}
+    conditions, params = ["published=TRUE"], []
+    category = str(category or "").strip()[:80]
+    kind = str(kind or "").strip().lower()[:20]
+    if category:
+        conditions.append("category=%s"); params.append(category)
+    if kind:
+        conditions.append("kind=%s"); params.append(kind)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT id,category,kind,name,description,prompt,model,workflow,preview_url,source_url
+            FROM prostudio_references WHERE {' AND '.join(conditions)}
+            ORDER BY sort_order, created_at DESC LIMIT 200
+        """, params)
+        items = [{"id": r[0], "category": r[1], "kind": r[2], "name": r[3], "description": r[4] or "",
+                "prompt": r[5] or "", "model": r[6] or "", "workflow": r[7] or "",
+                "preview_url": r[8] or "", "source_url": r[9] or ""} for r in cursor.fetchall()]
+        return {"ok": True, "items": items}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def _prostudio_download_filename(mode: str, job_id: str, content_type: str, object_key: str) -> str:
     safe_id = re.sub(r"[^A-Za-z0-9_-]", "", str(job_id or ""))[:36] or "result"
     normalized_mode = str(mode or "").strip().lower()
