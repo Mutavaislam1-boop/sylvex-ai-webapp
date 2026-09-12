@@ -4604,10 +4604,19 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
             "size": _size_for_video(body.get("ratio"), body.get("resolution")),
             "seconds": _openai_sora_seconds(body.get("duration")),
         }
+        files = None
+        start_image = _public_input_url(body.get("start_image") or "")
+        if start_image:
+            image_bytes, mime_type = _read_media_bytes(start_image, "image")
+            if not image_bytes:
+                return _provider_error("sora", model_id, "Could not read the reference image for Sora image-to-video")
+            ext = mimetypes.guess_extension(mime_type or "image/jpeg") or ".jpg"
+            files = {"input_reference": (f"reference{ext}", image_bytes, mime_type or "image/jpeg")}
         response = _request_form(
             endpoint,
             {"Authorization": f"Bearer {api_key}"},
             form,
+            files=files,
         )
         return _provider_result_from_response("sora", model_id, response, endpoint)
     except Exception as exc:
