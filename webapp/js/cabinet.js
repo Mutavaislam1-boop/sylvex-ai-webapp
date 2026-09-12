@@ -19684,8 +19684,21 @@ async function waitGeneration(jobId, options) {
     applyStudioTheme(next);
   }
 
+  // Grid Mode's canvas/workspace is desktop-only - matches the 700px
+  // breakpoint the grid's own auto-layout logic below already treats as
+  // "mobile". Checked before any grid state/DOM work runs, so pressing
+  // the button on a small screen never initializes the workspace at all.
+  function studioGridAvailableOnThisScreen() {
+    if (window.SYLVEX && window.SYLVEX.device && (window.SYLVEX.device.isMobile || window.SYLVEX.device.isTablet)) return false;
+    return !(window.matchMedia && window.matchMedia('(max-width:700px)').matches);
+  }
+
   function setStudioLayout(layout) {
     const mode = layout === 'grid' ? 'grid' : 'classic';
+    if (mode === 'grid' && !studioGridAvailableOnThisScreen()) {
+      if (window.toast) window.toast('Режим Сетки доступен только на компьютерах и широких экранах');
+      return;
+    }
     const studio = document.querySelector('[data-view="tools"] .studio');
     const workspace = document.getElementById('studioGridWorkspace');
     document.querySelectorAll('#studioLayoutSwitch [data-studio-layout]').forEach((button) => button.classList.toggle('active', button.dataset.studioLayout === mode));
