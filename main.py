@@ -165,6 +165,14 @@ PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_M
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
+# Lets the separate SYLVEX Support Bot (its own Telegram bot/token, so it can
+# never produce a valid Telegram-WebApp initData signature for this bot's
+# BOT_TOKEN) call the /api/admin/* endpoints below as a trusted backend
+# client. Presenting this shared secret only proves the *caller* is the
+# support bot's backend - the admin_users role/permission lookup in
+# _admin_actor still runs exactly as it does for the Mini App, so a stolen
+# token still can't act as an admin who was never granted access.
+ADMIN_SERVICE_TOKEN = os.getenv("ADMIN_SERVICE_TOKEN", "").strip()
 PROSTUDIO_TEXT_RESPONSE_CACHE = {}
 PROSTUDIO_TEXT_INFLIGHT = {}
 PROSTUDIO_TEXT_INFLIGHT_LOCK = threading.Lock()
@@ -8192,21 +8200,52 @@ def ensure_admin_tables():
             conn.close()
 
 
-def _admin_actor(payload: dict, permission: str = "", owner_only: bool = False) -> dict:
-    init_data = str((payload or {}).get("initData") or (payload or {}).get("init_data") or "")
-    if not init_data:
-        raise HTTPException(status_code=403, detail="telegram_init_data_missing")
-    if not TELEGRAM_AUTH_TOKENS:
-        raise HTTPException(status_code=503, detail="telegram_bot_token_missing")
-    if not verify_telegram_init_data(init_data):
-        raise HTTPException(status_code=403, detail="telegram_signature_invalid")
-    telegram_id = _telegram_id_from_init_data(init_data)
-    if not telegram_id:
-        raise HTTPException(status_code=403, detail="telegram_user_missing")
-    # The project owner is defined by the signed Telegram user id. Do not make
-    # first access depend on an admin_users row that may not exist yet.
-    if telegram_id == SUPERADMIN_TELEGRAM_ID:
-        return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
+def _admin_service_token_from_headers(request: Optional[Request]) -> str:
+    """The service token travels as a header, never inside the JSON body -
+    a bearer-style Authorization header or the dedicated
+    X-Admin-Service-Token header, either is accepted."""
+    if request is None:
+        return ""
+    auth_header = str(request.headers.get("authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return str(request.headers.get("x-admin-service-token") or "").strip()
+
+
+def _admin_actor(payload: dict, request: Optional[Request] = None, permission: str = "", owner_only: bool = False) -> dict:
+    payload = payload or {}
+    service_token = _admin_service_token_from_headers(request)
+    service_authenticated = bool(ADMIN_SERVICE_TOKEN) and bool(service_token) and hmac.compare_digest(service_token, ADMIN_SERVICE_TOKEN)
+    if service_authenticated:
+        # The Support Bot already verified the Telegram user calling it is
+        # one of ITS admins before ever making this request; this call still
+        # goes through the exact same admin_users role/permission check
+        # below as any Mini App request would. Unlike the initData path
+        # just below, a service-authenticated caller is NEVER granted the
+        # owner shortcut just for naming SUPERADMIN_TELEGRAM_ID - it must
+        # hold a real, active admin_users row (the owner's own row is
+        # auto-seeded there too), so revoking that row also revokes bot
+        # access for the owner's own id.
+        telegram_id = int(payload.get("telegram_id") or 0)
+        if not telegram_id:
+            raise HTTPException(status_code=403, detail="telegram_user_missing")
+    else:
+        init_data = str(payload.get("initData") or payload.get("init_data") or "")
+        if not init_data:
+            raise HTTPException(status_code=403, detail="telegram_init_data_missing")
+        if not TELEGRAM_AUTH_TOKENS:
+            raise HTTPException(status_code=503, detail="telegram_bot_token_missing")
+        if not verify_telegram_init_data(init_data):
+            raise HTTPException(status_code=403, detail="telegram_signature_invalid")
+        telegram_id = _telegram_id_from_init_data(init_data)
+        if not telegram_id:
+            raise HTTPException(status_code=403, detail="telegram_user_missing")
+        # The project owner is defined by the signed Telegram user id. Do
+        # not make first access depend on an admin_users row that may not
+        # exist yet. This shortcut is exclusive to the Mini App's own
+        # signed-initData path - see the service-authenticated branch above.
+        if telegram_id == SUPERADMIN_TELEGRAM_ID:
+            return {"telegram_id": telegram_id, "role": "owner", "permissions": ["all"]}
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_unavailable")
     ensure_admin_tables()
@@ -8245,7 +8284,7 @@ def _admin_audit(cursor, actor_id: int, action: str, target_id: int = 0, before=
 
 @app.post("/api/admin/me")
 async def admin_me(request: Request):
-    actor = _admin_actor(await request.json())
+    actor = _admin_actor(await request.json(), request)
     return {"ok": True, "admin": actor}
 
 
@@ -8276,8 +8315,10 @@ async def public_presence(request: Request):
 
 @app.post("/api/admin/dashboard")
 async def admin_dashboard(request: Request):
-    actor = _admin_actor(await request.json(), "view_dashboard")
+    actor = _admin_actor(await request.json(), request, "view_dashboard")
     ensure_admin_tables()
+    ensure_payment_tables()
+    ensure_prostudio_table()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -8307,12 +8348,43 @@ async def admin_dashboard(request: Request):
             FROM prostudio_generation_jobs GROUP BY 1 ORDER BY COUNT(*) DESC
         """)
         tools = [{"type": row[0], "total": int(row[1] or 0), "today": int(row[2] or 0)} for row in cursor.fetchall()]
+        cursor.execute("SELECT COUNT(DISTINCT telegram_id) FROM app_presence")
+        visited_count = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(*) FILTER (WHERE status='completed') AS success_total,
+                   COUNT(*) FILTER (WHERE status='failed') AS failed_total
+            FROM prostudio_generation_jobs
+        """)
+        generations_success_total, generations_failed_total = cursor.fetchone()
+        cursor.execute("""
+            SELECT COUNT(*) FILTER (WHERE status='completed') AS purchases_count,
+                   COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) AS total_revenue,
+                   COALESCE(SUM(credits) FILTER (WHERE status='completed'),0) AS total_credits
+            FROM purchases
+        """)
+        purchases_count, total_revenue, total_credits_purchased = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM subscriptions")
+        subscriptions_total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM prostudio_error_reports")
+        error_reports_count = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT id, telegram_id, job_id, provider, model, status, error_text, created_at
+            FROM prostudio_errors ORDER BY created_at DESC LIMIT 8
+        """)
+        recent_errors = [{"id": row[0], "telegram_id": row[1], "job_id": row[2] or "", "provider": row[3] or "",
+                "model": row[4] or "", "status": row[5] or "", "error": str(row[6] or "")[:300],
+                "created_at": _to_iso(row[7])} for row in cursor.fetchall()]
         return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
-                "subscriptions": int(active_subscriptions or 0), "generations_today": int(generations_today or 0),
-                "generations_total": int(generations_total or 0), "failed_today": int(failed_today or 0),
+                "visited": int(visited_count or 0),
+                "subscriptions": int(active_subscriptions or 0), "subscriptions_total": int(subscriptions_total or 0),
+                "generations_today": int(generations_today or 0),
+                "generations_total": int(generations_total or 0), "generations_success": int(generations_success_total or 0),
+                "generations_failed": int(generations_failed_total or 0), "failed_today": int(failed_today or 0),
                 "active_jobs": int(active_jobs or 0),
+                "purchases_total": int(purchases_count or 0), "revenue_total": int(total_revenue or 0),
+                "credits_purchased_total": int(total_credits_purchased or 0), "error_reports": int(error_reports_count or 0),
                 "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
-                "admins": int(admins_count or 0)}, "tools": tools, "admin": actor}
+                "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": actor}
     finally:
         cursor.close()
         conn.close()
@@ -8321,7 +8393,7 @@ async def admin_dashboard(request: Request):
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "view_users")
+    _admin_actor(payload, request, "view_users")
     query = str(payload.get("query") or "").strip()[:100]
     limit = max(1, min(int(payload.get("limit") or 30), 100))
     pattern = f"%{query}%"
@@ -8353,7 +8425,7 @@ async def admin_users_search(request: Request):
 @app.post("/api/admin/users/balance")
 async def admin_user_balance(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_balance")
+    actor = _admin_actor(payload, request, "manage_balance")
     ensure_admin_tables()
     target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
     reason = str(payload.get("reason") or "Ручная корректировка")[:500]
@@ -8381,7 +8453,7 @@ async def admin_user_balance(request: Request):
 @app.post("/api/admin/users/subscription")
 async def admin_user_subscription(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "manage_subscriptions")
+    actor = _admin_actor(payload, request, "manage_subscriptions")
     ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     action = str(payload.get("action") or "extend")
@@ -8429,7 +8501,7 @@ async def admin_user_subscription(request: Request):
 @app.post("/api/admin/users/message")
 async def admin_user_message(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, "message_users")
+    actor = _admin_actor(payload, request, "message_users")
     ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     message = str(payload.get("message") or "").strip()
@@ -8462,7 +8534,7 @@ async def admin_user_message(request: Request):
 @app.post("/api/admin/admins/list")
 async def admin_list(request: Request):
     payload = await request.json()
-    _admin_actor(payload, owner_only=True)
+    _admin_actor(payload, request, owner_only=True)
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8478,12 +8550,13 @@ async def admin_list(request: Request):
 @app.post("/api/admin/admins/set")
 async def admin_set(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, owner_only=True)
+    actor = _admin_actor(payload, request, owner_only=True)
     ensure_admin_tables()
     target_id = int(payload.get("user_id") or 0)
     active = bool(payload.get("active", True))
     permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
-    allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users", "view_audit", "view_errors"}
+    allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users",
+               "view_audit", "view_errors", "view_generations", "view_finance", "manage_references"}
     permissions = [p for p in permissions if p in allowed]
     if not target_id or target_id == SUPERADMIN_TELEGRAM_ID:
         raise HTTPException(status_code=400, detail="invalid_admin_target")
@@ -8514,7 +8587,7 @@ async def admin_set(request: Request):
 @app.post("/api/admin/audit")
 async def admin_audit(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "view_audit")
+    _admin_actor(payload, request, "view_audit")
     ensure_admin_tables()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8530,7 +8603,7 @@ async def admin_audit(request: Request):
 @app.post("/api/admin/errors")
 async def admin_errors(request: Request):
     payload = await request.json()
-    _admin_actor(payload, "view_errors")
+    _admin_actor(payload, request, "view_errors")
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
@@ -8555,7 +8628,7 @@ async def admin_error_reports(request: Request):
     error' button - distinct from prostudio_errors (server-side automatic
     logging): each row here was explicitly flagged by the affected user."""
     payload = await request.json()
-    _admin_actor(payload, "view_errors")
+    _admin_actor(payload, request, "view_errors")
     ensure_prostudio_table()
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
@@ -8572,6 +8645,616 @@ async def admin_error_reports(request: Request):
             "raw_error": str(row[8] or "")[:2000], "status": row[9] or "open",
             "created_at": _to_iso(row[10]),
         } for row in cursor.fetchall()]}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/users/detail")
+async def admin_user_detail(request: Request):
+    """Full profile for one user - account info, purchase and subscription
+    history, generation history, user-submitted error reports, and the most
+    recent presence ping. Used both by the Mini App's own admin-less flows
+    and by the separate SYLVEX Support Bot's user-profile screen."""
+    payload = await request.json()
+    _admin_actor(payload, request, "view_users")
+    ensure_admin_tables()
+    ensure_payment_tables()
+    ensure_prostudio_table()
+    target_id = int(payload.get("user_id") or 0)
+    if not target_id:
+        raise HTTPException(status_code=400, detail="user_id_required")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT u.telegram_id, COALESCE(u.username,'') AS username,
+                   COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                   COALESCE(u.balance,0) AS balance, COALESCE(u.subscription,'free') AS subscription, u.created_at,
+                   (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
+                    WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until
+            FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
+            WHERE u.telegram_id=%s
+        """, (target_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="user_not_found")
+        cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) FROM purchases WHERE telegram_id=%s", (target_id,))
+        purchases_count, total_spent = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE telegram_id=%s", (target_id,))
+        generations_count = cursor.fetchone()[0]
+        cursor.execute("SELECT current_view, platform, last_seen FROM app_presence WHERE telegram_id=%s", (target_id,))
+        presence_row = cursor.fetchone()
+        account = {"telegram_id": row[0], "username": row[1], "name": row[2], "balance": int(row[3] or 0),
+                   "subscription": row[4], "created_at": _to_iso(row[5]), "subscription_until": _to_iso(row[6]),
+                   "total_purchases": int(purchases_count or 0), "total_spent": int(total_spent or 0),
+                   "total_generations": int(generations_count or 0)}
+        cursor.execute("""
+            SELECT id, provider, credits, amount, currency, status, charge_id, created_at
+            FROM purchases WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+        """, (target_id,))
+        purchases = [{"id": r[0], "provider": r[1], "credits": int(r[2] or 0), "amount": int(r[3] or 0),
+                "currency": r[4], "status": r[5], "charge_id": r[6] or "", "created_at": _to_iso(r[7])}
+                for r in cursor.fetchall()]
+        cursor.execute("""
+            SELECT id, subscription_type, payment_method, amount, currency, starts_at, expires_at, status, created_at
+            FROM subscriptions WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+        """, (target_id,))
+        subscription_history = [{"id": r[0], "type": r[1] or "", "payment_method": r[2] or "",
+                "amount": int(r[3] or 0), "currency": r[4], "starts_at": _to_iso(r[5]), "expires_at": _to_iso(r[6]),
+                "status": r[7], "created_at": _to_iso(r[8])} for r in cursor.fetchall()]
+        cursor.execute("""
+            SELECT id, mode, model, provider, status, cost, created_at, completed_at
+            FROM prostudio_generation_jobs WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+        """, (target_id,))
+        generations = [{"id": r[0], "mode": r[1] or "", "model": r[2] or "", "provider": r[3] or "",
+                "status": r[4], "cost": int(r[5] or 0), "created_at": _to_iso(r[6]), "completed_at": _to_iso(r[7])}
+                for r in cursor.fetchall()]
+        cursor.execute("""
+            SELECT id, mode, provider, model, job_id, error_text, status, created_at
+            FROM prostudio_error_reports WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+        """, (target_id,))
+        error_reports = [{"id": r[0], "mode": r[1] or "", "provider": r[2] or "", "model": r[3] or "",
+                "job_id": r[4] or "", "error": str(r[5] or "")[:1000], "status": r[6] or "open",
+                "created_at": _to_iso(r[7])} for r in cursor.fetchall()]
+        recent_activity = {"view": presence_row[0] if presence_row else None,
+                "platform": presence_row[1] if presence_row else None,
+                "last_seen": _to_iso(presence_row[2]) if presence_row else None}
+        return {"ok": True, "account": account, "purchases": purchases, "subscription_history": subscription_history,
+                "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/users/online")
+async def admin_users_online(request: Request):
+    """Currently/recently active users from app_presence, populated by the
+    Mini App's own presence heartbeat - this table is kept even though the
+    admin UI that used to read it lives entirely in the Support Bot now."""
+    payload = await request.json()
+    _admin_actor(payload, request, "view_users")
+    ensure_admin_tables()
+    limit = max(1, min(int(payload.get("limit") or 50), 200))
+    window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT ap.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                   COALESCE(u.username,'') AS username, COALESCE(ap.current_view,'') AS view,
+                   COALESCE(ap.platform,'') AS platform, ap.last_seen,
+                   (ap.last_seen >= NOW() - INTERVAL '5 minutes') AS is_online
+            FROM app_presence ap
+            LEFT JOIN users u ON u.telegram_id = ap.telegram_id
+            LEFT JOIN user_profiles p ON p.telegram_id = ap.telegram_id
+            WHERE ap.last_seen >= NOW() - (%s * INTERVAL '1 minute')
+            ORDER BY ap.last_seen DESC LIMIT %s
+        """, (window_minutes, limit))
+        items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
+                "platform": r[4], "last_seen": _to_iso(r[5]), "online": bool(r[6])}
+                for r in cursor.fetchall()]
+        return {"ok": True, "items": items}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/generations")
+async def admin_generations(request: Request):
+    """Paginated, filterable generation history across all Pro Studio modes,
+    for the Support Bot's Generations section."""
+    payload = await request.json()
+    _admin_actor(payload, request, "view_generations")
+    ensure_prostudio_table()
+    mode = str(payload.get("mode") or "").strip().lower()[:20]
+    status = str(payload.get("status") or "").strip().lower()[:20]
+    target_id = int(payload.get("user_id") or 0)
+    limit = max(1, min(int(payload.get("limit") or 30), 100))
+    offset = max(0, int(payload.get("offset") or 0))
+    conditions, params = [], []
+    if mode:
+        conditions.append("mode=%s"); params.append(mode)
+    if status:
+        conditions.append("status=%s"); params.append(status)
+    if target_id:
+        conditions.append("telegram_id=%s"); params.append(target_id)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
+        total = cursor.fetchone()[0]
+        cursor.execute(f"""
+            SELECT id, telegram_id, mode, model, provider, status, cost, prompt, error_json, result_json,
+                   created_at, completed_at
+            FROM prostudio_generation_jobs {where}
+            ORDER BY created_at DESC LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        items = []
+        for r in cursor.fetchall():
+            error_json = r[8] if isinstance(r[8], dict) else {}
+            result_json = r[9] if isinstance(r[9], dict) else {}
+            items.append({
+                "id": r[0], "telegram_id": r[1], "mode": r[2] or "", "model": r[3] or "",
+                "provider": r[4] or "", "status": r[5], "cost": int(r[6] or 0), "prompt": str(r[7] or "")[:300],
+                "error": str(error_json.get("message") or error_json.get("error") or "")[:500] if error_json else "",
+                "has_result": bool(result_json),
+                "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
+            })
+        return {"ok": True, "items": items, "total": int(total or 0)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/subscribers")
+async def admin_subscribers(request: Request):
+    """Every subscription purchase (any status), newest first, for the
+    Support Bot's Subscribers section."""
+    payload = await request.json()
+    _admin_actor(payload, request, "view_finance")
+    ensure_payment_tables()
+    limit = max(1, min(int(payload.get("limit") or 30), 100))
+    offset = max(0, int(payload.get("offset") or 0))
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM subscriptions")
+        total = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT s.id, s.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                   COALESCE(u.username,'') AS username, COALESCE(s.subscription_type,'') AS plan, s.amount, s.currency,
+                   s.starts_at, s.expires_at, s.status, s.created_at,
+                   (SELECT COUNT(*) FROM subscriptions s2 WHERE s2.telegram_id=s.telegram_id) AS purchase_count
+            FROM subscriptions s
+            LEFT JOIN users u ON u.telegram_id=s.telegram_id
+            LEFT JOIN user_profiles p ON p.telegram_id=s.telegram_id
+            ORDER BY s.created_at DESC LIMIT %s OFFSET %s
+        """, (limit, offset))
+        items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4],
+                "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
+                "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
+                for r in cursor.fetchall()]
+        return {"ok": True, "items": items, "total": int(total or 0)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/top-spenders")
+async def admin_top_spenders(request: Request):
+    """Users ranked by total completed-purchase spend, with a
+    subscription-vs-credit-pack breakdown via the shared charge_id join."""
+    payload = await request.json()
+    _admin_actor(payload, request, "view_finance")
+    ensure_payment_tables()
+    limit = max(1, min(int(payload.get("limit") or 20), 100))
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT p.telegram_id, COALESCE(pr.display_name, u.first_name, 'SYLVEX User') AS name,
+                   COALESCE(u.username,'') AS username,
+                   COALESCE(SUM(p.amount),0) AS total_spent,
+                   COUNT(*) FILTER (WHERE s.charge_id IS NOT NULL) AS subscription_purchases,
+                   COUNT(*) FILTER (WHERE s.charge_id IS NULL) AS credit_purchases,
+                   COUNT(*) AS payments_count
+            FROM purchases p
+            LEFT JOIN users u ON u.telegram_id=p.telegram_id
+            LEFT JOIN user_profiles pr ON pr.telegram_id=p.telegram_id
+            LEFT JOIN subscriptions s ON s.charge_id=p.charge_id
+            WHERE p.status='completed'
+            GROUP BY p.telegram_id, pr.display_name, u.first_name, u.username
+            ORDER BY total_spent DESC LIMIT %s
+        """, (limit,))
+        items = [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "total_spent": int(r[3] or 0),
+                "subscription_purchases": int(r[4] or 0), "credit_purchases": int(r[5] or 0),
+                "payments_count": int(r[6] or 0)} for i, r in enumerate(cursor.fetchall())]
+        return {"ok": True, "items": items}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/messages/broadcast")
+async def admin_messages_broadcast(request: Request):
+    """Send one message to a chosen set of users, or to every registered
+    user, via the main bot's own BOT_TOKEN - mirrors /api/admin/users/message
+    but for many recipients at once, for the Support Bot's broadcast flow."""
+    payload = await request.json()
+    actor = _admin_actor(payload, request, "message_users")
+    ensure_admin_tables()
+    message = str(payload.get("message") or "").strip()
+    send_to_all = bool(payload.get("all"))
+    if not message or len(message) > 4000:
+        raise HTTPException(status_code=400, detail="invalid_message")
+    if not BOT_TOKEN:
+        raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        if send_to_all:
+            cursor.execute("SELECT telegram_id FROM users")
+            targets = [row[0] for row in cursor.fetchall()]
+        else:
+            targets = []
+            for raw in (payload.get("user_ids") or []):
+                try:
+                    tid = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if tid:
+                    targets.append(tid)
+            targets = list(dict.fromkeys(targets))
+        if not targets:
+            raise HTTPException(status_code=400, detail="no_recipients")
+        if len(targets) > 20000:
+            raise HTTPException(status_code=400, detail="too_many_recipients")
+
+        def send_one(chat_id):
+            try:
+                response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                                         json={"chat_id": chat_id, "text": message}, timeout=20)
+                result = response.json() if response.content else {}
+                return response.status_code < 400 and bool(result.get("ok"))
+            except requests.RequestException:
+                return False
+
+        semaphore = asyncio.Semaphore(20)
+        results = {}
+
+        async def send_and_record(tid):
+            async with semaphore:
+                results[tid] = await asyncio.to_thread(send_one, tid)
+
+        await asyncio.gather(*(send_and_record(tid) for tid in targets))
+        sent_count = sum(1 for ok in results.values() if ok)
+        for tid, ok in results.items():
+            cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
+                           (actor["telegram_id"], tid, message, ok))
+        _admin_audit(cursor, actor["telegram_id"], "broadcast_sent", 0, {},
+                     {"recipients": len(targets), "sent": sent_count, "length": len(message)}, "")
+        conn.commit()
+        return {"ok": True, "recipients": len(targets), "sent": sent_count}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+REFERENCES_SCHEMA_READY = False
+
+
+def ensure_references_table():
+    """Ready-made generation templates (photo styles, video templates, etc.)
+    that admins publish from the Support Bot and users will eventually pick
+    from a Mini App catalog to generate from. Brand-new table - no legacy
+    data, so plain TIMESTAMP columns are safe here (unlike users/subscriptions)."""
+    global REFERENCES_SCHEMA_READY
+    if REFERENCES_SCHEMA_READY or not DATABASE_URL:
+        return
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_references (
+                id SERIAL PRIMARY KEY,
+                category TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                prompt TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                workflow TEXT DEFAULT '',
+                preview_url TEXT DEFAULT '',
+                source_url TEXT DEFAULT '',
+                published BOOLEAN NOT NULL DEFAULT FALSE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_by BIGINT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prostudio_references_catalog ON prostudio_references (published, category, kind)")
+        conn.commit()
+        REFERENCES_SCHEMA_READY = True
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _reference_row_to_dict(row) -> dict:
+    return {"id": row[0], "category": row[1], "kind": row[2], "name": row[3], "description": row[4] or "",
+            "prompt": row[5] or "", "model": row[6] or "", "workflow": row[7] or "",
+            "preview_url": row[8] or "", "source_url": row[9] or "", "published": bool(row[10]),
+            "sort_order": int(row[11] or 0), "created_by": row[12], "created_at": _to_iso(row[13]),
+            "updated_at": _to_iso(row[14])}
+
+
+_REFERENCE_COLUMNS = "id,category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by,created_at,updated_at"
+
+
+@app.post("/api/admin/references/list")
+async def admin_references_list(request: Request):
+    payload = await request.json()
+    _admin_actor(payload, request, "manage_references")
+    ensure_references_table()
+    category = str(payload.get("category") or "").strip()[:80]
+    kind = str(payload.get("kind") or "").strip().lower()[:20]
+    published = payload.get("published")
+    limit = max(1, min(int(payload.get("limit") or 50), 200))
+    offset = max(0, int(payload.get("offset") or 0))
+    conditions, params = [], []
+    if category:
+        conditions.append("category=%s"); params.append(category)
+    if kind:
+        conditions.append("kind=%s"); params.append(kind)
+    if published is not None:
+        conditions.append("published=%s"); params.append(bool(published))
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT COUNT(*) FROM prostudio_references {where}", params)
+        total = cursor.fetchone()[0]
+        cursor.execute(f"""
+            SELECT {_REFERENCE_COLUMNS} FROM prostudio_references {where}
+            ORDER BY sort_order, created_at DESC LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        items = [_reference_row_to_dict(r) for r in cursor.fetchall()]
+        return {"ok": True, "items": items, "total": int(total or 0)}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/create")
+async def admin_references_create(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, request, "manage_references")
+    ensure_references_table()
+    category = str(payload.get("category") or "").strip()[:80]
+    kind = str(payload.get("kind") or "").strip().lower()[:20]
+    name = str(payload.get("name") or "").strip()[:200]
+    if not category or kind not in {"photo", "video"} or not name:
+        raise HTTPException(status_code=400, detail="invalid_reference")
+    description = str(payload.get("description") or "").strip()[:2000]
+    prompt = str(payload.get("prompt") or "").strip()[:8000]
+    model = str(payload.get("model") or "").strip()[:200]
+    workflow = str(payload.get("workflow") or "").strip()[:200]
+    preview_url = str(payload.get("preview_url") or "").strip()[:2000]
+    source_url = str(payload.get("source_url") or "").strip()[:2000]
+    published = bool(payload.get("published", False))
+    sort_order = int(payload.get("sort_order") or 0)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            INSERT INTO prostudio_references
+                (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING {_REFERENCE_COLUMNS}
+        """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
+              published, sort_order, actor["telegram_id"]))
+        created = _reference_row_to_dict(cursor.fetchone())
+        _admin_audit(cursor, actor["telegram_id"], "reference_created", 0, {}, created, "")
+        conn.commit()
+        return {"ok": True, "item": created}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/update")
+async def admin_references_update(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, request, "manage_references")
+    ensure_references_table()
+    reference_id = int(payload.get("id") or 0)
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="id_required")
+    fields = {
+        "category": lambda v: str(v or "").strip()[:80],
+        "kind": lambda v: str(v or "").strip().lower()[:20],
+        "name": lambda v: str(v or "").strip()[:200],
+        "description": lambda v: str(v or "").strip()[:2000],
+        "prompt": lambda v: str(v or "").strip()[:8000],
+        "model": lambda v: str(v or "").strip()[:200],
+        "workflow": lambda v: str(v or "").strip()[:200],
+        "preview_url": lambda v: str(v or "").strip()[:2000],
+        "source_url": lambda v: str(v or "").strip()[:2000],
+        "published": lambda v: bool(v),
+        "sort_order": lambda v: int(v or 0),
+    }
+    updates = {key: caster(payload[key]) for key, caster in fields.items() if key in payload}
+    if "kind" in updates and updates["kind"] not in {"photo", "video"}:
+        raise HTTPException(status_code=400, detail="invalid_kind")
+    if not updates:
+        raise HTTPException(status_code=400, detail="no_fields_to_update")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+        before_row = cursor.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="reference_not_found")
+        before = _reference_row_to_dict(before_row)
+        set_clause = ", ".join(f"{key}=%s" for key in updates)
+        cursor.execute(f"""
+            UPDATE prostudio_references SET {set_clause}, updated_at=NOW() WHERE id=%s
+            RETURNING {_REFERENCE_COLUMNS}
+        """, list(updates.values()) + [reference_id])
+        after = _reference_row_to_dict(cursor.fetchone())
+        _admin_audit(cursor, actor["telegram_id"], "reference_updated", 0, before, after, "")
+        conn.commit()
+        return {"ok": True, "item": after}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/publish")
+async def admin_references_publish(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, request, "manage_references")
+    ensure_references_table()
+    reference_id = int(payload.get("id") or 0)
+    published = bool(payload.get("published", True))
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="id_required")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT published FROM prostudio_references WHERE id=%s", (reference_id,))
+        before_row = cursor.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="reference_not_found")
+        cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
+        _admin_audit(cursor, actor["telegram_id"], "reference_published" if published else "reference_unpublished",
+                     0, {"published": bool(before_row[0])}, {"published": published}, "")
+        conn.commit()
+        return {"ok": True, "id": reference_id, "published": published}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/delete")
+async def admin_references_delete(request: Request):
+    payload = await request.json()
+    actor = _admin_actor(payload, request, "manage_references")
+    ensure_references_table()
+    reference_id = int(payload.get("id") or 0)
+    if not reference_id:
+        raise HTTPException(status_code=400, detail="id_required")
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+        before_row = cursor.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="reference_not_found")
+        cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
+        _admin_audit(cursor, actor["telegram_id"], "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+        conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/references/upload-media")
+async def admin_references_upload_media(request: Request):
+    """Accepts base64 media (the Support Bot downloads the Telegram file and
+    forwards its bytes here) and stores it durably in R2, since the bot has
+    no R2 credentials of its own - mirrors materialize_data_image_url's
+    approach but supports video too and returns a plain URL."""
+    payload = await request.json()
+    _admin_actor(payload, request, "manage_references")
+    content_b64 = str(payload.get("content_base64") or "")
+    slot = str(payload.get("slot") or "preview").strip().lower()
+    if slot not in {"preview", "source"}:
+        raise HTTPException(status_code=400, detail="invalid_slot")
+    if not content_b64:
+        raise HTTPException(status_code=400, detail="content_required")
+    try:
+        content = base64.b64decode(content_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_base64")
+    if not content or len(content) > 200 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="invalid_content_size")
+    content_type = str(payload.get("content_type") or "").strip().lower()
+    extension_by_mime = {
+        "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
+        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+    }
+    extension = extension_by_mime.get(content_type)
+    if not extension:
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            extension, content_type = "png", "image/png"
+        elif content.startswith(b"\xff\xd8\xff"):
+            extension, content_type = "jpg", "image/jpeg"
+        elif content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            extension, content_type = "webp", "image/webp"
+        elif content[4:8] in (b"ftyp",) or content.startswith(b"\x00\x00\x00"):
+            extension, content_type = "mp4", "video/mp4"
+        else:
+            extension, content_type = "bin", content_type or "application/octet-stream"
+    filename = f"{uuid4().hex}.{extension}"
+    key = generated_key(f"references/{slot}", filename)
+    url = storage_put_bytes(content, key, content_type)
+    if not url:
+        raise HTTPException(status_code=502, detail="upload_failed")
+    return {"ok": True, "url": url, "content_type": content_type}
+
+
+@app.get("/api/public/prostudio/references")
+async def public_prostudio_references(category: str = "", kind: str = ""):
+    """Published references for the Mini App's future user-facing catalog -
+    only what admins have explicitly published, ordered for display."""
+    ensure_references_table()
+    if not DATABASE_URL:
+        return {"ok": True, "items": []}
+    conditions, params = ["published=TRUE"], []
+    category = str(category or "").strip()[:80]
+    kind = str(kind or "").strip().lower()[:20]
+    if category:
+        conditions.append("category=%s"); params.append(category)
+    if kind:
+        conditions.append("kind=%s"); params.append(kind)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT id,category,kind,name,description,prompt,model,workflow,preview_url,source_url
+            FROM prostudio_references WHERE {' AND '.join(conditions)}
+            ORDER BY sort_order, created_at DESC LIMIT 200
+        """, params)
+        items = [{"id": r[0], "category": r[1], "kind": r[2], "name": r[3], "description": r[4] or "",
+                "prompt": r[5] or "", "model": r[6] or "", "workflow": r[7] or "",
+                "preview_url": r[8] or "", "source_url": r[9] or ""} for r in cursor.fetchall()]
+        return {"ok": True, "items": items}
     finally:
         cursor.close()
         conn.close()
