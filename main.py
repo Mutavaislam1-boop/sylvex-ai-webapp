@@ -10591,6 +10591,127 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
 # СИНХРОНИЗАЦИЯ С TELEGRAM: send_generated_images_to_telegram
 # Отправляет готовый результат или статус в Telegram Bot и сохраняет признак отправки в metadata карточки.
 # =====================================================
+def _resolve_telegram_photo_source(image_value: str):
+    """Normalize one image value into either a local file to upload
+    (('file', filename, bytes, content_type)) or a URL Telegram can fetch
+    itself (('url', value)). Shared by both the single-photo and
+    media-group senders so they treat every image identically."""
+    is_base64_image = image_value.startswith("data:image") or (
+        len(image_value) > 4000 and not image_value.startswith("http")
+    )
+    is_http_url = image_value.startswith("http://") or image_value.startswith("https://")
+
+    if is_base64_image:
+        raw = image_value
+        if "," in raw:
+            raw = raw.split(",", 1)[1]
+        raw = raw.strip()
+        return ("file", "sylvex-image.png", base64.b64decode(raw), "image/png")
+
+    if is_http_url:
+        try:
+            download_response = safe_get(image_value, timeout=120, headers={"User-Agent": "Mozilla/5.0"})
+        except Exception as exc:
+            print("TELEGRAM PHOTO URL DOWNLOAD ERROR:", str(exc))
+            return ("url", image_value)
+
+        print("TELEGRAM PHOTO URL DOWNLOAD:", {
+            "status_code": download_response.status_code,
+            "content_type": download_response.headers.get("content-type"),
+            "bytes": len(download_response.content or b""),
+        })
+
+        if download_response.status_code >= 400 or not download_response.content:
+            return ("url", image_value)
+
+        content_type = download_response.headers.get("content-type") or "image/png"
+        file_name = "sylvex-image.png"
+        if "jpeg" in content_type or "jpg" in content_type:
+            file_name = "sylvex-image.jpg"
+        elif "webp" in content_type:
+            file_name = "sylvex-image.webp"
+        return ("file", file_name, download_response.content, content_type)
+
+    return ("url", image_value)
+
+
+def _send_single_telegram_photo(telegram_id: int, image_value: str, caption: str = "") -> bool:
+    try:
+        kind, *rest = _resolve_telegram_photo_source(image_value)
+        print("TELEGRAM SEND PHOTO:", {"telegram_id": telegram_id, "source_kind": kind})
+        if kind == "file":
+            file_name, content, content_type = rest
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                data={"chat_id": telegram_id, "caption": caption},
+                files={"photo": (file_name, content, content_type)},
+                timeout=120,
+            )
+        else:
+            (url,) = rest
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                json={"chat_id": telegram_id, "photo": url, "caption": caption},
+                timeout=120,
+            )
+        if response.status_code >= 400:
+            print("TELEGRAM SEND PHOTO ERROR:", response.text[:1000])
+            return False
+        data = response.json()
+        print("TELEGRAM SEND PHOTO RESULT:", data)
+        return bool(data.get("ok"))
+    except Exception as exc:
+        print("TELEGRAM SEND PHOTO ERROR:", str(exc))
+        return False
+
+
+def _send_telegram_media_group_chunk(telegram_id: int, images: list, caption: str = "") -> bool:
+    """Send 2-10 images as one Telegram album via sendMediaGroup."""
+    try:
+        media = []
+        files = {}
+        for index, image_value in enumerate(images):
+            kind, *rest = _resolve_telegram_photo_source(image_value)
+            media_item = {"type": "photo"}
+            if kind == "file":
+                file_name, content, content_type = rest
+                attach_name = f"photo{index}"
+                files[attach_name] = (file_name, content, content_type)
+                media_item["media"] = f"attach://{attach_name}"
+            else:
+                (url,) = rest
+                media_item["media"] = url
+            if index == 0 and caption:
+                media_item["caption"] = caption
+            media.append(media_item)
+
+        print("TELEGRAM SEND MEDIA GROUP:", {"telegram_id": telegram_id, "count": len(media), "file_count": len(files)})
+
+        if files:
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
+                data={"chat_id": telegram_id, "media": _safe_json_dumps(media)},
+                files=files,
+                timeout=180,
+            )
+        else:
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
+                json={"chat_id": telegram_id, "media": media},
+                timeout=180,
+            )
+
+        if response.status_code >= 400:
+            print("TELEGRAM SEND MEDIA GROUP ERROR:", response.text[:1000])
+            return False
+        data = response.json()
+        print("TELEGRAM SEND MEDIA GROUP RESULT:", data)
+        return bool(data.get("ok"))
+    except Exception as exc:
+        print("TELEGRAM SEND MEDIA GROUP ERROR:", str(exc))
+        return False
+
+
 def send_generated_images_to_telegram(telegram_id: int, images: list, caption: str = "") -> bool:
     # Synchronous by design (no internal await): every caller must run this
     # via asyncio.to_thread so the blocking requests.post calls inside it
@@ -10598,119 +10719,39 @@ def send_generated_images_to_telegram(telegram_id: int, images: list, caption: s
     if not BOT_TOKEN or not telegram_id or not images:
         return False
 
-    ok = False
+    valid_images = [str(image).strip() for image in images if image]
+    if not valid_images:
+        return False
 
-    for index, image in enumerate(images):
-        if not image:
+    # quantity=1 -> a normal single photo. quantity>=2 -> one Telegram
+    # media group (album) instead of N separate sendPhoto messages, so the
+    # user sees exactly the same set of images grouped together, matching
+    # what the Mini App shows for this generation.
+    if len(valid_images) == 1:
+        return _send_single_telegram_photo(telegram_id, valid_images[0], caption)
+
+    ok = True
+    # Telegram caps a single media group at 10 items; SYLVEX quantities
+    # only go up to 4 today, but chunk defensively in case that changes.
+    for chunk_start in range(0, len(valid_images), 10):
+        chunk = valid_images[chunk_start:chunk_start + 10]
+        chunk_caption = caption if chunk_start == 0 else ""
+        if len(chunk) == 1:
+            ok = _send_single_telegram_photo(telegram_id, chunk[0], chunk_caption) and ok
             continue
-
-        current_caption = caption if index == 0 else ""
-
-        try:
-            image_value = str(image or "").strip()
-
-            is_base64_image = image_value.startswith("data:image") or (
-                len(image_value) > 4000 and not image_value.startswith("http")
-            )
-            is_http_url = image_value.startswith("http://") or image_value.startswith("https://")
-
-            print("TELEGRAM SEND PHOTO:", {
-                "telegram_id": telegram_id,
-                "is_base64": is_base64_image,
-                "is_url": is_http_url,
-                "image_length": len(image_value),
+        sent = _send_telegram_media_group_chunk(telegram_id, chunk, chunk_caption)
+        if not sent:
+            # Safe fallback only on failure - never send both a media group
+            # and the same images individually, that would duplicate delivery.
+            print("TELEGRAM MEDIA GROUP FAILED, FALLING BACK TO INDIVIDUAL PHOTOS:", {
+                "telegram_id": telegram_id, "count": len(chunk),
             })
-
-            # 1. Base64 / data:image
-            if is_base64_image:
-                raw = image_value
-
-                if "," in raw:
-                    raw = raw.split(",", 1)[1]
-
-                raw = raw.strip()
-                image_bytes = base64.b64decode(raw)
-
-                response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    data={
-                        "chat_id": telegram_id,
-                        "caption": current_caption,
-                    },
-                    files={
-                        "photo": ("sylvex-image.png", image_bytes, "image/png"),
-                    },
-                    timeout=120,
-                )
-
-            # 2. URL — сначала скачиваем сами, потом отправляем как файл
-            elif is_http_url:
-                download_response = safe_get(
-                    image_value,
-                    timeout=120,
-                    headers={
-                        "User-Agent": "Mozilla/5.0",
-                    },
-                )
-
-                print("TELEGRAM PHOTO URL DOWNLOAD:", {
-                    "status_code": download_response.status_code,
-                    "content_type": download_response.headers.get("content-type"),
-                    "bytes": len(download_response.content or b""),
-                })
-
-                if download_response.status_code >= 400 or not download_response.content:
-                    response = requests.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                        json={
-                            "chat_id": telegram_id,
-                            "photo": image_value,
-                            "caption": current_caption,
-                        },
-                        timeout=120,
-                    )
-                else:
-                    content_type = download_response.headers.get("content-type") or "image/png"
-                    file_name = "sylvex-image.png"
-
-                    if "jpeg" in content_type or "jpg" in content_type:
-                        file_name = "sylvex-image.jpg"
-                    elif "webp" in content_type:
-                        file_name = "sylvex-image.webp"
-
-                    response = requests.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                        data={
-                            "chat_id": telegram_id,
-                            "caption": current_caption,
-                        },
-                        files={
-                            "photo": (file_name, download_response.content, content_type),
-                        },
-                        timeout=120,
-                    )
-
-            # 3. Остальное — пробуем как обычное значение
-            else:
-                response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    json={
-                        "chat_id": telegram_id,
-                        "photo": image_value,
-                        "caption": current_caption,
-                    },
-                    timeout=120,
-                )
-
-            if response.status_code >= 400:
-                print("TELEGRAM SEND PHOTO ERROR:", response.text[:1000])
-            else:
-                data = response.json()
-                print("TELEGRAM SEND PHOTO RESULT:", data)
-                ok = ok or bool(data.get("ok"))
-
-        except Exception as exc:
-            print("TELEGRAM SEND PHOTO ERROR:", str(exc))
+            sent = False
+            for index, image_value in enumerate(chunk):
+                fallback_caption = chunk_caption if index == 0 else ""
+                if _send_single_telegram_photo(telegram_id, image_value, fallback_caption):
+                    sent = True
+        ok = ok and sent
 
     return ok
 
