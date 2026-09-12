@@ -443,7 +443,6 @@ def _runway_voice_model_mapping(frontend_model: str) -> str:
 # =====================================================
 def _runway_audio_tool(payload: dict) -> str:
     voice_options = payload.get("voice_options") or {}
-    tool = _runway_audio_tool(payload)
     tool = str(voice_options.get("runway_tool") or voice_options.get("runwayTool") or "text_to_speech").strip().lower()
     return tool if tool in RUNWAY_AUDIO_TOOLS else "text_to_speech"
 
