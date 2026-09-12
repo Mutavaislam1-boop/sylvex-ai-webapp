@@ -10859,7 +10859,7 @@ def send_generated_images_to_telegram(telegram_id: int, images: list, caption: s
 # =====================================================
 async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     if not BYTEPLUS_ARK_API_KEY:
-        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
 
     opts = payload.get("image_options") or {}
     requested_model = (
@@ -10925,7 +10925,7 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
             break
 
     if not images:
-        return {"ok": False, "error": "Генерация не прошла. Проверь выбранную модель или backend-провайдер."}
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
 
     images = images[:count]
     extra_fields = {
@@ -13452,7 +13452,7 @@ async def image_generation(payload: dict) -> dict:
             if len(images) >= count:
                 break
         if not images:
-            return image_error_response(provider, requested_model, api_model, f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "Генерация не прошла. Проверь выбранную модель или backend-провайдер.")
+            return image_error_response(provider, requested_model, api_model, f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "Не удалось создать изображение. Попробуйте ещё раз.")
         result = await finalize_image_result(payload, images[:count])
         result.update(seedream_cost_info(requested_model, api_model, len(images[:count])))
         result["provider"] = "bytedance"
