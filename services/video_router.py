@@ -99,11 +99,14 @@ VIDEO_MODEL_CONFIG.update({
 BYTEPLUS_SEEDANCE_MODEL_MAP = {
     "seedance_2_fast": os.getenv("BYTEPLUS_SEEDANCE_2_FAST_MODEL", "dreamina-seedance-2-0-fast-260128"),
     "seedance_2_0": os.getenv("BYTEPLUS_SEEDANCE_2_MODEL", "dreamina-seedance-2-0-260128"),
+    # Estimated default following the sibling naming pattern above - unlike
+    # seedance_2_fast/seedance_2_0, this model had no hardcoded fallback at
+    # all, so selecting it without BYTEPLUS_SEEDANCE_1_5_PRO_MODEL set
+    # always failed with "unknown provider model mapping" before any API
+    # key or provider call was even attempted. Verify against BytePlus's
+    # actual Seedance 1.5 Pro model id.
+    "seedance_1_5_pro": os.getenv("BYTEPLUS_SEEDANCE_1_5_PRO_MODEL", "dreamina-seedance-1-5-pro-260128"),
 }
-
-_seedance_1_5_pro_model = os.getenv("BYTEPLUS_SEEDANCE_1_5_PRO_MODEL")
-if _seedance_1_5_pro_model:
-    BYTEPLUS_SEEDANCE_MODEL_MAP["seedance_1_5_pro"] = _seedance_1_5_pro_model
 
 for _provider_model_id in tuple(BYTEPLUS_SEEDANCE_MODEL_MAP.values()):
     BYTEPLUS_SEEDANCE_MODEL_MAP.setdefault(_provider_model_id, _provider_model_id)
@@ -116,13 +119,20 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "heygen_image_video": {"provider": "heygen", "provider_model": "image", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "heygen_cinematic_avatar": {"provider": "heygen", "provider_model": "cinematic_avatar", "endpoint": os.getenv("HEYGEN_DIRECT_VIDEO_ENDPOINT", f"{os.getenv('HEYGEN_BASE_URL', 'https://api.heygen.com').rstrip('/')}/v3/videos")},
     "luma_ray_v3_2": {"provider": "luma", "provider_model": os.getenv("LUMA_RAY_V3_2_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
-    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", os.getenv("LUMA_VIDEO_MODEL", "ray-3.2")), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
+    # Dream Machine is Luma's earlier/lighter model tier, not the same
+    # model as Ray v3.2 - it must not silently fall back to
+    # LUMA_VIDEO_MODEL/ray-3.2 the way it did before, or selecting either
+    # frontend model produced an identical result. Estimated default,
+    # verify against Luma's actual published model id.
+    "luma_dream_machine": {"provider": "luma", "provider_model": os.getenv("LUMA_DREAM_MACHINE_MODEL", "ray-1-6"), "endpoint": os.getenv("LUMA_AGENTS_ENDPOINT", os.getenv("LUMA_API_ENDPOINT", "https://agents.lumalabs.ai/v1/generations"))},
     "minimax_hailuo_2_3": {"provider": "minimax", "provider_model": os.getenv("MINIMAX_HAILUO_2_3_MODEL"), "endpoint": os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")},
     "pixverse_v6": {"provider": "pixverse", "provider_model": os.getenv("PIXVERSE_V6_MODEL", "v6"), "endpoint": os.getenv("PIXVERSE_API_ENDPOINT", "https://app-api.pixverse.ai/openapi/v2")},
     "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
     "wan_2_7": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_MODEL", "wan2.7-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
-    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    # Estimated defaults, unlike every other provider here - verify against
+    # xAI's actual published video model ids before relying on them.
+    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL", "grok-video-1-edit"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL", "wan2.1-vace-plus"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "runway_gen4_5": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_5_MODEL", "gen4.5"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_gen4_turbo": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_TURBO_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
@@ -137,13 +147,13 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "runway_veo3_1": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_1_MODEL", "veo3.1"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_veo3_1_fast": {"provider": "runway", "provider_model": os.getenv("RUNWAY_VEO3_1_FAST_MODEL", "veo3.1_fast"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_gemini_omni_flash": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEMINI_OMNI_FLASH_MODEL", "gemini_omni_flash"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
-    "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": _seedance_1_5_pro_model and os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
+    "seedance_1_5_pro": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_1_5_pro"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "wan_2_6": {"provider": "wan", "provider_model": os.getenv("WAN_2_6_MODEL", "wan2.6-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "seedance_2_fast": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_fast"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "gemini_omni_flash": {"provider": "gemini", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "gemini-omni-flash-preview"), "endpoint": os.getenv("GEMINI_INTERACTIONS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")},
     "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
-    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL", "grok-video-1"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
 }
@@ -864,6 +874,28 @@ def _save_gemini_video_bytes(content: bytes, suffix: str = "mp4"):
     ext = "mp4" if suffix not in {"mp4", "mov", "webm"} else suffix
     filename = f"{uuid4().hex}.{ext}"
     return storage_put_bytes(content, generated_key("videos", filename), mimetypes.guess_type(filename)[0] or "video/mp4")
+
+
+# =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: _download_and_persist_video_bytes
+# Некоторые провайдеры (OpenAI Sora, Google Veo) не возвращают публичную
+# ссылку на готовое видео - файл нужно скачать с той же авторизацией,
+# которой опрашивался статус, и сохранить в R2, чтобы остальной pipeline
+# (который скачивает по URL без авторизации) мог его использовать.
+# =====================================================
+def _download_and_persist_video_bytes(url: str, headers: dict, suffix: str = "mp4") -> str:
+    if not url:
+        return ""
+    try:
+        response = safe_get(url, headers=headers, timeout=180)
+        if getattr(response, "status_code", 0) >= 400 or not response.content:
+            return ""
+        ext = "mp4" if suffix not in {"mp4", "mov", "webm"} else suffix
+        filename = f"{uuid4().hex}.{ext}"
+        return storage_put_bytes(response.content, generated_key("videos", filename), mimetypes.guess_type(filename)[0] or "video/mp4")
+    except Exception as exc:
+        print("VIDEO_AUTH_DOWNLOAD_FAILED:", {"error": type(exc).__name__})
+        return ""
 
 
 # =====================================================
@@ -2920,6 +2952,132 @@ async def poll_video_generation(result: dict) -> dict:
             return _provider_success("gemini", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
         except Exception as exc:
             return _provider_error("gemini", model_id, f"Provider polling failed: {exc}")
+    if provider == "minimax":
+        api_key = _get_env("MINIMAX_API_KEY")
+        if not api_key:
+            return _provider_error("minimax", model_id, "Provider API key is missing: MINIMAX_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        query_endpoint = os.getenv("MINIMAX_QUERY_ENDPOINT", "https://api.minimax.io/v1/query/video_generation")
+        try:
+            response = _request_get(f"{query_endpoint}?task_id={task_id}", headers)
+            data = _safe_provider_json_response(response, "minimax", query_endpoint)
+            _log_provider_response("minimax", "POLL", query_endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("minimax", model_id, data)
+            status = str(data.get("status") or "").strip().lower()
+            if status in {"fail", "failed"}:
+                return _provider_parse_error("minimax", model_id, data)
+            if status not in {"success", "succeed", "succeeded"}:
+                return _provider_success("minimax", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
+            file_id = data.get("file_id") or data.get("fileId") or ""
+            if not file_id:
+                return _provider_error("minimax", model_id, "MiniMax reported success without a file_id")
+            retrieve_endpoint = os.getenv("MINIMAX_FILE_RETRIEVE_ENDPOINT", "https://api.minimax.io/v1/files/retrieve")
+            group_id = _get_env("MINIMAX_GROUP_ID")
+            retrieve_url = f"{retrieve_endpoint}?file_id={file_id}" + (f"&GroupId={group_id}" if group_id else "")
+            file_response = _request_get(retrieve_url, headers)
+            file_data = _safe_provider_json_response(file_response, "minimax", retrieve_endpoint)
+            download_url = _first_value(file_data, ("download_url", "downloadUrl", "url"))
+            if not download_url:
+                return _provider_error("minimax", model_id, "MiniMax file retrieval returned no download URL")
+            completed = _provider_success("minimax", model_id, [str(download_url)], status="completed", task_id=str(task_id))
+            completed["provider_response"] = data
+            return completed
+        except Exception as exc:
+            return _provider_error("minimax", model_id, f"Provider polling failed: {exc}")
+    if provider == "sora":
+        api_key = _get_env("OPENAI_API_KEY")
+        if not api_key:
+            return _provider_error("sora", model_id, "Provider API key is missing: OPENAI_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"}
+        endpoint = str(result.get("poll_url") or f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos/{task_id}")
+        try:
+            response = _request_get(endpoint, headers)
+            data = _safe_provider_json_response(response, "sora", endpoint)
+            _log_provider_response("sora", "POLL", endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("sora", model_id, data)
+            status = str(data.get("status") or "").strip().lower()
+            if status in {"failed", "error", "cancelled", "canceled"}:
+                return _provider_parse_error("sora", model_id, data)
+            if status != "completed":
+                return _provider_success("sora", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+            # OpenAI's video status response carries no direct URL - the
+            # finished video is only available from a separate,
+            # auth-protected content endpoint.
+            video_url = _download_and_persist_video_bytes(f"{endpoint}/content", headers)
+            if not video_url:
+                return _provider_error("sora", model_id, "Sora reported completed but the video content could not be downloaded")
+            completed = _provider_success("sora", model_id, [video_url], status="completed", task_id=str(task_id))
+            completed["provider_response"] = data
+            return completed
+        except Exception as exc:
+            return _provider_error("sora", model_id, f"Provider polling failed: {exc}")
+    if provider == "veo":
+        api_key = _get_env("GOOGLE_API_KEY")
+        if not api_key:
+            return _provider_error("veo", model_id, "Provider API key is missing: GOOGLE_API_KEY")
+        headers = {"x-goog-api-key": api_key}
+        operation_name = str(task_id).lstrip("/")
+        endpoint = str(result.get("poll_url") or f"https://generativelanguage.googleapis.com/v1beta/{operation_name}")
+        try:
+            response = _request_get(endpoint, headers)
+            data = _safe_provider_json_response(response, "veo", endpoint)
+            _log_provider_response("veo", "POLL", endpoint, {"operation": operation_name}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False or data.get("error"):
+                return _provider_parse_error("veo", model_id, data)
+            if not data.get("done"):
+                return _provider_success("veo", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+            response_payload = data.get("response") if isinstance(data.get("response"), dict) else {}
+            generate_response = response_payload.get("generateVideoResponse") if isinstance(response_payload.get("generateVideoResponse"), dict) else response_payload
+            samples = generate_response.get("generatedSamples") if isinstance(generate_response, dict) else None
+            video_uri = ""
+            if isinstance(samples, list):
+                for sample in samples:
+                    if isinstance(sample, dict):
+                        video_info = sample.get("video") if isinstance(sample.get("video"), dict) else {}
+                        video_uri = video_info.get("uri") or ""
+                        if video_uri:
+                            break
+            if not video_uri:
+                return _provider_error("veo", model_id, "Veo operation completed without a video URI")
+            video_url = _download_and_persist_video_bytes(video_uri, headers) or video_uri
+            completed = _provider_success("veo", model_id, [video_url], status="completed", task_id=str(task_id))
+            completed["provider_response"] = data
+            return completed
+        except Exception as exc:
+            return _provider_error("veo", model_id, f"Provider polling failed: {exc}")
+    if provider == "grok":
+        api_key = _get_env("XAI_API_KEY")
+        if not api_key:
+            return _provider_error("grok", model_id, "Provider API key is missing: XAI_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"}
+        # xAI's video status contract has not been confirmed against live
+        # docs/credentials - this follows the REST convention shared by
+        # Sora/Runway (GET the submit endpoint + "/{task_id}") and parses
+        # the same broad status vocabulary the other branches above use.
+        # Verify and adjust once XAI_API_KEY access is available.
+        submit_endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
+        endpoint = str(result.get("poll_url") or f"{submit_endpoint.rstrip('/')}/{task_id}")
+        try:
+            response = _request_get(endpoint, headers)
+            data = _safe_provider_json_response(response, "grok", endpoint)
+            _log_provider_response("grok", "POLL", endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("grok", model_id, data)
+            status = str(data.get("status") or data.get("state") or "").strip().lower()
+            if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+                return _provider_parse_error("grok", model_id, data)
+            urls = _normalize_video_urls(data)
+            if status in {"succeeded", "success", "completed", "done"} or urls:
+                if not urls:
+                    return _provider_error("grok", model_id, "Grok Video reported completed without a video URL")
+                completed = _provider_success("grok", model_id, urls, status="completed", task_id=str(task_id))
+                completed["provider_response"] = data
+                return completed
+            return _provider_success("grok", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+        except Exception as exc:
+            return _provider_error("grok", model_id, f"Provider polling failed: {exc}")
     return _provider_success(provider or "video", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
 
 
@@ -4487,10 +4645,19 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
             "size": _size_for_video(body.get("ratio"), body.get("resolution")),
             "seconds": _openai_sora_seconds(body.get("duration")),
         }
+        files = None
+        start_image = _public_input_url(body.get("start_image") or "")
+        if start_image:
+            image_bytes, mime_type = _read_media_bytes(start_image, "image")
+            if not image_bytes:
+                return _provider_error("sora", model_id, "Could not read the reference image for Sora image-to-video")
+            ext = mimetypes.guess_extension(mime_type or "image/jpeg") or ".jpg"
+            files = {"input_reference": (f"reference{ext}", image_bytes, mime_type or "image/jpeg")}
         response = _request_form(
             endpoint,
             {"Authorization": f"Bearer {api_key}"},
             form,
+            files=files,
         )
         return _provider_result_from_response("sora", model_id, response, endpoint)
     except Exception as exc:
@@ -4653,9 +4820,35 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
     prompt_extend = bool((payload.get("video_options") or {}).get("prompt_extend", True))
     watermark = bool((payload.get("video_options") or {}).get("watermark", False))
 
+    # wan_2_7_edit's real provider model is Alibaba's dedicated video-editing
+    # model (VACE, "wan2.1-vace-plus" by default) - a genuinely different
+    # model family from wan2.6/wan2.7 text/image-to-video, not just a naming
+    # variant. It must never fall through to the is_27/has_media branches
+    # below: those build an image-to-video body and require a first-frame
+    # image this edit mode's UI never collects (start_image is always
+    # false for it), discarding the uploaded input_video and guaranteeing
+    # "Wan image-to-video requires a first-frame image" on every attempt.
+    is_video_edit = model_id == "wan_2_7_edit" or "vace" in str(provider_model).lower()
     is_27 = str(provider_model).startswith("wan2.7")
     has_media = bool(start_image or end_image or input_video)
-    if is_27 and has_media:
+    if is_video_edit:
+        if not input_video:
+            return _provider_error("wan", model_id, "Wan video editing requires an input video")
+        wan_body = {
+            "model": provider_model,
+            "input": {"prompt": prompt or "", "video_url": input_video},
+            "parameters": {
+                "resolution": _wan_resolution(body.get("resolution")),
+                "duration": duration,
+                "prompt_extend": prompt_extend,
+                "watermark": watermark,
+            },
+        }
+        if negative_prompt:
+            wan_body["input"]["negative_prompt"] = negative_prompt[:500]
+        if seed is not None:
+            wan_body["parameters"]["seed"] = seed
+    elif is_27 and has_media:
         provider_model = os.getenv("WAN_2_7_I2V_MODEL", "wan2.7-i2v")
         media = []
         if input_video:
@@ -4786,13 +4979,32 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "grok")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": provider_model})
+    # Build an explicit xAI-schema body instead of forwarding SYLVEX's raw
+    # internal payload (start_image/ratio/resolution/etc. are our own
+    # internal keys, not xAI's) - matches every other provider here. The
+    # exact field names below are our best-effort guess at xAI's video API
+    # contract; verify against xAI's published docs once accessible.
+    grok_body = {"model": provider_model, "prompt": prompt or ""}
+    ratio = body.get("ratio")
+    if ratio:
+        grok_body["aspect_ratio"] = ratio
+    try:
+        duration = int(body.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    if duration:
+        grok_body["duration"] = duration
+    input_video = _public_input_url(
+        body.get("input_video") or body.get("video_url") or body.get("reference_video") or ""
+    )
+    if input_video:
+        grok_body["video_url"] = input_video
     try:
         endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            grok_body,
         )
         return _provider_result_from_response("grok", model_id, response, endpoint)
     except Exception as exc:

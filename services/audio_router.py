@@ -92,6 +92,14 @@ ELEVENLABS_AUDIO_TOOLS = {
     "voice_design": "voice_design",
 }
 
+# eleven_*_sts_v2 models only work through the /v1/speech-to-speech endpoint
+# and reject text-only requests. The model picker and the "elevenlabs_tool"
+# selector in the Mini App are independent controls, so a user can pick an
+# STS model while the tool still defaults to "text_to_speech" - the request
+# then silently goes out with no audio ever collected.
+ELEVENLABS_STS_MODELS = {"eleven_english_sts_v2", "eleven_multilingual_sts_v2"}
+ELEVENLABS_DEFAULT_STS_MODEL = "eleven_multilingual_sts_v2"
+
 ELEVENLABS_VOICE_FALLBACKS = [
     {
         "voice_id": ELEVENLABS_DEFAULT_VOICE_ID,
@@ -443,7 +451,6 @@ def _runway_voice_model_mapping(frontend_model: str) -> str:
 # =====================================================
 def _runway_audio_tool(payload: dict) -> str:
     voice_options = payload.get("voice_options") or {}
-    tool = _runway_audio_tool(payload)
     tool = str(voice_options.get("runway_tool") or voice_options.get("runwayTool") or "text_to_speech").strip().lower()
     return tool if tool in RUNWAY_AUDIO_TOOLS else "text_to_speech"
 
@@ -1983,6 +1990,15 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         payload["prompt_optimization"] = prompt_report
     if not provider_model:
         return _audio_error(provider, frontend_model, "", "Unknown ElevenLabs model mapping", type="voice", frontend_model=frontend_model)
+    # An *_sts_v2 model only works through the speech-to-speech endpoint and
+    # rejects text-only requests; the reverse endpoint rejects a non-STS
+    # model_id. The frontend's model picker and tool selector are
+    # independent controls, so either mismatch is possible - reconcile them
+    # here instead of letting the request go out broken.
+    if provider_model in ELEVENLABS_STS_MODELS and tool != "speech_to_speech":
+        tool = "speech_to_speech"
+    elif tool == "speech_to_speech" and provider_model not in ELEVENLABS_STS_MODELS:
+        provider_model = ELEVENLABS_DEFAULT_STS_MODEL
     if not api_key:
         return _audio_error(provider, frontend_model, provider_model, "ELEVENLABS_API_KEY is not configured", type="voice")
 

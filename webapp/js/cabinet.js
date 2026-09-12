@@ -1771,6 +1771,17 @@ function isElevenLabsVoiceModel(modelId) {
 }
 
 // =====================================================
+// АУДИОПЛЕЕР: isElevenLabsSTSModel
+// eleven_*_sts_v2 models only work through ElevenLabs' speech-to-speech
+// endpoint - the model picker and the upload-purpose picker are otherwise
+// independent, so this is checked whenever either one changes to keep
+// them in sync.
+// =====================================================
+function isElevenLabsSTSModel(modelId) {
+  return isElevenLabsVoiceModel(modelId) && String(modelId || '').indexOf('_sts_v2') !== -1;
+}
+
+// =====================================================
 // АУДИОПЛЕЕР: runwayToolLabel
 // Возвращает человекочитаемое название выбранного инструмента Runway для кнопок Mini App.
 // =====================================================
@@ -10013,6 +10024,15 @@ function imageModelButton(model) {
           if (!voiceState.elevenlabsSecondVoice) voiceState.elevenlabsSecondVoice = voiceState.elevenlabsVoice;
           voiceState.speakerMode = 'single';
           loadElevenLabsVoices();
+          if (isElevenLabsSTSModel(model.id)) {
+            // An STS model only works via speech-to-speech - force the
+            // upload purpose so the tool follows the model and an audio
+            // upload becomes required, instead of silently defaulting to
+            // a text-to-speech request this model can't fulfill.
+            applyVoiceUploadPurpose('speech_to_speech');
+          } else if (voiceState.uploadPurpose === 'speech_to_speech') {
+            applyVoiceUploadPurpose('voiceover');
+          }
         } else if (isRunwayVoiceModel(model.id)) {
           if (!voiceState.runwayVoice) voiceState.runwayVoice = 'Maya';
           voiceState.speakerMode = 'single';
