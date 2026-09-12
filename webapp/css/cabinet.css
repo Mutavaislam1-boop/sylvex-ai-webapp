@@ -5745,6 +5745,43 @@ CSS-БЛОК: .image-viewer-card
   align-items:center !important;
   justify-content:center !important;
 }
+.image-viewer-nav{
+  position:absolute !important;
+  top:50% !important;
+  width:42px !important;
+  height:42px !important;
+  display:none !important;
+  align-items:center !important;
+  justify-content:center !important;
+  transform:translateY(-50%) !important;
+  border:0 !important;
+  border-radius:999px !important;
+  background:rgba(0,0,0,.44) !important;
+  color:#fff !important;
+  font-size:30px !important;
+  line-height:1 !important;
+  cursor:pointer !important;
+  z-index:2 !important;
+}
+.image-viewer-backdrop.has-multiple .image-viewer-nav{display:flex !important}
+.image-viewer-nav:active{transform:translateY(-50%) scale(.94) !important}
+.image-viewer-prev{left:8px !important}
+.image-viewer-next{right:8px !important}
+.image-viewer-counter{
+  position:absolute !important;
+  left:50% !important;
+  bottom:10px !important;
+  display:none !important;
+  transform:translateX(-50%) !important;
+  padding:5px 9px !important;
+  border-radius:999px !important;
+  background:rgba(0,0,0,.52) !important;
+  color:#fff !important;
+  font-size:12px !important;
+  font-weight:700 !important;
+  z-index:2 !important;
+}
+.image-viewer-backdrop.has-multiple .image-viewer-counter{display:block !important}
 
 /* =====================================================
 CSS-БЛОК: .image-viewer-img
@@ -6255,6 +6292,26 @@ CSS-БЛОК: .generation-result-mini-card
 
 .generation-result-mini-card:active{transform:scale(.98)}
 
+.generation-result-image-grid{
+  display:grid;
+  grid-template-columns:repeat(2,58px);
+  grid-auto-rows:58px;
+  gap:6px;
+  flex:0 0 auto;
+}
+.generation-result-image-thumb{
+  width:58px;
+  height:58px;
+  padding:0;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;
+  background:#24262b;
+  cursor:pointer;
+}
+.generation-result-image-thumb:active{transform:scale(.97)}
+.generation-result-image-thumb img{width:100%;height:100%;display:block;object-fit:cover}
+
 /* =====================================================
 CSS-БЛОК: .generation-result-voice-card
 Показывает сгенерированную озвучку прямо в карточке результата.
@@ -6350,10 +6407,19 @@ CSS-БЛОК: .generation-result-meta
 ===================================================== */
 .generation-result-meta{
   min-width:0;
+  flex:1;
   display:flex;
   flex-direction:column;
   gap:3px;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
 }
+.generation-result-meta:focus-visible,.generation-result-image-thumb:focus-visible{outline:2px solid #8fc4ff;outline-offset:2px}
 
 /* =====================================================
 CSS-БЛОК: .generation-result-title
@@ -6484,6 +6550,25 @@ CSS-БЛОК: .generation-info-preview img
   object-fit:cover;
   display:block;
 }
+.generation-info-image-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  margin:0 0 14px;
+}
+.generation-info-image-button{
+  aspect-ratio:1;
+  min-width:0;
+  padding:0;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:16px;
+  background:#141518;
+  cursor:pointer;
+}
+.generation-info-image-button img{width:100%;height:100%;display:block;object-fit:cover}
+.generation-info-image-button:active{transform:scale(.98)}
+.generation-info-image-button:focus-visible{outline:2px solid #8fc4ff;outline-offset:2px}
 /* =====================================================
 CSS-БЛОК: .generation-info-video-preview
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
