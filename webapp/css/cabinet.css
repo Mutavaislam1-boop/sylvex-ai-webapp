@@ -327,6 +327,7 @@ body::before{content:none}
 .model-pop button:hover{background:var(--surface-2)}
 .model-pop button.sel{background:var(--surface-2);color:#93c5fd}
 .mode-strip{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0 4px}
+.mode-strip[hidden]{display:none!important}
 .mode-strip::-webkit-scrollbar{display:none}
 .mode-ico{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 10px 6px;border-radius:14px;background:var(--surface);border:1px solid var(--border);cursor:pointer;color:var(--text-dim);transition:.2s;min-width:64px}
 .mode-ico .mi{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-size:15px;background:rgba(96,165,250,.12);color:#93c5fd;transition:.2s}
@@ -404,6 +405,10 @@ body::before{content:none}
 .studio{--st-bg:#0a0a0d;--st-bg-2:#101014;--st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);--st-text:#ececf1;--st-dim:#8e8ea0;--st-mute:#6b6b78;--st-bubble-user:#202024;--st-bubble-ai:transparent;background:var(--st-bg)}
 
 .studio-bar{position:relative;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--st-line);background:var(--st-bg)}
+.studio-bar-right{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+/* CX Pro / mode switch stays visually centered in the bar regardless of the
+   left (History) and right (Theme, Home) icon groups' combined width. */
+.studio-bar>.studio-brand-cluster{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;pointer-events:auto}
 .studio-title{display:flex;align-items:center;gap:10px;min-width:0}
 .studio-logo{width:30px;height:30px;border-radius:8px;object-fit:contain;background:transparent;padding:0;filter:brightness(1.2) contrast(1.05);box-shadow:none}
 .studio[data-ps-theme="white"] .studio-logo{background:transparent;box-shadow:none;filter:contrast(1.05)}
@@ -527,7 +532,13 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);
   --st-text:#F3F3F3;--st-dim:#8D8D92;--st-mute:#6b6b75;
   --st-bubble-user:#24262B;--st-bubble-ai:transparent;
+  --st-border:rgba(255,255,255,.10);--st-border-strong:rgba(255,255,255,.16);
   --st-grid-line:rgba(255,255,255,.05);
+  --st-accent:#5b8dff;--st-accent-2:#7ea3ff;--st-accent-bg:rgba(91,141,255,.16);--st-accent-text:#eaf0ff;
+  --st-shadow:rgba(0,0,0,.45);
+  --st-depth-1:inset 0 1px 0 rgba(255,255,255,.05),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.3);
+  --st-depth-2:inset 0 1px 0 rgba(255,255,255,.04),0 10px 26px -12px rgba(0,0,0,.55);
+  --st-depth-active:inset 0 1px 3px rgba(0,0,0,.4);
   background:#202020;
 }
 
@@ -543,21 +554,33 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
    Pro-Studio-scoped rules (e.g. .studio-top) still read those app-wide
    vars for their border color. */
 .view[data-view="tools"].active .studio[data-ps-theme="white"]{
-  --st-bg:#ffffff;--st-bg-2:#f2f2f4;--st-bg-3:#e8e8ec;--st-bg-4:#dedee2;
+  --st-bg:#ffffff;--st-bg-2:#f4f4f6;--st-bg-3:#ebebef;--st-bg-4:#dfdfe4;
   --st-line:rgba(0,0,0,.08);--st-line-2:rgba(0,0,0,.13);
-  --st-text:#0d0d0f;--st-dim:#52525b;--st-mute:#8e8e98;
-  --st-bubble-user:#eeeef0;--st-bubble-ai:transparent;
+  --st-text:#14141a;--st-dim:#54545f;--st-mute:#8b8b96;
+  --st-bubble-user:#eef1f7;--st-bubble-ai:transparent;
   --border:rgba(0,0,0,.10);--border-strong:rgba(0,0,0,.16);
-  --st-grid-line:rgba(0,0,0,.06);
+  --st-border:rgba(0,0,0,.10);--st-border-strong:rgba(0,0,0,.16);
+  --st-grid-line:rgba(20,20,26,.09);
+  --st-accent:#2f6fed;--st-accent-2:#5b8dff;--st-accent-bg:rgba(47,111,237,.09);--st-accent-text:#ffffff;
+  --st-shadow:rgba(20,20,30,.14);
+  --st-depth-1:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(20,20,30,.05),0 1px 2px rgba(20,20,30,.07);
+  --st-depth-2:inset 0 1px 0 rgba(255,255,255,.75),0 12px 28px -14px rgba(20,20,30,.22);
+  --st-depth-active:inset 0 1px 3px rgba(20,20,30,.10);
   background:#ffffff;
 }
 .view[data-view="tools"].active .studio[data-ps-theme="black"]{
-  --st-bg:#000000;--st-bg-2:#0a0a0a;--st-bg-3:#121212;--st-bg-4:#191919;
+  --st-bg:#000000;--st-bg-2:#0c0c0d;--st-bg-3:#141415;--st-bg-4:#1c1c1e;
   --st-line:rgba(255,255,255,.09);--st-line-2:rgba(255,255,255,.14);
   --st-text:#f5f5f7;--st-dim:#9a9aa2;--st-mute:#6f6f78;
-  --st-bubble-user:#141414;--st-bubble-ai:transparent;
+  --st-bubble-user:#161617;--st-bubble-ai:transparent;
   --border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.16);
-  --st-grid-line:rgba(255,255,255,.08);
+  --st-border:rgba(255,255,255,.10);--st-border-strong:rgba(255,255,255,.16);
+  --st-grid-line:rgba(255,255,255,.09);
+  --st-accent:#6d9bff;--st-accent-2:#89b0ff;--st-accent-bg:rgba(109,155,255,.18);--st-accent-text:#f3f6ff;
+  --st-shadow:rgba(0,0,0,.6);
+  --st-depth-1:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.55);
+  --st-depth-2:inset 0 1px 0 rgba(255,255,255,.05),0 12px 30px -12px rgba(0,0,0,.7);
+  --st-depth-active:inset 0 1px 4px rgba(0,0,0,.6);
   background:#000000;
 }
 
@@ -568,7 +591,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-bar
 ===================================================== */
 .view[data-view="tools"].active .studio-bar{
   position:relative;height:60px;flex:0 0 60px;
-  display:grid;grid-template-columns:44px 1fr 44px;align-items:center;
+  display:flex;justify-content:space-between;align-items:center;
   padding:0 12px;
   background:color-mix(in srgb, var(--st-bg) 92%, transparent);
   backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);
@@ -3238,7 +3261,7 @@ CSS-БЛОК: .hist-drawer
 ===================================================== */
 .hist-drawer{
   position:fixed;top:0;left:0;bottom:0;width:84%;max-width:320px;
-  background:#0B0B0D;border-right:1px solid var(--st-line);
+  background:var(--st-bg, #0B0B0D);border-right:1px solid var(--st-line);
   transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);
   z-index:130;padding:14px 10px env(safe-area-inset-bottom);overflow-y:auto;
   display:flex;flex-direction:column;gap:14px;
@@ -3265,7 +3288,7 @@ CSS-БЛОК: .hd-head
   align-items:center;
   justify-content:center;
   height:56px;
-  background:rgba(11,11,13,.92);
+  background:color-mix(in srgb, var(--st-bg, #0B0B0D) 92%, transparent);
   backdrop-filter:blur(18px);
   -webkit-backdrop-filter:blur(18px);
 }
@@ -3282,7 +3305,7 @@ CSS-БЛОК: .hd-close
   height:36px;
   border:none;
   background:transparent;
-  color:#F3F3F3;
+  color:var(--st-text, #F3F3F3);
   font-size:26px;
   line-height:1;
   display:flex;
@@ -3296,8 +3319,8 @@ CSS-БЛОК: .hd-close:hover
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .hd-close:hover {
-  background: #17181C;
-  color: #F3F3F3;
+  background: var(--st-bg-3, #17181C);
+  color: var(--st-text, #F3F3F3);
 }
 /* =====================================================
 CSS-БЛОК: .hd-title
@@ -3306,13 +3329,13 @@ CSS-БЛОК: .hd-title
 .hd-title {
   font-size: 14px;
   font-weight: 600;
-  color: #F3F3F3;
+  color: var(--st-text, #F3F3F3);
   letter-spacing: .3px;
   flex: 1;
   text-align: center;
   pointer-events: none;
 }
-.hd-user-card{margin:0 6px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:#131315;color:#f3f3f3}.hd-user-main{display:flex;align-items:center;gap:10px;min-width:0}.hd-user-avatar{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;overflow:hidden;border-radius:12px;background:#24262b;color:#fff;font-size:13px;font-weight:750}.hd-user-avatar img{width:100%;height:100%;object-fit:cover}.hd-user-identity{display:flex;flex-direction:column;min-width:0}.hd-user-identity strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.3}.hd-user-identity span{margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#85858d;font-size:10.5px}.hd-user-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}.hd-user-stats div{display:flex;flex-direction:column;gap:3px;min-width:0}.hd-user-stats span{color:#777780;font-size:9.5px;line-height:1.2}.hd-user-stats b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ededee;font-size:12px;font-weight:650}
+.hd-user-card{margin:0 6px;padding:12px;border:1px solid var(--st-border, rgba(255,255,255,.08));border-radius:14px;background:var(--st-bg-2, #131315);color:var(--st-text, #f3f3f3);box-shadow:var(--st-depth-1, none)}.hd-user-main{display:flex;align-items:center;gap:10px;min-width:0}.hd-user-avatar{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;overflow:hidden;border-radius:12px;background:var(--st-bg-3, #24262b);color:var(--st-text, #fff);font-size:13px;font-weight:750}.hd-user-avatar img{width:100%;height:100%;object-fit:cover}.hd-user-identity{display:flex;flex-direction:column;min-width:0}.hd-user-identity strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.3}.hd-user-identity span{margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--st-mute, #85858d);font-size:10.5px}.hd-user-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px;padding-top:10px;border-top:1px solid var(--st-line, rgba(255,255,255,.06))}.hd-user-stats div{display:flex;flex-direction:column;gap:3px;min-width:0}.hd-user-stats span{color:var(--st-mute, #777780);font-size:9.5px;line-height:1.2}.hd-user-stats b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--st-text, #ededee);font-size:12px;font-weight:650}
 /* =====================================================
 CSS-БЛОК: .hd-new
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -3320,24 +3343,25 @@ CSS-БЛОК: .hd-new
 .hd-new{
   display:flex;align-items:center;gap:8px;margin:0 6px;
   padding:10px 12px;border-radius:12px;
-  background:#17181C;border:1px solid var(--st-line-2);color:#F3F3F3;
+  background:var(--st-bg-3, #17181C);border:1px solid var(--st-line-2);color:var(--st-text, #F3F3F3);
   font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+  box-shadow:var(--st-depth-1, none);
 }
-.hd-new:hover{background:#24262B}
+.hd-new:hover{background:var(--st-bg-4, #24262B)}
 .hd-section{display:flex;flex-direction:column;gap:2px;padding:0 4px}
-.hd-type-section{display:flex;flex-direction:column;gap:2px;padding:4px 0 8px;border-bottom:1px solid rgba(255,255,255,.04)}
+.hd-type-section{display:flex;flex-direction:column;gap:2px;padding:4px 0 8px;border-bottom:1px solid var(--st-line, rgba(255,255,255,.04))}
 .hd-type-section:last-child{border-bottom:0}
-.hd-label{font-size:10.5px;letter-spacing:1.2px;color:#6b6b75;text-transform:uppercase;padding:8px 10px 4px}
+.hd-label{font-size:10.5px;letter-spacing:1.2px;color:var(--st-mute, #6b6b75);text-transform:uppercase;padding:8px 10px 4px}
 /* =====================================================
 CSS-БЛОК: .hd-item
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .hd-item{
   text-align:left;padding:10px 12px;border-radius:10px;
-  background:transparent;border:none;color:#F3F3F3;font-family:inherit;
+  background:transparent;border:none;color:var(--st-text, #F3F3F3);font-family:inherit;
   font-size:13.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.hd-item:hover{background:#17181C}
+.hd-item:hover{background:var(--st-bg-3, #17181C)}
 
 /* Pro Studio chat image result */
 .msg .bubble img.gen-img{display:block;max-width:100%;border-radius:12px;margin-top:4px}
@@ -3380,12 +3404,13 @@ CSS-БЛОК: .gen-action-btn
   align-items:center;
   justify-content:center;
   gap:6px;
-  background:rgba(255,255,255,.12);
-  color:#fff;
+  background:var(--st-bg-3, rgba(255,255,255,.12));
+  color:var(--st-text, #fff);
   font-size:12px;
   font-weight:700;
   cursor:pointer;
   text-decoration:none;
+  box-shadow:var(--st-depth-1, none);
 }
 .generation-action-icon{width:16px;height:16px;flex:0 0 16px;display:block}
 /* =====================================================
@@ -3394,6 +3419,7 @@ CSS-БЛОК: .gen-telegram-btn
 ===================================================== */
 .gen-telegram-btn{
   background:rgba(47,111,189,.96);
+  color:#fff;
 }
 .gen-action-btn:active{transform:scale(.98)}
 .gen-video,
@@ -4075,9 +4101,9 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     transform:none !important;
     padding:8px 0 10px !important;
     border-radius:18px !important;
-    background:rgba(20,21,24,.40) !important;
-    border:1px solid rgba(255,255,255,.10) !important;
-    box-shadow:0 24px 70px -18px rgba(0,0,0,.92) !important;
+    background:color-mix(in srgb, var(--st-bg-2, #14151b) 65%, transparent) !important;
+    border:1px solid var(--st-border, rgba(255,255,255,.10)) !important;
+    box-shadow:var(--st-depth-2, none), 0 24px 70px -18px var(--st-shadow, rgba(0,0,0,.92)) !important;
     backdrop-filter:blur(18px) saturate(140%) !important;
     -webkit-backdrop-filter:blur(18px) saturate(140%) !important;
     z-index:999999 !important;
@@ -4101,9 +4127,9 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     font-size:11px !important;
     line-height:1.1 !important;
     font-weight:700 !important;
-    color:#cfcfd4 !important;
-    background:rgba(20,21,24,.64) !important;
-    border-bottom:1px solid rgba(255,255,255,.08) !important;
+    color:var(--st-dim, #cfcfd4) !important;
+    background:color-mix(in srgb, var(--st-bg-2, #14151b) 88%, transparent) !important;
+    border-bottom:1px solid var(--st-line, rgba(255,255,255,.08)) !important;
     backdrop-filter:blur(14px) saturate(140%) !important;
     -webkit-backdrop-filter:blur(14px) saturate(140%) !important;
   }
@@ -4139,7 +4165,7 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     margin:0 4px !important;
     width:calc(100% - 8px) !important;
     border-radius:11px !important;
-    background:rgba(48,48,48,.40) !important;
+    background:var(--st-accent-bg, rgba(48,48,48,.40)) !important;
   }
 
   body > #modelPop.image-model-floating-pop .image-model-icon,
@@ -4178,7 +4204,7 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     line-height:1.15 !important;
     font-weight:800 !important;
     letter-spacing:0 !important;
-    color:#f3f3f3 !important;
+    color:var(--st-text, #f3f3f3) !important;
   }
 
   body > #modelPop.image-model-floating-pop .image-model-desc,
@@ -4194,7 +4220,7 @@ body.ai-generating .view[data-view="tools"].active .studio::after,
     font-size:9px !important;
     line-height:1.2 !important;
     font-weight:400 !important;
-    color:#a7a7ad !important;
+    color:var(--st-dim, #a7a7ad) !important;
   }
 
   body > #modelPop.image-model-floating-pop .image-model-check,
@@ -4239,9 +4265,9 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop
     overflow-y:auto !important;
     padding:12px 10px 12px !important;
     border-radius:22px !important;
-    background:rgba(20,21,24,.60) !important;
-    border:1px solid rgba(255,255,255,.12) !important;
-    box-shadow:0 24px 70px -18px rgba(0,0,0,.92) !important;
+    background:color-mix(in srgb, var(--st-bg-2, #14151b) 82%, transparent) !important;
+    border:1px solid var(--st-border, rgba(255,255,255,.12)) !important;
+    box-shadow:var(--st-depth-2, none), 0 24px 70px -18px var(--st-shadow, rgba(0,0,0,.92)) !important;
     backdrop-filter:blur(18px) saturate(140%) !important;
     -webkit-backdrop-filter:blur(18px) saturate(140%) !important;
     z-index:999999 !important;
@@ -4269,9 +4295,9 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-sheet-title
     font-size:20px !important;
     line-height:1.15 !important;
     font-weight:800 !important;
-    color:#cfcfd4 !important;
-    background:rgba(20,21,24,.62) !important;
-    border-bottom:1px solid rgba(255,255,255,.10) !important;
+    color:var(--st-dim, #cfcfd4) !important;
+    background:color-mix(in srgb, var(--st-bg-2, #14151b) 85%, transparent) !important;
+    border-bottom:1px solid var(--st-line, rgba(255,255,255,.10)) !important;
     backdrop-filter:blur(14px) saturate(140%) !important;
     -webkit-backdrop-filter:blur(14px) saturate(140%) !important;
   }
@@ -4301,14 +4327,14 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop button.image-size-row
     border:0 !important;
     border-radius:14px !important;
     background:transparent !important;
-    color:#f3f3f3 !important;
+    color:var(--st-text, #f3f3f3) !important;
     text-align:left !important;
     font-family:inherit !important;
   }
 
   body > #modelPop.image-size-floating-pop button.image-size-row.active,
   body > #modelPop.image-size-floating-pop button.image-size-row.sel{
-    background:rgba(255,255,255,.12) !important;
+    background:var(--st-accent-bg, rgba(255,255,255,.12)) !important;
   }
 
 /* =====================================================
@@ -4319,7 +4345,7 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-icon
     width:30px !important;
     height:30px !important;
     display:block !important;
-    border:3px solid #cfcfd4 !important;
+    border:3px solid var(--st-dim, #cfcfd4) !important;
     border-radius:8px !important;
     opacity:.92 !important;
   }
@@ -4386,7 +4412,7 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-label
     font-size:22px !important;
     line-height:1 !important;
     font-weight:700 !important;
-    color:#f4f4f4 !important;
+    color:var(--st-text, #f4f4f4) !important;
   }
 
 /* =====================================================
@@ -4396,7 +4422,7 @@ CSS-БЛОК: body > #modelPop.image-size-floating-pop .image-size-check
   body > #modelPop.image-size-floating-pop .image-size-check{
     font-size:22px !important;
     line-height:1 !important;
-    color:#f4f4f4 !important;
+    color:var(--st-accent, #f4f4f4) !important;
     opacity:0 !important;
   }
 
@@ -4986,9 +5012,9 @@ CSS-БЛОК: .upload-panel-card
   width:min(92vw,520px) !important;
   height:min(78vh,680px) !important;
   border-radius:26px !important;
-  background:rgba(18,18,20,.88) !important;
-  border:1px solid rgba(255,255,255,.10) !important;
-  box-shadow:0 28px 90px rgba(0,0,0,.75) !important;
+  background:color-mix(in srgb, var(--st-bg-2, #121214) 88%, transparent) !important;
+  border:1px solid var(--st-border, rgba(255,255,255,.10)) !important;
+  box-shadow:var(--st-depth-2, none), 0 28px 90px var(--st-shadow, rgba(0,0,0,.75)) !important;
   backdrop-filter:blur(22px) saturate(140%) !important;
   -webkit-backdrop-filter:blur(22px) saturate(140%) !important;
   overflow:hidden !important;
@@ -5005,8 +5031,8 @@ CSS-БЛОК: .upload-panel-title
   padding:0 18px !important;
   font-size:14px !important;
   font-weight:800 !important;
-  color:#f3f3f3 !important;
-  border-bottom:1px solid rgba(255,255,255,.08) !important;
+  color:var(--st-text, #f3f3f3) !important;
+  border-bottom:1px solid var(--st-line, rgba(255,255,255,.08)) !important;
 }
 
 /* =====================================================
@@ -5030,8 +5056,8 @@ CSS-БЛОК: .upload-panel-close
   height:32px !important;
   border:0 !important;
   border-radius:50% !important;
-  background:rgba(255,255,255,.08) !important;
-  color:#fff !important;
+  background:var(--st-bg-3, rgba(255,255,255,.08)) !important;
+  color:var(--st-text, #fff) !important;
   font-size:22px !important;
   line-height:1 !important;
   display:grid !important;
@@ -7098,7 +7124,7 @@ CSS-БЛОК: body > #modelPop.music-settings-pop .music-settings-section h4
 body > #modelPop.music-settings-pop .music-settings-section h4{
   margin:0;
   padding:0 4px;
-  color:#cfcfd4;
+  color:var(--st-dim, #cfcfd4);
   font-size:13px;
   line-height:1.2;
   font-weight:800;
@@ -7123,18 +7149,19 @@ body > #modelPop.music-settings-pop .music-setting-chip{
   border:0;
   border-radius:999px;
   padding:0 13px;
-  background:rgba(255,255,255,.06);
-  color:#f1f1f1;
+  background:var(--st-bg-3, rgba(255,255,255,.06));
+  color:var(--st-text, #f1f1f1);
   font:inherit;
   font-size:13px;
   font-weight:700;
   cursor:pointer;
+  box-shadow:var(--st-depth-1, none);
 }
 
 body > #modelPop.music-settings-pop .music-setting-chip.active,
 body > #modelPop.music-settings-pop .music-setting-chip.sel{
-  background:rgba(255,255,255,.16);
-  color:#fff;
+  background:var(--st-accent, rgba(255,255,255,.16));
+  color:var(--st-accent-text, #fff);
 }
 
 /* =====================================================
@@ -7145,7 +7172,7 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   align-self:flex-start;
   border:0;
   background:transparent;
-  color:rgba(255,255,255,.52);
+  color:var(--st-mute, rgba(255,255,255,.52));
   font:inherit;
   font-size:14px;
   font-weight:700;
@@ -7178,20 +7205,20 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   max-height:min(78vh,680px);
   border-radius:26px;
   overflow:hidden;
-  background:rgba(18,18,20,.88);
-  border:1px solid rgba(255,255,255,.10);
-  box-shadow:0 28px 90px rgba(0,0,0,.75);
+  background:color-mix(in srgb, var(--st-bg-2, #121214) 88%, transparent);
+  border:1px solid var(--st-border, rgba(255,255,255,.10));
+  box-shadow:var(--st-depth-2, none), 0 28px 90px var(--st-shadow, rgba(0,0,0,.75));
   backdrop-filter:blur(22px) saturate(140%);
   -webkit-backdrop-filter:blur(22px) saturate(140%);
-  color:#f3f3f3;
+  color:var(--st-text, #f3f3f3);
 }
 .music-settings-dialog>header{
   min-height:52px;
   padding:10px 56px 10px 18px;
-  border-bottom:1px solid rgba(255,255,255,.08);
+  border-bottom:1px solid var(--st-line, rgba(255,255,255,.08));
 }
 .music-settings-dialog>header h3{margin:0;font-size:14px;font-weight:800;line-height:1.2}
-.music-settings-dialog>header p{margin:4px 0 0;color:#a9a9ad;font-size:11px;line-height:1.35}
+.music-settings-dialog>header p{margin:4px 0 0;color:var(--st-dim, #a9a9ad);font-size:11px;line-height:1.35}
 .music-settings-close{
   position:absolute;
   top:10px;
@@ -7201,30 +7228,31 @@ body > #modelPop.music-settings-pop .music-settings-clear{
   height:32px;
   border:0;
   border-radius:50%;
-  background:rgba(255,255,255,.08);
-  color:#fff;
+  background:var(--st-bg-3, rgba(255,255,255,.08));
+  color:var(--st-text, #fff);
   font:400 25px/1 inherit;
   cursor:pointer;
 }
 .music-settings-modal-body{display:flex;flex-direction:column;gap:18px;padding:16px 16px 20px;overflow-y:auto}
 .music-modal-section{display:flex;flex-direction:column;gap:9px}
-.music-modal-section h4{margin:0;color:#cfcfd4;font-size:13px;font-weight:800}
+.music-modal-section h4{margin:0;color:var(--st-dim, #cfcfd4);font-size:13px;font-weight:800}
 .music-modal-options{display:flex;flex-wrap:wrap;gap:8px}
 .music-modal-chip{
   min-height:36px;
   padding:0 13px;
   border:1px solid transparent;
   border-radius:999px;
-  background:rgba(255,255,255,.07);
-  color:#f1f1f1;
+  background:var(--st-bg-3, rgba(255,255,255,.07));
+  color:var(--st-text, #f1f1f1);
   font:700 13px/1 inherit;
   cursor:pointer;
+  box-shadow:var(--st-depth-1, none);
 }
-.music-modal-chip.active{background:rgba(47,111,189,.36);border-color:rgba(110,171,245,.62);color:#fff}
-.music-settings-dialog>footer{display:grid;grid-template-columns:minmax(100px,.65fr) minmax(140px,1fr);gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.08)}
+.music-modal-chip.active{background:var(--st-accent-bg, rgba(47,111,189,.36));border-color:var(--st-accent, rgba(110,171,245,.62));color:var(--st-text, #fff)}
+.music-settings-dialog>footer{display:grid;grid-template-columns:minmax(100px,.65fr) minmax(140px,1fr);gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--st-line, rgba(255,255,255,.08))}
 .music-settings-dialog>footer button{min-height:46px;border-radius:15px;font:800 14px/1 inherit;cursor:pointer}
-.music-settings-reset{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#ddd}
-.music-settings-save{border:0;background:#2f6fbd;color:#fff}
+.music-settings-reset{border:1px solid var(--st-border, rgba(255,255,255,.12));background:var(--st-bg-3, rgba(255,255,255,.06));color:var(--st-text, #ddd)}
+.music-settings-save{border:0;background:var(--st-accent, #2f6fbd);color:var(--st-accent-text, #fff)}
 
 @media(max-width:560px){
   .music-settings-modal{padding:10px}

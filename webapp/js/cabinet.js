@@ -7816,7 +7816,7 @@ function currentSelectedUploadImage() {
       display: grid;
       place-items: center;
       background: transparent;
-      color: #f3f3f3;
+      color: var(--st-text, #f3f3f3);
     }
 
     .image-model-icon img {
@@ -7962,10 +7962,10 @@ function currentSelectedUploadImage() {
       width: 100%;
       max-height: 74vh;
       overflow: hidden;
-      background: #111;
-      border: 1px solid rgba(255,255,255,.08);
+      background: var(--st-bg-2, #111);
+      border: 1px solid var(--st-border, rgba(255,255,255,.08));
       border-radius: 24px 24px 0 0;
-      box-shadow: 0 -20px 60px rgba(0,0,0,.55);
+      box-shadow: var(--st-depth-2, none), 0 -20px 60px var(--st-shadow, rgba(0,0,0,.55));
       padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
       animation: imageStylePanelUp .22s ease both;
     }
@@ -7984,7 +7984,7 @@ function currentSelectedUploadImage() {
     }
 
     .image-style-panel-title {
-      color: #fff;
+      color: var(--st-text, #fff);
       font-size: 17px;
       font-weight: 700;
       display: inline-flex;
@@ -8009,13 +8009,13 @@ function currentSelectedUploadImage() {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(255,255,255,.1);
-  border: 1px solid rgba(255,255,255,.24);
-  color: #fff;
+  background: var(--st-bg-3, rgba(255,255,255,.1));
+  border: 1px solid var(--st-border-strong, rgba(255,255,255,.24));
+  color: var(--st-text, #fff);
   font-size: 14px;
   font-weight: 900;
   line-height: 1;
-  box-shadow: 0 0 18px rgba(255,255,255,.12);
+  box-shadow: 0 0 18px var(--st-line-2, rgba(255,255,255,.12));
   animation: styleInfoWiggle 1.45s ease-in-out infinite;
   transform-origin: 50% 80%;
   cursor: pointer;
@@ -8034,10 +8034,10 @@ function currentSelectedUploadImage() {
   z-index: 3;
   padding: 12px 13px;
   border-radius: 15px;
-  background: rgba(20,20,20,.96);
-  border: 1px solid rgba(255,255,255,.12);
-  box-shadow: 0 16px 42px rgba(0,0,0,.45);
-  color: rgba(255,255,255,.86);
+  background: var(--st-bg-3, rgba(20,20,20,.96));
+  border: 1px solid var(--st-border, rgba(255,255,255,.12));
+  box-shadow: 0 16px 42px var(--st-shadow, rgba(0,0,0,.45));
+  color: var(--st-text, rgba(255,255,255,.86));
   font-size: 12px;
   line-height: 1.35;
   font-weight: 500;
@@ -8080,8 +8080,8 @@ function currentSelectedUploadImage() {
       height: 34px;
       border: 0;
       border-radius: 999px;
-      background: rgba(255,255,255,.08);
-      color: #fff;
+      background: var(--st-bg-3, rgba(255,255,255,.08));
+      color: var(--st-text, #fff);
       font-size: 24px;
       line-height: 34px;
       cursor: pointer;
@@ -8099,18 +8099,19 @@ function currentSelectedUploadImage() {
 
     .image-style-card {
       position: relative;
-      border: 1px solid rgba(255,255,255,.08);
+      border: 1px solid var(--st-border, rgba(255,255,255,.08));
       border-radius: 16px;
-      background: rgba(255,255,255,.045);
-      color: #fff;
+      background: var(--st-bg-2, rgba(255,255,255,.045));
+      color: var(--st-text, #fff);
       padding: 6px;
       cursor: pointer;
       overflow: hidden;
+      box-shadow: var(--st-depth-1, none);
     }
 
     .image-style-card.selected {
-      border-color: rgba(255,255,255,.9);
-      background: rgba(255,255,255,.12);
+      border-color: var(--st-accent, rgba(255,255,255,.9));
+      background: var(--st-accent-bg, rgba(255,255,255,.12));
     }
 
     .image-style-thumb {
@@ -8119,7 +8120,7 @@ function currentSelectedUploadImage() {
       aspect-ratio: 1 / 1;
       border-radius: 12px;
       overflow: hidden;
-      background: linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.03));
+      background: linear-gradient(135deg, var(--st-bg-4, rgba(255,255,255,.12)), var(--st-bg-3, rgba(255,255,255,.03)));
     }
 
     .image-style-thumb img {
@@ -8132,7 +8133,7 @@ function currentSelectedUploadImage() {
     .image-style-thumb.is-placeholder {
       display: grid;
       place-items: center;
-      color: rgba(255,255,255,.46);
+      color: var(--st-mute, rgba(255,255,255,.46));
     }
 
     .image-style-placeholder-icon {
@@ -8141,8 +8142,8 @@ function currentSelectedUploadImage() {
       display: grid;
       place-items: center;
       border-radius: 12px;
-      background: rgba(255,255,255,.08);
-      color: rgba(255,255,255,.72);
+      background: var(--st-bg-3, rgba(255,255,255,.08));
+      color: var(--st-dim, rgba(255,255,255,.72));
       font-size: 14px;
       font-weight: 900;
       letter-spacing: .02em;
@@ -8151,7 +8152,7 @@ function currentSelectedUploadImage() {
     .image-style-label {
       display: block;
       padding: 7px 2px 1px;
-      color: rgba(255,255,255,.82);
+      color: var(--st-dim, rgba(255,255,255,.82));
       font-size: 11px;
       line-height: 1.15;
       text-align: center;
@@ -8170,8 +8171,8 @@ function currentSelectedUploadImage() {
       align-items: center;
       justify-content: center;
       border-radius: 999px;
-      background: #fff;
-      color: #111;
+      background: var(--st-accent, #fff);
+      color: var(--st-accent-text, #111);
       font-size: 13px;
       font-weight: 900;
     }
@@ -8479,9 +8480,9 @@ function currentSelectedUploadImage() {
         max-height: min(76vh, 680px);
         border-radius: 24px;
         padding: 14px;
-        background: rgba(18,18,24,.88);
-        border: 1px solid rgba(255,255,255,.10);
-        box-shadow: 0 28px 90px rgba(0,0,0,.72);
+        background: color-mix(in srgb, var(--st-bg-2, #12121a) 88%, transparent);
+        border: 1px solid var(--st-border, rgba(255,255,255,.10));
+        box-shadow: var(--st-depth-2, none), 0 28px 90px var(--st-shadow, rgba(0,0,0,.72));
         backdrop-filter: blur(22px) saturate(140%);
         -webkit-backdrop-filter: blur(22px) saturate(140%);
         animation: imageStylePanelCenter .18s ease both;
@@ -8510,7 +8511,7 @@ function currentSelectedUploadImage() {
       .visual-character-detail {
         padding: 14px;
         border-radius: 24px;
-        background: rgba(18,18,24,.96);
+        background: color-mix(in srgb, var(--st-bg-2, #12121a) 96%, transparent);
       }
 
       .visual-character-detail-shell {
@@ -19668,6 +19669,35 @@ async function waitGeneration(jobId, options) {
     return document.querySelector('[data-view="tools"] .studio');
   }
 
+  // Pro Studio panels/menus/modals (model picker sheets, style & character
+  // pickers, upload panel, voice panels, etc.) get reparented to
+  // document.body by their own open logic - once outside .studio, they can
+  // no longer inherit the --st-* custom properties, which are only ever
+  // *defined* on .studio itself. So on every theme change we read the
+  // resolved values back off .studio and mirror them onto <html>, which is
+  // an ancestor of everything (including body-reparented panels) - the CSS
+  // in cabinet.css stays the single source of truth for the actual colors,
+  // this just makes them reachable from outside .studio's own subtree.
+  const STUDIO_THEME_VARS = [
+    '--st-bg', '--st-bg-2', '--st-bg-3', '--st-bg-4',
+    '--st-line', '--st-line-2', '--st-border', '--st-border-strong',
+    '--st-text', '--st-dim', '--st-mute',
+    '--st-bubble-user', '--st-bubble-ai', '--st-grid-line',
+    '--st-accent', '--st-accent-2', '--st-accent-bg', '--st-accent-text',
+    '--st-shadow', '--st-depth-1', '--st-depth-2', '--st-depth-active',
+  ];
+
+  function syncStudioThemeVarsToDocument() {
+    const studio = studioRootEl();
+    const root = document.documentElement;
+    if (!studio || !root) return;
+    const cs = getComputedStyle(studio);
+    STUDIO_THEME_VARS.forEach((name) => {
+      const value = cs.getPropertyValue(name);
+      if (value) root.style.setProperty(name, value.trim());
+    });
+  }
+
   function applyStudioTheme(theme, persist) {
     const safe = STUDIO_THEMES.includes(theme) ? theme : 'gray';
     const studio = studioRootEl();
@@ -19678,6 +19708,7 @@ async function waitGeneration(jobId, options) {
     if (persist !== false) {
       try { localStorage.setItem(STUDIO_THEME_KEY, safe); } catch (_) {}
     }
+    syncStudioThemeVarsToDocument();
     return safe;
   }
 
@@ -20154,7 +20185,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, cycleStudioTheme, restoreStudioTheme, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
+    setStudioLayout, cycleStudioTheme, restoreStudioTheme, syncStudioThemeVarsToDocument, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,

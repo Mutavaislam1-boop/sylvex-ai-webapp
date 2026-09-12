@@ -242,15 +242,6 @@ HTML-страница Mini App. Комментарии подписывают э
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </button>
           <!-- ==================================================
-          HTML-ЭЛЕМЕНТ: studioThemeBtn
-          При нажатии вызывает: SYLVEX.cycleStudioTheme(event) — циклический переключатель темы Pro Studio (Серая → Белая → Чёрная)
-          ID используется JavaScript/CSS как точка подключения: studioThemeBtn
-          CSS-класс задаёт внешний вид и расположение: sb-icon
-          =================================================== -->
-          <button class="sb-icon" id="studioThemeBtn" onclick="SYLVEX.cycleStudioTheme(event)" aria-label="Тема Pro Studio" title="Тема">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 000 17z" fill="currentColor" stroke="none"/></svg>
-          </button>
-          <!-- ==================================================
           HTML-ЭЛЕМЕНТ: modelBtn
           При нажатии вызывает: SYLVEX.toggleModelPop(event)
           ID используется JavaScript/CSS как точка подключения: modelBtn
@@ -267,13 +258,28 @@ HTML-страница Mini App. Комментарии подписывают э
             </div>
           </div>
           <!-- ==================================================
-          HTML-ЭЛЕМЕНТ: sb-icon
-          При нажатии вызывает: switchView('home')
-          CSS-класс задаёт внешний вид и расположение: sb-icon
+          HTML-ЭЛЕМЕНТ: studio-bar-right
+          Правая группа кнопок шапки: тема Pro Studio + Home, в исходном порядке (Home справа).
           =================================================== -->
-          <button class="sb-icon" onclick="switchView('home')" title="Home" aria-label="Home">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
-          </button>
+          <div class="studio-bar-right">
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: studioThemeBtn
+            При нажатии вызывает: SYLVEX.cycleStudioTheme(event) — циклический переключатель темы Pro Studio (Серая → Белая → Чёрная)
+            ID используется JavaScript/CSS как точка подключения: studioThemeBtn
+            CSS-класс задаёт внешний вид и расположение: sb-icon
+            =================================================== -->
+            <button class="sb-icon" id="studioThemeBtn" onclick="SYLVEX.cycleStudioTheme(event)" aria-label="Тема Pro Studio" title="Тема">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 000 17z" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <!-- ==================================================
+            HTML-ЭЛЕМЕНТ: sb-icon
+            При нажатии вызывает: switchView('home')
+            CSS-класс задаёт внешний вид и расположение: sb-icon
+            =================================================== -->
+            <button class="sb-icon" onclick="switchView('home')" title="Home" aria-label="Home">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1V11z"/></svg>
+            </button>
+          </div>
           <div class="model-pop" id="modelPop" role="menu"></div>
           <div class="mode-strip" id="modeStrip" hidden></div>
         </div>
