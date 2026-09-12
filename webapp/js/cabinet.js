@@ -11219,13 +11219,10 @@ function renderGeneratedTelegramButton(url, kind) {
     const thumb = imagePreviewUrl(meta, '');
     const fallbackUrl = meta.preview_fallback_url || meta.image_url || meta.full_url || meta.result_url || ((meta.result_images || [])[0]) || '';
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
-    const usd = meta.cost_usd !== undefined && meta.cost_usd !== null && meta.cost_usd !== ''
-      ? '$' + Number(meta.cost_usd).toFixed(3)
-      : '';
     const creditsValue = meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
       ? String(meta.cost_credits) + ' ⚡️'
       : '';
-    const cost = [usd, creditsValue].filter(Boolean).join(' / ') || String(meta.generation_cost || '');
+    const cost = creditsValue || String(meta.generation_cost || '');
     const hiddenCatalogPrompt = !!(meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden);
     const prompt = hiddenCatalogPrompt
       ? String(meta.catalog_display_prompt || meta.image_options?.catalog_display_prompt || meta.settings?.catalog_display_prompt || '')
@@ -13191,13 +13188,10 @@ function generationInfoRow(label, value) {
 }
 
 function generationCostLabel(meta) {
-  const usd = meta && meta.cost_usd !== undefined && meta.cost_usd !== null && meta.cost_usd !== ''
-    ? '$' + Number(meta.cost_usd).toFixed(3)
-    : '';
   const credits = meta && meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
     ? String(meta.cost_credits) + ' ⚡️'
     : '';
-  return [usd, credits].filter(Boolean).join(' / ') || String((meta && meta.generation_cost) || '');
+  return credits || String((meta && meta.generation_cost) || '');
 }
 
 function toggleGenerationPrompt(e) {
@@ -13326,7 +13320,7 @@ function renderGenerationShareCard(share) {
   else media = (thumbnail ? '<img class="generation-share-cover" src="' + thumbnail + '" alt="">' : '<div class="generation-share-audio-mark">' + (mode === 'voice' ? 'VO' : '♪') + '</div>')
     + '<audio src="' + mediaUrl + '" controls preload="metadata"></audio>';
   const cost = share.cost || {};
-  const costText = [cost.credits !== '' && cost.credits !== undefined && cost.credits !== null ? String(cost.credits) + ' ⚡' : '', cost.usd !== '' && cost.usd !== undefined && cost.usd !== null ? '$' + Number(cost.usd).toFixed(4) : ''].filter(Boolean).join(' · ');
+  const costText = cost.credits !== '' && cost.credits !== undefined && cost.credits !== null ? String(cost.credits) + ' ⚡' : '';
   const dimensions = metadata.width && metadata.height ? metadata.width + '×' + metadata.height : metadata.size;
   const rows = [
     ['Generated with', model], ['Автор', share.author], ['Дата', shareDateLabel(share.created_at)],
@@ -19644,6 +19638,44 @@ async function waitGeneration(jobId, options) {
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
   }
 
+  // Pro Studio's own local theme - independent of the app-wide light/dark
+  // appearance. One button cycles Gray (the original look) -> White ->
+  // Black -> Gray. Persisted the same way the rest of the app persists
+  // simple UI choices (localStorage), read back whenever Pro Studio opens.
+  const STUDIO_THEME_KEY = 'sylvex-prostudio-theme';
+  const STUDIO_THEMES = ['gray', 'white', 'black'];
+
+  function studioRootEl() {
+    return document.querySelector('[data-view="tools"] .studio');
+  }
+
+  function applyStudioTheme(theme, persist) {
+    const safe = STUDIO_THEMES.includes(theme) ? theme : 'gray';
+    const studio = studioRootEl();
+    if (studio) {
+      if (safe === 'gray') studio.removeAttribute('data-ps-theme');
+      else studio.setAttribute('data-ps-theme', safe);
+    }
+    if (persist !== false) {
+      try { localStorage.setItem(STUDIO_THEME_KEY, safe); } catch (_) {}
+    }
+    return safe;
+  }
+
+  function restoreStudioTheme() {
+    let stored = 'gray';
+    try { stored = localStorage.getItem(STUDIO_THEME_KEY) || 'gray'; } catch (_) {}
+    applyStudioTheme(stored, false);
+  }
+
+  function cycleStudioTheme(event) {
+    if (event) { event.preventDefault(); event.stopPropagation(); }
+    let current = 'gray';
+    try { current = localStorage.getItem(STUDIO_THEME_KEY) || 'gray'; } catch (_) {}
+    const next = STUDIO_THEMES[(STUDIO_THEMES.indexOf(current) + 1) % STUDIO_THEMES.length];
+    applyStudioTheme(next);
+  }
+
   function setStudioLayout(layout) {
     const mode = layout === 'grid' ? 'grid' : 'classic';
     const studio = document.querySelector('[data-view="tools"] .studio');
@@ -20090,7 +20122,7 @@ async function waitGeneration(jobId, options) {
   // Expose to global scope.
   Object.assign(S, {
     init, renderDynamic, renderChat, renderModeStrip, renderModelPop,
-    setStudioLayout, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
+    setStudioLayout, cycleStudioTheme, restoreStudioTheme, addStudioGridNode, deleteStudioGridNode, openStudioGridNode, zoomStudioGrid, resetStudioGridView, autoLayoutStudioGrid, runGridNode, runStudioGridWorkflow, createStudioGridProject, toggleStudioGridDrawer, openStudioGridTextEditor, closeStudioGridTextEditor, saveStudioGridTextEditor, onStudioGridMediaFiles,
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,

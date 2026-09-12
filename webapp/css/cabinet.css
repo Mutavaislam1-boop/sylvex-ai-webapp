@@ -312,7 +312,8 @@ body::before{content:none}
 .scroll.studio-mode{overflow:hidden;padding:0;display:flex;flex-direction:column;min-height:0}
 .studio{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%;animation:fadeUp .35s ease both}
 .studio-top{flex:0 0 auto;padding:10px 14px 8px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(6,6,14,.6),rgba(6,6,14,0));position:relative;z-index:5}
-[data-theme="light"] .studio-top{background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(255,255,255,0))}
+.studio[data-ps-theme="white"] .studio-top{background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(255,255,255,0))}
+.studio[data-ps-theme="black"] .studio-top{background:linear-gradient(180deg,rgba(0,0,0,.7),rgba(0,0,0,0))}
 .studio-top .studio-search{margin:0;padding:10px 12px;border-radius:14px}
 .model-select{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));cursor:pointer;position:relative}
 .model-select .mdot{width:8px;height:8px;border-radius:50%;background:#60a5fa;box-shadow:0 0 12px 2px rgba(96,165,250,.7)}
@@ -401,12 +402,11 @@ body::before{content:none}
    Pro Studio — strict monochrome AI workspace (ChatGPT/Claude-like)
    ============================================================ */
 .studio{--st-bg:#0a0a0d;--st-bg-2:#101014;--st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);--st-text:#ececf1;--st-dim:#8e8ea0;--st-mute:#6b6b78;--st-bubble-user:#202024;--st-bubble-ai:transparent;background:var(--st-bg)}
-[data-theme="light"] .studio{--st-bg:#ffffff;--st-bg-2:#f7f7f8;--st-line:rgba(0,0,0,.07);--st-line-2:rgba(0,0,0,.12);--st-text:#0d0d0f;--st-dim:#52525b;--st-mute:#8e8e98;--st-bubble-user:#f0f0f2;--st-bubble-ai:transparent}
 
 .studio-bar{position:relative;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--st-line);background:var(--st-bg)}
 .studio-title{display:flex;align-items:center;gap:10px;min-width:0}
 .studio-logo{width:30px;height:30px;border-radius:8px;object-fit:contain;background:transparent;padding:0;filter:brightness(1.2) contrast(1.05);box-shadow:none}
-[data-theme="light"] .studio-logo{background:transparent;box-shadow:none;filter:contrast(1.05)}
+.studio[data-ps-theme="white"] .studio-logo{background:transparent;box-shadow:none;filter:contrast(1.05)}
 .studio-title .st-name{font-size:14px;font-weight:600;color:var(--st-text);letter-spacing:.2px;line-height:1.1}
 .studio-title .st-model{font-size:11px;color:var(--st-mute);margin-top:2px;letter-spacing:.3px}
 .studio-new{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:transparent;border:1px solid var(--st-line-2);color:var(--st-dim);cursor:pointer;transition:.15s}
@@ -423,14 +423,16 @@ body::before{content:none}
 .studio .msg.user .bubble{background:var(--st-bubble-user);color:var(--st-text);border:1px solid var(--st-line);border-bottom-right-radius:6px;box-shadow:none}
 .studio .msg.ai .bubble{background:transparent;color:var(--st-text);border:none;padding-left:0;padding-right:0;border-bottom-left-radius:16px}
 .studio .ai-avatar{width:26px;height:26px;border-radius:8px;background:transparent;color:var(--st-text);font-weight:700;font-size:11px;letter-spacing:.5px;display:inline-grid;place-items:center;margin-bottom:6px;border:1px solid var(--st-line-2);background-image:url('../assets/logo.png');background-size:18px 18px;background-repeat:no-repeat;background-position:center;text-indent:-9999px}
-[data-theme="light"] .studio .ai-avatar{background-color:transparent}
+.studio[data-ps-theme="white"] .ai-avatar{background-color:transparent}
 /* Always visible (not hover-only - there is no reliable hover on touch)
    but kept semi-transparent so it stays visually quiet until used. */
-.studio .msg-actions{opacity:.8}
-.studio .msg-action-btn{background:rgba(255,255,255,.05);border:1px solid var(--st-line);color:var(--st-dim);width:28px;height:28px;border-radius:9px}
-[data-theme="light"] .studio .msg-action-btn{background:rgba(0,0,0,.04)}
+/* Frameless, icon-only: no box/frame/background - sits directly on the
+   card, slightly smaller than the app-wide .msg-action-btn default. */
+.studio .msg-actions{opacity:.8;gap:10px}
+.studio .msg-action-btn{background:transparent;border:none;color:var(--st-dim);width:26px;height:26px;border-radius:8px}
 .studio .msg-action-btn:hover{color:var(--st-text);background:var(--st-bg-2);opacity:1}
-.studio .msg-action-btn.is-playing{color:var(--accent);border-color:var(--accent)}
+.studio .msg-action-btn .generation-action-icon{width:13px;height:13px}
+.studio .msg-action-btn.is-playing{color:var(--accent)}
 .studio .msg-action-report.is-sent{color:#22c55e;border-color:rgba(34,197,94,.4)}
 
 /* Small, calm generation-failure notice - deliberately understated (no
@@ -471,15 +473,12 @@ body::before{content:none}
 
 /* Input area — dark gray, rounded, minimal */
 .studio .studio-input{flex:0 0 auto;position:relative;padding:10px 12px calc(12px + env(safe-area-inset-bottom));background:var(--st-bg);border-top:1px solid var(--st-line);backdrop-filter:none;-webkit-backdrop-filter:none}
-[data-theme="light"] .studio .studio-input{background:var(--st-bg)}
 .studio .studio-input-row{display:flex;align-items:flex-end;gap:6px;padding:8px 8px 8px 6px;border-radius:18px;background:var(--st-bg-2);border:1px solid var(--st-line-2);box-shadow:none}
 .studio .sib{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;border:1px solid transparent;background:transparent;color:var(--st-dim);cursor:pointer;flex:0 0 auto;box-shadow:none;transition:.15s}
-.studio .sib:hover{background:rgba(255,255,255,.06);color:var(--st-text)}
-[data-theme="light"] .studio .sib:hover{background:rgba(0,0,0,.05)}
+.studio .sib:hover{background:var(--st-line);color:var(--st-text)}
 .studio .sib:active{transform:scale(.93)}
 .studio .sib.send{background:var(--st-text);color:var(--st-bg);border:none;box-shadow:none}
 .studio .sib.send:hover{background:var(--st-text);opacity:.88;color:var(--st-bg)}
-[data-theme="light"] .studio .sib.send{background:#0d0d0f;color:#fff}
 .studio .studio-input textarea{flex:1;min-height:36px;max-height:160px;resize:none;background:transparent;border:none;outline:none;color:var(--st-text);font-size:15px;font-family:inherit;padding:9px 6px;line-height:1.45}
 .studio .studio-input textarea::placeholder{color:var(--st-mute)}
 
@@ -537,6 +536,34 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   background:#202020;
 }
 
+/* Pro Studio's own local theme (White/Black), independent of the app-wide
+   light/dark appearance - cycled by the single studioThemeBtn button
+   (SYLVEX.cycleStudioTheme in cabinet.js), read from [data-ps-theme] on
+   .studio. Matches the exact specificity chain of the rule above (and of
+   every other ".view[data-view=tools].active .studio*" override further
+   down this file) so it reliably wins instead of being silently shadowed.
+   "Gray" is simply the absence of [data-ps-theme] - the rule above,
+   unchanged - so existing users see no difference until they press the
+   new toggle. --border/--border-strong are pinned too, since a few
+   Pro-Studio-scoped rules (e.g. .studio-top) still read those app-wide
+   vars for their border color. */
+.view[data-view="tools"].active .studio[data-ps-theme="white"]{
+  --st-bg:#ffffff;--st-bg-2:#f2f2f4;--st-bg-3:#e8e8ec;--st-bg-4:#dedee2;
+  --st-line:rgba(0,0,0,.08);--st-line-2:rgba(0,0,0,.13);
+  --st-text:#0d0d0f;--st-dim:#52525b;--st-mute:#8e8e98;
+  --st-bubble-user:#eeeef0;--st-bubble-ai:transparent;
+  --border:rgba(0,0,0,.10);--border-strong:rgba(0,0,0,.16);
+  background:#ffffff;
+}
+.view[data-view="tools"].active .studio[data-ps-theme="black"]{
+  --st-bg:#000000;--st-bg-2:#0a0a0a;--st-bg-3:#121212;--st-bg-4:#191919;
+  --st-line:rgba(255,255,255,.09);--st-line-2:rgba(255,255,255,.14);
+  --st-text:#f5f5f7;--st-dim:#9a9aa2;--st-mute:#6f6f78;
+  --st-bubble-user:#141414;--st-bubble-ai:transparent;
+  --border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.16);
+  background:#000000;
+}
+
 /* Header — fixed 60px */
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .studio-bar
@@ -546,7 +573,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-bar
   position:relative;height:60px;flex:0 0 60px;
   display:grid;grid-template-columns:44px 1fr 44px;align-items:center;
   padding:0 12px;
-  background:rgba(11,11,13,.92);
+  background:color-mix(in srgb, var(--st-bg) 92%, transparent);
   backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);
   border-bottom:1px solid var(--st-line);
   z-index:6;
@@ -588,7 +615,7 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop
 .view[data-view="tools"].active .model-pop{
   position:absolute;top:56px;left:50%;transform:translateX(-50%);
   min-width:230px;padding:6px;border-radius:14px;
-  background:#17181C;border:1px solid var(--st-line-2);
+  background:var(--st-bg-2);border:1px solid var(--st-line-2);
   box-shadow:0 24px 60px -12px rgba(0,0,0,.85);
   z-index:25;display:none;
 }
@@ -602,8 +629,8 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop button
   background:transparent;border:none;color:var(--st-text);font-family:inherit;
   font-size:13px;cursor:pointer;border-radius:10px;text-align:left;
 }
-.view[data-view="tools"].active .model-pop button:hover{background:rgba(255,255,255,.05)}
-.view[data-view="tools"].active .model-pop button.sel{background:rgba(255,255,255,.06)}
+.view[data-view="tools"].active .model-pop button:hover{background:var(--st-line)}
+.view[data-view="tools"].active .model-pop button.sel{background:var(--st-line-2)}
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .model-pop .mp-div
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -646,7 +673,7 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .view[data-view="tools"].active .msg.user .bubble{
-  background:#17181C;color:#F3F3F3;border:1px solid var(--st-line-2);
+  background:var(--st-bubble-user);color:var(--st-text);border:1px solid var(--st-line-2);
   border-radius:18px;border-bottom-right-radius:6px;padding:11px 14px;
 }
 
@@ -656,7 +683,7 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.ai .bubble
 ===================================================== */
 .view[data-view="tools"].active .msg.ai .bubble{
   background:transparent !important;
-  color:#F3F3F3;
+  color:var(--st-text);
   border:0 !important;
   border-radius:0;
   padding:0;
@@ -754,23 +781,23 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-input textarea
 ===================================================== */
 .view[data-view="tools"].active .studio-input textarea{
   flex:1;min-height:38px;max-height:160px;resize:none;background:transparent;
-  border:none;outline:none;color:#F3F3F3;font-size:15px;font-family:inherit;
+  border:none;outline:none;color:var(--st-text);font-size:15px;font-family:inherit;
   padding:9px 8px;line-height:1.45;
 }
-.view[data-view="tools"].active .studio-input textarea::placeholder{color:#6b6b75}
+.view[data-view="tools"].active .studio-input textarea::placeholder{color:var(--st-mute)}
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .sib
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .view[data-view="tools"].active .sib{
   width:38px;height:38px;border-radius:12px;display:grid;place-items:center;
-  background:transparent;border:1px solid transparent;color:#8D8D92;
+  background:transparent;border:1px solid transparent;color:var(--st-dim);
   cursor:pointer;flex:0 0 auto;transition:.15s;box-shadow:none;
 }
-.view[data-view="tools"].active .sib:hover{background:rgba(255,255,255,.06);color:#F3F3F3}
+.view[data-view="tools"].active .sib:hover{background:var(--st-line);color:var(--st-text)}
 .view[data-view="tools"].active .sib:active{transform:scale(.92)}
-.view[data-view="tools"].active .sib.send{background:#F3F3F3;color:#0B0B0D;border:none}
-.view[data-view="tools"].active .sib.send:hover{background:#fff;color:#000}
+.view[data-view="tools"].active .sib.send{background:var(--st-text);color:var(--st-bg);border:none}
+.view[data-view="tools"].active .sib.send:hover{background:var(--st-text);color:var(--st-bg);opacity:.88}
 
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer
@@ -2874,10 +2901,10 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer textarea
 ===================================================== */
 .view[data-view="tools"].active .studio-video-composer textarea{
   width:100%;flex:1 1 auto;min-height:132px;max-height:220px;padding:8px 0;
-  background:transparent;border:0;outline:0;resize:none;color:#f3f3f3;
+  background:transparent;border:0;outline:0;resize:none;color:var(--st-text);
   font-size:17px;line-height:1.45;font-family:inherit;
 }
-.view[data-view="tools"].active .studio-video-composer textarea::placeholder{color:#858585}
+.view[data-view="tools"].active .studio-video-composer textarea::placeholder{color:var(--st-mute)}
 .studio-prompt-column textarea.has-animated-placeholder::placeholder{color:transparent!important}
 .animated-prompt-placeholder{
   position:absolute;left:24px;right:0;top:8px;z-index:1;min-width:0;
@@ -4915,6 +4942,8 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   background-position:0 0,11px 17px !important;
   animation:none !important;
 }
+.view[data-view="tools"].active .studio[data-ps-theme="white"]{background-color:#ffffff !important}
+.view[data-view="tools"].active .studio[data-ps-theme="black"]{background-color:#000000 !important}
 
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .chat-area
@@ -5667,7 +5696,7 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
   align-items:center;
   gap:8px;
   padding:10px 12px;
-  color:#fff;
+  color:var(--st-text);
   text-decoration:none;
 }
 

@@ -116,6 +116,7 @@
     }
     if (name === 'tools' && window.SYLVEX) {
       window.SYLVEX.setStudioLayout && window.SYLVEX.setStudioLayout('classic');
+      window.SYLVEX.restoreStudioTheme && window.SYLVEX.restoreStudioTheme();
       window.SYLVEX.renderChat && window.SYLVEX.renderChat();
       const ci = document.getElementById('chatInput');
       if (ci && window.SYLVEX.autoGrow) window.SYLVEX.autoGrow(ci);
