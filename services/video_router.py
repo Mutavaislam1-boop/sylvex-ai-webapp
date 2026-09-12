@@ -125,7 +125,9 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "sora_2_pro": {"provider": "sora", "provider_model": "sora-2-pro", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
     "wan_2_7": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_MODEL", "wan2.7-t2v"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "veo_3_1": {"provider": "veo", "provider_model": os.getenv("VEO_MODEL", "veo-3.1-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
-    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    # Estimated defaults, unlike every other provider here - verify against
+    # xAI's actual published video model ids before relying on them.
+    "grok_video_edit": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_EDIT_MODEL", "grok-video-1-edit"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "wan_2_7_edit": {"provider": "wan", "provider_model": os.getenv("WAN_2_7_EDIT_MODEL", "wan2.1-vace-plus"), "endpoint": os.getenv("WAN_API_ENDPOINT", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis")},
     "runway_gen4_5": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_5_MODEL", "gen4.5"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
     "runway_gen4_turbo": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN4_TURBO_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
@@ -146,7 +148,7 @@ VIDEO_PROVIDER_MODEL_MAP = {
     "seedance_2_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDANCE_MODEL_MAP.get("seedance_2_0"), "endpoint": os.getenv("BYTEPLUS_SEEDANCE_TASK_ENDPOINT")},
     "gemini_omni_flash": {"provider": "gemini", "provider_model": os.getenv("GEMINI_VIDEO_MODEL", "gemini-omni-flash-preview"), "endpoint": os.getenv("GEMINI_INTERACTIONS_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/interactions")},
     "sora_2": {"provider": "sora", "provider_model": "sora-2", "endpoint": f"{os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1').rstrip('/')}/videos"},
-    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
+    "grok_video": {"provider": "grok", "provider_model": os.getenv("GROK_VIDEO_MODEL", "grok-video-1"), "endpoint": os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")},
     "veo_3_1_fast": {"provider": "veo", "provider_model": os.getenv("VEO_FAST_MODEL", "veo-3.1-fast-generate-preview"), "endpoint": os.getenv("GOOGLE_VEO_ENDPOINT")},
     "runway_gen": {"provider": "runway", "provider_model": os.getenv("RUNWAY_GEN_MODEL", "gen4_turbo"), "endpoint": os.getenv("RUNWAY_IMAGE_TO_VIDEO_ENDPOINT", os.getenv("RUNWAY_API_ENDPOINT", "https://api.dev.runwayml.com/v1/image_to_video"))},
 }
@@ -3040,6 +3042,37 @@ async def poll_video_generation(result: dict) -> dict:
             return completed
         except Exception as exc:
             return _provider_error("veo", model_id, f"Provider polling failed: {exc}")
+    if provider == "grok":
+        api_key = _get_env("XAI_API_KEY")
+        if not api_key:
+            return _provider_error("grok", model_id, "Provider API key is missing: XAI_API_KEY")
+        headers = {"Authorization": f"Bearer {api_key}"}
+        # xAI's video status contract has not been confirmed against live
+        # docs/credentials - this follows the REST convention shared by
+        # Sora/Runway (GET the submit endpoint + "/{task_id}") and parses
+        # the same broad status vocabulary the other branches above use.
+        # Verify and adjust once XAI_API_KEY access is available.
+        submit_endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
+        endpoint = str(result.get("poll_url") or f"{submit_endpoint.rstrip('/')}/{task_id}")
+        try:
+            response = _request_get(endpoint, headers)
+            data = _safe_provider_json_response(response, "grok", endpoint)
+            _log_provider_response("grok", "POLL", endpoint, {"task_id": task_id}, response, data)
+            if getattr(response, "status_code", 0) >= 400 or data.get("ok") is False:
+                return _provider_parse_error("grok", model_id, data)
+            status = str(data.get("status") or data.get("state") or "").strip().lower()
+            if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+                return _provider_parse_error("grok", model_id, data)
+            urls = _normalize_video_urls(data)
+            if status in {"succeeded", "success", "completed", "done"} or urls:
+                if not urls:
+                    return _provider_error("grok", model_id, "Grok Video reported completed without a video URL")
+                completed = _provider_success("grok", model_id, urls, status="completed", task_id=str(task_id))
+                completed["provider_response"] = data
+                return completed
+            return _provider_success("grok", model_id, [], status="processing", task_id=str(task_id), poll_url=endpoint)
+        except Exception as exc:
+            return _provider_error("grok", model_id, f"Provider polling failed: {exc}")
     return _provider_success(provider or "video", model_id, [], status="processing", task_id=str(task_id), poll_url=result.get("poll_url") or "")
 
 
@@ -4941,13 +4974,32 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
     if not provider_model:
         return _unknown_video_model_mapping_response(model_id, "grok")
     body = _build_video_payload(model_id, prompt, payload)
-    body.update({"prompt": prompt, "model": provider_model})
+    # Build an explicit xAI-schema body instead of forwarding SYLVEX's raw
+    # internal payload (start_image/ratio/resolution/etc. are our own
+    # internal keys, not xAI's) - matches every other provider here. The
+    # exact field names below are our best-effort guess at xAI's video API
+    # contract; verify against xAI's published docs once accessible.
+    grok_body = {"model": provider_model, "prompt": prompt or ""}
+    ratio = body.get("ratio")
+    if ratio:
+        grok_body["aspect_ratio"] = ratio
+    try:
+        duration = int(body.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    if duration:
+        grok_body["duration"] = duration
+    input_video = _public_input_url(
+        body.get("input_video") or body.get("video_url") or body.get("reference_video") or ""
+    )
+    if input_video:
+        grok_body["video_url"] = input_video
     try:
         endpoint = os.getenv("XAI_VIDEO_ENDPOINT", "https://api.x.ai/v1/videos/generations")
         response = _request_json(
             endpoint,
             {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            body,
+            grok_body,
         )
         return _provider_result_from_response("grok", model_id, response, endpoint)
     except Exception as exc:
