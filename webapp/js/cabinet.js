@@ -11114,12 +11114,65 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   // =====================================================
+  // ЗАПУСК ГЕНЕРАЦИИ: generatedImageResultItems
+  // Собирает список {url, thumb} для всех изображений одной генерации, сохраняя порядок и без потери данных.
+  // =====================================================
+  function imageUrlFromResultValue(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value !== 'object') return '';
+    return String(value.url || value.original_url || value.image_url || value.full_url || value.result_url || '');
+  }
+
+  function imageThumbFromResultValue(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value !== 'object') return '';
+    return String(value.thumb || value.thumb_url || value.thumbnail || value.thumbnail_url || '');
+  }
+
+  function generatedImageResultItems(meta, message) {
+    const data = meta || {};
+    const resultImageValues = Array.isArray(data.result_images) && data.result_images.length
+      ? data.result_images
+      : (Array.isArray(data.images) && data.images.length
+        ? data.images
+        : (message && Array.isArray(message.images) && message.images.length ? message.images : []));
+    const urls = resultImageValues.map(imageUrlFromResultValue).filter(Boolean);
+    if (!urls.length) {
+      const fallback = imageUrlFromResultValue(data.full_url)
+        || imageUrlFromResultValue(data.result_url)
+        || imageUrlFromResultValue(data.image_url)
+        || imageUrlFromResultValue(message && message.imageUrl);
+      if (fallback) urls.push(fallback);
+    }
+    const resultThumbValues = Array.isArray(data.result_thumbnails) && data.result_thumbnails.length
+      ? data.result_thumbnails
+      : (Array.isArray(data.thumbnails) && data.thumbnails.length
+        ? data.thumbnails
+        : (message && Array.isArray(message.thumbnails) ? message.thumbnails : []));
+    return urls.map((url, index) => ({
+      url,
+      thumb: imageThumbFromResultValue(resultThumbValues[index]) || imageThumbFromResultValue(resultImageValues[index]) || url,
+    }));
+  }
+
+  // Full URL list, only emitted when there is more than one image - this is
+  // what lets the full-screen viewer swipe across the rest of the set.
+  function imageViewerSetAttribute(items) {
+    const urls = (items || []).map((item) => item && item.url).filter(Boolean);
+    return urls.length > 1 ? ' data-image-urls="' + S.escapeHtml(JSON.stringify(urls)) + '"' : '';
+  }
+
+  // =====================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageResultMiniCard
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
   function renderImageResultMiniCard(m, index) {
     const meta = m.metadata || {};
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? (currentChatType() === 'voice' ? 'voice' : 'music') : 'image'));
+    const imageItems = type === 'image' ? generatedImageResultItems(meta, m) : [];
+    const isMultiImage = type === 'image' && imageItems.length > 1;
     const thumb = imagePreviewUrl(meta, '');
     const fallbackUrl = meta.preview_fallback_url || meta.image_url || meta.full_url || meta.result_url || ((meta.result_images || [])[0]) || '';
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
@@ -11141,20 +11194,44 @@ function renderGeneratedTelegramButton(url, kind) {
       voice: 'Озвучка готова',
     };
     const iconMap = { image: 'IMG', video: 'VID', music: '♪', voice: 'VO' };
-    const media = thumb
-      ? previewImgHtml(thumb, 'generated result', type === 'image' ? fallbackUrl : '')
-      : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
-    return '<div class="generation-result-card-shell">'
-      + '<button class="generation-result-share" type="button" aria-label="Поделиться генерацией" title="Поделиться" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + '</button>'
-      + '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
-      + '<span class="generation-result-thumb">' + media + '</span>'
-      + '<span class="generation-result-meta">'
-      + '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
+    const metaHtml = '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
       + '<span class="generation-result-sub">' + safeModel + '</span>'
       + (cost ? '<span class="generation-result-cost">' + S.escapeHtml(cost) + '</span>' : '')
-      + (prompt ? '<span class="generation-result-prompt">' + S.escapeHtml(prompt) + '</span>' : '')
-      + '</span>'
-      + '</button></div>';
+      + (prompt ? '<span class="generation-result-prompt">' + S.escapeHtml(prompt) + '</span>' : '');
+    const shareButton = '<button class="generation-result-share" type="button" aria-label="Поделиться генерацией" title="Поделиться" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + '</button>';
+
+    if (!isMultiImage) {
+      const media = thumb
+        ? previewImgHtml(thumb, 'generated result', type === 'image' ? fallbackUrl : '')
+        : '<span class="generation-result-fallback">' + S.escapeHtml(iconMap[type] || 'AI') + '</span>';
+      return '<div class="generation-result-card-shell">'
+        + shareButton
+        + '<button class="generation-result-mini-card" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')">'
+        + '<span class="generation-result-thumb">' + media + '</span>'
+        + '<span class="generation-result-meta">' + metaHtml + '</span>'
+        + '</button></div>';
+    }
+
+    // 1 -> single image (above), 2 -> side by side, 3 -> two on the first
+    // row + one on the second, 4 -> 2x2 - all via the same 2-column grid,
+    // which auto-wraps a 3rd item onto its own row with no extra CSS needed.
+    const gridHtml = '<span class="generation-result-image-grid">'
+      + imageItems.slice(0, 4).map((item, imageIndex) => '<button class="generation-result-image-thumb" type="button" data-image-url="' + S.escapeHtml(item.url) + '"'
+        + imageViewerSetAttribute(imageItems)
+        + ' aria-label="Открыть изображение ' + (imageIndex + 1) + ' из ' + imageItems.length + '" onclick="SYLVEX.openImageViewer(event)">'
+        + previewImgHtml(item.thumb, 'generated image ' + (imageIndex + 1), item.url)
+        + '</button>').join('')
+      + '</span>';
+    // The shell can no longer be a single <button> once it contains its own
+    // per-image buttons (buttons cannot nest) - the media area opens the
+    // viewer per-image, the meta area opens the details drawer, same as
+    // clicking anywhere on the single-image card does today.
+    return '<div class="generation-result-card-shell">'
+      + shareButton
+      + '<div class="generation-result-mini-card generation-result-mini-card-multi">'
+      + '<span class="generation-result-thumb generation-result-thumb-multi">' + gridHtml + '</span>'
+      + '<button class="generation-result-meta" type="button" onclick="SYLVEX.openGenerationInfoDrawer(event,' + index + ')" aria-label="Открыть сведения о генерации">' + metaHtml + '</button>'
+      + '</div></div>';
   }
 
   // =====================================================
@@ -12558,6 +12635,92 @@ function removeComposerImageDraft(e, index) {
   }
 
 // =====================================================
+// JAVASCRIПТ-БЛОК: image viewer navigation state
+// Держит список URL текущей генерации и позицию, чтобы свайп/колесо/стрелки
+// листали между всеми изображениями одной генерации, не закрывая просмотр.
+// =====================================================
+let imageViewerUrls = [];
+let imageViewerIndex = 0;
+let imageViewerPointerStart = null;
+let imageViewerWheelDelta = 0;
+let imageViewerWheelTimer = null;
+let imageViewerKeydownBound = false;
+
+function imageViewerUrlsFrom(value, fallbackUrl) {
+  let values = [];
+  if (Array.isArray(value)) {
+    values = value;
+  } else if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      values = Array.isArray(parsed) ? parsed : [value];
+    } catch (_) {
+      values = [value];
+    }
+  }
+  const urls = values.map((item) => (typeof item === 'string' ? item : imageUrlFromResultValue(item))).filter(Boolean);
+  if (fallbackUrl && !urls.includes(fallbackUrl)) urls.push(fallbackUrl);
+  return urls;
+}
+
+function renderImageViewerImage() {
+  const viewer = document.getElementById('imageViewer');
+  const img = document.getElementById('imageViewerImg');
+  if (!viewer || !img || !imageViewerUrls.length) return;
+  imageViewerIndex = ((imageViewerIndex % imageViewerUrls.length) + imageViewerUrls.length) % imageViewerUrls.length;
+  img.src = imageViewerUrls[imageViewerIndex];
+  viewer.classList.toggle('has-multiple', imageViewerUrls.length > 1);
+  const counter = document.getElementById('imageViewerCounter');
+  if (counter) counter.textContent = (imageViewerIndex + 1) + ' / ' + imageViewerUrls.length;
+}
+
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: navigateImageViewer
+// Переключает текущее изображение внутри одной генерации без закрытия просмотра.
+// =====================================================
+function navigateImageViewer(e, direction) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (imageViewerUrls.length < 2) return;
+  imageViewerIndex += Number(direction) || 0;
+  renderImageViewerImage();
+}
+
+function onImageViewerPointerDown(event) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  imageViewerPointerStart = { x: event.clientX, y: event.clientY };
+}
+
+// Mobile: one-finger swipe left/right. Desktop/trackpad drag also lands
+// here via pointer events - a horizontal drag past the threshold navigates,
+// anything more vertical than horizontal is left alone (scroll/no-op).
+function onImageViewerPointerUp(event) {
+  if (!imageViewerPointerStart) return;
+  const start = imageViewerPointerStart;
+  imageViewerPointerStart = null;
+  const deltaX = event.clientX - start.x;
+  const deltaY = event.clientY - start.y;
+  if (Math.abs(deltaX) < 44 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+  navigateImageViewer(null, deltaX < 0 ? 1 : -1);
+}
+
+// Desktop/trackpad: horizontal wheel/trackpad swipe navigates the same way
+// one-finger swipe does on mobile.
+function onImageViewerWheel(event) {
+  if (Math.abs(event.deltaX) < 8 || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+  event.preventDefault();
+  imageViewerWheelDelta += event.deltaX;
+  if (imageViewerWheelTimer) clearTimeout(imageViewerWheelTimer);
+  imageViewerWheelTimer = setTimeout(() => { imageViewerWheelDelta = 0; }, 160);
+  if (Math.abs(imageViewerWheelDelta) < 48) return;
+  const direction = imageViewerWheelDelta > 0 ? 1 : -1;
+  imageViewerWheelDelta = 0;
+  navigateImageViewer(null, direction);
+}
+
+// =====================================================
 // JAVASCRIPT-БЛОК: ensureImageViewer
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
@@ -12571,11 +12734,31 @@ function ensureImageViewer() {
   viewer.innerHTML = `
     <div class="image-viewer-card" onclick="event.stopPropagation()">
       <button class="image-viewer-close" type="button" onclick="SYLVEX.closeImageViewer(event)">×</button>
+      <button class="image-viewer-nav image-viewer-prev" type="button" aria-label="Предыдущее изображение" onclick="SYLVEX.navigateImageViewer(event,-1)">‹</button>
       <img id="imageViewerImg" class="image-viewer-img" src="" alt="generated image" />
+      <button class="image-viewer-nav image-viewer-next" type="button" aria-label="Следующее изображение" onclick="SYLVEX.navigateImageViewer(event,1)">›</button>
+      <span id="imageViewerCounter" class="image-viewer-counter" aria-live="polite"></span>
     </div>
   `;
 
   viewer.onclick = closeImageViewer;
+  const card = viewer.querySelector('.image-viewer-card');
+  if (card) {
+    card.addEventListener('pointerdown', onImageViewerPointerDown);
+    card.addEventListener('pointerup', onImageViewerPointerUp);
+    card.addEventListener('pointercancel', () => { imageViewerPointerStart = null; });
+    card.addEventListener('wheel', onImageViewerWheel, { passive: false });
+  }
+  if (!imageViewerKeydownBound) {
+    imageViewerKeydownBound = true;
+    document.addEventListener('keydown', (event) => {
+      const activeViewer = document.getElementById('imageViewer');
+      if (!activeViewer || !activeViewer.classList.contains('show')) return;
+      if (event.key === 'Escape') closeImageViewer(event);
+      if (event.key === 'ArrowLeft') navigateImageViewer(event, -1);
+      if (event.key === 'ArrowRight') navigateImageViewer(event, 1);
+    });
+  }
   document.body.appendChild(viewer);
   return viewer;
 }
@@ -12584,7 +12767,7 @@ function ensureImageViewer() {
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: openImageViewer
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
 // =====================================================
-function openImageViewer(e, url) {
+function openImageViewer(e, url, urls) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
@@ -12596,9 +12779,12 @@ function openImageViewer(e, url) {
   if (!imageUrl) return;
 
   const viewer = ensureImageViewer();
-  const img = document.getElementById('imageViewerImg');
-
-  if (img) img.src = imageUrl;
+  imageViewerUrls = imageViewerUrlsFrom(
+    urls || (btn && btn.dataset ? btn.dataset.imageUrls : ''),
+    imageUrl,
+  );
+  imageViewerIndex = Math.max(0, imageViewerUrls.indexOf(imageUrl));
+  renderImageViewerImage();
 
   viewer.classList.add('show');
 }
@@ -12618,6 +12804,12 @@ function closeImageViewer(e) {
 
   if (viewer) viewer.classList.remove('show');
   if (img) img.src = '';
+  imageViewerUrls = [];
+  imageViewerIndex = 0;
+  imageViewerPointerStart = null;
+  imageViewerWheelDelta = 0;
+  if (imageViewerWheelTimer) clearTimeout(imageViewerWheelTimer);
+  imageViewerWheelTimer = null;
 }
 
 // =====================================================
@@ -13202,7 +13394,8 @@ function openGenerationInfoDrawer(e, index) {
 
   const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? (currentChatType() === 'voice' ? 'voice' : 'music') : 'image'));
   if (type === 'image') restoreImageStateFromGenerationMetadata(meta);
-  const imageUrl = meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
+  const imageItems = type === 'image' ? generatedImageResultItems(meta, message) : [];
+  const imageUrl = (imageItems[0] && imageItems[0].url) || meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
@@ -13223,8 +13416,16 @@ function openGenerationInfoDrawer(e, index) {
   const titleEl = drawer.querySelector('.generation-info-head h3');
   if (titleEl) titleEl.textContent = titleMap[type] || 'Result';
   const videoThumb = imagePreviewUrl(meta, '');
-  const previewHtml = type === 'image' && imageUrl
-    ? '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>'
+  const previewHtml = type === 'image' && imageItems.length > 1
+    ? '<div class="generation-info-image-grid">'
+      + imageItems.map((item, imageIndex) => '<button class="generation-info-image-button" type="button" data-image-url="' + S.escapeHtml(item.url) + '"'
+        + imageViewerSetAttribute(imageItems)
+        + ' aria-label="Открыть изображение ' + (imageIndex + 1) + ' из ' + imageItems.length + '" onclick="SYLVEX.openImageViewer(event)">'
+        + previewImgHtml(item.thumb, 'generated image ' + (imageIndex + 1), item.url)
+        + '</button>').join('')
+      + '</div>'
+    : type === 'image' && imageUrl
+      ? '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>'
     : type === 'video' && videoUrl
       ? '<video class="generation-info-media-player generation-info-video-player" src="' + S.escapeHtml(videoUrl) + '" controls playsinline preload="metadata"></video>'
       : type === 'music' && audioUrl
@@ -13244,7 +13445,9 @@ function openGenerationInfoDrawer(e, index) {
     } else if (type === 'video') {
       actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else {
-      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
+      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '"'
+        + (type === 'image' ? imageViewerSetAttribute(imageItems) : '')
+        + ' data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
     actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
@@ -19702,7 +19905,7 @@ async function waitGeneration(jobId, options) {
     openCreativeCatalog, closeCreativeCatalog, useCreativeCatalogItem,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, navigateImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
     PromptPlaceholderManager, VoiceDialogueComposer,
     initAudioPlayer,
