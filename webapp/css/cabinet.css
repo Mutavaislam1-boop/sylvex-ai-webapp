@@ -6175,30 +6175,37 @@ CSS-БЛОК: .dot-i
   pointer-events:none !important;
 }
 
-/* Pro Studio decorative background: a subtle grid (not Grid Mode - purely
-   decorative), drawn as a plain background-image directly on .studio
+/* Pro Studio decorative background: a subtle dotted matrix (not Grid Mode -
+   purely decorative), drawn as a plain background-image directly on .studio
    itself, never a pseudo-element/overlay - the two attempts at a
    pseudo-element-based decoration above were disabled specifically
    because an absolutely-positioned overlay layer risks sitting above
    content and swallowing clicks. A background-image can never intercept
-   pointer events, so this is safe by construction. Colors come from
-   --st-grid-line, set per Gray/White/Black theme above, so the grid
-   stays subtle and correctly-contrasted in all three. */
+   pointer events, so this is safe by construction. Two staggered layers of
+   small round dots (like the original "SAFE Pro Studio dots" attempt above,
+   which used the same two-layer/offset trick) give an evenly distributed,
+   brick-like dot pattern rather than a harsh square grid. Colors come from
+   --st-grid-line, set per Gray/White/Black theme above, so the dots stay
+   subtle and correctly-contrasted in all three. */
 .view[data-view="tools"].active .studio{
   background-image:
-    repeating-linear-gradient(0deg, var(--st-grid-line) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, var(--st-grid-line) 0 1px, transparent 1px 28px) !important;
+    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px),
+    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px) !important;
+  background-size:26px 26px, 26px 26px !important;
+  background-position:0 0, 13px 13px !important;
 }
 body.ai-generating .view[data-view="tools"].active .studio,
 .view[data-view="tools"].active .studio:has(.typing){
   background-image:
-    repeating-linear-gradient(0deg, var(--st-grid-line) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, var(--st-grid-line) 0 1px, transparent 1px 28px) !important;
+    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px),
+    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px) !important;
+  background-size:26px 26px, 26px 26px !important;
+  background-position:0 0, 13px 13px !important;
   animation:studioGridPulse 2.6s ease-in-out infinite !important;
 }
 @keyframes studioGridPulse{
   0%,100%{filter:brightness(1)}
-  50%{filter:brightness(1.1)}
+  50%{filter:brightness(1.16)}
 }
 .view[data-view="tools"].active .chat-area{
   background-image:none !important;
