@@ -5159,7 +5159,7 @@ function localizedGreeting() {
         if (err && err.terminalStatus) {
           const index = activeGenerationPlaceholderIndex();
           if (index >= 0) {
-            chatMessages[index] = buildGenerationErrorMessage(err, { mode: (jobInfo && jobInfo.mode) || '', jobId });
+            chatMessages[index] = resolveFailureMessage(err, { mode: (jobInfo && jobInfo.mode) || '', jobId });
           }
           renderChat();
           rememberCurrentChatSpace();
@@ -6675,7 +6675,7 @@ async function generatePhotoTool(e) {
     loadConversations();
   } catch (error) {
     state.generating = false;
-    chatMessages[loadingIndex] = buildGenerationErrorMessage(error, {
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt,
@@ -11139,6 +11139,24 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderSubscriptionRequiredCard
+  // Доступ к Pro Studio требует подписки - это апгрейд-карточка, а не
+  // сообщение об ошибке: заголовок, короткое описание преимуществ,
+  // кнопка в магазин и горизонтальная карусель названий доступных моделей.
+  // =====================================================
+  function renderSubscriptionRequiredCard(m, index) {
+    const chips = PRO_STUDIO_SHOWCASE_MODELS.map((name) =>
+      '<span class="pro-subscription-model-chip">' + S.escapeHtml(name) + '</span>'
+    ).join('');
+    return '<div class="pro-subscription-card">'
+      + '<div class="pro-subscription-title">Доступ к Pro Studio</div>'
+      + '<div class="pro-subscription-text">Подписка открывает безлимитные генерации, приоритетную очередь и все AI-модели Pro Studio в одном месте.</div>'
+      + '<button type="button" class="pro-subscription-cta" onclick="SYLVEX.openShopForGeneration(event,' + index + ')">Оформить подписку</button>'
+      + '<div class="pro-subscription-models">' + chips + '</div>'
+      + '</div>';
+  }
+
+  // =====================================================
   // ЗАПУСК ГЕНЕРАЦИИ: generatedImageResultItems
   // Собирает список {url, thumb} для всех изображений одной генерации, сохраняя порядок и без потери данных.
   // =====================================================
@@ -11351,6 +11369,11 @@ function renderGeneratedTelegramButton(url, kind) {
           + renderInsufficientBalanceCard(m, i)
           + '</div>';
       }
+      if (m.subscriptionRequired) {
+        return '<div class="msg ai pro-subscription-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+          + renderSubscriptionRequiredCard(m, i)
+          + '</div>';
+      }
       if (m.imageResultMini) {
         return '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageResultMiniCard(m, i)
@@ -11362,11 +11385,13 @@ function renderGeneratedTelegramButton(url, kind) {
           + '<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>';
       }
       if (m.isError) {
+        // Small, calm, single-line notice - not a warning. The user only
+        // needs to know the generation didn't complete; no reason, no
+        // alarming red styling, no technical detail (kept in errorMeta
+        // for logs/admin/report only).
         return '<div class="msg ai msg-error" data-i="' + i + '"><div class="ai-avatar">S</div>'
-          + '<div class="bubble error-bubble">'
-          + '<div class="error-bubble-head"><span class="error-bubble-icon">' + generationActionIcon('alert') + '</span><span class="error-bubble-title">Не удалось выполнить генерацию</span></div>'
-          + '<div class="error-bubble-text">' + S.escapeHtml(m.text || '').replace(/\n/g, '<br>') + '</div>'
-          + '</div>' + renderMsgActionsBar(m, i) + '</div>';
+          + '<div class="bubble error-bubble">' + S.escapeHtml(m.text || '').replace(/\n/g, '<br>') + '</div>'
+          + renderMsgActionsBar(m, i) + '</div>';
       }
       const actions = renderMsgActionsBar(m, i);
       let inner = '';
@@ -15066,12 +15091,13 @@ function maybeShowVideoTemplateIntro(force) {
       loadConversations();
     } catch (err) {
       if (loadingIndex >= 0) {
-        chatMessages[loadingIndex] = buildInsufficientBalanceMessage(err, promptLabel, null, [uploadedImage], null, videoOptions, []);
-        if (!(err && err.paywall)) {
-          chatMessages[loadingIndex] = buildGenerationErrorMessage(err, { mode: 'video', prompt: promptLabel });
+        if (err && err.paywall) {
+          chatMessages[loadingIndex] = buildInsufficientBalanceMessage(err, promptLabel, null, [uploadedImage], null, videoOptions, []);
+        } else {
+          chatMessages[loadingIndex] = resolveFailureMessage(err, { mode: 'video', prompt: promptLabel });
         }
       }
-      toast(translateGenerationError(err, 'Генерация не прошла'));
+      if (!(err && (err.paywall || err.subscriptionRequired))) toast(genericErrorTextForMode('video'));
     } finally {
       document.body.classList.remove('ai-generating');
       videoState = previousVideoState;
@@ -15390,7 +15416,7 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   try {
     return await callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions);
   } catch (err) {
-    if (err && typeof err === 'object' && !err.paywall && !err.activeGeneration) {
+    if (err && typeof err === 'object' && !err.paywall && !err.activeGeneration && !err.subscriptionRequired) {
       if (!err.mode) err.mode = studioMode;
       if (!err.model) err.model = pickStudioModel();
       if (!err.provider) err.provider = isVideoMode() ? currentVideoProvider() : pickProviderHint();
@@ -15584,6 +15610,12 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     err.shopUrl = j.shop_url || '';
     throw err;
   }
+  if (res.status === 403 && j && j.subscription_required) {
+    const err = new Error('Pro Studio доступна после активации подписки.');
+    err.subscriptionRequired = true;
+    err.shopUrl = j.shop_url || '';
+    throw err;
+  }
   if (!res.ok || !j.ok) throw new Error(translateGenerationError(j, 'Генерация не прошла. Попробуйте повторить немного позже.'));
   if (j.conversation_id) {
     currentConvId = j.conversation_id;
@@ -15689,29 +15721,53 @@ function translateGenerationError(value, fallback) {
   // Error action instead. A short, clean-looking sentence with no spaces
   // and no punctuation is most likely already a curated backend message
   // (e.g. earlier translateProviderError output) rather than a raw trace,
-  // so it is allowed through as-is; everything else falls back.
-  const looksCurated = text.length <= 140 && !/[{}\[\]<>]|traceback|exception|stack|provider|request|response|json|http|error\s*code|status_code/i.test(low);
+  // so it is allowed through as-is; everything else falls back. A bare
+  // snake_case token (e.g. "prostudio_subscription_required",
+  // "pricing_not_configured") is a backend identifier, never a sentence
+  // meant for a user, and is rejected outright regardless of length.
+  const looksLikeIdentifier = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(text.trim());
+  const looksCurated = !looksLikeIdentifier && text.length <= 140
+    && !/[{}\[\]<>]|traceback|exception|stack|provider|request|response|json|http|error\s*code|status_code/i.test(low);
   return looksCurated ? text : (fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: genericErrorTextForMode
+// Пользователь никогда не должен видеть техническую причину сбоя
+// генерации - только спокойную короткую фразу по режиму. Настоящая
+// причина остаётся в errorMeta (логи/админка/жалоба), не в тексте.
+// =====================================================
+function genericErrorTextForMode(mode) {
+  const texts = {
+    image: 'Не удалось создать изображение. Попробуйте ещё раз.',
+    video: 'Не удалось создать видео. Попробуйте ещё раз.',
+    music: 'Не удалось создать музыку. Попробуйте ещё раз.',
+    voice: 'Не удалось создать озвучку. Попробуйте ещё раз.',
+    text: 'Не удалось создать текст. Попробуйте ещё раз.',
+  };
+  return texts[String(mode || '').toLowerCase()] || 'Не удалось выполнить генерацию. Попробуйте ещё раз.';
 }
 
 // =====================================================
 // JAVASCRIPT-БЛОК: buildGenerationErrorMessage
 // Единая точка построения chat-сообщения об ошибке генерации - вместо
 // каждого места, собирающего свой '{role:"ai", text: ...}' вручную.
-// Хранит сырой текст ошибки и контекст (mode/model/provider/jobId) в
-// errorMeta для кнопки "Сообщить об ошибке", не показывая его пользователю.
+// Показывает пользователю только спокойную фразу по режиму; настоящая
+// причина (detail/raw) хранится в errorMeta для кнопки "Сообщить об
+// ошибке" и логов, но никогда не попадает в text.
 // =====================================================
 function buildGenerationErrorMessage(err, opts) {
   const options = opts || {};
-  const fallback = options.fallback || 'Генерация не прошла. Попробуйте повторить немного позже.';
-  const text = translateGenerationError(err, fallback);
+  const mode = options.mode || (err && err.mode) || currentChatType();
+  const detail = translateGenerationError(err, options.fallback || genericErrorTextForMode(mode));
   return {
     role: 'ai',
     isError: true,
-    text,
+    text: genericErrorTextForMode(mode),
     errorMeta: {
-      raw: errorMessage(err, text),
-      mode: options.mode || (err && err.mode) || currentChatType(),
+      raw: errorMessage(err, detail),
+      detail,
+      mode,
       model: options.model || (err && err.model) || (typeof pickStudioModel === 'function' ? (pickStudioModel() || '') : ''),
       provider: options.provider || (err && err.provider) || '',
       jobId: options.jobId || (err && (err.jobId || err.job_id)) || '',
@@ -15720,6 +15776,40 @@ function buildGenerationErrorMessage(err, opts) {
       ts: Date.now(),
     },
   };
+}
+
+// A representative showcase of models across Pro Studio's modes for the
+// subscription-required card's model carousel - purely presentational,
+// not required to track the live catalog exactly.
+const PRO_STUDIO_SHOWCASE_MODELS = [
+  'GPT-5.6', 'Gemini 3.1 Pro', 'Grok 4.1', 'Sora 2 Pro', 'Veo 3.1',
+  'Kling O3 Omni', 'Seedance 1.5 Pro', 'Ideogram 3.0', 'Nano Banana 2',
+  'ElevenLabs v3', 'Suno Chirp 5.5', 'Runway Gen4.5', 'MiniMax Hailuo 2.3',
+  'Qwen Image 2 Pro',
+];
+
+// =====================================================
+// JAVASCRIPT-БЛОК: buildSubscriptionRequiredMessage
+// Доступ к Pro Studio требует подписки - это не ошибка генерации, а
+// отдельный апгрейд-блок со ссылкой в магазин, без тревожного оформления.
+// =====================================================
+function buildSubscriptionRequiredMessage() {
+  return {
+    role: 'ai',
+    subscriptionRequired: true,
+    created_at: new Date().toISOString(),
+  };
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: resolveFailureMessage
+// Общая точка выбора между карточкой "нужна подписка" и обычным
+// сообщением об ошибке генерации - вызывается вместо прямого обращения к
+// buildGenerationErrorMessage везде, где перехватывается ошибка callGenerate.
+// =====================================================
+function resolveFailureMessage(err, opts) {
+  if (err && err.subscriptionRequired) return buildSubscriptionRequiredMessage();
+  return buildGenerationErrorMessage(err, opts);
 }
 
 // =====================================================
@@ -15952,9 +16042,10 @@ async function waitGeneration(jobId, options) {
       }
       loadConversations();
     } catch (err) {
-      chatMessages[index] = buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, snapshot.imageOptions || null, videoOptions, snapshot.audioUploads || []);
-      if (!(err && err.paywall)) {
-        chatMessages[index] = buildGenerationErrorMessage(err, { mode, prompt });
+      if (err && err.paywall) {
+        chatMessages[index] = buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, snapshot.imageOptions || null, videoOptions, snapshot.audioUploads || []);
+      } else {
+        chatMessages[index] = resolveFailureMessage(err, { mode, prompt });
       }
     } finally {
       document.body.classList.remove('ai-generating');
@@ -15993,16 +16084,18 @@ async function waitGeneration(jobId, options) {
       if (result.conversation_id) currentConvId = result.conversation_id;
       loadConversations();
     } catch (err) {
-      chatMessages[index] = Object.assign(
-        buildGenerationErrorMessage(err, { fallback: 'Не удалось получить ответ. Попробуйте ещё раз.', mode: 'text', prompt }),
-        {
-          textGenerationFailed: true,
-          // Keep the same id on a retry.  If the original HTTP response was only
-          // delayed, the server-side idempotency record returns that result rather
-          // than creating a second text generation.
-          textGenerationRequest: { prompt, attachment, requestId },
-        }
-      );
+      chatMessages[index] = (err && err.subscriptionRequired)
+        ? buildSubscriptionRequiredMessage()
+        : Object.assign(
+          buildGenerationErrorMessage(err, { fallback: 'Не удалось получить ответ. Попробуйте ещё раз.', mode: 'text', prompt }),
+          {
+            textGenerationFailed: true,
+            // Keep the same id on a retry.  If the original HTTP response was only
+            // delayed, the server-side idempotency record returns that result rather
+            // than creating a second text generation.
+            textGenerationRequest: { prompt, attachment, requestId },
+          }
+        );
     } finally {
       textRequestInFlight = false;
       renderChat();
@@ -16334,7 +16427,7 @@ async function waitGeneration(jobId, options) {
       }
       loadingIndex = activeGenerationPlaceholderIndex() >= 0 ? activeGenerationPlaceholderIndex() : loadingIndex;
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
-      chatMessages.push(buildGenerationErrorMessage(err, { prompt: v }));
+      chatMessages.push(resolveFailureMessage(err, { prompt: v }));
       rememberCurrentChatSpace();
       if (err && err.terminalStatus) unlockAfterRender = true;
       else if (!activeGeneration.jobId) {
@@ -16510,7 +16603,10 @@ async function waitGeneration(jobId, options) {
           provider: meta.provider || '',
           job_id: meta.jobId || '',
           prompt: meta.prompt || '',
-          error_text: m.text || '',
+          // The user only ever saw the calm, generic m.text - send the
+          // detailed (still curated, never raw-to-user) reason for
+          // diagnostics instead, falling back to the raw text if needed.
+          error_text: meta.detail || m.text || '',
           raw_error: meta.raw || '',
         }),
       });
@@ -16577,7 +16673,7 @@ async function waitGeneration(jobId, options) {
       clearActiveProStudioJob(activeGeneration.jobId);
     })
     .catch((err) => {
-      chatMessages[i] = buildGenerationErrorMessage(err, { prompt: prev.text || '' });
+      chatMessages[i] = resolveFailureMessage(err, { prompt: prev.text || '' });
 
       rememberCurrentChatSpace();
       renderChat();
