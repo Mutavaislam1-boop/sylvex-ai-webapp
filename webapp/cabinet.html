@@ -242,6 +242,15 @@ HTML-страница Mini App. Комментарии подписывают э
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
           </button>
           <!-- ==================================================
+          HTML-ЭЛЕМЕНТ: studioThemeBtn
+          При нажатии вызывает: SYLVEX.cycleStudioTheme(event) — циклический переключатель темы Pro Studio (Серая → Белая → Чёрная)
+          ID используется JavaScript/CSS как точка подключения: studioThemeBtn
+          CSS-класс задаёт внешний вид и расположение: sb-icon
+          =================================================== -->
+          <button class="sb-icon" id="studioThemeBtn" onclick="SYLVEX.cycleStudioTheme(event)" aria-label="Тема Pro Studio" title="Тема">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 000 17z" fill="currentColor" stroke="none"/></svg>
+          </button>
+          <!-- ==================================================
           HTML-ЭЛЕМЕНТ: modelBtn
           При нажатии вызывает: SYLVEX.toggleModelPop(event)
           ID используется JavaScript/CSS как точка подключения: modelBtn
