@@ -6126,7 +6126,7 @@ function openSelectionButton(kind) {
   if (kind === 'image_upload') return openImageUpload(null);
   if (kind === 'video_start') return openVideoStartUpload(null);
   if (kind === 'video_end') return openVideoEndUpload(null);
-  if (kind === 'video_references') return toggleVideoAddMenu(null);
+  if (kind === 'video_references') return openVideoReferencesUpload(null);
   if (kind === 'video_edit') return openVideoEditInputUpload(null);
 }
 
