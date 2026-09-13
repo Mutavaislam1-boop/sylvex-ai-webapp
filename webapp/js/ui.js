@@ -51,9 +51,15 @@
     const studioActive = typeof forceStudio === 'boolean'
       ? forceStudio
       : !!document.querySelector('.view[data-view="tools"].active');
+    if (studioActive) {
+      const studio = document.querySelector('.view[data-view="tools"] .studio');
+      const studioBg = studio ? getComputedStyle(studio).getPropertyValue('--st-bg').trim() : '';
+      try { tg.setHeaderColor(studioBg || '#202020'); } catch (e) {}
+      return;
+    }
     const quickToolsActive = document.body.classList.contains('knowledge-workspace-open');
     const mode = document.documentElement.dataset.theme || 'dark';
-    try { tg.setHeaderColor(studioActive || quickToolsActive || mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {}
+    try { tg.setHeaderColor(quickToolsActive || mode === 'dark' ? '#030308' : '#eef0f7'); } catch (e) {}
   }
   // =====================================================
   // JAVASCRIPT-БЛОК: toast

@@ -246,6 +246,7 @@ body::before{content:none}
 .mini .v{font-size:18px;font-weight:700;margin-top:4px}
 .toast{position:fixed;left:50%;top:18px;transform:translate(-50%,-80px);background:rgba(6,6,13,.92);color:#fff;padding:10px 16px;border-radius:14px;border:1px solid var(--border-strong);font-size:13px;z-index:50;transition:.3s;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
 .toast.show{transform:translate(-50%,0)}
+body:has(.view[data-view="tools"].active) .toast{background:var(--st-bg-3, rgba(6,6,13,.92));color:var(--st-text, #fff);border-color:var(--st-border, var(--border-strong))}
 [dir="rtl"] .brand-name{letter-spacing:1px}
 /* === Connect with us (Settings) === */
 .connect-card{margin-top:8px;padding:16px 16px 18px;border-radius:22px;background:var(--grad-card);border:1px solid var(--border-strong);box-shadow:var(--shadow-lg);position:relative;overflow:hidden}
@@ -536,6 +537,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-grid-line:rgba(255,255,255,.05);
   --st-accent:#5b8dff;--st-accent-2:#7ea3ff;--st-accent-bg:rgba(91,141,255,.16);--st-accent-text:#eaf0ff;
   --st-invert-bg:#F3F3F3;--st-invert-text:#202020;
+  --st-logo-invert:1;
   --st-shadow:rgba(0,0,0,.45);
   --st-depth-1:inset 0 1px 0 rgba(255,255,255,.05),inset 0 -1px 0 rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.3);
   --st-depth-2:inset 0 1px 0 rgba(255,255,255,.04),0 10px 26px -12px rgba(0,0,0,.55);
@@ -564,6 +566,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-grid-line:rgba(20,20,26,.09);
   --st-accent:#2f6fed;--st-accent-2:#5b8dff;--st-accent-bg:rgba(47,111,237,.09);--st-accent-text:#ffffff;
   --st-invert-bg:#2f6fed;--st-invert-text:#ffffff;
+  --st-logo-invert:0;
   --st-shadow:rgba(20,20,30,.14);
   --st-depth-1:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(20,20,30,.05),0 1px 2px rgba(20,20,30,.07);
   --st-depth-2:inset 0 1px 0 rgba(255,255,255,.75),0 12px 28px -14px rgba(20,20,30,.22);
@@ -580,6 +583,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-grid-line:rgba(255,255,255,.09);
   --st-accent:#6d9bff;--st-accent-2:#89b0ff;--st-accent-bg:rgba(109,155,255,.18);--st-accent-text:#f3f6ff;
   --st-invert-bg:#f5f5f7;--st-invert-text:#000000;
+  --st-logo-invert:1;
   --st-shadow:rgba(0,0,0,.6);
   --st-depth-1:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.55);
   --st-depth-2:inset 0 1px 0 rgba(255,255,255,.05),0 12px 30px -12px rgba(0,0,0,.7);
@@ -722,7 +726,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-input
 ===================================================== */
 .view[data-view="tools"].active .studio-input{
   flex:0 0 auto;padding:10px 12px calc(86px + env(safe-area-inset-bottom));
-  background:linear-gradient(180deg,rgba(32,32,32,0),#202020 30%);
+  background:linear-gradient(180deg,color-mix(in srgb, var(--st-bg) 0%, transparent),var(--st-bg) 30%);
   border-top:1px solid var(--st-line);
 }
 /* Keyboard offset: when on-screen keyboard opens, lift only the studio input
@@ -745,7 +749,7 @@ CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
     padding:calc(env(safe-area-inset-top,0px) + 10px) 10px calc(env(safe-area-inset-bottom,0px) + 10px)!important;
     border:0!important;
     border-radius:0!important;
-    background:#202020!important;
+    background:var(--st-bg, #202020)!important;
     transform:none!important;
     overflow-x:hidden!important;
     overflow-y:auto!important;
@@ -762,11 +766,18 @@ CSS-БЛОК: body.kb-open .view[data-view="tools"].active .studio-input
     bottom:0;
     z-index:12;
     padding:8px 0 calc(env(safe-area-inset-bottom,0px) + 4px);
-    background:linear-gradient(180deg,rgba(32,32,32,0),#202020 28%);
+    background:linear-gradient(180deg,color-mix(in srgb, var(--st-bg, #202020) 0%, transparent),var(--st-bg, #202020) 28%);
 }
 :is(body.device-mobile,body.device-tablet) .studio-input.composer-input-window textarea:not(:placeholder-shown)~.text-mic-floating{
     opacity:.28;
     background:rgba(32,32,32,.18);
+}
+:is(body.device-mobile,body.device-tablet) .studio-input.composer-input-window textarea:not(:placeholder-shown)+.mobile-keyboard-close{
+    opacity:.28;
+    border-color:transparent;
+    background:color-mix(in srgb, var(--st-bg, #202020) 18%, transparent);
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
 }
 /* =====================================================
 CSS-БЛОК: body.kb-open .view[data-view="tools"].active .chat-area
@@ -821,7 +832,7 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-video-composer
 ===================================================== */
 .view[data-view="tools"].active .studio-video-composer{
   padding:8px 8px calc(86px + env(safe-area-inset-bottom));
-  background:linear-gradient(180deg,rgba(32,32,32,0),#202020 22%);
+  background:linear-gradient(180deg,color-mix(in srgb, var(--st-bg) 0%, transparent),var(--st-bg) 22%);
   border-top:0;
 }
 /* =====================================================
@@ -841,6 +852,11 @@ CSS-БЛОК: .studio-mini-tabs,.studio-mode-tab
   flex:0 0 auto;display:flex;align-items:center;border-radius:999px;
   background:#252525;border:1px solid rgba(255,255,255,.08);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+.view[data-view="tools"].active .studio-mini-tabs,
+.view[data-view="tools"].active .studio-mode-tab{
+  background:var(--st-bg-2);border:1px solid var(--st-border);
+  box-shadow:var(--st-depth-1);
 }
 .studio-mini-tabs{gap:4px;padding:5px}
 /* =====================================================
@@ -2401,7 +2417,8 @@ body > #modelPop.music-duration-wheel-pop{
 .voice-dialogue-sheet-items{display:flex;flex-direction:column;align-items:stretch;gap:0;max-height:min(42vh,340px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}.voice-dialogue-sheet-items::-webkit-scrollbar{display:none}.voice-dialogue-sheet-items>button{flex:0 0 auto;width:100%;min-height:34px;padding:7px 9px;white-space:normal;border:0;border-radius:8px;background:transparent;color:#d2d2d5}.voice-dialogue-sheet-items>button:hover,.voice-dialogue-sheet-items>button:active{background:rgba(255,255,255,.07);color:#fff}
 .voice-dialogue-sheet-items>button.is-danger{border-color:rgba(239,82,82,.35);color:#ff8c8c;background:rgba(126,35,35,.25)}
 .studio-video-composer[data-composer-mode="voice"] .studio-prompt-column textarea{min-height:132px}
-.mobile-keyboard-close{display:none;position:sticky;left:0;flex:0 0 auto;z-index:6;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:#303030;color:#aaa;place-items:center;cursor:pointer}
+.mobile-keyboard-close{display:none;position:absolute;right:11px;top:9px;z-index:4;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:#303030;color:#aaa;place-items:center;cursor:pointer}
+.studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close{right:48px}
 .mobile-keyboard-close svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .studio-prompt-column.voice-editor-fullscreen{position:fixed!important;inset:0!important;z-index:10020!important;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(env(safe-area-inset-bottom,0px) + 14px)!important;border:0!important;background:#202020!important;display:flex!important}
 .studio-prompt-column.voice-editor-fullscreen .voice-editor-addons{display:block!important;min-height:0}
@@ -5244,6 +5261,44 @@ CSS-БЛОК: .upload-panel-generated
   border-bottom:1px solid rgba(255,255,255,.16) !important;
 }
 
+/* Preview overlay shown when tapping a generated thumbnail inside the
+   upload history panel (was entirely unstyled before). */
+.upload-image-preview{
+  display:none !important;
+  position:absolute !important;
+  inset:0 !important;
+  z-index:5 !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:16px !important;
+  background:color-mix(in srgb, var(--st-shadow, rgba(0,0,0,.6)) 70%, transparent) !important;
+  border-radius:inherit !important;
+}
+.upload-image-preview.show{display:flex !important}
+.upload-preview-card{
+  position:relative;width:100%;max-width:340px;max-height:100%;
+  display:flex;flex-direction:column;gap:12px;padding:14px;
+  border-radius:20px;background:var(--st-bg-2, #1c1c1c);
+  border:1px solid var(--st-border, rgba(255,255,255,.12));
+  box-shadow:var(--st-depth-2, 0 20px 60px rgba(0,0,0,.5));
+  overflow:hidden;
+}
+.upload-preview-close{
+  position:absolute;right:10px;top:10px;z-index:2;width:32px;height:32px;
+  border:0;border-radius:50%;background:var(--st-bg-3, rgba(255,255,255,.1));
+  color:var(--st-text, #fff);font-size:22px;line-height:1;
+  display:grid;place-items:center;cursor:pointer;
+}
+#uploadPreviewImg{
+  width:100%;max-height:50vh;border-radius:14px;object-fit:contain;
+  background:var(--st-bg-3, #111);
+}
+.upload-preview-select{
+  min-height:46px;border:0;border-radius:14px;
+  background:var(--st-invert-bg, #fff);color:var(--st-invert-text, #111);
+  font:inherit;font-size:14px;font-weight:800;cursor:pointer;
+}
+
 /* Верхняя часть — история генерации фото */
 /* =====================================================
 CSS-БЛОК: .upload-generated-grid
@@ -6207,6 +6262,20 @@ CSS-БЛОК: .model-brand-logo.svg-current
   filter: none !important;
 }
 
+/* Inside Pro Studio's model picker, monochrome model logos must invert to
+   dark in White theme (never a white-on-white silhouette) and stay light
+   in Gray/Black - driven by --st-logo-invert, forwarded from the active
+   Pro Studio theme. Scoped to #modelPop so the app-wide AI chips/banner
+   logos elsewhere (which follow the app's own light/dark theme) are
+   untouched. */
+body > #modelPop .model-brand-logo {
+  filter: brightness(0) invert(var(--st-logo-invert, 1)) !important;
+}
+body > #modelPop .model-brand-logo.svg-current {
+  color: var(--st-text, #f3f3f3) !important;
+  filter: none !important;
+}
+
 .dots,
 .dot-i{
   display:none !important;
@@ -6463,6 +6532,9 @@ CSS-БЛОК: .generation-result-mini-card
   text-align:left;
   font-family:inherit;
 }
+.view[data-view="tools"].active .generation-result-mini-card{
+  background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-text);box-shadow:var(--st-depth-1);
+}
 
 .generation-result-card-shell{
   position:relative;
@@ -6474,6 +6546,9 @@ CSS-БЛОК: .generation-result-mini-card
   position:absolute;right:8px;top:8px;z-index:2;width:30px;height:30px;padding:0;
   display:grid;place-items:center;border-radius:10px;border:1px solid rgba(255,255,255,.12);
   background:rgba(255,255,255,.08);color:#f3f3f3;cursor:pointer
+}
+.view[data-view="tools"].active .generation-result-share{
+  border:1px solid var(--st-border);background:var(--st-bg-3);color:var(--st-text);
 }
 .generation-result-share:active{transform:scale(.94)}
 
@@ -6524,6 +6599,7 @@ CSS-БЛОК: .generation-result-voice-card
   background:#141518;
   border:1px solid rgba(255,255,255,.10);
 }
+.generation-info-media-player{background:var(--st-bg-3);border:1px solid var(--st-border)}
 
 .generation-info-preview-button{
   cursor:pointer;
@@ -6540,6 +6616,10 @@ CSS-БЛОК: .generation-result-thumb
   border-radius:12px;
   background:#24262b;
   border:1px solid rgba(255,255,255,.08);
+}
+.view[data-view="tools"].active .generation-result-thumb,
+.view[data-view="tools"].active .generation-result-image-thumb{
+  background:var(--st-bg-3);border:1px solid var(--st-border);
 }
 
 /* =====================================================
@@ -6566,6 +6646,9 @@ CSS-БЛОК: .generation-result-fallback
   color:#fff;
   font-size:14px;
   font-weight:900;
+}
+.view[data-view="tools"].active .generation-result-fallback{
+  background:var(--st-bg-4);color:var(--st-text);
 }
 
 /* =====================================================
@@ -6648,6 +6731,11 @@ CSS-БЛОК: .generation-result-sub
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;
   font-size:11px;line-height:1.35;color:rgba(255,255,255,.72);white-space:normal
 }
+.view[data-view="tools"].active .generation-result-sub{color:var(--st-mute)}
+.view[data-view="tools"].active .generation-result-cost{color:var(--st-accent)}
+.view[data-view="tools"].active .generation-result-prompt{color:var(--st-dim)}
+.view[data-view="tools"].active .generation-result-meta:focus-visible,
+.view[data-view="tools"].active .generation-result-image-thumb:focus-visible{outline-color:var(--st-accent)}
 
 /* =====================================================
 CSS-БЛОК: .generation-info-drawer-backdrop
@@ -8420,6 +8508,7 @@ body.prostudio-job-locked #sendBtn.has-active-job .studio-send-arrow {
 }
 
 :is(body.device-mobile,body.device-tablet) .studio-video-composer[data-composer-mode="text"] .studio-prompt-column textarea{padding-right:42px!important}
+:is(body.device-mobile,body.device-tablet) .studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close{right:8px}
 :is(body.device-mobile,body.device-tablet).kb-open .studio-video-composer[data-composer-mode="text"] .mobile-keyboard-close,
 :is(body.device-mobile,body.device-tablet) .studio-input.composer-input-window[data-composer-mode="text"] .mobile-keyboard-close{display:grid!important}
 
@@ -8804,9 +8893,9 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .voice-tools-toggle[aria-expanded="true"]{color:var(--st-text);border-color:var(--st-accent);background:var(--st-accent-bg)}
 .view[data-view="tools"].active .studio-voice-full>.voice-horizontal-tools{border:1px solid var(--st-border);background:var(--st-bg-2)}
 
-.view[data-view="tools"].active .voice-tool-guide{background:var(--st-bg-3);color:var(--st-text);border:1px solid var(--st-accent);box-shadow:var(--st-depth-2)}
-.view[data-view="tools"].active .voice-tool-guide-icon{background:var(--st-accent);color:var(--st-accent-text)}
-.view[data-view="tools"].active .voice-tool-guide>span:last-child{color:var(--st-mute)}
+.voice-tool-guide{background:var(--st-bg-3);color:var(--st-text);border:1px solid var(--st-accent);box-shadow:var(--st-depth-2)}
+.voice-tool-guide-icon{background:var(--st-accent);color:var(--st-accent-text)}
+.voice-tool-guide>span:last-child{color:var(--st-mute)}
 .view[data-view="tools"].active .voice-editor-toolbar button.voice-tool-guide-active{border-color:var(--st-accent)!important;background:var(--st-accent-bg)!important;color:var(--st-text)!important}
 
 .view[data-view="tools"].active .voice-addon-drawer{background:var(--st-bg-2);color:var(--st-text);border:1px solid var(--st-border)}
@@ -8862,12 +8951,12 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .voice-dialogue-row .voice-speaker-chip{background:var(--st-bg-3);color:var(--st-dim)}
 .view[data-view="tools"].active .voice-dialogue-row .voice-speaker-chip.active{background:var(--st-accent-bg);color:var(--st-text)}
 
-.view[data-view="tools"].active .voice-caret-menu{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-dim)}
-.view[data-view="tools"].active .voice-caret-menu hr{background:var(--st-line)}
-.view[data-view="tools"].active .voice-caret-menu-item>button{color:var(--st-dim)}
-.view[data-view="tools"].active .voice-caret-menu-item>button:hover,
-.view[data-view="tools"].active .voice-caret-menu-item:focus-within>button{background:var(--st-accent-bg);color:var(--st-text)}
-.view[data-view="tools"].active .voice-caret-menu-item>button i{color:var(--st-mute)}
+.voice-caret-menu{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-dim)}
+.voice-caret-menu hr{background:var(--st-line)}
+.voice-caret-menu-item>button{color:var(--st-dim)}
+.voice-caret-menu-item>button:hover,
+.voice-caret-menu-item:focus-within>button{background:var(--st-accent-bg);color:var(--st-text)}
+.voice-caret-menu-item>button i{color:var(--st-mute)}
 .view[data-view="tools"].active .voice-caret-submenu{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
 .view[data-view="tools"].active .voice-caret-submenu>button,
 .view[data-view="tools"].active .voice-dialogue-sheet-items>button{color:var(--st-dim)}
@@ -8877,10 +8966,10 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .voice-dialogue-marker{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
 .view[data-view="tools"].active .voice-dialogue-marker b{color:var(--st-dim)}
 .view[data-view="tools"].active .voice-dialogue-marker small{color:var(--st-mute)}
-.view[data-view="tools"].active .voice-dialogue-mobile-toolbar{background:var(--st-bg-2);border:1px solid var(--st-border)}
-.view[data-view="tools"].active .voice-dialogue-mobile-toolbar>button{background:var(--st-bg-3);color:var(--st-dim)}
-.view[data-view="tools"].active .voice-dialogue-sheet-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
-.view[data-view="tools"].active .voice-dialogue-sheet-card header button{background:var(--st-bg-3);color:var(--st-mute)}
+.voice-dialogue-mobile-toolbar{background:var(--st-bg-2);border:1px solid var(--st-border)}
+.voice-dialogue-mobile-toolbar>button{background:var(--st-bg-3);color:var(--st-dim)}
+.voice-dialogue-sheet-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.voice-dialogue-sheet-card header button{background:var(--st-bg-3);color:var(--st-mute)}
 
 .view[data-view="tools"].active .mobile-keyboard-close{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-dim)}
 .view[data-view="tools"].active .studio-prompt-column.voice-editor-fullscreen,
@@ -8892,45 +8981,45 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .voice-create-footer{background:linear-gradient(180deg,transparent,var(--st-bg-2) 35%)}
 .view[data-view="tools"].active .voice-create-submit{background:var(--st-invert-bg);color:var(--st-invert-text);box-shadow:none}
 
-.view[data-view="tools"].active .music-duration-wheel-pop{background:var(--st-bg-2)!important;border:1px solid var(--st-border)!important;box-shadow:var(--st-depth-2)!important}
-.view[data-view="tools"].active .music-duration-head{color:var(--st-text)}
-.view[data-view="tools"].active .music-duration-head span{background:var(--st-accent-bg);color:var(--st-accent)}
-.view[data-view="tools"].active .music-duration-wheel-labels{color:var(--st-mute)}
-.view[data-view="tools"].active .music-duration-wheels::after{border-color:var(--st-line)}
-.view[data-view="tools"].active .music-duration-wheel button{color:var(--st-mute)}
-.view[data-view="tools"].active .music-duration-wheel button.active{color:var(--st-text)}
-.view[data-view="tools"].active .music-duration-hint{color:var(--st-mute)}
-.view[data-view="tools"].active .music-duration-save{background:var(--st-invert-bg);color:var(--st-invert-text)}
+.music-duration-wheel-pop{background:var(--st-bg-2)!important;border:1px solid var(--st-border)!important;box-shadow:var(--st-depth-2)!important}
+.music-duration-head{color:var(--st-text)}
+.music-duration-head span{background:var(--st-accent-bg);color:var(--st-accent)}
+.music-duration-wheel-labels{color:var(--st-mute)}
+.music-duration-wheels::after{border-color:var(--st-line)}
+.music-duration-wheel button{color:var(--st-mute)}
+.music-duration-wheel button.active{color:var(--st-text)}
+.music-duration-hint{color:var(--st-mute)}
+.music-duration-save{background:var(--st-invert-bg);color:var(--st-invert-text)}
 
 .view[data-view="tools"].active .studio-video-panel{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
 .view[data-view="tools"].active .image-setting-disabled span:last-child{color:var(--st-mute)}
 
-.view[data-view="tools"].active .visual-create-modal{color:var(--st-text)}
-.view[data-view="tools"].active .visual-create-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
-.view[data-view="tools"].active .visual-create-head button{background:var(--st-bg-3);color:var(--st-text)}
-.view[data-view="tools"].active .visual-field{color:var(--st-mute)}
-.view[data-view="tools"].active .visual-field input,
-.view[data-view="tools"].active .visual-field select,
-.view[data-view="tools"].active .visual-field textarea{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
-.view[data-view="tools"].active .visual-field input:focus,
-.view[data-view="tools"].active .visual-field select:focus,
-.view[data-view="tools"].active .visual-field textarea:focus{border-color:var(--st-accent);box-shadow:0 0 0 3px var(--st-accent-bg)}
-.view[data-view="tools"].active .visual-photo-slot{background:var(--st-bg-3);border:1px dashed var(--st-border-strong);color:var(--st-dim)}
-.view[data-view="tools"].active .visual-create-hint{color:var(--st-mute)}
-.view[data-view="tools"].active .visual-create-loading{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-text)}
-.view[data-view="tools"].active .visual-create-loading small{color:var(--st-mute)}
-.view[data-view="tools"].active .visual-create-save{background:var(--st-invert-bg);color:var(--st-invert-text);box-shadow:none}
-.view[data-view="tools"].active .visual-picker-new{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
-.view[data-view="tools"].active .visual-picker-card{color:var(--st-text)}
-.view[data-view="tools"].active .visual-picker-thumb{background:var(--st-bg-3)}
-.view[data-view="tools"].active .visual-picker-check{background:var(--st-invert-bg);color:var(--st-invert-text)}
-.view[data-view="tools"].active .visual-picker-card.selected .visual-picker-thumb{border-color:var(--st-accent);box-shadow:0 0 0 2px var(--st-accent-bg)}
+.visual-create-modal{color:var(--st-text)}
+.visual-create-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.visual-create-head button{background:var(--st-bg-3);color:var(--st-text)}
+.visual-field{color:var(--st-mute)}
+.visual-field input,
+.visual-field select,
+.visual-field textarea{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.visual-field input:focus,
+.visual-field select:focus,
+.visual-field textarea:focus{border-color:var(--st-accent);box-shadow:0 0 0 3px var(--st-accent-bg)}
+.visual-photo-slot{background:var(--st-bg-3);border:1px dashed var(--st-border-strong);color:var(--st-dim)}
+.visual-create-hint{color:var(--st-mute)}
+.visual-create-loading{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-text)}
+.visual-create-loading small{color:var(--st-mute)}
+.visual-create-save{background:var(--st-invert-bg);color:var(--st-invert-text);box-shadow:none}
+.visual-picker-new{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.visual-picker-card{color:var(--st-text)}
+.visual-picker-thumb{background:var(--st-bg-3)}
+.visual-picker-check{background:var(--st-invert-bg);color:var(--st-invert-text)}
+.visual-picker-card.selected .visual-picker-thumb{border-color:var(--st-accent);box-shadow:0 0 0 2px var(--st-accent-bg)}
 
-.view[data-view="tools"].active .resource-delete-confirm-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
-.view[data-view="tools"].active .resource-delete-confirm-title{color:var(--st-text)}
-.view[data-view="tools"].active .resource-delete-confirm-text{color:var(--st-dim)}
-.view[data-view="tools"].active .resource-delete-cancel{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
-.view[data-view="tools"].active .resource-delete-action{background:var(--st-accent);color:var(--st-accent-text)}
+.resource-delete-confirm-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.resource-delete-confirm-title{color:var(--st-text)}
+.resource-delete-confirm-text{color:var(--st-dim)}
+.resource-delete-cancel{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.resource-delete-action{background:var(--st-accent);color:var(--st-accent-text)}
 
 /* Grid Mode: project drawer + project switcher panel (desktop-only canvas). */
 .view[data-view="tools"].active .studio-grid-drawer{background:var(--st-bg-2)!important;color:var(--st-text)!important;border-right:1px solid var(--st-border)}
@@ -8954,10 +9043,10 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .studio-grid-project i{color:var(--st-accent)!important}
 
 /* Upload history panel: centered "choose photo" button + preview overlay. */
-.view[data-view="tools"].active .upload-photo-center-btn{border-color:var(--st-border-strong)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
-.view[data-view="tools"].active .upload-photo-center-icon{background:var(--st-bg-4)!important;color:var(--st-text)!important}
-.view[data-view="tools"].active .upload-photo-center-sub{color:var(--st-mute)!important}
-.view[data-view="tools"].active .upload-panel-generated{border-bottom:1px solid var(--st-line)!important}
+.upload-photo-center-btn{border-color:var(--st-border-strong)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.upload-photo-center-icon{background:var(--st-bg-4)!important;color:var(--st-text)!important}
+.upload-photo-center-sub{color:var(--st-mute)!important}
+.upload-panel-generated{border-bottom:1px solid var(--st-line)!important}
 
 /* =====================================================
 CSS-БЛОК: Grid Mode canvas — full theme coverage
