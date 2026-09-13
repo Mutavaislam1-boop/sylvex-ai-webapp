@@ -22,6 +22,28 @@ PUBLIC_GETS = frozenset({
  '/api/public/prostudio/quick-image-catalog', '/api/public/prostudio/kling/effects',
  '/api/public/prostudio/pricing-catalog',
  '/api/public/video/templates', '/api/public/prostudio/references',
+ # Website web-session read: has no Telegram initData to present, so it
+ # authenticates itself off its own cookie (see verify_web_session_token)
+ # instead of going through this middleware's Telegram check.
+ '/api/web/session/me',
+ # Emailed link, opened directly in a browser - no cookie or initData
+ # exists yet at click time either; the route validates its own token.
+ '/api/web/auth/verify-email',
+})
+# POST routes under /api/web/... all authenticate with the website's own
+# session cookie or a mailed/one-time token (see services/account_identity.py
+# and verify_web_session_token) rather than Telegram initData, so every one
+# of them - whether it's a public sign-in/sign-up step or an
+# already-authenticated account action that reads the session cookie itself
+# inside its handler - must bypass this middleware's Telegram-only check.
+# Every other /api/ POST still requires Telegram initData, exactly as before.
+PUBLIC_POSTS = frozenset({
+ '/api/web/auth/telegram', '/api/web/auth/google', '/api/web/auth/apple', '/api/web/auth/logout',
+ '/api/web/auth/register', '/api/web/auth/login',
+ '/api/web/auth/forgot-password', '/api/web/auth/reset-password',
+ '/api/web/auth/resend-verification',
+ '/api/web/account/password/change', '/api/web/account/email/set',
+ '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook'})
@@ -63,6 +85,66 @@ def signing_key():
  if not key: raise SecurityError('media_signing_not_configured',503)
  return hmac.new(key.encode(),b'SYLVEX media v1',hashlib.sha256).digest()
 
+# ---------------------------------------------------------------------------
+# Web session (SYLVEX website sign-in via the Telegram Login Widget).
+#
+# This is a second, independent credential type - a signed cookie - that
+# proves the browser is a specific telegram_id without ever presenting
+# Telegram WebApp initData. It never creates a second user: the telegram_id
+# it carries is the same primary key the Mini App already uses, so
+# get_user_state(telegram_id) returns the exact same account either way.
+# ---------------------------------------------------------------------------
+WEB_SESSION_COOKIE='sylvex_web_session'
+WEB_SESSION_MAX_AGE=int(os.getenv('WEB_SESSION_MAX_AGE_SECONDS',str(60*60*24*30)))
+
+def web_session_secret():
+ # Own secret so a leaked BOT_TOKEN alone can't forge a web session, and vice versa.
+ key=os.getenv('WEB_SESSION_SECRET','').strip() or next(iter(bot_tokens()),'')
+ if not key: raise SecurityError('web_session_not_configured',503)
+ return hmac.new(key.encode(),b'SYLVEX web session v1',hashlib.sha256).digest()
+
+def create_web_session_token(telegram_id):
+ exp=int(time.time())+WEB_SESSION_MAX_AGE
+ payload=f'{int(telegram_id)}.{exp}'
+ sig=hmac.new(web_session_secret(),payload.encode(),hashlib.sha256).hexdigest()
+ return f'{payload}.{sig}'
+
+def verify_web_session_token(token):
+ # Carries a sylvex_accounts.account_id (see services/account_identity.py),
+ # always positive under the current model; the optional leading '-' is
+ # kept accepted only for compatibility with any already-issued cookie.
+ try:
+  telegram_id_s,exp_s,sig=str(token).split('.',2)
+  if not re.fullmatch(r'-?[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
+  expected=hmac.new(web_session_secret(),f'{telegram_id_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
+  if not hmac.compare_digest(expected,sig): raise ValueError()
+  if int(exp_s)<time.time(): raise ValueError()
+  telegram_id=int(telegram_id_s)
+  if telegram_id==0: raise ValueError()
+ except (ValueError,AttributeError,TypeError): raise SecurityError('invalid_web_session')
+ return telegram_id
+
+def verify_telegram_login_widget(payload, tokens=None):
+ # Distinct from validated_user(): the Telegram Login Widget signs with
+ # secret_key = SHA256(bot_token), not the WebAppData-keyed HMAC initData
+ # uses, per https://core.telegram.org/widgets/login#checking-authorization.
+ if not isinstance(payload,dict): raise SecurityError('invalid_telegram_payload')
+ received=str(payload.get('hash') or '')
+ if not re.fullmatch(r'[a-fA-F0-9]{64}',received): raise SecurityError('invalid_telegram_payload')
+ data={k:v for k,v in payload.items() if k!='hash' and v is not None}
+ check_string='\n'.join(f'{k}={data[k]}' for k in sorted(data))
+ tokens=bot_tokens() if tokens is None else tokens
+ if not tokens: raise SecurityError('telegram_auth_not_configured',503)
+ valid=any(hmac.compare_digest(hmac.new(hashlib.sha256(t.encode()).digest(),check_string.encode(),hashlib.sha256).hexdigest(),received.lower()) for t in tokens)
+ if not valid: raise SecurityError('invalid_telegram_payload')
+ try:
+  age=time.time()-int(payload.get('auth_date',0))
+  if age<-30 or age>int(os.getenv('TELEGRAM_LOGIN_MAX_AGE_SECONDS','86400')): raise ValueError()
+  user_id=int(payload.get('id',0))
+  if user_id<=0: raise ValueError()
+ except (TypeError,ValueError): raise SecurityError('expired_or_invalid_telegram_user')
+ return {'id':user_id,'username':payload.get('username'),'first_name':payload.get('first_name'),'last_name':payload.get('last_name'),'photo_url':payload.get('photo_url')}
+
 class LocalLimiter:
  def __init__(self): self.items=OrderedDict()
  def allow(self,key,limit,seconds):
@@ -87,7 +169,7 @@ class SecurityMiddleware:
     return await JSONResponse({'ok':False,'error':'media_authorization_required'},status_code=403)(scope,receive,send)
   protected=path.startswith('/api/') or path=='/save-settings' or media_path
   if not protected:return await self.app(scope,receive,send)
-  is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS)))
+  is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method=='POST' and path in PUBLIC_POSTS)
   is_webhook=path in WEBHOOKS
   if path.startswith('/api/public/payments/dev/') and (os.getenv('APP_ENV','development')=='production' or os.getenv('ENABLE_DEV_PAYMENTS','0')!='1'):
    return await JSONResponse({'ok':False,'error':'not_found'},status_code=404)(scope,receive,send)
