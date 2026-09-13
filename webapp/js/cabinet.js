@@ -19684,6 +19684,7 @@ async function waitGeneration(jobId, options) {
     '--st-text', '--st-dim', '--st-mute',
     '--st-bubble-user', '--st-bubble-ai', '--st-grid-line',
     '--st-accent', '--st-accent-2', '--st-accent-bg', '--st-accent-text',
+    '--st-invert-bg', '--st-invert-text',
     '--st-shadow', '--st-depth-1', '--st-depth-2', '--st-depth-active',
   ];
 
