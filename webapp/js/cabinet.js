@@ -18786,6 +18786,14 @@ async function waitGeneration(jobId, options) {
   // JAVASCRIPT-БЛОК: initialViewFromUrl
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
+  // True when Pro Studio is loaded inside the SYLVEX website's iframe
+  // (sylvex-website/pro-studio.html appends ?embed=web) rather than the
+  // Telegram Mini App. Never true for Telegram, which never sends this param.
+  function isWebEmbed() {
+    try { return new URLSearchParams(window.location.search || '').get('embed') === 'web'; }
+    catch { return false; }
+  }
+
   function initialViewFromUrl() {
     const allowed = new Set(['home', 'history', 'community', 'shop', 'pay', 'profile', 'settings', 'tools']);
     const params = new URLSearchParams(window.location.search || '');
@@ -18913,6 +18921,10 @@ async function waitGeneration(jobId, options) {
     } else if (initialMode === 'video' && tool === 'image') {
       videoState.generationMode = 'image_to_video';
       window.setTimeout(() => openVideoStartUpload(), 180);
+    } else if (initialMode === 'image' && tool && Object.prototype.hasOwnProperty.call(PHOTO_TOOL_CONFIG, tool)) {
+      // AI Tools deep link (sylvex-website/ai-tools.html): same modal the
+      // Home screen's quick-tool cards open via openHomeQuickTool().
+      window.setTimeout(() => openPhotoToolModal(null, tool), 180);
     }
   }
 
@@ -20163,7 +20175,14 @@ async function waitGeneration(jobId, options) {
     setTimeout(applyInitialViewFromUrl, 150);
     handleReferralStart();
 
-    if (S.syncUser) {
+    // Website embed (?embed=web): identify via the web session cookie instead
+    // of Telegram initData - S.tg is undefined outside Telegram, so the normal
+    // syncUser() path has nothing to authenticate with and would only fail.
+    if (isWebEmbed() && S.syncWebSession) {
+      Promise.resolve(S.syncWebSession()).finally(() => {
+        renderSubscription();
+      });
+    } else if (S.syncUser) {
       Promise.resolve(S.syncUser()).finally(() => {
         renderSubscription();
       });
