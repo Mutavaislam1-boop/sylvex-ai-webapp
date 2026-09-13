@@ -18780,17 +18780,6 @@ async function waitGeneration(jobId, options) {
       document.addEventListener('focusout', () => setTimeout(updateKb, 80));
       updateKb();
     }
-
-    // Tap-outside-to-close: while the mobile keyboard is open, tapping any
-    // control other than the prompt textarea itself should dismiss the
-    // keyboard without swallowing that tap - the control's own click still
-    // fires normally right after, since we only blur here (pointerdown),
-    // never preventDefault/stopPropagation.
-    document.addEventListener('pointerdown', (event) => {
-      if (!document.body.classList.contains('kb-open')) return;
-      if (event.target.closest('#chatInput')) return;
-      hideMobileKeyboard();
-    }, true);
   }
 
   // =====================================================
@@ -19684,7 +19673,7 @@ async function waitGeneration(jobId, options) {
     '--st-text', '--st-dim', '--st-mute',
     '--st-bubble-user', '--st-bubble-ai', '--st-grid-line',
     '--st-accent', '--st-accent-2', '--st-accent-bg', '--st-accent-text',
-    '--st-invert-bg', '--st-invert-text',
+    '--st-invert-bg', '--st-invert-text', '--st-logo-invert',
     '--st-shadow', '--st-depth-1', '--st-depth-2', '--st-depth-active',
   ];
 
@@ -19710,6 +19699,7 @@ async function waitGeneration(jobId, options) {
       try { localStorage.setItem(STUDIO_THEME_KEY, safe); } catch (_) {}
     }
     syncStudioThemeVarsToDocument();
+    if (window.SYLVEX && window.SYLVEX.syncTelegramHeader) window.SYLVEX.syncTelegramHeader(true);
     return safe;
   }
 
