@@ -568,6 +568,22 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-depth-active:inset 0 1px 3px rgba(20,20,30,.10);
   background:#ffffff;
 }
+/* White theme must have zero black surfaces (text and the SYLVEX/AI-model
+   logos are the only exception) - a few "active/selected" controls invert
+   to var(--st-text) as their background, which is correct in Gray/Black
+   (a light chip on a dark surface) but renders as a solid black chip in
+   White. Re-point those specific controls at the restrained blue accent
+   instead, only for the White theme. */
+.view[data-view="tools"].active .studio[data-ps-theme="white"] .sib.send,
+.view[data-view="tools"].active .studio[data-ps-theme="white"] .sib.send:hover{
+  background:var(--st-accent) !important;color:var(--st-accent-text) !important;
+}
+.view[data-view="tools"].active .studio[data-ps-theme="white"] .studio-mini-tab.active{
+  background:var(--st-accent) !important;color:var(--st-accent-text) !important;
+}
+.view[data-view="tools"].active .studio[data-ps-theme="white"] .studio-layout-switch button.active{
+  background:var(--st-accent) !important;color:var(--st-accent-text) !important;
+}
 .view[data-view="tools"].active .studio[data-ps-theme="black"]{
   --st-bg:#000000;--st-bg-2:#0c0c0d;--st-bg-3:#141415;--st-bg-4:#1c1c1e;
   --st-line:rgba(255,255,255,.09);--st-line-2:rgba(255,255,255,.14);
