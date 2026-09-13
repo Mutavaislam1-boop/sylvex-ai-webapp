@@ -58,6 +58,8 @@ from services.security import (
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
     verify_web_session_token, verify_telegram_login_widget,
 )
+from services import account_identity as account_identity_service
+from services.account_identity import AccountError
 from services.request_limits import check_request_quota, ensure_limit_table
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
@@ -10205,21 +10207,49 @@ async def public_telegram_sync(request: Request):
 
 
 # =====================================================
-# WEB SESSION: sylvex-website sign-in
+# WEB SESSION: sylvex-website account (email/password + Telegram)
 #
 # The website is a second client of this same backend (see
-# sylvex-website/backend/WEB_API_CONTRACT.md). These three routes are the
-# only ones that authenticate with a browser session cookie instead of
-# Telegram initData - they resolve to the exact same `users` row as the
-# Mini App (keyed by telegram_id), via the same get_user_state() used
-# elsewhere, so there is never a second account or a second balance.
+# sylvex-website/backend/WEB_API_CONTRACT.md). Every route below
+# authenticates with a browser session cookie (or a mailed one-time token),
+# never Telegram initData - see services/account_identity.py for the
+# underlying rule: there is only one internal SYLVEX account (a `users` row
+# keyed by telegram_id, real or a synthetic negative id for email-only
+# accounts), and email/Telegram are only ways to reach it. All of these
+# resolve to the exact same get_user_state() the Mini App itself uses, so
+# there is never a second account or a second balance.
 # =====================================================
+def _set_web_session_cookie(response, account_id: int):
+    token = create_web_session_token(account_id)
+    response.set_cookie(
+        WEB_SESSION_COOKIE, token, max_age=WEB_SESSION_MAX_AGE,
+        httponly=True, secure=True, samesite="none", path="/",
+    )
+
+
+def _web_session_account_id(request: Request):
+    token = request.cookies.get(WEB_SESSION_COOKIE)
+    if not token:
+        return None
+    try:
+        return verify_web_session_token(token)
+    except SecurityError:
+        return None
+
+
 def _web_session_payload(telegram_id: int) -> dict:
     state = get_user_state(int(telegram_id)) or {}
     if not state:
         return {"authenticated": False}
     created_at = state.get("created_at")
-    member_since = created_at.strftime("%Y-%m") if hasattr(created_at, "strftime") else None
+    if hasattr(created_at, "strftime"):
+        member_since = created_at.strftime("%Y-%m")
+    elif isinstance(created_at, str) and len(created_at) >= 7 and created_at[4] == "-":
+        member_since = created_at[:7]  # users.created_at is TEXT in production
+    else:
+        member_since = None
+    email_identity = account_identity_service.get_email_identity(DATABASE_URL, telegram_id) or {}
+    telegram_connected = telegram_id > 0 and account_identity_service.is_telegram_web_login_enabled(DATABASE_URL, telegram_id)
     return {
         "authenticated": True,
         "telegram_id": int(telegram_id),
@@ -10231,8 +10261,11 @@ def _web_session_payload(telegram_id: int) -> dict:
         "subscription_plan": state.get("subscription_plan"),
         "generations_count": state.get("generations_count", 0),
         "member_since": member_since,
-        "telegram_connected": True,
-        "telegram_username": state.get("username"),
+        "email": email_identity.get("email"),
+        "email_verified": bool(email_identity.get("email_verified")),
+        "has_email": bool(email_identity),
+        "telegram_connected": telegram_connected,
+        "telegram_username": state.get("username") if telegram_connected else None,
     }
 
 
@@ -10250,27 +10283,18 @@ async def web_auth_telegram(request: Request):
         )
     except Exception:
         return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
-    token = create_web_session_token(signed["id"])
     body = await asyncio.to_thread(_web_session_payload, signed["id"])
     response = JSONResponse({"ok": True, **body})
-    response.set_cookie(
-        WEB_SESSION_COOKIE, token, max_age=WEB_SESSION_MAX_AGE,
-        httponly=True, secure=True, samesite="none", path="/",
-    )
+    _set_web_session_cookie(response, signed["id"])
     return response
 
 
 @app.get("/api/web/session/me")
 async def web_session_me(request: Request):
-    token = request.cookies.get(WEB_SESSION_COOKIE)
-    if not token:
+    account_id = _web_session_account_id(request)
+    if account_id is None:
         return {"authenticated": False}
-    try:
-        telegram_id = verify_web_session_token(token)
-    except SecurityError:
-        return {"authenticated": False}
-    body = await asyncio.to_thread(_web_session_payload, telegram_id)
-    return body
+    return await asyncio.to_thread(_web_session_payload, account_id)
 
 
 @app.post("/api/web/auth/logout")
@@ -10278,6 +10302,154 @@ async def web_auth_logout():
     response = JSONResponse({"ok": True})
     response.delete_cookie(WEB_SESSION_COOKIE, path="/")
     return response
+
+
+@app.post("/api/web/auth/register")
+async def web_auth_register(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.register_email_account,
+            DATABASE_URL, payload.get("email"), payload.get("password"), payload.get("display_name"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.post("/api/web/auth/login")
+async def web_auth_login(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.login_email_account, DATABASE_URL, payload.get("email"), payload.get("password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.get("/api/web/auth/verify-email")
+async def web_auth_verify_email(token: str = ""):
+    base = os.getenv("WEBSITE_URL", "").strip().rstrip("/")
+    try:
+        await asyncio.to_thread(account_identity_service.verify_email_token, DATABASE_URL, token)
+    except AccountError:
+        return RedirectResponse(base + "/account/profile.html?verify_error=1")
+    return RedirectResponse(base + "/account/profile.html?verified=1")
+
+
+@app.post("/api/web/auth/resend-verification")
+async def web_auth_resend_verification(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        await asyncio.to_thread(account_identity_service.resend_verification, DATABASE_URL, account_id)
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/web/auth/forgot-password")
+async def web_auth_forgot_password(request: Request):
+    payload = await request.json()
+    if DATABASE_URL:
+        await asyncio.to_thread(account_identity_service.request_password_reset, DATABASE_URL, payload.get("email"))
+    return {"ok": True}
+
+
+@app.post("/api/web/auth/reset-password")
+async def web_auth_reset_password(request: Request):
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.reset_password_with_token, DATABASE_URL, payload.get("token"), payload.get("new_password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/web/account/password/change")
+async def web_account_password_change(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.change_password,
+            DATABASE_URL, account_id, payload.get("current_password"), payload.get("new_password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/web/account/email/set")
+async def web_account_email_set(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.set_email_for_account,
+            DATABASE_URL, account_id, payload.get("email"), payload.get("password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    return {"ok": True, **body}
+
+
+@app.post("/api/web/account/telegram/connect")
+async def web_account_telegram_connect(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        signed = await asyncio.to_thread(verify_telegram_login_widget, payload, TELEGRAM_AUTH_TOKENS)
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    try:
+        result = await asyncio.to_thread(
+            account_identity_service.link_telegram,
+            DATABASE_URL, account_id, signed["id"], signed.get("username"), signed.get("first_name"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    if result["status"] == "conflict":
+        return JSONResponse({"ok": False, "error": "telegram_already_linked", "conflict": True}, status_code=409)
+    new_account_id = result["telegram_id"]
+    body = await asyncio.to_thread(_web_session_payload, new_account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, new_account_id)
+    return response
+
+
+@app.post("/api/web/account/telegram/disconnect")
+async def web_account_telegram_disconnect(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        await asyncio.to_thread(account_identity_service.disconnect_telegram, DATABASE_URL, account_id)
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
 
 
 # =====================================================

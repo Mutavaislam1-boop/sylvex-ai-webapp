@@ -26,13 +26,24 @@ PUBLIC_GETS = frozenset({
  # authenticates itself off its own cookie (see verify_web_session_token)
  # instead of going through this middleware's Telegram check.
  '/api/web/session/me',
+ # Emailed link, opened directly in a browser - no cookie or initData
+ # exists yet at click time either; the route validates its own token.
+ '/api/web/auth/verify-email',
 })
-# POST routes a browser must be able to call before it has any credential at
-# all (signing in) or that only ever clear a credential (signing out) - the
-# website's web-session login surface. Every other /api/ POST still requires
-# Telegram initData, exactly as before.
+# POST routes under /api/web/... all authenticate with the website's own
+# session cookie or a mailed/one-time token (see services/account_identity.py
+# and verify_web_session_token) rather than Telegram initData, so every one
+# of them - whether it's a public sign-in/sign-up step or an
+# already-authenticated account action that reads the session cookie itself
+# inside its handler - must bypass this middleware's Telegram-only check.
+# Every other /api/ POST still requires Telegram initData, exactly as before.
 PUBLIC_POSTS = frozenset({
  '/api/web/auth/telegram', '/api/web/auth/logout',
+ '/api/web/auth/register', '/api/web/auth/login',
+ '/api/web/auth/forgot-password', '/api/web/auth/reset-password',
+ '/api/web/auth/resend-verification',
+ '/api/web/account/password/change', '/api/web/account/email/set',
+ '/api/web/account/telegram/connect', '/api/web/account/telegram/disconnect',
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook'})
@@ -99,14 +110,18 @@ def create_web_session_token(telegram_id):
  return f'{payload}.{sig}'
 
 def verify_web_session_token(token):
+ # telegram_id_s may be negative: email-only SYLVEX accounts are assigned a
+ # synthetic negative id (see services/account_identity.py) precisely so
+ # they can never collide with a real (always-positive) Telegram id, and
+ # this token has to carry either kind of account id.
  try:
   telegram_id_s,exp_s,sig=str(token).split('.',2)
-  if not re.fullmatch(r'[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
+  if not re.fullmatch(r'-?[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
   expected=hmac.new(web_session_secret(),f'{telegram_id_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
   if not hmac.compare_digest(expected,sig): raise ValueError()
   if int(exp_s)<time.time(): raise ValueError()
   telegram_id=int(telegram_id_s)
-  if telegram_id<=0: raise ValueError()
+  if telegram_id==0: raise ValueError()
  except (ValueError,AttributeError,TypeError): raise SecurityError('invalid_web_session')
  return telegram_id
 
