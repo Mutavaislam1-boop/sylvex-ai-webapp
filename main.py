@@ -49,10 +49,18 @@ from db_pool import close_db_pool, db_connect, db_pool_status, start_db_pool
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from services.security import SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data
+from services.security import (
+    SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data,
+    WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
+    verify_web_session_token, verify_telegram_login_widget,
+)
+from services import account_identity as account_identity_service
+from services.account_identity import AccountError
+from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
@@ -60,6 +68,22 @@ from services.price_engine import apply_snapshot_to_estimate
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
+# Lets the SYLVEX website (a different origin) call the public API and the
+# new /api/web/* session endpoints. Closed by default - only the origins
+# listed in WEBSITE_ORIGINS are allowed - and additive: it changes nothing
+# for the Telegram Mini App or bot, which never go through a browser CORS
+# check in the first place. Registered after SecurityMiddleware so it wraps
+# outside it and can answer CORS preflight (OPTIONS) requests before they
+# would otherwise hit SecurityMiddleware's Telegram-auth check.
+_website_origins = [o.strip() for o in os.getenv('WEBSITE_ORIGINS', '').split(',') if o.strip()]
+if _website_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_website_origins,
+        allow_credentials=True,
+        allow_methods=['GET', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
+        allow_headers=['*'],
+    )
 
 
 STATIC_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif", ".ico")
@@ -10181,6 +10205,383 @@ async def public_telegram_sync(request: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
     return {"ok": True, "user": user}
+
+
+# =====================================================
+# WEB SESSION: sylvex-website account (email/Google/Apple + optional Telegram)
+#
+# The website is a second client of this same backend (see
+# sylvex-website/backend/WEB_API_CONTRACT.md). Every route below
+# authenticates with a browser session cookie (or a mailed one-time token),
+# never Telegram initData. See services/account_identity.py for the account
+# model: a website registration gets its own real `sylvex_accounts.account_id`
+# (the "SYLVEX ID"), independent of Telegram - never a fake/negative
+# telegram_id. Its business data (balance/subscription/history) still lives
+# in the same telegram_id-keyed tables the Mini App uses, under a hidden
+# internal storage id, until the user explicitly and permanently connects a
+# real Telegram identity (see the /api/web/account/telegram/* and
+# /api/account/link/* routes below) - only then do the two become one
+# account, one balance, one history. The session cookie always carries the
+# account_id; unlike the old model, that id never changes, merge or not.
+# =====================================================
+def _set_web_session_cookie(response, account_id: int):
+    token = create_web_session_token(account_id)
+    response.set_cookie(
+        WEB_SESSION_COOKIE, token, max_age=WEB_SESSION_MAX_AGE,
+        httponly=True, secure=True, samesite="none", path="/",
+    )
+
+
+def _web_session_account_id(request: Request):
+    token = request.cookies.get(WEB_SESSION_COOKIE)
+    if not token:
+        return None
+    try:
+        return verify_web_session_token(token)
+    except SecurityError:
+        return None
+
+
+def _web_session_payload(account_id: int) -> dict:
+    summary = account_identity_service.get_account_summary(DATABASE_URL, account_id)
+    if not summary:
+        return {"authenticated": False}
+    state = get_user_state(summary["active_telegram_id"]) or {}
+    created_at = state.get("created_at")
+    if hasattr(created_at, "strftime"):
+        member_since = created_at.strftime("%Y-%m")
+    elif isinstance(created_at, str) and len(created_at) >= 7 and created_at[4] == "-":
+        member_since = created_at[:7]  # users.created_at is TEXT in production
+    else:
+        member_since = None
+    return {
+        "authenticated": True,
+        "sylvex_user_id": int(account_id),
+        "display_name": state.get("display_name") or state.get("first_name"),
+        "first_name": state.get("first_name"),
+        "username": state.get("username"),
+        "avatar_url": state.get("custom_avatar_url"),
+        "balance": state.get("balance", 0),
+        "subscription_plan": state.get("subscription_plan"),
+        "generations_count": state.get("generations_count", 0),
+        "member_since": member_since,
+        "email": summary.get("email"),
+        "email_verified": bool(summary.get("email_verified")),
+        "has_email": bool(summary.get("has_email")),
+        "telegram_connected": bool(summary.get("telegram_connected")),
+        "telegram_username": state.get("username") if summary.get("telegram_connected") else None,
+        "oauth": summary.get("oauth") or {},
+    }
+
+
+@app.post("/api/web/auth/telegram")
+async def web_auth_telegram(request: Request):
+    # "Login with Telegram" only ever signs into an account that has
+    # already completed the Connect Telegram merge below - Telegram is
+    # never a website *registration* method (spec requirement #1).
+    payload = await request.json()
+    try:
+        signed = await asyncio.to_thread(verify_telegram_login_widget, payload, TELEGRAM_AUTH_TOKENS)
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        account_id = await asyncio.to_thread(account_identity_service.login_via_telegram_widget, DATABASE_URL, signed["id"])
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.post("/api/web/auth/google")
+async def web_auth_google(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        claims = await asyncio.to_thread(oauth_verify.verify_google_id_token, payload.get("id_token") or "")
+    except oauth_verify.OAuthVerifyError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.oauth_login_or_register,
+            DATABASE_URL, "google", claims["subject"], claims.get("email"), claims.get("name"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.post("/api/web/auth/apple")
+async def web_auth_apple(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        claims = await asyncio.to_thread(oauth_verify.verify_apple_id_token, payload.get("id_token") or "")
+    except oauth_verify.OAuthVerifyError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.oauth_login_or_register,
+            DATABASE_URL, "apple", claims["subject"], claims.get("email"), payload.get("display_name"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.get("/api/web/session/me")
+async def web_session_me(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return {"authenticated": False}
+    return await asyncio.to_thread(_web_session_payload, account_id)
+
+
+@app.post("/api/web/auth/logout")
+async def web_auth_logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(WEB_SESSION_COOKIE, path="/")
+    return response
+
+
+@app.post("/api/web/auth/register")
+async def web_auth_register(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.register_email_account,
+            DATABASE_URL, payload.get("email"), payload.get("password"), payload.get("display_name"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.post("/api/web/auth/login")
+async def web_auth_login(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.login_email_account, DATABASE_URL, payload.get("email"), payload.get("password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    response = JSONResponse({"ok": True, **body})
+    _set_web_session_cookie(response, account_id)
+    return response
+
+
+@app.get("/api/web/auth/verify-email")
+async def web_auth_verify_email(token: str = ""):
+    base = os.getenv("WEBSITE_URL", "").strip().rstrip("/")
+    try:
+        await asyncio.to_thread(account_identity_service.verify_email_token, DATABASE_URL, token)
+    except AccountError:
+        return RedirectResponse(base + "/account/profile.html?verify_error=1")
+    return RedirectResponse(base + "/account/profile.html?verified=1")
+
+
+@app.post("/api/web/auth/resend-verification")
+async def web_auth_resend_verification(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        await asyncio.to_thread(account_identity_service.resend_verification, DATABASE_URL, account_id)
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/web/auth/forgot-password")
+async def web_auth_forgot_password(request: Request):
+    payload = await request.json()
+    if DATABASE_URL:
+        await asyncio.to_thread(account_identity_service.request_password_reset, DATABASE_URL, payload.get("email"))
+    return {"ok": True}
+
+
+@app.post("/api/web/auth/reset-password")
+async def web_auth_reset_password(request: Request):
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.reset_password_with_token, DATABASE_URL, payload.get("token"), payload.get("new_password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/web/account/password/change")
+async def web_account_password_change(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.change_password,
+            DATABASE_URL, account_id, payload.get("current_password"), payload.get("new_password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/web/account/email/set")
+async def web_account_email_set(request: Request):
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.set_email_for_account,
+            DATABASE_URL, account_id, payload.get("email"), payload.get("password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    return {"ok": True, **body}
+
+
+@app.post("/api/web/account/telegram/preview")
+async def web_account_telegram_preview(request: Request):
+    # Step 1 of Connect Telegram (spec requirement #7): shows the exact
+    # before/after balances and any subscription resolution before anything
+    # changes. Ownership of the Telegram id is proven right here via the
+    # real Telegram Login Widget signature, same as /api/web/auth/telegram.
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        signed = await asyncio.to_thread(verify_telegram_login_widget, payload, TELEGRAM_AUTH_TOKENS)
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    try:
+        preview = await asyncio.to_thread(account_identity_service.preview_merge, DATABASE_URL, account_id, signed["id"])
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    if preview["status"] == "conflict":
+        return JSONResponse({"ok": False, "error": "telegram_already_linked", "conflict": True}, status_code=409)
+    return {"ok": True, **preview}
+
+
+@app.post("/api/web/account/telegram/confirm")
+async def web_account_telegram_confirm(request: Request):
+    # Step 2: the deliberate, one-time, permanent merge (spec requirements
+    # #9-#11). account_id/the session cookie never change - only the
+    # account's underlying business data moves onto the real telegram_id.
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    # The app-level flag is never part of the Telegram Login Widget's own
+    # signed field set - strip it before verifying, or the HMAC check fails.
+    confirmed_subscription_merge = bool(payload.pop("confirmed_subscription_merge", False))
+    try:
+        signed = await asyncio.to_thread(verify_telegram_login_widget, payload, TELEGRAM_AUTH_TOKENS)
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    try:
+        result = await asyncio.to_thread(
+            account_identity_service.confirm_merge_via_widget,
+            DATABASE_URL, account_id, signed["id"], signed.get("username"), signed.get("first_name"),
+            confirmed_subscription_merge,
+        )
+    except AccountError as exc:
+        status = exc.status
+        error = exc.code
+        if error == "telegram_already_linked":
+            return JSONResponse({"ok": False, "error": error, "conflict": True}, status_code=status)
+        return JSONResponse({"ok": False, "error": error}, status_code=status)
+    body = await asyncio.to_thread(_web_session_payload, account_id)
+    return {"ok": True, "merge_result": result, **body}
+
+
+# ---------------------------------------------------------------------------
+# Mini-App-initiated linking direction ("Connect existing SYLVEX account" /
+# "Connect Email" - spec requirement #8). These are normal Telegram
+# initData-authenticated routes (not /api/web/*): the Mini App already knows
+# its own real telegram_id; what it needs proven is ownership of the email
+# address typed in, via a one-time code mailed to it.
+# ---------------------------------------------------------------------------
+@app.get("/api/account/link-status")
+async def account_link_status(telegram_id: int = 0):
+    if not DATABASE_URL or not telegram_id:
+        return {"connected": False}
+    return await asyncio.to_thread(account_identity_service.get_link_status_for_telegram, DATABASE_URL, telegram_id)
+
+
+@app.post("/api/account/link/request-code")
+async def account_link_request_code(request: Request):
+    payload = await request.json()
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
+    try:
+        await asyncio.to_thread(account_identity_service.request_email_link_code, DATABASE_URL, payload.get("email"))
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
+
+
+@app.post("/api/account/link/preview")
+async def account_link_preview(request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    if not DATABASE_URL or not telegram_id:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        account_id = await asyncio.to_thread(
+            account_identity_service.resolve_email_link_code, DATABASE_URL, payload.get("email"), payload.get("code"),
+        )
+        preview = await asyncio.to_thread(account_identity_service.preview_merge, DATABASE_URL, account_id, telegram_id)
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    if preview["status"] == "conflict":
+        return JSONResponse({"ok": False, "error": "telegram_already_linked", "conflict": True}, status_code=409)
+    return {"ok": True, **preview}
+
+
+@app.post("/api/account/link/confirm")
+async def account_link_confirm(request: Request):
+    payload = await request.json()
+    telegram_id = int(payload.get("telegram_id") or 0)
+    if not DATABASE_URL or not telegram_id:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        result = await asyncio.to_thread(
+            account_identity_service.confirm_merge_via_email_code,
+            DATABASE_URL, telegram_id, payload.get("email"), payload.get("code"),
+            None, None, bool(payload.get("confirmed_subscription_merge")),
+        )
+    except AccountError as exc:
+        error = exc.code
+        if error == "telegram_already_linked":
+            return JSONResponse({"ok": False, "error": error, "conflict": True}, status_code=exc.status)
+        return JSONResponse({"ok": False, "error": error}, status_code=exc.status)
+    return {"ok": True, "merge_result": result}
 
 
 # =====================================================

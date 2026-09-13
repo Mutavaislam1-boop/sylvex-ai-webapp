@@ -1447,6 +1447,12 @@ HTML-страница Mini App. Комментарии подписывают э
         =================================================== -->
         <div class="mini" role="button" tabindex="0" onclick="toast(this.querySelector('.v').textContent)"><div class="k" data-i18n="member_since">Member since</div><div class="v" id="profileSince">—</div></div>
         <!-- ==================================================
+        HTML-ЭЛЕМЕНТ: Linked accounts  —
+        ID используется JavaScript/CSS как точка подключения: profileLinkedStatus
+        CSS-класс задаёт внешний вид и расположение: mini
+        =================================================== -->
+        <div class="mini" role="button" tabindex="0" onclick="SYLVEX.openLinkedAccounts && SYLVEX.openLinkedAccounts()"><div class="k" data-i18n="linked_accounts">Linked accounts</div><div class="v" id="profileLinkedStatus">—</div></div>
+        <!-- ==================================================
         HTML-ЭЛЕМЕНТ: Токенов потрачено  0 ⚡️
         ID используется JavaScript/CSS как точка подключения: profileSpent
         CSS-класс задаёт внешний вид и расположение: mini

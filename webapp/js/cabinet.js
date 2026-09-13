@@ -18786,6 +18786,34 @@ async function waitGeneration(jobId, options) {
   // JAVASCRIPT-БЛОК: initialViewFromUrl
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
+  // True when Pro Studio is loaded inside the SYLVEX website's iframe
+  // (sylvex-website/pro-studio.html appends ?embed=web) rather than the
+  // Telegram Mini App. Never true for Telegram, which never sends this param.
+  function isWebEmbed() {
+    try { return new URLSearchParams(window.location.search || '').get('embed') === 'web'; }
+    catch { return false; }
+  }
+
+  // True only when actually launched from inside Telegram (real initData
+  // present). Loading telegram-web-app.js in a plain browser still defines
+  // window.Telegram.WebApp, but it never carries a real initData string -
+  // this is what tells a standalone browser visit (spec requirement #24)
+  // apart from the genuine Telegram Mini App (requirement #23), so each
+  // gets its own, environment-appropriate authentication (requirement #26).
+  function hasTelegramContext() {
+    try { return !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData); }
+    catch { return false; }
+  }
+
+  // Website iframe embed AND a standalone browser visit both have no real
+  // Telegram identity to authenticate with, so both use the same SYLVEX web
+  // session (email/Google/Apple/Telegram-widget) as the website itself.
+  function usesWebSessionAuth() {
+    return isWebEmbed() || !hasTelegramContext();
+  }
+  S.hasTelegramContext = hasTelegramContext;
+  S.usesWebSessionAuth = usesWebSessionAuth;
+
   function initialViewFromUrl() {
     const allowed = new Set(['home', 'history', 'community', 'shop', 'pay', 'profile', 'settings', 'tools']);
     const params = new URLSearchParams(window.location.search || '');
@@ -18913,6 +18941,10 @@ async function waitGeneration(jobId, options) {
     } else if (initialMode === 'video' && tool === 'image') {
       videoState.generationMode = 'image_to_video';
       window.setTimeout(() => openVideoStartUpload(), 180);
+    } else if (initialMode === 'image' && tool && Object.prototype.hasOwnProperty.call(PHOTO_TOOL_CONFIG, tool)) {
+      // AI Tools deep link (sylvex-website/ai-tools.html): same modal the
+      // Home screen's quick-tool cards open via openHomeQuickTool().
+      window.setTimeout(() => openPhotoToolModal(null, tool), 180);
     }
   }
 
@@ -20163,7 +20195,17 @@ async function waitGeneration(jobId, options) {
     setTimeout(applyInitialViewFromUrl, 150);
     handleReferralStart();
 
-    if (S.syncUser) {
+    // Website embed, or a standalone browser visit with no real Telegram
+    // identity to authenticate with (spec requirement #24/#26): use the
+    // SYLVEX web session cookie instead of Telegram initData, and show the
+    // login/register gate if nothing is signed in yet.
+    if (usesWebSessionAuth() && S.syncWebSession) {
+      Promise.resolve(S.syncWebSession()).then((user) => {
+        if (!user && S.ensureWebAuthGate) S.ensureWebAuthGate();
+      }).finally(() => {
+        renderSubscription();
+      });
+    } else if (S.syncUser) {
       Promise.resolve(S.syncUser()).finally(() => {
         renderSubscription();
       });
