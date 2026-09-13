@@ -954,6 +954,11 @@ CSS-БЛОК: .studio-mode-tab
 }
 .vgen-btn.active{border-color:rgba(255,255,255,.28);background:#343434}
 .vgen-btn-ico{display:grid;place-items:center;color:#d8d8d8;flex:0 0 auto}
+.view[data-view="tools"].active .vgen-btn{
+  background:var(--st-bg-3);color:var(--st-dim);box-shadow:var(--st-depth-1);
+}
+.view[data-view="tools"].active .vgen-btn.active{background:var(--st-bg-4);border-color:var(--st-line-2)}
+.view[data-view="tools"].active .vgen-btn-ico{color:var(--st-dim)}
 .vgen-btn-lbl{
   align-self:center;
   font-size:13px;
@@ -1083,6 +1088,11 @@ CSS-БЛОК: .studio-mode-tab
   gap:10px;
   padding:0 13px;
   cursor:pointer;
+}
+.view[data-view="tools"].active .voice-workspace-tile,
+.view[data-view="tools"].active .voice-workspace-upload{
+  background:var(--st-bg-3);color:var(--st-text);border:1px solid var(--st-line-2);
+  box-shadow:var(--st-depth-1);
 }
 .voice-workspace-tile.active,.voice-workspace-upload.active{border-color:rgba(255,255,255,.28);background:#333}
 .voice-workspace-upload{
@@ -2857,6 +2867,10 @@ CSS-БЛОК: .studio-link-icons span
   border:1px solid rgba(255,255,255,.08);
   box-shadow:0 18px 42px rgba(0,0,0,.28);
 }
+.view[data-view="tools"].active .video-add-menu{
+  background:var(--st-bg-2);border:1px solid var(--st-border);
+  box-shadow:var(--st-depth-2);
+}
 .video-add-menu[hidden]{
   display:none!important;
 }
@@ -2874,6 +2888,9 @@ CSS-БЛОК: .studio-link-icons span
   gap:7px;
   cursor:pointer;
 }
+.view[data-view="tools"].active .video-add-menu button{
+  background:var(--st-bg-3);color:var(--st-text);
+}
 .video-add-menu button span{
   width:36px;
   height:36px;
@@ -2883,6 +2900,9 @@ CSS-БЛОК: .studio-link-icons span
   background:#444;
   border:3px solid #3a3a3a;
   color:#f1f1f1;
+}
+.view[data-view="tools"].active .video-add-menu button span{
+  background:var(--st-bg-4);border:3px solid var(--st-bg-3);color:var(--st-text);
 }
 .video-add-menu button b{
   font-size:12px;
