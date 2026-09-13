@@ -3034,6 +3034,12 @@ CSS-БЛОК: .studio-audio-player
   box-shadow:0 14px 42px -24px rgba(0,0,0,.9);color:#f4f4f4;
   max-width:760px;margin-left:auto;margin-right:auto;pointer-events:auto;
 }
+body:has(.view[data-view="tools"].active) .studio-audio-player{
+  background:color-mix(in srgb, var(--st-bg-3, #181818) 78%, transparent);
+  border:1px solid var(--st-border, rgba(255,255,255,.08));
+  box-shadow:var(--st-depth-2, none);
+  color:var(--st-text, #f4f4f4);
+}
 /* =====================================================
 CSS-БЛОК: body:has(.view[data-view="tools"].active) .studio-audio-player
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -3079,6 +3085,12 @@ CSS-БЛОК: .studio-player-controls button,.studio-player-icon
 .studio-progress span{position:absolute;left:0;top:50%;display:block;width:0;height:2px;border-radius:999px;background:#efefef;transform:translateY(-50%)}
 .studio-audio-player>#studioVolumeBtn,.studio-audio-player>.studio-volume-popover{display:none!important}
 .studio-player-icon:last-child{font-size:22px;color:#bdbdbd;line-height:1;background:transparent}
+body:has(.view[data-view="tools"].active) .studio-player-controls button,
+body:has(.view[data-view="tools"].active) .studio-player-icon{color:var(--st-text, #f4f4f4)}
+body:has(.view[data-view="tools"].active) .studio-time,
+body:has(.view[data-view="tools"].active) .studio-duration{color:var(--st-dim, #eeeeee)}
+body:has(.view[data-view="tools"].active) .studio-progress::before{background:var(--st-line-2, #5a5a5a)}
+body:has(.view[data-view="tools"].active) .studio-progress span{background:var(--st-text, #efefef)}
 /* =====================================================
 CSS-БЛОК: .studio-volume-popover
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -3087,19 +3099,22 @@ CSS-БЛОК: .studio-volume-popover
   position:absolute;right:42px;bottom:44px;width:132px;padding:8px 10px;border-radius:14px;
   background:#202020;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 34px -18px rgba(0,0,0,.9);z-index:1;
 }
+body:has(.view[data-view="tools"].active) .studio-volume-popover{
+  background:var(--st-bg-3, #202020);border:1px solid var(--st-border, rgba(255,255,255,.12));
+}
 .studio-volume-popover:not([hidden]){display:block}
 .studio-volume-popover input{width:100%;display:block;accent-color:#efefef}
 .image-seed-pop .image-size-sheet-title{font-size:15px;font-weight:700}
 .image-seed-row .image-size-label{display:flex;align-items:center;gap:8px}
-.image-seed-hex{font-size:13px;color:#d8d8d8}
-.image-seed-head{position:relative;display:flex;align-items:center;gap:8px;padding:8px 10px 12px;font-size:15px;font-weight:800;color:#f4f4f4}
+.image-seed-hex{font-size:13px;color:var(--st-dim, #d8d8d8)}
+.image-seed-head{position:relative;display:flex;align-items:center;gap:8px;padding:8px 10px 12px;font-size:15px;font-weight:800;color:var(--st-text, #f4f4f4)}
 /* =====================================================
 CSS-БЛОК: .image-seed-back,.image-seed-info
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .image-seed-back,.image-seed-info{
-  width:28px;height:28px;border:0;border-radius:50%;background:rgba(255,255,255,.06);
-  color:#f4f4f4;display:grid;place-items:center;padding:0;font:inherit;cursor:pointer
+  width:28px;height:28px;border:0;border-radius:50%;background:var(--st-bg-3, rgba(255,255,255,.06));
+  color:var(--st-text, #f4f4f4);display:grid;place-items:center;padding:0;font:inherit;cursor:pointer
 }
 .image-seed-info{font-size:14px}
 /* =====================================================
@@ -3108,8 +3123,8 @@ CSS-БЛОК: .image-seed-tooltip
 ===================================================== */
 .image-seed-tooltip{
   position:absolute;left:10px;right:10px;top:42px;z-index:2;padding:10px 12px;border-radius:12px;
-  background:#202020;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 34px -18px rgba(0,0,0,.9);
-  color:#dcdcdc;font-size:12px;line-height:1.35;font-weight:500
+  background:var(--st-bg-3, #202020);border:1px solid var(--st-border, rgba(255,255,255,.12));box-shadow:0 18px 34px -18px rgba(0,0,0,.9);
+  color:var(--st-dim, #dcdcdc);font-size:12px;line-height:1.35;font-weight:500
 }
 .image-seed-tooltip[hidden]{display:none}
 /* =====================================================
@@ -3118,14 +3133,14 @@ CSS-БЛОК: .image-seed-input
 ===================================================== */
 .image-seed-input{
   width:calc(100% - 20px);margin:0 10px 8px;min-height:48px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);
-  color:#f4f4f4;font:inherit;font-size:15px;padding:0 14px;outline:none;box-sizing:border-box
+  border:1px solid var(--st-border, rgba(255,255,255,.14));background:var(--st-bg-2, rgba(255,255,255,.04));
+  color:var(--st-text, #f4f4f4);font:inherit;font-size:15px;padding:0 14px;outline:none;box-sizing:border-box
 }
-.image-seed-input:focus{border-color:rgba(255,255,255,.32);background:rgba(255,255,255,.07)}
+.image-seed-input:focus{border-color:var(--st-border-strong, rgba(255,255,255,.32));background:var(--st-bg-3, rgba(255,255,255,.07))}
 .image-seed-input:disabled{opacity:.48;cursor:not-allowed}
-.image-seed-disabled-note{margin:-2px 12px 10px;color:rgba(255,255,255,.52);font-size:12px;line-height:1.35}
+.image-seed-disabled-note{margin:-2px 12px 10px;color:var(--st-mute, rgba(255,255,255,.52));font-size:12px;line-height:1.35}
 .recraft-tool-row{cursor:default}
-.recraft-tool-row .image-size-check{font-size:12px;color:rgba(255,255,255,.72)}
+.recraft-tool-row .image-size-check{font-size:12px;color:var(--st-dim, rgba(255,255,255,.72))}
 /* =====================================================
 CSS-БЛОК: .studio-generate
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -8648,3 +8663,292 @@ body[data-brand-generator="suno"] #studioComposer .studio-video-panel{min-height
 @media(max-width:700px){.studio-grid-node{width:276px!important;min-height:272px!important}.studio-grid-port.side-left{left:-12px!important}.studio-grid-port.side-right{right:-12px!important}.studio-grid-port.side-top{top:-12px!important}.studio-grid-port.side-bottom{bottom:-12px!important}}
 .studio-grid-input-summary{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}.studio-grid-input-summary span{height:24px;display:flex;align-items:center;gap:5px;flex:0 0 auto;padding:0 7px;border-radius:7px;background:rgba(104,130,255,.12);color:#aebcff;font-size:7px;font-weight:700}.studio-grid-input-summary img{width:18px;height:18px;border-radius:5px;object-fit:cover}
 .studio-grid-projects{position:absolute;z-index:20;top:66px;right:16px;width:min(330px,calc(100% - 32px));max-height:min(520px,70dvh);overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:17px;background:rgba(24,25,30,.98);box-shadow:0 22px 60px rgba(0,0,0,.48);backdrop-filter:blur(20px)}.studio-grid-projects[hidden]{display:none!important}.studio-grid-projects>header{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.08)}.studio-grid-projects>header b{font-size:11px}.studio-grid-projects>header button{width:30px;height:30px;border:0;border-radius:50%;background:#30323a;color:#fff;font-size:20px}.studio-grid-projects>div{display:grid;gap:5px;max-height:calc(min(520px,70dvh) - 48px);overflow-y:auto;padding:7px}.studio-grid-projects>div>p{padding:24px;color:#858b98;font-size:10px;text-align:center}.studio-grid-project{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 11px;border:1px solid transparent;border-radius:11px;background:#202127;color:#f2f3f6;text-align:left}.studio-grid-project.active{border-color:#657eff;background:rgba(82,105,229,.16)}.studio-grid-project span{min-width:0}.studio-grid-project b,.studio-grid-project small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.studio-grid-project b{font-size:10px}.studio-grid-project small{margin-top:4px;color:#858b98;font-size:7px}.studio-grid-project i{color:#889aff;font-size:18px;font-style:normal}@media(max-width:700px){.studio-grid-projects{top:58px;right:0;left:auto;width:calc(100vw - 16px);max-height:65dvh}.studio-grid-header nav button{padding:0 6px!important}.studio-grid-header nav{gap:3px!important}}
+
+/* =====================================================
+CSS-БЛОК: Pro Studio theme overrides — Voice mode, Visual Picker/Create,
+Music duration wheel, resource-delete confirm.
+These components were previously hardcoded to the dark palette regardless
+of the active Pro Studio theme. Companion override rules below (same
+pattern as .voice-workspace-tile / .vgen-btn above) make every surface,
+border and text color follow --st-* so White/Gray/Black all apply
+consistently across the full Voice ecosystem and shared pickers.
+===================================================== */
+.view[data-view="tools"].active .vgen-upload-row{background:var(--st-bg-3);color:var(--st-text);box-shadow:var(--st-depth-1)}
+.view[data-view="tools"].active .vgen-upload-row.active{border-color:var(--st-line-2)}
+.view[data-view="tools"].active .voice-list-button-avatar{background:var(--st-bg-4);color:var(--st-text);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .vgen-uico{background:var(--st-bg-4);border-color:var(--st-bg-3);color:var(--st-text)}
+.view[data-view="tools"].active .voice-workspace-tile.active,
+.view[data-view="tools"].active .voice-workspace-upload.active{border-color:var(--st-border-strong);background:var(--st-bg-4)}
+.view[data-view="tools"].active .voice-workspace-upload i{background:var(--st-bg-4);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-workspace-sheet{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-text)}
+.view[data-view="tools"].active .voice-sheet-title{color:var(--st-text)}
+.view[data-view="tools"].active .voice-list-row{background:var(--st-bg-3)}
+.view[data-view="tools"].active .voice-list-row button{color:var(--st-text)}
+.view[data-view="tools"].active .voice-list-row .voice-list-play{color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-style-row{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-style-row.selected{border-color:var(--st-border-strong);background:var(--st-bg-4)}
+.view[data-view="tools"].active .voice-style-row-avatar{background:var(--st-bg-4);color:var(--st-text)}
+.view[data-view="tools"].active .voice-style-row-copy small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-style-row-check{color:var(--st-text)}
+.view[data-view="tools"].active .voice-style-row-play{background:var(--st-bg-4);color:var(--st-text)}
+.view[data-view="tools"].active .voice-preview-loading-dot{background:var(--st-text)}
+.view[data-view="tools"].active .voice-style-group-title{color:var(--st-mute)}
+
+.view[data-view="tools"].active .voice-tool-panel.voice-list-open .voice-style-panel-card,
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-create-sheet,
+.view[data-view="tools"].active .voice-tool-panel.voice-upload-open .voice-upload-sheet{
+  background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);
+}
+.view[data-view="tools"].active .voice-tool-panel.voice-upload-open .voice-upload-head,
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-create-head{border-bottom:1px solid var(--st-line)}
+.view[data-view="tools"].active .voice-tool-panel.voice-upload-open .voice-upload-head h3,
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-create-head h3{color:var(--st-text)}
+.view[data-view="tools"].active .voice-create-head p,
+.view[data-view="tools"].active .voice-upload-sheet p{color:var(--st-mute)}
+
+.view[data-view="tools"].active .voice-clone-field,
+.view[data-view="tools"].active .voice-select-btn,
+.view[data-view="tools"].active .voice-param-number{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-clone-field:focus,
+.view[data-view="tools"].active .voice-select.open .voice-select-btn,
+.view[data-view="tools"].active .voice-param-number:focus{border-color:var(--st-accent);background:var(--st-bg-4);box-shadow:0 0 0 3px var(--st-accent-bg)}
+.view[data-view="tools"].active .voice-select-btn span{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-select-btn b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-select-btn i{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-select-menu{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .voice-select-menu button{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-select-menu button.active,
+.view[data-view="tools"].active .voice-select-menu button:hover{background:var(--st-accent-bg);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-clone-avatar-picker{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-clone-avatar-picker span{background:var(--st-accent-bg);color:var(--st-accent)}
+.view[data-view="tools"].active .voice-clone-avatar-picker.has-avatar{background:var(--st-bg-4)}
+.view[data-view="tools"].active .voice-create-recorder{border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-speech-settings label{color:var(--st-text)}
+.view[data-view="tools"].active .voice-speech-settings em{border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-preview-placeholder{background:var(--st-bg-3);color:var(--st-dim)}
+
+.view[data-view="tools"].active .voice-upload-purpose-btn span{color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-purpose-btn small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-select-btn{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-select-btn span{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-select-btn b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-select-btn i{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-upload-select-wrap.open .voice-upload-select-btn{border-color:var(--st-accent);background:var(--st-bg-4);box-shadow:0 0 0 3px var(--st-accent-bg)}
+.view[data-view="tools"].active .voice-upload-select-menu{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .voice-upload-select-menu button{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-upload-select-menu button small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-select-menu button.active,
+.view[data-view="tools"].active .voice-upload-select-menu button:hover{background:var(--st-accent-bg);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-upload-controls-modern{background:var(--st-bg-2);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-upload-chip,
+.view[data-view="tools"].active .voice-upload-speaker-btn{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-chip span,
+.view[data-view="tools"].active .voice-upload-speaker-btn span{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-chip b,
+.view[data-view="tools"].active .voice-upload-speaker-btn b{color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-speaker-composer{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-speaker-composer button{border:1px solid var(--st-border);background:var(--st-bg-3);color:var(--st-text)}
+.view[data-view="tools"].active .voice-speaker-composer button:active{background:var(--st-bg-4)}
+.view[data-view="tools"].active .voice-speaker-composer .voice-speaker-chip.active{border-color:var(--st-accent);background:var(--st-accent-bg);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-upload-drop{background:var(--st-bg-2);border:1px dashed var(--st-border-strong);color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-drop span{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-drop b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-drop small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-preview{background:var(--st-bg-3);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-upload-preview video{background:var(--st-bg)}
+.view[data-view="tools"].active .voice-upload-audio-box>span{background:var(--st-bg-4);color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-preview-meta b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-preview-meta small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-preview.loading b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-preview.loading small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-note{background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-dim)}
+.view[data-view="tools"].active .voice-upload-note b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-upload-note small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-upload-primary{background:var(--st-invert-bg);color:var(--st-invert-text);box-shadow:none}
+
+.view[data-view="tools"].active .voice-tool-card{background:var(--st-bg-2);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-tool-copy b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-tool-copy span{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-tool-file,
+.view[data-view="tools"].active .voice-tool-empty{background:var(--st-bg-3);color:var(--st-text)}
+.view[data-view="tools"].active .voice-tool-empty{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-tool-actions button{background:var(--st-bg-3);color:var(--st-text)}
+.view[data-view="tools"].active .voice-tool-actions button:first-child{background:var(--st-accent);color:var(--st-accent-text)}
+.view[data-view="tools"].active .voice-tool-input{background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-create-recorder{background:var(--st-bg-2);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-upload-round{background:var(--st-bg-4)!important}
+.view[data-view="tools"].active .voice-record-live{color:var(--st-text)}
+.view[data-view="tools"].active .voice-audio-file-card b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-audio-file-card small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-file-icon{background:var(--st-accent-bg);color:var(--st-accent)}
+.view[data-view="tools"].active .voice-trash-btn{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-speech-settings,
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-preview-block{background:var(--st-bg-2);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-speech-settings b,
+.view[data-view="tools"].active .voice-tool-panel.voice-create-open .voice-preview-block b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-param-row{color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-quick-actions button,
+.view[data-view="tools"].active .voice-editor-toolbar button,
+.view[data-view="tools"].active .voice-tools-toggle{background:var(--st-bg-3);color:var(--st-dim);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-quick-actions button:hover,
+.view[data-view="tools"].active .voice-editor-toolbar button:hover,
+.view[data-view="tools"].active .voice-quick-actions button.active,
+.view[data-view="tools"].active .voice-tools-toggle[aria-expanded="true"]{color:var(--st-text);border-color:var(--st-accent);background:var(--st-accent-bg)}
+.view[data-view="tools"].active .studio-voice-full>.voice-horizontal-tools{border:1px solid var(--st-border);background:var(--st-bg-2)}
+
+.view[data-view="tools"].active .voice-tool-guide{background:var(--st-bg-3);color:var(--st-text);border:1px solid var(--st-accent);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .voice-tool-guide-icon{background:var(--st-accent);color:var(--st-accent-text)}
+.view[data-view="tools"].active .voice-tool-guide>span:last-child{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-editor-toolbar button.voice-tool-guide-active{border-color:var(--st-accent)!important;background:var(--st-accent-bg)!important;color:var(--st-text)!important}
+
+.view[data-view="tools"].active .voice-addon-drawer{background:var(--st-bg-2);color:var(--st-text);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-addon-drawer.voice-addon-modal{background:var(--st-bg-2)!important}
+.view[data-view="tools"].active .voice-addon-head b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-addon-head button{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-addon-options button,
+.view[data-view="tools"].active .voice-addon-primary{background:var(--st-bg-3);color:var(--st-dim);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-addon-options button:hover,
+.view[data-view="tools"].active .voice-addon-options button.active,
+.view[data-view="tools"].active .voice-addon-primary{border-color:var(--st-accent);background:var(--st-accent-bg);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-inline-option-strip b{color:var(--st-text)}
+.view[data-view="tools"].active .voice-inline-option-strip button,
+.view[data-view="tools"].active .voice-inline-option-strip .voice-inline-add{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-inline-option-strip button:hover{color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-dialogue-row{border:1px solid var(--st-border);background:var(--st-bg-2)}
+.view[data-view="tools"].active .voice-dialogue-row>b,
+.view[data-view="tools"].active .voice-dialogue-row-title{color:var(--st-text)}
+.view[data-view="tools"].active .voice-dialogue-row-title>button,
+.view[data-view="tools"].active .voice-dialogue-add-speaker{background:var(--st-bg-4);color:var(--st-text)}
+.view[data-view="tools"].active .voice-dialogue-option{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-dialogue-option:hover{color:var(--st-text)}
+.view[data-view="tools"].active .voice-speaker-card{background:var(--st-bg-3)}
+.view[data-view="tools"].active .voice-speaker-card>.voice-speaker-replace{border-left:1px solid var(--st-border);background:var(--st-bg-2);color:var(--st-dim)}
+.view[data-view="tools"].active .voice-speaker-card>.voice-speaker-remove{background:var(--st-bg-4);color:var(--st-mute)}
+
+.view[data-view="tools"].active .voice-custom-option-form input,
+.view[data-view="tools"].active .voice-addon-field{background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-addon-setting{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-addon-setting output{color:var(--st-dim)}
+
+.view[data-view="tools"].active .voice-template-strip button{background:var(--st-bg-3);color:var(--st-mute);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-template-strip button.active{color:var(--st-accent-text);border-color:var(--st-accent);background:var(--st-accent)}
+.view[data-view="tools"].active .voice-editor-toolbar{border:1px solid var(--st-border);background:var(--st-bg-2)}
+.view[data-view="tools"].active .voice-tools-block-title{color:var(--st-text)}
+.view[data-view="tools"].active .voice-tool-separator{background:var(--st-line-2)}
+.view[data-view="tools"].active .studio-video-composer[data-composer-mode="voice"] .voice-text-estimate{color:var(--st-mute)}
+
+.view[data-view="tools"].active .voice-translation-swap,
+.view[data-view="tools"].active .voice-translation-actions button{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-dim)}
+.view[data-view="tools"].active .voice-translation-grid select.voice-addon-field{background-color:var(--st-bg-2);color:var(--st-text);border-color:var(--st-border)}
+.view[data-view="tools"].active .voice-translation-result{background:var(--st-bg-2);color:var(--st-dim);border:1px solid var(--st-border)}
+
+.view[data-view="tools"].active .voice-speaker-avatar{background:var(--st-bg-4);color:var(--st-text)}
+.view[data-view="tools"].active .voice-speaker-copy b{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-speaker-copy small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-speaker-remove,
+.view[data-view="tools"].active .voice-speaker-replace{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-speaker-replace:hover,
+.view[data-view="tools"].active .voice-speaker-replace:focus-visible{color:var(--st-text);background:var(--st-accent-bg)}
+.view[data-view="tools"].active .voice-dialogue-row .voice-speaker-chip{background:var(--st-bg-3);color:var(--st-dim)}
+.view[data-view="tools"].active .voice-dialogue-row .voice-speaker-chip.active{background:var(--st-accent-bg);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-caret-menu{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-dim)}
+.view[data-view="tools"].active .voice-caret-menu hr{background:var(--st-line)}
+.view[data-view="tools"].active .voice-caret-menu-item>button{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-caret-menu-item>button:hover,
+.view[data-view="tools"].active .voice-caret-menu-item:focus-within>button{background:var(--st-accent-bg);color:var(--st-text)}
+.view[data-view="tools"].active .voice-caret-menu-item>button i{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-caret-submenu{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .voice-caret-submenu>button,
+.view[data-view="tools"].active .voice-dialogue-sheet-items>button{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-caret-submenu>button:hover,
+.view[data-view="tools"].active .voice-dialogue-sheet-items>button:hover{background:var(--st-accent-bg);color:var(--st-text)}
+
+.view[data-view="tools"].active .voice-dialogue-marker{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .voice-dialogue-marker b{color:var(--st-dim)}
+.view[data-view="tools"].active .voice-dialogue-marker small{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-dialogue-mobile-toolbar{background:var(--st-bg-2);border:1px solid var(--st-border)}
+.view[data-view="tools"].active .voice-dialogue-mobile-toolbar>button{background:var(--st-bg-3);color:var(--st-dim)}
+.view[data-view="tools"].active .voice-dialogue-sheet-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .voice-dialogue-sheet-card header button{background:var(--st-bg-3);color:var(--st-mute)}
+
+.view[data-view="tools"].active .mobile-keyboard-close{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-dim)}
+.view[data-view="tools"].active .studio-prompt-column.voice-editor-fullscreen,
+.view[data-view="tools"].active .voice-translation-fullscreen{background:var(--st-bg)!important}
+
+.view[data-view="tools"].active .voice-wave-player button{background:var(--st-accent);color:var(--st-accent-text)}
+.view[data-view="tools"].active .voice-waveform span{background:linear-gradient(180deg,var(--st-accent-2),var(--st-accent))}
+.view[data-view="tools"].active .voice-wave-player time{color:var(--st-mute)}
+.view[data-view="tools"].active .voice-create-footer{background:linear-gradient(180deg,transparent,var(--st-bg-2) 35%)}
+.view[data-view="tools"].active .voice-create-submit{background:var(--st-invert-bg);color:var(--st-invert-text);box-shadow:none}
+
+.view[data-view="tools"].active .music-duration-wheel-pop{background:var(--st-bg-2)!important;border:1px solid var(--st-border)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .music-duration-head{color:var(--st-text)}
+.view[data-view="tools"].active .music-duration-head span{background:var(--st-accent-bg);color:var(--st-accent)}
+.view[data-view="tools"].active .music-duration-wheel-labels{color:var(--st-mute)}
+.view[data-view="tools"].active .music-duration-wheels::after{border-color:var(--st-line)}
+.view[data-view="tools"].active .music-duration-wheel button{color:var(--st-mute)}
+.view[data-view="tools"].active .music-duration-wheel button.active{color:var(--st-text)}
+.view[data-view="tools"].active .music-duration-hint{color:var(--st-mute)}
+.view[data-view="tools"].active .music-duration-save{background:var(--st-invert-bg);color:var(--st-invert-text)}
+
+.view[data-view="tools"].active .studio-video-panel{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .image-setting-disabled span:last-child{color:var(--st-mute)}
+
+.view[data-view="tools"].active .visual-create-modal{color:var(--st-text)}
+.view[data-view="tools"].active .visual-create-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .visual-create-head button{background:var(--st-bg-3);color:var(--st-text)}
+.view[data-view="tools"].active .visual-field{color:var(--st-mute)}
+.view[data-view="tools"].active .visual-field input,
+.view[data-view="tools"].active .visual-field select,
+.view[data-view="tools"].active .visual-field textarea{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .visual-field input:focus,
+.view[data-view="tools"].active .visual-field select:focus,
+.view[data-view="tools"].active .visual-field textarea:focus{border-color:var(--st-accent);box-shadow:0 0 0 3px var(--st-accent-bg)}
+.view[data-view="tools"].active .visual-photo-slot{background:var(--st-bg-3);border:1px dashed var(--st-border-strong);color:var(--st-dim)}
+.view[data-view="tools"].active .visual-create-hint{color:var(--st-mute)}
+.view[data-view="tools"].active .visual-create-loading{background:var(--st-bg-3);border:1px solid var(--st-border);box-shadow:var(--st-depth-2);color:var(--st-text)}
+.view[data-view="tools"].active .visual-create-loading small{color:var(--st-mute)}
+.view[data-view="tools"].active .visual-create-save{background:var(--st-invert-bg);color:var(--st-invert-text);box-shadow:none}
+.view[data-view="tools"].active .visual-picker-new{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .visual-picker-card{color:var(--st-text)}
+.view[data-view="tools"].active .visual-picker-thumb{background:var(--st-bg-3)}
+.view[data-view="tools"].active .visual-picker-check{background:var(--st-invert-bg);color:var(--st-invert-text)}
+.view[data-view="tools"].active .visual-picker-card.selected .visual-picker-thumb{border-color:var(--st-accent);box-shadow:0 0 0 2px var(--st-accent-bg)}
+
+.view[data-view="tools"].active .resource-delete-confirm-card{background:var(--st-bg-2);border:1px solid var(--st-border);box-shadow:var(--st-depth-2)}
+.view[data-view="tools"].active .resource-delete-confirm-title{color:var(--st-text)}
+.view[data-view="tools"].active .resource-delete-confirm-text{color:var(--st-dim)}
+.view[data-view="tools"].active .resource-delete-cancel{background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text)}
+.view[data-view="tools"].active .resource-delete-action{background:var(--st-accent);color:var(--st-accent-text)}
+
+/* Grid Mode: project drawer + project switcher panel (desktop-only canvas). */
+.view[data-view="tools"].active .studio-grid-drawer{background:var(--st-bg-2)!important;color:var(--st-text)!important;border-right:1px solid var(--st-border)}
+.view[data-view="tools"].active .studio-grid-drawer-head{background:color-mix(in srgb, var(--st-bg-2) 94%, transparent)!important}
+.view[data-view="tools"].active .studio-grid-drawer-head button{color:var(--st-text)}
+.view[data-view="tools"].active .studio-grid-drawer-user{border:1px solid var(--st-border);background:var(--st-bg-3)!important}
+.view[data-view="tools"].active .studio-grid-drawer-avatar{background:var(--st-bg-4)!important;color:var(--st-text)}
+.view[data-view="tools"].active .studio-grid-drawer-user span{color:var(--st-mute)}
+.view[data-view="tools"].active .studio-grid-drawer-new,
+.view[data-view="tools"].active .studio-grid-drawer-actions button{border:1px solid var(--st-border);background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-drawer-project{color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-drawer-project.active{background:var(--st-accent-bg)!important}
+.view[data-view="tools"].active .studio-grid-drawer-project small{color:var(--st-mute)}
+.view[data-view="tools"].active .studio-grid-projects{background:var(--st-bg-2)!important;border:1px solid var(--st-border)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-projects>header{border-bottom:1px solid var(--st-line)}
+.view[data-view="tools"].active .studio-grid-projects>header button{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-projects>div>p{color:var(--st-mute)}
+.view[data-view="tools"].active .studio-grid-project{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-project.active{border-color:var(--st-accent)!important;background:var(--st-accent-bg)!important}
+.view[data-view="tools"].active .studio-grid-project small{color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-project i{color:var(--st-accent)!important}
