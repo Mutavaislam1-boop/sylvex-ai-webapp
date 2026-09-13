@@ -429,7 +429,7 @@ body:has(.view[data-view="tools"].active) .toast{background:var(--st-bg-3, rgba(
 .studio .msg.user .bubble{background:var(--st-bubble-user);color:var(--st-text);border:1px solid var(--st-line);border-bottom-right-radius:6px;box-shadow:none}
 .studio .msg.ai .bubble{background:transparent;color:var(--st-text);border:none;padding-left:0;padding-right:0;border-bottom-left-radius:16px}
 .studio .ai-avatar{width:26px;height:26px;border-radius:8px;background:transparent;color:var(--st-text);font-weight:700;font-size:11px;letter-spacing:.5px;display:inline-grid;place-items:center;margin-bottom:6px;border:1px solid var(--st-line-2);background-image:url('../assets/logo.png');background-size:18px 18px;background-repeat:no-repeat;background-position:center;text-indent:-9999px}
-.studio[data-ps-theme="white"] .ai-avatar{background-color:transparent}
+.studio[data-ps-theme="white"] .ai-avatar{background-color:transparent;filter:brightness(0)}
 /* Always visible (not hover-only - there is no reliable hover on touch)
    but kept semi-transparent so it stays visually quiet until used. */
 /* Frameless, icon-only: no box/frame/background - sits directly on the
@@ -2877,62 +2877,43 @@ CSS-БЛОК: .studio-link-icons span
   width:16px;
   height:16px;
 }
-.video-add-menu{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:8px;
-  padding:8px;
-  border-radius:20px;
-  background:#252525;
-  border:1px solid rgba(255,255,255,.08);
-  box-shadow:0 18px 42px rgba(0,0,0,.28);
-}
-.view[data-view="tools"].active .video-add-menu{
-  background:var(--st-bg-2);border:1px solid var(--st-border);
-  box-shadow:var(--st-depth-2);
-}
-.video-add-menu[hidden]{
-  display:none!important;
-}
-.video-add-menu button{
-  min-height:72px;
-  border:0;
-  border-radius:16px;
-  background:#303030;
-  color:#f4f4f4;
-  font:inherit;
+/* Video mode's "Add" control: three always-visible circular icon buttons
+   (media/character/object) replacing the old single button + dropdown. */
+.video-add-icon-row{
   display:flex;
-  flex-direction:column;
   align-items:center;
-  justify-content:center;
-  gap:7px;
-  cursor:pointer;
+  gap:10px;
+  margin-top:4px;
 }
-.view[data-view="tools"].active .video-add-menu button{
-  background:var(--st-bg-3);color:var(--st-text);
-}
-.video-add-menu button span{
-  width:36px;
-  height:36px;
+.video-add-icon-btn{
+  position:relative;
+  width:44px;
+  height:44px;
+  flex:0 0 44px;
+  padding:0;
+  border:0;
   border-radius:50%;
+  background:#2c2c2c;
+  color:#f0f0f0;
   display:grid;
   place-items:center;
-  background:#444;
-  border:3px solid #3a3a3a;
-  color:#f1f1f1;
+  cursor:pointer;
+  overflow:hidden;
 }
-.view[data-view="tools"].active .video-add-menu button span{
-  background:var(--st-bg-4);border:3px solid var(--st-bg-3);color:var(--st-text);
+.view[data-view="tools"].active .video-add-icon-btn{
+  background:var(--st-bg-3);color:var(--st-text);box-shadow:var(--st-depth-1);
 }
-.video-add-menu button b{
-  font-size:12px;
-  line-height:1.1;
-  font-weight:850;
-  white-space:nowrap;
-}
-.studio-links-btn.is-add-menu-open .studio-link-icons span{
-  background:#505050;
-  transform:rotate(180deg);
+.video-add-icon-btn svg{position:relative;z-index:1}
+.video-add-icon-btn .video-reference-control-badge{
+  left:auto!important;
+  top:auto!important;
+  right:-2px!important;
+  bottom:-2px!important;
+  min-width:14px!important;
+  width:14px!important;
+  height:14px!important;
+  padding:0!important;
+  font-size:0!important;
 }
 .studio-music-tools{display:none}
 /* =====================================================
@@ -2943,6 +2924,7 @@ CSS-БЛОК: .studio-prompt-column
   position:relative;min-width:0;display:flex;flex-direction:column;border-left:1px solid rgba(255,255,255,.10);
   padding-left:24px;
 }
+.view[data-view="tools"].active .studio-prompt-column{border-color:var(--st-border-strong)}
 .text-mic-floating{
   position:absolute;top:5px;right:2px;z-index:3;width:38px;height:38px;border-radius:50%;
   border:1px solid rgba(255,255,255,.13);background:#202020;color:#eee;display:grid;place-items:center;cursor:pointer;
@@ -3023,10 +3005,17 @@ CSS-БЛОК: .studio-select-pill
 }
 .studio-select-pill.wide{padding-left:0;min-width:192px;justify-content:center}
 .composer-model-icon{
-  width:18px;height:18px;flex:0 0 18px;display:grid;place-items:center;overflow:hidden
+  width:18px;height:18px;flex:0 0 18px;display:grid;place-items:center;overflow:hidden;margin-right:6px;
 }
 .composer-model-icon .model-brand-logo{
   width:16px !important;height:16px !important;max-width:16px !important;max-height:16px !important
+}
+.view[data-view="tools"].active .composer-model-icon .model-brand-logo{
+  filter:brightness(0) invert(var(--st-logo-invert, 1)) !important;
+}
+.view[data-view="tools"].active .composer-model-icon .model-brand-logo.svg-current{
+  color:var(--st-text, #f3f3f3) !important;
+  filter:none !important;
 }
 .ratio-box[hidden]{display:none !important}
 .pill-meter{width:3px;height:24px;border-radius:2px;background:#e8e8e8;box-shadow:5px -4px 0 -1px #e8e8e8,10px 3px 0 -1px #e8e8e8}
@@ -3282,7 +3271,7 @@ CSS-БЛОК: .studio-control-row .studio-select-pill.wide
   }
   .view[data-view="tools"].active .studio-video-composer textarea{min-height:86px;font-size:15px}
   .studio-frame-card,.vgen-btn{min-height:74px}
-  .studio-image-tool{min-height:54px;padding:8px 9px;border-radius:12px}
+  .studio-image-tool{min-height:74px;padding:10px 9px;border-radius:12px}
   .studio-image-tool span:last-child{font-size:11px}
   .studio-links-btn,.vgen-upload-row{min-height:58px}
   .studio-audio-player{gap:4px;padding:5px 7px 8px;overflow:visible;border-radius:14px;flex-wrap:nowrap;min-height:46px;left:7px;right:7px}
@@ -3941,7 +3930,7 @@ CSS-БЛОК: [data-theme="light"] .sub-active-overlay .sub-active-close
 CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-.view[data-view="tools"].active .model-pop:has(.image-model-sheet-list){
+.model-pop:has(.image-model-sheet-list){
   position:fixed !important;
   left:50% !important;
   right:auto !important;
@@ -3953,24 +3942,24 @@ CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-
   overflow-y:auto !important;
   padding:10px 10px calc(16px + env(safe-area-inset-bottom)) !important;
   border-radius:24px 24px 0 0 !important;
-  background:#141518 !important;
-  border:1px solid rgba(255,255,255,.10) !important;
+  background:var(--st-bg-2, #141518) !important;
+  border:1px solid var(--st-border, rgba(255,255,255,.10)) !important;
   border-bottom:none !important;
-  box-shadow:0 -24px 70px -18px rgba(0,0,0,.95) !important;
+  box-shadow:var(--st-depth-2, none), 0 -24px 70px -18px var(--st-shadow, rgba(0,0,0,.95)) !important;
   z-index:140 !important;
 }
 
 /* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)::before
+CSS-БЛОК: .model-pop:has(.image-model-sheet-list)::before
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-.view[data-view="tools"].active .model-pop:has(.image-model-sheet-list)::before{
+.model-pop:has(.image-model-sheet-list)::before{
   content:"";
   display:block;
   width:42px;
   height:4px;
   border-radius:999px;
-  background:rgba(255,255,255,.20);
+  background:var(--st-line-2, rgba(255,255,255,.20));
   margin:2px auto 12px;
 }
 
@@ -3980,7 +3969,7 @@ CSS-БЛОК: .image-model-sheet-title
 ===================================================== */
 .image-model-sheet-title{
   padding:0 6px 10px;
-  color:#f3f3f3;
+  color:var(--st-dim, #f3f3f3);
   font-size:15px;
   font-weight:700;
 }
@@ -6405,6 +6394,9 @@ CSS-БЛОК: .generation-loading-card
   border:1px solid rgba(255,255,255,.10);
   color:#f3f3f3;
 }
+.view[data-view="tools"].active .generation-loading-card{
+  background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-text);
+}
 
 /* =====================================================
 CSS-БЛОК: .generation-loading-border
@@ -6449,6 +6441,7 @@ CSS-БЛОК: .generation-loading-progress
   overflow:hidden;
   background:rgba(255,255,255,.10);
 }
+.view[data-view="tools"].active .generation-loading-progress{background:var(--st-bg-3)}
 
 /* =====================================================
 CSS-БЛОК: .generation-loading-progress span
@@ -6461,6 +6454,9 @@ CSS-БЛОК: .generation-loading-progress span
   border-radius:inherit;
   background:linear-gradient(90deg,#fff,rgba(255,255,255,.66));
   transition:width .55s ease;
+}
+.view[data-view="tools"].active .generation-loading-progress span{
+  background:linear-gradient(90deg,var(--st-accent),var(--st-accent-2));
 }
 
 /* =====================================================
@@ -6475,6 +6471,11 @@ CSS-БЛОК: .generation-loading-percent
   font-weight:700;
   color:rgba(255,255,255,.68);
 }
+.view[data-view="tools"].active .generation-loading-percent{color:var(--st-mute)}
+.view[data-view="tools"].active .generation-loading-border{
+  background:linear-gradient(90deg,transparent,var(--st-accent-bg),var(--st-accent),var(--st-accent-bg),transparent);
+  background-size:220% 100%;
+}
 
 .generation-balance-msg{max-width:78% !important}
 /* =====================================================
@@ -6486,8 +6487,12 @@ CSS-БЛОК: .generation-balance-card
   background:#141518;border:1px solid rgba(255,255,255,.10);color:#f3f3f3;
   box-shadow:0 16px 34px -24px rgba(0,0,0,.9)
 }
+.view[data-view="tools"].active .generation-balance-card{
+  background:var(--st-bg-2);border:1px solid var(--st-border);color:var(--st-text);
+}
 .generation-balance-title{font-size:14px;font-weight:750;margin-bottom:6px}
 .generation-balance-text{font-size:12.5px;line-height:1.45;color:rgba(255,255,255,.66);margin-bottom:12px}
+.view[data-view="tools"].active .generation-balance-text{color:var(--st-dim)}
 /* =====================================================
 CSS-БЛОК: .generation-balance-prompt
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -6496,6 +6501,7 @@ CSS-БЛОК: .generation-balance-prompt
   display:block;color:rgba(255,255,255,.86);font-size:13px;line-height:1.35;margin-bottom:8px;
   overflow:hidden;text-overflow:ellipsis
 }
+.view[data-view="tools"].active .generation-balance-prompt{color:var(--st-text)}
 .generation-balance-actions{display:flex;gap:8px;flex-wrap:wrap}
 /* =====================================================
 CSS-БЛОК: .generation-balance-actions button
@@ -6507,6 +6513,12 @@ CSS-БЛОК: .generation-balance-actions button
 }
 .generation-balance-actions button:first-child{background:#244f86;border-color:rgba(255,255,255,.10)}
 .generation-balance-actions button:active{transform:scale(.97)}
+.view[data-view="tools"].active .generation-balance-actions button{
+  background:var(--st-bg-3);border:1px solid var(--st-border);color:var(--st-text);
+}
+.view[data-view="tools"].active .generation-balance-actions button:first-child{
+  background:var(--st-accent);border-color:var(--st-accent);color:var(--st-accent-text);
+}
 
 @keyframes generationBorderSweep{
   from{background-position:220% 0}
@@ -7515,9 +7527,9 @@ CSS-БЛОК: .view[data-view="tools"].active .studio-select-pill.video-sound-on
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
 .view[data-view="tools"].active .studio-select-pill.video-sound-on{
-  border-color:rgba(96,165,250,.50) !important;
-  background:rgba(96,165,250,.14) !important;
-  color:#dbeafe !important;
+  border-color:var(--st-accent) !important;
+  background:var(--st-accent-bg) !important;
+  color:var(--st-accent) !important;
 }
 
 /* =====================================================
@@ -7620,7 +7632,7 @@ CSS-БЛОК: .image-visual-grid .studio-image-tool
 ===================================================== */
 .image-visual-grid .studio-image-tool{
     width:100%;
-    min-height:64px;
+    min-height:74px;
     justify-content:space-between;
     text-align:left;
 }
@@ -8313,8 +8325,8 @@ JavaScript добавляет класс is-compact, когда сам composer 
 }
 
 .studio-video-composer.is-compact .studio-image-tool{
-  min-height:54px;
-  padding:8px 9px;
+  min-height:74px;
+  padding:10px 9px;
   border-radius:12px;
 }
 
