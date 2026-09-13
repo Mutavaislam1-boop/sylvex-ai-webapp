@@ -8958,3 +8958,92 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .upload-photo-center-icon{background:var(--st-bg-4)!important;color:var(--st-text)!important}
 .view[data-view="tools"].active .upload-photo-center-sub{color:var(--st-mute)!important}
 .view[data-view="tools"].active .upload-panel-generated{border-bottom:1px solid var(--st-line)!important}
+
+/* =====================================================
+CSS-БЛОК: Grid Mode canvas — full theme coverage
+Nodes, ports, edges, canvas dot-grid, node-tool rail, zoom rail, context
+menu, fullscreen text editor, node settings/attachments and result strip
+were all hardcoded to one dark palette regardless of the active Pro
+Studio theme. Bring every structural surface, border and neutral text
+color onto --st-* so White/Gray/Black apply consistently through the
+whole Grid ecosystem. Status/semantic colors (running/completed/failed/
+stale state, per-type node icon colors, cost readout, locked indicator,
+delete-edge hover) are left as intentional, theme-independent semantic
+color, same policy already applied to badges and danger states elsewhere
+in Pro Studio. Layout, sizing and interaction logic are untouched.
+===================================================== */
+.view[data-view="tools"].active .studio-grid-workspace{background:var(--st-bg)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-header{border:1px solid var(--st-border)!important;background:color-mix(in srgb, var(--st-bg-2) 90%, transparent)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-header small{color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-header input{color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-header input::placeholder{color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-header nav button{border:1px solid var(--st-border)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
+
+.view[data-view="tools"].active .studio-grid-canvas{background-color:var(--st-bg)!important;background-image:radial-gradient(circle,var(--st-grid-line,rgba(255,255,255,.105)) 1px,transparent 1.2px)!important}
+.view[data-view="tools"].active .studio-grid-edges path{stroke:var(--st-line-2)!important}
+.view[data-view="tools"].active .studio-grid-edges circle{fill:var(--st-dim)!important}
+
+.view[data-view="tools"].active .studio-grid-node{border:1px solid var(--st-border)!important;background:var(--st-bg-2)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-node.selected{border-color:var(--st-accent)!important;box-shadow:0 0 0 2px var(--st-accent-bg),var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-node-header{border-bottom:1px solid var(--st-line)!important}
+.view[data-view="tools"].active .studio-grid-node-header button{color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-node-header button:hover{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-node-icon{background:var(--st-accent-bg)!important;color:var(--st-accent)!important}
+.view[data-view="tools"].active .studio-grid-node textarea{border:1px solid var(--st-border)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-node textarea:focus{border-color:var(--st-accent)!important}
+.view[data-view="tools"].active .studio-grid-node textarea::placeholder{color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-node-header [data-grid-expand-text]{color:var(--st-dim)!important}
+.view[data-view="tools"].active .studio-grid-node-header [data-grid-expand-text]:hover{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-node-result{background:var(--st-bg-3)!important;color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-node-result i{background:var(--st-bg-4)!important}
+.view[data-view="tools"].active .studio-grid-node-footer button{background:var(--st-bg-4)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-node-footer button:hover{background:var(--st-accent)!important;color:var(--st-accent-text)!important}
+.view[data-view="tools"].active .studio-grid-node-status{color:var(--st-mute)!important}
+
+.view[data-view="tools"].active .studio-grid-port{border-color:var(--st-bg-2)!important;background:var(--st-dim)!important}
+.view[data-view="tools"].active .studio-grid-port.connection-source,
+.view[data-view="tools"].active .studio-grid-port.connection-compatible{border-color:var(--st-bg-2)!important;background:var(--st-accent)!important;box-shadow:0 0 0 5px var(--st-accent-bg),0 0 18px var(--st-accent-bg)!important}
+.view[data-view="tools"].active .studio-grid-node.connecting .studio-grid-port.out{background:var(--st-accent)!important;box-shadow:0 0 0 5px var(--st-accent-bg)!important}
+
+.view[data-view="tools"].active .studio-grid-tools{border:1px solid var(--st-border)!important;background:color-mix(in srgb, var(--st-bg-2) 92%, transparent)!important}
+.view[data-view="tools"].active .studio-grid-tools button{color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-tools span{color:var(--st-mute)!important}
+
+.view[data-view="tools"].active .studio-grid-node-tools{border:1px solid var(--st-border)!important;background:color-mix(in srgb, var(--st-bg-2) 94%, transparent)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-node-tools hr{background:var(--st-line-2)!important}
+.view[data-view="tools"].active .studio-grid-node-tools button{color:var(--st-dim)!important}
+.view[data-view="tools"].active .studio-grid-node-tools button:hover{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-node-tools .studio-grid-tool-primary{background:var(--st-accent-bg)!important;color:var(--st-accent)!important}
+
+.view[data-view="tools"].active .studio-grid-context{border:1px solid var(--st-border)!important;background:color-mix(in srgb, var(--st-bg-2) 97%, transparent)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-context button{color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-context button:hover{background:var(--st-accent-bg)!important}
+
+.view[data-view="tools"].active .studio-grid-text-editor{background:color-mix(in srgb, var(--st-shadow) 72%, transparent)!important}
+.view[data-view="tools"].active .studio-grid-text-editor section{border:1px solid var(--st-border)!important;background:var(--st-bg-2)!important;color:var(--st-text)!important;box-shadow:var(--st-depth-2)!important}
+.view[data-view="tools"].active .studio-grid-text-editor header{border-bottom:1px solid var(--st-line)!important}
+.view[data-view="tools"].active .studio-grid-text-editor header small{color:var(--st-mute)!important}
+.view[data-view="tools"].active .studio-grid-text-editor header button{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-text-editor textarea{background:var(--st-bg)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-text-editor footer{border-top:1px solid var(--st-line)!important}
+.view[data-view="tools"].active .studio-grid-text-editor footer button{border:1px solid var(--st-border)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-text-editor footer button.primary{border-color:var(--st-invert-bg)!important;background:var(--st-invert-bg)!important;color:var(--st-invert-text)!important}
+
+.view[data-view="tools"].active .studio-grid-node-settings select,
+.view[data-view="tools"].active .studio-grid-node-settings input,
+.view[data-view="tools"].active .studio-grid-toggle{border:1px solid var(--st-border)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-node-settings select:focus{border-color:var(--st-border-strong)!important}
+.view[data-view="tools"].active .studio-grid-toggle input{accent-color:var(--st-mute)!important}
+
+.view[data-view="tools"].active .studio-grid-attachments>button{border-color:var(--st-border-strong)!important;background:var(--st-bg-3)!important;color:var(--st-dim)!important}
+.view[data-view="tools"].active .studio-grid-attachment{border:1px solid var(--st-border)!important;background:var(--st-bg-3)!important}
+.view[data-view="tools"].active .studio-grid-attachment img,
+.view[data-view="tools"].active .studio-grid-attachment>i{background:var(--st-bg-4)!important}
+.view[data-view="tools"].active .studio-grid-attachment button{background:var(--st-bg-4)!important;color:var(--st-text)!important}
+
+.view[data-view="tools"].active .studio-grid-text-output{background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .studio-grid-result-list button{background:var(--st-bg-3)!important}
+.view[data-view="tools"].active .studio-grid-result-list button.active{border-color:var(--st-accent)!important;box-shadow:0 0 0 2px var(--st-accent-bg)!important}
+.view[data-view="tools"].active .studio-grid-media-preview{background:var(--st-bg)!important}
+
+.view[data-view="tools"].active .studio-grid-drawer-list .hd-empty{color:var(--st-mute)!important}
