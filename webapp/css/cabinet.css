@@ -8952,3 +8952,9 @@ consistently across the full Voice ecosystem and shared pickers.
 .view[data-view="tools"].active .studio-grid-project.active{border-color:var(--st-accent)!important;background:var(--st-accent-bg)!important}
 .view[data-view="tools"].active .studio-grid-project small{color:var(--st-mute)!important}
 .view[data-view="tools"].active .studio-grid-project i{color:var(--st-accent)!important}
+
+/* Upload history panel: centered "choose photo" button + preview overlay. */
+.view[data-view="tools"].active .upload-photo-center-btn{border-color:var(--st-border-strong)!important;background:var(--st-bg-3)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .upload-photo-center-icon{background:var(--st-bg-4)!important;color:var(--st-text)!important}
+.view[data-view="tools"].active .upload-photo-center-sub{color:var(--st-mute)!important}
+.view[data-view="tools"].active .upload-panel-generated{border-bottom:1px solid var(--st-line)!important}
