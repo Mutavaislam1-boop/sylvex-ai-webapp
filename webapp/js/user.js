@@ -389,7 +389,26 @@
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncWebSession
+  // Website embed only (?embed=web, see sylvex-website/pro-studio.html): reads
+  // the browser's /api/web/session/me cookie session instead of Telegram
+  // initData, and renders it through the same renderUserState() the Telegram
+  // path uses, so it is the same account, balance and history either way.
+  // =====================================================
+  async function syncWebSession() {
+    try {
+      const res = await userFetchWithTimeout('/api/web/session/me', { credentials: 'include' }, 8000);
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (!json || !json.authenticated) return null;
+      renderUserState(json);
+      return S.user;
+    } catch { return null; }
+  }
+
   S.syncUser = syncUser;
+  S.syncWebSession = syncWebSession;
   S.renderUser = renderUser;
   S.renderUserState = renderUserState;
   S.cacheProfileIdentity = cacheProfileIdentity;

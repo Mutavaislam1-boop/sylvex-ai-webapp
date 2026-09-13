@@ -49,10 +49,15 @@ from db_pool import close_db_pool, db_connect, db_pool_status, start_db_pool
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from services.security import SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data
+from services.security import (
+    SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data,
+    WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
+    verify_web_session_token, verify_telegram_login_widget,
+)
 from services.request_limits import check_request_quota, ensure_limit_table
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
@@ -60,6 +65,22 @@ from services.price_engine import apply_snapshot_to_estimate
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
+# Lets the SYLVEX website (a different origin) call the public API and the
+# new /api/web/* session endpoints. Closed by default - only the origins
+# listed in WEBSITE_ORIGINS are allowed - and additive: it changes nothing
+# for the Telegram Mini App or bot, which never go through a browser CORS
+# check in the first place. Registered after SecurityMiddleware so it wraps
+# outside it and can answer CORS preflight (OPTIONS) requests before they
+# would otherwise hit SecurityMiddleware's Telegram-auth check.
+_website_origins = [o.strip() for o in os.getenv('WEBSITE_ORIGINS', '').split(',') if o.strip()]
+if _website_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_website_origins,
+        allow_credentials=True,
+        allow_methods=['GET', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
+        allow_headers=['*'],
+    )
 
 
 STATIC_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif", ".ico")
@@ -10181,6 +10202,82 @@ async def public_telegram_sync(request: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
     return {"ok": True, "user": user}
+
+
+# =====================================================
+# WEB SESSION: sylvex-website sign-in
+#
+# The website is a second client of this same backend (see
+# sylvex-website/backend/WEB_API_CONTRACT.md). These three routes are the
+# only ones that authenticate with a browser session cookie instead of
+# Telegram initData - they resolve to the exact same `users` row as the
+# Mini App (keyed by telegram_id), via the same get_user_state() used
+# elsewhere, so there is never a second account or a second balance.
+# =====================================================
+def _web_session_payload(telegram_id: int) -> dict:
+    state = get_user_state(int(telegram_id)) or {}
+    if not state:
+        return {"authenticated": False}
+    created_at = state.get("created_at")
+    member_since = created_at.strftime("%Y-%m") if hasattr(created_at, "strftime") else None
+    return {
+        "authenticated": True,
+        "telegram_id": int(telegram_id),
+        "display_name": state.get("display_name") or state.get("first_name"),
+        "first_name": state.get("first_name"),
+        "username": state.get("username"),
+        "avatar_url": state.get("custom_avatar_url"),
+        "balance": state.get("balance", 0),
+        "subscription_plan": state.get("subscription_plan"),
+        "generations_count": state.get("generations_count", 0),
+        "member_since": member_since,
+        "telegram_connected": True,
+        "telegram_username": state.get("username"),
+    }
+
+
+@app.post("/api/web/auth/telegram")
+async def web_auth_telegram(request: Request):
+    payload = await request.json()
+    try:
+        signed = await asyncio.to_thread(verify_telegram_login_widget, payload, TELEGRAM_AUTH_TOKENS)
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    try:
+        await asyncio.to_thread(
+            sync_user_to_db,
+            {"telegram_id": signed["id"], "username": signed.get("username"), "first_name": signed.get("first_name")},
+        )
+    except Exception:
+        return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
+    token = create_web_session_token(signed["id"])
+    body = await asyncio.to_thread(_web_session_payload, signed["id"])
+    response = JSONResponse({"ok": True, **body})
+    response.set_cookie(
+        WEB_SESSION_COOKIE, token, max_age=WEB_SESSION_MAX_AGE,
+        httponly=True, secure=True, samesite="none", path="/",
+    )
+    return response
+
+
+@app.get("/api/web/session/me")
+async def web_session_me(request: Request):
+    token = request.cookies.get(WEB_SESSION_COOKIE)
+    if not token:
+        return {"authenticated": False}
+    try:
+        telegram_id = verify_web_session_token(token)
+    except SecurityError:
+        return {"authenticated": False}
+    body = await asyncio.to_thread(_web_session_payload, telegram_id)
+    return body
+
+
+@app.post("/api/web/auth/logout")
+async def web_auth_logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(WEB_SESSION_COOKIE, path="/")
+    return response
 
 
 # =====================================================

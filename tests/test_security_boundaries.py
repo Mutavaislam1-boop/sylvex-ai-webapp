@@ -37,7 +37,7 @@ def client(app):
 
 @pytest.mark.asyncio
 async def test_unsigned_private_route_inventory(client,app):
- from services.security import PUBLIC_GETS,PUBLIC_PATTERNS,WEBHOOKS
+ from services.security import PUBLIC_GETS,PUBLIC_PATTERNS,PUBLIC_POSTS,WEBHOOKS
  checked=0
  for route in app.routes:
   path=getattr(route,'path','')
@@ -47,6 +47,7 @@ async def test_unsigned_private_route_inventory(client,app):
   concrete=re.sub(r'\{[^}]+\}','123',path)
   for method in getattr(route,'methods',set()):
    if method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(concrete) for p in PUBLIC_PATTERNS)):continue
+   if method=='POST' and path in PUBLIC_POSTS:continue
    r=await client.request(method,concrete,json={})
    assert r.status_code in {401,403,404},(method,path,r.status_code,r.text)
    checked+=1
