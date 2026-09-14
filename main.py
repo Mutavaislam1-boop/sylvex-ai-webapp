@@ -10392,12 +10392,17 @@ async def web_auth_login(request: Request):
 
 @app.get("/api/web/auth/verify-email")
 async def web_auth_verify_email(token: str = ""):
-    base = os.getenv("WEBSITE_URL", "").strip().rstrip("/")
+    # JSON, not a redirect: the link in the verification email points at
+    # the website's own verify-email.html (same-origin there), which calls
+    # this endpoint cross-origin via SYLVEX_API and renders the result -
+    # this endpoint itself is never navigated to directly by the browser.
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "accounts_not_configured"}, status_code=503)
     try:
         await asyncio.to_thread(account_identity_service.verify_email_token, DATABASE_URL, token)
-    except AccountError:
-        return RedirectResponse(base + "/account/profile.html?verify_error=1")
-    return RedirectResponse(base + "/account/profile.html?verified=1")
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True}
 
 
 @app.post("/api/web/auth/resend-verification")
