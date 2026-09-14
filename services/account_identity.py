@@ -389,7 +389,7 @@ def get_account_summary(database_url, account_id):
         acc = cur.fetchone()
         if not acc:
             return None
-        cur.execute("SELECT email, email_verified FROM account_emails WHERE account_id = %s", (account_id,))
+        cur.execute("SELECT email, email_verified, password_hash FROM account_emails WHERE account_id = %s", (account_id,))
         email_row = cur.fetchone()
         cur.execute("SELECT provider, email FROM account_oauth WHERE account_id = %s", (account_id,))
         oauth_rows = cur.fetchall()
@@ -404,6 +404,12 @@ def get_account_summary(database_url, account_id):
         "email": email_row[0] if email_row else None,
         "email_verified": bool(email_row[1]) if email_row else False,
         "has_email": email_row is not None,
+        # Distinct from has_email: an OAuth-created account gets an
+        # account_emails row too (email_row is not None) but with no
+        # password set (password_hash IS NULL) - callers that need to know
+        # whether a password prompt makes sense (change password, delete
+        # account) must check this, not has_email.
+        "has_password": bool(email_row and email_row[2]),
         "oauth": {provider: email for provider, email in oauth_rows},
     }
 
@@ -528,6 +534,40 @@ def change_password(database_url, account_id, current_password, new_password):
         if row[0] and not verify_password(current_password or "", row[0]):
             raise AccountError("incorrect_current_password", 401)
         cur.execute("UPDATE account_emails SET password_hash = %s WHERE account_id = %s", (hash_password(new_password), account_id))
+        conn.commit()
+    except AccountError:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_account(database_url, account_id, password=None):
+    """Deletes the website identity (email/Google/Apple/Telegram-login) for
+    account_id, freeing its email and any linked Google/Apple identities to
+    register again. Requires the account's own password when one is set
+    (mirrors change_password); an OAuth-only account with no password has
+    nothing to check beyond the caller already holding a valid session.
+
+    Deliberately does NOT touch the underlying business data (balance,
+    generations, purchases, subscriptions) or the `users` row it lives
+    under - those stay reachable exactly as before via the real Telegram
+    account if this identity was ever merged with one (see module
+    docstring: the Mini App reaches them via its own untouched Telegram
+    initData auth, never through sylvex_accounts). This only removes the
+    website's own ability to sign into this identity."""
+    conn = db_connect(database_url)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT password_hash FROM account_emails WHERE account_id = %s", (account_id,))
+        row = cur.fetchone()
+        if row and row[0] and not verify_password(password or "", row[0]):
+            raise AccountError("incorrect_current_password", 401)
+        cur.execute("DELETE FROM account_link_codes WHERE account_id = %s", (account_id,))
+        cur.execute("DELETE FROM account_oauth WHERE account_id = %s", (account_id,))
+        cur.execute("DELETE FROM account_emails WHERE account_id = %s", (account_id,))
+        cur.execute("DELETE FROM sylvex_accounts WHERE account_id = %s", (account_id,))
         conn.commit()
     except AccountError:
         conn.rollback()

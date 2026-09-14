@@ -42,7 +42,7 @@ PUBLIC_POSTS = frozenset({
  '/api/web/auth/register', '/api/web/auth/login',
  '/api/web/auth/forgot-password', '/api/web/auth/reset-password',
  '/api/web/auth/resend-verification',
- '/api/web/account/password/change', '/api/web/account/email/set',
+ '/api/web/account/password/change', '/api/web/account/email/set', '/api/web/account/delete',
  '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
