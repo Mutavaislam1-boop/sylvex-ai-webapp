@@ -17387,6 +17387,8 @@ async function waitGeneration(jobId, options) {
     const bEl = document.getElementById('payBalance');    if (bEl) bEl.textContent = bal.toLocaleString();
     const bU  = document.getElementById('payBalanceUsd'); if (bU)  bU.textContent  = '≈ $' + (bal/100).toFixed(2);
     resetPayPalSubscriptionPanel();
+    const lsqBtn = document.getElementById('pmLemonsqueezy');
+    if (lsqBtn) lsqBtn.hidden = !(packId === 'sub_month' || packId === 'sub_year');
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
@@ -18194,7 +18196,7 @@ async function waitGeneration(jobId, options) {
       tgApp.openTelegramLink(url);
       return;
     }
-    if (method === 'paypal') {
+    if (method === 'paypal' || method === 'lemonsqueezy') {
       window.location.href = url;
       return;
     }
@@ -18231,6 +18233,7 @@ async function waitGeneration(jobId, options) {
       if (method === 'stars')  path = '/api/public/payments/stars/invoice';
       if (method === 'paypal') path = '/api/public/payments/paypal/create-order';
       if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
+      if (method === 'lemonsqueezy') path = '/api/public/payments/lemonsqueezy/checkout';
       if (!path) { toast('Способ оплаты недоступен'); return; }
       const r = await fetch(path, {
         method: 'POST',
@@ -18246,6 +18249,7 @@ async function waitGeneration(jobId, options) {
       if (!r.ok || j.error) {
         if (j.error === 'paypal_not_configured') { toast('PayPal ещё не настроен'); return; }
         if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
+        if (j.error === 'lemonsqueezy_not_configured') { toast('Оплата картой ещё не настроена'); return; }
         toast('Ошибка: ' + (j.error || r.status));
         return;
       }

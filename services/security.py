@@ -47,7 +47,7 @@ PUBLIC_POSTS = frozenset({
  '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
-WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook'})
+WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
 PUBLIC_PATTERNS = [re.compile(x) for x in (
  r'/api/public/prostudio/voice-avatar/[A-Za-z0-9_-]+',
  r'/api/public/video/templates/[^/]+',
