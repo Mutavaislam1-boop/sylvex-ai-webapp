@@ -10224,11 +10224,21 @@ async def public_telegram_sync(request: Request):
 # account, one balance, one history. The session cookie always carries the
 # account_id; unlike the old model, that id never changes, merge or not.
 # =====================================================
+# Optional: scope the session cookie to the whole registrable domain (e.g.
+# ".sylvex.ai") instead of the default host-only cookie (api.sylvex.ai
+# only). Not required for the website (api.sylvex.ai) and the API to share
+# the cookie - same-site is enough for that - but makes it explicit and
+# would let a future same-domain subdomain reuse the same session. Unset by
+# default (host-only), matching every other optional env var here.
+WEB_SESSION_COOKIE_DOMAIN = os.getenv("WEB_SESSION_COOKIE_DOMAIN", "").strip() or None
+
+
 def _set_web_session_cookie(response, account_id: int):
     token = create_web_session_token(account_id)
     response.set_cookie(
         WEB_SESSION_COOKIE, token, max_age=WEB_SESSION_MAX_AGE,
         httponly=True, secure=True, samesite="none", path="/",
+        domain=WEB_SESSION_COOKIE_DOMAIN,
     )
 
 
@@ -10268,6 +10278,7 @@ def _web_session_payload(account_id: int) -> dict:
         "email": summary.get("email"),
         "email_verified": bool(summary.get("email_verified")),
         "has_email": bool(summary.get("has_email")),
+        "has_password": bool(summary.get("has_password")),
         "telegram_connected": bool(summary.get("telegram_connected")),
         "telegram_username": state.get("username") if summary.get("telegram_connected") else None,
         "oauth": summary.get("oauth") or {},
@@ -10351,7 +10362,16 @@ async def web_session_me(request: Request):
 @app.post("/api/web/auth/logout")
 async def web_auth_logout():
     response = JSONResponse({"ok": True})
-    response.delete_cookie(WEB_SESSION_COOKIE, path="/")
+    # Must match every attribute the cookie was originally set with
+    # (_set_web_session_cookie: secure=True, samesite="none"). Starlette's
+    # delete_cookie() defaults to secure=False/samesite="lax", and browsers
+    # refuse to let a non-Secure Set-Cookie clear a Secure one - so without
+    # this, logout silently did nothing and the session cookie never
+    # actually went away.
+    response.delete_cookie(
+        WEB_SESSION_COOKIE, path="/", secure=True, samesite="none", httponly=True,
+        domain=WEB_SESSION_COOKIE_DOMAIN,
+    )
     return response
 
 
@@ -10451,6 +10471,31 @@ async def web_account_password_change(request: Request):
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     return {"ok": True}
+
+
+@app.post("/api/web/account/delete")
+async def web_account_delete(request: Request):
+    # Deletes this website identity (email/Google/Apple/Telegram-login),
+    # freeing the email and any linked Google/Apple accounts to register
+    # again - see account_identity.delete_account for exactly what is and
+    # isn't removed. Requires the account's own password when one is set.
+    account_id = _web_session_account_id(request)
+    if account_id is None:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    payload = await request.json()
+    try:
+        await asyncio.to_thread(
+            account_identity_service.delete_account,
+            DATABASE_URL, account_id, payload.get("password"),
+        )
+    except AccountError as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(
+        WEB_SESSION_COOKIE, path="/", secure=True, samesite="none", httponly=True,
+        domain=WEB_SESSION_COOKIE_DOMAIN,
+    )
+    return response
 
 
 @app.post("/api/web/account/email/set")
