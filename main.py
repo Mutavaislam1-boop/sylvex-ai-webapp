@@ -942,6 +942,12 @@ PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
 PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
 PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "P-2JN99488MP781262CNJDGCZI")
 PAYPAL_PRO_YEARLY_PLAN_ID = os.getenv("PAYPAL_PRO_YEARLY_PLAN_ID", "P-0YT1496917791881BNJDGRMY")
+LEMONSQUEEZY_API_KEY = os.getenv("LEMONSQUEEZY_API_KEY")
+LEMONSQUEEZY_STORE_ID = os.getenv("LEMONSQUEEZY_STORE_ID")
+LEMONSQUEEZY_WEBHOOK_SECRET = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET")
+LEMONSQUEEZY_API_BASE = (os.getenv("LEMONSQUEEZY_API_BASE") or "https://api.lemonsqueezy.com").rstrip("/")
+LEMONSQUEEZY_VARIANT_MONTH = os.getenv("LEMONSQUEEZY_VARIANT_MONTH")
+LEMONSQUEEZY_VARIANT_YEAR = os.getenv("LEMONSQUEEZY_VARIANT_YEAR")
 CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY") or os.getenv("CRIPTO_API_KEY")
 CRYPTO_PAY_API_URL = "https://pay.crypt.bot/api"
 HEYGEN_BASE_URL = "https://api.heygen.com/v3"
@@ -2999,6 +3005,97 @@ def activate_paypal_subscription_from_event(event: dict) -> bool:
     finally:
         cursor.close()
         conn.close()
+
+
+# =====================================================
+# LEMONSQUEEZY: subscription checkout + webhook
+#
+# Simpler than the PayPal integration above: LemonSqueezy checkouts accept
+# arbitrary custom metadata (checkout_data.custom) that is echoed back on
+# every webhook event about that checkout/subscription
+# (meta.custom_data), so telegram_id/pack_id travel with the purchase
+# itself - no separate orders-tracking table or owner-binding HMAC needed.
+# Only subscription packs (sub_month/sub_year) are wired up; grant logic is
+# entirely reused from finalize_shop_payment()/apply_payment() (idempotent
+# on charge_id) - the same function PayPal and Stars already use.
+# =====================================================
+def lemonsqueezy_configured() -> bool:
+    return bool(LEMONSQUEEZY_API_KEY and LEMONSQUEEZY_STORE_ID)
+
+
+def lemonsqueezy_variant_for_pack(pack_id: str) -> str:
+    return {
+        "sub_month": LEMONSQUEEZY_VARIANT_MONTH or "",
+        "sub_year": LEMONSQUEEZY_VARIANT_YEAR or "",
+    }.get(pack_id, "")
+
+
+def lemonsqueezy_pack_for_variant(variant_id) -> str:
+    variant = str(variant_id or "")
+    if variant and LEMONSQUEEZY_VARIANT_MONTH and variant == str(LEMONSQUEEZY_VARIANT_MONTH):
+        return "sub_month"
+    if variant and LEMONSQUEEZY_VARIANT_YEAR and variant == str(LEMONSQUEEZY_VARIANT_YEAR):
+        return "sub_year"
+    return ""
+
+
+def lemonsqueezy_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {LEMONSQUEEZY_API_KEY}",
+        "Accept": "application/vnd.api+json",
+        "Content-Type": "application/vnd.api+json",
+    }
+
+
+def create_lemonsqueezy_checkout(telegram_id: int, pack_id: str, item: dict) -> dict:
+    variant_id = lemonsqueezy_variant_for_pack(pack_id)
+    if not variant_id:
+        raise RuntimeError("LemonSqueezy variant not configured for pack")
+    body = {
+        "data": {
+            "type": "checkouts",
+            "attributes": {
+                "checkout_data": {
+                    "custom": {
+                        "telegram_id": str(telegram_id),
+                        "pack_id": pack_id,
+                    },
+                },
+                "product_options": {
+                    "redirect_url": SHOP_WEBAPP_URL,
+                },
+            },
+            "relationships": {
+                "store": {"data": {"type": "stores", "id": str(LEMONSQUEEZY_STORE_ID)}},
+                "variant": {"data": {"type": "variants", "id": str(variant_id)}},
+            },
+        }
+    }
+    response = requests.post(
+        f"{LEMONSQUEEZY_API_BASE}/v1/checkouts",
+        headers=lemonsqueezy_headers(),
+        json=body,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("LEMONSQUEEZY CHECKOUT ERROR:", response.status_code, response.text[:1000])
+        raise RuntimeError("LemonSqueezy checkout request failed")
+    return response.json()
+
+
+def lemonsqueezy_checkout_url(checkout: dict) -> str:
+    return (((checkout.get("data") or {}).get("attributes") or {}).get("url")) or ""
+
+
+def verify_lemonsqueezy_webhook(raw_body: bytes, signature_header: str) -> bool:
+    if not LEMONSQUEEZY_WEBHOOK_SECRET or not signature_header:
+        return False
+    digest = hmac.new(LEMONSQUEEZY_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    try:
+        return hmac.compare_digest(digest, signature_header.strip())
+    except (TypeError, ValueError):
+        return False
+
 
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: save_kling_settings_to_db
@@ -9797,6 +9894,114 @@ async def public_paypal_webhook(request: Request):
     if not created:
         created = activate_paypal_subscription_from_event(event)
     return {"ok": True, "created": created}
+
+
+# =====================================================
+# API ENDPOINT: public_lemonsqueezy_checkout
+# Creates a LemonSqueezy checkout for a SYLVEX Pro subscription pack
+# (sub_month/sub_year only). Not exposed for credit packs - no variant is
+# configured for those, and the request will 400 with unknown_pack.
+# =====================================================
+@app.post("/api/public/payments/lemonsqueezy/checkout")
+async def public_lemonsqueezy_checkout(request: Request):
+    data = await request.json()
+    pack_id = data.get("pack_id") or data.get("plan") or ""
+    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
+    item = shop_item(pack_id)
+
+    if not item or item.get("kind") != "subscription":
+        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
+    if not lemonsqueezy_configured():
+        return JSONResponse({"ok": False, "error": "lemonsqueezy_not_configured"}, status_code=502)
+
+    try:
+        checkout = await asyncio.to_thread(create_lemonsqueezy_checkout, telegram_id, pack_id, item)
+    except Exception as exc:
+        print("LEMONSQUEEZY CHECKOUT ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "lemonsqueezy_not_configured"}, status_code=502)
+
+    checkout_url = lemonsqueezy_checkout_url(checkout)
+    if not checkout_url:
+        return JSONResponse({"ok": False, "error": "lemonsqueezy_checkout_url_missing"}, status_code=502)
+
+    log_user_event(
+        telegram_id=telegram_id,
+        source="mini_app",
+        event_type="payment_invoice_created",
+        event_name="lemonsqueezy_checkout_created",
+        payload={"pack_id": pack_id, "url": checkout_url},
+    )
+    return {"ok": True, "url": checkout_url, "pack_id": pack_id}
+
+
+# =====================================================
+# API ENDPOINT: public_lemonsqueezy_webhook
+# Handles order_created (first payment) and subscription_payment_success
+# (renewals) - both carry meta.custom_data with the telegram_id/pack_id
+# attached at checkout time, so no local order-tracking table is needed.
+# Every other event type is acknowledged and ignored, matching the PayPal
+# webhook's own pattern above.
+# =====================================================
+@app.post("/api/public/payments/lemonsqueezy/webhook")
+async def public_lemonsqueezy_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("x-signature", "")
+    if not verify_lemonsqueezy_webhook(raw_body, signature):
+        return JSONResponse({"ok": False, "error": "invalid_signature"}, status_code=401)
+
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    event_name = str(((event.get("meta") or {}).get("event_name")) or "")
+    if event_name not in {"order_created", "subscription_payment_success"}:
+        return {"ok": True, "ignored": event_name}
+
+    custom = ((event.get("meta") or {}).get("custom_data")) or {}
+    try:
+        telegram_id = int(custom.get("telegram_id") or 0)
+    except (TypeError, ValueError):
+        telegram_id = 0
+    pack_id = str(custom.get("pack_id") or "")
+
+    resource = event.get("data") or {}
+    attrs = resource.get("attributes") or {}
+    if not pack_id:
+        variant_id = attrs.get("variant_id") or (attrs.get("first_order_item") or {}).get("variant_id")
+        pack_id = lemonsqueezy_pack_for_variant(variant_id)
+
+    item = shop_item(pack_id)
+    if not telegram_id or not item or item.get("kind") != "subscription":
+        return {"ok": True, "ignored": "missing_identity"}
+
+    status = str(attrs.get("status") or "").lower()
+    if event_name == "order_created" and status and status not in {"paid"}:
+        return {"ok": True, "ignored": "unpaid_order"}
+
+    try:
+        amount_cents = int(attrs.get("total") if attrs.get("total") is not None else attrs.get("total_usd") or 0)
+    except (TypeError, ValueError):
+        amount_cents = 0
+    if not amount_cents:
+        amount_cents = int(round(float(item["usd"]) * 100))
+    currency = str(attrs.get("currency") or "USD").upper()
+    charge_id = f"lemonsqueezy_{event_name}_{resource.get('id')}"
+
+    created = await asyncio.to_thread(
+        finalize_shop_payment,
+        telegram_id=telegram_id,
+        provider="lemonsqueezy",
+        item=item,
+        amount=amount_cents,
+        currency=currency,
+        payload=shop_payload("lemonsqueezy", telegram_id, pack_id, item),
+        charge_id=charge_id,
+    )
+    return {"ok": True, "created": created}
+
 
 # =====================================================
 # API ENDPOINT: public_stars_invoice
