@@ -1,66 +1,76 @@
-"""Transactional email for SYLVEX website accounts (verification, password reset).
+"""Transactional email for SYLVEX website accounts (verification, password
+reset, Telegram <-> website merge codes) via the Resend HTTPS Email API.
 
-No email-sending infrastructure exists elsewhere in this codebase (Telegram
-delivery is unrelated and untouched). This is a small, stdlib-only SMTP
-sender gated entirely by env vars: with none set it safely no-ops (logs to
-stdout) instead of raising, so registration/login never fail because mail
-delivery isn't configured yet - the token still works via the verify/reset
-link itself once printed or wired to a real SMTP provider.
+Railway's outbound SMTP is blocked/unreliable depending on plan (this is
+what SMTP's own connection attempts were timing out on before), so this
+sends over plain HTTPS instead: POST https://api.resend.com/emails,
+Authorization: Bearer RESEND_API_KEY. No new dependency - `requests` is
+already used elsewhere in this codebase (main.py).
+
+Gated entirely by env vars: with RESEND_API_KEY unset it safely no-ops
+(logs to stdout) instead of raising, so registration/login/merge never
+fail just because mail delivery isn't configured yet - the token still
+works via the verify/reset link itself once printed or delivered. A send
+failure (HTTP error or network exception) is caught and logged the same
+way - never the API key, never the token/code - and never raised, for the
+same reason.
 """
 from __future__ import annotations
 import os
-import smtplib
-import ssl
-from email.message import EmailMessage
+import requests
+
+RESEND_API_URL = "https://api.resend.com/emails"
+_TIMEOUT_SECONDS = 10
 
 
 def _website_base_url() -> str:
     return os.getenv("WEBSITE_URL", "").rstrip("/") or "https://sylvex.ai"
 
 
-def _smtp_config():
-    host = os.getenv("SMTP_HOST", "").strip()
-    if not host:
+def _resend_config():
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if not api_key:
         return None
     return {
-        "host": host,
-        "port": int(os.getenv("SMTP_PORT", "587")),
-        "user": os.getenv("SMTP_USER", "").strip(),
-        "password": os.getenv("SMTP_PASSWORD", "").strip(),
-        "from_addr": os.getenv("SMTP_FROM", "").strip() or os.getenv("SMTP_USER", "no-reply@sylvex.ai").strip(),
-        "use_tls": os.getenv("SMTP_USE_TLS", "1") != "0",
+        "api_key": api_key,
+        "from_addr": os.getenv("EMAIL_FROM", "").strip() or "SYLVEX <noreply@sylvex.ai>",
     }
 
 
 def _send(to_addr: str, subject: str, body: str) -> bool:
-    config = _smtp_config()
+    config = _resend_config()
     if not config:
-        # Unconfigured: never block registration/reset on missing mail setup.
-        print(f"ACCOUNT EMAIL (SMTP not configured, not sent): to={to_addr!r} subject={subject!r}")
+        # Unconfigured: never block registration/reset/merge on missing mail setup.
+        print(f"ACCOUNT EMAIL (Resend not configured, not sent): to={to_addr!r} subject={subject!r}")
         return False
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = config["from_addr"]
-    message["To"] = to_addr
-    message.set_content(body)
     try:
-        if config["use_tls"]:
-            with smtplib.SMTP(config["host"], config["port"], timeout=10) as server:
-                server.starttls(context=ssl.create_default_context())
-                if config["user"]:
-                    server.login(config["user"], config["password"])
-                server.send_message(message)
-        else:
-            with smtplib.SMTP_SSL(config["host"], config["port"], timeout=10) as server:
-                if config["user"]:
-                    server.login(config["user"], config["password"])
-                server.send_message(message)
-        return True
-    except Exception as exc:
-        # Never leak SMTP/network detail to the API caller; never include the
-        # token or password anywhere in this log line.
+        response = requests.post(
+            RESEND_API_URL,
+            headers={
+                "Authorization": f"Bearer {config['api_key']}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": config["from_addr"],
+                "to": [to_addr],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        # Never leak the API key, or network/proxy detail beyond the
+        # exception type, in this log line.
         print(f"ACCOUNT EMAIL SEND FAILED: to={to_addr!r} subject={subject!r} error={type(exc).__name__}")
         return False
+    if not response.ok:
+        # Resend's error body is JSON like {"message": "...", "name": "..."} -
+        # safe to log (never contains the Authorization header/API key), and
+        # far more actionable than the exception path above.
+        detail = response.text[:300] if response.text else ""
+        print(f"ACCOUNT EMAIL SEND FAILED: to={to_addr!r} subject={subject!r} status={response.status_code} detail={detail!r}")
+        return False
+    return True
 
 
 def send_verification_email(to_addr: str, token: str) -> bool:
