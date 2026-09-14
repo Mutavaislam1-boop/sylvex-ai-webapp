@@ -9,6 +9,7 @@ import os
 import re
 import time
 from collections import OrderedDict
+from http.cookies import SimpleCookie
 from urllib.parse import parse_qsl, urlencode
 from starlette.responses import JSONResponse
 
@@ -124,6 +125,64 @@ def verify_web_session_token(token):
  except (ValueError,AttributeError,TypeError): raise SecurityError('invalid_web_session')
  return telegram_id
 
+# ---------------------------------------------------------------------------
+# Bridge: website session -> the same telegram_id-keyed business data.
+#
+# Every protected /api/ route below still requires Telegram initData except
+# the narrow /api/web/* auth surface (PUBLIC_POSTS/PUBLIC_GETS above) - so a
+# website-embedded Pro Studio session (sylvex-website/pro-studio.html's
+# iframe, ?embed=web; see webapp/js/cabinet.js's usesWebSessionAuth()) has
+# no Telegram initData to present for the actual generation/jobs/
+# characters/objects/history surface, only the sylvex_web_session cookie.
+# verify_web_session_token() above already turns that cookie into a
+# sylvex_accounts.account_id; this resolves it one step further to that
+# account's active_telegram_id, the exact storage key every existing
+# telegram_id-keyed table and handler already reads (see
+# services/account_identity.py's _new_web_account). Once that id is `uid`
+# below, in place of a Telegram-validated one, nothing downstream - not the
+# generation endpoints, not the query/body telegram_id rewrite a few lines
+# down - needs to know the difference. Small TTL cache since this runs on
+# every protected website-embedded request and the mapping only changes on
+# the rare Telegram-merge event.
+# ---------------------------------------------------------------------------
+_WEB_UID_CACHE_TTL=30.0
+_web_uid_cache={}
+
+def _database_url():
+ return os.getenv('DATABASE_PUBLIC_URL','').strip() or os.getenv('DATABASE_URL','').strip()
+
+def web_session_account_id_from_cookie_header(cookie_header):
+ # Raw ASGI header parsing - no Starlette Request object at this layer.
+ if not cookie_header: return 0
+ jar=SimpleCookie()
+ try: jar.load(cookie_header)
+ except Exception: return 0
+ morsel=jar.get(WEB_SESSION_COOKIE)
+ if not morsel: return 0
+ try: return verify_web_session_token(morsel.value)
+ except SecurityError: return 0
+
+def resolve_web_session_uid(account_id):
+ """Blocking DB lookup - call via asyncio.to_thread from async code."""
+ now=time.monotonic()
+ cached=_web_uid_cache.get(account_id)
+ if cached and cached[1]>now: return cached[0]
+ database_url=_database_url()
+ if not database_url: return 0
+ from db_pool import db_connect
+ conn=db_connect(database_url)
+ try:
+  cur=conn.cursor()
+  cur.execute('SELECT active_telegram_id FROM sylvex_accounts WHERE account_id = %s',(account_id,))
+  row=cur.fetchone()
+  cur.close()
+ finally:
+  conn.close()
+ telegram_id=int(row[0]) if row and row[0] else 0
+ if len(_web_uid_cache)>5000: _web_uid_cache.clear()
+ _web_uid_cache[account_id]=(telegram_id,now+_WEB_UID_CACHE_TTL)
+ return telegram_id
+
 def verify_telegram_login_widget(payload, tokens=None):
  # Distinct from validated_user(): the Telegram Login Widget signs with
  # secret_key = SHA256(bot_token), not the WebAppData-keyed HMAC initData
@@ -234,8 +293,24 @@ class SecurityMiddleware:
      if not uid:raise SecurityError('telegram_user_missing')
      user={'id':uid};admin=True
     else:
-     user=validated_user(init_data);uid=user['id']
      admin=path.startswith('/api/admin/')
+     if init_data:
+      user=validated_user(init_data);uid=user['id']
+     else:
+      # No Telegram initData at all (never true inside real Telegram - see
+      # api-auth.js's fetch wrapper, which only ever sends this header when
+      # window.Telegram.WebApp.initData is real): the website-embedded Pro
+      # Studio path. Admin routes are deliberately excluded - they must
+      # still go through real Telegram initData or the support-bot service
+      # token above, never a website session cookie.
+      uid=0
+      if not admin:
+       cookie_header=headers.get(b'cookie',b'').decode()
+       web_account_id=web_session_account_id_from_cookie_header(cookie_header)
+       if web_account_id:
+        uid=await asyncio.to_thread(resolve_web_session_uid,web_account_id)
+      if not uid:raise SecurityError('invalid_init_data')
+      user={'id':uid}
      if not admin:
       ids=[v for k,v in query if k=='telegram_id']
       if json_body is not None and 'telegram_id' in json_body:ids.append(json_body['telegram_id'])

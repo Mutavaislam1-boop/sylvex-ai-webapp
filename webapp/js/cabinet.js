@@ -18892,6 +18892,17 @@ async function waitGeneration(jobId, options) {
     const composer = document.getElementById('studioComposer');
     const params = new URLSearchParams(window.location.search || '');
     const requestedMode = String(params.get('mode') || '').toLowerCase();
+    if (requestedMode === 'grid') {
+      // Grid Mode is a layout, not a composer chat type (see
+      // CHAT_SPACE_TYPES below and applyHomeIdeaRoute()'s identical
+      // switchView+setStudioLayout pair) - the sylvex-website Pro Studio
+      // toolbar's Grid Mode tab links here with ?mode=grid, so give that
+      // the same real entry point rather than falling through to the
+      // 'video' composer default.
+      switchView('tools');
+      setStudioLayout('grid');
+      return;
+    }
     const initialMode = CHAT_SPACE_TYPES.includes(requestedMode)
       ? requestedMode
       : (savedInitialStudioMode() || (composer && composer.dataset && composer.dataset.composerMode) || 'video');
