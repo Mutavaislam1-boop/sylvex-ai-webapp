@@ -74,7 +74,11 @@ def _send(to_addr: str, subject: str, body: str) -> bool:
 
 
 def send_verification_email(to_addr: str, token: str) -> bool:
-    link = f"{_website_base_url()}/api/web/auth/verify-email?token={token}"
+    # Points at the website's own verify-email.html (not the backend API
+    # directly) - sylvex.ai is a separate static site from this API, so a
+    # direct /api/web/... link 404s there. That page calls this API
+    # cross-origin and renders the result.
+    link = f"{_website_base_url()}/verify-email.html?token={token}"
     return _send(
         to_addr,
         "Confirm your SYLVEX email",
