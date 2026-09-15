@@ -57,6 +57,7 @@ from services.security import (
     SecurityMiddleware, SecurityError, validated_user, actor_id, actor_init_data,
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
     verify_web_session_token, verify_telegram_login_widget,
+    web_session_account_id_from_cookie_header, resolve_web_session_uid,
 )
 from services import account_identity as account_identity_service
 from services.account_identity import AccountError
@@ -3047,19 +3048,22 @@ def lemonsqueezy_headers() -> dict:
     }
 
 
-def create_lemonsqueezy_checkout(telegram_id: int, pack_id: str, item: dict) -> dict:
+def create_lemonsqueezy_checkout(telegram_id: int, pack_id: str, item: dict, account_id: int = 0) -> dict:
     variant_id = lemonsqueezy_variant_for_pack(pack_id)
     if not variant_id:
         raise RuntimeError("LemonSqueezy variant not configured for pack")
+    # account_id is set only for a Website request (see public_lemonsqueezy_checkout) -
+    # LemonSqueezy then gets the account's own SYLVEX identity, never the
+    # internal telegram_id-shaped storage key that identity maps to. A real
+    # Telegram Mini App request (account_id=0 here) keeps sending its actual
+    # telegram_id, unchanged.
+    custom = {"account_id": str(account_id), "pack_id": pack_id} if account_id else {"telegram_id": str(telegram_id), "pack_id": pack_id}
     body = {
         "data": {
             "type": "checkouts",
             "attributes": {
                 "checkout_data": {
-                    "custom": {
-                        "telegram_id": str(telegram_id),
-                        "pack_id": pack_id,
-                    },
+                    "custom": custom,
                 },
                 "product_options": {
                     "redirect_url": SHOP_WEBAPP_URL,
@@ -9916,8 +9920,19 @@ async def public_lemonsqueezy_checkout(request: Request):
     if not lemonsqueezy_configured():
         return JSONResponse({"ok": False, "error": "lemonsqueezy_not_configured"}, status_code=502)
 
+    # A real Telegram Mini App call always presents signed initData (see
+    # SecurityMiddleware); a Website call never does - it only ever proves
+    # itself with its own sylvex_web_session cookie. So an empty
+    # telegram_init_data here means this is a Website request, and the
+    # identity handed to LemonSqueezy must be the account's own SYLVEX
+    # account_id, resolved straight from that cookie - never the internal
+    # telegram_id-shaped storage key `telegram_id` above already holds.
+    account_id = 0
+    if not getattr(request.state, "telegram_init_data", ""):
+        account_id = web_session_account_id_from_cookie_header(request.headers.get("cookie", ""))
+
     try:
-        checkout = await asyncio.to_thread(create_lemonsqueezy_checkout, telegram_id, pack_id, item)
+        checkout = await asyncio.to_thread(create_lemonsqueezy_checkout, telegram_id, pack_id, item, account_id)
     except Exception as exc:
         print("LEMONSQUEEZY CHECKOUT ERROR:", exc)
         return JSONResponse({"ok": False, "error": "lemonsqueezy_not_configured"}, status_code=502)
@@ -9961,10 +9976,22 @@ async def public_lemonsqueezy_webhook(request: Request):
         return {"ok": True, "ignored": event_name}
 
     custom = ((event.get("meta") or {}).get("custom_data")) or {}
+    # A Website-originated checkout attaches account_id, never telegram_id
+    # (see public_lemonsqueezy_checkout) - resolve it back to the internal
+    # storage key finalize_shop_payment already expects, the same lookup
+    # the website-session bridge itself uses. A Telegram Mini App checkout
+    # still attaches its real telegram_id directly, unchanged.
     try:
-        telegram_id = int(custom.get("telegram_id") or 0)
+        account_id = int(custom.get("account_id") or 0)
     except (TypeError, ValueError):
-        telegram_id = 0
+        account_id = 0
+    if account_id:
+        telegram_id = await asyncio.to_thread(resolve_web_session_uid, account_id)
+    else:
+        try:
+            telegram_id = int(custom.get("telegram_id") or 0)
+        except (TypeError, ValueError):
+            telegram_id = 0
     pack_id = str(custom.get("pack_id") or "")
 
     resource = event.get("data") or {}
