@@ -10691,6 +10691,10 @@ function imageModelButton(model) {
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
 function renderGeneratedTelegramButton(url, kind) {
+    // "Open in Telegram" lets a Mini App user get the file delivered as a
+    // normal Telegram message from the bot - meaningless (and a Website ->
+    // Telegram redirect) when Pro Studio is hosted by the website instead.
+    if (isWebEmbed()) return '';
     const safeUrl = S.escapeHtml(url);
     const safeKind = S.escapeHtml(kind || 'file');
     return '<button class="gen-action-btn gen-telegram-btn" type="button" data-result-url="' + safeUrl + '" data-result-kind="' + safeKind + '" onclick="SYLVEX.openTelegramBot(event)">'
@@ -11221,8 +11225,14 @@ function renderGeneratedTelegramButton(url, kind) {
     const type = meta.type || (m.videoUrl ? 'video' : (m.audioUrl ? (currentChatType() === 'voice' ? 'voice' : 'music') : 'image'));
     const imageItems = type === 'image' ? generatedImageResultItems(meta, m) : [];
     const isMultiImage = type === 'image' && imageItems.length > 1;
-    const thumb = imagePreviewUrl(meta, '');
     const fallbackUrl = meta.preview_fallback_url || meta.image_url || meta.full_url || meta.result_url || ((meta.result_images || [])[0]) || '';
+    // Many providers return only a full-size result URL with no dedicated
+    // thumbnail field - imagePreviewUrl() alone would then be empty and the
+    // card would fall back to a plain "IMG" icon even though a real,
+    // openable image exists. Falling back to fallbackUrl here (same URL the
+    // "Open"/"Download" actions already use) is what generatedImageResultItems()
+    // already does correctly for multi-image grids.
+    const thumb = imagePreviewUrl(meta, '') || (type === 'image' ? fallbackUrl : '');
     const safeModel = S.escapeHtml(meta.model_label || meta.model || type);
     const creditsValue = meta.cost_credits !== undefined && meta.cost_credits !== null && meta.cost_credits !== ''
       ? String(meta.cost_credits) + ' ⚡️'
@@ -11789,11 +11799,19 @@ function renderGeneratedTelegramButton(url, kind) {
     modal.classList.add('show');
     modal.onclick = (clickEvent) => { if (clickEvent.target === modal) modal.classList.remove('show'); };
   }
-  function sendProfileGalleryItem(event, id) {
+  async function sendProfileGalleryItem(event, id) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
     const item = galleryItemById(id); if (!item) return;
     const shareUrl = item.media_url || window.location.href;
     const text = String(item.prompt || item.text || 'Создано в SYLVEX AI').slice(0, 180);
+    if (isWebEmbed()) {
+      if (navigator.share) {
+        try { await navigator.share({ title: 'SYLVEX', text, url: shareUrl }); } catch {}
+        return;
+      }
+      try { await navigator.clipboard.writeText(shareUrl); toast('Ссылка скопирована'); } catch { toast(shareUrl); }
+      return;
+    }
     const url = 'https://t.me/share/url?url=' + encodeURIComponent(shareUrl) + '&text=' + encodeURIComponent(text);
     if (S.tg && S.tg.openTelegramLink) S.tg.openTelegramLink(url); else window.open(url, '_blank', 'noopener');
   }
@@ -13279,8 +13297,20 @@ async function shareGenerationCard(e, index) {
       console.warn('PROSTUDIO_NATIVE_SHARE_FAILED', { error: String(error && error.message || error) });
     }
   }
+  const shareText = 'Посмотрите мою генерацию в SYLVEX Pro Studio';
+  if (isWebEmbed()) {
+    // Never navigate a Website visitor (or this iframe) to t.me - use the
+    // browser's own share sheet, or fall back to copying the link.
+    if (navigator.share) {
+      try { await navigator.share({ title: 'SYLVEX Pro Studio', text: shareText, url: shareUrl }); return; }
+      catch (error) { if (error && error.name === 'AbortError') return; }
+    }
+    try { await navigator.clipboard.writeText(shareUrl); toast('Ссылка скопирована'); }
+    catch { toast(shareUrl); }
+    return;
+  }
   const telegramShareUrl = 'https://t.me/share/url?url=' + encodeURIComponent(shareUrl)
-    + '&text=' + encodeURIComponent('Посмотрите мою генерацию в SYLVEX Pro Studio');
+    + '&text=' + encodeURIComponent(shareText);
   if (tg && typeof tg.openTelegramLink === 'function') tg.openTelegramLink(telegramShareUrl);
   else window.location.href = telegramShareUrl;
 }
@@ -13470,8 +13500,11 @@ function openGenerationInfoDrawer(e, index) {
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
   const jobId = completedGenerationJobId(message, meta);
   const generationStatus = String(meta.status || message.generationStatus || (message.imageResultMini ? 'completed' : '')).toLowerCase();
-  const previewUrl = imagePreviewUrl(meta, '');
   const previewFallbackUrl = meta.preview_fallback_url || imageUrl || resultUrl || '';
+  // Same gap as renderImageResultMiniCard(): fall back to the real result
+  // URL when the provider returned no dedicated thumbnail field, instead of
+  // silently showing no preview at all for an otherwise-valid image.
+  const previewUrl = imagePreviewUrl(meta, '') || (type === 'image' ? previewFallbackUrl : '');
   const refImages = meta.reference_images || [];
   const created = meta.created_at ? new Date(meta.created_at).toLocaleString() : '';
   const settings = meta.settings || meta.image_options || meta.video_options || meta.music_options || meta.voice_options || {};
@@ -18817,6 +18850,34 @@ async function waitGeneration(jobId, options) {
   }
   S.hasTelegramContext = hasTelegramContext;
   S.usesWebSessionAuth = usesWebSessionAuth;
+  S.isWebEmbed = isWebEmbed;
+
+  // The origin of whatever page is hosting this Pro Studio iframe (the SYLVEX
+  // website today, a different host tomorrow) - derived from document.referrer
+  // rather than hardcoded, so Pro Studio's core never has to know the
+  // website's domain by name. Falls back to the current production website
+  // only if a browser's referrer policy ever withholds it.
+  function hostOrigin() {
+    try {
+      if (document.referrer) return new URL(document.referrer).origin;
+    } catch {}
+    return 'https://sylvex.ai';
+  }
+  S.hostOrigin = hostOrigin;
+
+  // Every one of these already has a real, non-duplicated page on the
+  // website itself (Store, Profile, Settings) - so on Website, Pro Studio
+  // must send the user there instead of rendering its own Mini-App-style
+  // copy of that screen inside the iframe. True only when it actually
+  // navigated the top-level page away (callers must stop rendering).
+  function goToHostPage(view) {
+    if (!isWebEmbed()) return false;
+    const path = { shop: '/store.html', pay: '/store.html', profile: '/account/profile.html', settings: '/account/settings.html' }[view];
+    if (!path) return false;
+    try { window.top.location.href = hostOrigin() + path; } catch { window.location.href = hostOrigin() + path; }
+    return true;
+  }
+  S.goToHostPage = goToHostPage;
 
   function initialViewFromUrl() {
     const allowed = new Set(['home', 'history', 'community', 'shop', 'pay', 'profile', 'settings', 'tools']);
@@ -19750,14 +19811,44 @@ async function waitGeneration(jobId, options) {
     return safe;
   }
 
+  // Website -> Pro Studio theme names (see sylvex-website/css/tokens.css and
+  // js/site.js's THEME_CYCLE): Light is Pro Studio's White, Dark is its
+  // richer Black, and Gray is literally the same original neutral identity
+  // in both places.
+  const WEBSITE_THEME_TO_STUDIO = { light: 'white', dark: 'black', gray: 'gray' };
+
+  function studioThemeFromWebsiteEmbed() {
+    try {
+      const websiteTheme = new URLSearchParams(window.location.search || '').get('theme');
+      return WEBSITE_THEME_TO_STUDIO[websiteTheme] || null;
+    } catch { return null; }
+  }
+
   function restoreStudioTheme() {
+    // On Website, Pro Studio has no theme control of its own (#studioThemeBtn
+    // is hidden via html.web-embed CSS) - it always follows whatever theme
+    // the website page passed in, never a locally persisted choice, so
+    // switching website accounts/devices can't leave it on a stale theme.
+    if (isWebEmbed()) {
+      applyStudioTheme(studioThemeFromWebsiteEmbed() || 'gray', false);
+      return;
+    }
     let stored = 'gray';
     try { stored = localStorage.getItem(STUDIO_THEME_KEY) || 'gray'; } catch (_) {}
     applyStudioTheme(stored, false);
   }
 
+  // Live theme sync from the website (js/site.js's setTheme() posts this to
+  // every iframe on toggle) - lets an already-open Pro Studio tab follow a
+  // theme change on the website without a reload.
+  window.addEventListener('message', (event) => {
+    if (!isWebEmbed() || !event || !event.data || event.data.type !== 'sylvex-theme') return;
+    applyStudioTheme(WEBSITE_THEME_TO_STUDIO[event.data.theme] || 'gray', false);
+  });
+
   function cycleStudioTheme(event) {
     if (event) { event.preventDefault(); event.stopPropagation(); }
+    if (isWebEmbed()) return; // Website drives the theme; see restoreStudioTheme() above.
     let current = 'gray';
     try { current = localStorage.getItem(STUDIO_THEME_KEY) || 'gray'; } catch (_) {}
     const next = STUDIO_THEMES[(STUDIO_THEMES.indexOf(current) + 1) % STUDIO_THEMES.length];
@@ -20171,6 +20262,11 @@ async function waitGeneration(jobId, options) {
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
   function init() {
+    // Single CSS hook for every Website-only/Telegram-only visual
+    // difference below (hiding Telegram-specific controls, Website desktop
+    // layout, ...) instead of scattering isWebEmbed() checks through markup.
+    document.documentElement.classList.toggle('web-embed', isWebEmbed());
+
     // Restore saved theme.
     const tg = S.tg;
     const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');

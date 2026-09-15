@@ -9148,3 +9148,27 @@ in Pro Studio. Layout, sizing and interaction logic are untouched.
 .view[data-view="tools"].active .studio-grid-media-preview{background:var(--st-bg)!important}
 
 .view[data-view="tools"].active .studio-grid-drawer-list .hd-empty{color:var(--st-mute)!important}
+
+/* =====================================================
+CSS-БЛОК: Website embed (html.web-embed, see isWebEmbed() in cabinet.js)
+Скрывает элементы навигации/переключатели, дублирующие то, что уже есть у
+сайта sylvex.ai (нижняя панель Home/Profile/Shop/Settings, переключатель
+темы Pro Studio, переключатель Обычный/Сетка) - сайт уже даёт свою
+навигацию, тему и вкладку Grid Mode. На Telegram Mini App эти правила не
+действуют, поскольку класс web-embed там никогда не выставляется.
+===================================================== */
+html.web-embed .nav{display:none!important}
+html.web-embed #studioThemeBtn{display:none!important}
+html.web-embed .studio-layout-switch{display:none!important}
+
+/* Desktop-width website workspace: the Mini App's fixed, phone-sized
+   generation cards/thumbnails stay exactly as they are for Telegram, but a
+   wide website viewport gets visibly larger cards and previews instead of
+   the same compact sizing simply stretched across a monitor. */
+@media (min-width:900px){
+  html.web-embed .generation-result-mini-card,
+  html.web-embed .generation-result-card-shell{width:380px}
+  html.web-embed .generation-result-thumb{width:84px;height:84px;flex:0 0 84px;border-radius:16px}
+  html.web-embed .generation-result-fallback{font-size:18px}
+  html.web-embed .generation-info-media-player{max-height:420px}
+}

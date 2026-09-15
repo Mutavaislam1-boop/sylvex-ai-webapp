@@ -106,6 +106,10 @@
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function switchView(name) {
+    // Website-hosted Pro Studio: Store/Profile/Settings already have their
+    // own real pages on the website itself, so send the user there instead
+    // of rendering Pro Studio's own Mini-App-style copy of that screen.
+    if (window.SYLVEX && window.SYLVEX.goToHostPage && window.SYLVEX.goToHostPage(name)) return;
     if ((name === 'shop' || name === 'pay') && window.SYLVEX && window.SYLVEX.closeExpiredSubscriptionModal) {
       window.SYLVEX.closeExpiredSubscriptionModal();
     }
