@@ -44,7 +44,7 @@ from provider_resilience import (
     circuit_release_probe,
     run_with_provider_retry,
 )
-from db_pool import close_db_pool, db_connect, db_pool_status, start_db_pool
+from db_pool import close_db_pool, db_connect, db_connection, db_pool_status, start_db_pool
 
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -354,25 +354,24 @@ def load_voice_avatar_catalog() -> dict:
     if DATABASE_URL and VOICE_AVATAR_AUTO_GENERATION:
         try:
             ensure_prostudio_table()
-            conn = db_connect(DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT provider, voice_id, seed, avatar_key, avatar_path
-                FROM prostudio_voice_avatars WHERE status = 'ready'
-                ORDER BY provider, voice_id
-            """)
-            for provider, voice_id, seed, avatar_key, avatar_path in cursor.fetchall():
-                avatars.append({
-                    "id": voice_id,
-                    "voice_id": voice_id,
-                    "provider": provider,
-                    "seed": seed,
-                    "avatarUrl": avatar_path or f"/api/public/prostudio/voice-avatar/{avatar_key}",
-                })
-            cursor.execute("SELECT COUNT(*) FROM prostudio_voice_avatars WHERE status IN ('pending', 'generating')")
-            pending_count = int(cursor.fetchone()[0] or 0)
-            cursor.close()
-            conn.close()
+            with db_connection(DATABASE_URL) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT provider, voice_id, seed, avatar_key, avatar_path
+                    FROM prostudio_voice_avatars WHERE status = 'ready'
+                    ORDER BY provider, voice_id
+                """)
+                for provider, voice_id, seed, avatar_key, avatar_path in cursor.fetchall():
+                    avatars.append({
+                        "id": voice_id,
+                        "voice_id": voice_id,
+                        "provider": provider,
+                        "seed": seed,
+                        "avatarUrl": avatar_path or f"/api/public/prostudio/voice-avatar/{avatar_key}",
+                    })
+                cursor.execute("SELECT COUNT(*) FROM prostudio_voice_avatars WHERE status IN ('pending', 'generating')")
+                pending_count = int(cursor.fetchone()[0] or 0)
+                cursor.close()
             return {"avatars": avatars, "pending_count": pending_count}
         except Exception as exc:
             print("VOICE AVATAR CATALOG DB FAILED:", exc)
@@ -457,19 +456,21 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
         else:
             raise RuntimeError("OpenAI image response has no image")
         avatar_path = storage_put_bytes(image_bytes, generated_key("voice-avatars", f"{key}.png"), "image/png")
-        conn = db_connect(DATABASE_URL); cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE prostudio_voice_avatars SET image_data=%s, content_type='image/png', avatar_path=%s,
-            status='ready', error_text='', updated_at=NOW() WHERE avatar_key=%s
-        """, (psycopg2.Binary(image_bytes), avatar_path, key))
-        conn.commit(); cursor.close(); conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE prostudio_voice_avatars SET image_data=%s, content_type='image/png', avatar_path=%s,
+                status='ready', error_text='', updated_at=NOW() WHERE avatar_key=%s
+            """, (psycopg2.Binary(image_bytes), avatar_path, key))
+            cursor.close()
     except Exception as exc:
         print("VOICE AVATAR GENERATION FAILED:", {"provider": provider, "voice_id": voice_id, "error": str(exc)})
         if DATABASE_URL:
             try:
-                conn = db_connect(DATABASE_URL); cursor = conn.cursor()
-                cursor.execute("UPDATE prostudio_voice_avatars SET status='failed', error_text=%s, updated_at=NOW() WHERE avatar_key=%s", (str(exc)[:1000], key))
-                conn.commit(); cursor.close(); conn.close()
+                with db_connection(DATABASE_URL) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE prostudio_voice_avatars SET status='failed', error_text=%s, updated_at=NOW() WHERE avatar_key=%s", (str(exc)[:1000], key))
+                    cursor.close()
             except Exception:
                 pass
     finally:
@@ -3620,27 +3621,26 @@ def visual_stats_payload(resource_id: str, resource_type: str, telegram_id: int 
         return stats
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT likes_count, selects_count FROM prostudio_visual_stats WHERE resource_id = %s AND resource_type = %s",
-            (resource_id, resource_type),
-        )
-        row = cursor.fetchone()
-        if row:
-            stats["likes"] = int(row[0] or 0)
-            stats["selects"] = int(row[1] or 0)
-        if telegram_id:
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
             cursor.execute(
-                "SELECT liked, favorite FROM prostudio_visual_user_state WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
-                (telegram_id, resource_id, resource_type),
+                "SELECT likes_count, selects_count FROM prostudio_visual_stats WHERE resource_id = %s AND resource_type = %s",
+                (resource_id, resource_type),
             )
-            user_row = cursor.fetchone()
-            if user_row:
-                stats["liked"] = bool(user_row[0])
-                stats["favorite"] = bool(user_row[1])
-        cursor.close()
-        conn.close()
+            row = cursor.fetchone()
+            if row:
+                stats["likes"] = int(row[0] or 0)
+                stats["selects"] = int(row[1] or 0)
+            if telegram_id:
+                cursor.execute(
+                    "SELECT liked, favorite FROM prostudio_visual_user_state WHERE telegram_id = %s AND resource_id = %s AND resource_type = %s",
+                    (telegram_id, resource_id, resource_type),
+                )
+                user_row = cursor.fetchone()
+                if user_row:
+                    stats["liked"] = bool(user_row[0])
+                    stats["favorite"] = bool(user_row[1])
+            cursor.close()
     except Exception as exc:
         print("VISUAL STATS LOAD FAILED:", exc)
     return stats
@@ -4140,9 +4140,10 @@ async def public_prostudio_voice_avatar_image(avatar_key: str):
         return FileResponse(local_path, media_type="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
     if DATABASE_URL:
         try:
-            conn = db_connect(DATABASE_URL); cursor = conn.cursor()
-            cursor.execute("SELECT image_data, content_type FROM prostudio_voice_avatars WHERE avatar_key=%s AND status='ready'", (safe_key,))
-            row = cursor.fetchone(); cursor.close(); conn.close()
+            with db_connection(DATABASE_URL) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT image_data, content_type FROM prostudio_voice_avatars WHERE avatar_key=%s AND status='ready'", (safe_key,))
+                row = cursor.fetchone(); cursor.close()
             if row and row[0]:
                 image_bytes = bytes(row[0])
                 try:
@@ -4441,15 +4442,13 @@ def save_generation(telegram_id: int, generation_type: str, prompt: str, status:
     if not DATABASE_URL or not telegram_id:
         return
     try:
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO generations (telegram_id, generation_type, prompt, status)
-            VALUES (%s, %s, %s, %s)
-        """, (telegram_id, generation_type, prompt, status))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO generations (telegram_id, generation_type, prompt, status)
+                VALUES (%s, %s, %s, %s)
+            """, (telegram_id, generation_type, prompt, status))
+            cursor.close()
     except Exception as exc:
         print("GENERATION SAVE FAILED:", exc)
 
@@ -5530,29 +5529,27 @@ def log_prostudio_error(payload: dict, error: dict, job_id: str = ""):
         return
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO prostudio_errors (
-                telegram_id, job_id, provider, model, endpoint, request_id, status,
-                error_text, request_json, response_json, stack_trace
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
-        """, (
-            telegram_id or None,
-            job_id or None,
-            _sql_text(error.get("provider") or payload.get("provider") or "", 200),
-            _sql_text(error.get("model") or payload.get("model") or "", 200),
-            _sql_text(error.get("endpoint") or "", 1000),
-            _sql_text(error.get("request_id") or "", 200),
-            _sql_text(error.get("status") or "failed", 80),
-            _sql_text(error.get("error") or error.get("message") or error, 1000),
-            _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
-            _safe_json_dumps(_sanitize_event_payload(error, max_text=1200, max_items=50, depth=5)),
-            _sql_text(error.get("stack_trace") or error.get("traceback") or "", 4000),
-        ))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO prostudio_errors (
+                    telegram_id, job_id, provider, model, endpoint, request_id, status,
+                    error_text, request_json, response_json, stack_trace
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
+            """, (
+                telegram_id or None,
+                job_id or None,
+                _sql_text(error.get("provider") or payload.get("provider") or "", 200),
+                _sql_text(error.get("model") or payload.get("model") or "", 200),
+                _sql_text(error.get("endpoint") or "", 1000),
+                _sql_text(error.get("request_id") or "", 200),
+                _sql_text(error.get("status") or "failed", 80),
+                _sql_text(error.get("error") or error.get("message") or error, 1000),
+                _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
+                _safe_json_dumps(_sanitize_event_payload(error, max_text=1200, max_items=50, depth=5)),
+                _sql_text(error.get("stack_trace") or error.get("traceback") or "", 4000),
+            ))
+            cursor.close()
     except Exception as exc:
         print("PROSTUDIO ERROR LOG FAILED:", exc)
 
@@ -5568,20 +5565,18 @@ def save_prostudio_draft(telegram_id: int, mode: str, draft_text: str = "", conv
         mode = "image"
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO prostudio_drafts (telegram_id, mode, conversation_id, draft_text, attachment_json, updated_at)
-            VALUES (%s, %s, %s, %s, %s::jsonb, NOW())
-            ON CONFLICT (telegram_id, mode) DO UPDATE SET
-                conversation_id = EXCLUDED.conversation_id,
-                draft_text = EXCLUDED.draft_text,
-                attachment_json = EXCLUDED.attachment_json,
-                updated_at = NOW()
-        """, (telegram_id, mode, conversation_id or None, draft_text or "", _safe_json_dumps(attachment or {})))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO prostudio_drafts (telegram_id, mode, conversation_id, draft_text, attachment_json, updated_at)
+                VALUES (%s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (telegram_id, mode) DO UPDATE SET
+                    conversation_id = EXCLUDED.conversation_id,
+                    draft_text = EXCLUDED.draft_text,
+                    attachment_json = EXCLUDED.attachment_json,
+                    updated_at = NOW()
+            """, (telegram_id, mode, conversation_id or None, draft_text or "", _safe_json_dumps(attachment or {})))
+            cursor.close()
         return {"mode": mode, "conversation_id": conversation_id, "draft_text": draft_text or "", "attachment": attachment or {}}
     except Exception as exc:
         print("PROSTUDIO DRAFT SAVE FAILED:", exc)
@@ -5597,16 +5592,15 @@ def load_prostudio_drafts(telegram_id: int) -> dict:
         return {}
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT mode, conversation_id, draft_text, attachment_json, updated_at
-            FROM prostudio_drafts
-            WHERE telegram_id = %s
-        """, (telegram_id,))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT mode, conversation_id, draft_text, attachment_json, updated_at
+                FROM prostudio_drafts
+                WHERE telegram_id = %s
+            """, (telegram_id,))
+            rows = cursor.fetchall()
+            cursor.close()
         result = {}
         for mode, conversation_id, draft_text, attachment_json, updated_at in rows:
             result[mode] = {
@@ -5665,38 +5659,36 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
     }
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO prostudio_resources (
-                id, telegram_id, resource_type, name, description, gender,
-                preview_url, photos_json, metadata_json, status, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, NOW())
-            ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                description = EXCLUDED.description,
-                gender = EXCLUDED.gender,
-                preview_url = EXCLUDED.preview_url,
-                photos_json = EXCLUDED.photos_json,
-                metadata_json = EXCLUDED.metadata_json,
-                status = EXCLUDED.status,
-                updated_at = NOW()
-            WHERE prostudio_resources.telegram_id = EXCLUDED.telegram_id
-        """, (
-            item["id"],
-            telegram_id,
-            kind,
-            item["name"],
-            item["description"],
-            item["gender"],
-            item["previewUrl"],
-            _safe_json_dumps(photos),
-            _safe_json_dumps(_sanitize_event_payload(resource, max_text=1200, max_items=50, depth=5)),
-            item["status"],
-        ))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO prostudio_resources (
+                    id, telegram_id, resource_type, name, description, gender,
+                    preview_url, photos_json, metadata_json, status, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    gender = EXCLUDED.gender,
+                    preview_url = EXCLUDED.preview_url,
+                    photos_json = EXCLUDED.photos_json,
+                    metadata_json = EXCLUDED.metadata_json,
+                    status = EXCLUDED.status,
+                    updated_at = NOW()
+                WHERE prostudio_resources.telegram_id = EXCLUDED.telegram_id
+            """, (
+                item["id"],
+                telegram_id,
+                kind,
+                item["name"],
+                item["description"],
+                item["gender"],
+                item["previewUrl"],
+                _safe_json_dumps(photos),
+                _safe_json_dumps(_sanitize_event_payload(resource, max_text=1200, max_items=50, depth=5)),
+                item["status"],
+            ))
+            cursor.close()
         log_user_event(telegram_id, "miniapp", "resource", f"{kind}_saved", {"id": item["id"], "name": item["name"]})
     except Exception as exc:
         print("PROSTUDIO RESOURCE SAVE FAILED:", exc)
@@ -5712,17 +5704,16 @@ def load_prostudio_resources(telegram_id: int) -> dict:
         return {"characters": [], "objects": [], "voices": []}
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, resource_type, name, description, gender, preview_url, photos_json, metadata_json, status, created_at, updated_at
-            FROM prostudio_resources
-            WHERE telegram_id = %s
-            ORDER BY updated_at DESC
-        """, (telegram_id,))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, resource_type, name, description, gender, preview_url, photos_json, metadata_json, status, created_at, updated_at
+                FROM prostudio_resources
+                WHERE telegram_id = %s
+                ORDER BY updated_at DESC
+            """, (telegram_id,))
+            rows = cursor.fetchall()
+            cursor.close()
         result = {"characters": [], "objects": [], "voices": []}
         for resource_id, kind, name, description, gender, preview, photos_json, metadata_json, status, created_at, updated_at in rows:
             photos = _json_list(photos_json)
@@ -6544,58 +6535,56 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
             thumbnail_url=result.get("thumbnail_url") or "",
         )
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO prostudio_messages (
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO prostudio_messages (
+                    conversation_id,
+                    telegram_id,
+                    mode,
+                    prompt,
+                    response_text,
+                    image_url,
+                    images_json,
+                    thumbnails_json,
+                    thumb_url,
+                    video_url,
+                    videos_json,
+                    audio_url,
+                    audios_json,
+                    metadata_json,
+                    status,
+                    model,
+                    provider,
+                    cost,
+                    request_json,
+                    response_json,
+                    updated_at,
+                    completed_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW(), NOW())
+            """, (
                 conversation_id,
                 telegram_id,
-                mode,
-                prompt,
-                response_text,
-                image_url,
-                images_json,
-                thumbnails_json,
-                thumb_url,
-                video_url,
-                videos_json,
-                audio_url,
-                audios_json,
-                metadata_json,
-                status,
-                model,
-                provider,
-                cost,
-                request_json,
-                response_json,
-                updated_at,
-                completed_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW(), NOW())
-        """, (
-            conversation_id,
-            telegram_id,
-            payload.get("mode") or "text",
-            payload.get("prompt") or "",
-            result.get("text") or "",
-            result.get("image_url") or "",
-            json.dumps(_json_list(result.get("images")), ensure_ascii=False),
-            json.dumps(_json_list(result.get("thumbnails")), ensure_ascii=False),
-            result.get("thumb_url") or "",
-            result.get("video_url") or "",
-            json.dumps(_json_list(result.get("videos")), ensure_ascii=False),
-            result.get("audio_url") or "",
-            json.dumps(_json_list(result.get("audios")), ensure_ascii=False),
-            json.dumps(metadata, ensure_ascii=False),
-            result.get("status") or "completed",
-            payload.get("model") or "",
-            payload.get("provider") or "",
-            int(result.get("cost") or result.get("price") or 0),
-            _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
-            _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
-        ))
-        conn.commit()
-        cursor.close()
-        conn.close()
+                payload.get("mode") or "text",
+                payload.get("prompt") or "",
+                result.get("text") or "",
+                result.get("image_url") or "",
+                json.dumps(_json_list(result.get("images")), ensure_ascii=False),
+                json.dumps(_json_list(result.get("thumbnails")), ensure_ascii=False),
+                result.get("thumb_url") or "",
+                result.get("video_url") or "",
+                json.dumps(_json_list(result.get("videos")), ensure_ascii=False),
+                result.get("audio_url") or "",
+                json.dumps(_json_list(result.get("audios")), ensure_ascii=False),
+                json.dumps(metadata, ensure_ascii=False),
+                result.get("status") or "completed",
+                payload.get("model") or "",
+                payload.get("provider") or "",
+                int(result.get("cost") or result.get("price") or 0),
+                _safe_json_dumps(_sanitize_event_payload(payload, max_text=1200, max_items=40, depth=5)),
+                _safe_json_dumps(_sanitize_event_payload(result, max_text=1200, max_items=50, depth=5)),
+            ))
+            cursor.close()
         prostudio_debug("MESSAGE_DB_WRITE_DONE", conversation_id=conversation_id, telegram_id=telegram_id)
     except Exception as exc:
         prostudio_error("MESSAGE_DB_WRITE_FAILED", exc, conversation_id=conversation_id, telegram_id=telegram_id)
@@ -6638,27 +6627,26 @@ async def public_prostudio_conversations(
 
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
 
         limit = max(1, min(int(limit or 30), 100))
         offset = max(0, int(offset or 0))
 
         if conversation_id:
-            cursor.execute("""
-                SELECT
-                    prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
-                    video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
-                    status, model, provider, cost, response_json
-                FROM prostudio_messages
-                WHERE telegram_id = %s
-                  AND conversation_id = %s
-                ORDER BY created_at ASC, id ASC
-                LIMIT %s OFFSET %s
-            """, (telegram_id, conversation_id, limit, offset))
-            rows = cursor.fetchall()
-            cursor.close()
-            conn.close()
+            with db_connection(DATABASE_URL) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT
+                        prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
+                        video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
+                        status, model, provider, cost, response_json
+                    FROM prostudio_messages
+                    WHERE telegram_id = %s
+                      AND conversation_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT %s OFFSET %s
+                """, (telegram_id, conversation_id, limit, offset))
+                rows = cursor.fetchall()
+                cursor.close()
             messages = []
             for (
                 prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
@@ -6726,23 +6714,24 @@ async def public_prostudio_conversations(
         if mode_where:
             params.append(mode_filter)
         params.extend([min(limit, 80), offset])
-        cursor.execute(f"""
-            SELECT
-                conversation_id,
-                COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
-                MAX(created_at) AS updated_at,
-                COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
-                MIN(created_at) AS created_at
-            FROM prostudio_messages
-            WHERE telegram_id = %s
-              {mode_where}
-            GROUP BY conversation_id
-            ORDER BY updated_at DESC
-            LIMIT %s OFFSET %s
-        """, tuple(params))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                SELECT
+                    conversation_id,
+                    COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                    MAX(created_at) AS updated_at,
+                    COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                    MIN(created_at) AS created_at
+                FROM prostudio_messages
+                WHERE telegram_id = %s
+                  {mode_where}
+                GROUP BY conversation_id
+                ORDER BY updated_at DESC
+                LIMIT %s OFFSET %s
+            """, tuple(params))
+            rows = cursor.fetchall()
+            cursor.close()
         return {
             "ok": True,
             "conversations": [
@@ -6781,16 +6770,14 @@ async def delete_public_prostudio_conversation(
 
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM prostudio_messages
-            WHERE telegram_id = %s
-              AND conversation_id = %s
-        """, (telegram_id, conversation_id))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM prostudio_messages
+                WHERE telegram_id = %s
+                  AND conversation_id = %s
+            """, (telegram_id, conversation_id))
+            cursor.close()
     except Exception as exc:
         print("PROSTUDIO CONVERSATION DELETE FAILED:", exc)
 
@@ -6804,24 +6791,23 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
         return {"ok": True, "items": []}
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
         safe_limit = max(1, min(int(limit or 80), 100))
         safe_offset = max(0, int(offset or 0))
-        cursor.execute("""
-            SELECT id, conversation_id, mode, prompt, response_text, image_url, images_json,
-                   thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json,
-                   metadata_json, created_at, status, model, provider, response_json
-            FROM prostudio_messages
-            WHERE telegram_id = %s
-              AND (COALESCE(image_url, '') <> '' OR COALESCE(video_url, '') <> ''
-                   OR COALESCE(audio_url, '') <> '' OR COALESCE(response_text, '') <> '')
-            ORDER BY created_at DESC, id DESC
-            LIMIT %s OFFSET %s
-        """, (telegram_id, safe_limit, safe_offset))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, conversation_id, mode, prompt, response_text, image_url, images_json,
+                       thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json,
+                       metadata_json, created_at, status, model, provider, response_json
+                FROM prostudio_messages
+                WHERE telegram_id = %s
+                  AND (COALESCE(image_url, '') <> '' OR COALESCE(video_url, '') <> ''
+                       OR COALESCE(audio_url, '') <> '' OR COALESCE(response_text, '') <> '')
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s OFFSET %s
+            """, (telegram_id, safe_limit, safe_offset))
+            rows = cursor.fetchall()
+            cursor.close()
         items = []
         for row in rows:
             (message_id, conversation_id, mode, prompt, response_text, image_url, images_json,
@@ -6866,12 +6852,10 @@ async def delete_public_prostudio_gallery_item(message_id: int, telegram_id: int
         return {"ok": True}
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM prostudio_messages WHERE id = %s AND telegram_id = %s", (message_id, telegram_id))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM prostudio_messages WHERE id = %s AND telegram_id = %s", (message_id, telegram_id))
+            cursor.close()
     except Exception as exc:
         print("PROSTUDIO GALLERY DELETE FAILED:", exc)
     return {"ok": True}
@@ -7427,56 +7411,55 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
     if DATABASE_URL:
         try:
             ensure_prostudio_table()
-            conn = db_connect(DATABASE_URL)
-            cursor = conn.cursor()
             safe_limit = max(1, min(int(limit or 80), 200))
-            cursor.execute("""
-                SELECT
-                    conversation_id,
-                    COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
-                    MAX(created_at) AS updated_at,
-                    COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
-                    MIN(created_at) AS created_at
-                FROM prostudio_messages
-                WHERE telegram_id = %s
-                GROUP BY conversation_id
-                ORDER BY updated_at DESC
-                LIMIT %s
-            """, (telegram_id, safe_limit))
-            for row in cursor.fetchall():
-                conversations.append({
-                    "id": row[0],
-                    "title": (row[1] or "Chat")[:64],
-                    "updated_at": _to_iso(row[2]),
-                    "type": row[3] or "image",
-                    "created_at": _to_iso(row[4]),
-                })
+            with db_connection(DATABASE_URL) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT
+                        conversation_id,
+                        COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                        MAX(created_at) AS updated_at,
+                        COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                        MIN(created_at) AS created_at
+                    FROM prostudio_messages
+                    WHERE telegram_id = %s
+                    GROUP BY conversation_id
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                """, (telegram_id, safe_limit))
+                for row in cursor.fetchall():
+                    conversations.append({
+                        "id": row[0],
+                        "title": (row[1] or "Chat")[:64],
+                        "updated_at": _to_iso(row[2]),
+                        "type": row[3] or "image",
+                        "created_at": _to_iso(row[4]),
+                    })
 
-            cursor.execute("""
-                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
-                FROM prostudio_generation_jobs
-                WHERE telegram_id = %s
-                ORDER BY updated_at DESC
-                LIMIT %s
-            """, (telegram_id, safe_limit))
-            for row in cursor.fetchall():
-                jobs.append({
-                    "id": row[0],
-                    "conversation_id": row[1],
-                    "mode": row[2],
-                    "model": row[3],
-                    "provider": row[4],
-                    "prompt": row[5],
-                    "status": row[6],
-                    "cost": row[7] or 0,
-                    "result": _json_obj(row[8]),
-                    "error": _public_error_json(_json_obj(row[9])),
-                    "created_at": _to_iso(row[10]),
-                    "updated_at": _to_iso(row[11]),
-                    "completed_at": _to_iso(row[12]),
-                })
-            cursor.close()
-            conn.close()
+                cursor.execute("""
+                    SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                    FROM prostudio_generation_jobs
+                    WHERE telegram_id = %s
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                """, (telegram_id, safe_limit))
+                for row in cursor.fetchall():
+                    jobs.append({
+                        "id": row[0],
+                        "conversation_id": row[1],
+                        "mode": row[2],
+                        "model": row[3],
+                        "provider": row[4],
+                        "prompt": row[5],
+                        "status": row[6],
+                        "cost": row[7] or 0,
+                        "result": _json_obj(row[8]),
+                        "error": _public_error_json(_json_obj(row[9])),
+                        "created_at": _to_iso(row[10]),
+                        "updated_at": _to_iso(row[11]),
+                        "completed_at": _to_iso(row[12]),
+                    })
+                cursor.close()
         except Exception as exc:
             print("PROSTUDIO SYNC FAILED:", exc)
 
@@ -7883,16 +7866,14 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
         return {"ok": True, "deleted": False, "resource_id": resource_id}
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM prostudio_resources WHERE id = %s AND telegram_id = %s",
-            (resource_id, telegram_id),
-        )
-        deleted = cursor.rowcount > 0
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM prostudio_resources WHERE id = %s AND telegram_id = %s",
+                (resource_id, telegram_id),
+            )
+            deleted = cursor.rowcount > 0
+            cursor.close()
         if deleted:
             log_user_event(telegram_id, "miniapp", "resource", "resource_deleted", {"id": resource_id})
         return {"ok": True, "deleted": deleted, "resource_id": resource_id}
@@ -8017,34 +7998,33 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
             if where_mode:
                 params.append(normalized)
             params.append(max(1, min(int(limit or 50), 200)))
-            conn = db_connect(DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute(f"""
-                SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
-                FROM prostudio_generation_jobs
-                WHERE telegram_id = %s
-                  {where_mode}
-                ORDER BY updated_at DESC
-                LIMIT %s
-            """, tuple(params))
-            for row in cursor.fetchall():
-                jobs.append({
-                    "id": row[0],
-                    "conversation_id": row[1],
-                    "mode": row[2],
-                    "model": row[3],
-                    "provider": row[4],
-                    "prompt": row[5],
-                    "status": row[6],
-                    "cost": row[7] or 0,
-                    "result": _json_obj(row[8]),
-                    "error": _public_error_json(_json_obj(row[9])),
-                    "created_at": _to_iso(row[10]),
-                    "updated_at": _to_iso(row[11]),
-                    "completed_at": _to_iso(row[12]),
-                })
-            cursor.close()
-            conn.close()
+            with db_connection(DATABASE_URL) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                    FROM prostudio_generation_jobs
+                    WHERE telegram_id = %s
+                      {where_mode}
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                """, tuple(params))
+                for row in cursor.fetchall():
+                    jobs.append({
+                        "id": row[0],
+                        "conversation_id": row[1],
+                        "mode": row[2],
+                        "model": row[3],
+                        "provider": row[4],
+                        "prompt": row[5],
+                        "status": row[6],
+                        "cost": row[7] or 0,
+                        "result": _json_obj(row[8]),
+                        "error": _public_error_json(_json_obj(row[9])),
+                        "created_at": _to_iso(row[10]),
+                        "updated_at": _to_iso(row[11]),
+                        "completed_at": _to_iso(row[12]),
+                    })
+                cursor.close()
         except Exception as exc:
             print("PROSTUDIO JOB LIST FAILED:", exc)
     return {"ok": True, "jobs": jobs}
@@ -8099,18 +8079,16 @@ async def public_prostudio_report_error(request: Request):
 
     try:
         ensure_prostudio_table()
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO prostudio_error_reports
-                (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error))
-        report_id = cursor.fetchone()[0]
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO prostudio_error_reports
+                    (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error))
+            report_id = cursor.fetchone()[0]
+            cursor.close()
     except Exception as exc:
         prostudio_error("ERROR_REPORT_INSERT_FAILED", exc, telegram_id=telegram_id, job_id=job_id)
         return JSONResponse({"ok": False, "error": "report_failed"}, status_code=500)
@@ -8160,25 +8138,24 @@ async def public_prostudio_job(job_id: str):
     try:
         ensure_prostudio_table()
 
-        conn = db_connect(DATABASE_URL)
-        cursor = conn.cursor()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT
-                status,
-                result_json,
-                error_json,
-                conversation_id,
-                mode
-            FROM prostudio_generation_jobs
-            WHERE id = %s AND telegram_id = %s
-            LIMIT 1
-        """, (job_id, actor_id.get()))
+            cursor.execute("""
+                SELECT
+                    status,
+                    result_json,
+                    error_json,
+                    conversation_id,
+                    mode
+                FROM prostudio_generation_jobs
+                WHERE id = %s AND telegram_id = %s
+                LIMIT 1
+            """, (job_id, actor_id.get()))
 
-        row = cursor.fetchone()
+            row = cursor.fetchone()
 
-        cursor.close()
-        conn.close()
+            cursor.close()
 
         if not row:
             return JSONResponse(

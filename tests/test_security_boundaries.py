@@ -143,8 +143,12 @@ def test_pdf_mime_is_server_derived():
 @pytest.mark.asyncio
 async def test_job_lookup_includes_owner(client,monkeypatch):
  import main
+ from contextlib import contextmanager
  cur=Mock();cur.fetchone.return_value=None;conn=Mock();conn.cursor.return_value=cur
- monkeypatch.setattr(main,'DATABASE_URL','test');monkeypatch.setattr(main,'db_connect',lambda _:conn);monkeypatch.setattr(main,'ensure_prostudio_table',lambda:None)
+ @contextmanager
+ def fake_db_connection(*a,**k):
+  yield conn
+ monkeypatch.setattr(main,'DATABASE_URL','test');monkeypatch.setattr(main,'db_connect',lambda _:conn);monkeypatch.setattr(main,'db_connection',fake_db_connection);monkeypatch.setattr(main,'ensure_prostudio_table',lambda:None)
  r=await client.get('/api/public/prostudio/job/guessed-job',headers={'X-Telegram-Init-Data':signed()})
  assert r.status_code==404
  sql,params=cur.execute.call_args.args
