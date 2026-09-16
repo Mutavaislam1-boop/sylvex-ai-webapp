@@ -147,6 +147,7 @@ def start_db_pool(database_url: str) -> None:
 def _checkout_connection(database_url: str = "", timeout: Optional[float] = None):
     """Wait on the driver's actual capacity and register one checked-out connection."""
     global _waiting
+    checkout_call_started = time.monotonic()
     url = str(database_url or _database_url or "").strip()
     if not url:
         raise RuntimeError("DATABASE_URL is not configured")
@@ -203,12 +204,23 @@ def _checkout_connection(database_url: str = "", timeout: Optional[float] = None
             "wait_ms": round((time.monotonic() - wait_started_at) * 1000),
             "thread_id": threading.get_ident(),
         })
+    # Unconditional (unlike the wait-only line above) - answers "how long did
+    # acquiring a connection take at all", including the un-contended case,
+    # so a slow checkout is visible even when the pool itself never blocked
+    # (e.g. the driver-level connect() call stalling, not pool contention).
+    checkout_total_ms = round((time.monotonic() - checkout_call_started) * 1000)
+    print("DB_CHECKOUT_MS:", {
+        "checkout_ms": checkout_total_ms,
+        "connection_id": id(connection),
+        "thread_id": threading.get_ident(),
+    })
     _log_status_if_due()
     return connection
 
 
 def _return_connection(connection) -> None:
     """Rollback unfinished work, put the connection back, then wake waiters."""
+    release_started_at = time.monotonic()
     broken = bool(connection.closed)
     try:
         if not broken and connection.status != extensions.STATUS_READY:
@@ -216,10 +228,24 @@ def _return_connection(connection) -> None:
     except Exception:
         broken = True
 
+    held_ms = None
+    checkout_thread_id = None
     with _condition:
         lease = _leases.pop(id(connection), None)
         if lease is None:
             return
+        # Total time this connection was checked out, start to finish -
+        # includes every cursor.execute() the caller ran, plus its own
+        # commit/rollback, plus this release-time rollback-of-unfinished-work
+        # above. This is the single number that answers "was this specific
+        # checkout the one stuck for 100-200s" - a leak shows as never
+        # appearing here at all; a stuck query/lock-wait shows as one huge
+        # value here. Computed here (cheap) but printed only after releasing
+        # the lock below - stdout I/O must never happen while holding
+        # _condition, since every other checkout/release in the process
+        # blocks on that same lock.
+        held_ms = round((release_started_at - lease["checked_out_at"]) * 1000)
+        checkout_thread_id = lease.get("thread_id")
         pool = _pool
         try:
             if pool is None:
@@ -230,6 +256,13 @@ def _return_connection(connection) -> None:
         finally:
             _check_invariant_locked()
             _condition.notify_all()
+    print("DB_CONNECTION_HELD_MS:", {
+        "held_ms": held_ms,
+        "connection_id": id(connection),
+        "checkout_thread_id": checkout_thread_id,
+        "release_thread_id": threading.get_ident(),
+        "broken": broken,
+    })
     _log_status_if_due()
 
 
@@ -274,12 +307,34 @@ def db_connect(database_url: str = "", timeout: Optional[float] = None) -> Poole
 def db_connection(database_url: str = "", timeout: Optional[float] = None):
     """Preferred explicit transaction/return helper for new and migrated code."""
     connection = _checkout_connection(database_url, timeout)
+    body_started = time.monotonic()
     try:
         yield connection
+        body_ms = round((time.monotonic() - body_started) * 1000)
+        commit_started = time.monotonic()
         connection.commit()
+        # Splits held-time into "running the caller's own queries" vs
+        # "committing" - a stuck cursor.execute() shows up in body_ms, a
+        # stuck COMMIT (e.g. waiting on another session's uncommitted lock)
+        # shows up in commit_ms instead.
+        print("DB_CONNECTION_BODY_MS:", {
+            "body_ms": body_ms,
+            "commit_ms": round((time.monotonic() - commit_started) * 1000),
+            "connection_id": id(connection),
+            "thread_id": threading.get_ident(),
+        })
     except BaseException:
+        body_ms = round((time.monotonic() - body_started) * 1000)
+        rollback_started = time.monotonic()
         if not connection.closed:
             connection.rollback()
+        print("DB_CONNECTION_BODY_MS:", {
+            "body_ms": body_ms,
+            "rollback_ms": round((time.monotonic() - rollback_started) * 1000),
+            "connection_id": id(connection),
+            "thread_id": threading.get_ident(),
+            "raised": True,
+        })
         raise
     finally:
         _return_connection(connection)
