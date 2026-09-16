@@ -9,9 +9,26 @@ from unittest.mock import patch
 import db_pool
 
 
+class FakeCursor:
+    def execute(self, *a, **k):
+        pass
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+    def close(self):
+        pass
+
+
 class FakeConnection:
     closed = 0
     status = db_pool.extensions.STATUS_READY
+
+    def cursor(self):
+        return FakeCursor()
 
     def commit(self):
         pass
@@ -112,6 +129,43 @@ class DatabasePoolConcurrencyTests(unittest.TestCase):
             connection = db_pool.db_connect("mock-postgres")
         connection.close()
         self.assertNotIn("DB_CONNECTION_WAIT_MS", buffer.getvalue())
+
+    def test_db_connection_returns_the_connection_when_the_caller_raises(self):
+        """The exact contract every db_connect()-inside-bare-try/except call
+        site in main.py was fixed to rely on (see
+        test_prostudio_connection_leak_fix.py): an exception raised by the
+        caller's own code - a transient DB error, a lock timeout, whatever -
+        must never leave the checked-out connection stuck in _leases. Before
+        the fix, call sites released only on the happy path; this is the
+        general primitive that replaces that pattern."""
+        baseline = db_pool.db_pool_status()["used"]
+        self.assertEqual(baseline, 0)
+
+        with self.assertRaises(RuntimeError):
+            with db_pool.db_connection("mock-postgres") as conn:
+                conn.cursor()
+                raise RuntimeError("simulated transient DB failure")
+
+        status = db_pool.db_pool_status()
+        self.assertEqual(status["used"], baseline)
+        self.assertEqual(status["waiting"], 0)
+
+    def test_db_connection_survives_repeated_exceptions_without_exhausting_pool(self):
+        """Reproduces the production shape of the bug at small scale: many
+        consecutive failures must never accumulate leaked connections, even
+        though there are far more of them than DB_POOL_MAX_SIZE."""
+        os.environ["DB_POOL_MAX_SIZE"] = "5"
+        db_pool.close_db_pool(timeout=1)
+
+        for _ in range(20):
+            with self.assertRaises(ValueError):
+                with db_pool.db_connection("mock-postgres") as conn:
+                    conn.cursor()
+                    raise ValueError("simulated lock-timeout style failure")
+
+        status = db_pool.db_pool_status()
+        self.assertEqual(status["used"], 0)
+        self.assertEqual(status["free"], status["max_size"])
 
     def test_contended_checkout_logs_its_own_wait_time(self):
         """This is the concrete number the latency audit asked for: not just

@@ -53,6 +53,10 @@ def app(monkeypatch):
     database = Database()
     monkeypatch.setattr(main, "DATABASE_URL", "pglite://test")
     monkeypatch.setattr(main, "db_connect", lambda *a, **k: database.connect())
+    # database.connect() already implements __enter__/__exit__ (commit on
+    # success, rollback on exception) matching db_connection()'s own
+    # contract, so it's a drop-in replacement here too.
+    monkeypatch.setattr(main, "db_connection", lambda *a, **k: database.connect())
     monkeypatch.setattr(main, "_PROSTUDIO_SCHEMA_READY", False)
 
     main.app.middleware_stack = None
