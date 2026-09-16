@@ -4169,7 +4169,7 @@ async def public_prostudio_voice_avatar_image(avatar_key: str):
     if local_path.exists():
         return FileResponse(local_path, media_type="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
     if DATABASE_URL:
-        try:
+        def _sync():
             with db_connection(DATABASE_URL) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT image_data, content_type FROM prostudio_voice_avatars WHERE avatar_key=%s AND status='ready'", (safe_key,))
@@ -4180,7 +4180,13 @@ async def public_prostudio_voice_avatar_image(avatar_key: str):
                     storage_put_bytes(image_bytes, storage_key, row[1] or "image/png")
                 except Exception:
                     pass
-                return Response(content=image_bytes, media_type=row[1] or "image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+                return image_bytes, row[1] or "image/png"
+            return None, None
+
+        try:
+            image_bytes, content_type = await asyncio.to_thread(_sync)
+            if image_bytes:
+                return Response(content=image_bytes, media_type=content_type, headers={"Cache-Control": "public, max-age=31536000, immutable"})
         except Exception as exc:
             print("VOICE AVATAR READ FAILED:", exc)
     return Response(status_code=404)
@@ -6656,27 +6662,30 @@ async def public_prostudio_conversations(
         return {"ok": True, "conversations": [], "messages": []}
 
     try:
-        ensure_prostudio_table()
+        await asyncio.to_thread(ensure_prostudio_table)
 
         limit = max(1, min(int(limit or 30), 100))
         offset = max(0, int(offset or 0))
 
         if conversation_id:
-            with db_connection(DATABASE_URL) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT
-                        prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
-                        video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
-                        status, model, provider, cost, response_json
-                    FROM prostudio_messages
-                    WHERE telegram_id = %s
-                      AND conversation_id = %s
-                    ORDER BY created_at ASC, id ASC
-                    LIMIT %s OFFSET %s
-                """, (telegram_id, conversation_id, limit, offset))
-                rows = cursor.fetchall()
-                cursor.close()
+            def _fetch_conversation_messages():
+                with db_connection(DATABASE_URL) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT
+                            prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
+                            video_url, videos_json, audio_url, audios_json, metadata_json, created_at,
+                            status, model, provider, cost, response_json
+                        FROM prostudio_messages
+                        WHERE telegram_id = %s
+                          AND conversation_id = %s
+                        ORDER BY created_at ASC, id ASC
+                        LIMIT %s OFFSET %s
+                    """, (telegram_id, conversation_id, limit, offset))
+                    rows = cursor.fetchall()
+                    cursor.close()
+                return rows
+            rows = await asyncio.to_thread(_fetch_conversation_messages)
             messages = []
             for (
                 prompt, response_text, image_url, images_json, thumbnails_json, thumb_url,
@@ -6744,24 +6753,27 @@ async def public_prostudio_conversations(
         if mode_where:
             params.append(mode_filter)
         params.extend([min(limit, 80), offset])
-        with db_connection(DATABASE_URL) as conn:
-            cursor = conn.cursor()
-            cursor.execute(f"""
-                SELECT
-                    conversation_id,
-                    COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
-                    MAX(created_at) AS updated_at,
-                    COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
-                    MIN(created_at) AS created_at
-                FROM prostudio_messages
-                WHERE telegram_id = %s
-                  {mode_where}
-                GROUP BY conversation_id
-                ORDER BY updated_at DESC
-                LIMIT %s OFFSET %s
-            """, tuple(params))
-            rows = cursor.fetchall()
-            cursor.close()
+        def _fetch_conversation_list():
+            with db_connection(DATABASE_URL) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    SELECT
+                        conversation_id,
+                        COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                        MAX(created_at) AS updated_at,
+                        COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                        MIN(created_at) AS created_at
+                    FROM prostudio_messages
+                    WHERE telegram_id = %s
+                      {mode_where}
+                    GROUP BY conversation_id
+                    ORDER BY updated_at DESC
+                    LIMIT %s OFFSET %s
+                """, tuple(params))
+                rows = cursor.fetchall()
+                cursor.close()
+            return rows
+        rows = await asyncio.to_thread(_fetch_conversation_list)
         return {
             "ok": True,
             "conversations": [
@@ -6798,7 +6810,7 @@ async def delete_public_prostudio_conversation(
     if not DATABASE_URL or not telegram_id or not conversation_id:
         return {"ok": True}
 
-    try:
+    def _sync():
         ensure_prostudio_table()
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
@@ -6808,6 +6820,9 @@ async def delete_public_prostudio_conversation(
                   AND conversation_id = %s
             """, (telegram_id, conversation_id))
             cursor.close()
+
+    try:
+        await asyncio.to_thread(_sync)
     except Exception as exc:
         print("PROSTUDIO CONVERSATION DELETE FAILED:", exc)
 
@@ -6820,12 +6835,13 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
     if not DATABASE_URL or not telegram_id:
         return {"ok": True, "items": []}
     request_started = time.monotonic()
-    try:
+    safe_limit = max(1, min(int(limit or 80), 100))
+    safe_offset = max(0, int(offset or 0))
+
+    def _fetch_gallery_rows():
         ensure_start = time.monotonic()
         ensure_prostudio_table()
         print("GALLERY_TIMING:", {"stage": "ensure_prostudio_table", "ms": round((time.monotonic() - ensure_start) * 1000), "telegram_id": telegram_id})
-        safe_limit = max(1, min(int(limit or 80), 100))
-        safe_offset = max(0, int(offset or 0))
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
             query_start = time.monotonic()
@@ -6843,6 +6859,10 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
             print("GALLERY_TIMING:", {"stage": "select_prostudio_messages", "ms": round((time.monotonic() - query_start) * 1000), "telegram_id": telegram_id})
             rows = cursor.fetchall()
             cursor.close()
+        return rows
+
+    try:
+        rows = await asyncio.to_thread(_fetch_gallery_rows)
         print("GALLERY_TIMING:", {"stage": "total", "ms": round((time.monotonic() - request_started) * 1000), "telegram_id": telegram_id, "row_count": len(rows)})
         items = []
         for row in rows:
@@ -6886,12 +6906,16 @@ async def delete_public_prostudio_gallery_item(message_id: int, telegram_id: int
     """Delete one generated result without deleting the rest of its conversation."""
     if not DATABASE_URL or not telegram_id or not message_id:
         return {"ok": True}
-    try:
+
+    def _sync():
         ensure_prostudio_table()
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM prostudio_messages WHERE id = %s AND telegram_id = %s", (message_id, telegram_id))
             cursor.close()
+
+    try:
+        await asyncio.to_thread(_sync)
     except Exception as exc:
         print("PROSTUDIO GALLERY DELETE FAILED:", exc)
     return {"ok": True}
@@ -6996,43 +7020,47 @@ def ensure_community_tables():
 async def public_community_feed(telegram_id: int = 0, limit: int = 30, offset: int = 0):
     if not DATABASE_URL:
         return {"ok": True, "items": []}
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT p.id, p.telegram_id, p.content_type, p.media_url, p.preview_url,
-                   p.body, p.model, p.created_at,
-                   COALESCE(up.display_name, u.first_name, 'SYLVEX User'),
-                   COALESCE(up.custom_avatar_url, ''), COALESCE(u.username, ''),
-                   COUNT(DISTINCT l.telegram_id),
-                   BOOL_OR(l.telegram_id = %s), COUNT(DISTINCT c.id), p.media_urls,
-                   (SELECT COUNT(*) FROM community_posts author_posts
-                    JOIN community_likes author_likes ON author_likes.post_id = author_posts.id
-                    WHERE author_posts.telegram_id = p.telegram_id)
-            FROM community_posts p
-            LEFT JOIN users u ON u.telegram_id = p.telegram_id
-            LEFT JOIN user_profiles up ON up.telegram_id = p.telegram_id
-            LEFT JOIN community_likes l ON l.post_id = p.id
-            LEFT JOIN community_comments c ON c.post_id = p.id
-            GROUP BY p.id, up.display_name, up.custom_avatar_url, u.first_name, u.username
-            ORDER BY p.created_at DESC
-            LIMIT %s OFFSET %s
-        """, (telegram_id, max(1, min(int(limit), 50)), max(0, int(offset))))
-        rows = cursor.fetchall()
-        items = [{
-            "id": row[0], "author_id": row[1], "type": row[2], "media_url": row[3] or "",
-            "preview_url": row[4] or row[3] or "", "body": row[5] or "", "model": row[6] or "",
-            "created_at": _to_iso(row[7]), "author_name": row[8], "author_avatar": row[9] or "",
-            "author_username": row[10] or "", "likes": int(row[11] or 0),
-            "liked": bool(row[12]), "comments": int(row[13] or 0),
-            "media_urls": _json_list(row[14]) or ([row[3]] if row[3] else []),
-            "author_likes": int(row[15] or 0), "is_own": bool(telegram_id and int(row[1]) == telegram_id),
-        } for row in rows]
-        return {"ok": True, "items": items}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT p.id, p.telegram_id, p.content_type, p.media_url, p.preview_url,
+                       p.body, p.model, p.created_at,
+                       COALESCE(up.display_name, u.first_name, 'SYLVEX User'),
+                       COALESCE(up.custom_avatar_url, ''), COALESCE(u.username, ''),
+                       COUNT(DISTINCT l.telegram_id),
+                       BOOL_OR(l.telegram_id = %s), COUNT(DISTINCT c.id), p.media_urls,
+                       (SELECT COUNT(*) FROM community_posts author_posts
+                        JOIN community_likes author_likes ON author_likes.post_id = author_posts.id
+                        WHERE author_posts.telegram_id = p.telegram_id)
+                FROM community_posts p
+                LEFT JOIN users u ON u.telegram_id = p.telegram_id
+                LEFT JOIN user_profiles up ON up.telegram_id = p.telegram_id
+                LEFT JOIN community_likes l ON l.post_id = p.id
+                LEFT JOIN community_comments c ON c.post_id = p.id
+                GROUP BY p.id, up.display_name, up.custom_avatar_url, u.first_name, u.username
+                ORDER BY p.created_at DESC
+                LIMIT %s OFFSET %s
+            """, (telegram_id, max(1, min(int(limit), 50)), max(0, int(offset))))
+            rows = cursor.fetchall()
+            return [{
+                "id": row[0], "author_id": row[1], "type": row[2], "media_url": row[3] or "",
+                "preview_url": row[4] or row[3] or "", "body": row[5] or "", "model": row[6] or "",
+                "created_at": _to_iso(row[7]), "author_name": row[8], "author_avatar": row[9] or "",
+                "author_username": row[10] or "", "likes": int(row[11] or 0),
+                "liked": bool(row[12]), "comments": int(row[13] or 0),
+                "media_urls": _json_list(row[14]) or ([row[3]] if row[3] else []),
+                "author_likes": int(row[15] or 0), "is_own": bool(telegram_id and int(row[1]) == telegram_id),
+            } for row in rows]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.delete("/api/public/community/posts/{post_id}")
@@ -7046,18 +7074,25 @@ async def public_community_delete_post(post_id: int, request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM community_posts WHERE id = %s AND telegram_id = %s RETURNING id", (post_id, telegram_id))
-        if not cursor.fetchone():
-            return JSONResponse({"ok": False, "error": "post_not_found_or_forbidden"}, status_code=403)
-        conn.commit()
-        return {"ok": True}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM community_posts WHERE id = %s AND telegram_id = %s RETURNING id", (post_id, telegram_id))
+            if not cursor.fetchone():
+                return False
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+
+    deleted = await asyncio.to_thread(_sync)
+    if not deleted:
+        return JSONResponse({"ok": False, "error": "post_not_found_or_forbidden"}, status_code=403)
+    return {"ok": True}
 
 
 @app.post("/api/public/community/posts")
@@ -7074,57 +7109,65 @@ async def public_community_publish(request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT mode, prompt, response_text, image_url, images_json, thumbnails_json,
-                   thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model, id
-            FROM prostudio_messages WHERE id = ANY(%s) AND telegram_id = %s
-        """, (message_ids, telegram_id))
-        rows = cursor.fetchall()
-        rows.sort(key=lambda item: message_ids.index(int(item[13])))
-        if not rows:
-            return JSONResponse({"ok": False, "error": "generation_not_found"}, status_code=404)
-        row = rows[0]
-        mode, prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model, _ = row
-        images, thumbs = _json_list(images_json), _json_list(thumbnails_json)
-        videos, audios = _json_list(videos_json), _json_list(audios_json)
-        metadata = _json_obj(metadata_json)
-        kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
-        kind = "music" if kind == "audio" else kind
-        if kind not in {"image", "video"}:
-            return JSONResponse({"ok": False, "error": "unsupported_community_media"}, status_code=400)
-        media = (videos[0] if videos else video_url) or (audios[0] if audios else audio_url) or (images[0] if images else image_url) or ""
-        preview = (thumbs[0] if thumbs else thumb_url) or (images[0] if images else image_url) or ""
-        media_urls = []
-        for candidate in rows:
-            c_mode, _, _, c_image, c_images, _, _, c_video, c_videos, c_audio, c_audios, c_meta, _, _ = candidate
-            c_meta = _json_obj(c_meta)
-            c_kind = str(c_meta.get("type") or c_mode or "").lower()
-            if len(rows) > 1 and c_kind != "image":
-                return JSONResponse({"ok": False, "error": "multiple_media_requires_images"}, status_code=400)
-            c_url = ((_json_list(c_images) or [c_image])[0] if (_json_list(c_images) or c_image) else "") or ((_json_list(c_videos) or [c_video])[0] if (_json_list(c_videos) or c_video) else "") or ((_json_list(c_audios) or [c_audio])[0] if (_json_list(c_audios) or c_audio) else "")
-            if c_url:
-                media_urls.append(c_url)
-        caption = str(payload.get("caption") or "").strip()
-        if re.search(r"(?:https?://|www\.|t\.me/|@[A-Za-z0-9_]{4,})", caption, re.IGNORECASE):
-            return JSONResponse({"ok": False, "error": "external_links_forbidden"}, status_code=400)
-        body = caption[:360]
-        cursor.execute("""
-            INSERT INTO community_posts
-                (telegram_id, source_message_id, content_type, media_url, media_urls, preview_url, body, model)
-            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s)
-            ON CONFLICT (telegram_id, source_message_id) DO UPDATE SET body = EXCLUDED.body, media_urls = EXCLUDED.media_urls
-            RETURNING id
-        """, (telegram_id, message_id, kind, media, json.dumps(media_urls), preview, body, model or ""))
-        post_id = cursor.fetchone()[0]
-        conn.commit()
-        return {"ok": True, "post_id": post_id}
-    finally:
-        cursor.close()
-        conn.close()
+    caption = str(payload.get("caption") or "").strip()
+    if re.search(r"(?:https?://|www\.|t\.me/|@[A-Za-z0-9_]{4,})", caption, re.IGNORECASE):
+        return JSONResponse({"ok": False, "error": "external_links_forbidden"}, status_code=400)
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT mode, prompt, response_text, image_url, images_json, thumbnails_json,
+                       thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model, id
+                FROM prostudio_messages WHERE id = ANY(%s) AND telegram_id = %s
+            """, (message_ids, telegram_id))
+            rows = cursor.fetchall()
+            rows.sort(key=lambda item: message_ids.index(int(item[13])))
+            if not rows:
+                return {"error": ("generation_not_found", 404)}
+            row = rows[0]
+            mode, prompt, response_text, image_url, images_json, thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json, metadata_json, model, _ = row
+            images, thumbs = _json_list(images_json), _json_list(thumbnails_json)
+            videos, audios = _json_list(videos_json), _json_list(audios_json)
+            metadata = _json_obj(metadata_json)
+            kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
+            kind = "music" if kind == "audio" else kind
+            if kind not in {"image", "video"}:
+                return {"error": ("unsupported_community_media", 400)}
+            media = (videos[0] if videos else video_url) or (audios[0] if audios else audio_url) or (images[0] if images else image_url) or ""
+            preview = (thumbs[0] if thumbs else thumb_url) or (images[0] if images else image_url) or ""
+            media_urls = []
+            for candidate in rows:
+                c_mode, _, _, c_image, c_images, _, _, c_video, c_videos, c_audio, c_audios, c_meta, _, _ = candidate
+                c_meta = _json_obj(c_meta)
+                c_kind = str(c_meta.get("type") or c_mode or "").lower()
+                if len(rows) > 1 and c_kind != "image":
+                    return {"error": ("multiple_media_requires_images", 400)}
+                c_url = ((_json_list(c_images) or [c_image])[0] if (_json_list(c_images) or c_image) else "") or ((_json_list(c_videos) or [c_video])[0] if (_json_list(c_videos) or c_video) else "") or ((_json_list(c_audios) or [c_audio])[0] if (_json_list(c_audios) or c_audio) else "")
+                if c_url:
+                    media_urls.append(c_url)
+            body = caption[:360]
+            cursor.execute("""
+                INSERT INTO community_posts
+                    (telegram_id, source_message_id, content_type, media_url, media_urls, preview_url, body, model)
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+                ON CONFLICT (telegram_id, source_message_id) DO UPDATE SET body = EXCLUDED.body, media_urls = EXCLUDED.media_urls
+                RETURNING id
+            """, (telegram_id, message_id, kind, media, json.dumps(media_urls), preview, body, model or ""))
+            post_id = cursor.fetchone()[0]
+            conn.commit()
+            return {"post_id": post_id}
+        finally:
+            cursor.close()
+            conn.close()
+
+    outcome = await asyncio.to_thread(_sync)
+    if "error" in outcome:
+        error_code, status = outcome["error"]
+        return JSONResponse({"ok": False, "error": error_code}, status_code=status)
+    return {"ok": True, "post_id": outcome["post_id"]}
 
 
 @app.post("/api/public/community/posts/{post_id}/like")
@@ -7138,54 +7181,64 @@ async def public_community_like(post_id: int, request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM community_likes WHERE post_id = %s AND telegram_id = %s RETURNING post_id", (post_id, telegram_id))
-        liked = not bool(cursor.fetchone())
-        if liked:
-            cursor.execute("INSERT INTO community_likes (post_id, telegram_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (post_id, telegram_id))
-            cursor.execute("""INSERT INTO community_notifications (telegram_id, actor_id, kind, post_id, body)
-                SELECT telegram_id, %s, 'like', id, 'поставил(а) отметку «Нравится»'
-                FROM community_posts WHERE id = %s AND telegram_id <> %s""", (telegram_id, post_id, telegram_id))
-        conn.commit()
-        return {"ok": True, "liked": liked}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM community_likes WHERE post_id = %s AND telegram_id = %s RETURNING post_id", (post_id, telegram_id))
+            liked = not bool(cursor.fetchone())
+            if liked:
+                cursor.execute("INSERT INTO community_likes (post_id, telegram_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (post_id, telegram_id))
+                cursor.execute("""INSERT INTO community_notifications (telegram_id, actor_id, kind, post_id, body)
+                    SELECT telegram_id, %s, 'like', id, 'поставил(а) отметку «Нравится»'
+                    FROM community_posts WHERE id = %s AND telegram_id <> %s""", (telegram_id, post_id, telegram_id))
+            conn.commit()
+            return liked
+        finally:
+            cursor.close()
+            conn.close()
+
+    liked = await asyncio.to_thread(_sync)
+    return {"ok": True, "liked": liked}
 
 
 @app.get("/api/public/community/posts/{post_id}/comments")
 async def public_community_comments(post_id: int, telegram_id: int = 0):
     if not DATABASE_URL:
         return {"ok": True, "items": []}
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT c.id, c.telegram_id, c.body, c.created_at,
-                   COALESCE(up.display_name, u.first_name, 'SYLVEX User'), COALESCE(up.custom_avatar_url, ''),
-                   c.parent_comment_id, c.edited_at, COUNT(DISTINCT cl.telegram_id),
-                   BOOL_OR(cl.telegram_id = %s),
-                   COALESCE(parent_up.display_name, parent_u.first_name, '')
-            FROM community_comments c
-            LEFT JOIN users u ON u.telegram_id = c.telegram_id
-            LEFT JOIN user_profiles up ON up.telegram_id = c.telegram_id
-            LEFT JOIN community_comment_likes cl ON cl.comment_id = c.id
-            LEFT JOIN community_comments parent ON parent.id = c.parent_comment_id
-            LEFT JOIN users parent_u ON parent_u.telegram_id = parent.telegram_id
-            LEFT JOIN user_profiles parent_up ON parent_up.telegram_id = parent.telegram_id
-            WHERE c.post_id = %s
-            GROUP BY c.id, up.display_name, up.custom_avatar_url, u.first_name,
-                     parent_up.display_name, parent_u.first_name
-            ORDER BY c.created_at ASC LIMIT 100
-        """, (telegram_id, post_id))
-        return {"ok": True, "items": [{"id": r[0], "author_id": r[1], "body": r[2], "created_at": _to_iso(r[3]), "author_name": r[4], "author_avatar": r[5], "parent_comment_id": r[6], "edited_at": _to_iso(r[7]), "likes": int(r[8] or 0), "liked": bool(r[9]), "reply_to_name": r[10] or "", "is_own": bool(telegram_id and int(r[1]) == telegram_id)} for r in cursor.fetchall()]}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT c.id, c.telegram_id, c.body, c.created_at,
+                       COALESCE(up.display_name, u.first_name, 'SYLVEX User'), COALESCE(up.custom_avatar_url, ''),
+                       c.parent_comment_id, c.edited_at, COUNT(DISTINCT cl.telegram_id),
+                       BOOL_OR(cl.telegram_id = %s),
+                       COALESCE(parent_up.display_name, parent_u.first_name, '')
+                FROM community_comments c
+                LEFT JOIN users u ON u.telegram_id = c.telegram_id
+                LEFT JOIN user_profiles up ON up.telegram_id = c.telegram_id
+                LEFT JOIN community_comment_likes cl ON cl.comment_id = c.id
+                LEFT JOIN community_comments parent ON parent.id = c.parent_comment_id
+                LEFT JOIN users parent_u ON parent_u.telegram_id = parent.telegram_id
+                LEFT JOIN user_profiles parent_up ON parent_up.telegram_id = parent.telegram_id
+                WHERE c.post_id = %s
+                GROUP BY c.id, up.display_name, up.custom_avatar_url, u.first_name,
+                         parent_up.display_name, parent_u.first_name
+                ORDER BY c.created_at ASC LIMIT 100
+            """, (telegram_id, post_id))
+            return [{"id": r[0], "author_id": r[1], "body": r[2], "created_at": _to_iso(r[3]), "author_name": r[4], "author_avatar": r[5], "parent_comment_id": r[6], "edited_at": _to_iso(r[7]), "likes": int(r[8] or 0), "liked": bool(r[9]), "reply_to_name": r[10] or "", "is_own": bool(telegram_id and int(r[1]) == telegram_id)} for r in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/public/community/posts/{post_id}/comments")
@@ -7201,24 +7254,31 @@ async def public_community_comment(post_id: int, request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        if parent_comment_id:
-            cursor.execute("SELECT 1 FROM community_comments WHERE id = %s AND post_id = %s", (parent_comment_id, post_id))
-            if not cursor.fetchone():
-                return JSONResponse({"ok": False, "error": "parent_comment_not_found"}, status_code=404)
-        cursor.execute("INSERT INTO community_comments (post_id, telegram_id, body, parent_comment_id) VALUES (%s, %s, %s, %s) RETURNING id", (post_id, telegram_id, body, parent_comment_id))
-        comment_id = cursor.fetchone()[0]
-        cursor.execute("""INSERT INTO community_notifications (telegram_id, actor_id, kind, post_id, comment_id, body)
-            SELECT telegram_id, %s, 'comment', id, %s, %s FROM community_posts
-            WHERE id = %s AND telegram_id <> %s""", (telegram_id, comment_id, body[:160], post_id, telegram_id))
-        conn.commit()
-        return {"ok": True, "comment_id": comment_id}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            if parent_comment_id:
+                cursor.execute("SELECT 1 FROM community_comments WHERE id = %s AND post_id = %s", (parent_comment_id, post_id))
+                if not cursor.fetchone():
+                    return {"error": "parent_comment_not_found"}
+            cursor.execute("INSERT INTO community_comments (post_id, telegram_id, body, parent_comment_id) VALUES (%s, %s, %s, %s) RETURNING id", (post_id, telegram_id, body, parent_comment_id))
+            comment_id = cursor.fetchone()[0]
+            cursor.execute("""INSERT INTO community_notifications (telegram_id, actor_id, kind, post_id, comment_id, body)
+                SELECT telegram_id, %s, 'comment', id, %s, %s FROM community_posts
+                WHERE id = %s AND telegram_id <> %s""", (telegram_id, comment_id, body[:160], post_id, telegram_id))
+            conn.commit()
+            return {"comment_id": comment_id}
+        finally:
+            cursor.close()
+            conn.close()
+
+    outcome = await asyncio.to_thread(_sync)
+    if "error" in outcome:
+        return JSONResponse({"ok": False, "error": outcome["error"]}, status_code=404)
+    return {"ok": True, "comment_id": outcome["comment_id"]}
 
 
 @app.patch("/api/public/community/comments/{comment_id}")
@@ -7233,18 +7293,25 @@ async def public_community_edit_comment(comment_id: int, request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("UPDATE community_comments SET body = %s, edited_at = NOW() WHERE id = %s AND telegram_id = %s RETURNING id", (body, comment_id, telegram_id))
-        if not cursor.fetchone():
-            return JSONResponse({"ok": False, "error": "comment_not_found_or_forbidden"}, status_code=403)
-        conn.commit()
-        return {"ok": True}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE community_comments SET body = %s, edited_at = NOW() WHERE id = %s AND telegram_id = %s RETURNING id", (body, comment_id, telegram_id))
+            if not cursor.fetchone():
+                return False
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+
+    updated = await asyncio.to_thread(_sync)
+    if not updated:
+        return JSONResponse({"ok": False, "error": "comment_not_found_or_forbidden"}, status_code=403)
+    return {"ok": True}
 
 
 @app.delete("/api/public/community/comments/{comment_id}")
@@ -7258,18 +7325,25 @@ async def public_community_delete_comment(comment_id: int, request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM community_comments WHERE id = %s AND telegram_id = %s RETURNING post_id", (comment_id, telegram_id))
-        if not cursor.fetchone():
-            return JSONResponse({"ok": False, "error": "comment_not_found_or_forbidden"}, status_code=403)
-        conn.commit()
-        return {"ok": True}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM community_comments WHERE id = %s AND telegram_id = %s RETURNING post_id", (comment_id, telegram_id))
+            if not cursor.fetchone():
+                return False
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+
+    deleted = await asyncio.to_thread(_sync)
+    if not deleted:
+        return JSONResponse({"ok": False, "error": "comment_not_found_or_forbidden"}, status_code=403)
+    return {"ok": True}
 
 
 @app.post("/api/public/community/comments/{comment_id}/like")
@@ -7283,58 +7357,67 @@ async def public_community_comment_like(comment_id: int, request: Request):
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
             return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM community_comment_likes WHERE comment_id = %s AND telegram_id = %s RETURNING comment_id", (comment_id, telegram_id))
-        liked = not bool(cursor.fetchone())
-        if liked:
-            cursor.execute("INSERT INTO community_comment_likes (comment_id, telegram_id) SELECT id, %s FROM community_comments WHERE id = %s ON CONFLICT DO NOTHING", (telegram_id, comment_id))
-        conn.commit()
-        return {"ok": True, "liked": liked}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM community_comment_likes WHERE comment_id = %s AND telegram_id = %s RETURNING comment_id", (comment_id, telegram_id))
+            liked = not bool(cursor.fetchone())
+            if liked:
+                cursor.execute("INSERT INTO community_comment_likes (comment_id, telegram_id) SELECT id, %s FROM community_comments WHERE id = %s ON CONFLICT DO NOTHING", (telegram_id, comment_id))
+            conn.commit()
+            return liked
+        finally:
+            cursor.close()
+            conn.close()
+
+    liked = await asyncio.to_thread(_sync)
+    return {"ok": True, "liked": liked}
 
 
 @app.get("/api/public/community/hub")
 async def public_community_hub(telegram_id: int = 0):
     if not telegram_id or not DATABASE_URL:
         return {"ok": True, "friends": [], "requests": [], "conversations": []}
-    ensure_community_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END AS person_id,
-                   f.status, f.requester_id,
-                   COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,''), COALESCE(u.username,'')
-            FROM community_friendships f
-            LEFT JOIN users u ON u.telegram_id=CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END
-            LEFT JOIN user_profiles up ON up.telegram_id=CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END
-            WHERE f.requester_id=%s OR f.addressee_id=%s ORDER BY f.updated_at DESC
-        """, (telegram_id, telegram_id, telegram_id, telegram_id, telegram_id))
-        relations = [{"id":r[0],"status":r[1],"incoming":r[1]=='pending' and int(r[2])!=telegram_id,"name":r[3],"avatar":r[4],"username":r[5]} for r in cursor.fetchall()]
-        cursor.execute("""
-            SELECT m.person_id, m.created_at, m.body,
-                   COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,'')
-            FROM (
-                SELECT DISTINCT ON (person_id) person_id, created_at, body
+
+    def _sync():
+        ensure_community_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END AS person_id,
+                       f.status, f.requester_id,
+                       COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,''), COALESCE(u.username,'')
+                FROM community_friendships f
+                LEFT JOIN users u ON u.telegram_id=CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END
+                LEFT JOIN user_profiles up ON up.telegram_id=CASE WHEN f.requester_id=%s THEN f.addressee_id ELSE f.requester_id END
+                WHERE f.requester_id=%s OR f.addressee_id=%s ORDER BY f.updated_at DESC
+            """, (telegram_id, telegram_id, telegram_id, telegram_id, telegram_id))
+            relations = [{"id":r[0],"status":r[1],"incoming":r[1]=='pending' and int(r[2])!=telegram_id,"name":r[3],"avatar":r[4],"username":r[5]} for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT m.person_id, m.created_at, m.body,
+                       COALESCE(up.display_name,u.first_name,'SYLVEX User'), COALESCE(up.custom_avatar_url,'')
                 FROM (
-                    SELECT CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END AS person_id, created_at, body
-                    FROM community_messages WHERE sender_id=%s OR recipient_id=%s
-                ) pairs
-                ORDER BY person_id, created_at DESC
-            ) m
-            LEFT JOIN users u ON u.telegram_id=m.person_id
-            LEFT JOIN user_profiles up ON up.telegram_id=m.person_id
-            ORDER BY m.created_at DESC LIMIT 50
-        """, (telegram_id, telegram_id, telegram_id))
-        conversations = [{"id":r[0],"created_at":_to_iso(r[1]),"last_message":r[2] or '',"name":('Общий чат' if int(r[0])==0 else r[3]),"avatar":r[4] or ''} for r in cursor.fetchall()]
-        return {"ok":True,"friends":[r for r in relations if r['status']=='accepted'],"requests":[r for r in relations if r['status']=='pending'],"conversations":conversations}
-    finally:
-        cursor.close(); conn.close()
+                    SELECT DISTINCT ON (person_id) person_id, created_at, body
+                    FROM (
+                        SELECT CASE WHEN sender_id=%s THEN recipient_id ELSE sender_id END AS person_id, created_at, body
+                        FROM community_messages WHERE sender_id=%s OR recipient_id=%s
+                    ) pairs
+                    ORDER BY person_id, created_at DESC
+                ) m
+                LEFT JOIN users u ON u.telegram_id=m.person_id
+                LEFT JOIN user_profiles up ON up.telegram_id=m.person_id
+                ORDER BY m.created_at DESC LIMIT 50
+            """, (telegram_id, telegram_id, telegram_id))
+            conversations = [{"id":r[0],"created_at":_to_iso(r[1]),"last_message":r[2] or '',"name":('Общий чат' if int(r[0])==0 else r[3]),"avatar":r[4] or ''} for r in cursor.fetchall()]
+            return {"ok":True,"friends":[r for r in relations if r['status']=='accepted'],"requests":[r for r in relations if r['status']=='pending'],"conversations":conversations}
+        finally:
+            cursor.close(); conn.close()
+
+    return await asyncio.to_thread(_sync)
 
 
 @app.post("/api/public/community/friends/request")
@@ -7342,13 +7425,18 @@ async def public_community_friend_request(request: Request):
     payload = await request.json(); telegram_id=int(payload.get('telegram_id') or 0); target_id=int(payload.get('target_id') or 0)
     if not telegram_id or not target_id or telegram_id==target_id:
         return JSONResponse({"ok":False,"error":"invalid_request"},status_code=400)
-    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
-    try:
-        cursor.execute("""INSERT INTO community_friendships (requester_id,addressee_id,status) VALUES (%s,%s,'pending')
-            ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='pending',updated_at=NOW()""",(telegram_id,target_id))
-        cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'friend_request','отправил(а) запрос в друзья')",(target_id,telegram_id))
-        conn.commit(); return {"ok":True}
-    finally: cursor.close(); conn.close()
+
+    def _sync():
+        ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+        try:
+            cursor.execute("""INSERT INTO community_friendships (requester_id,addressee_id,status) VALUES (%s,%s,'pending')
+                ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='pending',updated_at=NOW()""",(telegram_id,target_id))
+            cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'friend_request','отправил(а) запрос в друзья')",(target_id,telegram_id))
+            conn.commit()
+        finally: cursor.close(); conn.close()
+
+    await asyncio.to_thread(_sync)
+    return {"ok":True}
 
 
 @app.patch("/api/public/community/friends/{other_id}")
@@ -7356,72 +7444,100 @@ async def public_community_friend_action(other_id: int, request: Request):
     payload=await request.json(); telegram_id=int(payload.get('telegram_id') or 0); action=str(payload.get('action') or '')
     if not telegram_id or action not in {'accept','decline','remove'}:
         return JSONResponse({"ok":False,"error":"invalid_request"},status_code=400)
-    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
-    try:
-        if action=='accept':
-            cursor.execute("UPDATE community_friendships SET status='accepted',updated_at=NOW() WHERE requester_id=%s AND addressee_id=%s RETURNING requester_id",(other_id,telegram_id))
-        else:
-            cursor.execute("DELETE FROM community_friendships WHERE (requester_id=%s AND addressee_id=%s) OR (requester_id=%s AND addressee_id=%s) RETURNING requester_id",(telegram_id,other_id,other_id,telegram_id))
-        if not cursor.fetchone(): return JSONResponse({"ok":False,"error":"relation_not_found"},status_code=404)
-        if action=='accept': cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'friend_accept','принял(а) запрос в друзья')",(other_id,telegram_id))
-        conn.commit(); return {"ok":True}
-    finally: cursor.close(); conn.close()
+
+    def _sync():
+        ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+        try:
+            if action=='accept':
+                cursor.execute("UPDATE community_friendships SET status='accepted',updated_at=NOW() WHERE requester_id=%s AND addressee_id=%s RETURNING requester_id",(other_id,telegram_id))
+            else:
+                cursor.execute("DELETE FROM community_friendships WHERE (requester_id=%s AND addressee_id=%s) OR (requester_id=%s AND addressee_id=%s) RETURNING requester_id",(telegram_id,other_id,other_id,telegram_id))
+            if not cursor.fetchone(): return False
+            if action=='accept': cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'friend_accept','принял(а) запрос в друзья')",(other_id,telegram_id))
+            conn.commit()
+            return True
+        finally: cursor.close(); conn.close()
+
+    found = await asyncio.to_thread(_sync)
+    if not found:
+        return JSONResponse({"ok":False,"error":"relation_not_found"},status_code=404)
+    return {"ok":True}
 
 
 @app.get("/api/public/community/messages/{other_id}")
 async def public_community_messages(other_id: int, telegram_id: int = 0, limit: int = 100):
     if not telegram_id: return {"ok":True,"items":[]}
-    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
-    try:
-        if other_id==0:
-            cursor.execute("""SELECT m.id,m.sender_id,m.recipient_id,m.body,m.created_at,COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
-                FROM community_messages m LEFT JOIN users u ON u.telegram_id=m.sender_id LEFT JOIN user_profiles up ON up.telegram_id=m.sender_id
-                WHERE m.recipient_id=0 ORDER BY m.created_at DESC LIMIT %s""",(max(1,min(limit,100)),))
-        else:
-            cursor.execute("""SELECT m.id,m.sender_id,m.recipient_id,m.body,m.created_at,COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
-                FROM community_messages m LEFT JOIN users u ON u.telegram_id=m.sender_id LEFT JOIN user_profiles up ON up.telegram_id=m.sender_id
-                WHERE (m.sender_id=%s AND m.recipient_id=%s) OR (m.sender_id=%s AND m.recipient_id=%s) ORDER BY m.created_at DESC LIMIT %s""",(telegram_id,other_id,other_id,telegram_id,max(1,min(limit,100))))
-            rows=cursor.fetchall()
-            cursor.execute("UPDATE community_messages SET read_at=NOW() WHERE sender_id=%s AND recipient_id=%s AND read_at IS NULL",(other_id,telegram_id))
-        if other_id==0: rows=cursor.fetchall()
-        conn.commit(); rows.reverse()
-        return {"ok":True,"items":[{"id":r[0],"sender_id":r[1],"recipient_id":r[2],"body":r[3],"created_at":_to_iso(r[4]),"author_name":r[5],"author_avatar":r[6],"is_own":int(r[1])==telegram_id} for r in rows]}
-    finally: cursor.close(); conn.close()
+
+    def _sync():
+        ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+        try:
+            if other_id==0:
+                cursor.execute("""SELECT m.id,m.sender_id,m.recipient_id,m.body,m.created_at,COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
+                    FROM community_messages m LEFT JOIN users u ON u.telegram_id=m.sender_id LEFT JOIN user_profiles up ON up.telegram_id=m.sender_id
+                    WHERE m.recipient_id=0 ORDER BY m.created_at DESC LIMIT %s""",(max(1,min(limit,100)),))
+            else:
+                cursor.execute("""SELECT m.id,m.sender_id,m.recipient_id,m.body,m.created_at,COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
+                    FROM community_messages m LEFT JOIN users u ON u.telegram_id=m.sender_id LEFT JOIN user_profiles up ON up.telegram_id=m.sender_id
+                    WHERE (m.sender_id=%s AND m.recipient_id=%s) OR (m.sender_id=%s AND m.recipient_id=%s) ORDER BY m.created_at DESC LIMIT %s""",(telegram_id,other_id,other_id,telegram_id,max(1,min(limit,100))))
+                rows=cursor.fetchall()
+                cursor.execute("UPDATE community_messages SET read_at=NOW() WHERE sender_id=%s AND recipient_id=%s AND read_at IS NULL",(other_id,telegram_id))
+            if other_id==0: rows=cursor.fetchall()
+            conn.commit(); rows.reverse()
+            return [{"id":r[0],"sender_id":r[1],"recipient_id":r[2],"body":r[3],"created_at":_to_iso(r[4]),"author_name":r[5],"author_avatar":r[6],"is_own":int(r[1])==telegram_id} for r in rows]
+        finally: cursor.close(); conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok":True,"items":items}
 
 
 @app.post("/api/public/community/messages")
 async def public_community_send_message(request: Request):
     payload=await request.json(); telegram_id=int(payload.get('telegram_id') or 0); recipient_id=int(payload.get('recipient_id') or 0); body=str(payload.get('body') or '').strip()[:2000]
     if not telegram_id or not body: return JSONResponse({"ok":False,"error":"invalid_message"},status_code=400)
-    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
-    try:
-        cursor.execute("INSERT INTO community_messages (sender_id,recipient_id,body) VALUES (%s,%s,%s) RETURNING id",(telegram_id,recipient_id,body)); message_id=cursor.fetchone()[0]
-        if recipient_id: cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'message',%s)",(recipient_id,telegram_id,body[:160]))
-        conn.commit(); return {"ok":True,"message_id":message_id}
-    finally: cursor.close(); conn.close()
+
+    def _sync():
+        ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+        try:
+            cursor.execute("INSERT INTO community_messages (sender_id,recipient_id,body) VALUES (%s,%s,%s) RETURNING id",(telegram_id,recipient_id,body)); message_id=cursor.fetchone()[0]
+            if recipient_id: cursor.execute("INSERT INTO community_notifications (telegram_id,actor_id,kind,body) VALUES (%s,%s,'message',%s)",(recipient_id,telegram_id,body[:160]))
+            conn.commit()
+            return message_id
+        finally: cursor.close(); conn.close()
+
+    message_id = await asyncio.to_thread(_sync)
+    return {"ok":True,"message_id":message_id}
 
 
 @app.get("/api/public/community/notifications")
 async def public_community_notifications(telegram_id: int = 0, limit: int = 80):
     if not telegram_id: return {"ok":True,"items":[],"unread":0}
-    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
-    try:
-        cursor.execute("""SELECT n.id,n.kind,n.post_id,n.comment_id,n.body,n.read_at,n.created_at,n.actor_id,
-                   COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
-            FROM community_notifications n LEFT JOIN users u ON u.telegram_id=n.actor_id LEFT JOIN user_profiles up ON up.telegram_id=n.actor_id
-            WHERE n.telegram_id=%s ORDER BY n.created_at DESC LIMIT %s""",(telegram_id,max(1,min(limit,100))))
-        items=[{"id":r[0],"kind":r[1],"post_id":r[2],"comment_id":r[3],"body":r[4] or '',"read":bool(r[5]),"created_at":_to_iso(r[6]),"actor_id":r[7],"actor_name":r[8],"actor_avatar":r[9]} for r in cursor.fetchall()]
-        return {"ok":True,"items":items,"unread":sum(1 for item in items if not item['read'])}
-    finally: cursor.close(); conn.close()
+
+    def _sync():
+        ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+        try:
+            cursor.execute("""SELECT n.id,n.kind,n.post_id,n.comment_id,n.body,n.read_at,n.created_at,n.actor_id,
+                       COALESCE(up.display_name,u.first_name,'SYLVEX User'),COALESCE(up.custom_avatar_url,'')
+                FROM community_notifications n LEFT JOIN users u ON u.telegram_id=n.actor_id LEFT JOIN user_profiles up ON up.telegram_id=n.actor_id
+                WHERE n.telegram_id=%s ORDER BY n.created_at DESC LIMIT %s""",(telegram_id,max(1,min(limit,100))))
+            return [{"id":r[0],"kind":r[1],"post_id":r[2],"comment_id":r[3],"body":r[4] or '',"read":bool(r[5]),"created_at":_to_iso(r[6]),"actor_id":r[7],"actor_name":r[8],"actor_avatar":r[9]} for r in cursor.fetchall()]
+        finally: cursor.close(); conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok":True,"items":items,"unread":sum(1 for item in items if not item['read'])}
 
 
 @app.post("/api/public/community/notifications/read")
 async def public_community_notifications_read(request: Request):
     payload=await request.json(); telegram_id=int(payload.get('telegram_id') or 0)
     if not telegram_id: return JSONResponse({"ok":False,"error":"telegram_id_required"},status_code=400)
-    ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
-    try: cursor.execute("UPDATE community_notifications SET read_at=NOW() WHERE telegram_id=%s AND read_at IS NULL",(telegram_id,)); conn.commit(); return {"ok":True}
-    finally: cursor.close(); conn.close()
+
+    def _sync():
+        ensure_community_tables(); conn=db_connect(DATABASE_URL); cursor=conn.cursor()
+        try: cursor.execute("UPDATE community_notifications SET read_at=NOW() WHERE telegram_id=%s AND read_at IS NULL",(telegram_id,)); conn.commit()
+        finally: cursor.close(); conn.close()
+
+    await asyncio.to_thread(_sync)
+    return {"ok":True}
 
 # =====================================================
 # API ENDPOINT: public_prostudio_sync
@@ -7439,65 +7555,70 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
 
-    resources = load_prostudio_resources(telegram_id)
-    drafts = load_prostudio_drafts(telegram_id)
-    conversations = []
-    jobs = []
+    def _sync():
+        resources = load_prostudio_resources(telegram_id)
+        drafts = load_prostudio_drafts(telegram_id)
+        conversations = []
+        jobs = []
 
-    if DATABASE_URL:
-        try:
-            ensure_prostudio_table()
-            safe_limit = max(1, min(int(limit or 80), 200))
-            with db_connection(DATABASE_URL) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT
-                        conversation_id,
-                        COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
-                        MAX(created_at) AS updated_at,
-                        COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
-                        MIN(created_at) AS created_at
-                    FROM prostudio_messages
-                    WHERE telegram_id = %s
-                    GROUP BY conversation_id
-                    ORDER BY updated_at DESC
-                    LIMIT %s
-                """, (telegram_id, safe_limit))
-                for row in cursor.fetchall():
-                    conversations.append({
-                        "id": row[0],
-                        "title": (row[1] or "Chat")[:64],
-                        "updated_at": _to_iso(row[2]),
-                        "type": row[3] or "image",
-                        "created_at": _to_iso(row[4]),
-                    })
+        if DATABASE_URL:
+            try:
+                ensure_prostudio_table()
+                safe_limit = max(1, min(int(limit or 80), 200))
+                with db_connection(DATABASE_URL) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT
+                            conversation_id,
+                            COALESCE(NULLIF(MAX(prompt), ''), 'Chat') AS title,
+                            MAX(created_at) AS updated_at,
+                            COALESCE(NULLIF(MAX(mode), ''), 'image') AS type,
+                            MIN(created_at) AS created_at
+                        FROM prostudio_messages
+                        WHERE telegram_id = %s
+                        GROUP BY conversation_id
+                        ORDER BY updated_at DESC
+                        LIMIT %s
+                    """, (telegram_id, safe_limit))
+                    for row in cursor.fetchall():
+                        conversations.append({
+                            "id": row[0],
+                            "title": (row[1] or "Chat")[:64],
+                            "updated_at": _to_iso(row[2]),
+                            "type": row[3] or "image",
+                            "created_at": _to_iso(row[4]),
+                        })
 
-                cursor.execute("""
-                    SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
-                    FROM prostudio_generation_jobs
-                    WHERE telegram_id = %s
-                    ORDER BY updated_at DESC
-                    LIMIT %s
-                """, (telegram_id, safe_limit))
-                for row in cursor.fetchall():
-                    jobs.append({
-                        "id": row[0],
-                        "conversation_id": row[1],
-                        "mode": row[2],
-                        "model": row[3],
-                        "provider": row[4],
-                        "prompt": row[5],
-                        "status": row[6],
-                        "cost": row[7] or 0,
-                        "result": _json_obj(row[8]),
-                        "error": _public_error_json(_json_obj(row[9])),
-                        "created_at": _to_iso(row[10]),
-                        "updated_at": _to_iso(row[11]),
-                        "completed_at": _to_iso(row[12]),
-                    })
-                cursor.close()
-        except Exception as exc:
-            print("PROSTUDIO SYNC FAILED:", exc)
+                    cursor.execute("""
+                        SELECT id, conversation_id, mode, model, provider, prompt, status, cost, result_json, error_json, created_at, updated_at, completed_at
+                        FROM prostudio_generation_jobs
+                        WHERE telegram_id = %s
+                        ORDER BY updated_at DESC
+                        LIMIT %s
+                    """, (telegram_id, safe_limit))
+                    for row in cursor.fetchall():
+                        jobs.append({
+                            "id": row[0],
+                            "conversation_id": row[1],
+                            "mode": row[2],
+                            "model": row[3],
+                            "provider": row[4],
+                            "prompt": row[5],
+                            "status": row[6],
+                            "cost": row[7] or 0,
+                            "result": _json_obj(row[8]),
+                            "error": _public_error_json(_json_obj(row[9])),
+                            "created_at": _to_iso(row[10]),
+                            "updated_at": _to_iso(row[11]),
+                            "completed_at": _to_iso(row[12]),
+                        })
+                    cursor.close()
+            except Exception as exc:
+                print("PROSTUDIO SYNC FAILED:", exc)
+
+        return resources, drafts, conversations, jobs
+
+    resources, drafts, conversations, jobs = await asyncio.to_thread(_sync)
 
     return {
         "ok": True,
@@ -7900,7 +8021,8 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
         return JSONResponse({"ok": False, "error": "only_custom_resources_can_be_deleted"}, status_code=400)
     if not DATABASE_URL:
         return {"ok": True, "deleted": False, "resource_id": resource_id}
-    try:
+
+    def _sync():
         ensure_prostudio_table()
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
@@ -7912,6 +8034,10 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
             cursor.close()
         if deleted:
             log_user_event(telegram_id, "miniapp", "resource", "resource_deleted", {"id": resource_id})
+        return deleted
+
+    try:
+        deleted = await asyncio.to_thread(_sync)
         return {"ok": True, "deleted": deleted, "resource_id": resource_id}
     except Exception as exc:
         prostudio_error("RESOURCE_DELETE_FAILED", exc, resource_id=resource_id, telegram_id=telegram_id)
@@ -8026,7 +8152,7 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     jobs = []
     if DATABASE_URL:
-        try:
+        def _sync():
             ensure_prostudio_table()
             normalized = (mode or "").strip().lower()
             where_mode = "AND mode = %s" if normalized in {"image", "video", "music", "voice"} else ""
@@ -8034,6 +8160,7 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
             if where_mode:
                 params.append(normalized)
             params.append(max(1, min(int(limit or 50), 200)))
+            fetched = []
             with db_connection(DATABASE_URL) as conn:
                 cursor = conn.cursor()
                 cursor.execute(f"""
@@ -8045,7 +8172,7 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
                     LIMIT %s
                 """, tuple(params))
                 for row in cursor.fetchall():
-                    jobs.append({
+                    fetched.append({
                         "id": row[0],
                         "conversation_id": row[1],
                         "mode": row[2],
@@ -8061,6 +8188,10 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
                         "completed_at": _to_iso(row[12]),
                     })
                 cursor.close()
+            return fetched
+
+        try:
+            jobs = await asyncio.to_thread(_sync)
         except Exception as exc:
             print("PROSTUDIO JOB LIST FAILED:", exc)
     return {"ok": True, "jobs": jobs}
@@ -8113,7 +8244,7 @@ async def public_prostudio_report_error(request: Request):
     error_text = _clean(data.get("error_text"), 2000)
     raw_error = _clean(data.get("raw_error"), 4000)
 
-    try:
+    def _sync():
         ensure_prostudio_table()
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
@@ -8125,6 +8256,10 @@ async def public_prostudio_report_error(request: Request):
             """, (telegram_id, mode, provider, model, job_id, prompt, error_text, raw_error))
             report_id = cursor.fetchone()[0]
             cursor.close()
+        return report_id
+
+    try:
+        report_id = await asyncio.to_thread(_sync)
     except Exception as exc:
         prostudio_error("ERROR_REPORT_INSERT_FAILED", exc, telegram_id=telegram_id, job_id=job_id)
         return JSONResponse({"ok": False, "error": "report_failed"}, status_code=500)
@@ -8171,7 +8306,7 @@ async def public_prostudio_job(job_id: str):
             status_code=500,
         )
 
-    try:
+    def _fetch_job_row():
         ensure_prostudio_table()
 
         with db_connection(DATABASE_URL) as conn:
@@ -8192,6 +8327,10 @@ async def public_prostudio_job(job_id: str):
             row = cursor.fetchone()
 
             cursor.close()
+        return row
+
+    try:
+        row = await asyncio.to_thread(_fetch_job_row)
 
         if not row:
             return JSONResponse(
@@ -8432,238 +8571,264 @@ async def public_presence(request: Request):
     telegram_id = _telegram_id_from_init_data(str(payload.get("initData") or payload.get("init_data") or ""))
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_auth_required"}, status_code=403)
-    ensure_admin_tables()
     current_view = re.sub(r"[^a-z0-9_-]", "", str(payload.get("view") or "home").lower())[:40] or "home"
     platform = re.sub(r"[^a-z0-9_.-]", "", str(payload.get("platform") or "telegram").lower())[:40] or "telegram"
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            INSERT INTO app_presence (telegram_id,current_view,platform,last_seen)
-            VALUES (%s,%s,%s,NOW())
-            ON CONFLICT (telegram_id) DO UPDATE
-            SET current_view=EXCLUDED.current_view,platform=EXCLUDED.platform,last_seen=NOW()
-        """, (telegram_id, current_view, platform))
-        conn.commit()
-        return {"ok": True}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO app_presence (telegram_id,current_view,platform,last_seen)
+                VALUES (%s,%s,%s,NOW())
+                ON CONFLICT (telegram_id) DO UPDATE
+                SET current_view=EXCLUDED.current_view,platform=EXCLUDED.platform,last_seen=NOW()
+            """, (telegram_id, current_view, platform))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    await asyncio.to_thread(_sync)
+    return {"ok": True}
 
 
 @app.post("/api/admin/dashboard")
 async def admin_dashboard(request: Request):
-    actor = _admin_actor(await request.json(), request, "view_dashboard")
-    ensure_admin_tables()
-    ensure_payment_tables()
-    ensure_prostudio_table()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT COUNT(*), COALESCE(SUM(balance),0),
-                   COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
-            FROM users
-        """)
-        users_count, total_balance, new_users_today = cursor.fetchone()
-        cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
-        active_subscriptions = cursor.fetchone()[0]
-        cursor.execute("""
-            SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'),
-                   COUNT(*) FILTER (WHERE status='failed' AND created_at >= NOW() - INTERVAL '24 hours'),
-                   COUNT(*),
-                   COUNT(*) FILTER (WHERE status IN ('queued','processing','running'))
-            FROM prostudio_generation_jobs
-        """)
-        generations_today, failed_today, generations_total, active_jobs = cursor.fetchone()
-        cursor.execute("SELECT COUNT(*) FROM app_presence WHERE last_seen >= NOW() - INTERVAL '5 minutes'")
-        online_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM admin_users WHERE active = TRUE")
-        admins_count = cursor.fetchone()[0]
-        cursor.execute("""
-            SELECT COALESCE(NULLIF(mode,''),'unknown'), COUNT(*),
-                   COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')
-            FROM prostudio_generation_jobs GROUP BY 1 ORDER BY COUNT(*) DESC
-        """)
-        tools = [{"type": row[0], "total": int(row[1] or 0), "today": int(row[2] or 0)} for row in cursor.fetchall()]
-        cursor.execute("SELECT COUNT(DISTINCT telegram_id) FROM app_presence")
-        visited_count = cursor.fetchone()[0]
-        cursor.execute("""
-            SELECT COUNT(*) FILTER (WHERE status='completed') AS success_total,
-                   COUNT(*) FILTER (WHERE status='failed') AS failed_total
-            FROM prostudio_generation_jobs
-        """)
-        generations_success_total, generations_failed_total = cursor.fetchone()
-        cursor.execute("""
-            SELECT COUNT(*) FILTER (WHERE status='completed') AS purchases_count,
-                   COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) AS total_revenue,
-                   COALESCE(SUM(credits) FILTER (WHERE status='completed'),0) AS total_credits
-            FROM purchases
-        """)
-        purchases_count, total_revenue, total_credits_purchased = cursor.fetchone()
-        cursor.execute("SELECT COUNT(*) FROM subscriptions")
-        subscriptions_total = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM prostudio_error_reports")
-        error_reports_count = cursor.fetchone()[0]
-        cursor.execute("""
-            SELECT id, telegram_id, job_id, provider, model, status, error_text, created_at
-            FROM prostudio_errors ORDER BY created_at DESC LIMIT 8
-        """)
-        recent_errors = [{"id": row[0], "telegram_id": row[1], "job_id": row[2] or "", "provider": row[3] or "",
-                "model": row[4] or "", "status": row[5] or "", "error": str(row[6] or "")[:300],
-                "created_at": _to_iso(row[7])} for row in cursor.fetchall()]
-        return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
-                "visited": int(visited_count or 0),
-                "subscriptions": int(active_subscriptions or 0), "subscriptions_total": int(subscriptions_total or 0),
-                "generations_today": int(generations_today or 0),
-                "generations_total": int(generations_total or 0), "generations_success": int(generations_success_total or 0),
-                "generations_failed": int(generations_failed_total or 0), "failed_today": int(failed_today or 0),
-                "active_jobs": int(active_jobs or 0),
-                "purchases_total": int(purchases_count or 0), "revenue_total": int(total_revenue or 0),
-                "credits_purchased_total": int(total_credits_purchased or 0), "error_reports": int(error_reports_count or 0),
-                "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
-                "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": actor}
-    finally:
-        cursor.close()
-        conn.close()
+    payload = await request.json()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "view_dashboard")
+        ensure_admin_tables()
+        ensure_payment_tables()
+        ensure_prostudio_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(balance),0),
+                       COUNT(*) FILTER (WHERE NULLIF(created_at,'')::timestamp >= NOW() - INTERVAL '24 hours')
+                FROM users
+            """)
+            users_count, total_balance, new_users_today = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM subscriptions WHERE status='active' AND NULLIF(expires_at,'')::timestamp > NOW()")
+            active_subscriptions = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'),
+                       COUNT(*) FILTER (WHERE status='failed' AND created_at >= NOW() - INTERVAL '24 hours'),
+                       COUNT(*),
+                       COUNT(*) FILTER (WHERE status IN ('queued','processing','running'))
+                FROM prostudio_generation_jobs
+            """)
+            generations_today, failed_today, generations_total, active_jobs = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM app_presence WHERE last_seen >= NOW() - INTERVAL '5 minutes'")
+            online_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM admin_users WHERE active = TRUE")
+            admins_count = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT COALESCE(NULLIF(mode,''),'unknown'), COUNT(*),
+                       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')
+                FROM prostudio_generation_jobs GROUP BY 1 ORDER BY COUNT(*) DESC
+            """)
+            tools = [{"type": row[0], "total": int(row[1] or 0), "today": int(row[2] or 0)} for row in cursor.fetchall()]
+            cursor.execute("SELECT COUNT(DISTINCT telegram_id) FROM app_presence")
+            visited_count = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT COUNT(*) FILTER (WHERE status='completed') AS success_total,
+                       COUNT(*) FILTER (WHERE status='failed') AS failed_total
+                FROM prostudio_generation_jobs
+            """)
+            generations_success_total, generations_failed_total = cursor.fetchone()
+            cursor.execute("""
+                SELECT COUNT(*) FILTER (WHERE status='completed') AS purchases_count,
+                       COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) AS total_revenue,
+                       COALESCE(SUM(credits) FILTER (WHERE status='completed'),0) AS total_credits
+                FROM purchases
+            """)
+            purchases_count, total_revenue, total_credits_purchased = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM subscriptions")
+            subscriptions_total = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM prostudio_error_reports")
+            error_reports_count = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT id, telegram_id, job_id, provider, model, status, error_text, created_at
+                FROM prostudio_errors ORDER BY created_at DESC LIMIT 8
+            """)
+            recent_errors = [{"id": row[0], "telegram_id": row[1], "job_id": row[2] or "", "provider": row[3] or "",
+                    "model": row[4] or "", "status": row[5] or "", "error": str(row[6] or "")[:300],
+                    "created_at": _to_iso(row[7])} for row in cursor.fetchall()]
+            return {"ok": True, "stats": {"users": int(users_count or 0), "balance": int(total_balance or 0),
+                    "visited": int(visited_count or 0),
+                    "subscriptions": int(active_subscriptions or 0), "subscriptions_total": int(subscriptions_total or 0),
+                    "generations_today": int(generations_today or 0),
+                    "generations_total": int(generations_total or 0), "generations_success": int(generations_success_total or 0),
+                    "generations_failed": int(generations_failed_total or 0), "failed_today": int(failed_today or 0),
+                    "active_jobs": int(active_jobs or 0),
+                    "purchases_total": int(purchases_count or 0), "revenue_total": int(total_revenue or 0),
+                    "credits_purchased_total": int(total_credits_purchased or 0), "error_reports": int(error_reports_count or 0),
+                    "new_users_today": int(new_users_today or 0), "online": int(online_count or 0),
+                    "admins": int(admins_count or 0)}, "tools": tools, "recent_errors": recent_errors, "admin": actor}
+        finally:
+            cursor.close()
+            conn.close()
+
+    return await asyncio.to_thread(_sync)
 
 
 @app.post("/api/admin/users/search")
 async def admin_users_search(request: Request):
     payload = await request.json()
-    _admin_actor(payload, request, "view_users")
-    query = str(payload.get("query") or "").strip()[:100]
-    limit = max(1, min(int(payload.get("limit") or 30), 100))
-    pattern = f"%{query}%"
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User'),
-                   COALESCE(u.username, ''), COALESCE(u.balance, 0), COALESCE(u.subscription, 'free'),
-                   u.created_at,
-                   (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                    WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()),
-                   EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
-                          AND ap.last_seen >= NOW() - INTERVAL '5 minutes')
-            FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
-            WHERE %s = '' OR u.telegram_id::text ILIKE %s OR COALESCE(u.username,'') ILIKE %s
-                  OR COALESCE(p.display_name,u.first_name,'') ILIKE %s
-            ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s
-        """, (query, pattern, pattern, pattern, limit))
-        items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
-                  "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
-                  "online": bool(r[7])} for r in cursor.fetchall()]
-        return {"ok": True, "items": items}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_users")
+        query = str(payload.get("query") or "").strip()[:100]
+        limit = max(1, min(int(payload.get("limit") or 30), 100))
+        pattern = f"%{query}%"
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT u.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User'),
+                       COALESCE(u.username, ''), COALESCE(u.balance, 0), COALESCE(u.subscription, 'free'),
+                       u.created_at,
+                       (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()),
+                       EXISTS(SELECT 1 FROM app_presence ap WHERE ap.telegram_id=u.telegram_id
+                              AND ap.last_seen >= NOW() - INTERVAL '5 minutes')
+                FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
+                WHERE %s = '' OR u.telegram_id::text ILIKE %s OR COALESCE(u.username,'') ILIKE %s
+                      OR COALESCE(p.display_name,u.first_name,'') ILIKE %s
+                ORDER BY NULLIF(u.created_at,'')::timestamp DESC NULLS LAST LIMIT %s
+            """, (query, pattern, pattern, pattern, limit))
+            return [{"telegram_id": r[0], "name": r[1], "username": r[2], "balance": int(r[3] or 0),
+                      "subscription": r[4], "created_at": _to_iso(r[5]), "subscription_until": _to_iso(r[6]),
+                      "online": bool(r[7])} for r in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/users/balance")
 async def admin_user_balance(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "manage_balance")
-    ensure_admin_tables()
-    target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
-    reason = str(payload.get("reason") or "Ручная корректировка")[:500]
-    if not target_id or not delta or abs(delta) > 1000000:
-        raise HTTPException(status_code=400, detail="invalid_balance_change")
-    ensure_user_exists(target_id)
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT COALESCE(balance,0) FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
-        before = int(cursor.fetchone()[0] or 0)
-        after = max(0, before + delta)
-        cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
-        _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before}, {"balance": after}, reason)
-        conn.commit()
-        return {"ok": True, "balance": after}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "manage_balance")
+        ensure_admin_tables()
+        target_id, delta = int(payload.get("user_id") or 0), int(payload.get("delta") or 0)
+        reason = str(payload.get("reason") or "Ручная корректировка")[:500]
+        if not target_id or not delta or abs(delta) > 1000000:
+            raise HTTPException(status_code=400, detail="invalid_balance_change")
+        ensure_user_exists(target_id)
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT COALESCE(balance,0) FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
+            before = int(cursor.fetchone()[0] or 0)
+            after = max(0, before + delta)
+            cursor.execute("UPDATE users SET balance=%s WHERE telegram_id=%s", (after, target_id))
+            _admin_audit(cursor, actor["telegram_id"], "balance_changed", target_id, {"balance": before}, {"balance": after}, reason)
+            conn.commit()
+            return after
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    after = await asyncio.to_thread(_sync)
+    return {"ok": True, "balance": after}
 
 
 @app.post("/api/admin/users/subscription")
 async def admin_user_subscription(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "manage_subscriptions")
-    ensure_admin_tables()
-    target_id = int(payload.get("user_id") or 0)
-    action = str(payload.get("action") or "extend")
-    days = max(1, min(int(payload.get("days") or 30), 730))
-    reason = str(payload.get("reason") or "Изменение администратором")[:500]
-    if not target_id or action not in {"extend", "cancel"}:
-        raise HTTPException(status_code=400, detail="invalid_subscription_change")
-    ensure_user_exists(target_id)
-    ensure_payment_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
-        before_plan = (cursor.fetchone() or [None])[0]
-        cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
-        before_expiry = (cursor.fetchone() or [None])[0]
-        if action == "cancel":
-            cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active'", (target_id,))
-            cursor.execute("UPDATE users SET subscription=NULL WHERE telegram_id=%s", (target_id,))
-            after = {"subscription": "free", "expires_at": None}
-        else:
-            plan = str(payload.get("plan") or ("year" if days >= 365 else "month"))[:40]
-            cursor.execute("""
-                INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, amount, currency,
-                                           starts_at, expires_at, status, charge_id)
-                VALUES (%s,%s,'admin',0,'CVX',NOW(),GREATEST(COALESCE(%s::timestamp,NOW()),NOW()) + (%s * INTERVAL '1 day'),
-                        'active',%s) RETURNING id, expires_at
-            """, (target_id, plan, before_expiry, days, f"admin:{actor['telegram_id']}:{uuid4()}"))
-            inserted_id, expires_at = cursor.fetchone()
-            cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active' AND id<>%s", (target_id, inserted_id))
-            cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
-            after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
-        _admin_audit(cursor, actor["telegram_id"], "subscription_changed", target_id,
-                     {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
-        conn.commit()
-        return {"ok": True, **after}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "manage_subscriptions")
+        ensure_admin_tables()
+        target_id = int(payload.get("user_id") or 0)
+        action = str(payload.get("action") or "extend")
+        days = max(1, min(int(payload.get("days") or 30), 730))
+        reason = str(payload.get("reason") or "Изменение администратором")[:500]
+        if not target_id or action not in {"extend", "cancel"}:
+            raise HTTPException(status_code=400, detail="invalid_subscription_change")
+        ensure_user_exists(target_id)
+        ensure_payment_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT subscription FROM users WHERE telegram_id=%s FOR UPDATE", (target_id,))
+            before_plan = (cursor.fetchone() or [None])[0]
+            cursor.execute("SELECT MAX(NULLIF(expires_at,'')::timestamp) FROM subscriptions WHERE telegram_id=%s AND status='active'", (target_id,))
+            before_expiry = (cursor.fetchone() or [None])[0]
+            if action == "cancel":
+                cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active'", (target_id,))
+                cursor.execute("UPDATE users SET subscription=NULL WHERE telegram_id=%s", (target_id,))
+                after = {"subscription": "free", "expires_at": None}
+            else:
+                plan = str(payload.get("plan") or ("year" if days >= 365 else "month"))[:40]
+                cursor.execute("""
+                    INSERT INTO subscriptions (telegram_id, subscription_type, payment_method, amount, currency,
+                                               starts_at, expires_at, status, charge_id)
+                    VALUES (%s,%s,'admin',0,'CVX',NOW(),GREATEST(COALESCE(%s::timestamp,NOW()),NOW()) + (%s * INTERVAL '1 day'),
+                            'active',%s) RETURNING id, expires_at
+                """, (target_id, plan, before_expiry, days, f"admin:{actor['telegram_id']}:{uuid4()}"))
+                inserted_id, expires_at = cursor.fetchone()
+                cursor.execute("UPDATE subscriptions SET status='cancelled' WHERE telegram_id=%s AND status='active' AND id<>%s", (target_id, inserted_id))
+                cursor.execute("UPDATE users SET subscription=%s WHERE telegram_id=%s", (plan, target_id))
+                after = {"subscription": plan, "expires_at": _to_iso(expires_at)}
+            _admin_audit(cursor, actor["telegram_id"], "subscription_changed", target_id,
+                         {"subscription": before_plan, "expires_at": _to_iso(before_expiry)}, after, reason)
+            conn.commit()
+            return after
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    after = await asyncio.to_thread(_sync)
+    return {"ok": True, **after}
 
 
 @app.post("/api/admin/users/message")
 async def admin_user_message(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "message_users")
-    ensure_admin_tables()
-    target_id = int(payload.get("user_id") or 0)
-    message = str(payload.get("message") or "").strip()
-    if not target_id or not message or len(message) > 4000:
-        raise HTTPException(status_code=400, detail="invalid_message")
-    if not BOT_TOKEN:
-        raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
-    def send_message():
-        return requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                             json={"chat_id": target_id, "text": message}, timeout=20)
-    response = await asyncio.to_thread(send_message)
-    result = response.json() if response.content else {}
-    sent = response.status_code < 400 and bool(result.get("ok"))
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
-                       (actor["telegram_id"], target_id, message, sent))
-        _admin_audit(cursor, actor["telegram_id"], "message_sent" if sent else "message_failed", target_id,
-                     {}, {"length": len(message), "sent": sent}, "")
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "message_users")
+        ensure_admin_tables()
+        target_id = int(payload.get("user_id") or 0)
+        message = str(payload.get("message") or "").strip()
+        if not target_id or not message or len(message) > 4000:
+            raise HTTPException(status_code=400, detail="invalid_message")
+        if not BOT_TOKEN:
+            raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+        response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                                 json={"chat_id": target_id, "text": message}, timeout=20)
+        result = response.json() if response.content else {}
+        sent = response.status_code < 400 and bool(result.get("ok"))
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
+                           (actor["telegram_id"], target_id, message, sent))
+            _admin_audit(cursor, actor["telegram_id"], "message_sent" if sent else "message_failed", target_id,
+                         {}, {"length": len(message), "sent": sent}, "")
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+        return sent
+
+    sent = await asyncio.to_thread(_sync)
     if not sent:
         raise HTTPException(status_code=502, detail="telegram_send_failed")
     return {"ok": True}
@@ -8672,92 +8837,111 @@ async def admin_user_message(request: Request):
 @app.post("/api/admin/admins/list")
 async def admin_list(request: Request):
     payload = await request.json()
-    _admin_actor(payload, request, owner_only=True)
-    ensure_admin_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT telegram_id,role,permissions,active,granted_by,created_at FROM admin_users ORDER BY role='owner' DESC,created_at")
-        return {"ok": True, "items": [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
-                "granted_by":r[4],"created_at":_to_iso(r[5])} for r in cursor.fetchall()]}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, owner_only=True)
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT telegram_id,role,permissions,active,granted_by,created_at FROM admin_users ORDER BY role='owner' DESC,created_at")
+            return [{"telegram_id":r[0],"role":r[1],"permissions":r[2] or [],"active":bool(r[3]),
+                    "granted_by":r[4],"created_at":_to_iso(r[5])} for r in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/admins/set")
 async def admin_set(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, owner_only=True)
-    ensure_admin_tables()
-    target_id = int(payload.get("user_id") or 0)
-    active = bool(payload.get("active", True))
-    permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
-    allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users",
-               "view_audit", "view_errors", "view_generations", "view_finance", "manage_references"}
-    permissions = [p for p in permissions if p in allowed]
-    if not target_id or target_id == SUPERADMIN_TELEGRAM_ID:
-        raise HTTPException(status_code=400, detail="invalid_admin_target")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT role,permissions,active FROM admin_users WHERE telegram_id=%s", (target_id,))
-        before_row = cursor.fetchone()
-        cursor.execute("""
-            INSERT INTO admin_users (telegram_id,role,permissions,active,granted_by,updated_at)
-            VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
-            ON CONFLICT (telegram_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
-                active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
-        """, (target_id, json.dumps(permissions), active, actor["telegram_id"]))
-        _admin_audit(cursor, actor["telegram_id"], "admin_access_changed", target_id,
-                     {"role": before_row[0], "permissions": before_row[1], "active": before_row[2]} if before_row else {},
-                     {"role": "admin", "permissions": permissions, "active": active}, "")
-        conn.commit()
-        return {"ok": True}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, owner_only=True)
+        ensure_admin_tables()
+        target_id = int(payload.get("user_id") or 0)
+        active = bool(payload.get("active", True))
+        permissions = payload.get("permissions") or ["view_dashboard", "view_users", "message_users"]
+        allowed = {"view_dashboard", "view_users", "manage_balance", "manage_subscriptions", "message_users",
+                   "view_audit", "view_errors", "view_generations", "view_finance", "manage_references"}
+        permissions = [p for p in permissions if p in allowed]
+        if not target_id or target_id == SUPERADMIN_TELEGRAM_ID:
+            raise HTTPException(status_code=400, detail="invalid_admin_target")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT role,permissions,active FROM admin_users WHERE telegram_id=%s", (target_id,))
+            before_row = cursor.fetchone()
+            cursor.execute("""
+                INSERT INTO admin_users (telegram_id,role,permissions,active,granted_by,updated_at)
+                VALUES (%s,'admin',%s::jsonb,%s,%s,NOW())
+                ON CONFLICT (telegram_id) DO UPDATE SET role='admin',permissions=EXCLUDED.permissions,
+                    active=EXCLUDED.active,granted_by=EXCLUDED.granted_by,updated_at=NOW()
+            """, (target_id, json.dumps(permissions), active, actor["telegram_id"]))
+            _admin_audit(cursor, actor["telegram_id"], "admin_access_changed", target_id,
+                         {"role": before_row[0], "permissions": before_row[1], "active": before_row[2]} if before_row else {},
+                         {"role": "admin", "permissions": permissions, "active": active}, "")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    await asyncio.to_thread(_sync)
+    return {"ok": True}
 
 
 @app.post("/api/admin/audit")
 async def admin_audit(request: Request):
     payload = await request.json()
-    _admin_actor(payload, request, "view_audit")
-    ensure_admin_tables()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
-        return {"ok": True, "items": [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
-                "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_audit")
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id,actor_telegram_id,action,target_telegram_id,reason,created_at FROM admin_audit_log ORDER BY id DESC LIMIT 100")
+            return [{"id":r[0],"actor_id":r[1],"action":r[2],"target_id":r[3],
+                    "reason":r[4] or "","created_at":_to_iso(r[5])} for r in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/errors")
 async def admin_errors(request: Request):
     payload = await request.json()
-    _admin_actor(payload, request, "view_errors")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT id,telegram_id,job_id,provider,model,status,error_text,created_at
-            FROM prostudio_errors
-            ORDER BY created_at DESC LIMIT 100
-        """)
-        return {"ok": True, "items": [{
-            "id": row[0], "telegram_id": row[1], "job_id": row[2] or "",
-            "provider": row[3] or "", "model": row[4] or "", "status": row[5] or "",
-            "error": str(row[6] or "")[:1000], "created_at": _to_iso(row[7]),
-        } for row in cursor.fetchall()]}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_errors")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id,telegram_id,job_id,provider,model,status,error_text,created_at
+                FROM prostudio_errors
+                ORDER BY created_at DESC LIMIT 100
+            """)
+            return [{
+                "id": row[0], "telegram_id": row[1], "job_id": row[2] or "",
+                "provider": row[3] or "", "model": row[4] or "", "status": row[5] or "",
+                "error": str(row[6] or "")[:1000], "created_at": _to_iso(row[7]),
+            } for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/error-reports")
@@ -8766,26 +8950,31 @@ async def admin_error_reports(request: Request):
     error' button - distinct from prostudio_errors (server-side automatic
     logging): each row here was explicitly flagged by the affected user."""
     payload = await request.json()
-    _admin_actor(payload, request, "view_errors")
-    ensure_prostudio_table()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT id,telegram_id,mode,provider,model,job_id,prompt,error_text,raw_error,status,created_at
-            FROM prostudio_error_reports
-            ORDER BY created_at DESC LIMIT 100
-        """)
-        return {"ok": True, "items": [{
-            "id": row[0], "telegram_id": row[1], "mode": row[2] or "",
-            "provider": row[3] or "", "model": row[4] or "", "job_id": row[5] or "",
-            "prompt": str(row[6] or "")[:500], "error": str(row[7] or "")[:1000],
-            "raw_error": str(row[8] or "")[:2000], "status": row[9] or "open",
-            "created_at": _to_iso(row[10]),
-        } for row in cursor.fetchall()]}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_errors")
+        ensure_prostudio_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id,telegram_id,mode,provider,model,job_id,prompt,error_text,raw_error,status,created_at
+                FROM prostudio_error_reports
+                ORDER BY created_at DESC LIMIT 100
+            """)
+            return [{
+                "id": row[0], "telegram_id": row[1], "mode": row[2] or "",
+                "provider": row[3] or "", "model": row[4] or "", "job_id": row[5] or "",
+                "prompt": str(row[6] or "")[:500], "error": str(row[7] or "")[:1000],
+                "raw_error": str(row[8] or "")[:2000], "status": row[9] or "open",
+                "created_at": _to_iso(row[10]),
+            } for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/users/detail")
@@ -8795,74 +8984,78 @@ async def admin_user_detail(request: Request):
     recent presence ping. Used both by the Mini App's own admin-less flows
     and by the separate SYLVEX Support Bot's user-profile screen."""
     payload = await request.json()
-    _admin_actor(payload, request, "view_users")
-    ensure_admin_tables()
-    ensure_payment_tables()
-    ensure_prostudio_table()
-    target_id = int(payload.get("user_id") or 0)
-    if not target_id:
-        raise HTTPException(status_code=400, detail="user_id_required")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT u.telegram_id, COALESCE(u.username,'') AS username,
-                   COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
-                   COALESCE(u.balance,0) AS balance, COALESCE(u.subscription,'free') AS subscription, u.created_at,
-                   (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
-                    WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until
-            FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
-            WHERE u.telegram_id=%s
-        """, (target_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="user_not_found")
-        cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) FROM purchases WHERE telegram_id=%s", (target_id,))
-        purchases_count, total_spent = cursor.fetchone()
-        cursor.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE telegram_id=%s", (target_id,))
-        generations_count = cursor.fetchone()[0]
-        cursor.execute("SELECT current_view, platform, last_seen FROM app_presence WHERE telegram_id=%s", (target_id,))
-        presence_row = cursor.fetchone()
-        account = {"telegram_id": row[0], "username": row[1], "name": row[2], "balance": int(row[3] or 0),
-                   "subscription": row[4], "created_at": _to_iso(row[5]), "subscription_until": _to_iso(row[6]),
-                   "total_purchases": int(purchases_count or 0), "total_spent": int(total_spent or 0),
-                   "total_generations": int(generations_count or 0)}
-        cursor.execute("""
-            SELECT id, provider, credits, amount, currency, status, charge_id, created_at
-            FROM purchases WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
-        """, (target_id,))
-        purchases = [{"id": r[0], "provider": r[1], "credits": int(r[2] or 0), "amount": int(r[3] or 0),
-                "currency": r[4], "status": r[5], "charge_id": r[6] or "", "created_at": _to_iso(r[7])}
-                for r in cursor.fetchall()]
-        cursor.execute("""
-            SELECT id, subscription_type, payment_method, amount, currency, starts_at, expires_at, status, created_at
-            FROM subscriptions WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
-        """, (target_id,))
-        subscription_history = [{"id": r[0], "type": r[1] or "", "payment_method": r[2] or "",
-                "amount": int(r[3] or 0), "currency": r[4], "starts_at": _to_iso(r[5]), "expires_at": _to_iso(r[6]),
-                "status": r[7], "created_at": _to_iso(r[8])} for r in cursor.fetchall()]
-        cursor.execute("""
-            SELECT id, mode, model, provider, status, cost, created_at, completed_at
-            FROM prostudio_generation_jobs WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
-        """, (target_id,))
-        generations = [{"id": r[0], "mode": r[1] or "", "model": r[2] or "", "provider": r[3] or "",
-                "status": r[4], "cost": int(r[5] or 0), "created_at": _to_iso(r[6]), "completed_at": _to_iso(r[7])}
-                for r in cursor.fetchall()]
-        cursor.execute("""
-            SELECT id, mode, provider, model, job_id, error_text, status, created_at
-            FROM prostudio_error_reports WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
-        """, (target_id,))
-        error_reports = [{"id": r[0], "mode": r[1] or "", "provider": r[2] or "", "model": r[3] or "",
-                "job_id": r[4] or "", "error": str(r[5] or "")[:1000], "status": r[6] or "open",
-                "created_at": _to_iso(r[7])} for r in cursor.fetchall()]
-        recent_activity = {"view": presence_row[0] if presence_row else None,
-                "platform": presence_row[1] if presence_row else None,
-                "last_seen": _to_iso(presence_row[2]) if presence_row else None}
-        return {"ok": True, "account": account, "purchases": purchases, "subscription_history": subscription_history,
-                "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_users")
+        ensure_admin_tables()
+        ensure_payment_tables()
+        ensure_prostudio_table()
+        target_id = int(payload.get("user_id") or 0)
+        if not target_id:
+            raise HTTPException(status_code=400, detail="user_id_required")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT u.telegram_id, COALESCE(u.username,'') AS username,
+                       COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                       COALESCE(u.balance,0) AS balance, COALESCE(u.subscription,'free') AS subscription, u.created_at,
+                       (SELECT MAX(NULLIF(s.expires_at,'')::timestamp) FROM subscriptions s
+                        WHERE s.telegram_id=u.telegram_id AND s.status='active' AND NULLIF(s.expires_at,'')::timestamp>NOW()) AS subscription_until
+                FROM users u LEFT JOIN user_profiles p ON p.telegram_id=u.telegram_id
+                WHERE u.telegram_id=%s
+            """, (target_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="user_not_found")
+            cursor.execute("SELECT COUNT(*), COALESCE(SUM(amount) FILTER (WHERE status='completed'),0) FROM purchases WHERE telegram_id=%s", (target_id,))
+            purchases_count, total_spent = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM prostudio_generation_jobs WHERE telegram_id=%s", (target_id,))
+            generations_count = cursor.fetchone()[0]
+            cursor.execute("SELECT current_view, platform, last_seen FROM app_presence WHERE telegram_id=%s", (target_id,))
+            presence_row = cursor.fetchone()
+            account = {"telegram_id": row[0], "username": row[1], "name": row[2], "balance": int(row[3] or 0),
+                       "subscription": row[4], "created_at": _to_iso(row[5]), "subscription_until": _to_iso(row[6]),
+                       "total_purchases": int(purchases_count or 0), "total_spent": int(total_spent or 0),
+                       "total_generations": int(generations_count or 0)}
+            cursor.execute("""
+                SELECT id, provider, credits, amount, currency, status, charge_id, created_at
+                FROM purchases WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+            """, (target_id,))
+            purchases = [{"id": r[0], "provider": r[1], "credits": int(r[2] or 0), "amount": int(r[3] or 0),
+                    "currency": r[4], "status": r[5], "charge_id": r[6] or "", "created_at": _to_iso(r[7])}
+                    for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT id, subscription_type, payment_method, amount, currency, starts_at, expires_at, status, created_at
+                FROM subscriptions WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+            """, (target_id,))
+            subscription_history = [{"id": r[0], "type": r[1] or "", "payment_method": r[2] or "",
+                    "amount": int(r[3] or 0), "currency": r[4], "starts_at": _to_iso(r[5]), "expires_at": _to_iso(r[6]),
+                    "status": r[7], "created_at": _to_iso(r[8])} for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT id, mode, model, provider, status, cost, created_at, completed_at
+                FROM prostudio_generation_jobs WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+            """, (target_id,))
+            generations = [{"id": r[0], "mode": r[1] or "", "model": r[2] or "", "provider": r[3] or "",
+                    "status": r[4], "cost": int(r[5] or 0), "created_at": _to_iso(r[6]), "completed_at": _to_iso(r[7])}
+                    for r in cursor.fetchall()]
+            cursor.execute("""
+                SELECT id, mode, provider, model, job_id, error_text, status, created_at
+                FROM prostudio_error_reports WHERE telegram_id=%s ORDER BY created_at DESC LIMIT 50
+            """, (target_id,))
+            error_reports = [{"id": r[0], "mode": r[1] or "", "provider": r[2] or "", "model": r[3] or "",
+                    "job_id": r[4] or "", "error": str(r[5] or "")[:1000], "status": r[6] or "open",
+                    "created_at": _to_iso(r[7])} for r in cursor.fetchall()]
+            recent_activity = {"view": presence_row[0] if presence_row else None,
+                    "platform": presence_row[1] if presence_row else None,
+                    "last_seen": _to_iso(presence_row[2]) if presence_row else None}
+            return {"ok": True, "account": account, "purchases": purchases, "subscription_history": subscription_history,
+                    "generations": generations, "error_reports": error_reports, "recent_activity": recent_activity}
+        finally:
+            cursor.close()
+            conn.close()
+
+    return await asyncio.to_thread(_sync)
 
 
 @app.post("/api/admin/users/online")
@@ -8871,31 +9064,35 @@ async def admin_users_online(request: Request):
     Mini App's own presence heartbeat - this table is kept even though the
     admin UI that used to read it lives entirely in the Support Bot now."""
     payload = await request.json()
-    _admin_actor(payload, request, "view_users")
-    ensure_admin_tables()
-    limit = max(1, min(int(payload.get("limit") or 50), 200))
-    window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT ap.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
-                   COALESCE(u.username,'') AS username, COALESCE(ap.current_view,'') AS view,
-                   COALESCE(ap.platform,'') AS platform, ap.last_seen,
-                   (ap.last_seen >= NOW() - INTERVAL '5 minutes') AS is_online
-            FROM app_presence ap
-            LEFT JOIN users u ON u.telegram_id = ap.telegram_id
-            LEFT JOIN user_profiles p ON p.telegram_id = ap.telegram_id
-            WHERE ap.last_seen >= NOW() - (%s * INTERVAL '1 minute')
-            ORDER BY ap.last_seen DESC LIMIT %s
-        """, (window_minutes, limit))
-        items = [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
-                "platform": r[4], "last_seen": _to_iso(r[5]), "online": bool(r[6])}
-                for r in cursor.fetchall()]
-        return {"ok": True, "items": items}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_users")
+        ensure_admin_tables()
+        limit = max(1, min(int(payload.get("limit") or 50), 200))
+        window_minutes = max(1, min(int(payload.get("window_minutes") or 30), 1440))
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT ap.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                       COALESCE(u.username,'') AS username, COALESCE(ap.current_view,'') AS view,
+                       COALESCE(ap.platform,'') AS platform, ap.last_seen,
+                       (ap.last_seen >= NOW() - INTERVAL '5 minutes') AS is_online
+                FROM app_presence ap
+                LEFT JOIN users u ON u.telegram_id = ap.telegram_id
+                LEFT JOIN user_profiles p ON p.telegram_id = ap.telegram_id
+                WHERE ap.last_seen >= NOW() - (%s * INTERVAL '1 minute')
+                ORDER BY ap.last_seen DESC LIMIT %s
+            """, (window_minutes, limit))
+            return [{"telegram_id": r[0], "name": r[1], "username": r[2], "view": r[3],
+                    "platform": r[4], "last_seen": _to_iso(r[5]), "online": bool(r[6])}
+                    for r in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/generations")
@@ -8903,47 +9100,52 @@ async def admin_generations(request: Request):
     """Paginated, filterable generation history across all Pro Studio modes,
     for the Support Bot's Generations section."""
     payload = await request.json()
-    _admin_actor(payload, request, "view_generations")
-    ensure_prostudio_table()
-    mode = str(payload.get("mode") or "").strip().lower()[:20]
-    status = str(payload.get("status") or "").strip().lower()[:20]
-    target_id = int(payload.get("user_id") or 0)
-    limit = max(1, min(int(payload.get("limit") or 30), 100))
-    offset = max(0, int(payload.get("offset") or 0))
-    conditions, params = [], []
-    if mode:
-        conditions.append("mode=%s"); params.append(mode)
-    if status:
-        conditions.append("status=%s"); params.append(status)
-    if target_id:
-        conditions.append("telegram_id=%s"); params.append(target_id)
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
-        total = cursor.fetchone()[0]
-        cursor.execute(f"""
-            SELECT id, telegram_id, mode, model, provider, status, cost, prompt, error_json, result_json,
-                   created_at, completed_at
-            FROM prostudio_generation_jobs {where}
-            ORDER BY created_at DESC LIMIT %s OFFSET %s
-        """, params + [limit, offset])
-        items = []
-        for r in cursor.fetchall():
-            error_json = r[8] if isinstance(r[8], dict) else {}
-            result_json = r[9] if isinstance(r[9], dict) else {}
-            items.append({
-                "id": r[0], "telegram_id": r[1], "mode": r[2] or "", "model": r[3] or "",
-                "provider": r[4] or "", "status": r[5], "cost": int(r[6] or 0), "prompt": str(r[7] or "")[:300],
-                "error": str(error_json.get("message") or error_json.get("error") or "")[:500] if error_json else "",
-                "has_result": bool(result_json),
-                "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
-            })
-        return {"ok": True, "items": items, "total": int(total or 0)}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_generations")
+        ensure_prostudio_table()
+        mode = str(payload.get("mode") or "").strip().lower()[:20]
+        status = str(payload.get("status") or "").strip().lower()[:20]
+        target_id = int(payload.get("user_id") or 0)
+        limit = max(1, min(int(payload.get("limit") or 30), 100))
+        offset = max(0, int(payload.get("offset") or 0))
+        conditions, params = [], []
+        if mode:
+            conditions.append("mode=%s"); params.append(mode)
+        if status:
+            conditions.append("status=%s"); params.append(status)
+        if target_id:
+            conditions.append("telegram_id=%s"); params.append(target_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT COUNT(*) FROM prostudio_generation_jobs {where}", params)
+            total = cursor.fetchone()[0]
+            cursor.execute(f"""
+                SELECT id, telegram_id, mode, model, provider, status, cost, prompt, error_json, result_json,
+                       created_at, completed_at
+                FROM prostudio_generation_jobs {where}
+                ORDER BY created_at DESC LIMIT %s OFFSET %s
+            """, params + [limit, offset])
+            items = []
+            for r in cursor.fetchall():
+                error_json = r[8] if isinstance(r[8], dict) else {}
+                result_json = r[9] if isinstance(r[9], dict) else {}
+                items.append({
+                    "id": r[0], "telegram_id": r[1], "mode": r[2] or "", "model": r[3] or "",
+                    "provider": r[4] or "", "status": r[5], "cost": int(r[6] or 0), "prompt": str(r[7] or "")[:300],
+                    "error": str(error_json.get("message") or error_json.get("error") or "")[:500] if error_json else "",
+                    "has_result": bool(result_json),
+                    "created_at": _to_iso(r[10]), "completed_at": _to_iso(r[11]),
+                })
+            return items, int(total or 0)
+        finally:
+            cursor.close()
+            conn.close()
+
+    items, total = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items, "total": total}
 
 
 @app.post("/api/admin/subscribers")
@@ -8951,33 +9153,38 @@ async def admin_subscribers(request: Request):
     """Every subscription purchase (any status), newest first, for the
     Support Bot's Subscribers section."""
     payload = await request.json()
-    _admin_actor(payload, request, "view_finance")
-    ensure_payment_tables()
-    limit = max(1, min(int(payload.get("limit") or 30), 100))
-    offset = max(0, int(payload.get("offset") or 0))
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT COUNT(*) FROM subscriptions")
-        total = cursor.fetchone()[0]
-        cursor.execute("""
-            SELECT s.id, s.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
-                   COALESCE(u.username,'') AS username, COALESCE(s.subscription_type,'') AS plan, s.amount, s.currency,
-                   s.starts_at, s.expires_at, s.status, s.created_at,
-                   (SELECT COUNT(*) FROM subscriptions s2 WHERE s2.telegram_id=s.telegram_id) AS purchase_count
-            FROM subscriptions s
-            LEFT JOIN users u ON u.telegram_id=s.telegram_id
-            LEFT JOIN user_profiles p ON p.telegram_id=s.telegram_id
-            ORDER BY s.created_at DESC LIMIT %s OFFSET %s
-        """, (limit, offset))
-        items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4],
-                "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
-                "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
-                for r in cursor.fetchall()]
-        return {"ok": True, "items": items, "total": int(total or 0)}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_finance")
+        ensure_payment_tables()
+        limit = max(1, min(int(payload.get("limit") or 30), 100))
+        offset = max(0, int(payload.get("offset") or 0))
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT COUNT(*) FROM subscriptions")
+            total = cursor.fetchone()[0]
+            cursor.execute("""
+                SELECT s.id, s.telegram_id, COALESCE(p.display_name, u.first_name, 'SYLVEX User') AS name,
+                       COALESCE(u.username,'') AS username, COALESCE(s.subscription_type,'') AS plan, s.amount, s.currency,
+                       s.starts_at, s.expires_at, s.status, s.created_at,
+                       (SELECT COUNT(*) FROM subscriptions s2 WHERE s2.telegram_id=s.telegram_id) AS purchase_count
+                FROM subscriptions s
+                LEFT JOIN users u ON u.telegram_id=s.telegram_id
+                LEFT JOIN user_profiles p ON p.telegram_id=s.telegram_id
+                ORDER BY s.created_at DESC LIMIT %s OFFSET %s
+            """, (limit, offset))
+            items = [{"id": r[0], "telegram_id": r[1], "name": r[2], "username": r[3], "plan": r[4],
+                    "amount": int(r[5] or 0), "currency": r[6], "starts_at": _to_iso(r[7]), "expires_at": _to_iso(r[8]),
+                    "status": r[9], "created_at": _to_iso(r[10]), "total_subscription_purchases": int(r[11] or 0)}
+                    for r in cursor.fetchall()]
+            return items, int(total or 0)
+        finally:
+            cursor.close()
+            conn.close()
+
+    items, total = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items, "total": total}
 
 
 @app.post("/api/admin/top-spenders")
@@ -8985,34 +9192,38 @@ async def admin_top_spenders(request: Request):
     """Users ranked by total completed-purchase spend, with a
     subscription-vs-credit-pack breakdown via the shared charge_id join."""
     payload = await request.json()
-    _admin_actor(payload, request, "view_finance")
-    ensure_payment_tables()
-    limit = max(1, min(int(payload.get("limit") or 20), 100))
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT p.telegram_id, COALESCE(pr.display_name, u.first_name, 'SYLVEX User') AS name,
-                   COALESCE(u.username,'') AS username,
-                   COALESCE(SUM(p.amount),0) AS total_spent,
-                   COUNT(*) FILTER (WHERE s.charge_id IS NOT NULL) AS subscription_purchases,
-                   COUNT(*) FILTER (WHERE s.charge_id IS NULL) AS credit_purchases,
-                   COUNT(*) AS payments_count
-            FROM purchases p
-            LEFT JOIN users u ON u.telegram_id=p.telegram_id
-            LEFT JOIN user_profiles pr ON pr.telegram_id=p.telegram_id
-            LEFT JOIN subscriptions s ON s.charge_id=p.charge_id
-            WHERE p.status='completed'
-            GROUP BY p.telegram_id, pr.display_name, u.first_name, u.username
-            ORDER BY total_spent DESC LIMIT %s
-        """, (limit,))
-        items = [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "total_spent": int(r[3] or 0),
-                "subscription_purchases": int(r[4] or 0), "credit_purchases": int(r[5] or 0),
-                "payments_count": int(r[6] or 0)} for i, r in enumerate(cursor.fetchall())]
-        return {"ok": True, "items": items}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "view_finance")
+        ensure_payment_tables()
+        limit = max(1, min(int(payload.get("limit") or 20), 100))
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT p.telegram_id, COALESCE(pr.display_name, u.first_name, 'SYLVEX User') AS name,
+                       COALESCE(u.username,'') AS username,
+                       COALESCE(SUM(p.amount),0) AS total_spent,
+                       COUNT(*) FILTER (WHERE s.charge_id IS NOT NULL) AS subscription_purchases,
+                       COUNT(*) FILTER (WHERE s.charge_id IS NULL) AS credit_purchases,
+                       COUNT(*) AS payments_count
+                FROM purchases p
+                LEFT JOIN users u ON u.telegram_id=p.telegram_id
+                LEFT JOIN user_profiles pr ON pr.telegram_id=p.telegram_id
+                LEFT JOIN subscriptions s ON s.charge_id=p.charge_id
+                WHERE p.status='completed'
+                GROUP BY p.telegram_id, pr.display_name, u.first_name, u.username
+                ORDER BY total_spent DESC LIMIT %s
+            """, (limit,))
+            return [{"rank": i + 1, "telegram_id": r[0], "name": r[1], "username": r[2], "total_spent": int(r[3] or 0),
+                    "subscription_purchases": int(r[4] or 0), "credit_purchases": int(r[5] or 0),
+                    "payments_count": int(r[6] or 0)} for i, r in enumerate(cursor.fetchall())]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 @app.post("/api/admin/messages/broadcast")
@@ -9021,63 +9232,78 @@ async def admin_messages_broadcast(request: Request):
     user, via the main bot's own BOT_TOKEN - mirrors /api/admin/users/message
     but for many recipients at once, for the Support Bot's broadcast flow."""
     payload = await request.json()
-    actor = _admin_actor(payload, request, "message_users")
-    ensure_admin_tables()
-    message = str(payload.get("message") or "").strip()
-    send_to_all = bool(payload.get("all"))
-    if not message or len(message) > 4000:
-        raise HTTPException(status_code=400, detail="invalid_message")
-    if not BOT_TOKEN:
-        raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        if send_to_all:
-            cursor.execute("SELECT telegram_id FROM users")
-            targets = [row[0] for row in cursor.fetchall()]
-        else:
-            targets = []
-            for raw in (payload.get("user_ids") or []):
-                try:
-                    tid = int(raw)
-                except (TypeError, ValueError):
-                    continue
-                if tid:
-                    targets.append(tid)
-            targets = list(dict.fromkeys(targets))
+
+    def _fetch_targets():
+        actor = _admin_actor(payload, request, "message_users")
+        ensure_admin_tables()
+        message = str(payload.get("message") or "").strip()
+        send_to_all = bool(payload.get("all"))
+        if not message or len(message) > 4000:
+            raise HTTPException(status_code=400, detail="invalid_message")
+        if not BOT_TOKEN:
+            raise HTTPException(status_code=503, detail="telegram_bot_unavailable")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            if send_to_all:
+                cursor.execute("SELECT telegram_id FROM users")
+                targets = [row[0] for row in cursor.fetchall()]
+            else:
+                targets = []
+                for raw in (payload.get("user_ids") or []):
+                    try:
+                        tid = int(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if tid:
+                        targets.append(tid)
+                targets = list(dict.fromkeys(targets))
+        finally:
+            cursor.close()
+            conn.close()
         if not targets:
             raise HTTPException(status_code=400, detail="no_recipients")
         if len(targets) > 20000:
             raise HTTPException(status_code=400, detail="too_many_recipients")
+        return actor, message, targets
 
-        def send_one(chat_id):
-            try:
-                response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                                         json={"chat_id": chat_id, "text": message}, timeout=20)
-                result = response.json() if response.content else {}
-                return response.status_code < 400 and bool(result.get("ok"))
-            except requests.RequestException:
-                return False
+    actor, message, targets = await asyncio.to_thread(_fetch_targets)
 
-        semaphore = asyncio.Semaphore(20)
-        results = {}
+    def send_one(chat_id):
+        try:
+            response = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                                     json={"chat_id": chat_id, "text": message}, timeout=20)
+            result = response.json() if response.content else {}
+            return response.status_code < 400 and bool(result.get("ok"))
+        except requests.RequestException:
+            return False
 
-        async def send_and_record(tid):
-            async with semaphore:
-                results[tid] = await asyncio.to_thread(send_one, tid)
+    semaphore = asyncio.Semaphore(20)
+    results = {}
 
-        await asyncio.gather(*(send_and_record(tid) for tid in targets))
-        sent_count = sum(1 for ok in results.values() if ok)
-        for tid, ok in results.items():
-            cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
-                           (actor["telegram_id"], tid, message, ok))
-        _admin_audit(cursor, actor["telegram_id"], "broadcast_sent", 0, {},
-                     {"recipients": len(targets), "sent": sent_count, "length": len(message)}, "")
-        conn.commit()
-        return {"ok": True, "recipients": len(targets), "sent": sent_count}
-    finally:
-        cursor.close()
-        conn.close()
+    async def send_and_record(tid):
+        async with semaphore:
+            results[tid] = await asyncio.to_thread(send_one, tid)
+
+    await asyncio.gather(*(send_and_record(tid) for tid in targets))
+    sent_count = sum(1 for ok in results.values() if ok)
+
+    def _record_results():
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            for tid, ok in results.items():
+                cursor.execute("INSERT INTO admin_messages (admin_telegram_id,user_telegram_id,message,telegram_sent) VALUES (%s,%s,%s,%s)",
+                               (actor["telegram_id"], tid, message, ok))
+            _admin_audit(cursor, actor["telegram_id"], "broadcast_sent", 0, {},
+                         {"recipients": len(targets), "sent": sent_count, "length": len(message)}, "")
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+    await asyncio.to_thread(_record_results)
+    return {"ok": True, "recipients": len(targets), "sent": sent_count}
 
 
 REFERENCES_SCHEMA_READY = False
@@ -9135,191 +9361,215 @@ _REFERENCE_COLUMNS = "id,category,kind,name,description,prompt,model,workflow,pr
 @app.post("/api/admin/references/list")
 async def admin_references_list(request: Request):
     payload = await request.json()
-    _admin_actor(payload, request, "manage_references")
-    ensure_references_table()
-    category = str(payload.get("category") or "").strip()[:80]
-    kind = str(payload.get("kind") or "").strip().lower()[:20]
-    published = payload.get("published")
-    limit = max(1, min(int(payload.get("limit") or 50), 200))
-    offset = max(0, int(payload.get("offset") or 0))
-    conditions, params = [], []
-    if category:
-        conditions.append("category=%s"); params.append(category)
-    if kind:
-        conditions.append("kind=%s"); params.append(kind)
-    if published is not None:
-        conditions.append("published=%s"); params.append(bool(published))
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"SELECT COUNT(*) FROM prostudio_references {where}", params)
-        total = cursor.fetchone()[0]
-        cursor.execute(f"""
-            SELECT {_REFERENCE_COLUMNS} FROM prostudio_references {where}
-            ORDER BY sort_order, created_at DESC LIMIT %s OFFSET %s
-        """, params + [limit, offset])
-        items = [_reference_row_to_dict(r) for r in cursor.fetchall()]
-        return {"ok": True, "items": items, "total": int(total or 0)}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        _admin_actor(payload, request, "manage_references")
+        ensure_references_table()
+        category = str(payload.get("category") or "").strip()[:80]
+        kind = str(payload.get("kind") or "").strip().lower()[:20]
+        published = payload.get("published")
+        limit = max(1, min(int(payload.get("limit") or 50), 200))
+        offset = max(0, int(payload.get("offset") or 0))
+        conditions, params = [], []
+        if category:
+            conditions.append("category=%s"); params.append(category)
+        if kind:
+            conditions.append("kind=%s"); params.append(kind)
+        if published is not None:
+            conditions.append("published=%s"); params.append(bool(published))
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT COUNT(*) FROM prostudio_references {where}", params)
+            total = cursor.fetchone()[0]
+            cursor.execute(f"""
+                SELECT {_REFERENCE_COLUMNS} FROM prostudio_references {where}
+                ORDER BY sort_order, created_at DESC LIMIT %s OFFSET %s
+            """, params + [limit, offset])
+            items = [_reference_row_to_dict(r) for r in cursor.fetchall()]
+            return items, int(total or 0)
+        finally:
+            cursor.close()
+            conn.close()
+
+    items, total = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items, "total": total}
 
 
 @app.post("/api/admin/references/create")
 async def admin_references_create(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "manage_references")
-    ensure_references_table()
-    category = str(payload.get("category") or "").strip()[:80]
-    kind = str(payload.get("kind") or "").strip().lower()[:20]
-    name = str(payload.get("name") or "").strip()[:200]
-    if not category or kind not in {"photo", "video"} or not name:
-        raise HTTPException(status_code=400, detail="invalid_reference")
-    description = str(payload.get("description") or "").strip()[:2000]
-    prompt = str(payload.get("prompt") or "").strip()[:8000]
-    model = str(payload.get("model") or "").strip()[:200]
-    workflow = str(payload.get("workflow") or "").strip()[:200]
-    preview_url = str(payload.get("preview_url") or "").strip()[:2000]
-    source_url = str(payload.get("source_url") or "").strip()[:2000]
-    published = bool(payload.get("published", False))
-    sort_order = int(payload.get("sort_order") or 0)
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"""
-            INSERT INTO prostudio_references
-                (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING {_REFERENCE_COLUMNS}
-        """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
-              published, sort_order, actor["telegram_id"]))
-        created = _reference_row_to_dict(cursor.fetchone())
-        _admin_audit(cursor, actor["telegram_id"], "reference_created", 0, {}, created, "")
-        conn.commit()
-        return {"ok": True, "item": created}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "manage_references")
+        ensure_references_table()
+        category = str(payload.get("category") or "").strip()[:80]
+        kind = str(payload.get("kind") or "").strip().lower()[:20]
+        name = str(payload.get("name") or "").strip()[:200]
+        if not category or kind not in {"photo", "video"} or not name:
+            raise HTTPException(status_code=400, detail="invalid_reference")
+        description = str(payload.get("description") or "").strip()[:2000]
+        prompt = str(payload.get("prompt") or "").strip()[:8000]
+        model = str(payload.get("model") or "").strip()[:200]
+        workflow = str(payload.get("workflow") or "").strip()[:200]
+        preview_url = str(payload.get("preview_url") or "").strip()[:2000]
+        source_url = str(payload.get("source_url") or "").strip()[:2000]
+        published = bool(payload.get("published", False))
+        sort_order = int(payload.get("sort_order") or 0)
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"""
+                INSERT INTO prostudio_references
+                    (category,kind,name,description,prompt,model,workflow,preview_url,source_url,published,sort_order,created_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING {_REFERENCE_COLUMNS}
+            """, (category, kind, name, description, prompt, model, workflow, preview_url, source_url,
+                  published, sort_order, actor["telegram_id"]))
+            created = _reference_row_to_dict(cursor.fetchone())
+            _admin_audit(cursor, actor["telegram_id"], "reference_created", 0, {}, created, "")
+            conn.commit()
+            return created
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    created = await asyncio.to_thread(_sync)
+    return {"ok": True, "item": created}
 
 
 @app.post("/api/admin/references/update")
 async def admin_references_update(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "manage_references")
-    ensure_references_table()
-    reference_id = int(payload.get("id") or 0)
-    if not reference_id:
-        raise HTTPException(status_code=400, detail="id_required")
-    fields = {
-        "category": lambda v: str(v or "").strip()[:80],
-        "kind": lambda v: str(v or "").strip().lower()[:20],
-        "name": lambda v: str(v or "").strip()[:200],
-        "description": lambda v: str(v or "").strip()[:2000],
-        "prompt": lambda v: str(v or "").strip()[:8000],
-        "model": lambda v: str(v or "").strip()[:200],
-        "workflow": lambda v: str(v or "").strip()[:200],
-        "preview_url": lambda v: str(v or "").strip()[:2000],
-        "source_url": lambda v: str(v or "").strip()[:2000],
-        "published": lambda v: bool(v),
-        "sort_order": lambda v: int(v or 0),
-    }
-    updates = {key: caster(payload[key]) for key, caster in fields.items() if key in payload}
-    if "kind" in updates and updates["kind"] not in {"photo", "video"}:
-        raise HTTPException(status_code=400, detail="invalid_kind")
-    if not updates:
-        raise HTTPException(status_code=400, detail="no_fields_to_update")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
-        before_row = cursor.fetchone()
-        if not before_row:
-            raise HTTPException(status_code=404, detail="reference_not_found")
-        before = _reference_row_to_dict(before_row)
-        set_clause = ", ".join(f"{key}=%s" for key in updates)
-        cursor.execute(f"""
-            UPDATE prostudio_references SET {set_clause}, updated_at=NOW() WHERE id=%s
-            RETURNING {_REFERENCE_COLUMNS}
-        """, list(updates.values()) + [reference_id])
-        after = _reference_row_to_dict(cursor.fetchone())
-        _admin_audit(cursor, actor["telegram_id"], "reference_updated", 0, before, after, "")
-        conn.commit()
-        return {"ok": True, "item": after}
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "manage_references")
+        ensure_references_table()
+        reference_id = int(payload.get("id") or 0)
+        if not reference_id:
+            raise HTTPException(status_code=400, detail="id_required")
+        fields = {
+            "category": lambda v: str(v or "").strip()[:80],
+            "kind": lambda v: str(v or "").strip().lower()[:20],
+            "name": lambda v: str(v or "").strip()[:200],
+            "description": lambda v: str(v or "").strip()[:2000],
+            "prompt": lambda v: str(v or "").strip()[:8000],
+            "model": lambda v: str(v or "").strip()[:200],
+            "workflow": lambda v: str(v or "").strip()[:200],
+            "preview_url": lambda v: str(v or "").strip()[:2000],
+            "source_url": lambda v: str(v or "").strip()[:2000],
+            "published": lambda v: bool(v),
+            "sort_order": lambda v: int(v or 0),
+        }
+        updates = {key: caster(payload[key]) for key, caster in fields.items() if key in payload}
+        if "kind" in updates and updates["kind"] not in {"photo", "video"}:
+            raise HTTPException(status_code=400, detail="invalid_kind")
+        if not updates:
+            raise HTTPException(status_code=400, detail="no_fields_to_update")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+            before_row = cursor.fetchone()
+            if not before_row:
+                raise HTTPException(status_code=404, detail="reference_not_found")
+            before = _reference_row_to_dict(before_row)
+            set_clause = ", ".join(f"{key}=%s" for key in updates)
+            cursor.execute(f"""
+                UPDATE prostudio_references SET {set_clause}, updated_at=NOW() WHERE id=%s
+                RETURNING {_REFERENCE_COLUMNS}
+            """, list(updates.values()) + [reference_id])
+            after = _reference_row_to_dict(cursor.fetchone())
+            _admin_audit(cursor, actor["telegram_id"], "reference_updated", 0, before, after, "")
+            conn.commit()
+            return after
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    after = await asyncio.to_thread(_sync)
+    return {"ok": True, "item": after}
 
 
 @app.post("/api/admin/references/publish")
 async def admin_references_publish(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "manage_references")
-    ensure_references_table()
-    reference_id = int(payload.get("id") or 0)
-    published = bool(payload.get("published", True))
-    if not reference_id:
-        raise HTTPException(status_code=400, detail="id_required")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT published FROM prostudio_references WHERE id=%s", (reference_id,))
-        before_row = cursor.fetchone()
-        if not before_row:
-            raise HTTPException(status_code=404, detail="reference_not_found")
-        cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
-        _admin_audit(cursor, actor["telegram_id"], "reference_published" if published else "reference_unpublished",
-                     0, {"published": bool(before_row[0])}, {"published": published}, "")
-        conn.commit()
-        return {"ok": True, "id": reference_id, "published": published}
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "manage_references")
+        ensure_references_table()
+        reference_id = int(payload.get("id") or 0)
+        published = bool(payload.get("published", True))
+        if not reference_id:
+            raise HTTPException(status_code=400, detail="id_required")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT published FROM prostudio_references WHERE id=%s", (reference_id,))
+            before_row = cursor.fetchone()
+            if not before_row:
+                raise HTTPException(status_code=404, detail="reference_not_found")
+            cursor.execute("UPDATE prostudio_references SET published=%s, updated_at=NOW() WHERE id=%s", (published, reference_id))
+            _admin_audit(cursor, actor["telegram_id"], "reference_published" if published else "reference_unpublished",
+                         0, {"published": bool(before_row[0])}, {"published": published}, "")
+            conn.commit()
+            return reference_id, published
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    reference_id, published = await asyncio.to_thread(_sync)
+    return {"ok": True, "id": reference_id, "published": published}
 
 
 @app.post("/api/admin/references/delete")
 async def admin_references_delete(request: Request):
     payload = await request.json()
-    actor = _admin_actor(payload, request, "manage_references")
-    ensure_references_table()
-    reference_id = int(payload.get("id") or 0)
-    if not reference_id:
-        raise HTTPException(status_code=400, detail="id_required")
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
-        before_row = cursor.fetchone()
-        if not before_row:
-            raise HTTPException(status_code=404, detail="reference_not_found")
-        cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
-        _admin_audit(cursor, actor["telegram_id"], "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
-        conn.commit()
-        return {"ok": True}
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        actor = _admin_actor(payload, request, "manage_references")
+        ensure_references_table()
+        reference_id = int(payload.get("id") or 0)
+        if not reference_id:
+            raise HTTPException(status_code=400, detail="id_required")
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT {_REFERENCE_COLUMNS} FROM prostudio_references WHERE id=%s", (reference_id,))
+            before_row = cursor.fetchone()
+            if not before_row:
+                raise HTTPException(status_code=404, detail="reference_not_found")
+            cursor.execute("DELETE FROM prostudio_references WHERE id=%s", (reference_id,))
+            _admin_audit(cursor, actor["telegram_id"], "reference_deleted", 0, _reference_row_to_dict(before_row), {}, "")
+            conn.commit()
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    await asyncio.to_thread(_sync)
+    return {"ok": True}
 
 
 @app.post("/api/admin/references/upload-media")
@@ -9371,8 +9621,8 @@ async def admin_references_upload_media(request: Request):
 async def public_prostudio_references(category: str = "", kind: str = ""):
     """Published references for the Mini App's future user-facing catalog -
     only what admins have explicitly published, ordered for display."""
-    ensure_references_table()
     if not DATABASE_URL:
+        ensure_references_table()
         return {"ok": True, "items": []}
     conditions, params = ["published=TRUE"], []
     category = str(category or "").strip()[:80]
@@ -9381,21 +9631,26 @@ async def public_prostudio_references(category: str = "", kind: str = ""):
         conditions.append("category=%s"); params.append(category)
     if kind:
         conditions.append("kind=%s"); params.append(kind)
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"""
-            SELECT id,category,kind,name,description,prompt,model,workflow,preview_url,source_url
-            FROM prostudio_references WHERE {' AND '.join(conditions)}
-            ORDER BY sort_order, created_at DESC LIMIT 200
-        """, params)
-        items = [{"id": r[0], "category": r[1], "kind": r[2], "name": r[3], "description": r[4] or "",
-                "prompt": r[5] or "", "model": r[6] or "", "workflow": r[7] or "",
-                "preview_url": r[8] or "", "source_url": r[9] or ""} for r in cursor.fetchall()]
-        return {"ok": True, "items": items}
-    finally:
-        cursor.close()
-        conn.close()
+
+    def _sync():
+        ensure_references_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"""
+                SELECT id,category,kind,name,description,prompt,model,workflow,preview_url,source_url
+                FROM prostudio_references WHERE {' AND '.join(conditions)}
+                ORDER BY sort_order, created_at DESC LIMIT 200
+            """, params)
+            return [{"id": r[0], "category": r[1], "kind": r[2], "name": r[3], "description": r[4] or "",
+                    "prompt": r[5] or "", "model": r[6] or "", "workflow": r[7] or "",
+                    "preview_url": r[8] or "", "source_url": r[9] or ""} for r in cursor.fetchall()]
+        finally:
+            cursor.close()
+            conn.close()
+
+    items = await asyncio.to_thread(_sync)
+    return {"ok": True, "items": items}
 
 
 def _prostudio_download_filename(mode: str, job_id: str, content_type: str, object_key: str) -> str:
@@ -9429,19 +9684,22 @@ async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_not_configured")
 
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT telegram_id, status, mode, result_json
-            FROM prostudio_generation_jobs
-            WHERE id = %s
-            LIMIT 1
-        """, (job_id,))
-        row = cursor.fetchone()
-    finally:
-        cursor.close()
-        conn.close()
+    def _fetch_job_row():
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT telegram_id, status, mode, result_json
+                FROM prostudio_generation_jobs
+                WHERE id = %s
+                LIMIT 1
+            """, (job_id,))
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+
+    row = await asyncio.to_thread(_fetch_job_row)
 
     if not row:
         raise HTTPException(status_code=404, detail="job_not_found")
@@ -9535,55 +9793,58 @@ async def public_prostudio_create_share(job_id: str, request: Request):
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="database_not_configured")
 
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT j.telegram_id, j.status, j.mode, j.provider, j.model, j.prompt,
-                   j.cost, j.result_json, j.request_json, j.created_at, j.completed_at,
-                   u.username
-            FROM prostudio_generation_jobs j
-            LEFT JOIN users u ON u.telegram_id = j.telegram_id
-            WHERE j.id = %s
-            LIMIT 1
-        """, (job_id,))
-        row = cursor.fetchone()
-    finally:
-        cursor.close()
-        conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="job_not_found")
-    if int(row[0] or 0) != telegram_id:
-        raise HTTPException(status_code=403, detail="job_access_denied")
-    if str(row[1] or "").lower() != "completed":
-        raise HTTPException(status_code=409, detail="job_not_completed")
-    mode = str(row[2] or "").strip().lower()
-    if mode not in {"image", "video", "music", "voice"}:
-        raise HTTPException(status_code=400, detail="job_has_no_shareable_media")
+    def _sync():
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT j.telegram_id, j.status, j.mode, j.provider, j.model, j.prompt,
+                       j.cost, j.result_json, j.request_json, j.created_at, j.completed_at,
+                       u.username
+                FROM prostudio_generation_jobs j
+                LEFT JOIN users u ON u.telegram_id = j.telegram_id
+                WHERE j.id = %s
+                LIMIT 1
+            """, (job_id,))
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+        if not row:
+            raise HTTPException(status_code=404, detail="job_not_found")
+        if int(row[0] or 0) != telegram_id:
+            raise HTTPException(status_code=403, detail="job_access_denied")
+        if str(row[1] or "").lower() != "completed":
+            raise HTTPException(status_code=409, detail="job_not_completed")
+        mode = str(row[2] or "").strip().lower()
+        if mode not in {"image", "video", "music", "voice"}:
+            raise HTTPException(status_code=400, detail="job_has_no_shareable_media")
 
-    result = _json_obj(row[7])
-    request_payload = _json_obj(row[8])
-    media_urls = generation_result_urls(result, mode)
-    media_url = media_urls[0] if media_urls else ""
-    media_key = storage_key_from_url(media_url)
-    if not media_key or not storage_exists(media_key):
-        raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")
-    thumbnail_url = str(result.get("thumbnail_url") or result.get("thumb_url") or "")
-    metadata = _share_public_metadata(result, request_payload)
-    cost = {
-        "credits": result.get("cost_credits", row[6] or 0),
-        "usd": result.get("cost_usd", _json_obj(result.get("metadata")).get("cost_usd", "")),
-    }
-    generation_time = None
-    if row[9] and row[10]:
-        generation_time = max(0.0, (row[10] - row[9]).total_seconds())
-    share = create_or_get_share(
-        lambda: db_connect(DATABASE_URL), job_id=job_id,
-        owner_telegram_id=telegram_id, owner_username=str(row[11] or ""),
-        mode=mode, provider=str(row[3] or ""), model=str(row[4] or ""),
-        prompt=str(row[5] or ""), cost=cost, generation_time=generation_time,
-        media_url=media_url, thumbnail_url=thumbnail_url, public_metadata=metadata,
-    )
+        result = _json_obj(row[7])
+        request_payload = _json_obj(row[8])
+        media_urls = generation_result_urls(result, mode)
+        media_url = media_urls[0] if media_urls else ""
+        media_key = storage_key_from_url(media_url)
+        if not media_key or not storage_exists(media_key):
+            raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")
+        thumbnail_url = str(result.get("thumbnail_url") or result.get("thumb_url") or "")
+        metadata = _share_public_metadata(result, request_payload)
+        cost = {
+            "credits": result.get("cost_credits", row[6] or 0),
+            "usd": result.get("cost_usd", _json_obj(result.get("metadata")).get("cost_usd", "")),
+        }
+        generation_time = None
+        if row[9] and row[10]:
+            generation_time = max(0.0, (row[10] - row[9]).total_seconds())
+        return create_or_get_share(
+            lambda: db_connect(DATABASE_URL), job_id=job_id,
+            owner_telegram_id=telegram_id, owner_username=str(row[11] or ""),
+            mode=mode, provider=str(row[3] or ""), model=str(row[4] or ""),
+            prompt=str(row[5] or ""), cost=cost, generation_time=generation_time,
+            media_url=media_url, thumbnail_url=thumbnail_url, public_metadata=metadata,
+        )
+
+    share = await asyncio.to_thread(_sync)
     bot_username = (os.getenv("TELEGRAM_BOT_USERNAME") or "sylvexai_bot").strip().lstrip("@")
     share_url = f"https://t.me/{bot_username}?startapp=share_{share['share_id']}"
     return {"ok": True, **share, "share_url": share_url}
@@ -11115,21 +11376,24 @@ async def public_get_events(telegram_id: int = 0):
     if not DATABASE_URL:
         return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=500)
 
-    ensure_user_events_table()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT id, source, event_type, event_name, payload, created_at
-            FROM user_events
-            WHERE telegram_id = %s
-            ORDER BY created_at DESC
-            LIMIT 50
-        """, (telegram_id,))
-        rows = cursor.fetchall()
-    finally:
-        cursor.close()
-        conn.close()
+    def _sync():
+        ensure_user_events_table()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, source, event_type, event_name, payload, created_at
+                FROM user_events
+                WHERE telegram_id = %s
+                ORDER BY created_at DESC
+                LIMIT 50
+            """, (telegram_id,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+
+    rows = await asyncio.to_thread(_sync)
 
     events = [
         {
@@ -17511,40 +17775,44 @@ async def public_prostudio_elevenlabs_voice_clone(request: Request):
 # =====================================================
 async def get_cabinet(telegram_id: int):
 
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
+    def _sync():
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
 
-    cursor.execute("""
-    SELECT
-        telegram_id,
-        username,
-        first_name,
-        balance,
-        subscription,
-        total_generations,
-        created_at
-    FROM users
-    WHERE telegram_id = %s
-    """, (telegram_id,))
+        cursor.execute("""
+        SELECT
+            telegram_id,
+            username,
+            first_name,
+            balance,
+            subscription,
+            total_generations,
+            created_at
+        FROM users
+        WHERE telegram_id = %s
+        """, (telegram_id,))
 
-    user = cursor.fetchone()
+        user = cursor.fetchone()
 
-    cursor.execute("""
-    SELECT
-        generation_type,
-        prompt,
-        status,
-        created_at
-    FROM generations
-    WHERE telegram_id = %s
-    ORDER BY id DESC
-    LIMIT 10
-    """, (telegram_id,))
+        cursor.execute("""
+        SELECT
+            generation_type,
+            prompt,
+            status,
+            created_at
+        FROM generations
+        WHERE telegram_id = %s
+        ORDER BY id DESC
+        LIMIT 10
+        """, (telegram_id,))
 
-    generations = cursor.fetchall()
+        generations = cursor.fetchall()
 
-    cursor.close()
-    conn.close()
+        cursor.close()
+        conn.close()
+        return user, generations
+
+    user, generations = await asyncio.to_thread(_sync)
 
     if not user:
         return JSONResponse(
