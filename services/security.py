@@ -166,18 +166,28 @@ def resolve_web_session_uid(account_id):
  """Blocking DB lookup - call via asyncio.to_thread from async code."""
  now=time.monotonic()
  cached=_web_uid_cache.get(account_id)
- if cached and cached[1]>now: return cached[0]
+ if cached and cached[1]>now:
+  print("SESSION_ME_TIMING:", {"stage": "resolve_web_session_uid.cache_hit", "ms": 0, "account_id": account_id})
+  return cached[0]
  database_url=_database_url()
  if not database_url: return 0
  from db_pool import db_connect
+ lookup_started=time.monotonic()
+ checkout_started=time.monotonic()
  conn=db_connect(database_url)
+ print("SESSION_ME_TIMING:", {"stage": "resolve_web_session_uid.checkout", "ms": round((time.monotonic()-checkout_started)*1000), "account_id": account_id})
  try:
   cur=conn.cursor()
+  q_start=time.monotonic()
   cur.execute('SELECT active_telegram_id FROM sylvex_accounts WHERE account_id = %s',(account_id,))
   row=cur.fetchone()
+  print("SESSION_ME_TIMING:", {"stage": "resolve_web_session_uid.select_sylvex_accounts", "ms": round((time.monotonic()-q_start)*1000), "account_id": account_id})
   cur.close()
  finally:
+  release_started=time.monotonic()
   conn.close()
+  print("SESSION_ME_TIMING:", {"stage": "resolve_web_session_uid.release", "ms": round((time.monotonic()-release_started)*1000), "account_id": account_id})
+ print("SESSION_ME_TIMING:", {"stage": "resolve_web_session_uid.total", "ms": round((time.monotonic()-lookup_started)*1000), "account_id": account_id})
  telegram_id=int(row[0]) if row and row[0] else 0
  if len(_web_uid_cache)>5000: _web_uid_cache.clear()
  _web_uid_cache[account_id]=(telegram_id,now+_WEB_UID_CACHE_TTL)

@@ -30,6 +30,7 @@ import hashlib
 import hmac
 import secrets
 import threading
+import time
 from psycopg2 import sql, errors as pg_errors
 from db_pool import db_connect
 from services.password_auth import (
@@ -382,20 +383,30 @@ def get_account_summary(database_url, account_id):
     """Everything the website's "Linked Accounts" panel and session payload
     need beyond balance/subscription (which still comes from get_user_state
     on the account's active_telegram_id)."""
+    checkout_start = time.monotonic()
     conn = db_connect(database_url)
+    print("SESSION_ME_TIMING:", {"stage": "get_account_summary.checkout", "ms": round((time.monotonic() - checkout_start) * 1000), "account_id": account_id})
     cur = conn.cursor()
     try:
+        q_start = time.monotonic()
         cur.execute("SELECT active_telegram_id, merged_telegram_id, merged_at FROM sylvex_accounts WHERE account_id = %s", (account_id,))
         acc = cur.fetchone()
+        print("SESSION_ME_TIMING:", {"stage": "get_account_summary.select_sylvex_accounts", "ms": round((time.monotonic() - q_start) * 1000), "account_id": account_id})
         if not acc:
             return None
+        q_start = time.monotonic()
         cur.execute("SELECT email, email_verified, password_hash FROM account_emails WHERE account_id = %s", (account_id,))
         email_row = cur.fetchone()
+        print("SESSION_ME_TIMING:", {"stage": "get_account_summary.select_account_emails", "ms": round((time.monotonic() - q_start) * 1000), "account_id": account_id})
+        q_start = time.monotonic()
         cur.execute("SELECT provider, email FROM account_oauth WHERE account_id = %s", (account_id,))
         oauth_rows = cur.fetchall()
+        print("SESSION_ME_TIMING:", {"stage": "get_account_summary.select_account_oauth", "ms": round((time.monotonic() - q_start) * 1000), "account_id": account_id})
     finally:
+        release_start = time.monotonic()
         cur.close()
         conn.close()
+        print("SESSION_ME_TIMING:", {"stage": "get_account_summary.release", "ms": round((time.monotonic() - release_start) * 1000), "account_id": account_id})
     return {
         "active_telegram_id": int(acc[0]),
         "telegram_connected": acc[2] is not None,

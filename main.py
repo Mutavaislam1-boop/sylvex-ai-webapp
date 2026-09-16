@@ -1849,11 +1849,19 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
     if not DATABASE_URL or not telegram_id:
         return {}
 
+    state_started = time.monotonic()
+
+    def _mark(stage):
+        print("USER_STATE_TIMING:", {"stage": stage, "ms": round((time.monotonic() - state_started) * 1000), "telegram_id": telegram_id})
+
+    ensure_start = time.monotonic()
     ensure_user_exists(telegram_id)
+    print("USER_STATE_TIMING:", {"stage": "ensure_user_exists", "ms": round((time.monotonic() - ensure_start) * 1000), "telegram_id": telegram_id})
     if username or first_name:
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
         try:
+            q_start = time.monotonic()
             cursor.execute("""
                 UPDATE users
                 SET username = COALESCE(%s, username),
@@ -1861,6 +1869,7 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                 WHERE telegram_id = %s
             """, (username, first_name, telegram_id))
             conn.commit()
+            print("USER_STATE_TIMING:", {"stage": "update_username", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
         finally:
             cursor.close()
             conn.close()
@@ -1868,15 +1877,18 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        q_start = time.monotonic()
         cursor.execute("""
             SELECT telegram_id, username, first_name, balance, subscription, created_at
             FROM users
             WHERE telegram_id = %s
         """, (telegram_id,))
         user_row = cursor.fetchone()
+        print("USER_STATE_TIMING:", {"stage": "select_users", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
         if not user_row:
             return {}
 
+        q_start = time.monotonic()
         cursor.execute("""
             SELECT subscription_type, expires_at::timestamp
             FROM subscriptions
@@ -1895,7 +1907,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             LIMIT 1
         """, (telegram_id,))
         latest_sub = cursor.fetchone()
+        print("USER_STATE_TIMING:", {"stage": "select_subscriptions", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         if active_sub:
             cursor.execute("""
                 UPDATE users
@@ -1918,14 +1932,18 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                   AND subscription IS NOT NULL
             """, (telegram_id,))
             conn.commit()
+        print("USER_STATE_TIMING:", {"stage": "update_subscription_status", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         cursor.execute("""
             SELECT COUNT(*)
             FROM generations
             WHERE telegram_id = %s
         """, (telegram_id,))
         total_generations = cursor.fetchone()[0] or 0
+        print("USER_STATE_TIMING:", {"stage": "select_generations_count", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         try:
             cursor.execute("""
                 SELECT COALESCE(SUM(credits), 0)
@@ -1935,7 +1953,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             tokens_spent = max(0, int(cursor.fetchone()[0] or 0))
         except Exception:
             tokens_spent = 0
+        print("USER_STATE_TIMING:", {"stage": "select_generation_charges", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         referrals_count = 0
         community_posts_count = 0
         community_likes_count = 0
@@ -1956,7 +1976,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
                 WHERE posts.telegram_id = %s
             """, (telegram_id,))
             community_likes_count = int(cursor.fetchone()[0] or 0)
+        print("USER_STATE_TIMING:", {"stage": "referrals_and_community_counts", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         cursor.execute("""
             SELECT event_type, event_name, source, payload, created_at
             FROM user_events
@@ -1965,7 +1987,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             LIMIT 20
         """, (telegram_id,))
         events = cursor.fetchall()
+        print("USER_STATE_TIMING:", {"stage": "select_user_events", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         cursor.execute("""
             SELECT provider, credits, amount, currency, payload, charge_id, status, created_at
             FROM purchases
@@ -1974,7 +1998,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
             LIMIT 10
         """, (telegram_id,))
         purchases = cursor.fetchall()
+        print("USER_STATE_TIMING:", {"stage": "select_purchases", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
 
+        q_start = time.monotonic()
         cursor.execute("""
             SELECT generation_type, prompt, status, created_at
             FROM generations
@@ -1984,9 +2010,13 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
         """, (telegram_id,))
         generations = cursor.fetchall()
         conn.commit()
+        print("USER_STATE_TIMING:", {"stage": "select_generations_and_commit", "ms": round((time.monotonic() - q_start) * 1000), "telegram_id": telegram_id})
     finally:
+        release_start = time.monotonic()
         cursor.close()
         conn.close()
+        print("USER_STATE_TIMING:", {"stage": "release", "ms": round((time.monotonic() - release_start) * 1000), "telegram_id": telegram_id})
+    _mark("total")
 
     profile = get_user_profile(telegram_id)
     subscription_status = "active" if active_sub else "free"
@@ -6789,12 +6819,16 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
     """Return completed generated content owned by one Mini App user."""
     if not DATABASE_URL or not telegram_id:
         return {"ok": True, "items": []}
+    request_started = time.monotonic()
     try:
+        ensure_start = time.monotonic()
         ensure_prostudio_table()
+        print("GALLERY_TIMING:", {"stage": "ensure_prostudio_table", "ms": round((time.monotonic() - ensure_start) * 1000), "telegram_id": telegram_id})
         safe_limit = max(1, min(int(limit or 80), 100))
         safe_offset = max(0, int(offset or 0))
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
+            query_start = time.monotonic()
             cursor.execute("""
                 SELECT id, conversation_id, mode, prompt, response_text, image_url, images_json,
                        thumbnails_json, thumb_url, video_url, videos_json, audio_url, audios_json,
@@ -6806,8 +6840,10 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s OFFSET %s
             """, (telegram_id, safe_limit, safe_offset))
+            print("GALLERY_TIMING:", {"stage": "select_prostudio_messages", "ms": round((time.monotonic() - query_start) * 1000), "telegram_id": telegram_id})
             rows = cursor.fetchall()
             cursor.close()
+        print("GALLERY_TIMING:", {"stage": "total", "ms": round((time.monotonic() - request_started) * 1000), "telegram_id": telegram_id, "row_count": len(rows)})
         items = []
         for row in rows:
             (message_id, conversation_id, mode, prompt, response_text, image_url, images_json,
@@ -10462,10 +10498,16 @@ def _web_session_account_id(request: Request):
 
 
 def _web_session_payload(account_id: int) -> dict:
+    payload_started = time.monotonic()
+    summary_start = time.monotonic()
     summary = account_identity_service.get_account_summary(DATABASE_URL, account_id)
+    print("SESSION_ME_TIMING:", {"stage": "get_account_summary", "ms": round((time.monotonic() - summary_start) * 1000), "account_id": account_id})
     if not summary:
         return {"authenticated": False}
+    state_start = time.monotonic()
     state = get_user_state(summary["active_telegram_id"]) or {}
+    print("SESSION_ME_TIMING:", {"stage": "get_user_state", "ms": round((time.monotonic() - state_start) * 1000), "account_id": account_id, "telegram_id": summary["active_telegram_id"]})
+    print("SESSION_ME_TIMING:", {"stage": "total", "ms": round((time.monotonic() - payload_started) * 1000), "account_id": account_id})
     created_at = state.get("created_at")
     if hasattr(created_at, "strftime"):
         member_since = created_at.strftime("%Y-%m")
