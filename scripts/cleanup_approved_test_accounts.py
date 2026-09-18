@@ -152,6 +152,10 @@ def main():
         cur.execute("DELETE FROM users WHERE telegram_id = ANY(%s)", (storage_ids,))
         cur.execute("DELETE FROM sylvex_accounts WHERE account_id = ANY(%s)", (account_ids,))
 
+        # 631aeaf (which creates this sequence) may not be merged/deployed
+        # yet - ensure it exists before resetting it, same as
+        # ensure_account_tables() does for every other sequence here.
+        cur.execute("CREATE SEQUENCE IF NOT EXISTS sylvex_website_id_seq START 1")
         cur.execute("ALTER SEQUENCE sylvex_website_id_seq RESTART WITH 1")
 
         conn.commit()
