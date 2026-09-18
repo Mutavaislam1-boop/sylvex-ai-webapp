@@ -944,8 +944,8 @@ PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 PAYPAL_MODE = (os.getenv("PAYPAL_MODE") or "sandbox").strip().lower()
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
 PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
-PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "P-2JN99488MP781262CNJDGCZI")
-PAYPAL_PRO_YEARLY_PLAN_ID = os.getenv("PAYPAL_PRO_YEARLY_PLAN_ID", "P-0YT1496917791881BNJDGRMY")
+PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "P-16M2575467314214JNKW33SQ")
+PAYPAL_PRO_YEARLY_PLAN_ID = os.getenv("PAYPAL_PRO_YEARLY_PLAN_ID", "P-2V117840XB8907707NKW33SY")
 LEMONSQUEEZY_API_KEY = os.getenv("LEMONSQUEEZY_API_KEY")
 LEMONSQUEEZY_STORE_ID = os.getenv("LEMONSQUEEZY_STORE_ID")
 LEMONSQUEEZY_WEBHOOK_SECRET = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET")
@@ -4416,7 +4416,17 @@ async def public_config():
         "ok": True,
         "webapp_url": WEBAPP_URL,
         "payment_webapp_url": PAYMENT_WEBAPP_URL,
-        "shop_webapp_url": SHOP_WEBAPP_URL
+        "shop_webapp_url": SHOP_WEBAPP_URL,
+        # PAYPAL_CLIENT_ID is a public identifier (pairs with the JS SDK,
+        # never with PAYPAL_CLIENT_SECRET) - safe to hand to any client, same
+        # as the Google OAuth client id in /api/web/auth/config. Lets the
+        # Website load the PayPal JS SDK and know which sandbox/live plan
+        # ids to pass into actions.subscription.create() without hardcoding
+        # them into static HTML.
+        "paypal_client_id": PAYPAL_CLIENT_ID or "",
+        "paypal_enabled": paypal_configured(),
+        "paypal_pro_monthly_plan_id": PAYPAL_PRO_MONTHLY_PLAN_ID,
+        "paypal_pro_yearly_plan_id": PAYPAL_PRO_YEARLY_PLAN_ID,
     }
 
 # =====================================================
@@ -10258,53 +10268,16 @@ async def public_paypal_webhook(request: Request):
 
 # =====================================================
 # API ENDPOINT: public_lemonsqueezy_checkout
-# Creates a LemonSqueezy checkout for a SYLVEX Pro subscription pack
-# (sub_month/sub_year only). Not exposed for credit packs - no variant is
-# configured for those, and the request will 400 with unknown_pack.
+# Discontinued: SYLVEX Pro subscriptions moved to PayPal (see
+# public_paypal_subscription_binding/-created below) - the Website Store no
+# longer links here. Kept only as a hard stop so no caller can start a NEW
+# LemonSqueezy checkout; verify_lemonsqueezy_webhook/public_lemonsqueezy_webhook
+# below stay fully live so already-subscribed LemonSqueezy customers keep
+# renewing correctly until they lapse or switch plans.
 # =====================================================
 @app.post("/api/public/payments/lemonsqueezy/checkout")
 async def public_lemonsqueezy_checkout(request: Request):
-    data = await request.json()
-    pack_id = data.get("pack_id") or data.get("plan") or ""
-    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
-    item = shop_item(pack_id)
-
-    if not item or item.get("kind") != "subscription":
-        return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
-    if not telegram_id:
-        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
-    if not lemonsqueezy_configured():
-        return JSONResponse({"ok": False, "error": "lemonsqueezy_not_configured"}, status_code=502)
-
-    # A real Telegram Mini App call always presents signed initData (see
-    # SecurityMiddleware); a Website call never does - it only ever proves
-    # itself with its own sylvex_web_session cookie. So an empty
-    # telegram_init_data here means this is a Website request, and the
-    # identity handed to LemonSqueezy must be the account's own SYLVEX
-    # account_id, resolved straight from that cookie - never the internal
-    # telegram_id-shaped storage key `telegram_id` above already holds.
-    account_id = 0
-    if not getattr(request.state, "telegram_init_data", ""):
-        account_id = web_session_account_id_from_cookie_header(request.headers.get("cookie", ""))
-
-    try:
-        checkout = await asyncio.to_thread(create_lemonsqueezy_checkout, telegram_id, pack_id, item, account_id)
-    except Exception as exc:
-        print("LEMONSQUEEZY CHECKOUT ERROR:", exc)
-        return JSONResponse({"ok": False, "error": "lemonsqueezy_not_configured"}, status_code=502)
-
-    checkout_url = lemonsqueezy_checkout_url(checkout)
-    if not checkout_url:
-        return JSONResponse({"ok": False, "error": "lemonsqueezy_checkout_url_missing"}, status_code=502)
-
-    log_user_event(
-        telegram_id=telegram_id,
-        source="mini_app",
-        event_type="payment_invoice_created",
-        event_name="lemonsqueezy_checkout_created",
-        payload={"pack_id": pack_id, "url": checkout_url},
-    )
-    return {"ok": True, "url": checkout_url, "pack_id": pack_id}
+    return JSONResponse({"ok": False, "error": "lemonsqueezy_discontinued"}, status_code=410)
 
 
 # =====================================================
