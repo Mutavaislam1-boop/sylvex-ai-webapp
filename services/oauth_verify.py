@@ -59,6 +59,9 @@ def verify_google_id_token(id_token: str) -> dict:
         "email": claims.get("email"),
         "email_verified": bool(claims.get("email_verified")),
         "name": claims.get("name"),
+        # Preserved for possible future Website avatar support - not
+        # persisted or used anywhere yet (see oauth_login_or_register()).
+        "picture": claims.get("picture"),
     }
 
 
