@@ -142,6 +142,15 @@ def ensure_account_tables(database_url):
             # account's business rows - never shown to the user or returned
             # by any API (only account_id, the "SYLVEX ID", ever is).
             cur.execute("CREATE SEQUENCE IF NOT EXISTS sylvex_web_storage_seq START 900000000000")
+            # Drives the global sequence number in the new 12-digit
+            # sylvex_user_id format (see allocate_sylvex_user_id() below) -
+            # a dedicated, atomic Postgres sequence rather than
+            # SELECT MAX(...)+1, which races under concurrent registrations.
+            # Independent from sylvex_account_id_seq above: that one is the
+            # old format's own generator and stays exactly as-is for the
+            # existing (test) accounts already created from it - an account's
+            # id, once assigned by either generator, is never regenerated.
+            cur.execute("CREATE SEQUENCE IF NOT EXISTS sylvex_website_id_seq START 1")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS sylvex_accounts (
                     account_id BIGINT PRIMARY KEY DEFAULT nextval('sylvex_account_id_seq'),
@@ -219,6 +228,61 @@ def _telegram_id_columns(cur):
 
 
 # ---------------------------------------------------------------------------
+# SYLVEX ID allocation for NEW Website accounts.
+#
+# Format: SS 0626 CC NNNN (12 decimal digits) - SS = series (starts at 11),
+# "0626" = fixed project/date component, CC = code for the email's first
+# character (a-z -> 01-26, 0-9 -> 00-09), NNNN = sequential number within
+# the current series (0001-9999). The trailing number is one GLOBAL
+# sequence shared across every Website account regardless of email letter,
+# not a separate counter per CC - see allocate_sylvex_user_id() below.
+#
+# Existing accounts (created before this format existed, via
+# sylvex_account_id_seq above) keep their ids forever; this only applies
+# to brand-new accounts from here on.
+# ---------------------------------------------------------------------------
+SYLVEX_ID_PROJECT_COMPONENT = "0626"
+SYLVEX_ID_INITIAL_SERIES = 11
+SYLVEX_ID_SERIES_CAPACITY = 9999
+
+
+def _email_id_code(email):
+    """CC segment: first character of the (already-lowercased) email,
+    a=01..z=26 or 0=00..9=09. This codebase's own EMAIL_RE (see
+    services/password_auth.py) legally accepts a first character outside
+    a-z0-9 (e.g. '.', '_', '+', or a non-ASCII letter) - the ID spec defines
+    no mapping for that case, so this raises rather than invent one."""
+    ch = (email or "").strip()[:1].lower()
+    if "a" <= ch <= "z":
+        return ord(ch) - ord("a") + 1
+    if "0" <= ch <= "9":
+        return int(ch)
+    raise AccountError("email_unsupported_for_id_format")
+
+
+def allocate_sylvex_user_id(cur, email):
+    """The one canonical allocator for a brand-new Website account's
+    sylvex_user_id (== sylvex_accounts.account_id) - see _new_web_account()
+    below, the single call site both register_email_account() and
+    oauth_login_or_register() already share for account creation. Existing
+    accounts logging in never call this - their id is simply reused.
+    Atomic via nextval() on a dedicated Postgres sequence (never
+    SELECT MAX(...)+1, which races under concurrent registrations)."""
+    cc = _email_id_code(email)
+    cur.execute("SELECT nextval('sylvex_website_id_seq')")
+    global_sequence = int(cur.fetchone()[0])
+    series = SYLVEX_ID_INITIAL_SERIES + (global_sequence - 1) // SYLVEX_ID_SERIES_CAPACITY
+    number = (global_sequence - 1) % SYLVEX_ID_SERIES_CAPACITY + 1
+    if series > 99:
+        # The spec's rollover rule (bump the 2-digit series, restart NNNN at
+        # 0001) only covers series 11-99 before the format's own 2-digit
+        # budget for SS is exhausted - about 980,000 accounts away. Fail
+        # loudly rather than silently emit a corrupt (wrong-length) id.
+        raise RuntimeError("sylvex_id_series_exhausted")
+    return int(f"{series:02d}{SYLVEX_ID_PROJECT_COMPONENT}{cc:02d}{number:04d}")
+
+
+# ---------------------------------------------------------------------------
 # Registration / login (email+password)
 # ---------------------------------------------------------------------------
 
@@ -226,8 +290,7 @@ def _new_web_account(cur, display_name, email_hint=None):
     """Allocates a fresh account_id + hidden storage telegram_id and the
     `users` row backing it. Shared by email registration and OAuth
     first-time sign-in."""
-    cur.execute("SELECT nextval('sylvex_account_id_seq')")
-    account_id = int(cur.fetchone()[0])
+    account_id = allocate_sylvex_user_id(cur, email_hint)
     cur.execute("SELECT nextval('sylvex_web_storage_seq')")
     storage_id = int(cur.fetchone()[0])
     first_name = (display_name or (email_hint or "").split("@")[0] or "SYLVEX User").strip()[:64] or "SYLVEX User"

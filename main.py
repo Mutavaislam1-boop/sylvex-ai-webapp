@@ -10879,6 +10879,20 @@ def _web_session_payload(account_id: int) -> dict:
     }
 
 
+@app.get("/api/web/auth/config")
+async def web_auth_config():
+    # The static Website can't read Railway env vars directly - this hands
+    # it the one value it needs to initialize Google Identity Services.
+    # GOOGLE_OAUTH_CLIENT_ID is a public OAuth client identifier (it's sent
+    # to Google from the browser on every sign-in), never a secret - do not
+    # add anything else here (client secrets, session secrets, API keys).
+    google_client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    return {
+        "google_client_id": google_client_id,
+        "google_enabled": bool(google_client_id),
+    }
+
+
 @app.post("/api/web/auth/telegram")
 async def web_auth_telegram(request: Request):
     # "Login with Telegram" only ever signs into an account that has
