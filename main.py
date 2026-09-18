@@ -157,6 +157,8 @@ TELEGRAM_PAYMENT_WEBHOOK_SECRET = (os.getenv("TELEGRAM_PAYMENT_WEBHOOK_SECRET") 
 DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
 print("MINIAPP DATABASE CONFIGURED:", bool(DATABASE_URL))
 PROSTUDIO_SCHEMA_LOCK = threading.Lock()
+GENERATIONS_INDEX_LOCK = threading.Lock()
+_GENERATIONS_INDEX_READY = False
 PROSTUDIO_WORKER_ENABLED = os.getenv("PROSTUDIO_WORKER_ENABLED", "1").lower() not in {"0", "false", "no"}
 PROSTUDIO_WORKER_INTERVAL = float(os.getenv("PROSTUDIO_WORKER_INTERVAL", "2"))
 
@@ -1369,6 +1371,13 @@ def ensure_user_events_table():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        # get_user_state()'s "SELECT ... FROM user_events WHERE telegram_id
+        # = %s ORDER BY created_at DESC LIMIT 20" had nothing to use but a
+        # full table scan - telegram_id wasn't indexed here at all.
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_user_events_user_created
+        ON user_events (telegram_id, created_at DESC)
+        """)
         conn.commit()
     finally:
         cursor.close()
@@ -1401,6 +1410,14 @@ def ensure_payment_tables():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        # get_user_state()'s "SELECT ... FROM purchases WHERE telegram_id = %s
+        # ORDER BY created_at DESC LIMIT 10" had no index to use at all -
+        # telegram_id was neither the PK nor covered by any other index, so
+        # every call was a full table scan followed by a sort.
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_purchases_user_created
+        ON purchases (telegram_id, created_at DESC)
+        """)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
             id SERIAL PRIMARY KEY,
@@ -1415,6 +1432,21 @@ def ensure_payment_tables():
             charge_id TEXT UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+        """)
+        # get_user_state() runs two queries against this table for every
+        # session/me and generation call: the active subscription (telegram_id
+        # + status='active' + expires_at > NOW(), ORDER BY expires_at DESC
+        # LIMIT 1) and the latest one regardless of status (telegram_id,
+        # ORDER BY expires_at DESC NULLS LAST LIMIT 1), plus the UPDATE that
+        # expires stale rows the same way. None of that was indexed - every
+        # call scanned the whole subscriptions table. NULLS LAST matches the
+        # latest-subscription query's own ORDER BY exactly so that one can be
+        # served by a pure index scan with no extra sort step; the
+        # active-subscription query still benefits from the telegram_id
+        # prefix narrowing the scan before its status/expires_at filter runs.
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_user_expires
+        ON subscriptions (telegram_id, expires_at DESC NULLS LAST)
         """)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS paypal_orders (
@@ -1466,6 +1498,40 @@ def ensure_payment_tables():
     finally:
         cursor.close()
         conn.close()
+
+
+def ensure_generations_index():
+    """get_user_state() runs two queries against `generations` on every
+    call - a COUNT(*) and a "SELECT ... ORDER BY created_at DESC LIMIT 10" -
+    both filtered by telegram_id. That table isn't created anywhere in this
+    codebase (it predates this webapp and is shared with the Telegram bot),
+    so its schema is only known through how it's already queried - and none
+    of those queries had a supporting index, making both of them full table
+    scans on what is likely the single largest table in the whole database.
+    Guarded by to_regclass() rather than assuming the table exists, since
+    this process doesn't own its schema; cached like ensure_prostudio_table()
+    so this check runs once per process, not on every request.
+    """
+    global _GENERATIONS_INDEX_READY
+    if _GENERATIONS_INDEX_READY or not DATABASE_URL:
+        return
+    with GENERATIONS_INDEX_LOCK:
+        if _GENERATIONS_INDEX_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT to_regclass('public.generations')")
+            if cursor.fetchone()[0]:
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_generations_user_created
+                    ON generations (telegram_id, created_at DESC)
+                """)
+                conn.commit()
+            _GENERATIONS_INDEX_READY = True
+        finally:
+            cursor.close()
+            conn.close()
 
 
 # =====================================================
@@ -1857,6 +1923,9 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
     ensure_start = time.monotonic()
     ensure_user_exists(telegram_id)
     print("USER_STATE_TIMING:", {"stage": "ensure_user_exists", "ms": round((time.monotonic() - ensure_start) * 1000), "telegram_id": telegram_id})
+    ensure_start = time.monotonic()
+    ensure_generations_index()
+    print("USER_STATE_TIMING:", {"stage": "ensure_generations_index", "ms": round((time.monotonic() - ensure_start) * 1000), "telegram_id": telegram_id})
     if username or first_name:
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -4535,6 +4604,19 @@ def ensure_prostudio_table():
             cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_prostudio_messages_user_conv
             ON prostudio_messages (telegram_id, conversation_id, created_at DESC)
+            """)
+            # /api/public/prostudio/gallery filters by telegram_id alone (no
+            # conversation_id predicate) and orders by created_at DESC, id
+            # DESC - the index above can't serve that ordering without a
+            # conversation_id equality filter (conversation_id sits between
+            # telegram_id and created_at), so Postgres fell back to a full
+            # table scan + sort across every user's messages. This index's
+            # column order matches the gallery query's WHERE + ORDER BY
+            # exactly, so it can walk rows in the query's own order and stop
+            # as soon as LIMIT is satisfied.
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prostudio_messages_user_created
+            ON prostudio_messages (telegram_id, created_at DESC, id DESC)
             """)
             cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS images_json TEXT")
             cursor.execute("ALTER TABLE prostudio_messages ADD COLUMN IF NOT EXISTS thumbnails_json TEXT")
@@ -17567,6 +17649,16 @@ async def start_prostudio_generation_worker():
     if DATABASE_URL:
         await asyncio.to_thread(start_db_pool, DATABASE_URL)
         await asyncio.to_thread(ensure_limit_table, DATABASE_URL)
+        # Proactively create the hot-path indexes added for the
+        # session/me and gallery latency fix, instead of waiting for each
+        # table's own (unrelated) first caller to lazily create them -
+        # otherwise the first get_user_state()/get_account_summary() calls
+        # after a deploy would still hit the old full-scan behavior until
+        # some other endpoint happened to run first.
+        await asyncio.to_thread(ensure_payment_tables)
+        await asyncio.to_thread(ensure_user_events_table)
+        await asyncio.to_thread(ensure_generations_index)
+        await asyncio.to_thread(account_identity_service.ensure_account_tables, DATABASE_URL)
         db_pool_status()
     if PROSTUDIO_WORKER_ENABLED:
         app.state.background_tasks.append(asyncio.create_task(prostudio_generation_worker_loop()))

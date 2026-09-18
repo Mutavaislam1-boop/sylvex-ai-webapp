@@ -182,6 +182,15 @@ def ensure_account_tables(database_url):
                     PRIMARY KEY (provider, subject)
                 )
             """)
+            # get_account_summary()'s "SELECT provider, email FROM
+            # account_oauth WHERE account_id = %s" has nothing to use here -
+            # the PK is (provider, subject), which doesn't cover lookups by
+            # account_id alone, so every session/me call did a full table
+            # scan across every linked OAuth identity for every account.
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_account_oauth_account_id
+                ON account_oauth (account_id)
+            """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS account_link_codes (
                     id SERIAL PRIMARY KEY,
