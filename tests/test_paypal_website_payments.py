@@ -868,3 +868,170 @@ def test_capture_order_paypal_failure_returns_502_without_crediting(env, monkeyp
     assert status == 502
     assert body["error"] == "paypal_capture_failed"
     assert _balance(database, telegram_id) is None
+
+
+# ---------------------------------------------------------------------------
+# PayPal JavaScript SDK v6: browser-safe client-token endpoint. The Website
+# checkout modal initializes paypal.createInstance({clientToken, ...}) with
+# this - never PAYPAL_CLIENT_SECRET itself. Telegram's cabinet.js is
+# unaffected: it still loads the v5 SDK with the plain client id.
+# ---------------------------------------------------------------------------
+
+def test_client_token_endpoint_returns_token_and_never_exposes_secret(env, monkeypatch):
+    main, _ = env
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v1/oauth2/token"):
+            return FakeResponse(200, {
+                "access_token": "browser-safe-token-abc",
+                "token_type": "Bearer",
+                "expires_in": 900,
+                "scope": "https://uri.paypal.com/services/checkout/one-time-payments",
+            })
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    result = _run(main.public_paypal_client_token())
+    assert result["ok"] is True
+    assert result["client_token"] == "browser-safe-token-abc"
+    assert result["expires_in"] == 900
+    assert "test-client-secret" not in str(result)
+
+
+def test_client_token_endpoint_requests_response_type_client_token(env, monkeypatch):
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v1/oauth2/token"):
+            captured["data"] = kwargs.get("data")
+            captured["auth"] = kwargs.get("auth")
+            return FakeResponse(200, {"access_token": "tok", "expires_in": 900})
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    _run(main.public_paypal_client_token())
+    # This is what distinguishes a browser-safe client token from the
+    # regular merchant-scoped access token paypal_access_token() fetches
+    # for server-to-server calls - same Basic-Auth exchange, different
+    # response_type.
+    assert captured["data"]["response_type"] == "client_token"
+    assert captured["data"]["grant_type"] == "client_credentials"
+    assert captured["auth"] == (main.PAYPAL_CLIENT_ID, main.PAYPAL_CLIENT_SECRET)
+
+
+def test_client_token_endpoint_reports_not_configured_without_credentials(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "PAYPAL_CLIENT_ID", None)
+    monkeypatch.setattr(main, "PAYPAL_CLIENT_SECRET", None)
+    status, body = _unwrap(_run(main.public_paypal_client_token()))
+    assert status == 502
+    assert body["error"] == "paypal_not_configured"
+
+
+def test_client_token_endpoint_returns_502_on_paypal_failure(env, monkeypatch):
+    main, _ = env
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v1/oauth2/token"):
+            return FakeResponse(401, {"error": "invalid_client"})
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    status, body = _unwrap(_run(main.public_paypal_client_token()))
+    assert status == 502
+    assert body["error"] == "paypal_client_token_failed"
+
+
+def test_public_config_reports_web_sdk_url_matching_mode(env):
+    main, _ = env
+    result = _run(main.public_config())
+    assert result["paypal_web_sdk_url"] == main.PAYPAL_WEB_SDK_URL
+    assert result["paypal_web_sdk_url"].startswith("https://www.sandbox.paypal.com/web-sdk/v6/")
+
+
+# ---------------------------------------------------------------------------
+# PayPal JavaScript SDK v6 subscriptions: createPayPalSubscriptionPaymentSession
+# takes an already-created subscription id (v6 moves subscription creation
+# server-side, unlike v5's client-side actions.subscription.create()) - this
+# new endpoint is the Website-only v6 path. Telegram's cabinet.js keeps
+# calling subscription-binding (tested above), untouched.
+# ---------------------------------------------------------------------------
+
+def test_subscription_create_calls_paypal_and_binds_authenticated_uid(env, monkeypatch):
+    main, _ = env
+    telegram_id = 900000000801
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v1/billing/subscriptions"):
+            captured["body"] = kwargs.get("json")
+            return FakeResponse(201, {"id": "I-V6-CREATED-1", "status": "APPROVAL_PENDING"})
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    request = FakeRequest(
+        payload={"plan_id": main.PAYPAL_PRO_MONTHLY_PLAN_ID},
+        state=SimpleNamespace(telegram_id=telegram_id),
+    )
+    result = _run(main.public_paypal_subscription_create(request))
+    assert result["ok"] is True
+    assert result["id"] == "I-V6-CREATED-1"
+    assert captured["body"]["plan_id"] == main.PAYPAL_PRO_MONTHLY_PLAN_ID
+
+    from services.paypal_binding import read_binding
+    assert read_binding(captured["body"]["custom_id"], main.PAYPAL_PRO_MONTHLY_PLAN_ID) == telegram_id
+
+
+def test_subscription_create_rejects_unknown_plan(env):
+    main, _ = env
+    import fastapi
+    request = FakeRequest(
+        payload={"plan_id": "P-DOES-NOT-EXIST"},
+        state=SimpleNamespace(telegram_id=900000000802),
+    )
+    with pytest.raises(fastapi.HTTPException) as exc_info:
+        _run(main.public_paypal_subscription_create(request))
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "unknown_plan"
+
+
+def test_subscription_create_returns_502_on_paypal_failure(env, monkeypatch):
+    main, _ = env
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v1/billing/subscriptions"):
+            return FakeResponse(422, {"name": "UNPROCESSABLE_ENTITY"})
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    request = FakeRequest(
+        payload={"plan_id": main.PAYPAL_PRO_YEARLY_PLAN_ID},
+        state=SimpleNamespace(telegram_id=900000000803),
+    )
+    status, body = _unwrap(_run(main.public_paypal_subscription_create(request)))
+    assert status == 502
+    assert body["error"] == "paypal_subscription_create_failed"
+
+
+def test_subscription_create_reports_not_configured_without_plan_ids(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "PAYPAL_PRO_MONTHLY_PLAN_ID", "")
+    monkeypatch.setattr(main, "PAYPAL_PRO_YEARLY_PLAN_ID", "")
+    request = FakeRequest(
+        payload={"plan_id": "P-ANY"},
+        state=SimpleNamespace(telegram_id=900000000804),
+    )
+    status, body = _unwrap(_run(main.public_paypal_subscription_create(request)))
+    assert status == 502
+    assert body["error"] == "paypal_subscriptions_not_configured"
