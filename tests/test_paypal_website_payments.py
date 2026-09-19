@@ -82,6 +82,8 @@ def env(monkeypatch):
     monkeypatch.setattr(main, "PAYPAL_WEBHOOK_ID", "WH-TEST-ID")
     monkeypatch.setattr(main, "PAYPAL_CLIENT_ID", "test-client-id")
     monkeypatch.setattr(main, "PAYPAL_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setattr(main, "PAYPAL_PRO_MONTHLY_PLAN_ID", "P-16M2575467314214JNKW33SQ")
+    monkeypatch.setattr(main, "PAYPAL_PRO_YEARLY_PLAN_ID", "P-2V117840XB8907707NKW33SY")
     monkeypatch.setattr(main, "BOT_TOKEN", None)  # no Telegram congratulation messages in tests
     monkeypatch.setenv("MEDIA_SIGNING_SECRET", "test-signing-secret")  # services.security.signing_key()
     monkeypatch.setattr(main, "paypal_access_token", lambda api_base=None: "fake-access-token")
@@ -145,6 +147,30 @@ def _sale_event(subscription_id, sale_id, amount_usd, currency="USD"):
             "amount": {"total": f"{amount_usd:.2f}", "currency": currency},
         },
     }
+
+
+def _lifecycle_event(event_type, subscription_id):
+    return {"event_type": event_type, "resource": {"id": subscription_id}}
+
+
+def _fake_order_response(order_id="ORDER-TEST"):
+    return FakeResponse(201, {
+        "id": order_id,
+        "status": "CREATED",
+        "links": [{"rel": "payer-action", "href": f"https://www.sandbox.paypal.com/checkoutnow?token={order_id}"}],
+    })
+
+
+def _webhook_post(event):
+    return FakeRequest(payload=event, headers=VALID_WEBHOOK_HEADERS, raw_body=json.dumps(event).encode())
+
+
+def _activate_subscription(main, telegram_id, subscription_id, plan_id, plan_type):
+    main.save_paypal_subscription(telegram_id, subscription_id, plan_id, plan_type)
+    item = main.shop_item("sub_month" if plan_type == "month" else "sub_year")
+    event = _sale_event(subscription_id, f"SALE-{subscription_id}", item["usd"])
+    _, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert body["created"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -430,3 +456,253 @@ def test_subscription_created_rejects_binding_for_a_different_account(env, monke
         _run(main.public_paypal_subscription_created(request))
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "paypal_owner_mismatch"
+
+
+# ---------------------------------------------------------------------------
+# Website vs Telegram return/cancel URLs (Orders/Capture, credit purchases)
+# ---------------------------------------------------------------------------
+
+def test_website_order_uses_website_return_and_cancel_urls(env, monkeypatch):
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders"):
+            captured["body"] = kwargs.get("json")
+            return _fake_order_response()
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    item = main.shop_item("pack_100")
+    main.create_paypal_order(900000000401, "pack_100", item, is_website=True)
+
+    experience = captured["body"]["payment_source"]["paypal"]["experience_context"]
+    assert experience["return_url"] == "https://sylvex.ai/store.html?payment=success"
+    assert experience["cancel_url"] == "https://sylvex.ai/store.html?payment=cancelled"
+
+
+def test_telegram_order_return_urls_are_unchanged(env, monkeypatch):
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders"):
+            captured["body"] = kwargs.get("json")
+            return _fake_order_response()
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    item = main.shop_item("pack_100")
+    # is_website defaults to False - the pre-existing Telegram Mini App path.
+    main.create_paypal_order(555, "pack_100", item)
+
+    experience = captured["body"]["payment_source"]["paypal"]["experience_context"]
+    assert experience["return_url"].startswith(main.SHOP_WEBAPP_URL)
+    assert experience["cancel_url"].startswith(main.SHOP_WEBAPP_URL)
+    assert "sylvex.ai" not in experience["return_url"]
+    assert "sylvex.ai" not in experience["cancel_url"]
+
+
+def test_endpoint_routes_website_requests_to_website_return_url(env, monkeypatch):
+    # The endpoint itself (not just create_paypal_order's own is_website
+    # param) must derive is_website the same way public_lemonsqueezy_checkout
+    # already did: absent Telegram initData on request.state means this
+    # request came from the Website's session cookie, never a client-claimed
+    # flag.
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders"):
+            captured["body"] = kwargs.get("json")
+            return _fake_order_response()
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    telegram_id = 900000000402
+    request = FakeRequest(
+        payload={"pack_id": "pack_100", "type": "tokens", "telegram_id": telegram_id},
+        state=SimpleNamespace(telegram_id=telegram_id, telegram_init_data=""),
+    )
+    result = _run(main.public_paypal_create_order(request))
+    assert result["ok"] is True
+    experience = captured["body"]["payment_source"]["paypal"]["experience_context"]
+    assert experience["return_url"] == "https://sylvex.ai/store.html?payment=success"
+
+
+def test_endpoint_routes_telegram_requests_to_telegram_return_url(env, monkeypatch):
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders"):
+            captured["body"] = kwargs.get("json")
+            return _fake_order_response()
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    telegram_id = 900000000403
+    request = FakeRequest(
+        payload={"pack_id": "pack_100", "type": "tokens", "telegram_id": telegram_id},
+        state=SimpleNamespace(telegram_id=telegram_id, telegram_init_data="real-signed-telegram-init-data"),
+    )
+    result = _run(main.public_paypal_create_order(request))
+    assert result["ok"] is True
+    experience = captured["body"]["payment_source"]["paypal"]["experience_context"]
+    assert experience["return_url"].startswith(main.SHOP_WEBAPP_URL)
+    assert "sylvex.ai" not in experience["return_url"]
+
+
+# ---------------------------------------------------------------------------
+# Missing PayPal plan env vars: subscriptions fail safely, Orders/Capture unaffected
+# ---------------------------------------------------------------------------
+
+def test_missing_plan_env_vars_are_reported_not_configured(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "PAYPAL_PRO_MONTHLY_PLAN_ID", "")
+    monkeypatch.setattr(main, "PAYPAL_PRO_YEARLY_PLAN_ID", "")
+    assert main.paypal_subscriptions_configured() is False
+
+    config = _run(main.public_config())
+    assert config["paypal_subscriptions_enabled"] is False
+    assert config["paypal_enabled"] is True  # Orders/Capture credit purchases unaffected
+
+    status, body = _unwrap(_run(main.public_paypal_subscription_binding(
+        FakeRequest(payload={"plan_id": "P-ANYTHING"}, state=SimpleNamespace(telegram_id=900000000501))
+    )))
+    assert status == 502
+    assert body["error"] == "paypal_subscriptions_not_configured"
+
+    status2, body2 = _unwrap(_run(main.public_paypal_subscription_created(
+        FakeRequest(payload={"subscription_id": "I-X", "plan_id": "P-ANYTHING", "plan_type": "month", "telegram_id": 900000000501})
+    )))
+    assert status2 == 502
+    assert body2["error"] == "paypal_subscriptions_not_configured"
+
+
+def test_pack_for_plan_never_matches_empty_plan_id_against_unconfigured_env(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "PAYPAL_PRO_MONTHLY_PLAN_ID", "")
+    monkeypatch.setattr(main, "PAYPAL_PRO_YEARLY_PLAN_ID", "")
+    assert main.paypal_subscription_pack_for_plan("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Subscription lifecycle: cancelled / suspended / expired / payment failed
+# ---------------------------------------------------------------------------
+
+def test_cancelled_subscription_revokes_access(env):
+    main, database = env
+    telegram_id = 900000000601
+    subscription_id = "I-CANCEL1"
+    _activate_subscription(main, telegram_id, subscription_id, main.PAYPAL_PRO_MONTHLY_PLAN_ID, "month")
+
+    event = _lifecycle_event("BILLING.SUBSCRIPTION.CANCELLED", subscription_id)
+    status, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert status == 200
+    assert body["updated"] is True
+
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM subscriptions WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] == "cancelled"
+            cur.execute("SELECT subscription FROM users WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] is None
+            cur.execute("SELECT status FROM paypal_subscriptions WHERE paypal_subscription_id = %s", (subscription_id,))
+            assert cur.fetchone()[0] == "cancelled"
+
+
+def test_suspended_subscription_revokes_access(env):
+    main, database = env
+    telegram_id = 900000000602
+    subscription_id = "I-SUSPEND1"
+    _activate_subscription(main, telegram_id, subscription_id, main.PAYPAL_PRO_YEARLY_PLAN_ID, "year")
+
+    event = _lifecycle_event("BILLING.SUBSCRIPTION.SUSPENDED", subscription_id)
+    status, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert status == 200
+    assert body["updated"] is True
+
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM subscriptions WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] == "suspended"
+            cur.execute("SELECT subscription FROM users WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] is None
+
+
+def test_expired_subscription_revokes_access(env):
+    main, database = env
+    telegram_id = 900000000603
+    subscription_id = "I-EXPIRE1"
+    _activate_subscription(main, telegram_id, subscription_id, main.PAYPAL_PRO_MONTHLY_PLAN_ID, "month")
+
+    event = _lifecycle_event("BILLING.SUBSCRIPTION.EXPIRED", subscription_id)
+    status, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert status == 200
+    assert body["updated"] is True
+
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM subscriptions WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] == "expired"
+            cur.execute("SELECT subscription FROM users WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] is None
+
+
+def test_payment_failed_is_recorded_without_revoking_access(env):
+    # A single failed renewal charge is PayPal's own retry/dunning process
+    # still in flight, not a final state - SYLVEX Pro access must continue
+    # until PayPal itself actually suspends/cancels the subscription.
+    main, database = env
+    telegram_id = 900000000604
+    subscription_id = "I-FAIL1"
+    _activate_subscription(main, telegram_id, subscription_id, main.PAYPAL_PRO_MONTHLY_PLAN_ID, "month")
+
+    event = _lifecycle_event("BILLING.SUBSCRIPTION.PAYMENT.FAILED", subscription_id)
+    status, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert status == 200
+    assert body["updated"] is True
+
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM subscriptions WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] == "active"
+            cur.execute("SELECT subscription FROM users WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] == "month"
+            cur.execute("SELECT status FROM paypal_subscriptions WHERE paypal_subscription_id = %s", (subscription_id,))
+            assert cur.fetchone()[0] == "payment_failed"
+
+
+def test_duplicate_lifecycle_webhook_delivery_is_idempotent(env):
+    main, database = env
+    telegram_id = 900000000605
+    subscription_id = "I-DUPCANCEL1"
+    _activate_subscription(main, telegram_id, subscription_id, main.PAYPAL_PRO_MONTHLY_PLAN_ID, "month")
+
+    event = _lifecycle_event("BILLING.SUBSCRIPTION.CANCELLED", subscription_id)
+    _, first_body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    _, second_body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert first_body["updated"] is True
+    assert second_body["updated"] is False
+
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM subscriptions WHERE telegram_id = %s", (telegram_id,))
+            assert cur.fetchone()[0] == "cancelled"
+
+
+def test_unknown_lifecycle_event_type_is_ignored(env):
+    main, _ = env
+    event = {"event_type": "BILLING.SUBSCRIPTION.RE-ACTIVATED", "resource": {"id": "I-UNKNOWN1"}}
+    status, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
+    assert status == 200
+    assert body.get("ignored") == "BILLING.SUBSCRIPTION.RE-ACTIVATED"

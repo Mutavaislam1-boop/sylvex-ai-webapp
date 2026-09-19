@@ -206,6 +206,12 @@ PROSTUDIO_TEXT_INFLIGHT_LOCK = threading.Lock()
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://sylvex-ai-webapp-production.up.railway.app")
 PAYMENT_WEBAPP_URL = os.getenv("PAYMENT_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/payments")
 SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/webapp/index.html?view=shop")
+# The Website's own origin - a Website-authenticated PayPal Orders/Capture
+# purchase (see create_paypal_order's is_website branch) must return the
+# buyer here, never to SHOP_WEBAPP_URL above (the Telegram Mini App's own
+# webapp URL, which a plain desktop/mobile browser outside Telegram can't
+# meaningfully open).
+WEBSITE_URL = os.getenv("WEBSITE_URL", "https://sylvex.ai")
 
 # =====================================================
 # PYTHON-БЛОК: env_value
@@ -944,8 +950,12 @@ PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 PAYPAL_MODE = (os.getenv("PAYPAL_MODE") or "sandbox").strip().lower()
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
 PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
-PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "P-16M2575467314214JNKW33SQ")
-PAYPAL_PRO_YEARLY_PLAN_ID = os.getenv("PAYPAL_PRO_YEARLY_PLAN_ID", "P-2V117840XB8907707NKW33SY")
+# No hardcoded fallback: a real sandbox/live plan id here would let
+# subscriptions silently run against the wrong PayPal environment if the
+# Railway env var is ever unset. paypal_subscriptions_configured() below is
+# how every subscription endpoint reports "not configured" instead.
+PAYPAL_PRO_MONTHLY_PLAN_ID = os.getenv("PAYPAL_PRO_MONTHLY_PLAN_ID", "")
+PAYPAL_PRO_YEARLY_PLAN_ID = os.getenv("PAYPAL_PRO_YEARLY_PLAN_ID", "")
 LEMONSQUEEZY_API_KEY = os.getenv("LEMONSQUEEZY_API_KEY")
 LEMONSQUEEZY_STORE_ID = os.getenv("LEMONSQUEEZY_STORE_ID")
 LEMONSQUEEZY_WEBHOOK_SECRET = os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET")
@@ -2625,6 +2635,17 @@ def paypal_configured() -> bool:
 
 
 # =====================================================
+# PYTHON-БЛОК: paypal_subscriptions_configured
+# Both Pro plan ids must be set (env-only, see PAYPAL_PRO_MONTHLY_PLAN_ID/
+# PAYPAL_PRO_YEARLY_PLAN_ID above) before any subscription endpoint may
+# proceed - Orders/Capture credit purchases (paypal_configured() alone)
+# work independently of this.
+# =====================================================
+def paypal_subscriptions_configured() -> bool:
+    return bool(paypal_configured() and PAYPAL_PRO_MONTHLY_PLAN_ID and PAYPAL_PRO_YEARLY_PLAN_ID)
+
+
+# =====================================================
 # PYTHON-БЛОК: paypal_access_token
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -2681,6 +2702,20 @@ def paypal_return_url(telegram_id: int, pack_id: str, status: str) -> str:
 
 
 # =====================================================
+# PYTHON-БЛОК: paypal_website_return_url
+# A Website-authenticated Orders/Capture purchase (create_paypal_order's
+# is_website branch) must return the buyer to the Website's own Store page,
+# never to the Telegram Mini App's SHOP_WEBAPP_URL above - a plain browser
+# outside Telegram can't do anything useful with that URL. Website identity
+# is resolved server-side from the account's own session anyway (see
+# resolve_web_session_uid), so this deliberately carries no telegram_id/
+# pack_id query params - nothing here is trusted, it's a landing page only.
+# =====================================================
+def paypal_website_return_url(status: str) -> str:
+    return f"{WEBSITE_URL.rstrip('/')}/store.html?payment={status}"
+
+
+# =====================================================
 # PYTHON-БЛОК: paypal_purchase_type
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -2694,9 +2729,15 @@ def paypal_purchase_type(item: dict) -> str:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def create_paypal_order(telegram_id: int, pack_id: str, item: dict) -> dict:
+def create_paypal_order(telegram_id: int, pack_id: str, item: dict, is_website: bool = False) -> dict:
     amount_value = f"{float(item['usd']):.2f}"
     payload = shop_payload("paypal", telegram_id, pack_id, item)
+    if is_website:
+        return_url = paypal_website_return_url("success")
+        cancel_url = paypal_website_return_url("cancelled")
+    else:
+        return_url = paypal_return_url(telegram_id, pack_id, "success")
+        cancel_url = paypal_return_url(telegram_id, pack_id, "cancel")
     body = {
         "intent": "CAPTURE",
         "purchase_units": [
@@ -2716,8 +2757,8 @@ def create_paypal_order(telegram_id: int, pack_id: str, item: dict) -> dict:
                     "brand_name": "SYLVEX",
                     "shipping_preference": "NO_SHIPPING",
                     "user_action": "PAY_NOW",
-                    "return_url": paypal_return_url(telegram_id, pack_id, "success"),
-                    "cancel_url": paypal_return_url(telegram_id, pack_id, "cancel"),
+                    "return_url": return_url,
+                    "cancel_url": cancel_url,
                 }
             }
         },
@@ -2923,6 +2964,85 @@ def finalize_paypal_capture(event: dict) -> bool:
         conn.close()
 
 
+# Every PayPal subscription-lifecycle event this webhook must not silently
+# drop, mapped to the paypal_subscriptions.status it records. Only
+# `revoke=True` events actually end SYLVEX Pro access - a single
+# PAYMENT.FAILED is PayPal's own dunning/retry process still in flight, not
+# a final state (PayPal itself follows up with SUSPENDED once retries are
+# exhausted, which does revoke), so it's recorded for visibility without
+# cutting the subscriber off mid-retry.
+_PAYPAL_SUBSCRIPTION_LIFECYCLE_EVENTS = {
+    "BILLING.SUBSCRIPTION.CANCELLED": ("cancelled", True),
+    "BILLING.SUBSCRIPTION.SUSPENDED": ("suspended", True),
+    "BILLING.SUBSCRIPTION.EXPIRED": ("expired", True),
+    "BILLING.SUBSCRIPTION.PAYMENT.FAILED": ("payment_failed", False),
+}
+
+
+# =====================================================
+# PYTHON-БЛОК: sync_paypal_subscription_lifecycle_event
+# Handles the non-payment subscription lifecycle events PayPal sends over
+# this same webhook - CANCELLED/SUSPENDED/EXPIRED (which must end SYLVEX
+# Pro access immediately, the same way a manual admin cancel already does:
+# flip subscriptions.status off 'active' and clear users.subscription, so
+# get_user_state()'s own active-subscription query - status='active' AND
+# expires_at > NOW() - stops finding it right away rather than waiting for
+# expires_at to naturally lapse) and PAYMENT.FAILED (recorded only, access
+# unchanged - see _PAYPAL_SUBSCRIPTION_LIFECYCLE_EVENTS above). Idempotent:
+# redelivering the same event is a no-op once paypal_subscriptions.status
+# already matches.
+# =====================================================
+def sync_paypal_subscription_lifecycle_event(event: dict) -> bool:
+    event_type = event.get("event_type") or ""
+    mapping = _PAYPAL_SUBSCRIPTION_LIFECYCLE_EVENTS.get(event_type)
+    if not mapping:
+        return False
+    new_status, revoke = mapping
+
+    resource = event.get("resource") or {}
+    subscription_id = resource.get("id") or paypal_subscription_id_from_event(event)
+    if not subscription_id or not DATABASE_URL:
+        return False
+
+    ensure_payment_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT telegram_id, status FROM paypal_subscriptions WHERE paypal_subscription_id = %s",
+            (subscription_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        telegram_id, current_status = row
+        if current_status == new_status:
+            return False  # already applied - PayPal redelivered the same event
+
+        cursor.execute(
+            """
+            UPDATE paypal_subscriptions
+            SET status = %s, raw_event = %s::jsonb, updated_at = CURRENT_TIMESTAMP
+            WHERE paypal_subscription_id = %s
+            """,
+            (new_status, json.dumps(event), subscription_id),
+        )
+        if revoke:
+            cursor.execute(
+                "UPDATE subscriptions SET status = %s WHERE telegram_id = %s AND status = 'active'",
+                (new_status, int(telegram_id)),
+            )
+            cursor.execute(
+                "UPDATE users SET subscription = NULL WHERE telegram_id = %s AND subscription IS NOT NULL",
+                (int(telegram_id),),
+            )
+        conn.commit()
+        return True
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # =====================================================
 # PYTHON-БЛОК: paypal_subscription_pack_for_plan
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -2930,9 +3050,13 @@ def finalize_paypal_capture(event: dict) -> bool:
 # =====================================================
 def paypal_subscription_pack_for_plan(plan_id: str, plan_type: str = "") -> str:
     normalized_type = (plan_type or "").strip().lower()
-    if plan_id == PAYPAL_PRO_MONTHLY_PLAN_ID or normalized_type in {"month", "monthly"}:
+    # `and PAYPAL_PRO_MONTHLY_PLAN_ID` guards against an unconfigured (empty
+    # string) env var matching an equally-empty/missing plan_id - without
+    # it, "" == "" would silently resolve an unconfigured deployment to
+    # sub_month for any request that simply omits plan_id.
+    if (plan_id and plan_id == PAYPAL_PRO_MONTHLY_PLAN_ID) or normalized_type in {"month", "monthly"}:
         return "sub_month"
-    if plan_id == PAYPAL_PRO_YEARLY_PLAN_ID or normalized_type in {"year", "yearly", "annual"}:
+    if (plan_id and plan_id == PAYPAL_PRO_YEARLY_PLAN_ID) or normalized_type in {"year", "yearly", "annual"}:
         return "sub_year"
     return ""
 
@@ -4425,6 +4549,12 @@ async def public_config():
         # them into static HTML.
         "paypal_client_id": PAYPAL_CLIENT_ID or "",
         "paypal_enabled": paypal_configured(),
+        # Distinct from paypal_enabled: Orders/Capture credit purchases only
+        # need PAYPAL_CLIENT_ID/SECRET, but a Pro subscribe button also
+        # needs both plan ids - report that separately so the Website can
+        # hide just the subscribe buttons (not the whole Store) if only the
+        # plan ids are missing.
+        "paypal_subscriptions_enabled": paypal_subscriptions_configured(),
         "paypal_pro_monthly_plan_id": PAYPAL_PRO_MONTHLY_PLAN_ID,
         "paypal_pro_yearly_plan_id": PAYPAL_PRO_YEARLY_PLAN_ID,
     }
@@ -10137,6 +10267,13 @@ async def public_paypal_create_order(request: Request):
     purchase_type = data.get("type") or data.get("purchase_type") or ""
     item = shop_item(pack_id)
     telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
+    # A real Telegram Mini App call always presents signed initData (see
+    # SecurityMiddleware); a Website call never does - same distinction
+    # public_lemonsqueezy_checkout already used. Only affects which page
+    # PayPal sends the buyer back to (paypal_website_return_url vs the
+    # Mini App's SHOP_WEBAPP_URL) - identity/crediting is unaffected either
+    # way, since that always comes from the middleware-resolved telegram_id.
+    is_website = not getattr(request.state, "telegram_init_data", "")
 
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
@@ -10149,7 +10286,7 @@ async def public_paypal_create_order(request: Request):
         return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
 
     try:
-        order = create_paypal_order(telegram_id, pack_id, item)
+        order = create_paypal_order(telegram_id, pack_id, item, is_website)
     except Exception as exc:
         print("PAYPAL CREATE ORDER ERROR:", exc)
         return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
@@ -10194,6 +10331,9 @@ async def public_paypal_create_order(request: Request):
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def public_paypal_subscription_created(request: Request):
+    if not paypal_subscriptions_configured():
+        return JSONResponse({"ok": False, "error": "paypal_subscriptions_not_configured"}, status_code=502)
+
     data = await request.json()
     subscription_id = (data.get("subscription_id") or data.get("subscriptionID") or "").strip()
     plan_id = (data.get("plan_id") or "").strip()
@@ -10256,6 +10396,10 @@ async def public_paypal_webhook(request: Request):
     if event_type in {"BILLING.SUBSCRIPTION.ACTIVATED", "PAYMENT.SALE.COMPLETED"}:
         created = activate_paypal_subscription_from_event(event)
         return {"ok": True, "created": created}
+
+    if event_type in _PAYPAL_SUBSCRIPTION_LIFECYCLE_EVENTS:
+        updated = sync_paypal_subscription_lifecycle_event(event)
+        return {"ok": True, "updated": updated}
 
     if event_type != "PAYMENT.CAPTURE.COMPLETED":
         return {"ok": True, "ignored": event_type}
@@ -17954,6 +18098,8 @@ async def security_error_handler(request: Request, exc: SecurityError):
 
 @app.post("/api/public/payments/paypal/subscription-binding")
 async def public_paypal_subscription_binding(request: Request):
+    if not paypal_subscriptions_configured():
+        return JSONResponse({"ok": False, "error": "paypal_subscriptions_not_configured"}, status_code=502)
     data = await request.json()
     plan = str(data.get("plan_id") or "")
     if not paypal_subscription_pack_for_plan(plan):
