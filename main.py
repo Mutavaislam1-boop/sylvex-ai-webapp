@@ -2732,12 +2732,6 @@ def paypal_purchase_type(item: dict) -> str:
 def create_paypal_order(telegram_id: int, pack_id: str, item: dict, is_website: bool = False) -> dict:
     amount_value = f"{float(item['usd']):.2f}"
     payload = shop_payload("paypal", telegram_id, pack_id, item)
-    if is_website:
-        return_url = paypal_website_return_url("success")
-        cancel_url = paypal_website_return_url("cancelled")
-    else:
-        return_url = paypal_return_url(telegram_id, pack_id, "success")
-        cancel_url = paypal_return_url(telegram_id, pack_id, "cancel")
     body = {
         "intent": "CAPTURE",
         "purchase_units": [
@@ -2751,18 +2745,34 @@ def create_paypal_order(telegram_id: int, pack_id: str, item: dict, is_website: 
                 },
             }
         ],
-        "payment_source": {
+    }
+    if is_website:
+        # Deliberately no payment_source here. The Website's own checkout
+        # modal renders both paypal.Buttons() (wallet/Apple Pay/Google Pay)
+        # and paypal.CardFields() (direct card, no PayPal account) against
+        # this same order id - PayPal's own integration guidance is that
+        # pre-committing payment_source.paypal at creation time can make a
+        # later CardFields.submit() on the same order fail with a payment
+        # source mismatch. Neither component ever navigates the browser
+        # away from sylvex.ai for the primary flow; a return_url is only
+        # PayPal's own generic close-this-tab page in the rare
+        # popup-blocked fallback, which is an accepted rough edge here.
+        pass
+    else:
+        # Telegram Mini App: unchanged from before - a real full-page
+        # redirect into PayPal's own hosted approval page, so this still
+        # needs the experience_context return/cancel URLs.
+        body["payment_source"] = {
             "paypal": {
                 "experience_context": {
                     "brand_name": "SYLVEX",
                     "shipping_preference": "NO_SHIPPING",
                     "user_action": "PAY_NOW",
-                    "return_url": return_url,
-                    "cancel_url": cancel_url,
+                    "return_url": paypal_return_url(telegram_id, pack_id, "success"),
+                    "cancel_url": paypal_return_url(telegram_id, pack_id, "cancel"),
                 }
             }
-        },
-    }
+        }
     response = requests.post(
         f"{PAYPAL_API_BASE}/v2/checkout/orders",
         headers={**paypal_headers(), "PayPal-Request-Id": f"sylvex-{telegram_id}-{pack_id}-{uuid4().hex}"},
@@ -2773,6 +2783,50 @@ def create_paypal_order(telegram_id: int, pack_id: str, item: dict, is_website: 
         print("PAYPAL ORDER ERROR:", response.status_code, response.text[:1000])
         raise RuntimeError("PayPal order request failed")
     return response.json()
+
+
+# =====================================================
+# PYTHON-БЛОК: capture_paypal_order
+# Explicit server-side capture for the Website's own checkout modal
+# (paypal.Buttons()/paypal.CardFields() call onApprove client-side, then
+# the frontend posts here - see public_paypal_capture_order below) rather
+# than relying on PayPal auto-capturing a hosted-redirect approval the way
+# the Telegram Mini App's create_paypal_order flow still does. PayPal's own
+# webhook (PAYMENT.CAPTURE.COMPLETED) still fires for this capture too and
+# is safely redundant with it - finalize_paypal_capture's charge_id
+# uniqueness means whichever of the two arrives first grants the credit,
+# and the other is a no-op.
+# =====================================================
+def capture_paypal_order(order_id: str) -> dict:
+    response = requests.post(
+        f"{PAYPAL_API_BASE}/v2/checkout/orders/{order_id}/capture",
+        headers={**paypal_headers(), "PayPal-Request-Id": f"sylvex-capture-{order_id}-{uuid4().hex}", "Prefer": "return=representation"},
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("PAYPAL CAPTURE ORDER ERROR:", response.status_code, response.text[:1000])
+        raise RuntimeError("PayPal capture request failed")
+    return response.json()
+
+
+# =====================================================
+# PYTHON-БЛОК: paypal_capture_event_from_order_response
+# Reshapes a POST /v2/checkout/orders/{id}/capture response into the same
+# event["resource"] shape finalize_paypal_capture() already expects from a
+# real PAYMENT.CAPTURE.COMPLETED webhook, so capture-order can hand off to
+# that exact function instead of duplicating its credit-granting logic.
+# order_id is taken from the known request, not trusted from anywhere
+# inside the PayPal response, for robustness against any shape variance.
+# =====================================================
+def paypal_capture_event_from_order_response(order_id: str, capture_response: dict) -> dict:
+    purchase_units = capture_response.get("purchase_units") or []
+    captures = (purchase_units[0].get("payments") or {}).get("captures") or [] if purchase_units else []
+    resource = dict(captures[0]) if captures else {}
+    resource["supplementary_data"] = {
+        **(resource.get("supplementary_data") or {}),
+        "related_ids": {"order_id": order_id},
+    }
+    return {"event_type": "PAYMENT.CAPTURE.COMPLETED", "resource": resource}
 
 
 # =====================================================
@@ -10269,10 +10323,12 @@ async def public_paypal_create_order(request: Request):
     telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
     # A real Telegram Mini App call always presents signed initData (see
     # SecurityMiddleware); a Website call never does - same distinction
-    # public_lemonsqueezy_checkout already used. Only affects which page
-    # PayPal sends the buyer back to (paypal_website_return_url vs the
-    # Mini App's SHOP_WEBAPP_URL) - identity/crediting is unaffected either
-    # way, since that always comes from the middleware-resolved telegram_id.
+    # public_lemonsqueezy_checkout already used. Only affects how
+    # create_paypal_order builds the order (Telegram keeps its full-page
+    # PayPal-hosted redirect; the Website order is created funding-source-
+    # agnostic for its own inline Buttons/CardFields checkout modal) -
+    # identity/crediting is unaffected either way, since that always comes
+    # from the middleware-resolved telegram_id.
     is_website = not getattr(request.state, "telegram_init_data", "")
 
     if not item:
@@ -10292,7 +10348,13 @@ async def public_paypal_create_order(request: Request):
         return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
 
     checkout_url = paypal_approve_url(order)
-    if not order.get("id") or not checkout_url:
+    if not order.get("id"):
+        return JSONResponse({"ok": False, "error": "paypal_order_id_missing"}, status_code=502)
+    # The Website's checkout modal never uses checkout_url (its
+    # paypal.Buttons()/CardFields() components drive approval entirely
+    # against order.id, in-page) - only the Telegram Mini App's full-page
+    # redirect actually needs it, so only that path 502s without one.
+    if not is_website and not checkout_url:
         return JSONResponse({"ok": False, "error": "paypal_checkout_url_missing"}, status_code=502)
 
     save_paypal_order(telegram_id, pack_id, item, order, checkout_url)
@@ -10316,6 +10378,65 @@ async def public_paypal_create_order(request: Request):
         "pack_id": pack_id,
         "type": expected_type,
     }
+
+
+# =====================================================
+# API ENDPOINT: public_paypal_capture_order
+# The Website checkout modal's own capture trigger: onApprove (from either
+# paypal.Buttons() or paypal.CardFields()) posts the order_id here once the
+# buyer has approved payment, still entirely inline on sylvex.ai - nothing
+# about this differs by funding source, since PayPal resolves whichever
+# one the buyer actually used at approval time. Ownership is verified
+# against the paypal_orders row saved by create-order (never trusts the
+# caller's own claim of which order is theirs); crediting itself reuses
+# finalize_paypal_capture() exactly as the webhook path does, so this and
+# the redundant webhook delivery for the same capture are both safe.
+# =====================================================
+@app.post("/api/public/payments/paypal/capture-order")
+async def public_paypal_capture_order(request: Request):
+    data = await request.json()
+    order_id = (data.get("order_id") or data.get("paypal_order_id") or "").strip()
+    telegram_id = int(data.get("telegram_id") or data.get("user_id") or 0)
+
+    if not order_id:
+        return JSONResponse({"ok": False, "error": "order_id_required"}, status_code=400)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "user_id_required"}, status_code=400)
+    if not paypal_configured():
+        return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=503)
+
+    ensure_payment_tables()
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT telegram_id, status FROM paypal_orders WHERE paypal_order_id = %s",
+            (order_id,),
+        )
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not row:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, status_code=404)
+    owner_telegram_id, status = row
+    if int(owner_telegram_id) != telegram_id:
+        raise HTTPException(status_code=403, detail="paypal_owner_mismatch")
+    if status == "completed":
+        return {"ok": True, "created": False, "already_completed": True}
+
+    try:
+        capture_response = await asyncio.to_thread(capture_paypal_order, order_id)
+    except Exception as exc:
+        print("PAYPAL CAPTURE ORDER ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "paypal_capture_failed"}, status_code=502)
+
+    event = paypal_capture_event_from_order_response(order_id, capture_response)
+    created = await asyncio.to_thread(finalize_paypal_capture, event)
+    return {"ok": True, "created": created}
 
 
 # =====================================================
