@@ -950,6 +950,13 @@ PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 PAYPAL_MODE = (os.getenv("PAYPAL_MODE") or "sandbox").strip().lower()
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID")
 PAYPAL_API_BASE = "https://api-m.paypal.com" if PAYPAL_MODE == "live" else "https://api-m.sandbox.paypal.com"
+# PayPal JavaScript SDK v6 ("Web SDK") - loaded by the Website's checkout
+# modal (sylvex-website/js/checkout-modal.js). Unlike the REST API base
+# above, this domain has no api-m. prefix and the environment is selected
+# entirely by which of these two hosts is loaded (there is no query-string
+# intent/vault switch like the old v5 SDK). Confirmed against PayPal's own
+# v6 sample docs (https://developer.paypal.com/sdk/js/set-up).
+PAYPAL_WEB_SDK_URL = "https://www.paypal.com/web-sdk/v6/core" if PAYPAL_MODE == "live" else "https://www.sandbox.paypal.com/web-sdk/v6/core"
 # No hardcoded fallback: a real sandbox/live plan id here would let
 # subscriptions silently run against the wrong PayPal environment if the
 # Railway env var is ever unset. paypal_subscriptions_configured() below is
@@ -2670,6 +2677,42 @@ def paypal_access_token(api_base: str = None) -> str:
     if not token:
         raise RuntimeError("PayPal token response did not include access_token")
     return token
+
+
+# =====================================================
+# PYTHON-БЛОК: paypal_generate_client_token
+# The credential the Website's checkout modal uses to call
+# paypal.createInstance({clientToken, ...}) when initializing PayPal
+# JavaScript SDK v6 - short-lived and scoped for browser use (PayPal's own
+# "client token" mechanism: POST /v1/oauth2/token with
+# response_type=client_token, same Basic-Auth client_id/secret exchange as
+# paypal_access_token() above, just a different response_type). This never
+# returns PAYPAL_CLIENT_SECRET itself - only a derived token that lets the
+# browser initialize the SDK, not move money or read account data on its
+# own; PayPal's own v6 sample server (paypal-examples/v6-web-sdk-sample-
+# integration) generates this the same way.
+# =====================================================
+def paypal_generate_client_token(api_base: str = None) -> dict:
+    if not paypal_configured():
+        raise RuntimeError("PayPal credentials are not configured")
+
+    base = api_base or PAYPAL_API_BASE
+    response = requests.post(
+        f"{base}/v1/oauth2/token",
+        auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET),
+        data={"grant_type": "client_credentials", "response_type": "client_token"},
+        headers={"Accept": "application/json", "Accept-Language": "en_US"},
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("PAYPAL CLIENT TOKEN ERROR:", response.status_code, response.text[:1000])
+        raise RuntimeError("PayPal client token request failed")
+
+    payload = response.json()
+    token = payload.get("access_token")
+    if not token:
+        raise RuntimeError("PayPal client token response did not include access_token")
+    return {"client_token": token, "expires_in": payload.get("expires_in")}
 
 
 # =====================================================
@@ -4602,6 +4645,12 @@ async def public_config():
         # ids to pass into actions.subscription.create() without hardcoding
         # them into static HTML.
         "paypal_client_id": PAYPAL_CLIENT_ID or "",
+        # The v6 Web SDK script itself picks sandbox vs. live purely by
+        # which of these two domains is loaded (no more query-string
+        # intent/vault switch) - keep that choice backend-authoritative,
+        # same as PAYPAL_MODE elsewhere, instead of duplicating the
+        # sandbox/live domain logic in the frontend.
+        "paypal_web_sdk_url": PAYPAL_WEB_SDK_URL,
         "paypal_enabled": paypal_configured(),
         # Distinct from paypal_enabled: Orders/Capture credit purchases only
         # need PAYPAL_CLIENT_ID/SECRET, but a Pro subscribe button also
@@ -10437,6 +10486,62 @@ async def public_paypal_capture_order(request: Request):
     event = paypal_capture_event_from_order_response(order_id, capture_response)
     created = await asyncio.to_thread(finalize_paypal_capture, event)
     return {"ok": True, "created": created}
+
+
+# =====================================================
+# API ENDPOINT: public_paypal_client_token
+# Browser-safe, short-lived credential the Website's checkout modal uses to
+# initialize PayPal JavaScript SDK v6 (paypal.createInstance({clientToken,
+# ...})) - see paypal_generate_client_token() above. Public/unauthenticated,
+# same trust level as paypal_client_id already served by /api/public/config:
+# this token can only initialize the SDK client-side, it cannot move money
+# or read account data by itself, and PAYPAL_CLIENT_SECRET never leaves the
+# backend to produce it. Not used by Telegram - cabinet.js still loads the
+# v5 SDK directly with the plain client id.
+# =====================================================
+@app.get("/api/public/payments/paypal/client-token")
+async def public_paypal_client_token():
+    if not paypal_configured():
+        return JSONResponse({"ok": False, "error": "paypal_not_configured"}, status_code=502)
+    try:
+        result = await asyncio.to_thread(paypal_generate_client_token)
+    except Exception as exc:
+        print("PAYPAL CLIENT TOKEN ENDPOINT ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "paypal_client_token_failed"}, status_code=502)
+    return {"ok": True, "client_token": result["client_token"], "expires_in": result.get("expires_in")}
+
+
+# =====================================================
+# API ENDPOINT: public_paypal_subscription_create
+# PayPal Web SDK v6 path only: v6's createPayPalSubscriptionPaymentSession()
+# takes an already-created subscription id and only drives the buyer-
+# approval popup/redirect around it (unlike v5, where the client-side SDK
+# itself called actions.subscription.create()) - so subscription creation
+# moves server-side here. Reuses the exact same signed-in-account binding
+# (make_binding) that subscription-binding already hands to Telegram's v5
+# flow, then calls PayPal's real Subscriptions API directly. Telegram's
+# cabinet.js is untouched - it still calls subscription-binding, not this.
+# =====================================================
+@app.post("/api/public/payments/paypal/subscription-create")
+async def public_paypal_subscription_create(request: Request):
+    if not paypal_subscriptions_configured():
+        return JSONResponse({"ok": False, "error": "paypal_subscriptions_not_configured"}, status_code=502)
+    data = await request.json()
+    plan_id = str(data.get("plan_id") or "")
+    if not paypal_subscription_pack_for_plan(plan_id):
+        raise HTTPException(status_code=400, detail="unknown_plan")
+
+    custom_id = make_binding(request.state.telegram_id, plan_id)
+    try:
+        subscription = await asyncio.to_thread(create_paypal_subscription, plan_id, custom_id)
+    except Exception as exc:
+        print("PAYPAL SUBSCRIPTION CREATE ENDPOINT ERROR:", exc)
+        return JSONResponse({"ok": False, "error": "paypal_subscription_create_failed"}, status_code=502)
+
+    subscription_id = subscription.get("id")
+    if not subscription_id:
+        return JSONResponse({"ok": False, "error": "paypal_subscription_id_missing"}, status_code=502)
+    return {"ok": True, "id": subscription_id}
 
 
 # =====================================================
@@ -18226,6 +18331,32 @@ async def public_paypal_subscription_binding(request: Request):
     if not paypal_subscription_pack_for_plan(plan):
         raise HTTPException(status_code=400, detail="unknown_plan")
     return {"ok": True, "custom_id": make_binding(request.state.telegram_id, plan)}
+
+
+# =====================================================
+# PYTHON-БЛОК: create_paypal_subscription
+# PayPal JavaScript SDK v6's createPayPalSubscriptionPaymentSession() takes
+# an already-created subscription id and only drives the buyer-approval UI
+# around it - unlike v5, where the client-side SDK itself called
+# actions.subscription.create({plan_id, custom_id}). So for the Website's
+# v6 checkout modal, subscription creation moves server-side: this calls
+# PayPal's real Subscriptions API directly, exactly as PayPal's own v6
+# sample server does. Telegram's cabinet.js keeps its v5 client-side
+# actions.subscription.create() flow via subscription-binding, untouched -
+# this is a new, separate function only the Website's v6 path calls.
+# =====================================================
+def create_paypal_subscription(plan_id: str, custom_id: str) -> dict:
+    body = {"plan_id": plan_id, "custom_id": custom_id}
+    response = requests.post(
+        f"{PAYPAL_API_BASE}/v1/billing/subscriptions",
+        headers={**paypal_headers(), "PayPal-Request-Id": f"sylvex-sub-{custom_id}-{uuid4().hex}", "Prefer": "return=representation"},
+        json=body,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        print("PAYPAL SUBSCRIPTION CREATE ERROR:", response.status_code, response.text[:1000])
+        raise RuntimeError("PayPal subscription create request failed")
+    return response.json()
 
 
 def verified_paypal_subscription(subscription_id: str) -> dict:
