@@ -459,29 +459,13 @@ def test_subscription_created_rejects_binding_for_a_different_account(env, monke
 
 
 # ---------------------------------------------------------------------------
-# Website vs Telegram return/cancel URLs (Orders/Capture, credit purchases)
+# Website vs Telegram order creation - the Website's own checkout modal
+# (paypal.Buttons()/paypal.CardFields(), see the capture-order tests further
+# down) means a Website order is created payment_source-agnostic and never
+# redirects at all; only the Telegram Mini App still uses PayPal's own
+# hosted, full-page-redirect approval flow, so only it still needs the
+# sylvex.ai-anchored return/cancel URLs from the previous PayPal migration.
 # ---------------------------------------------------------------------------
-
-def test_website_order_uses_website_return_and_cancel_urls(env, monkeypatch):
-    main, _ = env
-    captured = {}
-
-    def fake_post(url, **kwargs):
-        if url.endswith("/v1/notifications/verify-webhook-signature"):
-            return FakeResponse(200, {"verification_status": "SUCCESS"})
-        if url.endswith("/v2/checkout/orders"):
-            captured["body"] = kwargs.get("json")
-            return _fake_order_response()
-        raise AssertionError(f"unexpected POST {url}")
-
-    monkeypatch.setattr(main.requests, "post", fake_post)
-    item = main.shop_item("pack_100")
-    main.create_paypal_order(900000000401, "pack_100", item, is_website=True)
-
-    experience = captured["body"]["payment_source"]["paypal"]["experience_context"]
-    assert experience["return_url"] == "https://sylvex.ai/store.html?payment=success"
-    assert experience["cancel_url"] == "https://sylvex.ai/store.html?payment=cancelled"
-
 
 def test_telegram_order_return_urls_are_unchanged(env, monkeypatch):
     main, _ = env
@@ -507,12 +491,15 @@ def test_telegram_order_return_urls_are_unchanged(env, monkeypatch):
     assert "sylvex.ai" not in experience["cancel_url"]
 
 
-def test_endpoint_routes_website_requests_to_website_return_url(env, monkeypatch):
+def test_endpoint_routes_website_requests_to_payment_source_agnostic_order(env, monkeypatch):
     # The endpoint itself (not just create_paypal_order's own is_website
     # param) must derive is_website the same way public_lemonsqueezy_checkout
     # already did: absent Telegram initData on request.state means this
     # request came from the Website's session cookie, never a client-claimed
-    # flag.
+    # flag. A Website order also isn't required to have an approve/
+    # checkout_url (unlike Telegram's redirect flow below) since the
+    # checkout modal's Buttons()/CardFields() components drive approval
+    # against order.id directly, in-page.
     main, _ = env
     captured = {}
 
@@ -521,7 +508,7 @@ def test_endpoint_routes_website_requests_to_website_return_url(env, monkeypatch
             return FakeResponse(200, {"verification_status": "SUCCESS"})
         if url.endswith("/v2/checkout/orders"):
             captured["body"] = kwargs.get("json")
-            return _fake_order_response()
+            return FakeResponse(201, {"id": "ORDER-NO-APPROVE-LINK", "status": "CREATED", "links": []})
         raise AssertionError(f"unexpected POST {url}")
 
     monkeypatch.setattr(main.requests, "post", fake_post)
@@ -532,8 +519,8 @@ def test_endpoint_routes_website_requests_to_website_return_url(env, monkeypatch
     )
     result = _run(main.public_paypal_create_order(request))
     assert result["ok"] is True
-    experience = captured["body"]["payment_source"]["paypal"]["experience_context"]
-    assert experience["return_url"] == "https://sylvex.ai/store.html?payment=success"
+    assert result["paypal_order_id"] == "ORDER-NO-APPROVE-LINK"
+    assert "payment_source" not in captured["body"]
 
 
 def test_endpoint_routes_telegram_requests_to_telegram_return_url(env, monkeypatch):
@@ -706,3 +693,178 @@ def test_unknown_lifecycle_event_type_is_ignored(env):
     status, body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(event))))
     assert status == 200
     assert body.get("ignored") == "BILLING.SUBSCRIPTION.RE-ACTIVATED"
+
+
+# ---------------------------------------------------------------------------
+# Unified Website checkout: order creation is funding-source-agnostic,
+# capture-order is the explicit server-side trigger for it
+# ---------------------------------------------------------------------------
+
+def _fake_capture_response(order_id, capture_id, amount_usd, currency="USD", status="COMPLETED"):
+    return FakeResponse(201, {
+        "id": order_id,
+        "status": status,
+        "purchase_units": [{
+            "payments": {
+                "captures": [{
+                    "id": capture_id,
+                    "status": status,
+                    "amount": {"value": f"{amount_usd:.2f}", "currency_code": currency},
+                }]
+            }
+        }],
+    })
+
+
+def test_website_order_creation_omits_payment_source(env, monkeypatch):
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders"):
+            captured["body"] = kwargs.get("json")
+            return _fake_order_response()
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    item = main.shop_item("pack_100")
+    main.create_paypal_order(900000000701, "pack_100", item, is_website=True)
+    assert "payment_source" not in captured["body"]
+
+
+def test_telegram_order_creation_still_sets_payment_source(env, monkeypatch):
+    main, _ = env
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders"):
+            captured["body"] = kwargs.get("json")
+            return _fake_order_response()
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    item = main.shop_item("pack_100")
+    main.create_paypal_order(900000000702, "pack_100", item)  # is_website defaults False
+    assert "payment_source" in captured["body"]
+    assert "paypal" in captured["body"]["payment_source"]
+
+
+def test_capture_order_credits_and_is_redundant_safe_with_webhook(env, monkeypatch):
+    main, database = env
+    telegram_id = 900000000703
+    item = main.shop_item("pack_500")
+    order = {"id": "ORDER-CAP-1", "status": "CREATED"}
+    main.save_paypal_order(telegram_id, "pack_500", item, order, "")
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders/ORDER-CAP-1/capture"):
+            return _fake_capture_response("ORDER-CAP-1", "CAP-EXPLICIT-1", item["usd"])
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+
+    status, body = _unwrap(_run(main.public_paypal_capture_order(
+        FakeRequest(payload={"order_id": "ORDER-CAP-1", "telegram_id": telegram_id})
+    )))
+    assert status == 200
+    assert body["created"] is True
+    assert _balance(database, telegram_id) == item["credits"] == 500
+
+    # PayPal's own webhook for the same capture still arrives (redundant by
+    # design) - must not double-credit.
+    webhook_event = _capture_event("ORDER-CAP-1", "CAP-EXPLICIT-1", item["usd"])
+    _, webhook_body = _unwrap(_run(main.public_paypal_webhook(_webhook_post(webhook_event))))
+    assert webhook_body["created"] is False
+    assert _balance(database, telegram_id) == 500
+
+
+def test_capture_order_rejects_mismatched_owner(env):
+    main, database = env
+    owner_id = 900000000704
+    attacker_id = 900000000705
+    item = main.shop_item("pack_100")
+    order = {"id": "ORDER-CAP-2", "status": "CREATED"}
+    main.save_paypal_order(owner_id, "pack_100", item, order, "")
+
+    import fastapi
+    with pytest.raises(fastapi.HTTPException) as exc_info:
+        _run(main.public_paypal_capture_order(
+            FakeRequest(payload={"order_id": "ORDER-CAP-2", "telegram_id": attacker_id})
+        ))
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "paypal_owner_mismatch"
+    assert _balance(database, owner_id) is None  # never even ensure_user_exists'd
+    assert _balance(database, attacker_id) is None
+
+
+def test_capture_order_unknown_order_returns_404(env):
+    main, _ = env
+    status, body = _unwrap(_run(main.public_paypal_capture_order(
+        FakeRequest(payload={"order_id": "ORDER-DOES-NOT-EXIST", "telegram_id": 900000000706})
+    )))
+    assert status == 404
+    assert body["error"] == "order_not_found"
+
+
+def test_capture_order_already_completed_never_calls_paypal_again(env, monkeypatch):
+    main, database = env
+    telegram_id = 900000000707
+    item = main.shop_item("pack_100")
+    order = {"id": "ORDER-CAP-3", "status": "CREATED"}
+    main.save_paypal_order(telegram_id, "pack_100", item, order, "")
+
+    # First capture: legitimately completes it.
+    def fake_post_first(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders/ORDER-CAP-3/capture"):
+            return _fake_capture_response("ORDER-CAP-3", "CAP-EXPLICIT-3", item["usd"])
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post_first)
+    _run(main.public_paypal_capture_order(FakeRequest(payload={"order_id": "ORDER-CAP-3", "telegram_id": telegram_id})))
+    assert _balance(database, telegram_id) == 100
+
+    # Second attempt (e.g. a retried client request) must short-circuit
+    # before ever calling PayPal's capture endpoint again.
+    def fake_post_second(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        raise AssertionError(f"capture-order must not re-call PayPal once completed: {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post_second)
+    status, body = _unwrap(_run(main.public_paypal_capture_order(
+        FakeRequest(payload={"order_id": "ORDER-CAP-3", "telegram_id": telegram_id})
+    )))
+    assert status == 200
+    assert body["already_completed"] is True
+    assert _balance(database, telegram_id) == 100
+
+
+def test_capture_order_paypal_failure_returns_502_without_crediting(env, monkeypatch):
+    main, database = env
+    telegram_id = 900000000708
+    item = main.shop_item("pack_100")
+    order = {"id": "ORDER-CAP-4", "status": "CREATED"}
+    main.save_paypal_order(telegram_id, "pack_100", item, order, "")
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/notifications/verify-webhook-signature"):
+            return FakeResponse(200, {"verification_status": "SUCCESS"})
+        if url.endswith("/v2/checkout/orders/ORDER-CAP-4/capture"):
+            return FakeResponse(422, {"name": "UNPROCESSABLE_ENTITY"})
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    status, body = _unwrap(_run(main.public_paypal_capture_order(
+        FakeRequest(payload={"order_id": "ORDER-CAP-4", "telegram_id": telegram_id})
+    )))
+    assert status == 502
+    assert body["error"] == "paypal_capture_failed"
+    assert _balance(database, telegram_id) is None
