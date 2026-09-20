@@ -290,6 +290,59 @@ async def test_raw_sdp_is_preserved(client,monkeypatch):
  assert post.call_args.kwargs['files']['sdp'][1]=='v=0\r\ns=synthetic'
 
 @pytest.mark.asyncio
+async def test_assistant_realtime_sdp_passes_middleware_and_quota_checked_once(client,app,monkeypatch):
+ # Fix 2: /api/web/assistant/realtime/session must be recognized as an SDP
+ # route (like /api/public/home-idea/realtime already was) instead of
+ # falling into JSON parsing and getting rejected with invalid_json before
+ # its handler ever runs. This exercises the REAL SecurityMiddleware over
+ # ASGI (website-session-cookie auth, not Telegram initData), not just the
+ # route function directly.
+ import main
+ import services.security as security
+ from services.security import create_web_session_token
+
+ middleware_quota_mock=next(mw.kwargs['quota_check'] for mw in app.user_middleware if mw.cls is SecurityMiddleware)
+ monkeypatch.setattr(security,'resolve_web_session_uid',lambda account_id:555555)
+ monkeypatch.setattr(main,'OPENAI_API_KEY','test-only')
+ monkeypatch.setattr(main,'get_user_state',lambda telegram_id:{'subscription_status':'active'})
+
+ handler_quota_calls=[]
+ async def spy_quota(uid,path):handler_quota_calls.append((uid,path))
+ monkeypatch.setattr(main,'check_request_quota',spy_quota)
+
+ captured={}
+ def fake_mint(api_key,sdp,instructions,uid,model):
+  captured['sdp']=sdp;return b'v=0\r\n(answer)',200,'application/sdp'
+ monkeypatch.setattr(main,'mint_realtime_session',fake_mint)
+
+ token=create_web_session_token(555555)
+ r=await client.post('/api/web/assistant/realtime/session',content='v=0\r\ns=offer\r\n',
+  headers={'Content-Type':'application/sdp','Cookie':'sylvex_web_session='+token})
+ assert r.status_code==200 and r.content==b'v=0\r\n(answer)'
+ assert captured['sdp']=='v=0\r\ns=offer'
+ # Fix 1's exemption: the generic middleware-level quota_check must never
+ # fire for this self-enforcing route...
+ middleware_quota_mock.assert_not_called()
+ # ...while the handler's own explicit check still fires, exactly once,
+ # with the real resolved uid (never 0, never twice).
+ assert handler_quota_calls==[(555555,'/api/web/assistant/realtime/session')]
+
+@pytest.mark.asyncio
+async def test_assistant_message_public_route_never_triggers_middleware_quota_with_uid_zero(client,app,monkeypatch):
+ # Fix 1: /api/web/assistant/message is a PUBLIC_POST (guests must reach
+ # Guide Mode) - the generic middleware quota_check must never fire for it
+ # at all, since that would run with uid=0 and let every guest/free
+ # website caller share one global quota bucket. Enforcement for a real AI
+ # request happens explicitly inside the handler instead (see
+ # tests/test_assistant.py's quota tests).
+ import main
+ middleware_quota_mock=next(mw.kwargs['quota_check'] for mw in app.user_middleware if mw.cls is SecurityMiddleware)
+ monkeypatch.setattr(main,'_assistant_uid',AsyncMock(return_value=0))
+ r=await client.post('/api/web/assistant/message',json={'content':'hello'})
+ assert r.status_code==200 and r.json()['mode']=='guide'
+ middleware_quota_mock.assert_not_called()
+
+@pytest.mark.asyncio
 async def test_voice_clone_form_cannot_claim_other_user(client,monkeypatch):
  import main
  clone=AsyncMock();monkeypatch.setattr(main,'elevenlabs_clone_voice_from_audio',clone)

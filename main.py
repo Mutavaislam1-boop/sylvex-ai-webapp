@@ -11120,8 +11120,10 @@ async def web_session_me(request: Request):
 # =====================================================
 
 ASSISTANT_SYSTEM_PROMPT = (
-    "You are SYLVEX Assistant, the creative AI guide built into the SYLVEX platform. "
-    "Never say you are OpenAI, ChatGPT, or any other company's product - you are SYLVEX. "
+    "You are SYLVEX Assistant. Present yourself as SYLVEX Assistant. If the user explicitly "
+    "asks which underlying AI provider or model powers this feature, answer accurately based "
+    "on the configured provider/model - never claim to be a different assistant, and never "
+    "reveal API keys or other internal secrets. "
     "Help the user develop their idea into a clear, production-ready creative plan across "
     "image, video, voice, music and text generation, and Pro Studio workflows. When a "
     "concrete, ready-to-use generation prompt would help the user, write ONE clean, "
@@ -11156,7 +11158,27 @@ def _assistant_extract_prompt(text: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+async def _assistant_resolve_attachments(connect, telegram_id: int, attachment_ids: list):
+    """Resolves each client-supplied attachment_id to its server-owned
+    assistant_attachments record, verifying ownership. Returns None (never
+    a partial list) the moment any id fails to resolve, so the caller can
+    reject the whole request rather than silently continuing with less
+    context than the user asked for - never trusts anything else (a url,
+    mime, name) the client might additionally send alongside the id."""
+    resolved = []
+    for attachment_id in attachment_ids:
+        record = await asyncio.to_thread(assistant_store.get_attachment, connect, attachment_id, telegram_id)
+        if not record:
+            return None
+        resolved.append(record)
+    return resolved
+
+
 def _assistant_document_text(attachment: dict) -> str:
+    """`attachment` must always be a record already resolved (and
+    ownership-checked) via assistant_store.get_attachment - its `url` is one
+    this server itself produced, never something read directly out of the
+    request body. Callers must never pass a client-supplied dict here."""
     url = str((attachment or {}).get("url") or "")
     mime = str((attachment or {}).get("mime") or "").lower()
     if not url:
@@ -11288,9 +11310,23 @@ async def web_assistant_message(request: Request):
     content = str((body or {}).get("content") or "").strip()
     conversation_id = str((body or {}).get("conversation_id") or "").strip()
     client_request_id = str((body or {}).get("client_request_id") or "").strip()
-    attachment = (body or {}).get("attachment") or None
 
-    if not content and not attachment:
+    # Attachment contract: the browser sends only an opaque attachment_id
+    # (from /api/web/assistant/files or /api/web/assistant/attachments/
+    # from-history), never a URL - see _assistant_resolve_attachments below,
+    # which is the only place a client-supplied id is turned into a real
+    # URL, and only after verifying it belongs to this caller. A free/guest
+    # client that never uploaded anything has no id to send, so it instead
+    # sends `has_attachment: true` purely to select the Guide FILES
+    # template - this flag never causes a fetch or reaches OpenAI.
+    raw_ids = (body or {}).get("attachment_ids")
+    attachment_ids = [str(x).strip() for x in raw_ids if str(x or "").strip()][:4] if isinstance(raw_ids, list) else []
+    single_attachment_id = str((body or {}).get("attachment_id") or "").strip()
+    if single_attachment_id and single_attachment_id not in attachment_ids:
+        attachment_ids.insert(0, single_attachment_id)
+    has_local_attachment = bool((body or {}).get("has_attachment"))
+
+    if not content and not attachment_ids and not has_local_attachment:
         return JSONResponse({"ok": False, "error": "message_required"}, status_code=400)
     if len(content) > 8000:
         return JSONResponse({"ok": False, "error": "message_too_long"}, status_code=413)
@@ -11298,8 +11334,20 @@ async def web_assistant_message(request: Request):
     persist = bool(telegram_id and DATABASE_URL)
     connect = _assistant_connect()
 
+    if attachment_ids and not persist:
+        # An attachment can only ever belong to a real, authenticated
+        # account (uploading requires a subscription) - a guest or a
+        # database-less deployment can never own one, so reject outright
+        # rather than attempting a lookup that could never succeed.
+        return JSONResponse({"ok": False, "error": "attachment_not_found"}, status_code=404)
+
+    resolved_attachments = []
     if persist:
         await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+        if attachment_ids:
+            resolved_attachments = await _assistant_resolve_attachments(connect, telegram_id, attachment_ids)
+            if resolved_attachments is None:
+                return JSONResponse({"ok": False, "error": "attachment_not_found"}, status_code=404)
         if conversation_id:
             owner = await asyncio.to_thread(assistant_store.get_conversation_owner, connect, conversation_id)
             if owner != telegram_id:
@@ -11322,19 +11370,25 @@ async def web_assistant_message(request: Request):
 
     state = await asyncio.to_thread(get_user_state, telegram_id) if telegram_id else {}
     subscriber = state.get("subscription_status") == "active"
+    has_attachment = bool(resolved_attachments) or has_local_attachment
 
     if persist:
+        stored_attachments = [
+            {"id": a["id"], "name": a["name"], "mime": a["mime"], "kind": a["kind"]} for a in resolved_attachments
+        ] or ([{"local": True}] if has_local_attachment else [])
         await asyncio.to_thread(
             assistant_store.add_message, connect, conversation_id, telegram_id, "user", content,
-            attachments=[attachment] if attachment else [], mode=("ai" if subscriber else "guide"),
+            attachments=stored_attachments, mode=("ai" if subscriber else "guide"),
             client_request_id=client_request_id,
         )
 
     # ---------- Guide Mode: zero OpenAI cost, deterministic ----------
     if not subscriber:
-        if attachment:
+        if has_attachment:
             # Section 13: a free user's attachment must never reach an AI
-            # call, regardless of what they typed alongside it.
+            # call, regardless of what they typed alongside it. Guide mode
+            # never resolves/fetches attachment content - it only reacts to
+            # the fact that one was referenced.
             files_intent = assistant_intent_by_id("FILES")
             reply_text = files_intent["text"]
             actions = list(files_intent["actions"])
@@ -11383,17 +11437,22 @@ async def web_assistant_message(request: Request):
             history_messages.append({"role": role, "content": item["content"]})
 
     last_user_content = content
-    if attachment and str(attachment.get("mime") or "").startswith("image/"):
+    # Only ever built from resolved_attachments (verified, server-owned
+    # records) - never from raw request-body fields - so an image_url
+    # handed to OpenAI, or a URL this server fetches for document text, can
+    # only ever be one of this account's own validated uploads.
+    primary_attachment = resolved_attachments[0] if resolved_attachments else None
+    if primary_attachment and str(primary_attachment.get("mime") or "").startswith("image/"):
         parts = []
         if content:
             parts.append({"type": "text", "text": content})
-        parts.append({"type": "image_url", "image_url": {"url": attachment.get("url")}})
+        parts.append({"type": "image_url", "image_url": {"url": primary_attachment["url"]}})
         last_user_content = parts
-    elif attachment:
-        doc_text = await asyncio.to_thread(_assistant_document_text, attachment)
+    elif primary_attachment:
+        doc_text = await asyncio.to_thread(_assistant_document_text, primary_attachment)
         if doc_text:
             last_user_content = (
-                content + "\n\nAttached document (" + str(attachment.get("name") or "") + "):\n" + doc_text
+                content + "\n\nAttached document (" + str(primary_attachment.get("name") or "") + "):\n" + doc_text
             ).strip()
 
     messages = [{"role": "system", "content": ASSISTANT_SYSTEM_PROMPT}]
@@ -11491,6 +11550,8 @@ async def web_assistant_upload_file(request: Request, file: UploadFile = File(..
     telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=503)
     # Real analysis is a Pro feature (section 13/14) - gating the upload
     # itself (not just the later /message analysis step) means a free
     # client can never get a stored attachment URL to begin with; the
@@ -11524,11 +11585,94 @@ async def web_assistant_upload_file(request: Request, file: UploadFile = File(..
     stored_name = f"{uuid4().hex}{suffix}"
     key = generated_key("assistant-attachments", stored_name)
     url = storage_put_bytes(content, key, content_type)
+    kind = "document" if is_document else "image"
+
+    # Register the attachment under an opaque id instead of handing the
+    # browser a raw URL to echo back later - /api/web/assistant/message
+    # only ever accepts this id, resolving the URL itself from this
+    # ownership-checked record (see _assistant_resolve_attachments), never
+    # trusting a URL supplied directly in a later request body.
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    record = await asyncio.to_thread(
+        assistant_store.create_attachment, connect, telegram_id, url, filename, content_type, len(content), kind,
+    )
     return {
         "ok": True,
         "file": {
-            "url": url, "name": filename, "mime": content_type, "size": len(content),
-            "kind": "document" if is_document else "image",
+            "id": record["id"], "url": record["url"], "name": record["name"],
+            "mime": record["mime"], "size": record["size"], "kind": record["kind"],
+        },
+    }
+
+
+@app.post("/api/web/assistant/attachments/from-history")
+async def web_assistant_attachment_from_history(request: Request):
+    """Registers an existing SYLVEX generation (from this user's own Pro
+    Studio history) as an Assistant attachment. Never trusts a media URL
+    from the request body - the media_url used is looked up server-side
+    from prostudio_messages, filtered to rows this account owns, exactly
+    like public_prostudio_gallery already does for the same table."""
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=503)
+    state = await asyncio.to_thread(get_user_state, telegram_id)
+    if state.get("subscription_status") != "active":
+        return JSONResponse({
+            "ok": False, "error": "subscription_required",
+            "message": "Referencing SYLVEX history in a conversation is available with SYLVEX Pro.",
+        }, status_code=403)
+
+    body = await request.json()
+    try:
+        history_message_id = int((body or {}).get("message_id") or 0)
+    except (TypeError, ValueError):
+        history_message_id = 0
+    if not history_message_id:
+        return JSONResponse({"ok": False, "error": "message_id_required"}, status_code=400)
+
+    def _fetch_owned_item():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT image_url, images_json, video_url, videos_json, audio_url, audios_json, "
+                "metadata_json, prompt FROM prostudio_messages WHERE id = %s AND telegram_id = %s",
+                (history_message_id, telegram_id),
+            )
+            row = cursor.fetchone()
+            cursor.close()
+        return row
+
+    row = await asyncio.to_thread(_fetch_owned_item)
+    if not row:
+        return JSONResponse({"ok": False, "error": "history_item_not_found"}, status_code=404)
+
+    image_url, images_json, video_url, videos_json, audio_url, audios_json, metadata_json, prompt = row
+    images = _json_list(images_json) or ([image_url] if image_url else [])
+    videos = _json_list(videos_json) or ([video_url] if video_url else [])
+    audios = _json_list(audios_json) or ([audio_url] if audio_url else [])
+    media_url = videos[0] if videos else (audios[0] if audios else (images[0] if images else ""))
+    if not media_url:
+        return JSONResponse({"ok": False, "error": "history_item_has_no_media"}, status_code=400)
+
+    kind = "video" if videos else "music" if audios else "image" if images else "document"
+    mime = {"video": "video/mp4", "music": "audio/mpeg", "image": "image/png"}.get(kind, "text/plain")
+    metadata = _json_obj(metadata_json)
+    name = str(metadata.get("title") or prompt or "SYLVEX item")[:200]
+
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    record = await asyncio.to_thread(
+        assistant_store.create_attachment, connect, telegram_id, media_url, name, mime, 0, kind,
+    )
+    return {
+        "ok": True,
+        "file": {
+            "id": record["id"], "url": record["url"], "name": record["name"],
+            "mime": record["mime"], "size": record["size"], "kind": record["kind"],
         },
     }
 
@@ -11552,9 +11696,11 @@ async def web_assistant_realtime_session(request: Request):
     if not sdp:
         return JSONResponse({"ok": False, "error": "sdp_required"}, status_code=400)
     instructions = (
-        "You are SYLVEX Assistant. Speak naturally and concisely. Help the user develop a "
-        "creative idea into a clear plan for image, video, voice, music or text generation in "
-        "SYLVEX. Never say you are OpenAI or ChatGPT."
+        "You are SYLVEX Assistant. Present yourself as SYLVEX Assistant. Speak naturally and "
+        "concisely. Help the user develop a creative idea into a clear plan for image, video, "
+        "voice, music or text generation in SYLVEX. If the user explicitly asks which "
+        "underlying AI provider or model powers this feature, answer accurately based on the "
+        "configured provider/model - never reveal API keys or other internal secrets."
     )
     try:
         content, status_code, content_type = await asyncio.to_thread(
