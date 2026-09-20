@@ -32,6 +32,12 @@ PUBLIC_GETS = frozenset({
  # Emailed link, opened directly in a browser - no cookie or initData
  # exists yet at click time either; the route validates its own token.
  '/api/web/auth/verify-email',
+ # SYLVEX Assistant Guide Mode must work for a genuine guest (no SYLVEX
+ # account at all) - same self-authenticating-off-its-own-cookie pattern as
+ # /api/web/session/me above; every other Assistant endpoint (conversation
+ # CRUD, files, realtime voice) requires a real signed-in account and goes
+ # through this middleware's normal website-session resolution instead.
+ '/api/web/assistant/state',
 })
 # POST routes under /api/web/... all authenticate with the website's own
 # session cookie or a mailed/one-time token (see services/account_identity.py
@@ -47,8 +53,15 @@ PUBLIC_POSTS = frozenset({
  '/api/web/auth/resend-verification',
  '/api/web/account/password/change', '/api/web/account/email/set', '/api/web/account/delete',
  '/api/web/account/telegram/preview', '/api/web/account/telegram/confirm',
+ # Guide Mode must work for a guest with no SYLVEX account - see
+ # PUBLIC_GETS's /api/web/assistant/state comment above. Identity is
+ # resolved from the website session cookie inside the handler itself
+ # (falls back to telegram_id=0 for a real guest, never persists for one);
+ # never calls OpenAI regardless of what a tampered client claims, since
+ # the guide-vs-AI choice is re-derived server-side from get_user_state().
+ '/api/web/assistant/message',
 })
-MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone'})
+MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
 PUBLIC_PATTERNS = [re.compile(x) for x in (
  r'/api/public/prostudio/voice-avatar/[A-Za-z0-9_-]+',

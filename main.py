@@ -66,6 +66,9 @@ from services.request_limits import check_request_quota, ensure_limit_table
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
 from services.price_engine import apply_snapshot_to_estimate
+from services import assistant_store
+from services.assistant_intents import route_intent, intent_by_id as assistant_intent_by_id
+from services.assistant_openai import stream_assistant_reply, mint_realtime_session
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
@@ -579,6 +582,13 @@ def attach_voice_avatars(voices: list, provider: str = "") -> list:
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+# SYLVEX Assistant AI Mode model - deliberately its own env var (not reused
+# from any Pro Studio model id) so it can be moved to a newer OpenAI model
+# without touching Pro Studio's own text-generation config. gpt-5.6 is the
+# same Responses-API-capable model id this codebase already uses
+# successfully for the "Home Idea AI" feature (see public_home_idea_route).
+OPENAI_ASSISTANT_MODEL = os.getenv("OPENAI_ASSISTANT_MODEL", "gpt-5.6")
+OPENAI_ASSISTANT_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2.1")
 RUNWAY_API_BASE_URL = os.getenv("RUNWAY_API_BASE_URL", "https://api.dev.runwayml.com").rstrip("/")
 RUNWAY_API_VERSION = os.getenv("RUNWAY_API_VERSION", "2024-11-06")
 BYTEPLUS_ARK_API_KEY = os.getenv("BYTEPLUS_ARK_API_KEY")
@@ -11082,6 +11092,478 @@ async def web_session_me(request: Request):
     if account_id is None:
         return {"authenticated": False}
     return await asyncio.to_thread(_web_session_payload, account_id)
+
+
+# =====================================================
+# SYLVEX Assistant (Website AI Guide + AI Mode)
+#
+# Guide Mode (no active subscription) never calls OpenAI: it runs
+# route_intent() from services/assistant_intents.py, a purely local,
+# deterministic scorer with zero network calls. AI Mode (active
+# subscription) streams a real OpenAI Responses API reply via
+# services/assistant_openai.py. The choice between the two is decided HERE,
+# from get_user_state()'s real, server-computed subscription_status - never
+# from anything the client claims - so a tampered client can never reach
+# OpenAI for free (see web_assistant_message below), mirroring the same
+# enforcement pattern already used for Pro Studio generation
+# (public_prostudio_generate's "Pro Studio is a subscription feature" gate).
+#
+# /state and /message are registered in PUBLIC_GETS/PUBLIC_POSTS (see
+# services/security.py) so a genuine guest (no SYLVEX account, no cookie)
+# can still reach Guide Mode - every other Assistant endpoint (conversation
+# CRUD, files, realtime voice, stop) requires a real signed-in account and
+# is reached through SecurityMiddleware's normal website-session-cookie
+# resolution, exactly like the PayPal subscription-create endpoint.
+# Guest conversations are never persisted server-side at all (see the
+# `persist` flag below) - the frontend keeps guest chat state locally,
+# matching the product spec's explicit allowance for this.
+# =====================================================
+
+ASSISTANT_SYSTEM_PROMPT = (
+    "You are SYLVEX Assistant, the creative AI guide built into the SYLVEX platform. "
+    "Never say you are OpenAI, ChatGPT, or any other company's product - you are SYLVEX. "
+    "Help the user develop their idea into a clear, production-ready creative plan across "
+    "image, video, voice, music and text generation, and Pro Studio workflows. When a "
+    "concrete, ready-to-use generation prompt would help the user, write ONE clean, "
+    "self-contained prompt wrapped in [PROMPT] and [/PROMPT] tags, kept separate from your "
+    "own explanation so it can be copied or sent straight into a generator. Keep answers "
+    "focused, practical and concise."
+)
+
+_ASSISTANT_STOP_FLAGS = {}
+_ASSISTANT_STOP_LOCK = threading.Lock()
+_ASSISTANT_PROMPT_RE = re.compile(r"\[PROMPT\](.*?)\[/PROMPT\]", re.S)
+
+
+def _assistant_connect():
+    return lambda: db_connect(DATABASE_URL)
+
+
+async def _assistant_uid(request: Request) -> int:
+    """Only used by the two PUBLIC (guest-reachable) Assistant endpoints -
+    every other Assistant endpoint instead reads request.state.telegram_id,
+    already resolved by SecurityMiddleware from the same website session
+    cookie (see module docstring above)."""
+    account_id = _web_session_account_id(request)
+    if not account_id:
+        return 0
+    uid = await asyncio.to_thread(resolve_web_session_uid, account_id)
+    return int(uid or 0)
+
+
+def _assistant_extract_prompt(text: str) -> str:
+    match = _ASSISTANT_PROMPT_RE.search(text or "")
+    return match.group(1).strip() if match else ""
+
+
+def _assistant_document_text(attachment: dict) -> str:
+    url = str((attachment or {}).get("url") or "")
+    mime = str((attachment or {}).get("mime") or "").lower()
+    if not url:
+        return ""
+    try:
+        response = requests.get(url, timeout=20)
+        if response.status_code >= 400:
+            return ""
+        content = response.content
+    except Exception:
+        return ""
+    if mime == "application/pdf" or url.lower().endswith(".pdf"):
+        try:
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            return "\n".join((page.extract_text() or "") for page in reader.pages[:30])[:8000]
+        except Exception:
+            return ""
+    try:
+        return content.decode("utf-8", errors="ignore")[:8000]
+    except Exception:
+        return ""
+
+
+@app.get("/api/web/assistant/state")
+async def web_assistant_state(request: Request):
+    telegram_id = await _assistant_uid(request)
+    if not telegram_id:
+        return {
+            "ok": True, "authenticated": False, "mode": "guide",
+            "subscription_status": "free", "subscription_plan": None, "balance": 0,
+            "has_previous_conversation": False,
+        }
+    state = await asyncio.to_thread(get_user_state, telegram_id)
+    has_previous = False
+    if DATABASE_URL:
+        connect = _assistant_connect()
+        await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+        has_previous = await asyncio.to_thread(assistant_store.has_any_conversation, connect, telegram_id)
+    active = state.get("subscription_status") == "active"
+    return {
+        "ok": True, "authenticated": True,
+        "mode": "ai" if active else "guide",
+        "subscription_status": state.get("subscription_status") or "free",
+        "subscription_plan": state.get("subscription_plan"),
+        "balance": state.get("balance", 0),
+        "has_previous_conversation": has_previous,
+    }
+
+
+@app.post("/api/web/assistant/conversations")
+async def web_assistant_create_conversation(request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    if not DATABASE_URL:
+        return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=503)
+    body = await request.json()
+    title = str((body or {}).get("title") or "").strip()
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    conversation = await asyncio.to_thread(assistant_store.create_conversation, connect, telegram_id, title)
+    return {"ok": True, "conversation": conversation}
+
+
+@app.get("/api/web/assistant/conversations")
+async def web_assistant_list_conversations(request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id or not DATABASE_URL:
+        return {"ok": True, "conversations": []}
+    search = request.query_params.get("search") or ""
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    conversations = await asyncio.to_thread(assistant_store.list_conversations, connect, telegram_id, search)
+    return {"ok": True, "conversations": conversations}
+
+
+@app.get("/api/web/assistant/conversations/{conversation_id}")
+async def web_assistant_get_conversation(conversation_id: str, request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id or not DATABASE_URL:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    conversation = await asyncio.to_thread(assistant_store.get_conversation, connect, conversation_id, telegram_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    return {"ok": True, "conversation": conversation}
+
+
+@app.patch("/api/web/assistant/conversations/{conversation_id}")
+async def web_assistant_update_conversation(conversation_id: str, request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id or not DATABASE_URL:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    body = await request.json()
+    title = body.get("title")
+    pinned = body.get("pinned")
+    if title is not None:
+        title = str(title).strip()[:200]
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    updated = await asyncio.to_thread(
+        assistant_store.update_conversation, connect, conversation_id, telegram_id, title, pinned,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    return {"ok": True}
+
+
+@app.delete("/api/web/assistant/conversations/{conversation_id}")
+async def web_assistant_delete_conversation(conversation_id: str, request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id or not DATABASE_URL:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    connect = _assistant_connect()
+    await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+    deleted = await asyncio.to_thread(assistant_store.delete_conversation, connect, conversation_id, telegram_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="conversation_not_found")
+    return {"ok": True}
+
+
+@app.post("/api/web/assistant/message")
+async def web_assistant_message(request: Request):
+    telegram_id = await _assistant_uid(request)
+    body = await request.json()
+    content = str((body or {}).get("content") or "").strip()
+    conversation_id = str((body or {}).get("conversation_id") or "").strip()
+    client_request_id = str((body or {}).get("client_request_id") or "").strip()
+    attachment = (body or {}).get("attachment") or None
+
+    if not content and not attachment:
+        return JSONResponse({"ok": False, "error": "message_required"}, status_code=400)
+    if len(content) > 8000:
+        return JSONResponse({"ok": False, "error": "message_too_long"}, status_code=413)
+
+    persist = bool(telegram_id and DATABASE_URL)
+    connect = _assistant_connect()
+
+    if persist:
+        await asyncio.to_thread(assistant_store.ensure_assistant_tables, connect)
+        if conversation_id:
+            owner = await asyncio.to_thread(assistant_store.get_conversation_owner, connect, conversation_id)
+            if owner != telegram_id:
+                raise HTTPException(status_code=404, detail="conversation_not_found")
+        else:
+            conversation = await asyncio.to_thread(
+                assistant_store.create_conversation, connect, telegram_id, assistant_store.derive_title(content),
+            )
+            conversation_id = conversation["id"]
+
+        # Idempotent-retry short-circuit (double-click / refresh / network
+        # replay): never regenerate, and for AI mode never re-call OpenAI,
+        # for a client_request_id already answered in this conversation.
+        if client_request_id:
+            existing_reply = await asyncio.to_thread(
+                assistant_store.find_reply_for_client_request_id, connect, conversation_id, client_request_id,
+            )
+            if existing_reply:
+                return {"ok": True, "conversation_id": conversation_id, "replay": True, "message": existing_reply}
+
+    state = await asyncio.to_thread(get_user_state, telegram_id) if telegram_id else {}
+    subscriber = state.get("subscription_status") == "active"
+
+    if persist:
+        await asyncio.to_thread(
+            assistant_store.add_message, connect, conversation_id, telegram_id, "user", content,
+            attachments=[attachment] if attachment else [], mode=("ai" if subscriber else "guide"),
+            client_request_id=client_request_id,
+        )
+
+    # ---------- Guide Mode: zero OpenAI cost, deterministic ----------
+    if not subscriber:
+        if attachment:
+            # Section 13: a free user's attachment must never reach an AI
+            # call, regardless of what they typed alongside it.
+            files_intent = assistant_intent_by_id("FILES")
+            reply_text = files_intent["text"]
+            actions = list(files_intent["actions"])
+            intent_id = "FILES"
+        else:
+            routed = route_intent(content)
+            primary = routed["primary"]
+            actions = list(primary.get("actions") or [])
+            for extra in routed["secondary"]:
+                extra_actions = extra.get("actions") or []
+                if extra_actions:
+                    actions.append(extra_actions[0])
+            reply_text = primary["text"]
+            intent_id = primary["id"]
+
+        message = None
+        if persist:
+            message = await asyncio.to_thread(
+                assistant_store.add_message, connect, conversation_id, telegram_id, "assistant", reply_text,
+                actions=actions, mode="guide", intent=intent_id,
+            )
+            await asyncio.to_thread(assistant_store.touch_conversation, connect, conversation_id, reply_text, "guide")
+        log_user_event(
+            telegram_id=telegram_id or 0, source="assistant", event_type="guide",
+            event_name="assistant_intent_detected", payload={"intent": intent_id},
+        )
+        return {
+            "ok": True, "mode": "guide", "conversation_id": conversation_id,
+            "message": message or {
+                "role": "assistant", "content": reply_text, "actions": actions,
+                "intent": intent_id, "status": "completed",
+            },
+        }
+
+    # ---------- AI Mode: subscriber, streaming ----------
+    if not OPENAI_API_KEY:
+        return JSONResponse({"ok": False, "error": "ai_not_configured"}, status_code=503)
+    await check_request_quota(telegram_id, "/api/web/assistant/message")
+
+    history_messages = []
+    if persist:
+        conversation = await asyncio.to_thread(assistant_store.get_conversation, connect, conversation_id, telegram_id)
+        prior = (conversation.get("messages") or [])[:-1][-20:]  # exclude the user turn just added, bound context
+        for item in prior:
+            role = "assistant" if item["role"] == "assistant" else "user"
+            history_messages.append({"role": role, "content": item["content"]})
+
+    last_user_content = content
+    if attachment and str(attachment.get("mime") or "").startswith("image/"):
+        parts = []
+        if content:
+            parts.append({"type": "text", "text": content})
+        parts.append({"type": "image_url", "image_url": {"url": attachment.get("url")}})
+        last_user_content = parts
+    elif attachment:
+        doc_text = await asyncio.to_thread(_assistant_document_text, attachment)
+        if doc_text:
+            last_user_content = (
+                content + "\n\nAttached document (" + str(attachment.get("name") or "") + "):\n" + doc_text
+            ).strip()
+
+    messages = [{"role": "system", "content": ASSISTANT_SYSTEM_PROMPT}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": last_user_content})
+
+    stream_id = uuid4().hex
+    with _ASSISTANT_STOP_LOCK:
+        _ASSISTANT_STOP_FLAGS[stream_id] = False
+
+    async def event_stream():
+        import queue as queue_module
+        collected = []
+        error_code = None
+        cancelled = False
+        try:
+            yield f"data: {json.dumps({'type': 'start', 'stream_id': stream_id, 'conversation_id': conversation_id})}\n\n"
+            q = queue_module.Queue()
+
+            def worker():
+                try:
+                    for delta in stream_assistant_reply(OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_ASSISTANT_MODEL, messages):
+                        q.put(("delta", delta))
+                        with _ASSISTANT_STOP_LOCK:
+                            if _ASSISTANT_STOP_FLAGS.get(stream_id):
+                                q.put(("cancelled", None))
+                                return
+                    q.put(("done", None))
+                except Exception as exc:
+                    q.put(("error", str(exc) or "ai_temporarily_unavailable"))
+
+            threading.Thread(target=worker, daemon=True).start()
+            while True:
+                kind, value = await asyncio.to_thread(q.get)
+                if kind == "delta":
+                    collected.append(value)
+                    yield f"data: {json.dumps({'type': 'delta', 'text': value})}\n\n"
+                elif kind == "cancelled":
+                    cancelled = True
+                    break
+                elif kind == "error":
+                    error_code = value
+                    break
+                else:
+                    break
+        finally:
+            with _ASSISTANT_STOP_LOCK:
+                _ASSISTANT_STOP_FLAGS.pop(stream_id, None)
+
+        final_text = "".join(collected)
+        prompt_block = _assistant_extract_prompt(final_text)
+        actions = []
+        if prompt_block:
+            actions.append({"label": "Use Prompt", "type": "use_prompt", "prompt": prompt_block})
+            actions.append({"label": "Open in Pro Studio", "type": "open_pro_studio", "prompt": prompt_block})
+        if final_text:
+            actions.append({"label": "Copy", "type": "copy"})
+            actions.append({"label": "Regenerate", "type": "regenerate"})
+
+        status = "cancelled" if cancelled else ("error" if (error_code and not final_text) else "completed")
+        saved_message = None
+        if persist and (final_text or error_code):
+            saved_message = await asyncio.to_thread(
+                assistant_store.add_message, connect, conversation_id, telegram_id, "assistant", final_text,
+                actions=actions, mode="ai", status=status, error=error_code or "",
+            )
+            await asyncio.to_thread(assistant_store.touch_conversation, connect, conversation_id, final_text[:160], "ai")
+
+        if error_code and not final_text:
+            yield f"data: {json.dumps({'type': 'error', 'error': error_code, 'message': translate_provider_error(error_code, 'openai', OPENAI_ASSISTANT_MODEL, 'AI temporarily unavailable. Please try again.')})}\n\n"
+        elif cancelled:
+            yield f"data: {json.dumps({'type': 'cancelled', 'message_id': (saved_message or {}).get('id')})}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'done', 'message_id': (saved_message or {}).get('id'), 'actions': actions, 'prompt': prompt_block})}\n\n"
+        log_user_event(telegram_id=telegram_id, source="assistant", event_type="ai", event_name="assistant_ai_message", payload={"status": status})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/web/assistant/stop")
+async def web_assistant_stop(request: Request):
+    body = await request.json()
+    stream_id = str((body or {}).get("stream_id") or "").strip()
+    if not stream_id:
+        return JSONResponse({"ok": False, "error": "stream_id_required"}, status_code=400)
+    with _ASSISTANT_STOP_LOCK:
+        found = stream_id in _ASSISTANT_STOP_FLAGS
+        if found:
+            _ASSISTANT_STOP_FLAGS[stream_id] = True
+    return {"ok": True, "stopped": found}
+
+
+@app.post("/api/web/assistant/files")
+async def web_assistant_upload_file(request: Request, file: UploadFile = File(...)):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    # Real analysis is a Pro feature (section 13/14) - gating the upload
+    # itself (not just the later /message analysis step) means a free
+    # client can never get a stored attachment URL to begin with; the
+    # Website's own attachment preview for free users stays entirely
+    # client-side (an object URL), never reaching this endpoint at all.
+    state = await asyncio.to_thread(get_user_state, telegram_id)
+    if state.get("subscription_status") != "active":
+        return JSONResponse({
+            "ok": False, "error": "subscription_required",
+            "message": "File analysis is available with SYLVEX Pro.",
+        }, status_code=403)
+
+    filename = pathlib.Path(file.filename or "").name
+    suffix = pathlib.Path(filename).suffix.lower()
+    content_type = (file.content_type or "").lower()
+    is_document = suffix in {".txt", ".md", ".csv", ".pdf"} or content_type in {
+        "text/plain", "text/markdown", "text/csv", "application/pdf",
+    }
+    allowed_exts = {".txt", ".md", ".csv", ".pdf"} if is_document else {".jpg", ".jpeg", ".png", ".webp"}
+    if suffix not in allowed_exts:
+        return JSONResponse({"ok": False, "error": "unsupported_file_type"}, status_code=400)
+
+    max_bytes = 20 * 1024 * 1024
+    content = await read_upload(file, max_bytes)
+    if not content:
+        return JSONResponse({"ok": False, "error": "empty_file"}, status_code=400)
+    if len(content) > max_bytes:
+        return JSONResponse({"ok": False, "error": "file_too_large"}, status_code=413)
+    content_type = validated_upload_type(content, suffix)
+
+    stored_name = f"{uuid4().hex}{suffix}"
+    key = generated_key("assistant-attachments", stored_name)
+    url = storage_put_bytes(content, key, content_type)
+    return {
+        "ok": True,
+        "file": {
+            "url": url, "name": filename, "mime": content_type, "size": len(content),
+            "kind": "document" if is_document else "image",
+        },
+    }
+
+
+@app.post("/api/web/assistant/realtime/session")
+async def web_assistant_realtime_session(request: Request):
+    telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "login_required"}, status_code=401)
+    state = await asyncio.to_thread(get_user_state, telegram_id)
+    if state.get("subscription_status") != "active":
+        return JSONResponse({
+            "ok": False, "error": "subscription_required",
+            "message": "Live voice mode is available with SYLVEX Pro.",
+        }, status_code=403)
+    if not OPENAI_API_KEY:
+        return JSONResponse({"ok": False, "error": "openai_not_configured"}, status_code=503)
+    await check_request_quota(telegram_id, "/api/web/assistant/realtime/session")
+
+    sdp = (await request.body()).decode("utf-8", errors="ignore").strip()
+    if not sdp:
+        return JSONResponse({"ok": False, "error": "sdp_required"}, status_code=400)
+    instructions = (
+        "You are SYLVEX Assistant. Speak naturally and concisely. Help the user develop a "
+        "creative idea into a clear plan for image, video, voice, music or text generation in "
+        "SYLVEX. Never say you are OpenAI or ChatGPT."
+    )
+    try:
+        content, status_code, content_type = await asyncio.to_thread(
+            mint_realtime_session, OPENAI_API_KEY, sdp, instructions, telegram_id, OPENAI_ASSISTANT_REALTIME_MODEL,
+        )
+        return Response(content=content, status_code=status_code, media_type=content_type)
+    except Exception as exc:
+        prostudio_error("ASSISTANT_REALTIME_FAILED", exc)
+        return JSONResponse({"ok": False, "error": "realtime_unavailable"}, status_code=502)
 
 
 @app.post("/api/web/auth/logout")
