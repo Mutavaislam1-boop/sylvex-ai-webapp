@@ -63,6 +63,23 @@ PUBLIC_POSTS = frozenset({
 })
 MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
+# Routes whose own handler resolves the real authenticated user id itself
+# (after subscription state is known, for /assistant/message) and calls
+# check_request_quota exactly once with it. The generic per-request
+# middleware quota_check below must never ALSO fire for these:
+# - /api/web/assistant/message is a PUBLIC_POST (a guest with no account
+#   must still reach Guide Mode) and this middleware skips uid resolution
+#   entirely for public routes, so a middleware-level quota_check here would
+#   run with uid=0 and let every guest/free-website caller share one global
+#   quota bucket - the handler resolves the caller's real id itself instead.
+# - /api/web/assistant/realtime/session IS resolved normally by this
+#   middleware (it's a protected route), so without this exemption its
+#   already-real uid would be quota-checked twice: once here, once again by
+#   the handler - double-decrementing a subscriber's quota per request.
+ASSISTANT_SELF_QUOTA_ROUTES = frozenset({'/api/web/assistant/message', '/api/web/assistant/realtime/session'})
+# application/sdp bodies (WebRTC offer/answer exchange) must be replayed to
+# the route byte-for-byte, never parsed as JSON - see the `sdp` flag below.
+SDP_ROUTES = frozenset({'/api/public/home-idea/realtime', '/api/web/assistant/realtime/session'})
 PUBLIC_PATTERNS = [re.compile(x) for x in (
  r'/api/public/prostudio/voice-avatar/[A-Za-z0-9_-]+',
  r'/api/public/video/templates/[^/]+',
@@ -265,7 +282,7 @@ class SecurityMiddleware:
   multipart=content_type.startswith(b'multipart/form-data')
   if multipart and path not in MULTIPART_ROUTES:
    return await JSONResponse({'ok':False,'error':'unsupported_content_type'},status_code=415)(scope,receive,send)
-  sdp=path=='/api/public/home-idea/realtime' and content_type.split(b';',1)[0].strip()==b'application/sdp'
+  sdp=path in SDP_ROUTES and content_type.split(b';',1)[0].strip()==b'application/sdp'
   max_size=(201 if multipart else 16)*1024*1024
   if is_webhook or sdp:max_size=1024*1024
   try:
@@ -360,7 +377,7 @@ class SecurityMiddleware:
      json_body['initData']=init_data;json_body['init_data']=init_data
      body=json.dumps(json_body,separators=(',',':')).encode()
     scope.setdefault('state',{}).update(telegram_id=uid,telegram_user=user,telegram_init_data=init_data)
-    if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS:
+    if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:
    return await JSONResponse({'ok':False,'error':exc.code},status_code=exc.status)(scope,receive,send)

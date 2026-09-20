@@ -324,9 +324,14 @@ def test_free_user_attachment_never_reaches_openai(env, monkeypatch):
     monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900022)
     _set_subscriber(main, monkeypatch, active=False)
 
+    # A free user's file preview is local-only (never uploaded, so it has
+    # no attachment_id) - the frontend sends only this boolean flag, never
+    # a URL. See test_arbitrary_url_in_request_body_never_fetched for proof
+    # that an old-style raw "attachment" object with a URL is now ignored
+    # entirely, not just unused.
     result = _run(main.web_assistant_message(FakeRequest(payload={
         "content": "what do you think of this?",
-        "attachment": {"url": "https://example.com/a.png", "mime": "image/png", "name": "a.png"},
+        "has_attachment": True,
     })))
     assert result["message"]["intent"] == "FILES"
     assert any(a["type"] == "open_subscription_modal" for a in result["message"]["actions"])
@@ -535,3 +540,267 @@ def test_realtime_session_mints_session_and_never_exposes_key(env, monkeypatch):
     assert response.status_code == 200
     assert captured["api_key"] == "test-openai-key"
     assert b"test-openai-key" not in response.body
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: Assistant provider quota - Guide Mode never spends it, an AI
+# request checks it exactly once with the real resolved user id (never
+# uid=0, never a shared guest bucket, never double-counted).
+# ---------------------------------------------------------------------------
+
+def test_many_guest_guide_messages_never_touch_provider_quota(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: None)
+
+    calls = []
+
+    async def spy_quota(uid, path):
+        calls.append((uid, path))
+    monkeypatch.setattr(main, "check_request_quota", spy_quota)
+
+    for text in ["hello", "how much does video cost?", "what is pro studio?", "create an image", "help"]:
+        result = _run(main.web_assistant_message(FakeRequest(payload={"content": text})))
+        assert result["mode"] == "guide"
+    # Many unrelated guests, zero provider-quota calls - never a shared
+    # user_id=0 bucket, because Guide Mode never calls check_request_quota
+    # at all (see the AI-only branch in web_assistant_message).
+    assert calls == []
+
+
+def test_subscriber_ai_message_checks_quota_exactly_once_with_real_uid(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900070)
+    _set_subscriber(main, monkeypatch, active=True)
+
+    calls = []
+
+    async def spy_quota(uid, path):
+        calls.append((uid, path))
+    monkeypatch.setattr(main, "check_request_quota", spy_quota)
+
+    def fake_stream(api_key, api_base, model, messages):
+        yield "hi"
+    monkeypatch.setattr(main, "stream_assistant_reply", fake_stream)
+
+    response = _run(main.web_assistant_message(FakeRequest(payload={"content": "pitch me an idea"})))
+    _run(_drain_stream(response))
+    assert calls == [(900070, "/api/web/assistant/message")]
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: attachment_id-only contract - /message never trusts a client-
+# supplied URL; every attachment_id is resolved from assistant_attachments
+# and ownership-checked before use.
+# ---------------------------------------------------------------------------
+
+def _upload_fake_image(main, telegram_id, name="ref.png"):
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), color=(5, 5, 5)).save(buffer, format="PNG")
+    chunks = [buffer.getvalue(), b""]
+
+    class FakeUploadFile:
+        filename = name
+        content_type = "image/png"
+
+        async def read(self, n):
+            return chunks.pop(0)
+
+    status, body = _unwrap(_run(main.web_assistant_upload_file(_authed_request(telegram_id=telegram_id), FakeUploadFile())))
+    assert status == 200
+    return body["file"]
+
+
+def test_upload_file_returns_opaque_attachment_id(env, monkeypatch):
+    main, _ = env
+    _set_subscriber(main, monkeypatch, active=True)
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: "https://cdn.example.com/" + key)
+
+    file_record = _upload_fake_image(main, 900060)
+    assert file_record["id"]
+    assert file_record["url"].startswith("https://cdn.example.com/")
+
+
+def test_message_with_valid_owned_attachment_is_used(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: "https://cdn.example.com/" + key)
+    _set_subscriber(main, monkeypatch, active=True)
+    file_record = _upload_fake_image(main, 900061)
+
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900061)
+
+    captured = {}
+
+    def fake_stream(api_key, api_base, model, messages):
+        captured["messages"] = messages
+        yield "I can see the image."
+    monkeypatch.setattr(main, "stream_assistant_reply", fake_stream)
+
+    response = _run(main.web_assistant_message(FakeRequest(payload={
+        "content": "what's in this photo?", "attachment_id": file_record["id"],
+    })))
+    events = _run(_drain_stream(response))
+    assert any(e["type"] == "done" for e in events)
+
+    last_user_message = captured["messages"][-1]
+    assert isinstance(last_user_message["content"], list)
+    image_parts = [p for p in last_user_message["content"] if p.get("type") == "image_url"]
+    assert image_parts and image_parts[0]["image_url"]["url"] == file_record["url"]
+
+
+def test_message_with_another_users_attachment_rejected(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: "https://cdn.example.com/" + key)
+    _set_subscriber(main, monkeypatch, active=True)
+    owner_file = _upload_fake_image(main, 900062)
+
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900063)  # a different account
+
+    def _explode(*a, **k):
+        raise AssertionError("stream_assistant_reply must never be called for a rejected attachment")
+    monkeypatch.setattr(main, "stream_assistant_reply", _explode)
+
+    status, body = _unwrap(_run(main.web_assistant_message(FakeRequest(payload={
+        "content": "analyze this", "attachment_id": owner_file["id"],
+    }))))
+    assert status == 404
+    assert body["error"] == "attachment_not_found"
+
+
+def test_message_with_nonexistent_attachment_rejected(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900064)
+    _set_subscriber(main, monkeypatch, active=True)
+
+    def _explode(*a, **k):
+        raise AssertionError("stream_assistant_reply must never be called for a nonexistent attachment")
+    monkeypatch.setattr(main, "stream_assistant_reply", _explode)
+
+    status, body = _unwrap(_run(main.web_assistant_message(FakeRequest(payload={
+        "content": "analyze this", "attachment_id": "does-not-exist-" + "a" * 20,
+    }))))
+    assert status == 404
+    assert body["error"] == "attachment_not_found"
+
+
+def test_arbitrary_url_in_request_body_never_fetched(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900065)
+    _set_subscriber(main, monkeypatch, active=True)
+
+    def _explode_get(*a, **k):
+        raise AssertionError("requests.get must never be called for a client-supplied URL")
+    monkeypatch.setattr(main.requests, "get", _explode_get)
+
+    def fake_stream(api_key, api_base, model, messages):
+        yield "ok"
+    monkeypatch.setattr(main, "stream_assistant_reply", fake_stream)
+
+    # Legacy/attacker-shaped body: a raw "attachment" object with a url.
+    # web_assistant_message no longer reads this field at all - only
+    # attachment_id/attachment_ids are honored - so this can never reach
+    # _assistant_document_text or requests.get.
+    response = _run(main.web_assistant_message(FakeRequest(payload={
+        "content": "look at this",
+        "attachment": {"url": "http://169.254.169.254/latest/meta-data/", "mime": "application/pdf", "name": "evil.pdf"},
+    })))
+    events = _run(_drain_stream(response))
+    assert any(e["type"] == "done" for e in events)
+
+
+def test_free_user_with_stale_attachment_id_never_reaches_openai(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: "https://cdn.example.com/" + key)
+    _set_subscriber(main, monkeypatch, active=True)
+    file_record = _upload_fake_image(main, 900066)  # uploaded while still subscribed
+
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900066)
+    _set_subscriber(main, monkeypatch, active=False)  # subscription has since lapsed
+
+    result = _run(main.web_assistant_message(FakeRequest(payload={
+        "content": "can you analyze this?", "attachment_id": file_record["id"],
+    })))
+    assert result["mode"] == "guide"
+    assert result["message"]["intent"] == "FILES"
+    # env fixture's stream_assistant_reply monkeypatch raises if ever
+    # called - reaching this assertion at all is itself proof no OpenAI
+    # call was attempted, even though the attachment_id itself resolves.
+
+
+# ---------------------------------------------------------------------------
+# POST /api/web/assistant/attachments/from-history - ownership-checked,
+# never trusts a media URL from the request body.
+# ---------------------------------------------------------------------------
+
+def test_history_attachment_registers_owned_item(env, monkeypatch):
+    main, _ = env
+    monkeypatch.setattr(main, "_web_session_account_id", lambda request: 42)
+    monkeypatch.setattr(main, "resolve_web_session_uid", lambda account_id: 900080)
+    _set_subscriber(main, monkeypatch, active=True)
+    monkeypatch.setattr(main, "ensure_prostudio_table", lambda: None)
+
+    class _Cursor:
+        def execute(self, *a, **k):
+            self._row = ("https://cdn.example.com/history-image.png", "[]", None, "[]", None, "[]", "{}", "a cat")
+
+        def fetchone(self):
+            return self._row
+
+        def close(self):
+            pass
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(main, "db_connection", lambda dsn: _Conn())
+
+    status, body = _unwrap(_run(main.web_assistant_attachment_from_history(_authed_request({"message_id": 55}, 900080))))
+    assert status == 200
+    assert body["file"]["url"] == "https://cdn.example.com/history-image.png"
+    assert body["file"]["id"]
+
+
+def test_history_attachment_requires_login(env):
+    main, _ = env
+    status, body = _unwrap(_run(main.web_assistant_attachment_from_history(_authed_request({"message_id": 1}, 0))))
+    assert status == 401
+    assert body["error"] == "login_required"
+
+
+def test_history_attachment_rejects_unowned_item(env, monkeypatch):
+    main, _ = env
+    _set_subscriber(main, monkeypatch, active=True)
+    monkeypatch.setattr(main, "ensure_prostudio_table", lambda: None)
+
+    class _Cursor:
+        def execute(self, *a, **k):
+            self._row = None
+        def fetchone(self):
+            return self._row
+        def close(self):
+            pass
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(main, "db_connection", lambda dsn: _Conn())
+
+    status, body = _unwrap(_run(main.web_assistant_attachment_from_history(_authed_request({"message_id": 999}, 900081))))
+    assert status == 404
+    assert body["error"] == "history_item_not_found"

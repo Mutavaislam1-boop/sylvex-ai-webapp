@@ -63,6 +63,24 @@ def ensure_assistant_tables(connect):
                 ON assistant_messages (conversation_id, client_request_id)
                 WHERE client_request_id <> ''
             """)
+            # Uploaded/registered attachments, keyed by an opaque id the
+            # frontend references instead of ever sending a raw URL back to
+            # /api/web/assistant/message - the `url` here is always one this
+            # server itself produced (storage_put_bytes at upload time, or a
+            # server-side ownership-checked prostudio_messages lookup for a
+            # "from history" attachment), never something a client supplied.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS assistant_attachments (
+                    id TEXT PRIMARY KEY,
+                    telegram_id BIGINT NOT NULL,
+                    url TEXT NOT NULL,
+                    name TEXT DEFAULT '',
+                    mime TEXT DEFAULT '',
+                    size INTEGER DEFAULT 0,
+                    kind TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
         conn.commit()
 
 
@@ -253,6 +271,49 @@ def find_reply_for_client_request_id(connect, conversation_id, client_request_id
             )
             reply_row = cur.fetchone()
     return _row_to_message(reply_row) if reply_row else None
+
+
+def _row_to_attachment(row):
+    return {
+        "id": row[0], "telegram_id": row[1], "url": row[2], "name": row[3],
+        "mime": row[4], "size": row[5], "kind": row[6], "created_at": _isoformat(row[7]),
+    }
+
+
+def create_attachment(connect, telegram_id, url, name, mime, size, kind):
+    """Registers a server-produced URL (from storage_put_bytes at upload
+    time, or a server-side ownership-checked SYLVEX-history lookup) under an
+    opaque id. Callers must never pass through a URL a client supplied
+    directly - see main.py's web_assistant_upload_file and
+    web_assistant_attachment_from_history, the only two callers."""
+    attachment_id = uuid4().hex
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO assistant_attachments (id, telegram_id, url, name, mime, size, kind) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "RETURNING id, telegram_id, url, name, mime, size, kind, created_at",
+                (attachment_id, telegram_id, url, name or "", mime or "", int(size or 0), kind or ""),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return _row_to_attachment(row)
+
+
+def get_attachment(connect, attachment_id, telegram_id):
+    """Ownership-checked lookup - an attachment_id alone is never sufficient
+    to resolve another account's attachment, mirroring get_conversation."""
+    if not attachment_id or not telegram_id:
+        return None
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, telegram_id, url, name, mime, size, kind, created_at "
+                "FROM assistant_attachments WHERE id = %s AND telegram_id = %s",
+                (attachment_id, telegram_id),
+            )
+            row = cur.fetchone()
+    return _row_to_attachment(row) if row else None
 
 
 def add_message(connect, conversation_id, telegram_id, role, content, attachments=None,
