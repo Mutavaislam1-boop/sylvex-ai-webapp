@@ -16,6 +16,7 @@ COSTLY=frozenset({
  '/api/public/prostudio/voice-avatars/ensure','/api/public/home-idea/route',
  '/api/public/home-idea/realtime','/api/public/prostudio/grid/plan',
  '/api/public/prostudio/upload-media',
+ '/api/web/assistant/message','/api/web/assistant/realtime/session','/api/web/assistant/files',
 })
 def ensure_limit_table(dsn):
  global _ready
