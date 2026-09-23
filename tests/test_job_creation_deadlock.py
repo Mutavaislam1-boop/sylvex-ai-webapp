@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import threading
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 import psycopg2
@@ -105,19 +106,31 @@ def test_existing_database_missing_job_column_is_migrated(database):
 
 def test_schema_failure_releases_advisory_lock(database):
     ns, connect, statements, hooks = database
+    # A production lease's close() returns its physical session to the pool.
+    # Keep that session alive so this catches leaked session advisory locks.
+    pooled_session = connect()
+    ns["db_connect"] = lambda *args: SimpleNamespace(
+        cursor=pooled_session.cursor, commit=pooled_session.commit,
+        rollback=pooled_session.rollback, close=lambda: None,
+    )
     def fail(query):
         if query.startswith("CREATE TABLE"):
             raise RuntimeError("injected migration failure")
     hooks["before"] = fail
     ns["_PROSTUDIO_SCHEMA_READY"] = False
-    with pytest.raises(RuntimeError, match="injected"):
-        ns["ensure_prostudio_table"]()
-    hooks["before"] = None
-    assert not ns["_PROSTUDIO_SCHEMA_READY"]
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT pg_try_advisory_xact_lock(742193601)")
-            assert cur.fetchone()[0]
+    try:
+        with pytest.raises(RuntimeError, match="injected"):
+            ns["ensure_prostudio_table"]()
+        hooks["before"] = None
+        assert not ns["_PROSTUDIO_SCHEMA_READY"]
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_try_advisory_xact_lock(742193601)")
+                assert cur.fetchone()[0]
+    finally:
+        hooks["before"] = None
+        ns["db_connect"] = connect
+        pooled_session.close()
     ns["ensure_prostudio_table"]()
 
 
