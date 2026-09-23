@@ -140,6 +140,10 @@
       referrals_count: state.referrals_count || 0,
       community_posts_count: state.community_posts_count || 0,
       community_likes_count: state.community_likes_count || 0,
+      // Admin/developer-only - server re-checks this at generate time
+      // regardless of what this flag says; it only gates whether the
+      // "SYLVEX Test" model entry/Grid toggle render at all.
+      sylvex_test_available: !!state.sylvex_test_available,
     };
   }
 

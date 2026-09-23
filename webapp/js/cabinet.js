@@ -1096,7 +1096,20 @@ const IMAGE_MODEL_LIST = [
     inputImageCostProvisional:true,
     sizes:GROK_IMAGE_SIZES
   },
-
+  {
+    id:'sylvex_test',
+    label:'SYLVEX Test',
+    desc:'Admin/developer only - routes to the Support Bot instead of a real provider',
+    icon:'sylvex',
+    sylvexTest:true,
+    costCredits:1,
+    sizes:[
+      { id:'auto', label:'Auto', ratio:'auto' },
+      { id:'1:1', label:'1:1', ratio:'1:1' },
+      { id:'16:9', label:'16:9', ratio:'16:9' },
+      { id:'9:16', label:'9:16', ratio:'9:16' },
+    ],
+  },
 ];
 
 const MODEL_FEATURES = {
@@ -1362,6 +1375,7 @@ const MUSIC_MODEL_LIST = [
   { id:'google_lyria_3_clip', label:'Google Lyria 3 Clip', providerModel:'lyria-3-clip-preview', desc:'Фиксированный музыкальный клип · 30 секунд · MP3', icon:'gemini', durations:[0.5], fixedDurationSeconds:30, capabilities:{ duration:false } },
   { id:'google_lyria_3_pro', label:'Google Lyria 3 Pro', providerModel:'lyria-3-pro-preview', desc:'Полноценные композиции · вокал и тексты · MP3', icon:'gemini', durations:[1,2] },
   { id:'google_lyria_realtime', label:'Google Lyria RealTime', providerModel:'models/lyria-realtime-exp', desc:'Экспериментальная потоковая инструментальная музыка · WAV', icon:'gemini', durations:[1,2,3,4], vocalModes:['auto','instrumental'] },
+  { id:'sylvex_test', label:'SYLVEX Test', desc:'Admin/developer only - routes to the Support Bot instead of a real provider', icon:'sylvex', sylvexTest:true, durations:[1] },
 ];
 
 const VOICE_MODEL_LIST = [
@@ -1377,6 +1391,7 @@ const VOICE_MODEL_LIST = [
   { id:'elevenlabs_english_sts_v2', label:'ElevenLabs English STS v2', providerModel:'eleven_english_sts_v2', desc:'Изменение английского голоса', icon:'elevenlabs' },
   { id:'elevenlabs_multilingual_sts_v2', label:'ElevenLabs Multilingual STS v2', providerModel:'eleven_multilingual_sts_v2', desc:'Многоязычное изменение голоса', icon:'elevenlabs' },
   { id:'runway_eleven_multilingual_v2', label:'Runway Eleven Multilingual v2', providerModel:'eleven_multilingual_v2', desc:'Озвучка текста через Runway', icon:'runway' },
+  { id:'sylvex_test', label:'SYLVEX Test', desc:'Admin/developer only - routes to the Support Bot instead of a real provider', icon:'sylvex', sylvexTest:true },
 ];
 
 const TEXT_MODEL_LIST = [
@@ -1399,6 +1414,7 @@ const TEXT_MODEL_LIST = [
   { id:'qwen_turbo', label:'Qwen Turbo', providerModel:'qwen-turbo', desc:'Быстрый Qwen для текстов и конспектов', icon:'qwen' },
   { id:'qwen_max', label:'Qwen Max', providerModel:'qwen-max', desc:'Сильная Qwen-модель для длинных задач', icon:'qwen' },
   { id:'byteplus_seed_2_lite', label:'BytePlus Seed 2.0 Lite', providerModel:'seed-2-0-lite-260228', desc:'ModelArk Chat API для структурирования и генерации текста', icon:'bytedance' },
+  { id:'sylvex_test', label:'SYLVEX Test', family:'sylvex_test', desc:'Admin/developer only - routes to the Support Bot instead of a real provider', icon:'sylvex', sylvexTest:true },
 ];
 
 const TEXT_MODEL_FAMILIES = [
@@ -1407,10 +1423,12 @@ const TEXT_MODEL_FAMILIES = [
   { id:'grok', label:'Grok', icon:'grok', defaultModel:'grok_4_1' },
   { id:'qwen', label:'Qwen', icon:'qwen', defaultModel:'qwen_plus' },
   { id:'byteplus', label:'BytePlus', icon:'bytedance', defaultModel:'byteplus_seed_2_lite' },
+  { id:'sylvex_test', label:'SYLVEX Test', icon:'sylvex', defaultModel:'sylvex_test', sylvexTest:true },
 ];
 
 function textModelFamilyId(model) {
   const id = String((model && model.id) || model || '');
+  if (id === 'sylvex_test') return 'sylvex_test';
   if (id.startsWith('gpt-')) return 'gpt';
   if (id.startsWith('gemini_')) return 'gemini';
   if (id.startsWith('grok_')) return 'grok';
@@ -2133,7 +2151,8 @@ const VIDEO_MODELS = [
   { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'FAST', badgeClass:'yellow' },
   { id:'seedance_2_0', label:'Seedance 2.0', desc:'ByteDance Seedance video', icon:'seedance', badge:'TRENDING', badgeClass:'pink' },
 
-  { id:'gemini_omni_flash', label:'Gemini Omni Flash', desc:'Google Gemini video model', icon:'gemini' }
+  { id:'gemini_omni_flash', label:'Gemini Omni Flash', desc:'Google Gemini video model', icon:'gemini' },
+  { id:'sylvex_test', label:'SYLVEX Test', desc:'Admin/developer only - routes to the Support Bot instead of a real provider', icon:'sylvex', sylvexTest:true }
 ];
 
 const VIDEO_MODEL_CONFIG = {
@@ -2589,12 +2608,23 @@ function pickVideoOption(kind, value) {
 // JAVASCRIPT-БЛОК: currentComposerModelList
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
+// Admin/developer-only - real gate is server-side (re-checked at generate
+// time regardless of this flag), this only hides the entry from everyone
+// else's model picker/Grid node dropdown.
+function sylvexTestModeAvailable() {
+  return !!(S && S.user && S.user.sylvex_test_available);
+}
+function filterSylvexTestEntries(list) {
+  if (sylvexTestModeAvailable()) return list;
+  return (list || []).filter((item) => !(item && item.sylvexTest));
+}
+
 function currentComposerModelList() {
-  if (isImageMode()) return IMAGE_MODEL_LIST;
-  if (isVideoMode()) return VIDEO_MODELS;
-  if (isMusicMode()) return MUSIC_MODEL_LIST;
-  if (isVoiceMode()) return VOICE_MODEL_LIST;
-  if (studioMode === 'text') return TEXT_MODEL_FAMILIES;
+  if (isImageMode()) return filterSylvexTestEntries(IMAGE_MODEL_LIST);
+  if (isVideoMode()) return filterSylvexTestEntries(VIDEO_MODELS);
+  if (isMusicMode()) return filterSylvexTestEntries(MUSIC_MODEL_LIST);
+  if (isVoiceMode()) return filterSylvexTestEntries(VOICE_MODEL_LIST);
+  if (studioMode === 'text') return filterSylvexTestEntries(TEXT_MODEL_FAMILIES);
   return [];
 }
 
@@ -15563,6 +15593,10 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     client_request_id: (generationOptions && generationOptions.clientRequestId)
       || 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
     language: uiLang(),
+    // Admin/developer-only - lets a tool with no model picker of its own
+    // (Photo Tools: Try-On, Remove BG, etc.) still be run through SYLVEX
+    // Test without a fake model selector; real backend re-check either way.
+    sylvex_test: !!(generationOptions && generationOptions.sylvexTest && sylvexTestModeAvailable()),
   };
 
   console.log('PRO STUDIO FRONTEND PAYLOAD:', {
@@ -19685,11 +19719,11 @@ async function waitGeneration(jobId, options) {
   }
 
   function gridModelsForType(type) {
-    if (type === 'image') return IMAGE_MODEL_LIST;
-    if (type === 'video') return VIDEO_MODELS;
-    if (type === 'music') return MUSIC_MODEL_LIST;
-    if (type === 'voice') return VOICE_MODEL_LIST;
-    if (type === 'text') return TEXT_MODEL_LIST;
+    if (type === 'image') return filterSylvexTestEntries(IMAGE_MODEL_LIST);
+    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS);
+    if (type === 'music') return filterSylvexTestEntries(MUSIC_MODEL_LIST);
+    if (type === 'voice') return filterSylvexTestEntries(VOICE_MODEL_LIST);
+    if (type === 'text') return filterSylvexTestEntries(TEXT_MODEL_LIST);
     return [];
   }
 
@@ -19748,6 +19782,8 @@ async function waitGeneration(jobId, options) {
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
     if(workflowButton){const running=state.workflow?.status==='RUNNING'||state.workflow?.status==='STOPPING';workflowButton.textContent=running?'Остановить цепочку':'Запустить цепочку';workflowButton.classList.toggle('running',running)}
+    const testToggle=ensureGridTestModeToggle();
+    if(testToggle)testToggle.classList.toggle('active',gridTestModeEnabled());
     const sideRun=document.getElementById('studioGridSideRun');
     if(sideRun){const running=state.workflow?.status==='RUNNING'||state.workflow?.status==='STOPPING';sideRun.classList.toggle('running',running);const icon=sideRun.querySelector('i'),label=sideRun.querySelector('span');if(icon)icon.textContent=running?'■':'▷';if(label)label.textContent=running?'Стоп':'Запустить'}
     applyStudioGridTransform();
@@ -20055,6 +20091,41 @@ async function waitGeneration(jobId, options) {
     return {ok:missing.length===0,missing};
   }
 
+  // Grid Test Mode: admin/developer-only switch, separate from the
+  // per-project grid state (it's a developer preference, not project
+  // content). ON keeps every node's real configured model - only the
+  // external provider call each node's generation request reaches is
+  // replaced, exactly like selecting "SYLVEX Test" as a model, just applied
+  // to the whole workflow at once without changing what each node is set to.
+  const GRID_TEST_MODE_KEY='sylvex-grid-test-mode';
+  function gridTestModeEnabled(){
+    if(!sylvexTestModeAvailable())return false;
+    try{return localStorage.getItem(GRID_TEST_MODE_KEY)==='1'}catch(_){return false}
+  }
+  function setGridTestMode(on){
+    try{localStorage.setItem(GRID_TEST_MODE_KEY,on?'1':'0')}catch(_){}
+    const toggle=document.getElementById('studioGridTestModeToggle');
+    if(toggle)toggle.classList.toggle('active',gridTestModeEnabled());
+    toast(on?'🧪 SYLVEX Test включён для сетки':'SYLVEX Test выключен для сетки');
+  }
+  function ensureGridTestModeToggle(){
+    if(!sylvexTestModeAvailable())return null;
+    let toggle=document.getElementById('studioGridTestModeToggle');
+    if(toggle)return toggle;
+    const workflowButton=document.getElementById('studioGridRunWorkflow');
+    const host=workflowButton?.parentElement;
+    if(!host)return null;
+    toggle=document.createElement('button');
+    toggle.type='button';
+    toggle.id='studioGridTestModeToggle';
+    toggle.className='studio-grid-test-toggle';
+    toggle.title='SYLVEX Test: mock every node\'s provider call instead of spending real API credits';
+    toggle.textContent='🧪 Test';
+    toggle.addEventListener('click',()=>setGridTestMode(!gridTestModeEnabled()));
+    host.insertBefore(toggle,workflowButton);
+    return toggle;
+  }
+
   function gridGenerationPayload(node,inputs) {
     const settings=Object.assign({},node.settings||{}),mode=node.type,model=node.model||gridDefaultModel(mode),prompt=String(inputs.effective_prompt?.value||inputs.lyrics?.value||node.prompt||'').trim(),attachments=Array.isArray(node.attachments)?node.attachments:[],attachedImages=attachments.filter(item=>item.kind==='image').map(item=>item.url),attachedVideos=attachments.filter(item=>item.kind==='video').map(item=>item.url),attachedAudio=attachments.filter(item=>item.kind==='audio').map(item=>item.url);
     let imageOptions=null,videoOptions=null,musicOptions=null,voiceOptions=null,textOptions=null,provider=providerHintForModel(model);
@@ -20068,7 +20139,7 @@ async function waitGeneration(jobId, options) {
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
     if(mode==='voice')voiceOptions=Object.assign({model,provider:/elevenlabs/i.test(model)?'elevenlabs':(/runway/i.test(model)?'runway':'gemini'),voice:settings.voice||'Kore',elevenlabs_voice:settings.voice||'21m00Tcm4TlvDq8ikWAM',elevenlabs_tool:'text_to_speech',target_language:settings.target_language||'auto',speaker_mode:'single',num_speakers:1,speaker_voices:[settings.voice||'Kore'],uploads:attachedAudio},settings);
     if(mode==='text')textOptions=Object.assign({},settings);
-    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:`grid_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`,language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id};
+    return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:`grid_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`,language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id,sylvex_test:gridTestModeEnabled()};
   }
 
   async function estimateGridNodeCost(nodeId) {
