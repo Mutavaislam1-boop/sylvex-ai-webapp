@@ -19,6 +19,15 @@ import wave
 from typing import Any, Optional
 from uuid import uuid4
 
+import services.sylvex_test_provider as sylvex_test_provider
+from db_pool import db_connect
+
+_SYLVEX_TEST_DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
+
+
+def _sylvex_test_connect():
+    return db_connect(_SYLVEX_TEST_DATABASE_URL)
+
 import httpx
 
 from services.error_translator import raw_error_text, translate_provider_error
@@ -1353,6 +1362,25 @@ async def _prepare_document_voice_payload(payload: dict) -> Optional[dict]:
 # =====================================================
 async def audio_generation(payload: dict) -> dict:
     mode = str(payload.get("mode") or payload.get("category") or "").lower()
+    if payload.get("_sylvex_test_authorized"):
+        # Music/voice share this one seam - both are single-call (no
+        # separate poll phase), so this blocks (via asyncio.sleep, never the
+        # event loop) until the developer responds from the Support Bot.
+        model_id = str(payload.get("model") or (payload.get("voice_options") or payload.get("music_options") or {}).get("model") or "")
+        request_id = sylvex_test_provider.submit(
+            _sylvex_test_connect,
+            platform=payload.get("_sylvex_test_platform") or "telegram",
+            category="voice" if mode == "voice" else "music",
+            requester_id=int(payload.get("telegram_id") or 0),
+            job_id=str(payload.get("job_id") or payload.get("generation_id") or ""),
+            grid_run_id=str(payload.get("grid_project_id") or ""),
+            grid_node_id=str(payload.get("grid_node_id") or ""),
+            model=model_id,
+            original_prompt=str(payload.get("prompt") or ""),
+            final_prompt=str(payload.get("prompt") or ""),
+            parameters=payload.get("voice_options") or payload.get("music_options") or {},
+        )
+        return await sylvex_test_provider.wait_for_response(_sylvex_test_connect, request_id)
     if mode == "voice":
         voice_options = payload.get("voice_options") or {}
         document_result = await _prepare_document_voice_payload(payload)

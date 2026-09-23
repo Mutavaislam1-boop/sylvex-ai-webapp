@@ -312,6 +312,7 @@ class SecurityMiddleware:
    if not init_data and json_body:init_data=str(json_body.get('initData') or json_body.get('init_data') or '')
    if not init_data:init_data=next((v for k,v in query if k in {'init_data','initData'}),'')
    uid=0
+   web_account_id=0
    # The Support Bot is a separate Telegram bot/token and can never produce
    # a valid initData signature for this app's BOT_TOKEN. A matching shared
    # secret, sent as a header (never in the JSON body, so it never lands in
@@ -376,7 +377,12 @@ class SecurityMiddleware:
      # Legacy handlers now see the same verified credentials as middleware.
      json_body['initData']=init_data;json_body['init_data']=init_data
      body=json.dumps(json_body,separators=(',',':')).encode()
-    scope.setdefault('state',{}).update(telegram_id=uid,telegram_user=user,telegram_init_data=init_data)
+    # web_account_id (the real sylvex_accounts.account_id, distinct from the
+    # active_telegram_id `uid` above) survives here so a handler can tell a
+    # website-session request apart from a Telegram-initData one and check
+    # admin/developer status against the identity system that actually
+    # applies - see SYLVEX Test's platform-aware admin check in main.py.
+    scope.setdefault('state',{}).update(telegram_id=uid,telegram_user=user,telegram_init_data=init_data,web_account_id=web_account_id)
     if self.quota_check and method=='POST' and not admin and path not in WEBHOOKS and path not in ASSISTANT_SELF_QUOTA_ROUTES:
      await self.quota_check(uid,path)
   except SecurityError as exc:
