@@ -4737,10 +4737,10 @@ def ensure_prostudio_table():
             return
         conn = db_connect(DATABASE_URL)
         cursor = conn.cursor()
-        advisory_locked = False
         try:
-            cursor.execute("SELECT pg_advisory_lock(%s)", (742193601,))
-            advisory_locked = True
+            # Release the schema lock on rollback as well as commit; a failed
+            # migration must not leave a session lock on a pooled connection.
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", (742193601,))
             cursor.execute("""
         CREATE TABLE IF NOT EXISTS prostudio_messages (
             id SERIAL PRIMARY KEY,
@@ -4884,6 +4884,25 @@ def ensure_prostudio_table():
                 completed_at TIMESTAMP
             )
             """)
+            # IF NOT EXISTS still takes AccessExclusiveLock for ALTER TABLE.
+            # Avoid those lock upgrades on every new web/worker process when
+            # the columns already exist, and migrate before taking index locks.
+            cursor.execute("""
+                SELECT attname FROM pg_attribute
+                WHERE attrelid = 'prostudio_generation_jobs'::regclass
+                  AND attnum > 0 AND NOT attisdropped
+            """)
+            job_columns = {row[0] for row in cursor.fetchall()}
+            for column, definition in (
+                ("attempts", "INTEGER DEFAULT 0"),
+                ("locked_at", "TIMESTAMP"),
+                ("heartbeat_at", "TIMESTAMP"),
+                ("provider_wait_until", "TIMESTAMP"),
+            ):
+                if column not in job_columns:
+                    cursor.execute(
+                        f"ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS {column} {definition}"
+                    )
             cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_user_mode
             ON prostudio_generation_jobs (telegram_id, mode, updated_at DESC)
@@ -4905,10 +4924,6 @@ def ensure_prostudio_table():
             CREATE INDEX IF NOT EXISTS idx_generation_charges_user
             ON generation_charges (telegram_id, created_at DESC)
             """)
-            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0")
-            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
-            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP")
-            cursor.execute("ALTER TABLE prostudio_generation_jobs ADD COLUMN IF NOT EXISTS provider_wait_until TIMESTAMP")
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_prostudio_jobs_provider_wait
                 ON prostudio_generation_jobs (status, provider_wait_until, created_at)
@@ -4951,13 +4966,10 @@ def ensure_prostudio_table():
             """)
             conn.commit()
             _PROSTUDIO_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
         finally:
-            if advisory_locked:
-                try:
-                    cursor.execute("SELECT pg_advisory_unlock(%s)", (742193601,))
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
             cursor.close()
             conn.close()
 
@@ -5185,6 +5197,11 @@ def create_prostudio_generation_job(payload: dict) -> str:
         # The check and INSERT share one transaction, so simultaneous clicks
         # cannot create two active jobs.
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        # Take the INSERT's table lock before any SELECT or balance reservation.
+        # Otherwise a concurrent ALTER can queue behind our AccessShareLock,
+        # then block our upgrade to RowExclusiveLock: a lock-upgrade deadlock.
+        # RowExclusiveLock is compatible with other job creators/workers.
+        cursor.execute("LOCK TABLE prostudio_generation_jobs IN ROW EXCLUSIVE MODE")
         if client_request_id:
             # A repeated request carrying the same client_request_id is a
             # transport-level retry/replay of the same user action (reload,
