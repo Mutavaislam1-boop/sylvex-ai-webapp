@@ -277,9 +277,9 @@
   async function fetchUserState(telegramId) {
     if (!telegramId) return;
     try {
-      const res = await fetch('/api/public/telegram/user-state?telegram_id=' + encodeURIComponent(telegramId), {
+      const res = await userFetchWithTimeout('/api/public/telegram/user-state?telegram_id=' + encodeURIComponent(telegramId), {
         cache: 'no-store',
-      });
+      }, 8000);
       if (!res.ok) throw new Error('user-state ' + res.status);
       const state = await res.json();
       const tgUser = telegramUserFromInit();
@@ -288,6 +288,7 @@
       });
       cacheProfileIdentity(resolved);
       renderUser(resolved);
+      if (S.renderModelPop) S.renderModelPop();
     } catch (err) {
       console.warn('[SYLVEX] user state failed', err);
     }
@@ -373,7 +374,11 @@
         });
         cacheProfileIdentity(authoritativeUser);
         renderUser(authoritativeUser);
-        return authoritativeUser;
+        // Telegram sync returns profile/balance data, not model permissions.
+        // Load the server's permission flag on successful login too, so the
+        // existing SYLVEX Test entries are available in every model picker.
+        await fetchUserState(telegramId);
+        return S.user || authoritativeUser;
       }
     } catch (err) {
       console.warn('[SYLVEX] user sync failed', err);
