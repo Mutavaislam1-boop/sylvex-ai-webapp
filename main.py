@@ -17273,7 +17273,9 @@ async def public_prostudio_grid_plan(request: Request):
         if not task:
             return JSONResponse({"ok": False, "error": "task_required"}, status_code=400)
         grid_plan_test_mode = (body or {}).get("sylvex_test") is True
-        if grid_plan_test_mode and not _sylvex_test_permitted(request, int((body or {}).get("telegram_id") or 0)):
+        if grid_plan_test_mode and not await asyncio.to_thread(
+            _sylvex_test_permitted, request, int((body or {}).get("telegram_id") or 0)
+        ):
             return JSONResponse({"ok": False, "error": "sylvex_test_not_authorized"}, status_code=403)
         planner_prompt = f"""
 You are SYLVEX Grid Planner. Analyze the user's creative task and return ONLY valid JSON, without markdown.
@@ -17547,7 +17549,7 @@ async def public_prostudio_generate(request: Request):
     # aware (telegram_id vs Website account_id) lookup.
     wants_sylvex_test = selected_model.strip().lower() == "sylvex_test" or payload.get("sylvex_test") is True
     if wants_sylvex_test:
-        if not _sylvex_test_permitted(request, telegram_id):
+        if not await asyncio.to_thread(_sylvex_test_permitted, request, telegram_id):
             return JSONResponse({"ok": False, "error": "sylvex_test_not_authorized"}, status_code=403)
         payload["_sylvex_test_authorized"] = True
         payload["_sylvex_test_platform"] = "website" if int(getattr(getattr(request, "state", None), "web_account_id", 0) or 0) else "telegram"
