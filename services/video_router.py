@@ -23,6 +23,14 @@ from services.error_translator import raw_error_text, translate_provider_error
 from services.character_prompts import build_character_prompt, infer_character_operation
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.storage import generated_key, key_from_url as storage_key_from_url, put_bytes as storage_put_bytes, read_bytes as storage_read_bytes
+import services.sylvex_test_provider as sylvex_test_provider
+from db_pool import db_connect
+
+_SYLVEX_TEST_DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
+
+
+def _sylvex_test_connect():
+    return db_connect(_SYLVEX_TEST_DATABASE_URL)
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
 WEBAPP_DIR = ROOT_DIR / "webapp"
@@ -2827,6 +2835,20 @@ async def poll_video_generation(result: dict) -> dict:
     task_id = result.get("task_id") or result.get("workId") or result.get("id") or ""
     if not task_id:
         return _provider_error(provider or "video", model_id, "Generation task id is unavailable")
+    if provider == "sylvex_test":
+        # One quick, non-blocking check per call, same contract as every
+        # other branch here (the outer worker loop in main.py owns the
+        # actual polling cadence) - not a long wait, that lives in submit()
+        # above via sylvex_test_provider.submit()'s mailbox row.
+        response = await sylvex_test_provider.check_once(_sylvex_test_connect, str(task_id))
+        if response is None:
+            return _provider_success("sylvex_test", model_id, [], status="processing", task_id=str(task_id))
+        if not response.get("ok"):
+            return _provider_error("sylvex_test", model_id, response.get("error") or response.get("message") or "SYLVEX Test: marked as failed")
+        videos = response.get("videos") or ([response["video_url"]] if response.get("video_url") else [])
+        completed = _provider_success("sylvex_test", model_id, videos, status="completed", task_id=str(task_id))
+        completed.update({k: v for k, v in response.items() if k not in completed})
+        return completed
     if provider in {"bytedance", "seedance"}:
         api_key = _get_env("BYTEDANCE_API_KEY", "BYTEPLUS_API_KEY", "ARK_API_KEY")
         if not api_key:
@@ -5082,6 +5104,34 @@ async def video_generation(payload: dict) -> dict:
 
     if not prompt:
         return {"ok": False, "type": "video", "model": model_id, "provider": provider, "error": "Prompt is required"}
+
+    if payload.get("_sylvex_test_authorized"):
+        # The real prompt/parameter pipeline above (visual-prompt build,
+        # optimizer, character/object additions) has already run - only the
+        # external provider call below is replaced. Video is submit-then-poll,
+        # so this returns "processing" immediately and poll_video_generation()
+        # below (provider == "sylvex_test") continues the wait.
+        request_id = sylvex_test_provider.submit(
+            _sylvex_test_connect,
+            platform=payload.get("_sylvex_test_platform") or "telegram",
+            category="video",
+            requester_id=int(payload.get("telegram_id") or 0),
+            job_id=str(payload.get("job_id") or payload.get("generation_id") or ""),
+            grid_run_id=str(payload.get("grid_project_id") or ""),
+            grid_node_id=str(payload.get("grid_node_id") or ""),
+            model=model_id,
+            original_prompt=str(payload.get("_original_prompt") or prompt),
+            final_prompt=prompt,
+            parameters=raw_options,
+        )
+        return {
+            "ok": True,
+            "status": "processing",
+            "type": "video",
+            "provider": "sylvex_test",
+            "model": model_id,
+            "task_id": request_id,
+        }
 
     if provider == "seedance" or re.search(r"seedance", model_id, re.I):
         result = _call_seedance(model_id, prompt, payload)
