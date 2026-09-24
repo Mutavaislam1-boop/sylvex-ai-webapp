@@ -318,6 +318,12 @@ const PHOTO_TOOL_CONFIG = {
 };
 const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
 let activePhotoTool = '';
+// Snapshot of studioMode from just before opening a Quick Tool (whichever
+// screen/composer mode the user was actually on, including Home where no
+// Pro Studio mode had been entered at all this session) - restored on
+// close so the tool's own forced 'image' mode never bleeds into the next
+// time the user opens Pro Studio normally. null while no tool is open.
+let photoToolReturnMode = null;
 let photoToolDemosPromise = null;
 
 let videoState = {
@@ -6517,9 +6523,222 @@ function updatePhotoToolComparison(e){const input=e&&e.currentTarget,host=input&
 function photoToolCatalogPreviewHtml(config){const source=String(config.preview||config.demo||''),isVideo=/\.mp4(?:$|\?)/i.test(source);return '<div class="photo-tool-demo">'+(source?(isVideo?'<video src="'+S.escapeHtml(source)+'" muted playsinline preload="metadata"></video>':'<img src="'+S.escapeHtml(source)+'" alt="">'):'<div class="photo-tool-demo-placeholder"><span></span><b>Обложка</b></div>')+'</div>'}
 function photoToolReferenceUrls(kind){if(kind==='character')return (imageState.characterReferences||[]).map(item=>typeof item==='string'?item:(item.url||item.image_url||'')).filter(Boolean);if(kind==='object')return (imageState.objectReferences||[]).map(item=>typeof item==='string'?item:(item.url||item.image_url||'')).filter(Boolean);return []}
 function photoToolLibraryHtml(config){if(!config.library)return'';const refs=photoToolReferenceUrls(config.library),label={character:'персонажа',object:'предмет',tattoo:'тату',logo:'лого',clothes:'одежду',makeup:'макияж',hair:'стиль'}[config.library]||'референс';return '<div class="photo-tool-library"><small>Выберите '+label+'</small><div><button type="button" class="create" onclick="SYLVEX.createPhotoToolReference(event,\''+config.library+'\')"><i>＋</i><b>Создать</b></button>'+Array.from({length:10},(_,index)=>{const url=refs[index]||'';return '<button type="button" '+(url?'onclick="SYLVEX.selectPhotoToolReference(event,\''+S.escapeHtml(url)+'\')"':'disabled')+'>'+(url?'<img src="'+S.escapeHtml(url)+'" alt="">':'<i>'+(index+1)+'</i>')+'</button>'}).join('')+'</div></div>'}
-function photoToolMaskHtml(config,state){if(!config.mask||!state.files[0])return'';return '<div class="photo-tool-mask-editor"><header><div><b>Отметьте область</b><small>Проведите по предмету зелёной кистью</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>'}
+function photoToolMaskHtml(config,state){
+  if(!config.mask||!state.files[0])return'';
+  // Remove Object gets its own fullscreen mark-up editor (below) instead of
+  // the small inline draw-in-place canvas every other mask tool (currently
+  // just replace_object) still uses unchanged.
+  if(activePhotoTool==='remove_object')return removeObjectMaskPanelHtml(state);
+  return '<div class="photo-tool-mask-editor"><header><div><b>Отметьте область</b><small>Проведите по предмету зелёной кистью</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>';
+}
 function initPhotoToolMask(){const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(!canvas||!state)return;const rect=canvas.getBoundingClientRect(),scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.strokeStyle='rgba(47,220,119,.88)';ctx.lineWidth=Math.max(13,rect.width*.045);ctx.lineCap='round';ctx.lineJoin='round';let drawing=false,last=null;const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId)};const move=e=>{if(!drawing)return;e.preventDefault();const next=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};const end=e=>{if(!drawing)return;e.preventDefault();drawing=false;state.maskUrl=canvas.toDataURL('image/png')};canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end)}
 function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl=''}
+
+// =====================================================
+// REMOVE OBJECT: fullscreen mark-up editor
+// A simple brush-only canvas editor for the Remove Object Quick Tool:
+// draw / color / thickness / undo / clear / save. Works with mouse and
+// touch via the Pointer Events API (same technique as initPhotoToolMask
+// above). The source photo and the drawn mask are kept as two separate
+// values (state.files[0].url vs state.maskUrl) - this editor only ever
+// draws onto its own transparent canvas layered over the image, never
+// onto the source image itself.
+// =====================================================
+const REMOVE_OBJECT_BRUSH_COLORS = ['#2fdc77', '#ff5b5b', '#3fa9ff', '#ffd23f'];
+const REMOVE_OBJECT_BRUSH_WIDTHS = { s: 0.022, m: 0.045, l: 0.075 };
+let removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: 'm', history: [] };
+
+function removeObjectMaskPanelHtml(state) {
+  const hasMask = !!state.maskUrl;
+  return '<div class="photo-tool-mask-editor remove-object-mask-panel">'
+    + '<header><div><b>' + (hasMask ? 'Область отмечена' : 'Отметьте область') + '</b>'
+    + '<small>' + (hasMask ? 'Нажмите, чтобы изменить отметку' : 'Откройте редактор и обведите предмет кистью') + '</small></div></header>'
+    + '<button type="button" class="remove-object-mask-preview" onclick="SYLVEX.openRemoveObjectMaskEditor(event)">'
+    + '<img src="' + S.escapeHtml(state.files[0].url) + '" alt="" />'
+    + (hasMask ? '<img class="remove-object-mask-overlay" src="' + S.escapeHtml(state.maskUrl) + '" alt="" />' : '')
+    + '<span>' + (hasMask ? 'Изменить отметку' : 'Открыть редактор') + '</span>'
+    + '</button>'
+    + '</div>';
+}
+
+function ensureRemoveObjectEditorModal() {
+  let modal = document.getElementById('removeObjectEditorModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'removeObjectEditorModal';
+  modal.className = 'photo-tool-modal remove-object-editor';
+  modal.innerHTML = '<section class="photo-tool-dialog remove-object-editor-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
+    + '<header class="photo-tool-head"><div><small>Удаление предмета</small><h3>Отметьте область</h3></div>'
+    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeRemoveObjectMaskEditor(event)">×</button></header>'
+    + '<div class="remove-object-editor-canvas-wrap"><img id="removeObjectEditorImage" alt="" /><canvas id="removeObjectEditorCanvas"></canvas></div>'
+    + '<div class="remove-object-editor-controls">'
+    + '<div class="remove-object-editor-row">'
+    + '<div class="remove-object-editor-colors">'
+    + REMOVE_OBJECT_BRUSH_COLORS.map((color) => '<button type="button" data-color="' + color + '" style="--swatch:' + color + '" aria-label="Цвет кисти" onclick="SYLVEX.pickRemoveObjectBrushColor(event,\'' + color + '\')"></button>').join('')
+    + '</div>'
+    + '<div class="remove-object-editor-sizes">'
+    + Object.keys(REMOVE_OBJECT_BRUSH_WIDTHS).map((size) => '<button type="button" data-size="' + size + '" onclick="SYLVEX.pickRemoveObjectBrushWidth(event,\'' + size + '\')">' + size.toUpperCase() + '</button>').join('')
+    + '</div>'
+    + '</div>'
+    + '<div class="remove-object-editor-row">'
+    + '<button type="button" class="remove-object-editor-btn" onclick="SYLVEX.undoRemoveObjectMaskStroke(event)">Отменить</button>'
+    + '<button type="button" class="remove-object-editor-btn" onclick="SYLVEX.clearRemoveObjectMaskEditor(event)">Очистить</button>'
+    + '<button type="button" class="remove-object-editor-btn remove-object-editor-save" onclick="SYLVEX.saveRemoveObjectMask(event)">Сохранить</button>'
+    + '</div>'
+    + '</div>'
+    + '</section>';
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function updateRemoveObjectEditorControlsUI() {
+  const modal = document.getElementById('removeObjectEditorModal');
+  if (!modal) return;
+  modal.querySelectorAll('.remove-object-editor-colors button').forEach((btn) => btn.classList.toggle('active', btn.dataset.color === removeObjectEditorState.color));
+  modal.querySelectorAll('.remove-object-editor-sizes button').forEach((btn) => btn.classList.toggle('active', btn.dataset.size === removeObjectEditorState.size));
+}
+
+function openRemoveObjectMaskEditor(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolStateFor('remove_object');
+  if (!state || !state.files[0]) return;
+  const modal = ensureRemoveObjectEditorModal();
+  const img = document.getElementById('removeObjectEditorImage');
+  removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: 'm', history: [] };
+  modal.classList.add('show');
+  updateRemoveObjectEditorControlsUI();
+  const existingMaskUrl = state.maskUrl || '';
+  const draw = () => initRemoveObjectMaskEditor(existingMaskUrl);
+  if (!img) return;
+  const sourceUrl = state.files[0].url;
+  if (img.src === sourceUrl && img.complete && img.naturalWidth) {
+    // Already showing this exact photo (e.g. reopening to edit the mask
+    // again) - onload would not fire a second time for an unchanged src.
+    window.requestAnimationFrame(draw);
+  } else {
+    img.onload = draw;
+    img.src = sourceUrl;
+  }
+}
+
+function initRemoveObjectMaskEditor(existingMaskUrl) {
+  const canvas = document.getElementById('removeObjectEditorCanvas');
+  const img = document.getElementById('removeObjectEditorImage');
+  if (!canvas || !img) return;
+  const rect = img.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const scale = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.max(1, Math.round(rect.width * scale));
+  canvas.height = Math.max(1, Math.round(rect.height * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const applyStrokeStyle = () => {
+    ctx.strokeStyle = removeObjectEditorState.color;
+    ctx.lineWidth = Math.max(6, rect.width * (REMOVE_OBJECT_BRUSH_WIDTHS[removeObjectEditorState.size] || REMOVE_OBJECT_BRUSH_WIDTHS.m));
+  };
+  applyStrokeStyle();
+  const wireDrawing = () => {
+    let drawing = false, last = null;
+    const point = (evt) => { const r = canvas.getBoundingClientRect(); return { x: evt.clientX - r.left, y: evt.clientY - r.top }; };
+    const pushUndoSnapshot = () => {
+      try { removeObjectEditorState.history.push(ctx.getImageData(0, 0, canvas.width, canvas.height)); } catch {}
+      if (removeObjectEditorState.history.length > 20) removeObjectEditorState.history.shift();
+    };
+    const start = (evt) => { evt.preventDefault(); drawing = true; pushUndoSnapshot(); applyStrokeStyle(); last = point(evt); canvas.setPointerCapture && canvas.setPointerCapture(evt.pointerId); };
+    const move = (evt) => { if (!drawing) return; evt.preventDefault(); const next = point(evt); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(next.x, next.y); ctx.stroke(); last = next; };
+    const end = (evt) => { if (!drawing) return; evt.preventDefault(); drawing = false; };
+    canvas.addEventListener('pointerdown', start);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+  };
+  if (existingMaskUrl) {
+    const maskImg = new Image();
+    const restore = () => { try { ctx.drawImage(maskImg, 0, 0, rect.width, rect.height); } catch {} wireDrawing(); };
+    maskImg.onload = restore;
+    maskImg.onerror = wireDrawing;
+    maskImg.src = existingMaskUrl;
+  } else {
+    wireDrawing();
+  }
+}
+
+function pickRemoveObjectBrushColor(e, color) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  removeObjectEditorState.color = color;
+  updateRemoveObjectEditorControlsUI();
+}
+
+function pickRemoveObjectBrushWidth(e, size) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (!REMOVE_OBJECT_BRUSH_WIDTHS[size]) return;
+  removeObjectEditorState.size = size;
+  updateRemoveObjectEditorControlsUI();
+}
+
+function undoRemoveObjectMaskStroke(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const canvas = document.getElementById('removeObjectEditorCanvas');
+  if (!canvas || !removeObjectEditorState.history.length) return;
+  const ctx = canvas.getContext('2d');
+  const snapshot = removeObjectEditorState.history.pop();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.putImageData(snapshot, 0, 0);
+  const scale = Math.max(1, window.devicePixelRatio || 1);
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+}
+
+function clearRemoveObjectMaskEditor(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const canvas = document.getElementById('removeObjectEditorCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const scale = Math.max(1, window.devicePixelRatio || 1);
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  removeObjectEditorState.history = [];
+}
+
+function saveRemoveObjectMask(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const canvas = document.getElementById('removeObjectEditorCanvas');
+  const state = photoToolStateFor('remove_object');
+  if (!canvas || !state) return;
+  // Only persist a mask if at least one stroke actually survived (history
+  // records one snapshot per committed stroke) - an empty canvas is the
+  // same as never having drawn anything, not a "blank mark".
+  state.maskUrl = removeObjectEditorState.history.length ? canvas.toDataURL('image/png') : '';
+  const extraEl = document.getElementById('photoToolExtraPrompt');
+  const preservedText = extraEl ? extraEl.value : '';
+  closeRemoveObjectMaskEditor();
+  renderPhotoToolModal();
+  // renderPhotoToolModal() recreates the textarea empty - restore whatever
+  // the user had already typed there before opening the editor.
+  const newExtraEl = document.getElementById('photoToolExtraPrompt');
+  if (newExtraEl && preservedText) newExtraEl.value = preservedText;
+}
+
+function updateRemoveObjectReadiness() {
+  if (activePhotoTool !== 'remove_object') return;
+  const state = photoToolStateFor('remove_object');
+  const btn = document.querySelector('#photoToolModalBody .photo-tool-generate');
+  const textEl = document.getElementById('photoToolExtraPrompt');
+  if (!state || !btn) return;
+  const hasSource = state.files.filter(Boolean).length >= 1;
+  const hasMask = !!state.maskUrl;
+  const hasText = !!(textEl && textEl.value.trim());
+  btn.disabled = !hasSource || (!hasMask && !hasText) || !!state.generating;
+}
+
+function closeRemoveObjectMaskEditor(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const modal = document.getElementById('removeObjectEditorModal');
+  if (modal) modal.classList.remove('show');
+}
 function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character')return openVisualCreateModal(e,'character');toast('Слот для нового референса подготовлен')}
 function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagation()}const config=PHOTO_TOOL_CONFIG[activePhotoTool],state=photoToolStateFor(activePhotoTool);if(!config||!state||!url)return;const slot=config.library==='character'?1:Math.max(0,config.max-1);state.files[slot]={name:'Референс из каталога',mime:'image/*',url};renderPhotoToolModal()}
 
@@ -6559,7 +6778,9 @@ function renderPhotoToolModal() {
       + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>')
       + '</button>';
   }).join('');
-  const ready = state.files.filter(Boolean).length >= config.min;
+  const isRemoveObject = activePhotoTool === 'remove_object';
+  const ready = state.files.filter(Boolean).length >= config.min
+    && (!isRemoveObject || !!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim()));
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + '<div class="photo-tool-layout">'
@@ -6567,12 +6788,12 @@ function renderPhotoToolModal() {
     + '<div class="photo-tool-work-column">'+photoToolLibraryHtml(config)+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"></textarea>'
+    + '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>'
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
     + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
     + '</button>'
     + '</div></div>';
-  if(config.mask&&state.files[0])window.requestAnimationFrame(initPhotoToolMask);
+  if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
 }
 
 function openPhotoToolModal(e, kind) {
@@ -6580,6 +6801,11 @@ function openPhotoToolModal(e, kind) {
     e.preventDefault();
     e.stopPropagation();
   }
+  // Only remember the mode on the FIRST open of this modal session - if the
+  // user switches between tools inside an already-open modal (e.g. catalog
+  // fallback -> a specific tool), the return point stays whatever screen
+  // they were on before the modal ever appeared.
+  if (photoToolReturnMode === null) photoToolReturnMode = studioMode;
   updateComposerMode('image');
   activePhotoTool = PHOTO_TOOL_CONFIG[kind] ? kind : '';
   const modal = ensurePhotoToolModal();
@@ -6598,6 +6824,24 @@ function closePhotoToolModal(e) {
   const modal = document.getElementById('photoToolModal');
   if (modal && !(activePhotoTool && photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating)) {
     modal.classList.remove('show');
+    // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
+    // into image mode even when it was opened from Home or another mode -
+    // that switch must not persist after the tool closes, or the next
+    // normal visit to Pro Studio silently lands in the wrong mode/tab
+    // instead of exactly where the user left it.
+    if (photoToolReturnMode !== null) {
+      const returnMode = photoToolReturnMode;
+      photoToolReturnMode = null;
+      // Deferred: closePhotoToolModal() can run while a just-finished
+      // generation still holds the active-generation lock (it releases in
+      // the caller's own `finally` block, right after this call) -
+      // updateComposerMode() would refuse to switch mode and surface a
+      // confusing toast in that window. Restoring one tick later avoids
+      // the race without needing to know every caller's exact order.
+      window.setTimeout(() => {
+        if (returnMode !== studioMode && !activeGenerationLocked()) updateComposerMode(returnMode);
+      }, 0);
+    }
   }
 }
 
@@ -6688,6 +6932,7 @@ async function generatePhotoTool(e) {
   const config = PHOTO_TOOL_CONFIG[kind];
   const state = photoToolStateFor(kind);
   if (!config || !state || state.generating) return;
+  if (kind === 'remove_object') return generateRemoveObjectTool(state);
   const refs = state.files.filter(Boolean).map((item) => item.url);
   if (refs.length < config.min) {
     toast('Загрузите необходимые фотографии');
@@ -6747,6 +6992,88 @@ async function generatePhotoTool(e) {
       fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
       mode: 'image',
       prompt,
+    });
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось обработать фото'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
+  }
+}
+
+// =====================================================
+// REMOVE OBJECT: isolated generation flow
+// Deliberately does NOT reuse imageOptionsPayload()/imageState (the normal
+// Pro Studio composer's Character/Object/Style/prompt/reference state) -
+// its request is built from exactly the three tool-owned inputs below via
+// callGenerate's isolateRequest escape hatch. Only the post-generation
+// result handling (chat card, History refresh, active-job cleanup) reuses
+// the same generic pipeline every other Photo Tool already uses.
+// =====================================================
+async function generateRemoveObjectTool(state) {
+  const sourceUrl = state.files[0] && state.files[0].url;
+  if (!sourceUrl) {
+    toast('Загрузите фото');
+    return;
+  }
+  const extraEl = document.getElementById('photoToolExtraPrompt');
+  const instruction = extraEl ? String(extraEl.value || '').trim() : '';
+  const hasMask = !!state.maskUrl;
+  if (!hasMask && !instruction) {
+    // Core validation rule: image alone is never enough - mask and/or text
+    // is required before a provider request is ever sent.
+    toast('Отметьте область на фото или опишите, что нужно удалить');
+    return;
+  }
+  const displayPrompt = instruction || 'Удаление объекта на фото';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('image'),
+  }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(displayPrompt, null, [], null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'seedream_5_0_lite',
+      provider: 'bytedance',
+      imageOptions: {
+        tool: 'remove_object',
+        removeObjectSourceUrl: sourceUrl,
+        removeObjectMaskUrl: state.maskUrl || '',
+        removeObjectInstruction: instruction,
+      },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (images.length) addGeneratedImages(images, thumbs);
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: 'remove_object' }),
+    };
+    state.files = [];
+    state.maskUrl = '';
+    state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+      mode: 'image',
+      prompt: displayPrompt,
     });
     renderPhotoToolModal();
     toast(translateGenerationError(error, 'Не удалось обработать фото'));
@@ -15652,13 +15979,24 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     ? (Array.isArray(referenceImagesOverride) ? referenceImagesOverride.slice() : currentVideoReferenceImages())
     : [];
 
-  const history = chatMessages
+  // isolateRequest is the Quick Tool escape hatch: a caller that sets it
+  // (currently only Remove Object) supplies image_options/model/provider
+  // completely on its own and gets no normal-composer state (including
+  // chat history) merged in at all - unlike the plain
+  // generationOptions.imageOptions override below, which only overwrites
+  // matching keys on top of imageOptionsPayload() and would still leak
+  // every key it doesn't happen to set (Character, Object, Style, seed,
+  // ...). Every other caller is unaffected.
+  const isolateRequest = !!(generationOptions && generationOptions.isolateRequest);
+  const history = isolateRequest ? [] : chatMessages
     .filter((m) => !m.typing && m.text && (m.role === 'user' || m.role === 'ai'))
     .slice(-10)
     .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
 
   const imageOptions = isImageMode()
-    ? Object.assign(imageOptionsPayload(imageReferenceImages), (generationOptions && generationOptions.imageOptions) || {})
+    ? (isolateRequest
+        ? Object.assign({}, generationOptions.imageOptions || {})
+        : Object.assign(imageOptionsPayload(imageReferenceImages), (generationOptions && generationOptions.imageOptions) || {}))
     : null;
   const videoOptions = isVideoMode()
     ? (videoOptionsOverride || videoOptionsPayload(videoReferenceImages))
@@ -15692,8 +16030,8 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     prompt: promptText,
     mode: requestMode,
     category: requestMode,
-    model: pickStudioModel(),
-    provider: isVideoMode() ? currentVideoProvider() : pickProviderHint(),
+    model: isolateRequest ? (generationOptions.model || pickStudioModel()) : pickStudioModel(),
+    provider: isolateRequest ? (generationOptions.provider || 'bytedance') : (isVideoMode() ? currentVideoProvider() : pickProviderHint()),
     image_options: imageOptions,
     video_options: videoOptions,
     music_options: musicOptions,
@@ -20543,6 +20881,14 @@ async function waitGeneration(jobId, options) {
   });
 
   S.clearPhotoToolMask = clearPhotoToolMask;
+  S.openRemoveObjectMaskEditor = openRemoveObjectMaskEditor;
+  S.closeRemoveObjectMaskEditor = closeRemoveObjectMaskEditor;
+  S.pickRemoveObjectBrushColor = pickRemoveObjectBrushColor;
+  S.pickRemoveObjectBrushWidth = pickRemoveObjectBrushWidth;
+  S.undoRemoveObjectMaskStroke = undoRemoveObjectMaskStroke;
+  S.clearRemoveObjectMaskEditor = clearRemoveObjectMaskEditor;
+  S.saveRemoveObjectMask = saveRemoveObjectMask;
+  S.updateRemoveObjectReadiness = updateRemoveObjectReadiness;
   S.openQuickImageExtraFile = openQuickImageExtraFile;
   S.onQuickImageExtraFile = onQuickImageExtraFile;
   // Also expose the inline-onclick handlers as globals.
