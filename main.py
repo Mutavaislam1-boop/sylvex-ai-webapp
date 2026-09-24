@@ -6711,6 +6711,55 @@ def byteplus_image_input(value: str, index: int = 0) -> str:
     return f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}"
 
 
+def materialize_seedream_reference_bytes(content: bytes, mime_type: str, index: int = 0) -> str:
+    """Upload raw image bytes to SYLVEX's own object storage and return a
+    real, publicly fetchable HTTPS URL for them. Used only when a reference
+    a model needs as a URL (Seedream 5.0 Pro's image_urls) has no URL form
+    at all - a raw inline Base64/data: reference, or a bare local path -
+    so it gets one instead of being dropped."""
+    if not content:
+        return ""
+    try:
+        clean_mime = str(mime_type or "image/png").lower()
+        ext = (clean_mime.split("/", 1)[1] if "/" in clean_mime else "png").split("+")[0] or "png"
+        key = f"generated/seedream-refs/{uuid.uuid4().hex}-{index}.{ext}"
+        return storage_put_bytes(content, key, clean_mime) or ""
+    except Exception as exc:
+        print("SEEDREAM REFERENCE MATERIALIZE FAILED:", type(exc).__name__, str(exc))
+        return ""
+
+
+def byteplus_image_reference_url(value: str, index: int = 0) -> str:
+    """Like byteplus_image_input, but for models whose reference param only
+    accepts URLs (no inline Base64 - e.g. Seedream 5.0 Pro's image_urls):
+    it never returns a data: URI. SYLVEX's own signed media URLs
+    (WEBAPP_URL/R2, minted by services.media_access.sign_media_url) are
+    already publicly fetchable as-is - the security middleware validates
+    their signature with no other auth required - so they're passed
+    through unchanged instead of being stripped to a local path and
+    re-encoded as Base64 the way byteplus_image_input does. Only a
+    reference with no URL at all (a raw data: URI, or a bare local path)
+    gets uploaded via materialize_seedream_reference_bytes so it has one."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if raw.startswith("data:image/") and ";base64," in raw:
+        head, encoded = raw.split(";base64,", 1)
+        mime_type = head.replace("data:", "").strip().lower() or "image/png"
+        try:
+            content = base64.b64decode(encoded.strip())
+        except Exception:
+            content = b""
+        return materialize_seedream_reference_bytes(content, mime_type, index)
+    file_tuple = image_file_tuple_from_url(raw, fallback_name=f"reference-{index + 1}.png")
+    if not file_tuple:
+        return ""
+    _, content, mime_type = file_tuple
+    return materialize_seedream_reference_bytes(content, mime_type, index)
+
+
 def provider_object_to_dict(value) -> dict:
     if isinstance(value, dict):
         return value
@@ -13435,17 +13484,28 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
         body["seed"] = seed
 
     refs = []
-    dropped_non_url = 0
+    dropped_refs = 0
+    materialized_refs = 0
     for index, value in enumerate(reference_images or []):
         if not isinstance(value, str) or not value.strip():
             continue
-        provider_input = byteplus_image_input(value, index)
+        raw_value = value.strip()
+        if caps["allow_inline_base64"]:
+            provider_input = byteplus_image_input(raw_value, index)
+        else:
+            # This model's reference param is URL-only (no inline Base64,
+            # e.g. Seedream 5.0 Pro's image_urls) - keep the same assembled
+            # reference and only adapt its final form here: an already
+            # public URL (SYLVEX's own signed media URLs included - they
+            # are fetchable with no other auth, see media_access.py) is
+            # passed through unchanged; only a reference with no URL form
+            # at all (raw Base64/local) gets uploaded so it has one -
+            # never silently dropped.
+            provider_input = byteplus_image_reference_url(raw_value, index)
+            if provider_input and not raw_value.startswith(("http://", "https://")):
+                materialized_refs += 1
         if not provider_input:
-            continue
-        if not caps["allow_inline_base64"] and provider_input.startswith("data:image/"):
-            # This model's reference param is URL-only (no inline Base64) -
-            # dropping here beats silently sending an invalid reference.
-            dropped_non_url += 1
+            dropped_refs += 1
             continue
         if provider_input not in refs:
             refs.append(provider_input)
@@ -13460,11 +13520,12 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
         # ordered list for several - "image_urls" (Pro) is always a list.
         body[field] = (refs[0] if len(refs) == 1 else refs) if field == "image" else refs
 
-    if dropped_non_url or clipped_from:
+    if dropped_refs or materialized_refs or clipped_from:
         print("BYTEPLUS IMAGE REFERENCES ADAPTED:", {
             "model_key": model_key,
             "reference_param": caps["reference_param"],
-            "dropped_non_url_refs": dropped_non_url,
+            "materialized_to_url": materialized_refs or None,
+            "dropped_unresolvable_refs": dropped_refs or None,
             "clipped_from": clipped_from or None,
             "clipped_to": max_references if clipped_from else None,
         })

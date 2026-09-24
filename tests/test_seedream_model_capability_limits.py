@@ -7,6 +7,8 @@ reason it can fail to honor references while Seedream 4.5 succeeds under the
 same integration. These tests cover the per-model capability table
 (SEEDREAM_MODEL_CAPABILITIES), the model-aware body construction, and the
 fair round-robin merge of user/Character/Object references."""
+import base64
+
 import main
 
 
@@ -41,17 +43,52 @@ def test_byteplus_seedream_body_sends_pro_references_under_image_urls():
     assert body["image_urls"] == ["https://example.com/a.png"]
 
 
-def test_byteplus_seedream_body_pro_drops_inline_base64_references():
+def test_byteplus_seedream_body_pro_materializes_inline_base64_references(monkeypatch):
+    # Base64 is invalid for Pro's URL-only image_urls param, but the
+    # reference must not be discarded - it gets uploaded so it has a real
+    # URL instead (production bug: 6 assembled refs -> 6 dropped -> 0 sent).
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: f"https://cdn.example.com/{key}")
     model = main.BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"]
+    png_b64 = base64.b64encode(b"fake-png-bytes").decode("ascii")
     body = main.byteplus_seedream_body(
         model, "a portrait",
-        reference_images=["data:image/png;base64,AAAA", "https://example.com/a.png"],
+        reference_images=[f"data:image/png;base64,{png_b64}", "https://example.com/a.png"],
         size="1:1",
     )
-    # The Base64 reference is invalid for Pro's URL-only image_urls param -
-    # it must be dropped, not sent (which would risk a rejected request),
-    # while the valid hosted URL still goes through.
-    assert body["image_urls"] == ["https://example.com/a.png"]
+    assert len(body["image_urls"]) == 2
+    assert "https://example.com/a.png" in body["image_urls"]
+    materialized = [u for u in body["image_urls"] if u.startswith("https://cdn.example.com/")]
+    assert len(materialized) == 1
+
+
+def test_byteplus_seedream_body_pro_passes_through_sylvex_hosted_urls_unchanged():
+    # SYLVEX's own signed media URLs (WEBAPP_URL/R2) are already publicly
+    # fetchable as-is (see services/media_access.py) - they must be sent
+    # to Pro exactly as assembled, not stripped to a local path and
+    # re-encoded as Base64 the way byteplus_image_input does for 4.5.
+    model = main.BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"]
+    signed_url = "https://api.sylvex.ai/api/public/storage/generated/x.png?media_exp=999&media_sig=abc"
+    body = main.byteplus_seedream_body(model, "a portrait", reference_images=[signed_url], size="1:1")
+    assert body["image_urls"] == [signed_url]
+
+
+def test_byteplus_seedream_body_pro_never_drops_assembled_references(monkeypatch):
+    # Regression test for the exact production symptom: combined_count: 6,
+    # then dropped_non_url_refs: 6, then reference_count: 0. None of these
+    # six assembled references (a mix of hosted URLs and raw Base64) may be
+    # silently discarded for Pro.
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: f"https://cdn.example.com/{key}")
+    model = main.BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_pro"]
+    refs = [
+        "https://example.com/user1.png",
+        "https://example.com/user2.png",
+        f"data:image/png;base64,{base64.b64encode(b'ref-bytes-1').decode('ascii')}",
+        f"data:image/png;base64,{base64.b64encode(b'ref-bytes-2').decode('ascii')}",
+        "https://example.com/character1.png",
+        "https://example.com/object1.png",
+    ]
+    body = main.byteplus_seedream_body(model, "a scene", reference_images=refs, size="1:1")
+    assert len(body["image_urls"]) == 6
 
 
 def test_byteplus_seedream_body_non_pro_still_sends_single_ref_as_string():
