@@ -786,6 +786,31 @@ SEEDREAM_MODEL_VARIANTS = {
         "cost_usd": 0.045,
     },
 }
+# Per-model BytePlus Seedream request capabilities. Every variant shares the
+# same /images/generations endpoint, but they don't share one request shape:
+# Seedream 5.0 Pro's own API contract takes reference images under
+# "image_urls" (a list of hosted URLs only - no inline Base64) while every
+# other Seedream variant takes them under "image" (one URL/data-URI, or a
+# list). Sending Pro a body built the 4.5 way silently drops/rejects the
+# references, which is why Pro can fail even though 4.5 succeeds under the
+# same integration. max_references reflects each model's published
+# multi-reference support; keep it per-model (not a single shared constant)
+# so a future model with a tighter real limit doesn't inherit a value that
+# doesn't apply to it.
+SEEDREAM_MODEL_CAPABILITIES = {
+    "seedream_5_0_lite": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+    "seedream_5_0": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+    "seedream_4_5": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+    "seedream_5_0_pro": {"max_references": 10, "reference_param": "image_urls", "allow_inline_base64": False},
+    "seedream_4_0": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+}
+
+
+def seedream_capabilities(frontend_model: str, provider_model: str = "") -> dict:
+    key = seedream_frontend_model(frontend_model, provider_model)
+    return SEEDREAM_MODEL_CAPABILITIES.get(key) or SEEDREAM_MODEL_CAPABILITIES["seedream_5_0_lite"]
+
+
 FLUX_MODEL_VARIANTS = {
     "flux_pro_kontext": {
         "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL", default="flux-kontext-pro"),
@@ -13393,13 +13418,15 @@ def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size: str = "", seed=None, quality: str = "high") -> dict:
+    model_key = seedream_frontend_model("", model)
+    caps = seedream_capabilities("", model)
+    is_pro_model = model_key == "seedream_5_0_pro"
     body = {
         "model": model,
         "prompt": prompt,
         "response_format": "url",
         "size": seedream_size_value(size, quality),
     }
-    is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
     if not is_pro_model:
         body["sequential_image_generation"] = "disabled"
         body["stream"] = False
@@ -13408,17 +13435,39 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
         body["seed"] = seed
 
     refs = []
+    dropped_non_url = 0
     for index, value in enumerate(reference_images or []):
         if not isinstance(value, str) or not value.strip():
             continue
         provider_input = byteplus_image_input(value, index)
-        if provider_input and provider_input not in refs:
+        if not provider_input:
+            continue
+        if not caps["allow_inline_base64"] and provider_input.startswith("data:image/"):
+            # This model's reference param is URL-only (no inline Base64) -
+            # dropping here beats silently sending an invalid reference.
+            dropped_non_url += 1
+            continue
+        if provider_input not in refs:
             refs.append(provider_input)
 
+    max_references = int(caps["max_references"] or 5)
+    clipped_from = len(refs) if len(refs) > max_references else 0
+    refs = refs[:max_references]
+
     if refs:
-        # Seedream accepts one URL or an ordered list of visual inputs. Keep the
-        # source image first, followed by avatar + three character references.
-        body["image"] = refs[0] if len(refs) == 1 else refs[:5]
+        field = caps["reference_param"]
+        # "image" accepts a single URL/data-URI for one reference, or an
+        # ordered list for several - "image_urls" (Pro) is always a list.
+        body[field] = (refs[0] if len(refs) == 1 else refs) if field == "image" else refs
+
+    if dropped_non_url or clipped_from:
+        print("BYTEPLUS IMAGE REFERENCES ADAPTED:", {
+            "model_key": model_key,
+            "reference_param": caps["reference_param"],
+            "dropped_non_url_refs": dropped_non_url,
+            "clipped_from": clipped_from or None,
+            "clipped_to": max_references if clipped_from else None,
+        })
 
     return body
 
@@ -13429,7 +13478,8 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
 # =====================================================
 def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None, size: str = "", seed=None, quality: str = "high") -> tuple:
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
-    is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
+    model_key = seedream_frontend_model("", model)
+    is_pro_model = model_key == "seedream_5_0_pro"
     try:
         timeout_seconds = int(os.getenv("BYTEPLUS_SEEDREAM_PRO_TIMEOUT" if is_pro_model else "BYTEPLUS_SEEDREAM_TIMEOUT") or (420 if is_pro_model else 240))
     except Exception:
@@ -13442,7 +13492,15 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     # =====================================================
     def _send(include_refs: bool):
         request_payload = byteplus_seedream_body(model, prompt, refs if include_refs else [], size=size, seed=seed, quality=quality)
-        print("BYTEPLUS IMAGE PAYLOAD:", {k: v for k, v in request_payload.items() if k != "image"})
+        reference_field = "image" if "image" in request_payload else ("image_urls" if "image_urls" in request_payload else None)
+        reference_value = request_payload.get(reference_field) if reference_field else None
+        reference_count = 1 if isinstance(reference_value, str) else (len(reference_value) if isinstance(reference_value, list) else 0)
+        print("BYTEPLUS IMAGE PAYLOAD:", {
+            **{k: v for k, v in request_payload.items() if k not in ("image", "image_urls")},
+            "model_key": model_key,
+            "reference_field": reference_field,
+            "reference_count": reference_count,
+        })
         print("BYTEPLUS IMAGE TIMEOUT:", timeout_seconds)
         return requests.post(
             f"{BYTEPLUS_ARK_ENDPOINT}/images/generations",
@@ -13461,19 +13519,32 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
         try:
             response = _send(bool(refs))
         except Exception as exc:
+            print(f"BYTEPLUS IMAGE REQUEST EXCEPTION [{model_key}]:", f"{type(exc).__name__}: {exc}")
             return [], type(exc).__name__
     except Exception as exc:
+        print(f"BYTEPLUS IMAGE REQUEST EXCEPTION [{model_key}]:", f"{type(exc).__name__}: {exc}")
         return [], type(exc).__name__
 
     if response.status_code >= 400:
+        # Full (untruncated) body goes to logs only - never returned to the
+        # caller/user - so a real Pro-specific rejection reason (bad field
+        # name, unsupported size, moderation, ...) is visible in production
+        # without guessing. No secrets are in this response (it's BytePlus's
+        # own reply), just the request's own API key stays out of it.
+        print(f"BYTEPLUS IMAGE ERROR BODY [{model_key}] HTTP {response.status_code}:", response.text)
         return [], f"HTTP {response.status_code}: {response.text[:500]}"
 
     data = safe_provider_json(response, "bytedance", f"{BYTEPLUS_ARK_ENDPOINT}/images/generations")
     if data.get("ok") is False:
-        return [], data.get("error") or "invalid provider response"
+        error_detail = data.get("error") or "invalid provider response"
+        body_preview = data.get("body_preview")
+        if body_preview:
+            print(f"BYTEPLUS IMAGE INVALID RESPONSE BODY [{model_key}]:", body_preview)
+        return [], error_detail
     images = normalize_image_response(data)
 
     if not images:
+        print(f"BYTEPLUS IMAGE NO IMAGES IN RESPONSE [{model_key}]:", json.dumps(data)[:2000])
         return [], "no image returned"
 
     return images, ""
@@ -13648,6 +13719,68 @@ def send_generated_images_to_telegram(telegram_id: int, images: list, caption: s
     return ok
 
 # =====================================================
+# PYTHON-БЛОК: seedream_merge_references
+# Combines the three SYLVEX reference sources (user uploads, Character,
+# Object) into one ordered list for a BytePlus Seedream request. "Style" is
+# never included - it's a text-only preset (see build_image_prompt), never
+# an image reference. Sources are interleaved round-robin (one from each,
+# repeated) rather than concatenated, so when the combined count exceeds a
+# model's max_references, truncation still keeps a representative from every
+# source the user actually selected instead of letting whichever source
+# happens to be read first silently consume the whole budget.
+# =====================================================
+def seedream_merge_references(opts: dict) -> tuple:
+    def _flatten(*values):
+        out = []
+        for value in values:
+            if isinstance(value, str):
+                out.append(value)
+            elif isinstance(value, list):
+                out.extend(v for v in value if isinstance(v, str))
+        return out
+
+    def _dedup(values):
+        out = []
+        for v in values:
+            v = v.strip() if isinstance(v, str) else ""
+            if v and v not in out:
+                out.append(v)
+        return out
+
+    user_refs = _dedup(_flatten(
+        opts.get("referenceImageUrls"),
+        opts.get("reference_image_urls"),
+        opts.get("referenceImages"),
+        opts.get("images"),
+    ))
+    character_refs = _dedup(_flatten(opts.get("characterReferences")))
+    object_refs = _dedup(_flatten(opts.get("objectReferences")))
+
+    groups = [user_refs, character_refs, object_refs]
+    merged = []
+    seen = set()
+    index = 0
+    while any(index < len(group) for group in groups):
+        for group in groups:
+            if index < len(group) and group[index] not in seen:
+                seen.add(group[index])
+                merged.append(group[index])
+        index += 1
+
+    counts = {
+        "user": len(user_refs),
+        "character": len(character_refs),
+        "object": len(object_refs),
+        "combined_before_clip": len(merged),
+    }
+    # Not clipped here - byteplus_seedream_body applies the model's real
+    # max_references (and its base64/URL-only rule) once, right where the
+    # provider request body is built, so there is exactly one place that
+    # decides what actually gets sent.
+    return merged, counts
+
+
+# =====================================================
 # PYTHON-БЛОК: generateBytePlusSeedreamImage
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -13671,33 +13804,34 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     size = opts.get("size") or opts.get("ratio") or (model_cfg.get("sizes") or [{}])[0].get("id") or "auto"
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
     quality = normalize_seedream_quality(requested_model, model, opts)
-    seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(seedream_frontend_model(requested_model, model)) or {}).get("seed"))
+    model_key = seedream_frontend_model(requested_model, model)
+    seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(model_key) or {}).get("seed"))
     seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
+    caps = seedream_capabilities(requested_model, model)
 
-    reference_images = []
+    reference_images, reference_source_counts = seedream_merge_references(opts)
 
-    for value in (
-        opts.get("referenceImageUrls"),
-        opts.get("reference_image_urls"),
-        opts.get("referenceImages"),
-        opts.get("images"),
-        opts.get("characterReferences"),
-        opts.get("objectReferences"),
-    ):
-        if isinstance(value, str):
-            reference_images.append(value)
-        elif isinstance(value, list):
-            reference_images.extend(value)
-
-    clean_refs = []
-    for url in reference_images:
-        if isinstance(url, str) and url.strip() and url not in clean_refs:
-            clean_refs.append(url)
-
-    reference_images = clean_refs
-
+    print("BYTEPLUS IMAGE REQUEST START:", {
+        "frontend_model": requested_model,
+        "provider_model": model,
+        "model_key": model_key,
+        "final_prompt_preview": prompt[:2000],
+        "requested_size": size,
+        "resolved_size": seedream_size_value(size, quality),
+        "quality": quality,
+        "count": count,
+        "seed": seed,
+        "reference_param": caps["reference_param"],
+        "model_max_references": caps["max_references"],
+    })
     print("BYTEPLUS IMAGE REFERENCES:", {
-        "count": len(reference_images),
+        # Merged/deduped but not yet clipped to the model's max_references -
+        # byteplus_seedream_body applies the real per-model clip and logs it
+        # (BYTEPLUS IMAGE REFERENCES ADAPTED) if it drops anything here.
+        "user_count": reference_source_counts["user"],
+        "character_count": reference_source_counts["character"],
+        "object_count": reference_source_counts["object"],
+        "combined_count": reference_source_counts["combined_before_clip"],
         "inline": sum(1 for value in reference_images if str(value).startswith("data:image/")),
         "urls": sum(1 for value in reference_images if str(value).startswith(("http://", "https://"))),
     })
@@ -14490,7 +14624,7 @@ def image_reference_urls(payload: dict) -> list:
             refs.extend(value)
     character_refs = _json_list(opts.get("characterReferences"))[:4]
     refs.extend(character_refs)
-    refs.extend(_json_list(opts.get("objectReferences")))
+    refs.extend(_json_list(opts.get("objectReferences"))[:4])
     clean = []
     for url in refs:
         if isinstance(url, str) and url.strip() and url not in clean:
