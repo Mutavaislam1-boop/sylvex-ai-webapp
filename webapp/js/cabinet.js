@@ -263,9 +263,9 @@ let imageState = {
     attachment: null,
     seed: null,
     // Only meaningful for seedream_5_0_pro (see IMAGE_MODEL_LIST's
-    // qualityOptions) - "high" matches the resolution every Seedream model
+    // qualityOptions) - "2K" matches the resolution every Seedream model
     // has always requested. Ignored server-side for every other model.
-    seedreamQuality: 'high',
+    seedreamQuality: '2K',
   };
 
 const PHOTO_TOOL_CONFIG = {
@@ -836,11 +836,14 @@ const IMAGE_MODEL_LIST = [
     // The only Seedream variant BytePlus actually prices per output tier
     // (see SEEDREAM_MODEL_VARIANTS/seedream_cost_info in main.py) - every
     // other Seedream model is flat-priced regardless of resolution, so only
-    // this one gets a quality selector (imageQualityBtn stays hidden for
-    // models without qualityOptions - see renderImageControls).
+    // this one gets a resolution selector (imageQualityBtn stays hidden for
+    // models without qualityOptions - see renderImageControls). Labels are
+    // the literal resolution-tier values, same convention as VIDEO_MODELS'
+    // resolutions:['720p','1080p'] - no invented "Standard"/"High" wording,
+    // and price never appears in the option itself (see estimate_generation_cost).
     qualityOptions:[
-      { id:'standard', label:'Стандарт', hint:'≤1.5K', costCredits:7, costUsd:0.0675 },
-      { id:'high', label:'Высокое', hint:'2K', costCredits:14, costUsd:0.135 }
+      { id:'1.5K', label:'1.5K' },
+      { id:'2K', label:'2K' }
     ],
     sizes:[
       { id:'auto', label:'Auto', ratio:'auto' },
@@ -8957,10 +8960,10 @@ function imageModelButton(model) {
     imageState.count = (model.counts && model.counts[0]) || 1;
     imageState.style = (model.styles && model.styles[0] && model.styles[0].id) || 'auto';
     imageState.character = (model.characters && model.characters[0] && model.characters[0].id) || 'auto';
-    // "high" matches the resolution SYLVEX has always requested for every
+    // "2K" matches the resolution SYLVEX has always requested for every
     // Seedream model - only seedream_5_0_pro's qualityOptions actually let
     // this change (see renderImageControls/openImageOptionMenu).
-    imageState.seedreamQuality = 'high';
+    imageState.seedreamQuality = '2K';
   }
 
   // =====================================================
@@ -8981,13 +8984,13 @@ function imageModelButton(model) {
     const qualityOptions = cfg.qualityOptions || [];
     if (qualityOptions.length) {
       if (!qualityOptions.some((item) => item.id === imageState.seedreamQuality)) {
-        // Default to "high" (matches what this model has always requested)
+        // Default to "2K" (matches what this model has always requested)
         // rather than qualityOptions[0], so switching to it the first time
         // doesn't silently start requesting the new cheaper tier.
-        imageState.seedreamQuality = qualityOptions.some((item) => item.id === 'high') ? 'high' : qualityOptions[0].id;
+        imageState.seedreamQuality = qualityOptions.some((item) => item.id === '2K') ? '2K' : qualityOptions[0].id;
       }
     } else {
-      imageState.seedreamQuality = 'high';
+      imageState.seedreamQuality = '2K';
     }
   }
 
@@ -9028,7 +9031,7 @@ function imageModelButton(model) {
       if (qualityOptions.length) {
         const selectedQuality = qualityOptions.find((item) => item.id === imageState.seedreamQuality) || qualityOptions[0];
         const qualityVal = document.getElementById('imageQualityVal');
-        if (qualityVal) qualityVal.textContent = selectedQuality.label + (selectedQuality.hint ? ' ' + selectedQuality.hint : '');
+        if (qualityVal) qualityVal.textContent = selectedQuality.label;
       }
     }
     const styleVal = document.getElementById('imageStyleVal');
@@ -9879,14 +9882,14 @@ function imageModelButton(model) {
       el.style.overflowY = 'auto';
       el.style.zIndex = '999999';
 
-      el.innerHTML = '<div class="image-size-sheet-title">Качество</div>'
+      el.innerHTML = '<div class="image-size-sheet-title">Разрешение</div>'
         + '<div class="image-size-sheet-list">'
         + qualityOptions.map((item) => {
           const id = String(item.id || item.label || '');
+          const label = item.label || id;
           const active = String(selectedQuality) === id;
-          const priceLabel = item.costCredits ? (item.costCredits + ' ⚡') : '';
           return '<button class="image-size-row no-ratio-icon ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'quality\',\'' + S.escapeHtml(id) + '\')">'
-            + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + (item.hint ? ' <small>' + S.escapeHtml(item.hint) + '</small>' : '') + (priceLabel ? ' · ' + S.escapeHtml(priceLabel) : '') + '</span>'
+            + '<span class="image-size-label">' + S.escapeHtml(label) + '</span>'
             + '<span class="image-size-check">✓</span>'
             + '</button>';
         }).join('')
@@ -10343,7 +10346,7 @@ function imageModelButton(model) {
         imageState.size = value;
       }
       if (kind === 'quality') {
-        imageState.seedreamQuality = value || 'high';
+        imageState.seedreamQuality = value || '2K';
       }
       if (kind === 'style') {
         imageState.style = value || 'auto';
