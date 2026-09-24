@@ -6574,17 +6574,14 @@ function ensureRemoveObjectEditorModal() {
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeRemoveObjectMaskEditor(event)">×</button></header>'
     + '<div class="remove-object-editor-canvas-wrap"><img id="removeObjectEditorImage" alt="" /><canvas id="removeObjectEditorCanvas"></canvas></div>'
     + '<div class="remove-object-editor-controls">'
-    + '<div class="remove-object-editor-row">'
-    + '<div class="remove-object-editor-colors">'
+    + '<div class="remove-object-editor-toolbar">'
+    + '<div class="remove-object-editor-color">'
+    + '<button type="button" class="remove-object-editor-color-toggle" aria-haspopup="true" aria-expanded="false" aria-label="Цвет кисти" onclick="SYLVEX.toggleRemoveObjectColorPicker(event)"><span class="remove-object-editor-color-swatch"></span><span class="remove-object-editor-color-caret">&#9662;</span></button>'
+    + '<div class="remove-object-editor-color-popover" role="menu">'
     + REMOVE_OBJECT_BRUSH_COLORS.map((color) => '<button type="button" data-color="' + color + '" style="--swatch:' + color + '" aria-label="Цвет кисти" onclick="SYLVEX.pickRemoveObjectBrushColor(event,\'' + color + '\')"></button>').join('')
     + '</div>'
-    + '<div class="remove-object-editor-size">'
-    + '<span class="remove-object-editor-size-dot"></span>'
-    + '<input type="range" min="' + REMOVE_OBJECT_BRUSH_MIN_SIZE + '" max="' + REMOVE_OBJECT_BRUSH_MAX_SIZE + '" value="' + REMOVE_OBJECT_BRUSH_DEFAULT_SIZE + '" aria-label="Толщина кисти" oninput="SYLVEX.setRemoveObjectBrushSize(event)" />'
-    + '<span class="remove-object-editor-size-dot large"></span>'
     + '</div>'
-    + '</div>'
-    + '<div class="remove-object-editor-row">'
+    + '<input type="range" class="remove-object-editor-slider" min="' + REMOVE_OBJECT_BRUSH_MIN_SIZE + '" max="' + REMOVE_OBJECT_BRUSH_MAX_SIZE + '" value="' + REMOVE_OBJECT_BRUSH_DEFAULT_SIZE + '" aria-label="Толщина кисти" oninput="SYLVEX.setRemoveObjectBrushSize(event)" />'
     + '<button type="button" class="remove-object-editor-btn" onclick="SYLVEX.undoRemoveObjectMaskStroke(event)">Отменить</button>'
     + '<button type="button" class="remove-object-editor-btn" onclick="SYLVEX.clearRemoveObjectMaskEditor(event)">Очистить</button>'
     + '<button type="button" class="remove-object-editor-btn remove-object-editor-save" onclick="SYLVEX.saveRemoveObjectMask(event)">Сохранить</button>'
@@ -6598,9 +6595,47 @@ function ensureRemoveObjectEditorModal() {
 function updateRemoveObjectEditorControlsUI() {
   const modal = document.getElementById('removeObjectEditorModal');
   if (!modal) return;
-  modal.querySelectorAll('.remove-object-editor-colors button').forEach((btn) => btn.classList.toggle('active', btn.dataset.color === removeObjectEditorState.color));
-  const slider = modal.querySelector('.remove-object-editor-size input[type="range"]');
+  modal.querySelectorAll('.remove-object-editor-color-popover button').forEach((btn) => btn.classList.toggle('active', btn.dataset.color === removeObjectEditorState.color));
+  const swatch = modal.querySelector('.remove-object-editor-color-swatch');
+  if (swatch) swatch.style.setProperty('--swatch', removeObjectEditorState.color);
+  const slider = modal.querySelector('.remove-object-editor-slider');
   if (slider) slider.value = String(removeObjectEditorState.size);
+}
+
+// Compact color popover: one toggle button in the toolbar opens a small
+// swatch panel instead of permanently occupying toolbar space with a full
+// row of color buttons. Closes on selection or on any pointer down outside
+// the popover/toggle.
+function closeRemoveObjectColorPicker() {
+  const modal = document.getElementById('removeObjectEditorModal');
+  const wrap = modal && modal.querySelector('.remove-object-editor-color');
+  if (wrap) wrap.classList.remove('open');
+  const toggle = wrap && wrap.querySelector('.remove-object-editor-color-toggle');
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('pointerdown', handleRemoveObjectColorPickerOutsideClick);
+}
+
+function handleRemoveObjectColorPickerOutsideClick(e) {
+  const modal = document.getElementById('removeObjectEditorModal');
+  const wrap = modal && modal.querySelector('.remove-object-editor-color');
+  if (!wrap || wrap.contains(e.target)) return;
+  closeRemoveObjectColorPicker();
+}
+
+function toggleRemoveObjectColorPicker(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const modal = document.getElementById('removeObjectEditorModal');
+  const wrap = modal && modal.querySelector('.remove-object-editor-color');
+  const toggle = wrap && wrap.querySelector('.remove-object-editor-color-toggle');
+  if (!wrap || !toggle) return;
+  const opening = !wrap.classList.contains('open');
+  if (opening) {
+    wrap.classList.add('open');
+    toggle.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', handleRemoveObjectColorPickerOutsideClick);
+  } else {
+    closeRemoveObjectColorPicker();
+  }
 }
 
 function openRemoveObjectMaskEditor(e) {
@@ -6611,6 +6646,7 @@ function openRemoveObjectMaskEditor(e) {
   const img = document.getElementById('removeObjectEditorImage');
   removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: REMOVE_OBJECT_BRUSH_DEFAULT_SIZE, history: [] };
   modal.classList.add('show');
+  closeRemoveObjectColorPicker();
   updateRemoveObjectEditorControlsUI();
   const existingMaskUrl = state.maskUrl || '';
   const draw = () => initRemoveObjectMaskEditor(existingMaskUrl);
@@ -6706,6 +6742,7 @@ function pickRemoveObjectBrushColor(e, color) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   removeObjectEditorState.color = color;
   updateRemoveObjectEditorControlsUI();
+  closeRemoveObjectColorPicker();
 }
 
 function setRemoveObjectBrushSize(e) {
@@ -6773,6 +6810,7 @@ function updateRemoveObjectReadiness() {
 
 function closeRemoveObjectMaskEditor(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
+  closeRemoveObjectColorPicker();
   const modal = document.getElementById('removeObjectEditorModal');
   if (modal) modal.classList.remove('show');
 }
@@ -20921,6 +20959,7 @@ async function waitGeneration(jobId, options) {
   S.openRemoveObjectMaskEditor = openRemoveObjectMaskEditor;
   S.closeRemoveObjectMaskEditor = closeRemoveObjectMaskEditor;
   S.pickRemoveObjectBrushColor = pickRemoveObjectBrushColor;
+  S.toggleRemoveObjectColorPicker = toggleRemoveObjectColorPicker;
   S.setRemoveObjectBrushSize = setRemoveObjectBrushSize;
   S.undoRemoveObjectMaskStroke = undoRemoveObjectMaskStroke;
   S.clearRemoveObjectMaskEditor = clearRemoveObjectMaskEditor;
