@@ -12989,6 +12989,19 @@ def is_seedream_request(payload: dict) -> bool:
     return provider in ("bytedance", "byteplus") or bool(re.search(r"seedream", f"{model} {option_model}", re.I))
 
 # =====================================================
+# PYTHON-БЛОК: is_remove_object_request
+# The Remove Object Quick Tool is its own isolated generation flow (see
+# generate_remove_object_image) - it never reuses the normal Pro Studio
+# image-generation payload shape (Character/Object/Style/prompt/refs), so
+# it needs its own dispatch check, independent of is_seedream_request.
+# =====================================================
+def is_remove_object_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == "remove_object"
+
+REMOVE_OBJECT_TOOL_FEE_CREDITS = 5
+
+# =====================================================
 # PYTHON-БЛОК: build_image_prompt
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -13961,6 +13974,181 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
 
     result["sent_to_telegram"] = sent_to_telegram
     return result
+
+
+# =====================================================
+# PYTHON-БЛОК: Remove Object Quick Tool (isolated generation flow)
+# Independent of normal Pro Studio image generation: never reads
+# Character/Object/Style/previous prompt/previous references. Its whole
+# request is built from exactly three tool-owned inputs -
+# image_options.removeObjectSourceUrl / removeObjectMaskUrl /
+# removeObjectInstruction - and nothing else in the payload. Only the
+# finished result re-joins the normal post-generation pipeline (Pro
+# Studio display, History, storage, Telegram) via the same job-completion
+# path every other image provider already uses.
+# =====================================================
+def _read_image_bytes_for_generation(value: str) -> bytes:
+    raw = str(value or "").strip()
+    if not raw:
+        return b""
+    try:
+        if raw.startswith("data:"):
+            encoded = raw.split(",", 1)[1] if "," in raw else ""
+            return base64.b64decode(encoded)
+        if storage_key_from_url(raw):
+            return storage_read_bytes(raw)
+        response = safe_get(raw, timeout=45)
+        if response.status_code >= 400 or not response.content:
+            return b""
+        return response.content
+    except Exception as exc:
+        print("REMOVE OBJECT IMAGE READ FAILED:", type(exc).__name__, str(exc))
+        return b""
+
+
+def compose_remove_object_marked_image(source_url: str, mask_url: str) -> str:
+    """Flatten the user's drawn mask onto a COPY of the source image, for a
+    temporary request-only reference - the source image and the mask stay
+    separately stored in the tool's own state; this never overwrites
+    either. Needed because no BytePlus Seedream variant has a dedicated
+    mask/inpainting field today (see SEEDREAM_MODEL_CAPABILITIES), so the
+    removal area is instead communicated visually plus via the prompt."""
+    try:
+        from PIL import Image
+        import io
+
+        source_bytes = _read_image_bytes_for_generation(source_url)
+        mask_bytes = _read_image_bytes_for_generation(mask_url)
+        if not source_bytes or not mask_bytes:
+            return ""
+        with Image.open(io.BytesIO(source_bytes)) as source_img, Image.open(io.BytesIO(mask_bytes)) as mask_img:
+            base_layer = source_img.convert("RGBA")
+            overlay = mask_img.convert("RGBA").resize(base_layer.size)
+            composed = Image.alpha_composite(base_layer, overlay).convert("RGB")
+            output = io.BytesIO()
+            composed.save(output, format="JPEG", quality=90)
+            filename = f"{uuid4().hex}.jpg"
+            return storage_put_bytes(output.getvalue(), generated_key("remove-object", filename), "image/jpeg") or ""
+    except Exception as exc:
+        print("REMOVE OBJECT MASK COMPOSE FAILED:", type(exc).__name__, str(exc))
+        return ""
+
+
+def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
+    parts = [
+        "Remove only the object or region the user has specified and reconstruct the "
+        "hidden background naturally, matching the surrounding lighting, texture and "
+        "perspective. Preserve everything else in the image exactly as it is."
+    ]
+    if has_mask:
+        parts.append(
+            "The area to remove is marked in the source image with a bright green "
+            "overlay - remove exactly what is covered by that marked area, then remove "
+            "the green marking itself so no trace of it remains."
+        )
+    clean_instruction = str(instruction or "").strip()
+    if clean_instruction:
+        parts.append(f"What to remove: {clean_instruction}")
+    return " ".join(parts)
+
+
+async def generate_remove_object_image(payload: dict) -> dict:
+    """The Remove Object provider call. Reads ONLY the three isolated
+    fields below - never image_options.characterId/characterReferences/
+    objectId/objectReferences/style, never payload.prompt/history. This is
+    the actual fix for the leak: the old shared Photo Tool path built its
+    request from imageOptionsPayload(), which spread the entire normal
+    composer's imageState into every tool's request."""
+    if not BYTEPLUS_ARK_API_KEY:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("removeObjectSourceUrl") or "").strip()
+    mask_url = str(opts.get("removeObjectMaskUrl") or "").strip()
+    instruction = str(opts.get("removeObjectInstruction") or "").strip()
+
+    if not source_url:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+    if not mask_url and not instruction:
+        # Re-validated independently of the frontend's own gate - never
+        # build a paid provider request from the source image alone.
+        return {"ok": False, "error": "Отметьте область на фото или опишите, что нужно удалить."}
+
+    model = BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_lite"]
+    reference_images = [source_url]
+    has_mask = bool(mask_url)
+    execution_mode = "text_only"
+    if has_mask:
+        marked_url = compose_remove_object_marked_image(source_url, mask_url)
+        if marked_url:
+            reference_images = [marked_url]
+            execution_mode = "marked_image_fallback"
+        else:
+            has_mask = False
+
+    prompt = build_remove_object_prompt(has_mask, instruction)
+
+    print("REMOVE OBJECT REQUEST:", {
+        "tool": "remove_object",
+        "provider": "bytedance",
+        "model": model,
+        "has_source_image": bool(source_url),
+        "has_mask": has_mask,
+        "has_text_instruction": bool(instruction),
+        "final_prompt": prompt,
+        "reference_image_count": len(reference_images),
+        "execution_mode": execution_mode,
+    })
+
+    images, error = request_byteplus_seedream_image(model, prompt, reference_images, size="auto", seed=None, quality="high")
+    if not images:
+        print("REMOVE OBJECT FAILED:", error or "unknown error")
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    images = images[:1]
+    base_cost = seedream_cost_info("seedream_5_0_lite", model, len(images), seedream_size_value("auto", "high"))
+    total_credits = int(base_cost.get("cost_credits") or 0) + REMOVE_OBJECT_TOOL_FEE_CREDITS
+    extra_fields = {
+        "provider": "bytedance",
+        # The real underlying model, not a synthetic "remove_object" label -
+        # this feeds the frontend's model badge/metadata display, and
+        # "remove_object" isn't a real entry in its model catalog.
+        "model": "seedream_5_0_lite",
+        "provider_model": model,
+        "tool": "remove_object",
+        "cost_credits": total_credits,
+        "cost_usd": round(total_credits / 150, 4),
+        "generation_cost": f"{total_credits} ⚡",
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, result.get("images") or images))
+    else:
+        result = attach_image_thumbnails({
+            "ok": True,
+            "type": "image",
+            "image_url": images[0],
+            "images": images,
+            **extra_fields,
+        })
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nОбъект удалён в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
+
 
 # =====================================================
 # ТЕКСТОВАЯ ГЕНЕРАЦИЯ: модели, транскрибация и PDF
@@ -16381,6 +16569,16 @@ def calculate_generation_price(payload: dict) -> dict:
         if has_reference:
             exact = video_catalog_template_price(model, int(duration), str(resolution), True)
             estimate = {**estimate, "credits": exact, "cost_credits": exact, "generation_cost": f"{exact} ⚡", "pricing_available": True}
+    if is_remove_object_request(payload) and estimate.get("credits"):
+        # Remove Object price = actual model generation cost + a flat Quick
+        # Tool fee (REMOVE_OBJECT_TOOL_FEE_CREDITS). Added here - the single
+        # choke point shared by the paywall check, the credit reservation
+        # and the final settlement - so the fee is always part of the same
+        # one reservation as the model cost and can never be charged (or
+        # skipped) independently of it. No pricing UI reads this; per spec
+        # the Quick Tool modal never displays cost.
+        fee_credits = int(estimate["credits"]) + REMOVE_OBJECT_TOOL_FEE_CREDITS
+        estimate = {**estimate, "credits": fee_credits, "cost_credits": fee_credits, "generation_cost": f"{fee_credits} ⚡"}
     if not estimate.get("pricing_available", bool(estimate.get("credits"))):
         return estimate
     return apply_snapshot_to_estimate(payload, estimate)
@@ -18116,7 +18314,13 @@ async def dispatch_prostudio_provider_request(
 ) -> dict:
     """Perform one initial provider submission/generation attempt."""
     result = None
-    if mode == "image" and is_seedream_request(payload):
+    if mode == "image" and is_remove_object_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generate_remove_object_image")
+        # Isolated Quick Tool flow - never falls through to the normal
+        # Seedream/image_generation dispatch below, which would read
+        # image_options.characterReferences/objectReferences/style.
+        result = await run_provider_coroutine_off_loop(lambda: generate_remove_object_image(payload))
+    elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
         result = await run_provider_coroutine_off_loop(lambda: generateBytePlusSeedreamImage(payload))
