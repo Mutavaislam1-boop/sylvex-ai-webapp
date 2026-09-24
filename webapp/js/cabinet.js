@@ -1137,14 +1137,19 @@ const MODEL_FEATURES = {
   imagen_4_standard: { character: false, object: false, seed: false },
   imagen_4_ultra: { character: false, object: false, seed: false },
   gpt_image_2: { character: true, object: true, seed: false },
-  seedream_5_0_lite: { character: true, object: true, seed: true },
-  seedream_5_0: { character: true, object: true, seed: true },
-  seedream_5: { character: true, object: true, seed: true },
-  seedream_5_0_pro: { character: true, object: true, seed: true },
-  seedream_5_pro: { character: true, object: true, seed: true },
-  seedream_4_5: { character: true, object: true, seed: true },
-  seedream_4_0: { character: true, object: true, seed: true },
-  seedream_4: { character: true, object: true, seed: true },
+  // maxReferences mirrors main.py's SEEDREAM_MODEL_CAPABILITIES - it caps
+  // the combined count of user uploads + Character refs + Object refs sent
+  // to that model (the backend enforces this independently either way; this
+  // copy only lets the composer free up upload slots as Character/Object
+  // consume them, per-model, instead of a single fixed upload cap).
+  seedream_5_0_lite: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_5_0: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_5: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_5_0_pro: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_5_pro: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_4_5: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_4_0: { character: true, object: true, seed: true, maxReferences: 10 },
+  seedream_4: { character: true, object: true, seed: true, maxReferences: 10 },
   grok_pro: { character: false, object: false, seed: false },
   grok: { character: false, object: false, seed: false },
   flux_2: { character: true, object: true, seed: false },
@@ -1178,6 +1183,10 @@ function getModelCapabilities(modelId) {
     character: !!cfg.character,
     object: !!cfg.object,
     seed: !!cfg.seed,
+    // Combined cap across user uploads + Character refs + Object refs for
+    // models that publish one (currently Seedream) - null means "no known
+    // per-model cap", so callers must not treat it as zero/unlimited.
+    maxReferences: typeof cfg.maxReferences === 'number' ? cfg.maxReferences : null,
   };
 }
 
@@ -5968,7 +5977,20 @@ function currentUploadImages(targetOverride) {
 // =====================================================
 function uploadLimitForTarget(targetOverride) {
   const target = targetOverride || getUploadTarget();
-  return target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END ? 1 : 4;
+  if (target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END) return 1;
+  const base = 4;
+  if (target !== UPLOAD_TARGETS.IMAGE_UPLOAD || !isImageMode()) return base;
+  // Some models (currently Seedream) publish a combined reference cap
+  // across user uploads + Character + Object. Free up upload slots as a
+  // selected Character/Object consumes them, so the composer never lets a
+  // user assemble a request the model can't accept - instead of disabling
+  // Character/Object outright, which would block valid combinations that
+  // still fit.
+  const maxReferences = getModelCapabilities(imageState.modelId).maxReferences;
+  if (!maxReferences) return base;
+  const usedByVisuals = (imageState.characterId ? (imageState.characterReferences || []).length : 0)
+    + (imageState.objectId ? (imageState.objectReferences || []).length : 0);
+  return Math.max(0, Math.min(base, maxReferences - usedByVisuals));
 }
 
 // =====================================================
@@ -6947,7 +6969,11 @@ function visualGenerationReferences(item, kind) {
     const value = String(url || '').trim();
     if (value && !clean.includes(value)) clean.push(value);
   });
-  return kind === 'character' ? clean.slice(0, 4) : clean;
+  // Both Character and Object are capped the same way here: creation only
+  // ever stores up to ~4 images per entity in practice (avatar/preview +
+  // up to 3 uploaded photos - see saveVisualCreateDraft), so this cap just
+  // matches that reality for both kinds instead of only Character.
+  return clean.slice(0, 4);
 }
 
 function visualReferencePayload(item, kind) {
