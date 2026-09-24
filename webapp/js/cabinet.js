@@ -262,6 +262,10 @@ let imageState = {
     uploadedImageUrls: [],
     attachment: null,
     seed: null,
+    // Only meaningful for seedream_5_0_pro (see IMAGE_MODEL_LIST's
+    // qualityOptions) - "high" matches the resolution every Seedream model
+    // has always requested. Ignored server-side for every other model.
+    seedreamQuality: 'high',
   };
 
 const PHOTO_TOOL_CONFIG = {
@@ -829,6 +833,15 @@ const IMAGE_MODEL_LIST = [
     seed:true,
     costUsd:0.0675,
     costCredits:7,
+    // The only Seedream variant BytePlus actually prices per output tier
+    // (see SEEDREAM_MODEL_VARIANTS/seedream_cost_info in main.py) - every
+    // other Seedream model is flat-priced regardless of resolution, so only
+    // this one gets a quality selector (imageQualityBtn stays hidden for
+    // models without qualityOptions - see renderImageControls).
+    qualityOptions:[
+      { id:'standard', label:'Стандарт', hint:'≤1.5K', costCredits:7, costUsd:0.0675 },
+      { id:'high', label:'Высокое', hint:'2K', costCredits:14, costUsd:0.135 }
+    ],
     sizes:[
       { id:'auto', label:'Auto', ratio:'auto' },
       { id:'1:1', label:'1:1', ratio:'1:1' },
@@ -845,8 +858,8 @@ const IMAGE_MODEL_LIST = [
     icon:'seedream',
     providerModel:'seedream-4-0-250828',
     seed:true,
-    costUsd:0.0525,
-    costCredits:6,
+    costUsd:0.045,
+    costCredits:5,
     sizes:[
       { id:'auto', label:'Auto', ratio:'auto' },
       { id:'1:1', label:'1:1', ratio:'1:1' },
@@ -8944,6 +8957,10 @@ function imageModelButton(model) {
     imageState.count = (model.counts && model.counts[0]) || 1;
     imageState.style = (model.styles && model.styles[0] && model.styles[0].id) || 'auto';
     imageState.character = (model.characters && model.characters[0] && model.characters[0].id) || 'auto';
+    // "high" matches the resolution SYLVEX has always requested for every
+    // Seedream model - only seedream_5_0_pro's qualityOptions actually let
+    // this change (see renderImageControls/openImageOptionMenu).
+    imageState.seedreamQuality = 'high';
   }
 
   // =====================================================
@@ -8960,6 +8977,17 @@ function imageModelButton(model) {
     const counts = cfg.counts && cfg.counts.length ? cfg.counts : [1, 2, 3, 4];
     if (!counts.includes(Number(imageState.count || 1))) {
       imageState.count = counts[0] || 1;
+    }
+    const qualityOptions = cfg.qualityOptions || [];
+    if (qualityOptions.length) {
+      if (!qualityOptions.some((item) => item.id === imageState.seedreamQuality)) {
+        // Default to "high" (matches what this model has always requested)
+        // rather than qualityOptions[0], so switching to it the first time
+        // doesn't silently start requesting the new cheaper tier.
+        imageState.seedreamQuality = qualityOptions.some((item) => item.id === 'high') ? 'high' : qualityOptions[0].id;
+      }
+    } else {
+      imageState.seedreamQuality = 'high';
     }
   }
 
@@ -8993,6 +9021,16 @@ function imageModelButton(model) {
     }
     const countVal = document.getElementById('imageCountVal');
     if (countVal) countVal.textContent = String(imageState.count || 1);
+    const qualityBtn = document.getElementById('imageQualityBtn');
+    if (qualityBtn) {
+      const qualityOptions = model.qualityOptions || [];
+      qualityBtn.hidden = !qualityOptions.length;
+      if (qualityOptions.length) {
+        const selectedQuality = qualityOptions.find((item) => item.id === imageState.seedreamQuality) || qualityOptions[0];
+        const qualityVal = document.getElementById('imageQualityVal');
+        if (qualityVal) qualityVal.textContent = selectedQuality.label + (selectedQuality.hint ? ' ' + selectedQuality.hint : '');
+      }
+    }
     const styleVal = document.getElementById('imageStyleVal');
     if (styleVal) {
       const selectedStyleItem = imageStyleSheetItem(imageState.style);
@@ -9818,6 +9856,48 @@ function imageModelButton(model) {
       return;
     }
 
+    if (kind === 'quality') {
+      const qualityOptions = (model && model.qualityOptions) || [];
+      if (!qualityOptions.length) return;
+      const selectedQuality = imageState.seedreamQuality || qualityOptions[0].id;
+
+      if (el.parentElement !== document.body) document.body.appendChild(el);
+      el.classList.remove('image-model-floating-pop');
+      el.classList.remove('music-settings-pop');
+      el.classList.remove('video-option-horizontal-pop');
+      el.style.cssText = '';
+      el.classList.add('image-size-floating-pop');
+      el.style.position = 'fixed';
+      el.style.left = '8px';
+      el.style.right = 'auto';
+      el.style.top = 'auto';
+      el.style.bottom = 'calc(58px + env(safe-area-inset-bottom))';
+      el.style.width = '64vw';
+      el.style.maxWidth = '315px';
+      el.style.minWidth = '245px';
+      el.style.maxHeight = '64vh';
+      el.style.overflowY = 'auto';
+      el.style.zIndex = '999999';
+
+      el.innerHTML = '<div class="image-size-sheet-title">Качество</div>'
+        + '<div class="image-size-sheet-list">'
+        + qualityOptions.map((item) => {
+          const id = String(item.id || item.label || '');
+          const active = String(selectedQuality) === id;
+          const priceLabel = item.costCredits ? (item.costCredits + ' ⚡') : '';
+          return '<button class="image-size-row no-ratio-icon ' + (active ? 'active sel' : '') + '" type="button" onclick="SYLVEX.pickImageOption(event,\'quality\',\'' + S.escapeHtml(id) + '\')">'
+            + '<span class="image-size-label">' + S.escapeHtml(item.label || id) + (item.hint ? ' <small>' + S.escapeHtml(item.hint) + '</small>' : '') + (priceLabel ? ' · ' + S.escapeHtml(priceLabel) : '') + '</span>'
+            + '<span class="image-size-check">✓</span>'
+            + '</button>';
+        }).join('')
+        + '</div>';
+      el.classList.add('show');
+      const pp2 = document.getElementById('plusPop'); if (pp2) pp2.classList.remove('show');
+      const sheet2 = document.getElementById('plusSheet'); if (sheet2) sheet2.classList.remove('show');
+      S.haptic && S.haptic.impact && S.haptic.impact('light');
+      return;
+    }
+
     if (!model) return;
     let items = [];
     if (kind === 'style') items = model.styles || [];
@@ -10261,6 +10341,9 @@ function imageModelButton(model) {
     if (isImageMode()) {
       if (kind === 'size') {
         imageState.size = value;
+      }
+      if (kind === 'quality') {
+        imageState.seedreamQuality = value || 'high';
       }
       if (kind === 'style') {
         imageState.style = value || 'auto';

@@ -745,6 +745,14 @@ HTML-страница Mini App. Комментарии подписывают э
                 =================================================== -->
                 <button class="studio-select-pill image-video-only" id="imageSizeBtn" type="button" onclick="SYLVEX.openImageOptionMenu(event,'size')"><span class="ratio-box" id="imageSizeIcon"></span><span id="imageSizeVal">1:1</span></button>
                 <!-- ==================================================
+                HTML-ЭЛЕМЕНТ: Качество
+                При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'quality')
+                ID используется JavaScript/CSS как точка подключения: imageQualityBtn
+                Скрыта по умолчанию: показывается только для моделей с model.qualityOptions (renderImageControls)
+                CSS-класс задаёт внешний вид и расположение: studio-select-pill image-only
+                =================================================== -->
+                <button class="studio-select-pill image-only" id="imageQualityBtn" type="button" hidden onclick="SYLVEX.openImageOptionMenu(event,'quality')"><span id="imageQualityVal">Качество</span></button>
+                <!-- ==================================================
                 HTML-ЭЛЕМЕНТ: studio-select-pill video-only
                 При нажатии вызывает: SYLVEX.openImageOptionMenu(event,'duration')
                 CSS-класс задаёт внешний вид и расположение: studio-select-pill video-only

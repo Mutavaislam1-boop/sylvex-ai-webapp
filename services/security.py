@@ -158,6 +158,76 @@ def verify_web_session_token(token):
  return telegram_id
 
 # ---------------------------------------------------------------------------
+# Mini App session continuity (seamless reauth).
+#
+# Telegram WebApp initData carries an auth_date stamped once when the Mini
+# App instance was launched and never re-signed in place - the Telegram
+# WebApp JS SDK has no method to reissue it, so once
+# TELEGRAM_AUTH_MAX_AGE_SECONDS has passed every request's initData is
+# permanently stale until the user closes and reopens the app. This cookie
+# is minted (and slid forward) on every request whose initData DID validate,
+# and is then accepted as a fallback identity proof whenever initData fails
+# to validate on a later request from the same browser - same-origin
+# `credentials: 'same-origin'` (webapp/js/api-auth.js) already sends it on
+# every /api/ call automatically, so this requires no frontend change and no
+# reload: a request that would have 401'd instead keeps working. Own secret/
+# domain-separation string, independent of both BOT_TOKEN and the website
+# session's own signing, so a leak of any one credential type can't forge
+# another. Never accepted for /api/admin/ routes - those must always present
+# real, fresh Telegram initData or the admin service token.
+# ---------------------------------------------------------------------------
+TG_SESSION_COOKIE='sylvex_tg_session'
+TG_SESSION_MAX_AGE=int(os.getenv('TG_SESSION_MAX_AGE_SECONDS',str(60*60*24*30)))
+
+def tg_session_secret():
+ key=os.getenv('WEB_SESSION_SECRET','').strip() or next(iter(bot_tokens()),'')
+ if not key: raise SecurityError('web_session_not_configured',503)
+ return hmac.new(key.encode(),b'SYLVEX tg session v1',hashlib.sha256).digest()
+
+def create_tg_session_token(telegram_id):
+ exp=int(time.time())+TG_SESSION_MAX_AGE
+ payload=f'{int(telegram_id)}.{exp}'
+ sig=hmac.new(tg_session_secret(),payload.encode(),hashlib.sha256).hexdigest()
+ return f'{payload}.{sig}'
+
+def verify_tg_session_token(token):
+ try:
+  telegram_id_s,exp_s,sig=str(token).split('.',2)
+  if not re.fullmatch(r'[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
+  expected=hmac.new(tg_session_secret(),f'{telegram_id_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
+  if not hmac.compare_digest(expected,sig): raise ValueError()
+  if int(exp_s)<time.time(): raise ValueError()
+  telegram_id=int(telegram_id_s)
+  if telegram_id<=0: raise ValueError()
+ except (ValueError,AttributeError,TypeError): raise SecurityError('invalid_tg_session')
+ return telegram_id
+
+def tg_session_uid_from_cookie_header(cookie_header):
+ if not cookie_header: return 0
+ jar=SimpleCookie()
+ try: jar.load(cookie_header)
+ except Exception: return 0
+ morsel=jar.get(TG_SESSION_COOKIE)
+ if not morsel: return 0
+ try: return verify_tg_session_token(morsel.value)
+ except SecurityError: return 0
+
+def tg_session_set_cookie_bytes(telegram_id):
+ """Raw `set-cookie` header value (bytes) for the ASGI response - this
+ middleware operates below Starlette's Response object, so it can't call
+ response.set_cookie() the way main.py's website-session routes do."""
+ token=create_tg_session_token(telegram_id)
+ jar=SimpleCookie()
+ jar[TG_SESSION_COOKIE]=token
+ morsel=jar[TG_SESSION_COOKIE]
+ morsel['path']='/'
+ morsel['max-age']=TG_SESSION_MAX_AGE
+ morsel['secure']=True
+ morsel['httponly']=True
+ morsel['samesite']='Lax'
+ return morsel.OutputString().encode()
+
+# ---------------------------------------------------------------------------
 # Bridge: website session -> the same telegram_id-keyed business data.
 #
 # Every protected /api/ route below still requires Telegram initData except
@@ -313,6 +383,7 @@ class SecurityMiddleware:
    if not init_data:init_data=next((v for k,v in query if k in {'init_data','initData'}),'')
    uid=0
    web_account_id=0
+   tg_session_uid_to_refresh=0
    # The Support Bot is a separate Telegram bot/token and can never produce
    # a valid initData signature for this app's BOT_TOKEN. A matching shared
    # secret, sent as a header (never in the JSON body, so it never lands in
@@ -338,7 +409,21 @@ class SecurityMiddleware:
     else:
      admin=path.startswith('/api/admin/')
      if init_data:
-      user=validated_user(init_data);uid=user['id']
+      try:
+       user=validated_user(init_data);uid=user['id']
+       if not admin:tg_session_uid_to_refresh=uid
+      except SecurityError:
+       # initData present but stale (Mini App open longer than
+       # TELEGRAM_AUTH_MAX_AGE_SECONDS) or otherwise invalid - fall back to
+       # the sliding tg-session cookie minted on an earlier successful
+       # request from this same browser, so the caller is never forced to
+       # close/reopen the Mini App. Never for admin routes.
+       uid=0
+       if not admin:
+        cookie_header=headers.get(b'cookie',b'').decode()
+        uid=tg_session_uid_from_cookie_header(cookie_header)
+       if not uid:raise
+       user={'id':uid};tg_session_uid_to_refresh=uid
      else:
       # No Telegram initData at all (never true inside real Telegram - see
       # api-auth.js's fetch wrapper, which only ever sends this header when
@@ -401,6 +486,8 @@ class SecurityMiddleware:
    if message['type']=='http.response.start':
     started=True;message=dict(message);hs=list(message.get('headers',[]))
     hs.extend([(b'x-content-type-options',b'nosniff'),(b'referrer-policy',b'same-origin')])
+    if tg_session_uid_to_refresh:
+     hs.append((b'set-cookie',tg_session_set_cookie_bytes(tg_session_uid_to_refresh)))
     if uid:
      hs=[(k,v) for k,v in hs if k.lower()!=b'cache-control'];hs.append((b'cache-control',b'no-store'))
     # Content-derived safe MIME prevents legacy uploads from serving active HTML.

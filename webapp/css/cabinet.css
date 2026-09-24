@@ -915,6 +915,10 @@ CSS-БЛОК: .studio-mode-tab
 .studio-video-composer[data-composer-mode="voice"] .music-only.studio-mode-tab{display:none !important}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="image"] .image-only.studio-select-pill{display:flex}
+/* imageQualityBtn stays additionally hidden (JS toggles [hidden] in
+   renderImageControls) even in image mode, for every model except
+   seedream_5_0_pro - the rule above alone would force it visible. */
+.studio-video-composer[data-composer-mode="image"] .image-only.studio-select-pill[hidden]{display:none!important}
 .studio-video-composer[data-composer-mode="music"] .music-only.studio-mode-tab{display:flex}
 .studio-video-composer[data-composer-mode="music"] .music-only.studio-select-pill{display:flex}
 .studio-video-composer[data-composer-mode="music"] .studio-video-panel{grid-template-columns:1fr;padding:28px 24px 24px}
