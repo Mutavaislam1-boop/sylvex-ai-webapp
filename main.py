@@ -14984,17 +14984,20 @@ def recraft_cost_info(frontend_model: str, provider_model: str, count: int) -> d
 def normalize_seedream_quality(frontend_model: str, provider_model: str, opts: dict) -> str:
     """Only seedream_5_0_pro has genuinely different price/output tiers today
     (see SEEDREAM_MODEL_VARIANTS) - every other Seedream variant is priced
-    flat regardless of resolution, so this always resolves to "high" for
-    them, matching the resolution SYLVEX has always requested. Reads a
-    dedicated `seedreamQuality` option rather than the generic Grid-node
-    `quality`/`resolution` fields other providers already send (those stay
-    the no-op for Seedream they've always been), so nothing already saved
-    in an existing Grid workflow can silently change this model's price."""
+    flat regardless of resolution, so this always resolves to "2K" for them,
+    matching the resolution SYLVEX has always requested. "1.5K"/"2K" are the
+    same literal resolution-tier values BytePlus's own tariff and SYLVEX's
+    video resolution selector already use (e.g. "720p"/"1080p") - not an
+    invented "standard"/"high" label. Reads a dedicated `seedreamQuality`
+    option rather than the generic Grid-node `quality`/`resolution` fields
+    other providers already send (those stay the no-op for Seedream they've
+    always been), so nothing already saved in an existing Grid workflow can
+    silently change this model's price."""
     key = seedream_frontend_model(frontend_model, provider_model)
     if key != "seedream_5_0_pro":
-        return "high"
-    raw = str((opts or {}).get("seedreamQuality") or "high").strip().lower()
-    return raw if raw in {"standard", "high"} else "high"
+        return "2K"
+    raw = str((opts or {}).get("seedreamQuality") or "2K").strip().upper()
+    return raw if raw in {"1.5K", "2K"} else "2K"
 
 
 # =====================================================
@@ -15023,12 +15026,12 @@ def seedream_frontend_model(frontend_model: str, provider_model: str = "") -> st
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def seedream_size_value(size: str, quality: str = "high") -> str:
+def seedream_size_value(size: str, quality: str = "2K") -> str:
     raw = str(size or "").strip().lower()
-    if str(quality or "").strip().lower() == "standard":
+    if str(quality or "").strip().upper() == "1.5K":
         # Kept at/under 2.36 megapixels so every ratio lands in Seedream 5.0
         # Pro's cheaper published tier (see SEEDREAM_MODEL_VARIANTS/
-        # seedream_cost_info) - the default "high" mapping below never does,
+        # seedream_cost_info) - the default "2K" mapping below never does,
         # which is why that tier was previously unreachable from the UI.
         standard_mapping = {
             "1:1": "1536x1536",
