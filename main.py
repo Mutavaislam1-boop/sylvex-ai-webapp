@@ -14006,32 +14006,43 @@ def _read_image_bytes_for_generation(value: str) -> bytes:
         return b""
 
 
-def compose_remove_object_marked_image(source_url: str, mask_url: str) -> str:
-    """Flatten the user's drawn mask onto a COPY of the source image, for a
-    temporary request-only reference - the source image and the mask stay
-    separately stored in the tool's own state; this never overwrites
-    either. Needed because no BytePlus Seedream variant has a dedicated
-    mask/inpainting field today (see SEEDREAM_MODEL_CAPABILITIES), so the
-    removal area is instead communicated visually plus via the prompt."""
-    try:
-        from PIL import Image
-        import io
+def normalize_gpt_image_source(source_bytes: bytes) -> tuple:
+    """GPT Image's edit endpoint requires the base image (and its mask) as
+    PNG - normalize whatever format the user actually uploaded (jpeg/webp/
+    ...) to PNG bytes, and return the pixel size the mask must match."""
+    from PIL import Image
+    import io
 
-        source_bytes = _read_image_bytes_for_generation(source_url)
-        mask_bytes = _read_image_bytes_for_generation(mask_url)
-        if not source_bytes or not mask_bytes:
-            return ""
-        with Image.open(io.BytesIO(source_bytes)) as source_img, Image.open(io.BytesIO(mask_bytes)) as mask_img:
-            base_layer = source_img.convert("RGBA")
-            overlay = mask_img.convert("RGBA").resize(base_layer.size)
-            composed = Image.alpha_composite(base_layer, overlay).convert("RGB")
-            output = io.BytesIO()
-            composed.save(output, format="JPEG", quality=90)
-            filename = f"{uuid4().hex}.jpg"
-            return storage_put_bytes(output.getvalue(), generated_key("remove-object", filename), "image/jpeg") or ""
-    except Exception as exc:
-        print("REMOVE OBJECT MASK COMPOSE FAILED:", type(exc).__name__, str(exc))
-        return ""
+    with Image.open(io.BytesIO(source_bytes)) as img:
+        rgba = img.convert("RGBA")
+        output = io.BytesIO()
+        rgba.save(output, format="PNG")
+        return output.getvalue(), rgba.size
+
+
+def build_gpt_image_removal_mask(source_bytes: bytes, mask_bytes: bytes) -> bytes:
+    """Convert the user's drawn strokes into the PNG mask GPT Image's edit
+    endpoint expects. The frontend's canvas draws opaque strokes on an
+    otherwise transparent layer (marked = alpha>0); GPT Image's own mask
+    convention is the inverse - fully transparent pixels (alpha=0) are the
+    area to regenerate, opaque pixels (alpha=255) are preserved untouched -
+    so the alpha channel is inverted here, and resized to exactly match
+    the (already-normalized-to-PNG) source image's pixel dimensions, since
+    the API requires image and mask to be the same size."""
+    from PIL import Image
+    import io
+
+    with Image.open(io.BytesIO(source_bytes)) as source_img:
+        target_size = source_img.size
+    with Image.open(io.BytesIO(mask_bytes)) as drawn_img:
+        drawn_rgba = drawn_img.convert("RGBA").resize(target_size)
+    alpha = drawn_rgba.split()[3]
+    inverted_alpha = alpha.point(lambda a: 0 if a > 10 else 255)
+    output_img = Image.new("RGBA", target_size, (0, 0, 0, 255))
+    output_img.putalpha(inverted_alpha)
+    output = io.BytesIO()
+    output_img.save(output, format="PNG")
+    return output.getvalue()
 
 
 def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
@@ -14042,9 +14053,8 @@ def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
     ]
     if has_mask:
         parts.append(
-            "The area to remove is marked in the source image with a bright green "
-            "overlay - remove exactly what is covered by that marked area, then remove "
-            "the green marking itself so no trace of it remains."
+            "A transparent mask marks exactly the area to remove and regenerate - "
+            "fill it in using the surrounding context so the removal is undetectable."
         )
     clean_instruction = str(instruction or "").strip()
     if clean_instruction:
@@ -14053,13 +14063,14 @@ def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
 
 
 async def generate_remove_object_image(payload: dict) -> dict:
-    """The Remove Object provider call. Reads ONLY the three isolated
-    fields below - never image_options.characterId/characterReferences/
-    objectId/objectReferences/style, never payload.prompt/history. This is
-    the actual fix for the leak: the old shared Photo Tool path built its
+    """The Remove Object provider call, using GPT Image's real masked-edit
+    endpoint (image + mask + prompt). Reads ONLY the three isolated fields
+    below - never image_options.characterId/characterReferences/objectId/
+    objectReferences/style, never payload.prompt/history. This is the
+    actual fix for the leak: the old shared Photo Tool path built its
     request from imageOptionsPayload(), which spread the entire normal
     composer's imageState into every tool's request."""
-    if not BYTEPLUS_ARK_API_KEY:
+    if not OPENAI_API_KEY:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
 
     opts = payload.get("image_options") or {}
@@ -14074,46 +14085,96 @@ async def generate_remove_object_image(payload: dict) -> dict:
         # build a paid provider request from the source image alone.
         return {"ok": False, "error": "Отметьте область на фото или опишите, что нужно удалить."}
 
-    model = BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_lite"]
-    reference_images = [source_url]
+    model = "gpt-image-1"
+    endpoint = f"{OPENAI_API_BASE}/images/edits"
+
+    source_bytes_raw = _read_image_bytes_for_generation(source_url)
+    if not source_bytes_raw:
+        return image_error_response("openai", "remove_object", model, endpoint, "Не удалось загрузить исходное изображение.")
+    try:
+        source_png, _source_size = normalize_gpt_image_source(source_bytes_raw)
+    except Exception as exc:
+        print("REMOVE OBJECT SOURCE NORMALIZE FAILED:", type(exc).__name__, str(exc))
+        return image_error_response("openai", "remove_object", model, endpoint, "Не удалось обработать исходное изображение.")
+
     has_mask = bool(mask_url)
-    execution_mode = "text_only"
+    mask_png = b""
     if has_mask:
-        marked_url = compose_remove_object_marked_image(source_url, mask_url)
-        if marked_url:
-            reference_images = [marked_url]
-            execution_mode = "marked_image_fallback"
-        else:
-            has_mask = False
+        mask_bytes_raw = _read_image_bytes_for_generation(mask_url)
+        if mask_bytes_raw:
+            try:
+                mask_png = build_gpt_image_removal_mask(source_png, mask_bytes_raw)
+            except Exception as exc:
+                print("REMOVE OBJECT MASK BUILD FAILED:", type(exc).__name__, str(exc))
+                mask_png = b""
+        has_mask = bool(mask_png)
 
     prompt = build_remove_object_prompt(has_mask, instruction)
+    files = [("image", ("source.png", source_png, "image/png"))]
+    if mask_png:
+        files.append(("mask", ("mask.png", mask_png, "image/png")))
+    request_data = {
+        "model": model,
+        "prompt": prompt,
+        "size": "auto",
+        "quality": "medium",
+        "n": "1",
+    }
 
     print("REMOVE OBJECT REQUEST:", {
         "tool": "remove_object",
-        "provider": "bytedance",
+        "provider": "openai",
         "model": model,
-        "has_source_image": bool(source_url),
+        "has_source_image": True,
         "has_mask": has_mask,
         "has_text_instruction": bool(instruction),
         "final_prompt": prompt,
-        "reference_image_count": len(reference_images),
-        "execution_mode": execution_mode,
+        "reference_image_count": 1,
+        "execution_mode": "real_mask" if has_mask else "text_only",
     })
 
-    images, error = request_byteplus_seedream_image(model, prompt, reference_images, size="auto", seed=None, quality="high")
+    response = None
+    request_exception = None
+    for attempt in range(1, 3):
+        try:
+            response = requests.post(
+                endpoint,
+                headers=openai_auth_headers(),
+                data=request_data,
+                files=files,
+                timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")),
+            )
+            if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
+                break
+            print("REMOVE OBJECT TRANSIENT RESPONSE:", {"attempt": attempt, "status_code": response.status_code})
+        except requests.RequestException as exc:
+            request_exception = exc
+            print("REMOVE OBJECT TRANSIENT ERROR:", {"attempt": attempt, "error": type(exc).__name__})
+        if attempt < 2:
+            time.sleep(2)
+
+    if response is None:
+        print("REMOVE OBJECT FAILED:", type(request_exception).__name__ if request_exception else "no response")
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+    if response.status_code >= 400:
+        # Untruncated body goes to logs only, never to the caller/user - no
+        # secrets in a provider's own reply, just the request's own API
+        # key stays out of it.
+        print(f"REMOVE OBJECT ERROR BODY HTTP {response.status_code}:", response.text)
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    data = safe_provider_json(response, "openai", endpoint)
+    images = normalize_image_response(data)
     if not images:
-        print("REMOVE OBJECT FAILED:", error or "unknown error")
+        print("REMOVE OBJECT NO IMAGES IN RESPONSE:", json.dumps(data)[:2000])
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
 
     images = images[:1]
-    base_cost = seedream_cost_info("seedream_5_0_lite", model, len(images), seedream_size_value("auto", "high"))
+    base_cost = openai_image_cost_info("gpt_image_1", model, "medium", len(images))
     total_credits = int(base_cost.get("cost_credits") or 0) + REMOVE_OBJECT_TOOL_FEE_CREDITS
     extra_fields = {
-        "provider": "bytedance",
-        # The real underlying model, not a synthetic "remove_object" label -
-        # this feeds the frontend's model badge/metadata display, and
-        # "remove_object" isn't a real entry in its model catalog.
-        "model": "seedream_5_0_lite",
+        "provider": "openai",
+        "model": "gpt_image_1",
         "provider_model": model,
         "tool": "remove_object",
         "cost_credits": total_credits,
@@ -18315,7 +18376,7 @@ async def dispatch_prostudio_provider_request(
     """Perform one initial provider submission/generation attempt."""
     result = None
     if mode == "image" and is_remove_object_request(payload):
-        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generate_remove_object_image")
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="openai", model=selected_model, route="generate_remove_object_image")
         # Isolated Quick Tool flow - never falls through to the normal
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
