@@ -7146,9 +7146,15 @@ CSS-БЛОК: .generation-info-actions button
    other Photo Tool sheet uses - the image box itself is sized in JS
    (initRemoveObjectMaskEditor) to the exact available area, preserving
    aspect ratio, and the canvas is pinned to that same box with width:100%;
-   height:100% so it can never drift out of alignment with the image. */
-.remove-object-editor{z-index:1000010;padding:0}
-.remove-object-editor-dialog{
+   height:100% so it can never drift out of alignment with the image.
+   Selectors below double up the base .photo-tool-modal/.photo-tool-dialog
+   classes with their own (e.g. .photo-tool-dialog.remove-object-editor-dialog)
+   so they always outrank the generic small-modal rules - including the
+   generic mobile breakpoint further down this file - which otherwise wins
+   on equal specificity by simply appearing later in the file and would
+   shrink this back into a small bottom sheet on phones. */
+.photo-tool-modal.remove-object-editor{z-index:1000010;padding:0}
+.photo-tool-dialog.remove-object-editor-dialog{
   width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;
   display:flex;flex-direction:column;align-items:center;
   padding:calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
@@ -7157,17 +7163,31 @@ CSS-БЛОК: .generation-info-actions button
 .remove-object-editor-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;max-width:100%;border-radius:16px;overflow:hidden;background:var(--bg-1)}
 .remove-object-editor-canvas-wrap img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:contain;pointer-events:none}
 .remove-object-editor-canvas-wrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
-.remove-object-editor-controls{display:flex;flex-direction:column;gap:10px;margin-top:14px;width:100%;flex:0 0 auto}
-.remove-object-editor-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
-.remove-object-editor-colors{display:flex;gap:8px;flex:0 0 auto}
-.remove-object-editor-colors button{width:30px;height:30px;border-radius:50%;border:2px solid var(--border);background:var(--swatch);cursor:pointer;padding:0}
-.remove-object-editor-colors button.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg-1),0 0 0 3px var(--text)}
-.remove-object-editor-size{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}
-.remove-object-editor-size-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--text-dim)}
-.remove-object-editor-size-dot.large{width:16px;height:16px}
-.remove-object-editor-size input[type="range"]{flex:1 1 auto;width:100%;accent-color:var(--primary)}
-.remove-object-editor-btn{flex:1 1 0;min-height:42px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.remove-object-editor-controls{display:flex;margin-top:12px;width:100%;flex:0 0 auto}
+/* Single compact bottom toolbar: Color popover toggle | thickness slider |
+   Undo | Clear | Save - in that order, matching a familiar volume-slider
+   style rather than fixed-size buttons or a fullscreen thickness sheet. */
+.remove-object-editor-toolbar{display:flex;align-items:center;gap:8px;width:100%;min-width:0}
+.remove-object-editor-color{position:relative;flex:0 0 auto}
+.remove-object-editor-color-toggle{display:flex;align-items:center;gap:5px;height:38px;padding:0 9px;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer}
+.remove-object-editor-color-swatch{width:18px;height:18px;border-radius:50%;border:1px solid var(--border-strong);background:var(--swatch,#fff)}
+.remove-object-editor-color-caret{font-size:9px;color:var(--text-dim);line-height:1}
+.remove-object-editor-color-popover{
+  position:absolute;left:0;bottom:calc(100% + 8px);z-index:2;display:none;flex-wrap:wrap;gap:8px;
+  width:120px;padding:10px;border:1px solid var(--border);border-radius:14px;background:var(--surface-2);
+  box-shadow:0 18px 40px rgba(0,0,0,.35)
+}
+.remove-object-editor-color.open .remove-object-editor-color-popover{display:flex}
+.remove-object-editor-color-popover button{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);background:var(--swatch);cursor:pointer;padding:0}
+.remove-object-editor-color-popover button.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg-1),0 0 0 3px var(--text)}
+.remove-object-editor-slider{flex:1 1 40px;min-width:40px;width:auto;accent-color:var(--primary)}
+.remove-object-editor-btn{flex:0 0 auto;min-height:38px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer}
 .remove-object-editor-save{background:var(--primary);color:#fff;border-color:var(--primary)}
+@media(max-width:420px){
+  .remove-object-editor-toolbar{gap:6px}
+  .remove-object-editor-btn{padding:0 9px;font-size:11px}
+  .remove-object-editor-color-toggle{padding:0 7px}
+}
 .photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:color-mix(in srgb, var(--st-bg-2, #121218) 55%, transparent);backdrop-filter:blur(18px)}
 .photo-catalog-tabs{display:flex;gap:7px;margin:0 0 12px;overflow-x:auto;scrollbar-width:none}.photo-catalog-tabs::-webkit-scrollbar{display:none}.photo-catalog-tabs button{flex:0 0 auto;padding:8px 12px;border:1px solid var(--st-border, rgba(255,255,255,.1));border-radius:999px;background:var(--st-bg-3, rgba(255,255,255,.06));color:var(--st-dim, rgba(255,255,255,.66));font:700 11px inherit;cursor:pointer}.photo-catalog-tabs button.active{background:var(--st-invert-bg, #f4f5f7);color:var(--st-invert-text, #111318);border-color:var(--st-invert-bg, #f4f5f7)}
 .photo-catalog-grid{
