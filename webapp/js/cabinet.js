@@ -6544,9 +6544,11 @@ function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}cons
 // draws onto its own transparent canvas layered over the image, never
 // onto the source image itself.
 // =====================================================
-const REMOVE_OBJECT_BRUSH_COLORS = ['#2fdc77', '#ff5b5b', '#3fa9ff', '#ffd23f'];
-const REMOVE_OBJECT_BRUSH_WIDTHS = { s: 0.022, m: 0.045, l: 0.075 };
-let removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: 'm', history: [] };
+const REMOVE_OBJECT_BRUSH_COLORS = ['#ffffff', '#000000', '#2fdc77', '#ff5b5b', '#3fa9ff', '#ffd23f'];
+const REMOVE_OBJECT_BRUSH_MIN_SIZE = 4;
+const REMOVE_OBJECT_BRUSH_MAX_SIZE = 60;
+const REMOVE_OBJECT_BRUSH_DEFAULT_SIZE = 18;
+let removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: REMOVE_OBJECT_BRUSH_DEFAULT_SIZE, history: [] };
 
 function removeObjectMaskPanelHtml(state) {
   const hasMask = !!state.maskUrl;
@@ -6576,8 +6578,10 @@ function ensureRemoveObjectEditorModal() {
     + '<div class="remove-object-editor-colors">'
     + REMOVE_OBJECT_BRUSH_COLORS.map((color) => '<button type="button" data-color="' + color + '" style="--swatch:' + color + '" aria-label="Цвет кисти" onclick="SYLVEX.pickRemoveObjectBrushColor(event,\'' + color + '\')"></button>').join('')
     + '</div>'
-    + '<div class="remove-object-editor-sizes">'
-    + Object.keys(REMOVE_OBJECT_BRUSH_WIDTHS).map((size) => '<button type="button" data-size="' + size + '" onclick="SYLVEX.pickRemoveObjectBrushWidth(event,\'' + size + '\')">' + size.toUpperCase() + '</button>').join('')
+    + '<div class="remove-object-editor-size">'
+    + '<span class="remove-object-editor-size-dot"></span>'
+    + '<input type="range" min="' + REMOVE_OBJECT_BRUSH_MIN_SIZE + '" max="' + REMOVE_OBJECT_BRUSH_MAX_SIZE + '" value="' + REMOVE_OBJECT_BRUSH_DEFAULT_SIZE + '" aria-label="Толщина кисти" oninput="SYLVEX.setRemoveObjectBrushSize(event)" />'
+    + '<span class="remove-object-editor-size-dot large"></span>'
     + '</div>'
     + '</div>'
     + '<div class="remove-object-editor-row">'
@@ -6595,7 +6599,8 @@ function updateRemoveObjectEditorControlsUI() {
   const modal = document.getElementById('removeObjectEditorModal');
   if (!modal) return;
   modal.querySelectorAll('.remove-object-editor-colors button').forEach((btn) => btn.classList.toggle('active', btn.dataset.color === removeObjectEditorState.color));
-  modal.querySelectorAll('.remove-object-editor-sizes button').forEach((btn) => btn.classList.toggle('active', btn.dataset.size === removeObjectEditorState.size));
+  const slider = modal.querySelector('.remove-object-editor-size input[type="range"]');
+  if (slider) slider.value = String(removeObjectEditorState.size);
 }
 
 function openRemoveObjectMaskEditor(e) {
@@ -6604,7 +6609,7 @@ function openRemoveObjectMaskEditor(e) {
   if (!state || !state.files[0]) return;
   const modal = ensureRemoveObjectEditorModal();
   const img = document.getElementById('removeObjectEditorImage');
-  removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: 'm', history: [] };
+  removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: REMOVE_OBJECT_BRUSH_DEFAULT_SIZE, history: [] };
   modal.classList.add('show');
   updateRemoveObjectEditorControlsUI();
   const existingMaskUrl = state.maskUrl || '';
@@ -6622,31 +6627,63 @@ function openRemoveObjectMaskEditor(e) {
 }
 
 function initRemoveObjectMaskEditor(existingMaskUrl) {
+  const wrap = document.querySelector('#removeObjectEditorModal .remove-object-editor-canvas-wrap');
   const canvas = document.getElementById('removeObjectEditorCanvas');
   const img = document.getElementById('removeObjectEditorImage');
-  if (!canvas || !img) return;
-  const rect = img.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
+  if (!wrap || !canvas || !img || !img.naturalWidth || !img.naturalHeight) return;
+
+  // The coordinate/alignment fix: the canvas must occupy the EXACT same
+  // on-screen box as the image, in both CSS pixels and its internal pixel
+  // buffer. Letting the canvas size itself independently (its old bug) is
+  // what let device-pixel-ratio scaling silently blow the canvas up
+  // larger than the visible image, so every stroke landed away from the
+  // cursor/finger. Fix: measure the wrap's available space once, compute
+  // the image's aspect-correct box inside it ourselves, pin the wrap to
+  // exactly that box (in CSS pixels), and let the image and canvas simply
+  // fill it at 100% - both dimensions matching by construction, at any
+  // image scale or screen size.
+  wrap.style.width = '';
+  wrap.style.height = '';
+  const available = wrap.getBoundingClientRect();
+  if (!available.width || !available.height) return;
+  const imageRatio = img.naturalWidth / img.naturalHeight;
+  const availableRatio = available.width / available.height;
+  let boxWidth, boxHeight;
+  if (imageRatio > availableRatio) {
+    boxWidth = available.width;
+    boxHeight = boxWidth / imageRatio;
+  } else {
+    boxHeight = available.height;
+    boxWidth = boxHeight * imageRatio;
+  }
+  wrap.style.width = boxWidth + 'px';
+  wrap.style.height = boxHeight + 'px';
+
   const scale = Math.max(1, window.devicePixelRatio || 1);
-  canvas.width = Math.max(1, Math.round(rect.width * scale));
-  canvas.height = Math.max(1, Math.round(rect.height * scale));
+  canvas.width = Math.max(1, Math.round(boxWidth * scale));
+  canvas.height = Math.max(1, Math.round(boxHeight * scale));
+  canvas.style.width = boxWidth + 'px';
+  canvas.style.height = boxHeight + 'px';
   const ctx = canvas.getContext('2d');
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   const applyStrokeStyle = () => {
     ctx.strokeStyle = removeObjectEditorState.color;
-    ctx.lineWidth = Math.max(6, rect.width * (REMOVE_OBJECT_BRUSH_WIDTHS[removeObjectEditorState.size] || REMOVE_OBJECT_BRUSH_WIDTHS.m));
+    ctx.lineWidth = Math.max(1, Number(removeObjectEditorState.size) || REMOVE_OBJECT_BRUSH_DEFAULT_SIZE);
   };
   applyStrokeStyle();
   const wireDrawing = () => {
     let drawing = false, last = null;
+    // canvas.getBoundingClientRect() now always matches the image's own
+    // box exactly (same explicit CSS width/height), so this maps the
+    // pointer to CSS-pixel canvas coordinates with no offset at any scale.
     const point = (evt) => { const r = canvas.getBoundingClientRect(); return { x: evt.clientX - r.left, y: evt.clientY - r.top }; };
     const pushUndoSnapshot = () => {
       try { removeObjectEditorState.history.push(ctx.getImageData(0, 0, canvas.width, canvas.height)); } catch {}
       if (removeObjectEditorState.history.length > 20) removeObjectEditorState.history.shift();
     };
-    const start = (evt) => { evt.preventDefault(); drawing = true; pushUndoSnapshot(); applyStrokeStyle(); last = point(evt); canvas.setPointerCapture && canvas.setPointerCapture(evt.pointerId); };
+    const start = (evt) => { evt.preventDefault(); drawing = true; pushUndoSnapshot(); applyStrokeStyle(); last = point(evt); ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fillStyle = removeObjectEditorState.color; ctx.fill(); canvas.setPointerCapture && canvas.setPointerCapture(evt.pointerId); };
     const move = (evt) => { if (!drawing) return; evt.preventDefault(); const next = point(evt); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(next.x, next.y); ctx.stroke(); last = next; };
     const end = (evt) => { if (!drawing) return; evt.preventDefault(); drawing = false; };
     canvas.addEventListener('pointerdown', start);
@@ -6656,7 +6693,7 @@ function initRemoveObjectMaskEditor(existingMaskUrl) {
   };
   if (existingMaskUrl) {
     const maskImg = new Image();
-    const restore = () => { try { ctx.drawImage(maskImg, 0, 0, rect.width, rect.height); } catch {} wireDrawing(); };
+    const restore = () => { try { ctx.drawImage(maskImg, 0, 0, boxWidth, boxHeight); } catch {} wireDrawing(); };
     maskImg.onload = restore;
     maskImg.onerror = wireDrawing;
     maskImg.src = existingMaskUrl;
@@ -6671,11 +6708,11 @@ function pickRemoveObjectBrushColor(e, color) {
   updateRemoveObjectEditorControlsUI();
 }
 
-function pickRemoveObjectBrushWidth(e, size) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (!REMOVE_OBJECT_BRUSH_WIDTHS[size]) return;
-  removeObjectEditorState.size = size;
-  updateRemoveObjectEditorControlsUI();
+function setRemoveObjectBrushSize(e) {
+  const input = e && e.target;
+  const value = Number(input && input.value);
+  if (!value) return;
+  removeObjectEditorState.size = Math.max(REMOVE_OBJECT_BRUSH_MIN_SIZE, Math.min(REMOVE_OBJECT_BRUSH_MAX_SIZE, value));
 }
 
 function undoRemoveObjectMaskStroke(e) {
@@ -7044,8 +7081,8 @@ async function generateRemoveObjectTool(state) {
       onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
       isolateRequest: true,
-      model: 'seedream_5_0_lite',
-      provider: 'bytedance',
+      model: 'gpt_image_1',
+      provider: 'openai',
       imageOptions: {
         tool: 'remove_object',
         removeObjectSourceUrl: sourceUrl,
@@ -20884,7 +20921,7 @@ async function waitGeneration(jobId, options) {
   S.openRemoveObjectMaskEditor = openRemoveObjectMaskEditor;
   S.closeRemoveObjectMaskEditor = closeRemoveObjectMaskEditor;
   S.pickRemoveObjectBrushColor = pickRemoveObjectBrushColor;
-  S.pickRemoveObjectBrushWidth = pickRemoveObjectBrushWidth;
+  S.setRemoveObjectBrushSize = setRemoveObjectBrushSize;
   S.undoRemoveObjectMaskStroke = undoRemoveObjectMaskStroke;
   S.clearRemoveObjectMaskEditor = clearRemoveObjectMaskEditor;
   S.saveRemoveObjectMask = saveRemoveObjectMask;

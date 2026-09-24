@@ -7141,20 +7141,31 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-catalog-card>span>b{font-size:15px}
 .photo-tool-catalog-card>span>small{font-size:11px;line-height:1.35;color:var(--text-dim)}
 
-/* Remove Object: fullscreen mark-up editor */
-.remove-object-editor{z-index:1000010}
-.remove-object-editor-dialog{width:min(640px,calc(100vw - 24px));max-height:min(88vh,760px);display:flex;flex-direction:column;padding:16px}
-.remove-object-editor-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;border-radius:16px;overflow:hidden;background:var(--bg-1);display:flex;align-items:center;justify-content:center}
-.remove-object-editor-canvas-wrap img{max-width:100%;max-height:min(56vh,480px);display:block;object-fit:contain}
-.remove-object-editor-canvas-wrap canvas{position:absolute;touch-action:none;cursor:crosshair}
-.remove-object-editor-controls{display:flex;flex-direction:column;gap:10px;margin-top:14px}
-.remove-object-editor-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.remove-object-editor-colors{display:flex;gap:8px}
+/* Remove Object: fullscreen mark-up editor. Uses the whole viewport (both
+   desktop and mobile) instead of the normal centered-card dialog every
+   other Photo Tool sheet uses - the image box itself is sized in JS
+   (initRemoveObjectMaskEditor) to the exact available area, preserving
+   aspect ratio, and the canvas is pinned to that same box with width:100%;
+   height:100% so it can never drift out of alignment with the image. */
+.remove-object-editor{z-index:1000010;padding:0}
+.remove-object-editor-dialog{
+  width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border-radius:0;
+  display:flex;flex-direction:column;align-items:center;
+  padding:calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+  box-sizing:border-box
+}
+.remove-object-editor-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;max-width:100%;border-radius:16px;overflow:hidden;background:var(--bg-1)}
+.remove-object-editor-canvas-wrap img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:contain;pointer-events:none}
+.remove-object-editor-canvas-wrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.remove-object-editor-controls{display:flex;flex-direction:column;gap:10px;margin-top:14px;width:100%;flex:0 0 auto}
+.remove-object-editor-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.remove-object-editor-colors{display:flex;gap:8px;flex:0 0 auto}
 .remove-object-editor-colors button{width:30px;height:30px;border-radius:50%;border:2px solid var(--border);background:var(--swatch);cursor:pointer;padding:0}
-.remove-object-editor-colors button.active{border-color:var(--text)}
-.remove-object-editor-sizes{display:flex;gap:6px;border:1px solid var(--border);border-radius:12px;padding:3px;background:var(--surface)}
-.remove-object-editor-sizes button{min-width:34px;height:30px;border:0;border-radius:9px;background:transparent;color:var(--text-dim);font:700 12px inherit;cursor:pointer}
-.remove-object-editor-sizes button.active{background:var(--primary);color:#fff}
+.remove-object-editor-colors button.active{border-color:var(--text);box-shadow:0 0 0 2px var(--bg-1),0 0 0 3px var(--text)}
+.remove-object-editor-size{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}
+.remove-object-editor-size-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--text-dim)}
+.remove-object-editor-size-dot.large{width:16px;height:16px}
+.remove-object-editor-size input[type="range"]{flex:1 1 auto;width:100%;accent-color:var(--primary)}
 .remove-object-editor-btn{flex:1 1 0;min-height:42px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .remove-object-editor-save{background:var(--primary);color:#fff;border-color:var(--primary)}
 .photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:color-mix(in srgb, var(--st-bg-2, #121218) 55%, transparent);backdrop-filter:blur(18px)}
