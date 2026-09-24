@@ -11186,13 +11186,30 @@ async def public_crypto_invoice(request: Request):
 # =====================================================
 async def public_telegram_sync(request: Request):
     payload = await request.json()
-    signed = validated_user(payload.get("initData") or "", TELEGRAM_AUTH_TOKENS)
-    user_data = fallback_public_user({"initDataUnsafe": {"user": signed}})
     try:
-        user = await asyncio.to_thread(sync_user_to_db, user_data)
-    except Exception:
-        return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
-    return {"ok": True, "user": user}
+        signed = validated_user(payload.get("initData") or "", TELEGRAM_AUTH_TOKENS)
+        user_data = fallback_public_user({"initDataUnsafe": {"user": signed}})
+        try:
+            user = await asyncio.to_thread(sync_user_to_db, user_data)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
+        return {"ok": True, "user": user}
+    except SecurityError:
+        # initData went stale mid-session (Mini App open longer than
+        # TELEGRAM_AUTH_MAX_AGE_SECONDS) - the middleware already
+        # re-authenticated this exact request through the sliding
+        # tg-session cookie fallback (see services/security.py), so
+        # request.state.telegram_id is still trustworthy even though there's
+        # no fresh Telegram profile payload to sync. Return the already-
+        # stored record unchanged rather than failing the whole Mini App.
+        telegram_id = int(getattr(request.state, "telegram_id", 0) or 0)
+        if not telegram_id:
+            raise HTTPException(status_code=401, detail="expired_or_invalid_telegram_user")
+        try:
+            user = await asyncio.to_thread(get_user_state, telegram_id)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "user_sync_unavailable"}, status_code=503)
+        return {"ok": True, "user": user}
 
 
 # =====================================================
@@ -12318,7 +12335,6 @@ async def public_telegram_profile(request: Request):
         return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
     if not isinstance(payload, dict):
         return JSONResponse({"ok": False, "error": "invalid_payload"}, status_code=400)
-    init_data = payload.get("initData") or ""
     try:
         telegram_id = int(payload.get("telegram_id") or 0)
     except (TypeError, ValueError):
@@ -12331,8 +12347,13 @@ async def public_telegram_profile(request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
 
-    if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
-        return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    # No separate init_data re-check here: SecurityMiddleware already fully
+    # authenticated this request (real initData or, once it goes stale
+    # mid-session, the sliding tg-session cookie fallback - see
+    # services/security.py) and force-rewrote payload["telegram_id"] to the
+    # verified uid, so a second, redundant validated_user() call on the
+    # (possibly now-stale) raw init_data string here would only reject
+    # requests the middleware already proved legitimate.
 
     theme_preference = payload.get("theme_preference")
     if theme_preference is not None and not isinstance(theme_preference, dict):
@@ -12412,7 +12433,6 @@ async def public_telegram_referrals(telegram_id: int = 0):
 # =====================================================
 async def public_activate_referrals(request: Request):
     payload = await request.json()
-    init_data = payload.get("initData") or ""
     telegram_id = int(payload.get("telegram_id") or 0)
 
     if not telegram_id:
@@ -12422,8 +12442,13 @@ async def public_activate_referrals(request: Request):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
 
-    if init_data and BOT_TOKEN and not verify_telegram_init_data(init_data):
-        return JSONResponse({"ok": False, "error": "invalid_init_data"}, status_code=401)
+    # No separate init_data re-check here: SecurityMiddleware already fully
+    # authenticated this request (real initData or, once it goes stale
+    # mid-session, the sliding tg-session cookie fallback - see
+    # services/security.py) and force-rewrote payload["telegram_id"] to the
+    # verified uid, so a second, redundant validated_user() call on the
+    # (possibly now-stale) raw init_data string here would only reject
+    # requests the middleware already proved legitimate.
 
     claim_code = str(payload.get("claim_code") or "").strip()
     if claim_code:
@@ -13367,12 +13392,12 @@ def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size: str = "", seed=None) -> dict:
+def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size: str = "", seed=None, quality: str = "high") -> dict:
     body = {
         "model": model,
         "prompt": prompt,
         "response_format": "url",
-        "size": seedream_size_value(size),
+        "size": seedream_size_value(size, quality),
     }
     is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
     if not is_pro_model:
@@ -13402,7 +13427,7 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None, size: str = "", seed=None) -> tuple:
+def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None, size: str = "", seed=None, quality: str = "high") -> tuple:
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
     is_pro_model = "dola-seedream-5-0-pro" in str(model or "").lower()
     try:
@@ -13416,7 +13441,7 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
     # =====================================================
     def _send(include_refs: bool):
-        request_payload = byteplus_seedream_body(model, prompt, refs if include_refs else [], size=size, seed=seed)
+        request_payload = byteplus_seedream_body(model, prompt, refs if include_refs else [], size=size, seed=seed, quality=quality)
         print("BYTEPLUS IMAGE PAYLOAD:", {k: v for k, v in request_payload.items() if k != "image"})
         print("BYTEPLUS IMAGE TIMEOUT:", timeout_seconds)
         return requests.post(
@@ -13645,6 +13670,7 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     prompt = build_image_prompt(payload)
     size = opts.get("size") or opts.get("ratio") or (model_cfg.get("sizes") or [{}])[0].get("id") or "auto"
     count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
+    quality = normalize_seedream_quality(requested_model, model, opts)
     seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(seedream_frontend_model(requested_model, model)) or {}).get("seed"))
     seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
 
@@ -13682,7 +13708,7 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     # generated by repeated safe calls and normalized into the frontend format.
     for index in range(1, count + 1):
         print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
-        request_images, error = request_byteplus_seedream_image(model, prompt, reference_images, size=size, seed=seed)
+        request_images, error = request_byteplus_seedream_image(model, prompt, reference_images, size=size, seed=seed, quality=quality)
         if request_images:
             for url in request_images:
                 if url and url not in images:
@@ -13702,7 +13728,10 @@ async def generateBytePlusSeedreamImage(payload: dict) -> dict:
         "provider": "bytedance",
         "model": requested_model,
         "provider_model": model,
-        **seedream_cost_info(requested_model, model, len(images)),
+        # Must pass the same quality-resolved size estimate_generation_cost
+        # used to reserve the charge, or this always resolves to the
+        # cheaper tier regardless of what was actually requested/billed.
+        **seedream_cost_info(requested_model, model, len(images), seedream_size_value(size, quality)),
     }
     job_id = str(payload.get("job_id") or "")
     if job_id:
@@ -14948,6 +14977,27 @@ def recraft_cost_info(frontend_model: str, provider_model: str, count: int) -> d
 
 
 # =====================================================
+# PYTHON-БЛОК: normalize_seedream_quality
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
+def normalize_seedream_quality(frontend_model: str, provider_model: str, opts: dict) -> str:
+    """Only seedream_5_0_pro has genuinely different price/output tiers today
+    (see SEEDREAM_MODEL_VARIANTS) - every other Seedream variant is priced
+    flat regardless of resolution, so this always resolves to "high" for
+    them, matching the resolution SYLVEX has always requested. Reads a
+    dedicated `seedreamQuality` option rather than the generic Grid-node
+    `quality`/`resolution` fields other providers already send (those stay
+    the no-op for Seedream they've always been), so nothing already saved
+    in an existing Grid workflow can silently change this model's price."""
+    key = seedream_frontend_model(frontend_model, provider_model)
+    if key != "seedream_5_0_pro":
+        return "high"
+    raw = str((opts or {}).get("seedreamQuality") or "high").strip().lower()
+    return raw if raw in {"standard", "high"} else "high"
+
+
+# =====================================================
 # PYTHON-БЛОК: seedream_frontend_model
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -14973,8 +15023,26 @@ def seedream_frontend_model(frontend_model: str, provider_model: str = "") -> st
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def seedream_size_value(size: str) -> str:
+def seedream_size_value(size: str, quality: str = "high") -> str:
     raw = str(size or "").strip().lower()
+    if str(quality or "").strip().lower() == "standard":
+        # Kept at/under 2.36 megapixels so every ratio lands in Seedream 5.0
+        # Pro's cheaper published tier (see SEEDREAM_MODEL_VARIANTS/
+        # seedream_cost_info) - the default "high" mapping below never does,
+        # which is why that tier was previously unreachable from the UI.
+        standard_mapping = {
+            "1:1": "1536x1536",
+            "1x1": "1536x1536",
+            "4:3": "1536x1152",
+            "4x3": "1536x1152",
+            "3:4": "1152x1536",
+            "3x4": "1152x1536",
+            "16:9": "1536x864",
+            "16x9": "1536x864",
+            "9:16": "864x1536",
+            "9x16": "864x1536",
+        }
+        return standard_mapping.get(raw, "1536x1536")
     if raw in {"", "auto"}:
         return "2K"
     mapping = {
@@ -16025,7 +16093,8 @@ def estimate_generation_cost(payload: dict) -> dict:
     if provider in ("byteplus", "bytedance") or re.search(r"seedream", f"{requested_model or ''} {api_model or ''}", re.I):
         count = safe_image_count(opts.get("count") or 1, default=1, max_count=4)
         requested_size = opts.get("size") or opts.get("resolution") or ""
-        info = seedream_cost_info(requested_model, api_model, count, seedream_size_value(requested_size))
+        quality = normalize_seedream_quality(requested_model, api_model, opts)
+        info = seedream_cost_info(requested_model, api_model, count, seedream_size_value(requested_size, quality))
         return {
             "credits": int(info.get("cost_credits") or info.get("cost") or 0),
             "cost_usd": info.get("cost_usd") or 0,
@@ -16256,9 +16325,10 @@ async def image_generation(payload: dict) -> dict:
         reference_images = image_reference_urls(payload)
         seed_supported = bool((SEEDREAM_MODEL_VARIANTS.get(seedream_frontend_model(requested_model, api_model)) or {}).get("seed"))
         seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
+        quality = normalize_seedream_quality(requested_model, api_model, opts)
         for index in range(1, count + 1):
             print(f"BYTEPLUS IMAGE REQUEST {index}/{count}")
-            request_images, error = request_byteplus_seedream_image(api_model, prompt, reference_images, size=size, seed=seed)
+            request_images, error = request_byteplus_seedream_image(api_model, prompt, reference_images, size=size, seed=seed, quality=quality)
             if request_images:
                 for url in request_images:
                     if url and url not in images:
@@ -16271,7 +16341,7 @@ async def image_generation(payload: dict) -> dict:
         if not images:
             return image_error_response(provider, requested_model, api_model, f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "Не удалось создать изображение. Попробуйте ещё раз.")
         result = await finalize_image_result(payload, images[:count])
-        result.update(seedream_cost_info(requested_model, api_model, len(images[:count])))
+        result.update(seedream_cost_info(requested_model, api_model, len(images[:count]), seedream_size_value(size, quality)))
         result["provider"] = "bytedance"
         result["model"] = requested_model
         result["provider_model"] = api_model
