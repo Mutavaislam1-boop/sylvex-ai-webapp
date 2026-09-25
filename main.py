@@ -14224,7 +14224,7 @@ async def generate_remove_object_image(payload: dict) -> dict:
     return result
 
 
-FASHN_TRYON_MODEL = "tryon-v1.6"
+FASHN_TRYON_MODEL = "tryon-max"
 FASHN_MAX_GARMENTS = 3
 FASHN_POLL_INTERVAL_SECONDS = 3
 FASHN_POLL_MAX_ATTEMPTS = 40
@@ -14239,14 +14239,14 @@ def fashn_auth_headers() -> dict:
     return {"Authorization": f"Bearer {FASHN_API_KEY}", "Content-Type": "application/json"}
 
 
-def fashn_submit_run(model_image: str, garment_image: str) -> tuple:
+def fashn_submit_run(model_image: str, product_image: str) -> tuple:
     """Submit one FASHN try-on prediction. Returns (prediction_id, error)."""
     endpoint = f"{FASHN_API_BASE}/run"
     body = {
         "model_name": FASHN_TRYON_MODEL,
         "inputs": {
             "model_image": model_image,
-            "garment_image": garment_image,
+            "product_image": product_image,
             "mode": "balanced",
             "num_samples": 1,
         },
@@ -14320,7 +14320,7 @@ async def generate_try_on_image(payload: dict) -> dict:
     Character's own avatar/preview (never its reference images), an
     existing Media/History image, or a fresh upload - before this
     function ever sees it. FASHN's /v1/run endpoint accepts exactly one
-    garment_image per call, so when more than one garment was uploaded
+    product_image per call, so when more than one garment was uploaded
     they are applied sequentially - each call's output becomes the next
     call's model_image - producing one combined outfit from up to three
     garments."""
