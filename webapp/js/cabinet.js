@@ -7349,6 +7349,7 @@ async function generatePhotoTool(e) {
   const state = photoToolStateFor(kind);
   if (!config || !state || state.generating) return;
   if (kind === 'remove_object') return generateRemoveObjectTool(state);
+  if (kind === 'remove_bg') return generateRemoveBgTool(state);
   const refs = state.files.filter(Boolean).map((item) => item.url);
   if (refs.length < config.min) {
     toast('Загрузите необходимые фотографии');
@@ -7480,6 +7481,79 @@ async function generateRemoveObjectTool(state) {
     };
     state.files = [];
     state.maskUrl = '';
+    state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+      mode: 'image',
+      prompt: displayPrompt,
+    });
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось обработать фото'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
+  }
+}
+
+// =====================================================
+// REMOVE BACKGROUND: isolated generation flow
+// Deliberately does NOT reuse imageOptionsPayload()/imageState (the normal
+// Pro Studio composer's Character/Object/Style/prompt/reference state) -
+// its request is built from exactly the one tool-owned input below via
+// callGenerate's isolateRequest escape hatch, same pattern as Remove
+// Object/Try-On. Only the post-generation result handling (chat card,
+// History refresh, active-job cleanup) reuses the same generic pipeline
+// every other Photo Tool already uses. The modal/UI itself is untouched -
+// PHOTO_TOOL_CONFIG.remove_bg's existing single-upload-slot config still
+// drives rendering via the shared renderPhotoToolModal().
+// =====================================================
+async function generateRemoveBgTool(state) {
+  const sourceUrl = state.files[0] && state.files[0].url;
+  if (!sourceUrl) {
+    toast('Загрузите фото');
+    return;
+  }
+  const displayPrompt = 'Удаление фона';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('image'),
+  }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(displayPrompt, null, [], null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'ideogram_remove_bg',
+      provider: 'ideogram',
+      imageOptions: {
+        tool: 'remove_background',
+        removeBgSourceUrl: sourceUrl,
+      },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (images.length) addGeneratedImages(images, thumbs);
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: 'remove_background' }),
+    };
+    state.files = [];
     state.generating = false;
     closePhotoToolModal();
     toast('Обработка завершена');

@@ -13015,6 +13015,28 @@ def is_try_on_request(payload: dict) -> bool:
     return str(opts.get("tool") or "").strip().lower() == "try_on"
 
 # =====================================================
+# PYTHON-БЛОК: is_remove_bg_request
+# Remove Background is its own isolated generation flow (see
+# generate_remove_bg_image) - it never reuses the normal Pro Studio
+# image-generation payload shape (Character/Object/Style/prompt/refs), so
+# it needs its own dispatch check, independent of is_seedream_request. Its
+# tool value is deliberately "remove_background" (not "remove_bg") to avoid
+# colliding with estimate_generation_cost's pre-existing, unrelated
+# "remove_bg" Recraft flat-fee entry.
+# =====================================================
+def is_remove_bg_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == "remove_background"
+
+IDEOGRAM_REMOVE_BG_ENDPOINT = "https://api.ideogram.ai/v1/remove-background"
+IDEOGRAM_REMOVE_BG_MAX_BYTES = 25 * 1024 * 1024
+# Matches the published public pricing table entry for Ideogram's
+# Background/Object remover (see the pricing tuple list further down this
+# file: ("Ideogram", "Инструмент", "Background/Object remover / Upscale", ...,
+# "2 / от 5 / 9 ⚡")).
+IDEOGRAM_REMOVE_BG_CREDITS = 2
+
+# =====================================================
 # PYTHON-БЛОК: build_image_prompt
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -14216,6 +14238,124 @@ async def generate_remove_object_image(payload: dict) -> dict:
                 telegram_id,
                 images,
                 "Готово ✅\nОбъект удалён в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
+
+
+async def generate_remove_bg_image(payload: dict) -> dict:
+    """The Remove Background provider call, using Ideogram's real Remove
+    Background API (POST /v1/remove-background, multipart form field
+    "image" - not "image_file", not the /v1/ideogram-v3/... generate
+    endpoints used elsewhere in this file). Reads ONLY the one isolated
+    field below - never image_options.characterId/characterReferences/
+    objectId/objectReferences/style, never payload.prompt/history - so
+    leaked normal Pro Studio state can never reach this request.
+
+    Ideogram's response URL is ephemeral, so it is downloaded and persisted
+    to durable SYLVEX storage synchronously, inside this function, before
+    it ever returns - the result never carries Ideogram's own temporary
+    URL. The raw response bytes are re-uploaded verbatim (same content-type,
+    no Pillow recompression), so the PNG's alpha/transparency survives on
+    the primary result exactly as Ideogram returned it."""
+    headers = ideogram_headers(json_content=False)
+    if not headers:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("removeBgSourceUrl") or "").strip()
+    if not source_url:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    source_bytes = _read_image_bytes_for_generation(source_url)
+    if not source_bytes:
+        return image_error_response("ideogram", "remove_background", "remove-background", IDEOGRAM_REMOVE_BG_ENDPOINT, "Не удалось загрузить исходное изображение.")
+    if len(source_bytes) > IDEOGRAM_REMOVE_BG_MAX_BYTES:
+        return {"ok": False, "error": "Изображение слишком большое (максимум 25 МБ)."}
+
+    if source_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        content_type, ext = "image/png", "png"
+    elif source_bytes.startswith(b"\xff\xd8\xff"):
+        content_type, ext = "image/jpeg", "jpg"
+    elif source_bytes.startswith(b"RIFF") and source_bytes[8:12] == b"WEBP":
+        content_type, ext = "image/webp", "webp"
+    else:
+        return {"ok": False, "error": "Поддерживаются только форматы JPEG, PNG и WebP."}
+
+    print("REMOVE BACKGROUND REQUEST:", {
+        "tool": "remove_background",
+        "provider": "ideogram",
+        "endpoint": IDEOGRAM_REMOVE_BG_ENDPOINT,
+        "has_source_image": True,
+        "source_bytes": len(source_bytes),
+        "content_type": content_type,
+    })
+
+    try:
+        response = requests.post(
+            IDEOGRAM_REMOVE_BG_ENDPOINT,
+            headers=headers,
+            files={"image": (f"source.{ext}", source_bytes, content_type)},
+            timeout=int(os.getenv("IDEOGRAM_REMOVE_BG_TIMEOUT", "60")),
+        )
+    except requests.RequestException as exc:
+        print("REMOVE BACKGROUND REQUEST FAILED:", type(exc).__name__, str(exc))
+        return image_error_response("ideogram", "remove_background", "remove-background", IDEOGRAM_REMOVE_BG_ENDPOINT, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+
+    if response.status_code >= 400:
+        print(f"REMOVE BACKGROUND ERROR HTTP {response.status_code}:", response.text[:2000])
+        return image_error_response("ideogram", "remove_background", "remove-background", IDEOGRAM_REMOVE_BG_ENDPOINT, "Provider request failed", response)
+
+    data = safe_provider_json(response, "ideogram", IDEOGRAM_REMOVE_BG_ENDPOINT)
+    provider_urls = normalize_image_response(data)
+    if not provider_urls:
+        print("REMOVE BACKGROUND NO IMAGE IN RESPONSE:", json.dumps(data)[:2000])
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    # Ideogram's result URL is ephemeral - persist it to durable SYLVEX
+    # storage right now, synchronously, rather than relying on the generic
+    # background persistence pass (finalize_prostudio_media_storage_background),
+    # which could run after the URL has already expired.
+    persisted_url = _persist_remote_media_url(provider_urls[0], "images", provider="ideogram")
+    if not storage_key_from_url(persisted_url):
+        print("REMOVE BACKGROUND STORAGE PERSIST FAILED:", persisted_url)
+        return {"ok": False, "error": "Не удалось сохранить результат. Попробуйте ещё раз."}
+
+    images = [persisted_url]
+    extra_fields = {
+        "provider": "ideogram",
+        "model": "ideogram_remove_bg",
+        "provider_model": "remove-background",
+        "tool": "remove_background",
+        "cost_credits": IDEOGRAM_REMOVE_BG_CREDITS,
+        "cost_usd": round(IDEOGRAM_REMOVE_BG_CREDITS / 150, 4),
+        "generation_cost": f"{IDEOGRAM_REMOVE_BG_CREDITS} ⚡",
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, result.get("images") or images))
+    else:
+        result = attach_image_thumbnails({
+            "ok": True,
+            "type": "image",
+            "image_url": images[0],
+            "images": images,
+            **extra_fields,
+        })
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nФон удалён в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -16711,6 +16851,20 @@ def estimate_generation_cost(payload: dict) -> dict:
             "pricing_available": True,
             "operation": tool,
         }
+    if tool == "remove_background":
+        # Placed before tool_prices below - that dict's own "remove_bg" key
+        # is a pre-existing, unrelated Recraft flat fee and must never be
+        # matched by this tool's deliberately distinct "remove_background"
+        # value.
+        credits = IDEOGRAM_REMOVE_BG_CREDITS
+        return {
+            "credits": credits,
+            "cost_credits": credits,
+            "cost_usd": round(credits / 150, 4),
+            "generation_cost": f"{credits} ⚡",
+            "pricing_available": True,
+            "operation": tool,
+        }
     tool_prices = {
         "tryon": 9,             # Google Virtual Try-On
         "remove_bg": 2,         # Recraft Remove Background
@@ -18605,6 +18759,12 @@ async def dispatch_prostudio_provider_request(
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
         result = await run_provider_coroutine_off_loop(lambda: generate_try_on_image(payload))
+    elif mode == "image" and is_remove_bg_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="ideogram", model=selected_model, route="generate_remove_bg_image")
+        # Isolated Quick Tool flow - never falls through to the normal
+        # Seedream/image_generation dispatch below, which would read
+        # image_options.characterReferences/objectReferences/style.
+        result = await run_provider_coroutine_off_loop(lambda: generate_remove_bg_image(payload))
     elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
