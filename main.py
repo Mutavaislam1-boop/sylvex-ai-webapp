@@ -14334,6 +14334,17 @@ async def generate_try_on_image(payload: dict) -> dict:
     if not garment_urls:
         return {"ok": False, "error": "Загрузите хотя бы одну фотографию одежды."}
 
+    # A selected SYLVEX Character's preview can be a data: URI or a relative
+    # path (e.g. /preset_catalog/... for the built-in presets) - neither is
+    # "a valid URL or base64 encoded image data" as FASHN's own validator
+    # requires. public_media_url() (already used the same way for Runway's
+    # own "public HTTPS reference image" requirement) uploads any data: URI
+    # to storage and resolves any relative path against WEBAPP_URL, so FASHN
+    # always receives a real, provider-fetchable absolute URL.
+    model_image = public_media_url(model_image)
+    if not model_image.startswith(("http://", "https://")):
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
     endpoint = f"{FASHN_API_BASE}/run"
     print("TRY ON REQUEST:", {
         "tool": "try_on",

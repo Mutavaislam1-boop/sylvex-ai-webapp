@@ -134,6 +134,66 @@ def test_generate_try_on_image_requires_at_least_one_garment(monkeypatch):
     assert result["ok"] is False
 
 
+def test_public_media_url_resolves_relative_path_against_webapp_url():
+    # A selected preset Character's preview comes from load_preset_catalog's
+    # relative_path_to_url() (e.g. "/preset_catalog/characters/sylvex/avatar.jpg")
+    # - not an absolute URL. FASHN rejected that verbatim with "Invalid image...
+    # Expecting a valid URL or base64 encoded image data".
+    resolved = main.public_media_url("/preset_catalog/characters/sylvex/avatar.jpg")
+    assert resolved == main.WEBAPP_URL.rstrip("/") + "/preset_catalog/characters/sylvex/avatar.jpg"
+
+
+def test_public_media_url_passes_through_absolute_url_unchanged():
+    resolved = main.public_media_url("https://cdn.example.com/character.png")
+    assert resolved == "https://cdn.example.com/character.png"
+
+
+def test_generate_try_on_image_resolves_relative_character_preview_to_absolute_url(monkeypatch):
+    captured = {}
+
+    def fake_submit(model_image, garment_image):
+        captured["model_image"] = model_image
+        return "pred_1", ""
+
+    def fake_poll(prediction_id):
+        return ["https://cdn.fashn.ai/result.png"], ""
+
+    monkeypatch.setattr(main, "FASHN_API_KEY", "test-key")
+    monkeypatch.setattr(main, "fashn_submit_run", fake_submit)
+    monkeypatch.setattr(main, "fashn_poll_run", fake_poll)
+    monkeypatch.setattr(main, "send_generated_images_to_telegram", lambda *a, **k: True)
+
+    payload = {
+        "telegram_id": 0,
+        "job_id": "",
+        "image_options": {
+            "tool": "try_on",
+            "tryOnModelImageUrl": "/preset_catalog/characters/sylvex/avatar.jpg",
+            "tryOnGarmentUrls": ["https://example.com/garment1.png"],
+        },
+    }
+    result = asyncio.run(main.generate_try_on_image(payload))
+    assert result["ok"] is True
+    assert captured["model_image"] == main.WEBAPP_URL.rstrip("/") + "/preset_catalog/characters/sylvex/avatar.jpg"
+
+
+def test_generate_try_on_image_rejects_unmaterializable_model_image(monkeypatch):
+    monkeypatch.setattr(main, "FASHN_API_KEY", "test-key")
+    monkeypatch.setattr(main, "public_media_url", lambda value: "not-a-url")
+
+    payload = {
+        "telegram_id": 0,
+        "job_id": "",
+        "image_options": {
+            "tool": "try_on",
+            "tryOnModelImageUrl": "something-broken",
+            "tryOnGarmentUrls": ["https://example.com/garment1.png"],
+        },
+    }
+    result = asyncio.run(main.generate_try_on_image(payload))
+    assert result["ok"] is False
+
+
 def test_generate_try_on_image_single_garment_success(monkeypatch):
     captured = {}
 
