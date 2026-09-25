@@ -2,19 +2,25 @@
 Object: its request must be built from exactly two tool-owned inputs
 (image_options.tryOnModelImageUrl/tryOnGarmentUrls) and never from normal
 Pro Studio composer state (Character/Object/Style/previous prompt/previous
-references). The person image can come from a selected SYLVEX Character or
-a manually uploaded photo - the frontend keeps those mutually exclusive and
-resolves the final URL before it ever reaches the backend, so the backend
-itself only ever sees a single tryOnModelImageUrl string.
+references). The person image can come from one of 3 mutually exclusive
+frontend sources - a selected SYLVEX Character's own avatar, an existing
+Media/History image, or a fresh upload - and the frontend's isolated
+photoToolState.try_on resolves whichever one was chosen down to a single
+tryOnModelImageUrl string before it ever reaches the backend, so the
+backend itself only ever sees that one URL regardless of its origin.
 
 FASHN's real /v1/run endpoint accepts exactly one garment_image per call,
 so generate_try_on_image chains one call per uploaded garment (up to
 FASHN_MAX_GARMENTS), feeding each result back in as the next call's
 model_image. These tests cover is_try_on_request, the FASHN submit/poll
 helpers, the isolated provider-call function (including sequential
-chaining and that leaked normal-composer noise never reaches the request),
-and the per-garment pricing branch in estimate_generation_cost."""
+chaining, that leaked normal-composer noise never reaches the request, and
+that every person-image origin - an already-public URL, a relative preset
+Character path, and a raw data: URI from a manual upload - resolves to a
+real absolute URL before FASHN ever sees it), and the per-garment pricing
+branch in estimate_generation_cost."""
 import asyncio
+import base64
 import json
 
 import main
@@ -175,6 +181,42 @@ def test_generate_try_on_image_resolves_relative_character_preview_to_absolute_u
     result = asyncio.run(main.generate_try_on_image(payload))
     assert result["ok"] is True
     assert captured["model_image"] == main.WEBAPP_URL.rstrip("/") + "/preset_catalog/characters/sylvex/avatar.jpg"
+
+
+def test_generate_try_on_image_materializes_uploaded_data_uri_model_image(monkeypatch):
+    # The Upload person source (see onTryOnPersonUploadFile in cabinet.js)
+    # sends a raw data: URI straight from FileReader - materialize_data_image_url()
+    # must upload it to storage and hand FASHN the resulting real URL, never
+    # the data: URI itself.
+    data_uri = "data:image/png;base64," + base64.b64encode(b"pretend-this-is-png-bytes").decode("ascii")
+    captured = {}
+
+    def fake_submit(model_image, garment_image):
+        captured["model_image"] = model_image
+        return "pred_1", ""
+
+    def fake_poll(prediction_id):
+        return ["https://cdn.fashn.ai/result.png"], ""
+
+    monkeypatch.setattr(main, "FASHN_API_KEY", "test-key")
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: f"https://cdn.example.com/{key}")
+    monkeypatch.setattr(main, "fashn_submit_run", fake_submit)
+    monkeypatch.setattr(main, "fashn_poll_run", fake_poll)
+    monkeypatch.setattr(main, "send_generated_images_to_telegram", lambda *a, **k: True)
+
+    payload = {
+        "telegram_id": 0,
+        "job_id": "",
+        "image_options": {
+            "tool": "try_on",
+            "tryOnModelImageUrl": data_uri,
+            "tryOnGarmentUrls": ["https://example.com/garment1.png"],
+        },
+    }
+    result = asyncio.run(main.generate_try_on_image(payload))
+    assert result["ok"] is True
+    assert captured["model_image"].startswith("https://cdn.example.com/")
+    assert not captured["model_image"].startswith("data:")
 
 
 def test_generate_try_on_image_rejects_unmaterializable_model_image(monkeypatch):

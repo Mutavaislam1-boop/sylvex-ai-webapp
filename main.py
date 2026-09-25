@@ -14312,15 +14312,18 @@ async def generate_try_on_image(payload: dict) -> dict:
     """The Try-On provider call, using FASHN's real virtual try-on API
     (POST /v1/run + GET /v1/status/{id}). Reads ONLY the two isolated
     fields below - never image_options.characterId/characterReferences/
-    objectId/objectReferences/style, never payload.prompt/history - so a
-    selected SYLVEX Character or leaked normal Pro Studio state can never
-    reach this request except through tryOnModelImageUrl, which the
-    frontend sets explicitly from either a selected Character's preview
-    image or a manually uploaded person photo (mutually exclusive).
-    FASHN's /v1/run endpoint accepts exactly one garment_image per call, so
-    when more than one garment was uploaded they are applied sequentially -
-    each call's output becomes the next call's model_image - producing one
-    combined outfit from up to three garments."""
+    objectId/objectReferences/style, never payload.prompt/history - so
+    leaked normal Pro Studio state can never reach this request except
+    through tryOnModelImageUrl, which the frontend's own isolated Try-On
+    state (photoToolState.try_on in cabinet.js) resolves to exactly one
+    URL from one of 3 mutually exclusive person sources - a selected
+    Character's own avatar/preview (never its reference images), an
+    existing Media/History image, or a fresh upload - before this
+    function ever sees it. FASHN's /v1/run endpoint accepts exactly one
+    garment_image per call, so when more than one garment was uploaded
+    they are applied sequentially - each call's output becomes the next
+    call's model_image - producing one combined outfit from up to three
+    garments."""
     if not FASHN_API_KEY:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
 
