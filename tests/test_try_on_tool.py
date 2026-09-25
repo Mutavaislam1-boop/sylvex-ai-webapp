@@ -52,6 +52,9 @@ def test_fashn_submit_run_returns_prediction_id(monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer test-key"
     assert captured["body"]["inputs"]["model_image"] == "https://example.com/model.png"
     assert captured["body"]["inputs"]["garment_image"] == "https://example.com/garment.png"
+    # tryon-v1.6 rejects "garment_category" outright (HTTP 400: "garment_category
+    # is not allowed") - it must never be sent for this model.
+    assert "garment_category" not in captured["body"]["inputs"]
 
 
 def test_fashn_submit_run_handles_http_error(monkeypatch):
