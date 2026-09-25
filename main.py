@@ -14247,7 +14247,6 @@ def fashn_submit_run(model_image: str, garment_image: str) -> tuple:
         "inputs": {
             "model_image": model_image,
             "garment_image": garment_image,
-            "garment_category": "auto",
             "mode": "balanced",
             "num_samples": 1,
         },
