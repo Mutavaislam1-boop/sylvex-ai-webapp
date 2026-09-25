@@ -59,12 +59,16 @@ def test_fashn_submit_run_returns_prediction_id(monkeypatch):
     assert captured["body"]["model_name"] == "tryon-max"
     assert captured["body"]["inputs"]["model_image"] == "https://example.com/model.png"
     assert captured["body"]["inputs"]["product_image"] == "https://example.com/garment.png"
-    # FASHN's /v1/run rejected "garment_category" outright on the previous
-    # model (HTTP 400: "garment_category is not allowed") - it must never be
-    # sent, and garment_image must never be sent either since tryon-max uses
-    # product_image instead.
+    assert captured["body"]["inputs"]["generation_mode"] == "balanced"
+    assert captured["body"]["inputs"]["num_images"] == 1
+    # FASHN's /v1/run rejected "garment_category" outright on the older
+    # tryon-v1.6 model (HTTP 400: "garment_category is not allowed"), and
+    # tryon-v1.6's own "garment_image"/"mode"/"num_samples" fields are not
+    # valid inputs for tryon-max either - none of the four may ever be sent.
     assert "garment_category" not in captured["body"]["inputs"]
     assert "garment_image" not in captured["body"]["inputs"]
+    assert "mode" not in captured["body"]["inputs"]
+    assert "num_samples" not in captured["body"]["inputs"]
 
 
 def test_fashn_submit_run_handles_http_error(monkeypatch):

@@ -14247,8 +14247,8 @@ def fashn_submit_run(model_image: str, product_image: str) -> tuple:
         "inputs": {
             "model_image": model_image,
             "product_image": product_image,
-            "mode": "balanced",
-            "num_samples": 1,
+            "generation_mode": "balanced",
+            "num_images": 1,
         },
     }
     try:
