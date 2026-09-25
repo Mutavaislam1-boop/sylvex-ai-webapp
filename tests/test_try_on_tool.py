@@ -9,7 +9,7 @@ photoToolState.try_on resolves whichever one was chosen down to a single
 tryOnModelImageUrl string before it ever reaches the backend, so the
 backend itself only ever sees that one URL regardless of its origin.
 
-FASHN's real /v1/run endpoint accepts exactly one garment_image per call,
+FASHN's real /v1/run endpoint accepts exactly one product_image per call,
 so generate_try_on_image chains one call per uploaded garment (up to
 FASHN_MAX_GARMENTS), feeding each result back in as the next call's
 model_image. These tests cover is_try_on_request, the FASHN submit/poll
@@ -56,11 +56,15 @@ def test_fashn_submit_run_returns_prediction_id(monkeypatch):
     assert error == ""
     assert captured["url"] == f"{main.FASHN_API_BASE}/run"
     assert captured["headers"]["Authorization"] == "Bearer test-key"
+    assert captured["body"]["model_name"] == "tryon-max"
     assert captured["body"]["inputs"]["model_image"] == "https://example.com/model.png"
-    assert captured["body"]["inputs"]["garment_image"] == "https://example.com/garment.png"
-    # tryon-v1.6 rejects "garment_category" outright (HTTP 400: "garment_category
-    # is not allowed") - it must never be sent for this model.
+    assert captured["body"]["inputs"]["product_image"] == "https://example.com/garment.png"
+    # FASHN's /v1/run rejected "garment_category" outright on the previous
+    # model (HTTP 400: "garment_category is not allowed") - it must never be
+    # sent, and garment_image must never be sent either since tryon-max uses
+    # product_image instead.
     assert "garment_category" not in captured["body"]["inputs"]
+    assert "garment_image" not in captured["body"]["inputs"]
 
 
 def test_fashn_submit_run_handles_http_error(monkeypatch):
@@ -157,7 +161,7 @@ def test_public_media_url_passes_through_absolute_url_unchanged():
 def test_generate_try_on_image_resolves_relative_character_preview_to_absolute_url(monkeypatch):
     captured = {}
 
-    def fake_submit(model_image, garment_image):
+    def fake_submit(model_image, product_image):
         captured["model_image"] = model_image
         return "pred_1", ""
 
@@ -191,7 +195,7 @@ def test_generate_try_on_image_materializes_uploaded_data_uri_model_image(monkey
     data_uri = "data:image/png;base64," + base64.b64encode(b"pretend-this-is-png-bytes").decode("ascii")
     captured = {}
 
-    def fake_submit(model_image, garment_image):
+    def fake_submit(model_image, product_image):
         captured["model_image"] = model_image
         return "pred_1", ""
 
@@ -239,8 +243,8 @@ def test_generate_try_on_image_rejects_unmaterializable_model_image(monkeypatch)
 def test_generate_try_on_image_single_garment_success(monkeypatch):
     captured = {}
 
-    def fake_submit(model_image, garment_image):
-        captured.setdefault("submits", []).append((model_image, garment_image))
+    def fake_submit(model_image, product_image):
+        captured.setdefault("submits", []).append((model_image, product_image))
         return "pred_1", ""
 
     def fake_poll(prediction_id):
@@ -275,8 +279,8 @@ def test_generate_try_on_image_single_garment_success(monkeypatch):
 def test_generate_try_on_image_chains_multiple_garments_sequentially(monkeypatch):
     captured = {"submits": []}
 
-    def fake_submit(model_image, garment_image):
-        captured["submits"].append((model_image, garment_image))
+    def fake_submit(model_image, product_image):
+        captured["submits"].append((model_image, product_image))
         return f"pred_{len(captured['submits'])}", ""
 
     def fake_poll(prediction_id):
@@ -317,8 +321,8 @@ def test_generate_try_on_image_chains_multiple_garments_sequentially(monkeypatch
 def test_generate_try_on_image_clips_to_max_garments(monkeypatch):
     captured = {"submits": []}
 
-    def fake_submit(model_image, garment_image):
-        captured["submits"].append(garment_image)
+    def fake_submit(model_image, product_image):
+        captured["submits"].append(product_image)
         return f"pred_{len(captured['submits'])}", ""
 
     def fake_poll(prediction_id):
@@ -344,7 +348,7 @@ def test_generate_try_on_image_clips_to_max_garments(monkeypatch):
 
 
 def test_generate_try_on_image_fails_when_a_garment_step_fails(monkeypatch):
-    def fake_submit(model_image, garment_image):
+    def fake_submit(model_image, product_image):
         return "pred_1", ""
 
     def fake_poll(prediction_id):
