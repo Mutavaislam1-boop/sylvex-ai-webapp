@@ -7121,6 +7121,29 @@ CSS-БЛОК: .generation-info-actions button
   position:absolute;right:7px;top:7px;z-index:3;width:26px;height:26px;border-radius:50%;
   display:grid;place-items:center;background:rgba(0,0,0,.68);color:#fff;font-style:normal;font-size:18px
 }
+
+/* Try-On's "person" slot (index 0): a SYLVEX Character picker strip plus a
+   manual-upload tile, replacing the plain upload button every other slot
+   uses - see tryOnPersonSlotHtml() in cabinet.js. Structured top-aligned
+   layout (label / preview / scrollable chip strip) instead of the generic
+   full-bleed-image slot look, so the .has-file overlay/gradient meant for
+   that look is explicitly turned off here. */
+.try-on-person-slot{cursor:default;align-items:stretch;justify-content:flex-start;gap:7px;padding:10px 10px 8px}
+.try-on-person-slot>b{align-self:flex-start;font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.06em}
+.try-on-person-slot>small{color:var(--text-dim);font-size:11px}
+.try-on-person-slot.has-file::after{content:none}
+.try-on-person-slot.has-file>b,.try-on-person-slot.has-file>small{color:var(--text-mute);text-shadow:none;margin-top:0}
+.try-on-person-preview{position:relative;display:flex;align-items:center;gap:8px;padding:6px;border-radius:11px;background:var(--surface-2);border:1px solid var(--border)}
+.try-on-person-preview img{position:static;width:38px;height:38px;border-radius:9px;object-fit:cover;flex:0 0 auto}
+.try-on-person-preview span{flex:1 1 auto;min-width:0;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.try-on-person-preview i{position:static;width:22px;height:22px;font-size:14px;background:var(--surface);color:var(--text);border:1px solid var(--border);flex:0 0 auto}
+.try-on-person-strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.try-on-person-strip::-webkit-scrollbar{display:none}
+.try-on-person-chip{flex:0 0 auto;width:34px;height:34px;border-radius:9px;border:2px solid var(--border);background:var(--surface-2);overflow:hidden;padding:0;display:grid;place-items:center;cursor:pointer;color:var(--text-dim);font-size:12px;font-weight:700}
+.try-on-person-chip img{width:100%;height:100%;object-fit:cover}
+.try-on-person-chip.active{border-color:var(--primary)}
+.try-on-person-chip.try-on-person-upload{color:var(--text-mute);font-size:16px;font-weight:400}
+
 .photo-tool-work-column textarea{
   width:100%;min-height:64px;resize:vertical;border-radius:13px;border:1px solid var(--border);
   background:var(--surface);color:var(--text);padding:11px 12px;font:inherit;font-size:13px;outline:none;box-sizing:border-box

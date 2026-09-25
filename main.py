@@ -584,6 +584,8 @@ def attach_voice_avatars(voices: list, provider: str = "") -> list:
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+FASHN_API_KEY = os.getenv("FASHN_API_KEY")
+FASHN_API_BASE = os.getenv("FASHN_API_BASE", "https://api.fashn.ai/v1").rstrip("/")
 # SYLVEX Assistant AI Mode model - deliberately its own env var (not reused
 # from any Pro Studio model id) so it can be moved to a newer OpenAI model
 # without touching Pro Studio's own text-generation config. gpt-5.6 is the
@@ -13002,6 +13004,17 @@ def is_remove_object_request(payload: dict) -> bool:
 REMOVE_OBJECT_TOOL_FEE_CREDITS = 5
 
 # =====================================================
+# PYTHON-БЛОК: is_try_on_request
+# Try-On is its own isolated generation flow (see generate_try_on_image) -
+# it never reuses the normal Pro Studio image-generation payload shape
+# (Character/Object/Style/prompt/refs), so it needs its own dispatch check,
+# independent of is_seedream_request.
+# =====================================================
+def is_try_on_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == "try_on"
+
+# =====================================================
 # PYTHON-БЛОК: build_image_prompt
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -14203,6 +14216,184 @@ async def generate_remove_object_image(payload: dict) -> dict:
                 telegram_id,
                 images,
                 "Готово ✅\nОбъект удалён в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
+
+
+FASHN_TRYON_MODEL = "tryon-v1.6"
+FASHN_MAX_GARMENTS = 3
+FASHN_POLL_INTERVAL_SECONDS = 3
+FASHN_POLL_MAX_ATTEMPTS = 40
+# The already-established SYLVEX price for one virtual try-on operation
+# (previously only reachable through a differently-named, never-wired
+# "tryon" tool key) - reused per FASHN call rather than inventing a new
+# number, since FASHN's real /v1/run endpoint bills per garment.
+FASHN_TRYON_CREDITS_PER_GARMENT = 9
+
+
+def fashn_auth_headers() -> dict:
+    return {"Authorization": f"Bearer {FASHN_API_KEY}", "Content-Type": "application/json"}
+
+
+def fashn_submit_run(model_image: str, garment_image: str) -> tuple:
+    """Submit one FASHN try-on prediction. Returns (prediction_id, error)."""
+    endpoint = f"{FASHN_API_BASE}/run"
+    body = {
+        "model_name": FASHN_TRYON_MODEL,
+        "inputs": {
+            "model_image": model_image,
+            "garment_image": garment_image,
+            "garment_category": "auto",
+            "mode": "balanced",
+            "num_samples": 1,
+        },
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers=fashn_auth_headers(),
+            json=body,
+            timeout=int(os.getenv("FASHN_RUN_TIMEOUT", "60")),
+        )
+    except requests.RequestException as exc:
+        print("TRY ON FASHN RUN REQUEST FAILED:", type(exc).__name__, str(exc))
+        return "", f"request_error:{type(exc).__name__}"
+    if response.status_code >= 400:
+        print(f"TRY ON FASHN RUN ERROR HTTP {response.status_code}:", response.text[:2000])
+        return "", f"http_{response.status_code}"
+    data = safe_provider_json(response, "fashn", endpoint)
+    prediction_id = str(data.get("id") or "")
+    if not prediction_id:
+        print("TRY ON FASHN RUN NO PREDICTION ID:", json.dumps(data)[:2000])
+        return "", "no_prediction_id"
+    return prediction_id, ""
+
+
+def fashn_poll_run(prediction_id: str) -> tuple:
+    """Poll one FASHN prediction to completion. Returns (output_urls, error).
+    Runs inside generate_try_on_image, which is itself only ever invoked via
+    run_provider_coroutine_off_loop (its own dedicated thread + event loop),
+    so the blocking calls/sleeps here never block the shared server loop -
+    same pattern already used by the BytePlus Seedream and generic image
+    provider adapters."""
+    endpoint = f"{FASHN_API_BASE}/status/{prediction_id}"
+    for _attempt in range(FASHN_POLL_MAX_ATTEMPTS):
+        try:
+            response = requests.get(
+                endpoint,
+                headers=fashn_auth_headers(),
+                timeout=int(os.getenv("FASHN_STATUS_TIMEOUT", "30")),
+            )
+        except requests.RequestException as exc:
+            print("TRY ON FASHN STATUS TRANSIENT ERROR:", type(exc).__name__, str(exc))
+            time.sleep(FASHN_POLL_INTERVAL_SECONDS)
+            continue
+        if response.status_code >= 400:
+            print(f"TRY ON FASHN STATUS ERROR HTTP {response.status_code}:", response.text[:2000])
+            return [], f"http_{response.status_code}"
+        data = safe_provider_json(response, "fashn", endpoint)
+        status = str(data.get("status") or "")
+        if status == "completed":
+            output = data.get("output") or []
+            return [str(url) for url in output if url], ""
+        if status == "failed":
+            error_info = data.get("error") or {}
+            message = error_info.get("message") if isinstance(error_info, dict) else str(error_info)
+            print("TRY ON FASHN RUN FAILED:", message or "unknown error")
+            return [], message or "failed"
+        time.sleep(FASHN_POLL_INTERVAL_SECONDS)
+    return [], "timeout"
+
+
+async def generate_try_on_image(payload: dict) -> dict:
+    """The Try-On provider call, using FASHN's real virtual try-on API
+    (POST /v1/run + GET /v1/status/{id}). Reads ONLY the two isolated
+    fields below - never image_options.characterId/characterReferences/
+    objectId/objectReferences/style, never payload.prompt/history - so a
+    selected SYLVEX Character or leaked normal Pro Studio state can never
+    reach this request except through tryOnModelImageUrl, which the
+    frontend sets explicitly from either a selected Character's preview
+    image or a manually uploaded person photo (mutually exclusive).
+    FASHN's /v1/run endpoint accepts exactly one garment_image per call, so
+    when more than one garment was uploaded they are applied sequentially -
+    each call's output becomes the next call's model_image - producing one
+    combined outfit from up to three garments."""
+    if not FASHN_API_KEY:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    model_image = str(opts.get("tryOnModelImageUrl") or "").strip()
+    garment_urls = [str(url).strip() for url in (opts.get("tryOnGarmentUrls") or []) if str(url or "").strip()]
+    garment_urls = garment_urls[:FASHN_MAX_GARMENTS]
+
+    if not model_image:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+    if not garment_urls:
+        return {"ok": False, "error": "Загрузите хотя бы одну фотографию одежды."}
+
+    endpoint = f"{FASHN_API_BASE}/run"
+    print("TRY ON REQUEST:", {
+        "tool": "try_on",
+        "provider": "fashn",
+        "model": FASHN_TRYON_MODEL,
+        "has_model_image": True,
+        "garment_count": len(garment_urls),
+    })
+
+    current_model_image = model_image
+    output_urls: list = []
+    for index, garment_url in enumerate(garment_urls, start=1):
+        prediction_id, submit_error = fashn_submit_run(current_model_image, garment_url)
+        if not prediction_id:
+            print(f"TRY ON GARMENT {index}/{len(garment_urls)} SUBMIT FAILED:", submit_error)
+            return image_error_response("fashn", "try_on", FASHN_TRYON_MODEL, endpoint, "Не удалось создать изображение. Попробуйте ещё раз.")
+        output_urls, poll_error = fashn_poll_run(prediction_id)
+        if not output_urls:
+            print(f"TRY ON GARMENT {index}/{len(garment_urls)} FAILED:", poll_error)
+            return image_error_response("fashn", "try_on", FASHN_TRYON_MODEL, endpoint, "Не удалось создать изображение. Попробуйте ещё раз.")
+        print(f"TRY ON GARMENT {index}/{len(garment_urls)} DONE:", {"prediction_id": prediction_id, "output_count": len(output_urls)})
+        current_model_image = output_urls[0]
+
+    images = output_urls[:1]
+    if not images:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    total_credits = FASHN_TRYON_CREDITS_PER_GARMENT * len(garment_urls)
+    extra_fields = {
+        "provider": "fashn",
+        "model": "fashn_try_on",
+        "provider_model": FASHN_TRYON_MODEL,
+        "tool": "try_on",
+        "cost_credits": total_credits,
+        "cost_usd": round(total_credits / 150, 4),
+        "generation_cost": f"{total_credits} ⚡",
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, result.get("images") or images))
+    else:
+        result = attach_image_thumbnails({
+            "ok": True,
+            "type": "image",
+            "image_url": images[0],
+            "images": images,
+            **extra_fields,
+        })
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nПримерка одежды в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -16493,6 +16684,20 @@ def estimate_generation_cost(payload: dict) -> dict:
     # Operations below are existing product tools.  Their published tariffs
     # live here with every other authoritative estimate, not in either client.
     tool = str(opts.get("image_tool") or opts.get("tool") or opts.get("operation") or "").strip().lower()
+    if tool == "try_on":
+        # FASHN bills per garment (see generate_try_on_image, which chains
+        # one /v1/run call per uploaded garment) - the price scales with it
+        # instead of being a flat per-request fee like the other tools below.
+        garment_count = max(1, min(FASHN_MAX_GARMENTS, len(opts.get("tryOnGarmentUrls") or [])))
+        credits = FASHN_TRYON_CREDITS_PER_GARMENT * garment_count
+        return {
+            "credits": credits,
+            "cost_credits": credits,
+            "cost_usd": round(credits / 150, 4),
+            "generation_cost": f"{credits} ⚡",
+            "pricing_available": True,
+            "operation": tool,
+        }
     tool_prices = {
         "tryon": 9,             # Google Virtual Try-On
         "remove_bg": 2,         # Recraft Remove Background
@@ -18381,6 +18586,12 @@ async def dispatch_prostudio_provider_request(
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
         result = await run_provider_coroutine_off_loop(lambda: generate_remove_object_image(payload))
+    elif mode == "image" and is_try_on_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="fashn", model=selected_model, route="generate_try_on_image")
+        # Isolated Quick Tool flow - never falls through to the normal
+        # Seedream/image_generation dispatch below, which would read
+        # image_options.characterReferences/objectReferences/style.
+        result = await run_provider_coroutine_off_loop(lambda: generate_try_on_image(payload))
     elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
