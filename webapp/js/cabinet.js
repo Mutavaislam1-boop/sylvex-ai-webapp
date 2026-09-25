@@ -272,7 +272,7 @@ const PHOTO_TOOL_CONFIG = {
   try_on: {
     title: 'Виртуальная примерка',
     shortTitle: 'Try‑On',
-    description: 'Загрузите человека первым, затем от одной до трёх фотографий одежды.',
+    description: 'Выберите своего SYLVEX-персонажа или загрузите фото человека, затем от одной до трёх фотографий одежды.',
     min: 2,
     max: 4,
     labels: ['Человек', 'Одежда 1', 'Одежда 2', 'Одежда 3'],
@@ -6845,7 +6845,9 @@ function renderPhotoToolModal() {
     renderPhotoToolCatalog();
     return;
   }
+  const isTryOn = activePhotoTool === 'try_on';
   const slots = config.labels.map((label, index) => {
+    if (isTryOn && index === 0) return tryOnPersonSlotHtml(state);
     const file = state.files[index];
     return '<button class="photo-tool-upload-slot ' + (file ? 'has-file' : '') + '" type="button" onclick="SYLVEX.openPhotoToolFilePicker(event,\'' + activePhotoTool + '\',' + index + ')">'
       + (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
@@ -6854,8 +6856,12 @@ function renderPhotoToolModal() {
       + '</button>';
   }).join('');
   const isRemoveObject = activePhotoTool === 'remove_object';
-  const ready = state.files.filter(Boolean).length >= config.min
-    && (!isRemoveObject || !!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim()));
+  const ready = isRemoveObject
+    ? (state.files.filter(Boolean).length >= config.min
+        && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
+    : isTryOn
+      ? (!!(state.characterId || state.files[0]) && state.files.slice(1).filter(Boolean).length >= 1)
+      : (state.files.filter(Boolean).length >= config.min);
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + '<div class="photo-tool-layout">'
@@ -6869,6 +6875,61 @@ function renderPhotoToolModal() {
     + '</button>'
     + '</div></div>';
   if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: tryOnPersonSlotHtml
+// Try-On's "person" slot (index 0) replaces the generic upload-slot button
+// with a SYLVEX Character picker strip plus a manual-upload tile - reusing
+// imageCharacters()/visualPreviewUrl(), the same data source the normal
+// Pro Studio Character picker reads, without touching imageState.characterId
+// (the Try-On modal keeps its own state.characterId). A selected Character
+// and a manually uploaded photo are mutually exclusive: picking one clears
+// the other (see pickTryOnCharacter/onPhotoToolFiles).
+// =====================================================
+function tryOnPersonSlotHtml(state) {
+  const chars = imageCharacters();
+  const file = state.files[0];
+  const selectedChar = state.characterId ? chars.find((item) => item.id === state.characterId) : null;
+  const previewUrl = selectedChar ? visualPreviewUrl(selectedChar) : (file ? file.url : '');
+  const previewName = selectedChar ? selectedChar.name : (file ? (file.name || 'Фото выбрано') : '');
+  const hasSelection = !!(selectedChar || file);
+  return '<div class="photo-tool-upload-slot try-on-person-slot ' + (hasSelection ? 'has-file' : '') + '">'
+    + '<b>Человек</b>'
+    + (hasSelection
+        ? '<div class="try-on-person-preview"><img src="' + S.escapeHtml(previewUrl) + '" alt="" /><span>' + S.escapeHtml(previewName) + '</span>'
+          + '<i role="button" aria-label="Убрать" onclick="SYLVEX.clearTryOnPerson(event)">×</i></div>'
+        : '<small>Персонаж или своё фото</small>')
+    + '<div class="try-on-person-strip">'
+    + chars.map((item) => {
+        const preview = visualPreviewUrl(item);
+        const active = state.characterId === item.id;
+        return '<button type="button" class="try-on-person-chip ' + (active ? 'active' : '') + '" title="' + S.escapeHtml(item.name || '') + '" onclick="SYLVEX.pickTryOnCharacter(event,\'' + S.escapeHtml(item.id) + '\')">'
+          + (preview ? '<img src="' + S.escapeHtml(preview) + '" alt="" />' : '<span>' + S.escapeHtml((item.name || '?').slice(0, 1)) + '</span>')
+          + '</button>';
+      }).join('')
+    + '<button type="button" class="try-on-person-chip try-on-person-upload" aria-label="Загрузить своё фото" onclick="SYLVEX.openPhotoToolFilePicker(event,\'try_on\',0)">＋</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function pickTryOnCharacter(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolStateFor('try_on');
+  if (!state) return;
+  state.characterId = id;
+  // Mutually exclusive with a manually uploaded person photo.
+  state.files[0] = null;
+  renderPhotoToolModal();
+}
+
+function clearTryOnPerson(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolStateFor('try_on');
+  if (!state) return;
+  state.characterId = null;
+  state.files[0] = null;
+  renderPhotoToolModal();
 }
 
 function openPhotoToolModal(e, kind) {
@@ -6959,6 +7020,9 @@ async function onPhotoToolFiles(e) {
       if (start + offset < config.max) state.files[start + offset] = file;
     });
     state.files = state.files.slice(0, config.max);
+    // A manually uploaded person photo is mutually exclusive with a
+    // selected Character (see tryOnPersonSlotHtml/pickTryOnCharacter).
+    if (activePhotoTool === 'try_on' && start === 0) state.characterId = null;
     renderPhotoToolModal();
   } catch (error) {
     toast((error && error.message) || 'Не удалось загрузить фото');
@@ -7008,6 +7072,7 @@ async function generatePhotoTool(e) {
   const state = photoToolStateFor(kind);
   if (!config || !state || state.generating) return;
   if (kind === 'remove_object') return generateRemoveObjectTool(state);
+  if (kind === 'try_on') return generateTryOnTool(state);
   const refs = state.files.filter(Boolean).map((item) => item.url);
   if (refs.length < config.min) {
     toast('Загрузите необходимые фотографии');
@@ -7139,6 +7204,88 @@ async function generateRemoveObjectTool(state) {
     };
     state.files = [];
     state.maskUrl = '';
+    state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+      mode: 'image',
+      prompt: displayPrompt,
+    });
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось обработать фото'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
+  }
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: generateTryOnTool
+// Try-On is an isolated generation flow, same escape hatch as Remove
+// Object above: it never reuses imageOptionsPayload()/imageState (the
+// normal Pro Studio composer's Character/Object/Style/prompt/reference
+// state). The person image is either the selected Character's own preview
+// (read-only from imageCharacters(), never imageState.characterId) or a
+// manually uploaded photo - the two are mutually exclusive by construction
+// (tryOnPersonSlotHtml/pickTryOnCharacter/onPhotoToolFiles). The garment
+// images are exactly the tool's own upload slots 1-3. FASHN itself is
+// billed and called server-side (generate_try_on_image in main.py); this
+// only builds the isolated request.
+// =====================================================
+async function generateTryOnTool(state) {
+  const character = state.characterId ? imageCharacters().find((item) => item.id === state.characterId) : null;
+  const modelImageUrl = character ? visualPreviewUrl(character) : (state.files[0] && state.files[0].url);
+  if (!modelImageUrl) {
+    toast('Выберите персонажа или загрузите фото человека');
+    return;
+  }
+  const garmentUrls = state.files.slice(1).filter(Boolean).map((item) => item.url);
+  if (!garmentUrls.length) {
+    toast('Загрузите хотя бы одну фотографию одежды');
+    return;
+  }
+  const displayPrompt = 'Виртуальная примерка одежды';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('image'),
+  }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(displayPrompt, null, [], null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'fashn_try_on',
+      provider: 'fashn',
+      imageOptions: {
+        tool: 'try_on',
+        tryOnModelImageUrl: modelImageUrl,
+        tryOnGarmentUrls: garmentUrls,
+      },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (images.length) addGeneratedImages(images, thumbs);
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: imageGenerationMetadata(displayPrompt, [modelImageUrl].concat(garmentUrls), result, { tool: 'try_on' }),
+    };
+    state.files = [];
+    state.characterId = null;
     state.generating = false;
     closePhotoToolModal();
     toast('Обработка завершена');
@@ -20967,6 +21114,8 @@ async function waitGeneration(jobId, options) {
   S.updateRemoveObjectReadiness = updateRemoveObjectReadiness;
   S.openQuickImageExtraFile = openQuickImageExtraFile;
   S.onQuickImageExtraFile = onQuickImageExtraFile;
+  S.pickTryOnCharacter = pickTryOnCharacter;
+  S.clearTryOnPerson = clearTryOnPerson;
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;
