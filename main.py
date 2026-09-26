@@ -13329,6 +13329,27 @@ def poll_topaz_enhance_status(process_id: str, frontend_model: str, provider_mod
     return False, image_error_response("topaz", frontend_model, provider_model, endpoint, "Topaz enhance timeout")
 
 
+def _sanitized_json_shape(data) -> dict:
+    """Describes a parsed JSON value's shape safely for diagnostic logging:
+    top-level key names and each value's type/emptiness only - never the
+    value itself, so a signed URL, an API key, or any other sensitive or
+    unexpected string can never leak into logs while diagnosing an unknown
+    provider response shape."""
+    if not isinstance(data, dict):
+        return {"top_level_type": type(data).__name__}
+    fields = {}
+    for key, value in data.items():
+        if value is None:
+            fields[key] = {"type": "NoneType", "empty": True}
+        elif isinstance(value, str):
+            fields[key] = {"type": "str", "empty": len(value) == 0}
+        elif isinstance(value, (list, dict, tuple, set)):
+            fields[key] = {"type": type(value).__name__, "empty": len(value) == 0}
+        else:
+            fields[key] = {"type": type(value).__name__, "empty": False}
+    return {"top_level_keys": sorted(fields.keys()), "fields": fields}
+
+
 def _persist_enhance_photo_image_bytes(content: bytes, content_type: str) -> str:
     """Persists a direct (non-JSON) image/* response from Topaz's download
     endpoint straight to durable SYLVEX storage, preserving the format
@@ -13406,7 +13427,7 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
         response = requests.post(
             TOPAZ_ENHANCE_ENDPOINT,
             headers=headers,
-            data={"model": TOPAZ_ENHANCE_MODEL, "outputHeight": str(output_height)},
+            data={"model": TOPAZ_ENHANCE_MODEL, "output_height": str(output_height)},
             files={"image": (f"source.{ext}", source_bytes, content_type)},
             timeout=int(os.getenv("TOPAZ_ENHANCE_TIMEOUT", "60")),
         )
@@ -13462,6 +13483,20 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
         persisted_url = _persist_enhance_photo_image_bytes(download_response.content, download_content_type)
     else:
         download_data = safe_provider_json(download_response, "topaz", download_endpoint)
+        # A production job reached status=Completed and HTTP 200 with
+        # Content-Type: application/json here, yet still failed before any
+        # R2 upload started - the real top-level shape of that body is
+        # still unconfirmed. Log only its safe structure (key names, each
+        # value's type/emptiness) - never the values, never a signed URL or
+        # API key, never the raw body - and flag whether safe_provider_
+        # json() itself already gave up and returned its own {"ok": False,
+        # ...} error envelope (e.g. because the body was empty or not
+        # valid JSON) rather than the real Topaz payload.
+        print("ENHANCE PHOTO DOWNLOAD JSON SHAPE:", {
+            "process_id": process_id,
+            "safe_provider_json_error_envelope": isinstance(download_data, dict) and download_data.get("ok") is False,
+            "shape": _sanitized_json_shape(download_data),
+        })
         result_url = str(download_data.get("url") or "").strip()
         if not result_url:
             return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Topaz result URL not found", data=download_data)
