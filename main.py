@@ -13042,6 +13042,11 @@ def is_remove_object_request(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     return str(opts.get("tool") or "").strip().lower() == "remove_object"
 
+
+def is_replace_object_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == "replace_object"
+
 REMOVE_OBJECT_TOOL_FEE_CREDITS = 5
 
 # =====================================================
@@ -14939,6 +14944,43 @@ def build_gpt_image_removal_mask(source_bytes: bytes, mask_bytes: bytes) -> byte
     return output.getvalue()
 
 
+def normalize_replace_object_image(source_bytes: bytes) -> tuple:
+    """Normalize an uploaded replacement-tool image to orientation-correct PNG."""
+    from PIL import Image, ImageOps
+    import io
+
+    with Image.open(io.BytesIO(source_bytes)) as img:
+        rgba = ImageOps.exif_transpose(img).convert("RGBA")
+        output = io.BytesIO()
+        rgba.save(output, format="PNG")
+        return output.getvalue(), rgba.size
+
+
+def composite_replace_object_inside_mask(source_png: bytes, generated_bytes: bytes, drawn_mask_bytes: bytes) -> bytes:
+    """Keep source pixels exact outside the user's painted area."""
+    from PIL import Image
+    import io
+
+    with Image.open(io.BytesIO(source_png)) as source_img:
+        source = source_img.convert("RGBA")
+    with Image.open(io.BytesIO(generated_bytes)) as generated_img:
+        generated = generated_img.convert("RGBA").resize(source.size, Image.Resampling.LANCZOS)
+    with Image.open(io.BytesIO(drawn_mask_bytes)) as mask_img:
+        # Use nearest-neighbor for the final boundary so antialiasing cannot
+        # expand the user's marked area into untouched source pixels.
+        alpha = mask_img.convert("RGBA").resize(source.size, Image.Resampling.NEAREST).getchannel("A")
+    if alpha.getbbox() is None:
+        raise ValueError("replacement mask is empty")
+    # Only pixels explicitly painted by the user may be replaced. Thresholding
+    # the brush's translucent green overlay produces a binary edit region so
+    # no untouched pixel outside the selection is blended or altered.
+    edit_region = alpha.point(lambda value: 255 if value > 10 else 0)
+    result = Image.composite(generated, source, edit_region)
+    output = io.BytesIO()
+    result.save(output, format="PNG")
+    return output.getvalue()
+
+
 def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
     parts = [
         "Remove only the object or region the user has specified and reconstruct the "
@@ -14954,6 +14996,107 @@ def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
     if clean_instruction:
         parts.append(f"What to remove: {clean_instruction}")
     return " ".join(parts)
+
+
+async def generate_replace_object_image(payload: dict) -> dict:
+    """Use GPT Image 2.5 Sunburst to replace a painted object region only."""
+    if not OPENAI_API_KEY:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("replaceObjectSourceUrl") or "").strip()
+    replacement_url = str(opts.get("replaceObjectReferenceUrl") or "").strip()
+    mask_url = str(opts.get("replaceObjectMaskUrl") or "").strip()
+    instruction = str(opts.get("replaceObjectInstruction") or "").strip()
+    model = "gpt-image-2.5-sunburst"
+    endpoint = f"{OPENAI_API_BASE}/images/edits"
+    if not source_url or not replacement_url or not mask_url:
+        return {"ok": False, "error": "Загрузите исходное фото и предмет, затем отметьте область для замены."}
+
+    source_raw = _read_image_bytes_for_generation(source_url)
+    reference_raw = _read_image_bytes_for_generation(replacement_url)
+    mask_raw = _read_image_bytes_for_generation(mask_url)
+    if not source_raw or not reference_raw or not mask_raw:
+        return image_error_response("openai", "replace_object", model, endpoint, "Не удалось загрузить одно из изображений или маску.")
+    try:
+        from PIL import Image
+        import io
+
+        source_png, source_size = normalize_replace_object_image(source_raw)
+        reference_png, _ = normalize_replace_object_image(reference_raw)
+        api_mask = build_gpt_image_removal_mask(source_png, mask_raw)
+        with Image.open(io.BytesIO(mask_raw)) as drawn:
+            if drawn.convert("RGBA").getchannel("A").getbbox() is None:
+                raise ValueError("empty replacement mask")
+    except Exception as exc:
+        prostudio_error("REPLACE_OBJECT_INPUT_PREPARE_FAILED", exc)
+        return image_error_response("openai", "replace_object", model, endpoint, "Не удалось подготовить изображения и область замены.")
+
+    prompt = (
+        "Edit the first image in place. Replace only the object inside the user-marked transparent mask area with the corresponding object shown in the second image. "
+        "Preserve the original canvas dimensions, aspect ratio, crop, framing, camera viewpoint, people, pose, unmarked objects, background, colors, lighting, textures, and every other scene detail. "
+        "Match the replacement object to the marked object's scale, perspective, orientation, lighting, and contact shadows. "
+        "Do not change, add, remove, or move anything outside the marked region. "
+        "The mask applies to the first image and defines the only editable area."
+    )
+    if instruction:
+        prompt += f" Additional user direction for the replacement object: {instruction}"
+    files = [
+        ("image[]", ("source.png", source_png, "image/png")),
+        ("image[]", ("replacement.png", reference_png, "image/png")),
+        ("mask", ("mask.png", api_mask, "image/png")),
+    ]
+    request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
+    prostudio_debug("REPLACE_OBJECT_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_replacement=True, has_mask=True, source_size=source_size)
+
+    response = None
+    request_exception = None
+    for attempt in range(1, 3):
+        try:
+            response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
+                timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+            if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
+                break
+            prostudio_debug("REPLACE_OBJECT_TRANSIENT_RESPONSE", attempt=attempt, status_code=response.status_code)
+        except requests.RequestException as exc:
+            request_exception = exc
+            prostudio_error("REPLACE_OBJECT_TRANSIENT_ERROR", exc, attempt=attempt, endpoint=endpoint)
+        if attempt < 2:
+            time.sleep(2)
+    if response is None:
+        return image_error_response("openai", "replace_object", model, endpoint, "Provider request failed", data={"body_preview": str(request_exception or "No provider response")[:1000]})
+
+    data = safe_provider_json(response, "openai", endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return image_error_response("openai", "replace_object", model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+    provider_images = normalize_image_response(data)
+    if not provider_images:
+        return image_error_response("openai", "replace_object", model, endpoint, "Provider returned no image", response, data)
+    generated_raw = _read_image_bytes_for_generation(provider_images[0])
+    if not generated_raw:
+        return image_error_response("openai", "replace_object", model, endpoint, "Не удалось обработать результат модели.")
+    try:
+        final_png = composite_replace_object_inside_mask(source_png, generated_raw, mask_raw)
+        image_url = storage_put_bytes(final_png, generated_key("images", f"replace-object-{uuid4().hex}.png"), "image/png")
+        if not image_url:
+            raise RuntimeError("Could not persist the edited image")
+    except Exception as exc:
+        prostudio_error("REPLACE_OBJECT_COMPOSITE_FAILED", exc)
+        return image_error_response("openai", "replace_object", model, endpoint, "Не удалось сохранить результат замены предмета.")
+
+    price = openai_image_cost_info("gpt_image_2_5_sunburst", model, "high", 1)
+    extra_fields = {"provider": "openai", "model": "gpt_image_2_5_sunburst", "provider_model": model,
+        "tool": "replace_object", "photo_tool": "replace_object", "mask_applied": True,
+        "canvas_width": source_size[0], "canvas_height": source_size[1],
+        "cost_credits": price.get("cost_credits", 0), "cost_usd": price.get("cost_usd", 0),
+        "generation_cost": price.get("generation_cost", "")}
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails([image_url]), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, [image_url]))
+    else:
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": image_url, "images": [image_url], **extra_fields})
+    return result
 
 
 async def generate_remove_object_image(payload: dict) -> dict:
@@ -18214,6 +18357,13 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def image_generation(payload: dict) -> dict:
+    if is_replace_object_request(payload):
+        prostudio_error(
+            "REPLACE_OBJECT_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
+            RuntimeError("replace_object job reached image_generation() instead of generate_replace_object_image()"),
+            job_id=payload.get("job_id") or payload.get("generation_id") or "",
+        )
+        return {"ok": False, "type": "image", "error": "Не удалось создать изображение. Попробуйте ещё раз.", "raw_error": "replace_object_misrouted_to_image_generation"}
     if is_replace_character_request(payload):
         # Defense in depth: dispatch_prostudio_provider_request() must
         # always route a Character Replace job to
@@ -19940,7 +20090,10 @@ async def dispatch_prostudio_provider_request(
 ) -> dict:
     """Perform one initial provider submission/generation attempt."""
     result = None
-    if mode == "image" and is_remove_object_request(payload):
+    if mode == "image" and is_replace_object_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="openai", model=selected_model, route="generate_replace_object_image")
+        result = await run_provider_coroutine_off_loop(lambda: generate_replace_object_image(payload))
+    elif mode == "image" and is_remove_object_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="openai", model=selected_model, route="generate_remove_object_image")
         # Isolated Quick Tool flow - never falls through to the normal
         # Seedream/image_generation dispatch below, which would read
