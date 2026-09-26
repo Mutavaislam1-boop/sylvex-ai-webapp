@@ -5061,6 +5061,22 @@ def _call_hedra(model_id: str, prompt: str, payload: dict):
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def video_generation(payload: dict) -> dict:
+    # Defense in depth: dispatch_prostudio_provider_request() in main.py
+    # must always route an Animate Photo job to generate_animate_photo_video()
+    # (main.py's own isolated Runway Gen-4.5 flow) before it ever reaches
+    # this generic dispatcher - if one gets here anyway, fail loudly and
+    # specifically instead of silently trying to map "animate_photo" as if
+    # it were a real selectable video model. The literal "animate_photo"
+    # value must match main.py's ANIMATE_PHOTO_TOOL_KEY exactly.
+    _video_opts_guard = payload.get("video_options") or payload.get("options") or {}
+    if str(_video_opts_guard.get("tool") or "").strip().lower() == "animate_photo":
+        print("ANIMATE_PHOTO_MISROUTED_TO_GENERIC_VIDEO_GENERATION")
+        return {
+            "ok": False,
+            "type": "video",
+            "error": "Не удалось создать видео. Попробуйте ещё раз.",
+            "raw_error": "animate_photo_misrouted_to_video_generation",
+        }
     prompt = (payload.get("prompt") or "").strip()
     model_id = (payload.get("model") or "seedance_2_fast").strip()
     provider = (payload.get("provider") or _provider_for_model(model_id) or "sylvex-router").strip().lower()
