@@ -333,7 +333,7 @@ photoToolState.replace_character = {
 };
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
-const hairBeardState = { category: 'men', selectedPresetId: null };
+const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, eyebrows: null } };
 const HAIR_BEARD_PRESETS = [
   ...'bald buzz_cut very_short crew_cut short_crop textured_crop side_part slick_back quiff medium_hair long_hair long_wavy_hair curly_hair afro middle_part man_bun'.split(' ').map(id=>({id,category:'men',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
   ...'clean_shaven light_stubble heavy_stubble short_beard medium_beard long_beard full_beard beard_without_mustache goatee mustache thick_mustache beard_and_mustache long_beard_long_hair long_beard_short_hair beard_bald beard_buzz_cut beard_medium_hair mustache_short_hair stubble_short_hair'.split(' ').map(id=>({id,category:'beard_mustache',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
@@ -6880,10 +6880,75 @@ function selectHairBeardPreset(e, id) {
   renderPhotoToolModal();
 }
 
+const HAIR_BEARD_COLOR_FIELDS = {
+  hair: { label:'Волосы', default:'#38291f', instruction:'Цвет волос' },
+  beard: { label:'Борода', default:'#38291f', instruction:'Цвет бороды' },
+  eyebrows: { label:'Брови', default:'#38291f', instruction:'Цвет бровей' },
+};
+
+function updateHairBeardColor(e, part) {
+  const field = HAIR_BEARD_COLOR_FIELDS[part];
+  const input = e && e.currentTarget;
+  if (!field || !input) return;
+  const color = String(input.value || '').toLowerCase();
+  if (!/^#[0-9a-f]{6}$/.test(color)) return;
+  hairBeardState.colors[part] = color;
+  const control = input.closest('.hair-beard-color-control');
+  if (!control) return;
+  control.classList.add('has-color');
+  const hex = control.querySelector('.hair-beard-color-hex');
+  const status = control.querySelector('.hair-beard-color-status');
+  if (hex) hex.value = color;
+  if (status) status.textContent = color.toUpperCase();
+}
+
+function updateHairBeardHexColor(e, part) {
+  const field = HAIR_BEARD_COLOR_FIELDS[part];
+  const input = e && e.currentTarget;
+  if (!field || !input) return;
+  const color = String(input.value || '').trim().toLowerCase();
+  if (!color) { resetHairBeardColor(e, part); return; }
+  if (!/^#[0-9a-f]{6}$/.test(color)) {
+    input.value = hairBeardState.colors[part] || '';
+    return;
+  }
+  hairBeardState.colors[part] = color;
+  const control = input.closest('.hair-beard-color-control');
+  const picker = control && control.querySelector('input[type="color"]');
+  const status = control && control.querySelector('.hair-beard-color-status');
+  if (picker) picker.value = color;
+  if (status) status.textContent = color.toUpperCase();
+  if (control) control.classList.add('has-color');
+}
+
+function resetHairBeardColor(e, part) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (!HAIR_BEARD_COLOR_FIELDS[part]) return;
+  hairBeardState.colors[part] = null;
+  const modal = document.getElementById('photoToolModalBody');
+  const control = modal && modal.querySelector('[data-color-part="'+part+'"]');
+  if (!control) return;
+  control.classList.remove('has-color');
+  const hex = control.querySelector('.hair-beard-color-hex');
+  const status = control.querySelector('.hair-beard-color-status');
+  const picker = control.querySelector('input[type="color"]');
+  if (hex) hex.value = '';
+  if (picker) picker.value = HAIR_BEARD_COLOR_FIELDS[part].default;
+  if (status) status.textContent = 'Как в исходном фото';
+}
+
+function hairBeardColorsHtml() {
+  return '<section class="hair-beard-colors" aria-label="Цвет волос, бороды и бровей"><header><b>Цвет</b><small>Настраивается отдельно для каждой зоны</small></header><div class="hair-beard-color-grid">'
+    + Object.entries(HAIR_BEARD_COLOR_FIELDS).map(([part,field]) => {
+      const color = hairBeardState.colors[part];
+      return '<div class="hair-beard-color-control '+(color?'has-color':'')+'" data-color-part="'+part+'"><label class="hair-beard-color-label" for="hairBeardColor_'+part+'">'+field.label+'</label><div class="hair-beard-color-actions"><label class="hair-beard-color-swatch" aria-label="'+field.instruction+'"><input id="hairBeardColor_'+part+'" type="color" value="'+(color||field.default)+'" aria-label="'+field.instruction+'" oninput="SYLVEX.updateHairBeardColor(event,\''+part+'\')"></label><input class="hair-beard-color-hex" type="text" inputmode="text" maxlength="7" value="'+(color||'')+'" placeholder="HEX" aria-label="HEX '+field.instruction+'" onchange="SYLVEX.updateHairBeardHexColor(event,\''+part+'\')"><button type="button" class="hair-beard-color-reset" onclick="SYLVEX.resetHairBeardColor(event,\''+part+'\')">Сброс</button></div><small class="hair-beard-color-status">'+(color?color.toUpperCase():'Как в исходном фото')+'</small></div>';
+    }).join('')+'</div></section>';
+}
+
 function hairBeardCatalogHtml() {
   const tabs = Object.entries(HAIR_BEARD_CATEGORY_LABELS).map(([id,label]) => '<button type="button" class="hair-beard-tab '+(hairBeardState.category===id?'active':'')+'" aria-pressed="'+(hairBeardState.category===id)+'" onclick="SYLVEX.selectHairBeardCategory(event,\''+id+'\')">'+label+'</button>').join('');
   const cards = HAIR_BEARD_PRESETS.filter(item=>item.category===hairBeardState.category).map(item=>'<button type="button" class="hair-beard-card '+(hairBeardState.selectedPresetId===item.id?'selected':'')+'" aria-pressed="'+(hairBeardState.selectedPresetId===item.id)+'" data-preset-id="'+item.id+'" onclick="SYLVEX.selectHairBeardPreset(event,\''+item.id+'\')"><span class="hair-beard-card-image"><img src="'+item.referenceAsset+'" alt="'+HAIR_BEARD_PRESET_LABELS[item.id]+' reference" loading="lazy" decoding="async"></span><span class="hair-beard-card-name">'+HAIR_BEARD_PRESET_LABELS[item.id]+'</span><span class="hair-beard-card-check" aria-hidden="true">✓</span></button>').join('');
-  return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="hair-beard-grid">'+cards+'</div></section>';
+  return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="hair-beard-grid">'+cards+'</div>'+hairBeardColorsHtml()+'</section>';
 }
 
 function renderPhotoToolModal() {
@@ -7390,7 +7455,9 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'hair_beard') {
     const preset = HAIR_BEARD_PRESETS.find(item => item.id === hairBeardState.selectedPresetId);
     const label = preset ? HAIR_BEARD_PRESET_LABELS[preset.id] : '';
-    return 'Apply the selected hairstyle or facial-hair reference named "' + (label || 'custom') + '" to the person in the uploaded portrait. Use the local catalog reference image when a preset is selected. Preserve identity, facial anatomy, pose, scene and lighting. Do not alter any other aspect of the photo.' + suffix;
+    const parts = { hair:'hair', beard:'beard and mustache', eyebrows:'eyebrows' };
+    const colorInstructions = Object.entries(parts).map(([part,name]) => name + ': ' + (hairBeardState.colors[part] || 'preserve the original color')).join('; ');
+    return 'Apply the selected hairstyle or facial-hair reference named "' + (label || 'custom') + '" to the person in the uploaded portrait. Use the local catalog reference image when a preset is selected. Preserve identity, facial anatomy, pose, scene and lighting. Change only the selected hair/beard style. Independent color settings — ' + colorInstructions + '. Apply each specified color only to its named region and keep the other two regions unchanged. Do not alter any other aspect of the photo.' + suffix;
   }
   if (kind === 'face_retouch') return 'Retouch the face naturally: soften temporary skin imperfections and wrinkles while preserving identity, facial anatomy, realistic skin texture and age-appropriate detail.' + suffix;
   return 'Enhance the first reference photo. Improve sharpness, detail, resolution, dynamic range and natural color while preserving the exact subject, identity, composition, objects and scene. Do not add or remove people or objects.' + suffix;
@@ -21854,7 +21921,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardColor, updateHairBeardHexColor, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
