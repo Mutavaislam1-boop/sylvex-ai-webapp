@@ -7243,7 +7243,7 @@ CSS-БЛОК: .generation-info-actions button
 .photo-tool-modal.replace-object-mask-editor-modal{z-index:1000010;align-items:center;justify-content:center;padding:18px}
 .photo-tool-dialog.replace-object-mask-editor-dialog{width:min(980px,calc(100vw - 36px));height:min(760px,calc(100dvh - 36px));max-width:none;max-height:none;overflow:hidden;border-radius:22px;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;padding:16px}
 .replace-object-mask-editor-dialog .photo-tool-head{width:100%;flex:0 0 auto}
-.replace-object-mask-canvas-wrap{position:relative;flex:1 1 auto;min-height:0;max-width:100%;border-radius:16px;overflow:hidden;background:var(--bg-1)}
+.replace-object-mask-canvas-wrap{position:relative;align-self:stretch;width:100%;flex:1 1 auto;min-height:0;max-width:100%;border-radius:16px;overflow:hidden;background:var(--bg-1)}
 .replace-object-mask-canvas-wrap img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:contain;pointer-events:none}
 .replace-object-mask-canvas-wrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
 .replace-object-mask-toolbar{display:flex;justify-content:flex-end;gap:8px;width:100%;flex:0 0 auto;margin-top:12px}
