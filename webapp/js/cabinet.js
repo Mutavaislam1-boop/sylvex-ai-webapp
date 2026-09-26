@@ -6972,7 +6972,7 @@ function logoResultPreviewHtml(config) {
   const reference=logoReferenceById(result.referenceId);
   return '<div class="photo-tool-demo-column-result">'
     + '<div class="logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"></div>'
-    + '<div class="logo-result-links"><a href="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" download="sylvex-logo.svg">Скачать SVG</a>'
+    + '<div class="logo-result-links"><button type="button" class="generation-info-svg-download" data-download-url="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>'
     + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div></div>';
 }
 function selectLogoReference(e,id) {
@@ -15697,7 +15697,7 @@ function openGenerationInfoDrawer(e, index) {
     actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
-    if (svgUrl && jobId) actionHtml += '<a class="generation-info-svg-download" href="' + S.escapeHtml(completedGenerationDownloadUrl(jobId) + '&asset=svg') + '" download="sylvex-logo.svg">Скачать SVG</a>';
+    if (svgUrl && jobId) actionHtml += '<button type="button" class="generation-info-svg-download" data-download-url="' + S.escapeHtml(completedGenerationDownloadUrl(jobId) + '&asset=svg') + '" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>';
     if (type === 'image') {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     } else if (type === 'video') {
