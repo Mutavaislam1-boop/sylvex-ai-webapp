@@ -6673,8 +6673,9 @@ function openReplaceObjectMaskEditor(e) {
   const state=photoToolStateFor('replace_object');if(!state||!state.files[0])return;
   const modal=ensureReplaceObjectMaskEditor(),img=document.getElementById('replaceObjectMaskImage'),existing=state.maskUrl||'';
   replaceObjectEditorHistory=[];modal.classList.add('show');
-  const draw=()=>initReplaceObjectMaskCanvas(existing);
-  if(img.src===state.files[0].url&&img.complete&&img.naturalWidth)window.requestAnimationFrame(draw);else{img.onload=draw;img.src=state.files[0].url}
+  const draw=()=>window.requestAnimationFrame(()=>window.requestAnimationFrame(()=>initReplaceObjectMaskCanvas(existing)));
+  img.onerror=()=>toast('Не удалось открыть фото. Попробуйте загрузить его ещё раз.');
+  if(img.src===state.files[0].url&&img.complete&&img.naturalWidth)draw();else{img.onload=draw;img.src=state.files[0].url}
 }
 
 function initReplaceObjectMaskCanvas(existingMask) {
