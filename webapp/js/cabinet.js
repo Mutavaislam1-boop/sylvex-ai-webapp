@@ -299,7 +299,7 @@ const PHOTO_TOOL_CONFIG = {
     labels: ['Фото для улучшения'],
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
-  animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фотографию и опишите желаемое движение.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4', compare:false, route:'video' },
+  animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
   tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
   logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите основное изображение и логотип для размещения.', min:2, max:2, labels:['Основное фото','Логотип'], preview:'assets/quick-tools/logo-placement.jpg', library:'logo' },
   remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
@@ -6901,6 +6901,14 @@ function updateRemoveObjectReadiness() {
   btn.disabled = !hasSource || (!hasMask && !hasText) || !!state.generating;
 }
 
+function updateAnimatePhotoPromptCounter() {
+  if (activePhotoTool !== 'animate_photo') return;
+  const textEl = document.getElementById('photoToolExtraPrompt');
+  const counterEl = document.getElementById('photoToolPromptCounter');
+  if (!textEl || !counterEl) return;
+  counterEl.textContent = String(textEl.value.length) + '/250';
+}
+
 function closeRemoveObjectMaskEditor(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   closeRemoveObjectColorPicker();
@@ -7137,6 +7145,7 @@ function renderPhotoToolModal() {
   const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
   const hasTattooPhoto = Boolean(state.files[0]);
   const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
+  const isAnimatePhoto = activePhotoTool === 'animate_photo';
   const ready = isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
         && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
@@ -7145,6 +7154,11 @@ function renderPhotoToolModal() {
         : activePhotoTool === 'hair_beard'
         ? (hasHairPhoto ? (hasHairText || Boolean(hairBeardState.selectedPresetId)) : hasHairText)
         : state.files.filter(Boolean).length >= config.min);
+  const promptPlaceholder = isAnimatePhoto ? 'Опишите желаемое движение (необязательно, до 250 символов)' : 'Дополнительные пожелания (необязательно)';
+  const promptMaxLength = isAnimatePhoto ? ' maxlength="250"' : '';
+  const promptOninput = isRemoveObject
+    ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"'
+    : (isAnimatePhoto ? ' oninput="SYLVEX.updateAnimatePhotoPromptCounter()"' : '');
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
@@ -7154,8 +7168,8 @@ function renderPhotoToolModal() {
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + (activePhotoTool==='hair_beard' || activePhotoTool==='tattoo' ? '' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
-    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
+    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
+    + (isAnimatePhoto ? '<small class="photo-tool-char-counter" id="photoToolPromptCounter">0/250</small>' : '')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
     + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':'Сгенерировать'))
     + '</button>'
@@ -7810,6 +7824,7 @@ async function generatePhotoTool(e) {
   if (kind === 'remove_object') return generateRemoveObjectTool(state);
   if (kind === 'remove_bg') return generateRemoveBgTool(state);
   if (kind === 'enhance') return generateEnhancePhotoTool(state);
+  if (kind === 'animate_photo') return generateAnimatePhotoTool(state);
   const extraEl = document.getElementById('photoToolExtraPrompt');
   const extra = kind === 'hair_beard'
     ? String((extraEl && extraEl.value) || hairBeardState.referencePrompt || '').trim()
@@ -7830,21 +7845,6 @@ async function generatePhotoTool(e) {
   if (kind === 'tattoo' && tattooState.selectedReferenceId) {
     const reference = tattooReferenceById(tattooState.selectedReferenceId);
     if (reference) refs.push(reference.referenceAsset);
-  }
-  if (config.route === 'video') {
-    const source = refs[0];
-    closePhotoToolModal();
-    switchView('tools');
-    updateComposerMode('video');
-    applyUploadToTarget(source, UPLOAD_TARGETS.VIDEO_START);
-    window.setTimeout(() => {
-      const input = document.getElementById('chatInput');
-      if (input && extra) { input.value = extra; autoGrow(input); }
-      renderVideoControls();
-      updateSendButton();
-    }, 80);
-    toast('Фото перенесено в генерацию видео');
-    return;
   }
   const prompt = photoToolPrompt(kind, extra);
   state.generating = true;
@@ -8145,6 +8145,102 @@ async function generateEnhancePhotoTool(state) {
     renderPhotoToolModal();
     toast(translateGenerationError(error, 'Не удалось обработать фото'));
   } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
+  }
+}
+
+// =====================================================
+// ANIMATE PHOTO: isolated generation flow (Runway Gen-4.5 image-to-video).
+// Deliberately does NOT reuse videoOptionsPayload()/videoState (the normal
+// Pro Studio composer's model/duration/resolution/reference state) - its
+// request is built from exactly the two tool-owned inputs below via
+// callGenerate's isolateRequest escape hatch, same pattern as Enhance
+// Photo/Remove Object/Remove Background. ANIMATE_PHOTO_TOOL_KEY must match
+// main.py's ANIMATE_PHOTO_TOOL_KEY exactly, or a request can silently fall
+// through to the generic video_generation() dispatch instead of this
+// isolated flow. Only the post-generation result handling (chat card,
+// History refresh, active-job cleanup) reuses the same generic pipeline
+// every other video provider already uses. The modal/UI itself is
+// untouched - PHOTO_TOOL_CONFIG.animate_photo's existing single-upload-slot
+// config still drives rendering via the shared renderPhotoToolModal().
+// Duration (5s) and output ratio (nearest supported match to the source
+// photo) are fixed/computed entirely server-side - there is no
+// model/duration/resolution/ratio selector here.
+// =====================================================
+const ANIMATE_PHOTO_TOOL_KEY = 'animate_photo';
+const ANIMATE_PHOTO_PROMPT_MAX_LENGTH = 250;
+
+async function generateAnimatePhotoTool(state) {
+  const sourceUrl = state.files[0] && state.files[0].url;
+  if (!sourceUrl) {
+    toast('Загрузите фото');
+    return;
+  }
+  const extraEl = document.getElementById('photoToolExtraPrompt');
+  const userPrompt = extraEl ? String(extraEl.value || '').trim() : '';
+  if (userPrompt.length > ANIMATE_PHOTO_PROMPT_MAX_LENGTH) {
+    // Re-validated independently of the textarea's own maxlength - never
+    // silently truncate, always reject before any provider request.
+    toast('Описание слишком длинное (максимум 250 символов)');
+    return;
+  }
+  const displayPrompt = userPrompt || 'Оживление фото';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('video'),
+  }) - 1;
+  renderChat();
+  // Animate Photo produces a video, but the Photo Tool modal it lives in
+  // forces studioMode into 'image' when opened (see openPhotoToolModal) -
+  // temporarily flip it to 'video' so callGenerate's own video_options/
+  // job-mode plumbing (gated on isVideoMode()) actually engages, then
+  // restore it immediately, the same temporary-override pattern
+  // generateVisualResourceWithOpenAI uses for its own image state.
+  const previousStudioMode = studioMode;
+  studioMode = 'video';
+  try {
+    const start = await callGenerate(displayPrompt, null, [], {
+      tool: ANIMATE_PHOTO_TOOL_KEY,
+      animatePhotoSourceUrl: sourceUrl,
+      animatePhotoPrompt: userPrompt,
+    }, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'runway_gen4_5_animate_photo',
+      provider: 'runway',
+    });
+    const result = start.result || start;
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: generationResultMetadata('video', displayPrompt, result, [sourceUrl], { tool: ANIMATE_PHOTO_TOOL_KEY }),
+    };
+    state.files = [];
+    state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      fallback: 'Не удалось создать видео. Попробуйте ещё раз.',
+      mode: 'video',
+      prompt: displayPrompt,
+    });
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось создать видео'));
+  } finally {
+    studioMode = previousStudioMode;
     document.body.classList.remove('ai-generating');
     renderChat();
     rememberCurrentChatSpace();
@@ -22337,6 +22433,7 @@ async function waitGeneration(jobId, options) {
   S.clearRemoveObjectMaskEditor = clearRemoveObjectMaskEditor;
   S.saveRemoveObjectMask = saveRemoveObjectMask;
   S.updateRemoveObjectReadiness = updateRemoveObjectReadiness;
+  S.updateAnimatePhotoPromptCounter = updateAnimatePhotoPromptCounter;
   S.openQuickImageExtraFile = openQuickImageExtraFile;
   S.onQuickImageExtraFile = onQuickImageExtraFile;
   S.chooseTryOnPersonSource = chooseTryOnPersonSource;
