@@ -9292,7 +9292,8 @@ html.web-embed .studio-layout-switch{display:none!important}
 /* Independent hair, beard and eyebrow colors within the Hairstyle & Beard tool. */
 .hair-beard-colors{margin-top:13px;padding-top:12px;border-top:1px solid var(--st-border,rgba(255,255,255,.1))}
 .hair-beard-colors>header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:9px}.hair-beard-colors>header>b{font-size:12px;font-weight:700}.hair-beard-colors>header>small{font-size:10px;color:var(--st-mute,rgba(255,255,255,.5))}
-.hair-beard-color-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.hair-beard-shared-color{margin-bottom:8px;border-color:var(--st-border,rgba(255,255,255,.2));background:var(--st-bg-2,#18191d)}
+.hair-beard-color-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .hair-beard-color-control{min-width:0;padding:8px 9px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:12px;background:var(--st-bg-2,#18191d)}
 .hair-beard-color-label{display:block;margin-bottom:6px;font-size:11px;font-weight:650;color:var(--st-text,#f3f3f3)}
 .hair-beard-color-actions{display:flex;align-items:center;gap:6px;min-width:0}
@@ -9304,4 +9305,4 @@ html.web-embed .studio-layout-switch{display:none!important}
 .hair-beard-color-reset:hover{background:rgba(255,255,255,.07);color:var(--st-text,#fff)}
 .hair-beard-color-status{display:block;margin-top:5px;min-height:12px;color:var(--st-mute,rgba(255,255,255,.48));font-size:9px;line-height:1.2}
 .hair-beard-color-control.has-color .hair-beard-color-status{color:var(--st-text,#f3f3f3)}
-@media(max-width:680px){.hair-beard-colors{margin-top:10px;padding-top:10px}.hair-beard-colors>header>small{font-size:9px}.hair-beard-color-grid{gap:5px}.hair-beard-color-control{padding:7px 6px}.hair-beard-color-label{font-size:10px}.hair-beard-color-actions{gap:4px}.hair-beard-color-swatch{width:27px;height:27px;flex-basis:27px}.hair-beard-color-swatch input{width:39px;height:39px}.hair-beard-color-hex{width:55px;height:28px;padding:0 5px;font-size:10px}.hair-beard-color-reset{font-size:8px;padding:5px 3px}}
+@media(max-width:680px){.hair-beard-colors{margin-top:10px;padding-top:10px}.hair-beard-colors>header>small{font-size:9px}.hair-beard-color-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.hair-beard-shared-color{margin-bottom:6px}.hair-beard-color-control{padding:7px 6px}.hair-beard-color-label{font-size:10px}.hair-beard-color-actions{gap:4px}.hair-beard-color-swatch{width:27px;height:27px;flex-basis:27px}.hair-beard-color-swatch input{width:39px;height:39px}.hair-beard-color-hex{width:55px;height:28px;padding:0 5px;font-size:10px}.hair-beard-color-reset{font-size:8px;padding:5px 3px}}

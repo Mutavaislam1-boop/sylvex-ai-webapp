@@ -333,7 +333,7 @@ photoToolState.replace_character = {
 };
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
-const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, eyebrows: null } };
+const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, comparison: null };
 const HAIR_BEARD_PRESETS = [
   ...'bald buzz_cut very_short crew_cut short_crop textured_crop side_part slick_back quiff medium_hair long_hair long_wavy_hair curly_hair afro middle_part man_bun'.split(' ').map(id=>({id,category:'men',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
   ...'clean_shaven light_stubble heavy_stubble short_beard medium_beard long_beard full_beard beard_without_mustache goatee mustache thick_mustache beard_and_mustache long_beard_long_hair long_beard_short_hair beard_bald beard_buzz_cut beard_medium_hair mustache_short_hair stubble_short_hair'.split(' ').map(id=>({id,category:'beard_mustache',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
@@ -6524,6 +6524,16 @@ function photoToolDemoHtml(config) {
   return '<div class="photo-tool-demo">'+(source?photoToolMediaHtml(source,'photo-tool-demo-media'):'')+'<div class="photo-tool-demo-placeholder"><span></span><b>Демонстрация функции</b><small>Референс будет добавлен позже</small></div></div>';
 }
 
+function hairBeardComparisonHtml(config) {
+  const comparison = hairBeardState.comparison;
+  if (!comparison || !comparison.before || !comparison.after) return photoToolDemoHtml(config);
+  return '<div class="photo-tool-demo photo-tool-compare hair-beard-result-compare" style="--compare-position:50%">'
+    + photoToolMediaHtml(comparison.after,'photo-tool-after')
+    + photoToolMediaHtml(comparison.before,'photo-tool-before')
+    + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить исходное фото и результат" oninput="SYLVEX.updatePhotoToolComparison(event)">'
+    + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+}
+
 function loadPhotoToolDemos() {
   if (photoToolDemosPromise) return photoToolDemosPromise;
   photoToolDemosPromise = fetch('/api/public/prostudio/photo-tool-demos', { credentials:'same-origin' })
@@ -6883,62 +6893,105 @@ function selectHairBeardPreset(e, id) {
 const HAIR_BEARD_COLOR_FIELDS = {
   hair: { label:'Волосы', default:'#38291f', instruction:'Цвет волос' },
   beard: { label:'Борода', default:'#38291f', instruction:'Цвет бороды' },
+  mustache: { label:'Усы', default:'#38291f', instruction:'Цвет усов' },
   eyebrows: { label:'Брови', default:'#38291f', instruction:'Цвет бровей' },
 };
+
+const HAIR_BEARD_COLOR_PARTS = ['hair','beard','mustache','eyebrows'];
+
+function syncHairBeardColorControl(part, color) {
+  const modal = document.getElementById('photoToolModalBody');
+  const control = modal && modal.querySelector('[data-color-part="'+part+'"]');
+  if (!control) return;
+  control.classList.toggle('has-color', Boolean(color));
+  const picker = control.querySelector('input[type="color"]');
+  const hex = control.querySelector('.hair-beard-color-hex');
+  const status = control.querySelector('.hair-beard-color-status');
+  if (picker && color) picker.value = color;
+  else if (picker) picker.value = HAIR_BEARD_COLOR_FIELDS[part].default;
+  if (hex) hex.value = color || '';
+  if (status) status.textContent = color ? color.toUpperCase() : 'Как в исходном фото';
+}
+
+function syncHairBeardSharedColorControl(color) {
+  const modal = document.getElementById('photoToolModalBody');
+  const control = modal && modal.querySelector('[data-color-part="all"]');
+  if (!control) return;
+  control.classList.toggle('has-color', Boolean(color));
+  const picker = control.querySelector('input[type="color"]');
+  const hex = control.querySelector('.hair-beard-color-hex');
+  const status = control.querySelector('.hair-beard-color-status');
+  if (picker && color) picker.value = color;
+  else if (picker) picker.value = HAIR_BEARD_COLOR_FIELDS.hair.default;
+  if (hex) hex.value = color || '';
+  if (status) status.textContent = color ? 'Применён ко всем зонам · '+color.toUpperCase() : 'Задаёт одинаковый цвет всем зонам';
+}
 
 function updateHairBeardColor(e, part) {
   const field = HAIR_BEARD_COLOR_FIELDS[part];
   const input = e && e.currentTarget;
+  if (part === 'all') {
+    if (!input) return;
+    const sharedColor = String(input.value || '').toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(sharedColor)) return;
+    hairBeardState.sharedColor = sharedColor;
+    HAIR_BEARD_COLOR_PARTS.forEach(key => { hairBeardState.colors[key] = sharedColor; syncHairBeardColorControl(key, sharedColor); });
+    syncHairBeardSharedColorControl(sharedColor);
+    return;
+  }
   if (!field || !input) return;
   const color = String(input.value || '').toLowerCase();
   if (!/^#[0-9a-f]{6}$/.test(color)) return;
+  hairBeardState.sharedColor = null;
   hairBeardState.colors[part] = color;
-  const control = input.closest('.hair-beard-color-control');
-  if (!control) return;
-  control.classList.add('has-color');
-  const hex = control.querySelector('.hair-beard-color-hex');
-  const status = control.querySelector('.hair-beard-color-status');
-  if (hex) hex.value = color;
-  if (status) status.textContent = color.toUpperCase();
+  syncHairBeardColorControl(part, color);
+  syncHairBeardSharedColorControl(null);
 }
 
 function updateHairBeardHexColor(e, part) {
   const field = HAIR_BEARD_COLOR_FIELDS[part];
   const input = e && e.currentTarget;
-  if (!field || !input) return;
+  if (!input) return;
   const color = String(input.value || '').trim().toLowerCase();
+  if (part === 'all') {
+    if (!color) { resetHairBeardColor(e, 'all'); return; }
+    if (!/^#[0-9a-f]{6}$/.test(color)) { input.value = hairBeardState.sharedColor || ''; return; }
+    hairBeardState.sharedColor = color;
+    HAIR_BEARD_COLOR_PARTS.forEach(key => { hairBeardState.colors[key] = color; syncHairBeardColorControl(key, color); });
+    syncHairBeardSharedColorControl(color);
+    return;
+  }
+  if (!field) return;
   if (!color) { resetHairBeardColor(e, part); return; }
   if (!/^#[0-9a-f]{6}$/.test(color)) {
     input.value = hairBeardState.colors[part] || '';
     return;
   }
+  hairBeardState.sharedColor = null;
   hairBeardState.colors[part] = color;
-  const control = input.closest('.hair-beard-color-control');
-  const picker = control && control.querySelector('input[type="color"]');
-  const status = control && control.querySelector('.hair-beard-color-status');
-  if (picker) picker.value = color;
-  if (status) status.textContent = color.toUpperCase();
-  if (control) control.classList.add('has-color');
+  syncHairBeardColorControl(part, color);
+  syncHairBeardSharedColorControl(null);
 }
 
 function resetHairBeardColor(e, part) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (part === 'all') {
+    hairBeardState.sharedColor = null;
+    HAIR_BEARD_COLOR_PARTS.forEach(key => { hairBeardState.colors[key] = null; syncHairBeardColorControl(key, null); });
+    syncHairBeardSharedColorControl(null);
+    return;
+  }
   if (!HAIR_BEARD_COLOR_FIELDS[part]) return;
   hairBeardState.colors[part] = null;
-  const modal = document.getElementById('photoToolModalBody');
-  const control = modal && modal.querySelector('[data-color-part="'+part+'"]');
-  if (!control) return;
-  control.classList.remove('has-color');
-  const hex = control.querySelector('.hair-beard-color-hex');
-  const status = control.querySelector('.hair-beard-color-status');
-  const picker = control.querySelector('input[type="color"]');
-  if (hex) hex.value = '';
-  if (picker) picker.value = HAIR_BEARD_COLOR_FIELDS[part].default;
-  if (status) status.textContent = 'Как в исходном фото';
+  hairBeardState.sharedColor = null;
+  syncHairBeardColorControl(part, null);
+  syncHairBeardSharedColorControl(null);
 }
 
 function hairBeardColorsHtml() {
-  return '<section class="hair-beard-colors" aria-label="Цвет волос, бороды и бровей"><header><b>Цвет</b><small>Настраивается отдельно для каждой зоны</small></header><div class="hair-beard-color-grid">'
+  const shared = hairBeardState.sharedColor;
+  const sharedControl = '<div class="hair-beard-color-control hair-beard-shared-color '+(shared?'has-color':'')+'" data-color-part="all"><label class="hair-beard-color-label" for="hairBeardColor_all">Один цвет для всех</label><div class="hair-beard-color-actions"><label class="hair-beard-color-swatch" aria-label="Один цвет для волос, бороды, усов и бровей"><input id="hairBeardColor_all" type="color" value="'+(shared||HAIR_BEARD_COLOR_FIELDS.hair.default)+'" aria-label="Один цвет для всех" oninput="SYLVEX.updateHairBeardColor(event,\'all\')"></label><input class="hair-beard-color-hex" type="text" inputmode="text" maxlength="7" value="'+(shared||'')+'" placeholder="HEX" aria-label="HEX один цвет для всех" onchange="SYLVEX.updateHairBeardHexColor(event,\'all\')"><button type="button" class="hair-beard-color-reset" onclick="SYLVEX.resetHairBeardColor(event,\'all\')">Сбросить все</button></div><small class="hair-beard-color-status">'+(shared?'Применён ко всем зонам · '+shared.toUpperCase():'Задаёт одинаковый цвет всем зонам')+'</small></div>';
+  return '<section class="hair-beard-colors" aria-label="Цвет волос, бороды, усов и бровей"><header><b>Цвет</b><small>Можно настроить зоны отдельно или задать один цвет для всех</small></header>'+sharedControl+'<div class="hair-beard-color-grid">'
     + Object.entries(HAIR_BEARD_COLOR_FIELDS).map(([part,field]) => {
       const color = hairBeardState.colors[part];
       return '<div class="hair-beard-color-control '+(color?'has-color':'')+'" data-color-part="'+part+'"><label class="hair-beard-color-label" for="hairBeardColor_'+part+'">'+field.label+'</label><div class="hair-beard-color-actions"><label class="hair-beard-color-swatch" aria-label="'+field.instruction+'"><input id="hairBeardColor_'+part+'" type="color" value="'+(color||field.default)+'" aria-label="'+field.instruction+'" oninput="SYLVEX.updateHairBeardColor(event,\''+part+'\')"></label><input class="hair-beard-color-hex" type="text" inputmode="text" maxlength="7" value="'+(color||'')+'" placeholder="HEX" aria-label="HEX '+field.instruction+'" onchange="SYLVEX.updateHairBeardHexColor(event,\''+part+'\')"><button type="button" class="hair-beard-color-reset" onclick="SYLVEX.resetHairBeardColor(event,\''+part+'\')">Сброс</button></div><small class="hair-beard-color-status">'+(color?color.toUpperCase():'Как в исходном фото')+'</small></div>';
@@ -6985,7 +7038,7 @@ function renderPhotoToolModal() {
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
     + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+'">'
-    + '<div class="photo-tool-demo-column">' + photoToolDemoHtml(config) + '<p>' + S.escapeHtml(config.description) + '</p></div>'
+    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : S.escapeHtml(config.description)) + '</p></div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
@@ -7360,6 +7413,15 @@ function closePhotoToolModal(e) {
   }
   const modal = document.getElementById('photoToolModal');
   if (modal && !(activePhotoTool && photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating)) {
+    if (activePhotoTool === 'hair_beard') {
+      const state = photoToolState.hair_beard;
+      if (state) state.files = [];
+      hairBeardState.category = 'men';
+      hairBeardState.selectedPresetId = null;
+      hairBeardState.colors = { hair:null, beard:null, mustache:null, eyebrows:null };
+      hairBeardState.sharedColor = null;
+      hairBeardState.comparison = null;
+    }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
     // into image mode even when it was opened from Home or another mode -
@@ -7455,9 +7517,11 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'hair_beard') {
     const preset = HAIR_BEARD_PRESETS.find(item => item.id === hairBeardState.selectedPresetId);
     const label = preset ? HAIR_BEARD_PRESET_LABELS[preset.id] : '';
-    const parts = { hair:'hair', beard:'beard and mustache', eyebrows:'eyebrows' };
-    const colorInstructions = Object.entries(parts).map(([part,name]) => name + ': ' + (hairBeardState.colors[part] || 'preserve the original color')).join('; ');
-    return 'Apply the selected hairstyle or facial-hair reference named "' + (label || 'custom') + '" to the person in the uploaded portrait. Use the local catalog reference image when a preset is selected. Preserve identity, facial anatomy, pose, scene and lighting. Change only the selected hair/beard style. Independent color settings — ' + colorInstructions + '. Apply each specified color only to its named region and keep the other two regions unchanged. Do not alter any other aspect of the photo.' + suffix;
+    const parts = { hair:'hair', beard:'beard', mustache:'mustache', eyebrows:'eyebrows' };
+    const colorInstructions = hairBeardState.sharedColor
+      ? 'use the same exact color ' + hairBeardState.sharedColor + ' for hair, beard, mustache and eyebrows'
+      : Object.entries(parts).map(([part,name]) => name + ': ' + (hairBeardState.colors[part] || 'preserve the original color')).join('; ');
+    return 'Apply the selected hairstyle or facial-hair reference named \"' + (label || 'custom') + '\" to the person in the uploaded portrait. Use the local catalog reference image when a preset is selected. Preserve identity, facial anatomy, pose, scene and lighting. Change only the selected hair/beard style. Independent color settings — ' + colorInstructions + '. Apply each specified color only to its named region and preserve the original color for all other regions. Do not alter any other aspect of the photo.' + suffix;
   }
   if (kind === 'face_retouch') return 'Retouch the face naturally: soften temporary skin imperfections and wrinkles while preserving identity, facial anatomy, realistic skin texture and age-appropriate detail.' + suffix;
   return 'Enhance the first reference photo. Improve sharpness, detail, resolution, dynamic range and natural color while preserving the exact subject, identity, composition, objects and scene. Do not add or remove people or objects.' + suffix;
@@ -7527,10 +7591,17 @@ async function generatePhotoTool(e) {
       imageResultMini: true,
       metadata: imageGenerationMetadata(prompt, refs, result, options),
     };
-    state.files = [];
-    state.generating = false;
-    closePhotoToolModal();
-    toast('Обработка завершена');
+    if (kind === 'hair_beard') {
+      if (images.length && state.files[0]) hairBeardState.comparison = { before:state.files[0].url, after:images[0] };
+      state.generating = false;
+      renderPhotoToolModal();
+      toast(hairBeardState.comparison ? 'Результат показан в сравнении до/после' : 'Обработка завершена');
+    } else {
+      state.files = [];
+      state.generating = false;
+      closePhotoToolModal();
+      toast('Обработка завершена');
+    }
     loadConversations();
   } catch (error) {
     state.generating = false;
