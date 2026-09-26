@@ -333,7 +333,8 @@ photoToolState.replace_character = {
 };
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
-const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, comparison: null };
+const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, comparison: null, customPresets: [], referencePrompt: '', generatingReference: false };
+const HAIR_BEARD_IMAGE_MODEL = 'gpt_image_2_5_sunburst';
 const HAIR_BEARD_PRESETS = [
   ...'bald buzz_cut very_short crew_cut short_crop textured_crop side_part slick_back quiff medium_hair long_hair long_wavy_hair curly_hair afro middle_part man_bun'.split(' ').map(id=>({id,category:'men',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
   ...'clean_shaven light_stubble heavy_stubble short_beard medium_beard long_beard full_beard beard_without_mustache goatee mustache thick_mustache beard_and_mustache long_beard_long_hair long_beard_short_hair beard_bald beard_buzz_cut beard_medium_hair mustache_short_hair stubble_short_hair'.split(' ').map(id=>({id,category:'beard_mustache',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
@@ -6877,17 +6878,30 @@ const HAIR_BEARD_PRESET_LABELS = {
 
 function selectHairBeardCategory(e, category) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (!HAIR_BEARD_CATEGORY_LABELS[category]) return;
+  if (!HAIR_BEARD_CATEGORY_LABELS[category] || hairBeardState.generatingReference) return;
   hairBeardState.category = category;
   renderPhotoToolModal();
 }
 
+function hairBeardPresetById(id) {
+  return HAIR_BEARD_PRESETS.find(item => item.id === id) || hairBeardState.customPresets.find(item => item.id === id) || null;
+}
+
 function selectHairBeardPreset(e, id) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
-  const preset = HAIR_BEARD_PRESETS.find(item => item.id === id && item.category === hairBeardState.category);
-  if (!preset) return;
+  const preset = hairBeardPresetById(id);
+  if (hairBeardState.generatingReference || !preset || preset.category !== hairBeardState.category) return;
   hairBeardState.selectedPresetId = preset.id;
+  hairBeardState.comparison = null;
   renderPhotoToolModal();
+}
+
+function updateHairBeardReferencePrompt(e) {
+  const input = e && e.currentTarget;
+  if (!input) return;
+  hairBeardState.referencePrompt = String(input.value || '').slice(0, 1000);
+  const createButton = document.querySelector('.hair-beard-create-reference');
+  if (createButton) createButton.disabled = !hairBeardState.referencePrompt.trim() || hairBeardState.generatingReference || photoToolState.hair_beard.generating;
 }
 
 const HAIR_BEARD_COLOR_FIELDS = {
@@ -7000,7 +7014,8 @@ function hairBeardColorsHtml() {
 
 function hairBeardCatalogHtml() {
   const tabs = Object.entries(HAIR_BEARD_CATEGORY_LABELS).map(([id,label]) => '<button type="button" class="hair-beard-tab '+(hairBeardState.category===id?'active':'')+'" aria-pressed="'+(hairBeardState.category===id)+'" onclick="SYLVEX.selectHairBeardCategory(event,\''+id+'\')">'+label+'</button>').join('');
-  const cards = HAIR_BEARD_PRESETS.filter(item=>item.category===hairBeardState.category).map(item=>'<button type="button" class="hair-beard-card '+(hairBeardState.selectedPresetId===item.id?'selected':'')+'" aria-pressed="'+(hairBeardState.selectedPresetId===item.id)+'" data-preset-id="'+item.id+'" onclick="SYLVEX.selectHairBeardPreset(event,\''+item.id+'\')"><span class="hair-beard-card-image"><img src="'+item.referenceAsset+'" alt="'+HAIR_BEARD_PRESET_LABELS[item.id]+' reference" loading="lazy" decoding="async"></span><span class="hair-beard-card-name">'+HAIR_BEARD_PRESET_LABELS[item.id]+'</span><span class="hair-beard-card-check" aria-hidden="true">✓</span></button>').join('');
+  const presets = HAIR_BEARD_PRESETS.filter(item=>item.category===hairBeardState.category).concat(hairBeardState.customPresets.filter(item=>item.category===hairBeardState.category));
+  const cards = presets.map(item=>'<button type="button" class="hair-beard-card '+(hairBeardState.selectedPresetId===item.id?'selected':'')+(item.custom?' custom':'')+'" aria-pressed="'+(hairBeardState.selectedPresetId===item.id)+'" data-preset-id="'+S.escapeHtml(item.id)+'" onclick="SYLVEX.selectHairBeardPreset(event,\''+S.escapeHtml(item.id)+'\')"><span class="hair-beard-card-image"><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.label||HAIR_BEARD_PRESET_LABELS[item.id]||item.name)+' reference" loading="lazy" decoding="async"></span><span class="hair-beard-card-name">'+S.escapeHtml(item.label||HAIR_BEARD_PRESET_LABELS[item.id]||item.name)+'</span><span class="hair-beard-card-check" aria-hidden="true">✓</span></button>').join('');
   return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="hair-beard-grid">'+cards+'</div>'+hairBeardColorsHtml()+'</section>';
 }
 
@@ -7042,9 +7057,10 @@ function renderPhotoToolModal() {
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>'
+    + (activePhotoTool==='hair_beard' ? '' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
+    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Пожелания к стилю или описание нового референса: например, лысая голова и большие усы" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea><button class="photo-tool-generate hair-beard-create-reference" type="button" '+(!hairBeardState.referencePrompt.trim()||hairBeardState.generatingReference||state.generating?'disabled ':'')+'onclick="SYLVEX.generateHairBeardReference(event)">'+(hairBeardState.generatingReference?'<span class=\"photo-tool-spinner\"></span>Создаём референс…':'Создать референс по тексту')+'</button><small class="hair-beard-reference-hint">Можно создать референс без своего фото. После создания выберите его в списке, затем загрузите портрет.</small>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
-    + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
+    + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : (activePhotoTool==='hair_beard'?'Применить референс к фото':'Запустить обработку'))
     + '</button>'
     + '</div></div>';
   if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
@@ -7412,7 +7428,7 @@ function closePhotoToolModal(e) {
     e.stopPropagation();
   }
   const modal = document.getElementById('photoToolModal');
-  if (modal && !(activePhotoTool && photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating)) {
+  if (modal && !(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference)))) {
     if (activePhotoTool === 'hair_beard') {
       const state = photoToolState.hair_beard;
       if (state) state.files = [];
@@ -7421,6 +7437,9 @@ function closePhotoToolModal(e) {
       hairBeardState.colors = { hair:null, beard:null, mustache:null, eyebrows:null };
       hairBeardState.sharedColor = null;
       hairBeardState.comparison = null;
+      hairBeardState.customPresets = [];
+      hairBeardState.referencePrompt = '';
+      hairBeardState.generatingReference = false;
     }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
@@ -7483,6 +7502,7 @@ async function onPhotoToolFiles(e) {
       if (start + offset < config.max) state.files[start + offset] = file;
     });
     state.files = state.files.slice(0, config.max);
+    if (activePhotoTool === 'hair_beard') hairBeardState.comparison = null;
     renderPhotoToolModal();
   } catch (error) {
     toast((error && error.message) || 'Не удалось загрузить фото');
@@ -7497,6 +7517,7 @@ function removePhotoToolFile(e, kind, index) {
   const state = photoToolStateFor(kind);
   if (!state || state.generating) return;
   state.files.splice(index, 1);
+  if (kind === 'hair_beard') hairBeardState.comparison = null;
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -7515,8 +7536,8 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'replace_object') return 'Replace the region marked by the user in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
   if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
   if (kind === 'hair_beard') {
-    const preset = HAIR_BEARD_PRESETS.find(item => item.id === hairBeardState.selectedPresetId);
-    const label = preset ? HAIR_BEARD_PRESET_LABELS[preset.id] : '';
+    const preset = hairBeardPresetById(hairBeardState.selectedPresetId);
+    const label = preset ? (preset.custom ? preset.name : (preset.label || HAIR_BEARD_PRESET_LABELS[preset.id] || preset.name)) : '';
     const parts = { hair:'hair', beard:'beard', mustache:'mustache', eyebrows:'eyebrows' };
     const colorInstructions = hairBeardState.sharedColor
       ? 'use the same exact color ' + hairBeardState.sharedColor + ' for hair, beard, mustache and eyebrows'
@@ -7525,6 +7546,66 @@ function photoToolPrompt(kind, extra) {
   }
   if (kind === 'face_retouch') return 'Retouch the face naturally: soften temporary skin imperfections and wrinkles while preserving identity, facial anatomy, realistic skin texture and age-appropriate detail.' + suffix;
   return 'Enhance the first reference photo. Improve sharpness, detail, resolution, dynamic range and natural color while preserving the exact subject, identity, composition, objects and scene. Do not add or remove people or objects.' + suffix;
+}
+
+async function generateHairBeardReference(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const promptText = String(hairBeardState.referencePrompt || '').trim();
+  const state = photoToolState.hair_beard;
+  if (!promptText || hairBeardState.generatingReference || !state) return;
+  const category = hairBeardState.category;
+  const selected = hairBeardPresetById(hairBeardState.selectedPresetId);
+  const styleReferences = [selected].concat(HAIR_BEARD_PRESETS.filter(item => item.category === category)).filter(Boolean);
+  const refs = Array.from(new Set(styleReferences.map(item => item.referenceAsset).filter(Boolean))).slice(0, 4);
+  const prompt = 'Create one clean functional hairstyle or facial-hair reference image from the user description below. The attached images are visual style guides only; do not copy their specific hairstyle unless requested. User description: "' + promptText + '". Show one clear front-facing head-and-hair silhouette, with no identity-specific portrait details. Pure white background, black and grayscale hairstyle, beard, moustache or facial-hair shapes, crisp high-contrast studio reference appearance, centered composition, enough margins, clean silhouette and clearly readable structure. No text, labels, decorative elements, colors, gradients or colored lighting. The result must be directly useful as a visual reference for a later portrait edit.';
+  hairBeardState.generatingReference = true;
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({ role:'ai', generationLoading:true, progress:createGenerationProgress('image') }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(prompt, null, refs, null, {
+      isolateRequest:true,
+      model:HAIR_BEARD_IMAGE_MODEL,
+      provider:'openai',
+      loadingIndex,
+      onProgress:(completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      imageOptions:{ modelId:HAIR_BEARD_IMAGE_MODEL, size:'1024x1024', quality:'high', count:1, referenceImageUrls:refs.slice(), referenceImages:refs.slice(), tool:'hair_beard_reference' },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (!images.length) throw new Error('Модель не вернула изображение референса');
+    addGeneratedImages(images, thumbs);
+    const preset = {
+      id:'custom_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+      category,
+      name:promptText,
+      label:promptText.length > 34 ? promptText.slice(0, 31).trim() + '…' : promptText,
+      referenceAsset:images[0],
+      custom:true,
+    };
+    hairBeardState.customPresets.push(preset);
+    hairBeardState.selectedPresetId = preset.id;
+    chatMessages[loadingIndex] = {
+      role:'ai', imageResultMini:true,
+      metadata:imageGenerationMetadata(prompt, refs, result, { modelId:HAIR_BEARD_IMAGE_MODEL, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', quality:'high', referenceImageUrls:refs.slice(), photo_tool:'hair_beard_reference' }),
+    };
+    toast('Референс добавлен в список и галерею Pro Studio');
+    loadConversations();
+  } catch (error) {
+    chatMessages[loadingIndex] = resolveFailureMessage(error, { fallback:'Не удалось создать референс. Попробуйте ещё раз.', mode:'image', prompt });
+    toast(translateGenerationError(error, 'Не удалось создать референс'));
+  } finally {
+    hairBeardState.generatingReference = false;
+    state.generating = false;
+    renderPhotoToolModal();
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) clearActiveProStudioJob(activeGeneration.jobId);
+  }
 }
 
 async function generatePhotoTool(e) {
@@ -7546,7 +7627,7 @@ async function generatePhotoTool(e) {
   }
   if (config.mask && state.maskUrl) refs.push(state.maskUrl);
   if (kind === 'hair_beard' && hairBeardState.selectedPresetId) {
-    const preset = HAIR_BEARD_PRESETS.find(item => item.id === hairBeardState.selectedPresetId);
+    const preset = hairBeardPresetById(hairBeardState.selectedPresetId);
     if (preset) refs.push(preset.referenceAsset);
   }
   const extraEl = document.getElementById('photoToolExtraPrompt');
@@ -7577,15 +7658,23 @@ async function generatePhotoTool(e) {
   }) - 1;
   renderChat();
   try {
-    const start = await callGenerate(prompt, null, refs, null, {
+    const modelOptions = kind === 'hair_beard' ? {
+      isolateRequest:true,
+      model:HAIR_BEARD_IMAGE_MODEL,
+      provider:'openai',
+      imageOptions:{ modelId:HAIR_BEARD_IMAGE_MODEL, size:'1024x1536', quality:'high', count:1, referenceImageUrls:refs.slice(), referenceImages:refs.slice(), tool:'hair_beard' },
+    } : {};
+    const start = await callGenerate(prompt, null, refs, null, Object.assign({}, modelOptions, {
       onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
       loadingIndex,
-    });
+    }));
     const result = start.result || start;
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    const options = Object.assign({}, imageOptionsPayload(refs), { photo_tool: kind });
+    const options = kind === 'hair_beard'
+      ? { modelId:HAIR_BEARD_IMAGE_MODEL, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', quality:'high', referenceImageUrls:refs.slice(), photo_tool:kind }
+      : Object.assign({}, imageOptionsPayload(refs), { photo_tool: kind });
     chatMessages[loadingIndex] = {
       role: 'ai',
       imageResultMini: true,
@@ -21992,7 +22081,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardColor, updateHairBeardHexColor, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, updateHairBeardColor, updateHairBeardHexColor, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, chooseVideoAddCharacter, chooseVideoAddObject, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
