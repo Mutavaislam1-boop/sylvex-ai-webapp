@@ -6962,9 +6962,9 @@ function logoCatalogHtml() {
     + LOGO_REFERENCES.map((item)=>'<button type="button" class="logo-reference-card '+(logoState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(logoState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectLogoReference(event,\''+item.id+'\')"><img src="'+item.asset+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy"><span>'+S.escapeHtml(item.name)+'</span></button>').join('')
     + '</div></section>';
 }
-function logoResultPreviewHtml() {
+function logoResultPreviewHtml(config) {
   const result=logoState.result;
-  if (!result || !result.pngUrl) return '<div class="photo-tool-demo logo-result-empty"><div class="photo-tool-demo-placeholder"><span></span><b>Создайте логотип</b><small>Результат появится здесь в формате PNG</small></div></div>';
+  if (!result || !result.pngUrl) return photoToolDemoHtml(config);
   const reference=logoReferenceById(result.referenceId);
   return '<div class="photo-tool-demo logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"><span>PNG-preview</span></div>'
     + '<div class="logo-result-links"><a href="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" download="sylvex-logo.svg">Скачать SVG</a>'
@@ -7213,7 +7213,7 @@ function renderPhotoToolModal() {
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
     + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
-    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml() : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + (activePhotoTool==='logo' ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p>') + '</div>'
+    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml(config) : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + (activePhotoTool==='logo' ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p>') + '</div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
