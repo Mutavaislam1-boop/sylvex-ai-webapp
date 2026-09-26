@@ -13522,6 +13522,339 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
 
 
 # =====================================================
+# PYTHON-БЛОК: Animate Photo Quick Tool (isolated generation flow, Runway
+# Gen-4.5 image-to-video). Independent of normal Pro Studio video
+# generation: never reads Character/Object/Style/previous prompt/previous
+# video state. Its whole request is built from exactly two tool-owned
+# inputs - video_options.animatePhotoSourceUrl (mandatory) and
+# video_options.animatePhotoPrompt (optional, <=250 chars) - and nothing
+# else in the payload. Provider is Runway's real image_to_video API
+# (POST /v1/image_to_video, JSON body, Bearer auth, model="gen4.5",
+# duration=5 fixed - no model/resolution/duration selector in the UI).
+# Only the finished result re-joins the normal post-generation pipeline
+# (Pro Studio display, History, storage, Telegram) via the same
+# job-completion path every other video provider already uses.
+# =====================================================
+ANIMATE_PHOTO_TOOL_KEY = "animate_photo"
+
+
+def is_animate_photo_request(payload: dict) -> bool:
+    opts = payload.get("video_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == ANIMATE_PHOTO_TOOL_KEY
+
+
+RUNWAY_ANIMATE_PHOTO_ENDPOINT = "https://api.dev.runwayml.com/v1/image_to_video"
+RUNWAY_ANIMATE_PHOTO_TASK_ENDPOINT = "https://api.dev.runwayml.com/v1/tasks/{task_id}"
+RUNWAY_ANIMATE_PHOTO_API_VERSION = "2024-11-06"
+ANIMATE_PHOTO_MODEL = "gen4.5"
+ANIMATE_PHOTO_DURATION_SECONDS = 5
+ANIMATE_PHOTO_PROMPT_MAX_LENGTH = 250
+# Used only when the user leaves the prompt field empty - never shown to the
+# user as if they had typed it themselves.
+ANIMATE_PHOTO_DEFAULT_PROMPT = (
+    "Natural realistic motion. Preserve the subject, identity, composition, clothing, "
+    "background and lighting. Add subtle natural movement and gentle cinematic camera "
+    "motion without redesigning the image."
+)
+# Runway Gen-4.5 image-to-video's own documented set of supported output
+# ratios - the nearest one to the source photo's aspect ratio is chosen
+# automatically; there is no ratio selector in the UI.
+ANIMATE_PHOTO_SUPPORTED_RATIOS = [
+    (1280, 720), (1584, 672), (1104, 832),
+    (720, 1280), (832, 1104), (672, 1584),
+    (960, 960),
+]
+# Gen-4.5's own documented prompt-image input constraint - a source outside
+# this range is rejected before ever submitting a paid Runway task.
+ANIMATE_PHOTO_MIN_ASPECT_RATIO = 0.5
+ANIMATE_PHOTO_MAX_ASPECT_RATIO = 2.0
+RUNWAY_POLL_INTERVAL_SECONDS = 5
+RUNWAY_POLL_MAX_ATTEMPTS = 90  # ~7.5 minutes at the 5s base interval, before jitter/backoff
+# Runway's own published Gen-4.5 rate (12 credits/second) and developer
+# credit value ($0.01/credit) - kept as named, adjustable constants rather
+# than hardcoding $0.60/90 anywhere else in the pricing formula.
+RUNWAY_GEN45_CREDITS_PER_SECOND = 12
+RUNWAY_CREDIT_COST_USD = 0.01
+ANIMATE_PHOTO_MARKUP = 1.5
+
+
+def animate_photo_select_output_ratio(source_width: int, source_height: int) -> str:
+    """Picks the Gen-4.5 output ratio closest to the source photo's own
+    aspect ratio, minimizing how much Runway's own center-crop has to trim -
+    never stretches the photo, never exposes a ratio selector."""
+    width = max(1, int(source_width or 0))
+    height = max(1, int(source_height or 0))
+    source_ratio = width / height
+    best = min(ANIMATE_PHOTO_SUPPORTED_RATIOS, key=lambda wh: abs((wh[0] / wh[1]) - source_ratio))
+    return f"{best[0]}:{best[1]}"
+
+
+def animate_photo_source_ratio_supported(source_width: int, source_height: int) -> bool:
+    width = max(1, int(source_width or 0))
+    height = max(1, int(source_height or 0))
+    ratio = width / height
+    return ANIMATE_PHOTO_MIN_ASPECT_RATIO <= ratio <= ANIMATE_PHOTO_MAX_ASPECT_RATIO
+
+
+def animate_photo_cost_info() -> dict:
+    """SYLVEX's price is Runway's real provider cost for a fixed 5-second
+    Gen-4.5 clip (12 credits/sec * 5s * $0.01/credit = $0.60) + 50% markup,
+    rounded up to a whole SYLVEX credit: $0.60 * 1.5 = $0.90 -> 90 credits."""
+    provider_cost_usd = RUNWAY_GEN45_CREDITS_PER_SECOND * ANIMATE_PHOTO_DURATION_SECONDS * RUNWAY_CREDIT_COST_USD
+    unit_usd = provider_cost_usd * ANIMATE_PHOTO_MARKUP
+    # round() first to absorb float representation error before ceiling.
+    credits = int(math.ceil(round(unit_usd * 100, 6)))
+    return {
+        "credits": credits,
+        "cost_credits": credits,
+        "cost_usd": round(unit_usd, 4),
+        "provider_cost_usd": round(provider_cost_usd, 4),
+        "generation_cost": f"{credits} ⚡",
+    }
+
+
+def runway_animate_photo_headers() -> dict:
+    api_key = os.getenv("RUNWAYML_API_SECRET")
+    if not api_key:
+        return {}
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Runway-Version": RUNWAY_ANIMATE_PHOTO_API_VERSION,
+    }
+
+
+def animate_photo_error_response(error: str, response=None, data: dict = None, task_id: str = "") -> dict:
+    status_code = getattr(response, "status_code", None) if response is not None else None
+    body_preview = ""
+    if data:
+        status_code = data.get("status_code") or status_code
+        body_preview = data.get("body_preview") or ""
+    if response is not None and not body_preview:
+        try:
+            body_preview = response.text[:1000]
+        except Exception:
+            body_preview = ""
+    raw_message = raw_error_text(error, "Provider request failed")
+    message = translate_provider_error(error, provider="runway", model=ANIMATE_PHOTO_MODEL)
+    return {
+        "ok": False,
+        "type": "video",
+        "error": message,
+        "message": message,
+        "raw_error": raw_message,
+        "provider": "runway",
+        "model": ANIMATE_PHOTO_TOOL_KEY,
+        "provider_model": ANIMATE_PHOTO_MODEL,
+        "task_id": task_id,
+        "status_code": status_code,
+        "body_preview": body_preview,
+    }
+
+
+def poll_animate_photo_task(task_id: str, headers: dict, max_attempts: int = RUNWAY_POLL_MAX_ATTEMPTS) -> tuple:
+    """Polls GET /v1/tasks/{id}, reading the literal `status` field, until
+    it reaches one of Runway's documented terminal values (SUCCEEDED/
+    FAILED/CANCELED) or the attempt budget runs out. Never submits a second
+    Runway task - only ever polls the task_id it was given. Non-terminal
+    states (PENDING/RUNNING/THROTTLED/...) keep polling with a jittered
+    ~5s interval; non-200 responses back off exponentially instead of
+    failing outright. Returns (True, output_url, {}) once SUCCEEDED, or
+    (False, None, error_dict) for FAILED/CANCELED/timeout/HTTP errors -
+    FAILED's failureCode/failureReason are logged for diagnostics but never
+    put in the user-facing error."""
+    endpoint = RUNWAY_ANIMATE_PHOTO_TASK_ENDPOINT.format(task_id=task_id)
+    consecutive_errors = 0
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = safe_get(endpoint, headers=headers, timeout=30)
+        except Exception as exc:
+            consecutive_errors += 1
+            print("ANIMATE PHOTO POLL NETWORK ERROR:", {"attempt": attempt, "error": type(exc).__name__})
+            time.sleep(min(60, RUNWAY_POLL_INTERVAL_SECONDS * (2 ** consecutive_errors)))
+            continue
+        if response.status_code == 429 or response.status_code >= 500:
+            consecutive_errors += 1
+            print("ANIMATE PHOTO POLL TRANSIENT HTTP:", {"attempt": attempt, "status_code": response.status_code})
+            time.sleep(min(60, RUNWAY_POLL_INTERVAL_SECONDS * (2 ** consecutive_errors)))
+            continue
+        if response.status_code >= 400:
+            return False, None, animate_photo_error_response("Provider request failed", response, task_id=task_id)
+        consecutive_errors = 0
+        data = safe_provider_json(response, "runway", endpoint)
+        status = str(data.get("status") or "").strip().upper()
+        print("ANIMATE PHOTO POLL:", {"attempt": attempt, "status": status, "task_id": task_id})
+        if status == "SUCCEEDED":
+            output = data.get("output") or []
+            output_url = output[0] if isinstance(output, list) and output else None
+            return True, output_url, {}
+        if status == "FAILED":
+            print("ANIMATE PHOTO TASK FAILED:", {
+                "task_id": task_id,
+                "failureCode": data.get("failureCode") or data.get("failure_code") or "",
+                "failureReason": data.get("failureReason") or data.get("failure_reason") or "",
+            })
+            return False, None, animate_photo_error_response("Runway generation failed", data=data, task_id=task_id)
+        if status == "CANCELED":
+            return False, None, animate_photo_error_response("Runway generation canceled", data=data, task_id=task_id)
+        time.sleep(RUNWAY_POLL_INTERVAL_SECONDS + random.uniform(0, 1.5))
+    return False, None, animate_photo_error_response("Runway generation timeout", task_id=task_id)
+
+
+async def generate_animate_photo_video(payload: dict) -> dict:
+    """The Animate Photo provider call, using Runway's real Gen-4.5
+    image-to-video API (POST /v1/image_to_video, JSON body, Bearer auth,
+    model="gen4.5", duration=5 fixed). Reads ONLY the two isolated fields
+    below - never image_options/video_options.character*/object*/style,
+    never payload.prompt/history - so leaked normal Pro Studio state can
+    never reach this request.
+
+    Async flow: submit returns {"id"}; GET /v1/tasks/{id} is polled for the
+    literal {"status"} field until SUCCEEDED/FAILED/CANCELED; on SUCCEEDED,
+    the literal {"output"} array's first entry is the result video URL.
+    Runway's output URL is temporary, so it is downloaded and persisted to
+    durable SYLVEX storage synchronously, inside this function, before it
+    ever returns - the result never carries Runway's own temporary URL."""
+    headers = runway_animate_photo_headers()
+    if not headers:
+        return {"ok": False, "type": "video", "error": "Не удалось создать видео. Попробуйте ещё раз."}
+
+    opts = payload.get("video_options") or {}
+    source_url = str(opts.get("animatePhotoSourceUrl") or "").strip()
+    if not source_url:
+        return {"ok": False, "type": "video", "error": "Не удалось создать видео. Попробуйте ещё раз."}
+
+    user_prompt = str(opts.get("animatePhotoPrompt") or "").strip()
+    if len(user_prompt) > ANIMATE_PHOTO_PROMPT_MAX_LENGTH:
+        # Re-validated independently of the frontend's own maxlength - never
+        # silently truncate, always reject before any provider request.
+        return {
+            "ok": False,
+            "type": "video",
+            "error": f"Описание слишком длинное (максимум {ANIMATE_PHOTO_PROMPT_MAX_LENGTH} символов).",
+        }
+    resolved_prompt = user_prompt or ANIMATE_PHOTO_DEFAULT_PROMPT
+
+    source_bytes = _read_image_bytes_for_generation(source_url)
+    if not source_bytes:
+        return animate_photo_error_response("Не удалось загрузить исходное изображение.")
+
+    if not (
+        source_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+        or source_bytes.startswith(b"\xff\xd8\xff")
+        or (source_bytes.startswith(b"RIFF") and source_bytes[8:12] == b"WEBP")
+    ):
+        return {"ok": False, "type": "video", "error": "Поддерживаются только форматы JPEG, PNG и WebP."}
+
+    source_width, source_height = _detect_image_dimensions(source_bytes)
+    if not source_width or not source_height:
+        return {"ok": False, "type": "video", "error": "Не удалось обработать фото. Попробуйте ещё раз."}
+
+    if not animate_photo_source_ratio_supported(source_width, source_height):
+        return {
+            "ok": False,
+            "type": "video",
+            "error": "Соотношение сторон этого фото не поддерживается для анимации. Выберите другое фото.",
+        }
+
+    output_ratio = animate_photo_select_output_ratio(source_width, source_height)
+
+    prompt_image_url = public_media_url(source_url)
+    if not prompt_image_url.startswith(("http://", "https://")):
+        return {"ok": False, "type": "video", "error": "Не удалось обработать фото. Попробуйте ещё раз."}
+
+    request_body = {
+        "model": ANIMATE_PHOTO_MODEL,
+        "promptImage": prompt_image_url,
+        "promptText": resolved_prompt,
+        "ratio": output_ratio,
+        "duration": ANIMATE_PHOTO_DURATION_SECONDS,
+    }
+
+    print("ANIMATE PHOTO REQUEST:", {
+        "tool": ANIMATE_PHOTO_TOOL_KEY,
+        "provider": "runway",
+        "provider_model": ANIMATE_PHOTO_MODEL,
+        "endpoint": RUNWAY_ANIMATE_PHOTO_ENDPOINT,
+        "source_dimensions": f"{source_width}x{source_height}",
+        "output_ratio": output_ratio,
+        "has_user_prompt": bool(user_prompt),
+    })
+
+    try:
+        response = requests.post(
+            RUNWAY_ANIMATE_PHOTO_ENDPOINT,
+            headers=headers,
+            json=request_body,
+            timeout=int(os.getenv("RUNWAY_ANIMATE_PHOTO_TIMEOUT", "60")),
+        )
+    except requests.RequestException as exc:
+        print("ANIMATE PHOTO SUBMIT FAILED:", type(exc).__name__, str(exc))
+        return animate_photo_error_response("Provider request failed", data={"body_preview": str(exc)[:1000]})
+
+    if response.status_code == 429:
+        print("ANIMATE PHOTO SUBMIT RATE LIMITED:", response.text[:1000])
+        return animate_photo_error_response("Too many requests", response)
+    if response.status_code >= 400:
+        print(f"ANIMATE PHOTO SUBMIT ERROR HTTP {response.status_code}:", response.text[:2000])
+        return animate_photo_error_response("Provider request failed", response)
+
+    data = safe_provider_json(response, "runway", RUNWAY_ANIMATE_PHOTO_ENDPOINT)
+    task_id = str(data.get("id") or "").strip()
+    if not task_id:
+        return animate_photo_error_response("Runway task id not found", data=data)
+
+    status_ok, output_url, poll_error = poll_animate_photo_task(task_id, headers)
+    if not status_ok:
+        print("ANIMATE PHOTO POLL FAILED:", poll_error)
+        return poll_error if poll_error else animate_photo_error_response("Не удалось создать видео. Попробуйте ещё раз.", task_id=task_id)
+    if not output_url:
+        return animate_photo_error_response("Runway output URL not found", task_id=task_id)
+
+    # Runway's output URL is temporary - persist it to durable SYLVEX
+    # storage right now, synchronously, rather than relying on the generic
+    # background persistence pass, which could run after the URL expires.
+    persisted_url = _persist_remote_media_url(output_url, "videos", provider="runway")
+    if not storage_key_from_url(persisted_url):
+        print("ANIMATE PHOTO STORAGE PERSIST FAILED:", persisted_url)
+        return {"ok": False, "type": "video", "error": "Не удалось сохранить результат. Попробуйте ещё раз."}
+
+    videos = [persisted_url]
+    cost_info = animate_photo_cost_info()
+    result = {
+        "ok": True,
+        "type": "video",
+        "provider": "runway",
+        "model": ANIMATE_PHOTO_TOOL_KEY,
+        "provider_model": ANIMATE_PHOTO_MODEL,
+        "tool": ANIMATE_PHOTO_TOOL_KEY,
+        "status": "completed",
+        "videos": videos,
+        "video_url": videos[0],
+        "task_id": task_id,
+        "duration": ANIMATE_PHOTO_DURATION_SECONDS,
+        "cost_credits": cost_info["credits"],
+        "cost_usd": cost_info["cost_usd"],
+        "generation_cost": cost_info["generation_cost"],
+    }
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            sent_to_telegram = await _send_generated_videos_to_telegram(
+                telegram_id,
+                videos,
+                caption="Готово ✅\nФото оживлено в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED VIDEOS FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
+
+
+# =====================================================
 # PYTHON-БЛОК: build_image_prompt
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -17459,6 +17792,20 @@ def estimate_generation_cost(payload: dict) -> dict:
         output_tokens = max(256, int((payload.get("text_options") or {}).get("max_output_tokens") or 512))
         credits = max(1, int(__import__("math").ceil((input_tokens * per_million[0] + output_tokens * per_million[1]) / 1_000_000)))
         return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "estimated_input_tokens": input_tokens, "estimated_output_tokens": output_tokens}
+    if mode == "video" and is_animate_photo_request(payload):
+        # Animate Photo is a flat 5-second Runway Gen-4.5 clip (unlike the
+        # generic per-second/per-model video pricing table below) - always
+        # the same 90 credits, computed from the named, adjustable Runway
+        # rate constants rather than a hardcoded literal.
+        info = animate_photo_cost_info()
+        return {
+            "credits": info["credits"],
+            "cost_credits": info["credits"],
+            "cost_usd": info["cost_usd"],
+            "generation_cost": info["generation_cost"],
+            "pricing_available": True,
+            "operation": ANIMATE_PHOTO_TOOL_KEY,
+        }
     if mode == "video":
         return estimate_video_generation_cost(payload)
     if mode != "image":
@@ -19487,6 +19834,12 @@ async def dispatch_prostudio_provider_request(
         # Recraft, Gemini, Qwen, Grok, Ideogram) that block on requests.post; keep
         # them off the shared event loop, same as video_generation below.
         result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
+    elif mode == "video" and is_animate_photo_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="runway", model=selected_model, route="generate_animate_photo_video")
+        # Isolated Quick Tool flow - never falls through to the normal
+        # video_generation dispatch below, which would read
+        # video_options.characterReferences/objectReferences/style.
+        result = await run_provider_coroutine_off_loop(lambda: generate_animate_photo_video(payload))
     elif mode == "video":
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=selected_provider, model=selected_model, route="video_generation")
         result = await run_provider_coroutine_off_loop(lambda: video_generation(payload))
