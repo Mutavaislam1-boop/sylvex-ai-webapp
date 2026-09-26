@@ -303,7 +303,7 @@ const PHOTO_TOOL_CONFIG = {
   tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
   logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите изображение, опишите логотип и при желании выберите визуальный референс.', min:0, max:1, labels:['Загрузить своё изображение'], preview:'assets/quick-tools/logo-placement.jpg' },
   remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
-  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Отметьте заменяемую область и загрузите новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'], preview:'assets/quick-tools/replace-object.jpg', library:'object', mask:true },
+  replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Загрузите фото и предмет для замены, затем отметьте область на фото.', min:2, max:2, labels:['Основное фото','Предмет для замены'], preview:'assets/quick-tools/replace-object.jpg', mask:true },
   makeup: { title:'Макияж', shortTitle:'Макияж', description:'Перенесите выбранный стиль макияжа на портрет, сохранив лицо.', min:1, max:2, labels:['Портрет','Референс макияжа'], preview:'assets/quick-tools/enhance-photo.jpg', library:'makeup' },
   hair_beard: { title:'Причёска и борода', shortTitle:'Причёска и борода', description:'Загрузите портрет и выберите форму причёски или растительности на лице.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/replace-character.jpg' },
   face_retouch: { title:'Ретушь лица', shortTitle:'Ретушь лица', description:'Естественно улучшите кожу и лицо без изменения личности.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/enhance-photo.jpg' },
@@ -312,6 +312,7 @@ const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((ke
 // Logo owns an isolated prompt/reference/output state. The selected visual
 // reference never reads from or writes to Pro Studio Character/Object/Style.
 const logoState = { selectedReferenceId:null, prompt:'', generating:false, result:null };
+const replaceObjectState = { comparison:null };
 // Try-On owns a completely separate, dedicated state shape - never the
 // generic {files: []} array every other Photo Tool uses - so the person
 // source (Character/Media/Upload, mutually exclusive) can never be
@@ -6556,6 +6557,25 @@ function tattooComparisonHtml(config) {
     + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
 }
 
+function replaceObjectComparisonHtml(config) {
+  const comparison = replaceObjectState.comparison;
+  if (!comparison || !comparison.before || !comparison.after) return photoToolDemoHtml(config);
+  return '<div class="photo-tool-demo photo-tool-compare replace-object-result-compare" style="--compare-position:50%">'
+    + photoToolMediaHtml(comparison.after,'photo-tool-after')
+    + photoToolMediaHtml(comparison.before,'photo-tool-before')
+    + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить фото до и после замены предмета" oninput="SYLVEX.updatePhotoToolComparison(event)">'
+    + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+}
+
+function syncReplaceObjectComparisonAspectRatio(source) {
+  const image = new Image();
+  image.onload = () => {
+    const host = document.querySelector('.replace-object-result-compare');
+    if (host && image.naturalWidth && image.naturalHeight) host.style.aspectRatio = image.naturalWidth + ' / ' + image.naturalHeight;
+  };
+  image.src = source;
+}
+
 function syncTattooComparisonAspectRatio(source) {
   const image = new Image();
   image.onload = () => {
@@ -6621,14 +6641,92 @@ function photoToolReferenceUrls(kind){if(kind==='character')return (imageState.c
 function photoToolLibraryHtml(config){if(!config.library)return'';const refs=photoToolReferenceUrls(config.library),label={character:'персонажа',object:'предмет',tattoo:'тату',logo:'лого',clothes:'одежду',makeup:'макияж',hair:'стиль'}[config.library]||'референс';return '<div class="photo-tool-library"><small>Выберите '+label+'</small><div><button type="button" class="create" onclick="SYLVEX.createPhotoToolReference(event,\''+config.library+'\')"><i>＋</i><b>Создать</b></button>'+Array.from({length:10},(_,index)=>{const url=refs[index]||'';return '<button type="button" '+(url?'onclick="SYLVEX.selectPhotoToolReference(event,\''+S.escapeHtml(url)+'\')"':'disabled')+'>'+(url?'<img src="'+S.escapeHtml(url)+'" alt="">':'<i>'+(index+1)+'</i>')+'</button>'}).join('')+'</div></div>'}
 function photoToolMaskHtml(config,state){
   if(!config.mask||!state.files[0])return'';
-  // Remove Object gets its own fullscreen mark-up editor (below) instead of
-  // the small inline draw-in-place canvas every other mask tool (currently
-  // just replace_object) still uses unchanged.
+  // Masked object tools use dedicated editors so the canvas always aligns
+  // with the displayed source image, including portrait and landscape photos.
   if(activePhotoTool==='remove_object')return removeObjectMaskPanelHtml(state);
+  if(activePhotoTool==='replace_object')return replaceObjectMaskPanelHtml(state);
   return '<div class="photo-tool-mask-editor"><header><div><b>Отметьте область</b><small>Проведите по предмету зелёной кистью</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>';
 }
 function initPhotoToolMask(){const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(!canvas||!state)return;const rect=canvas.getBoundingClientRect(),scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.strokeStyle='rgba(47,220,119,.88)';ctx.lineWidth=Math.max(13,rect.width*.045);ctx.lineCap='round';ctx.lineJoin='round';let drawing=false,last=null;const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId)};const move=e=>{if(!drawing)return;e.preventDefault();const next=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};const end=e=>{if(!drawing)return;e.preventDefault();drawing=false;state.maskUrl=canvas.toDataURL('image/png')};canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end)}
 function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl=''}
+
+function replaceObjectMaskPanelHtml(state) {
+  const hasMask=!!state.maskUrl;
+  return '<div class="photo-tool-mask-editor replace-object-mask-panel"><header><div><b>'+(hasMask?'Область отмечена':'Отметьте предмет для замены')+'</b><small>'+(hasMask?'Нажмите на фото, чтобы изменить отметку':'Обведите предмет, который нужно заменить')+'</small></div></header>'
+    +'<button type="button" class="replace-object-mask-preview" onclick="SYLVEX.openReplaceObjectMaskEditor(event)"><img src="'+S.escapeHtml(state.files[0].url)+'" alt="">'
+    +(hasMask?'<img class="replace-object-mask-overlay" src="'+S.escapeHtml(state.maskUrl)+'" alt="">':'')
+    +'<span>'+(hasMask?'Изменить область':'Отметить область')+'</span></button></div>';
+}
+
+function ensureReplaceObjectMaskEditor() {
+  let modal=document.getElementById('replaceObjectMaskEditorModal');if(modal)return modal;
+  modal=document.createElement('div');modal.id='replaceObjectMaskEditorModal';modal.className='photo-tool-modal replace-object-mask-editor-modal';
+  modal.innerHTML='<section class="photo-tool-dialog replace-object-mask-editor-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
+    +'<header class="photo-tool-head"><div><small>Замена предмета</small><h3>Отметьте область замены</h3></div><button type="button" aria-label="Закрыть" onclick="SYLVEX.closeReplaceObjectMaskEditor(event)">×</button></header>'
+    +'<div class="replace-object-mask-canvas-wrap"><img id="replaceObjectMaskImage" alt=""><canvas id="replaceObjectMaskCanvas"></canvas></div>'
+    +'<div class="replace-object-mask-toolbar"><button type="button" onclick="SYLVEX.undoReplaceObjectMask(event)">Отменить</button><button type="button" onclick="SYLVEX.clearReplaceObjectMask(event)">Очистить</button><button type="button" class="save" onclick="SYLVEX.saveReplaceObjectMask(event)">Сохранить отметку</button></div></section>';
+  modal.onclick=closeReplaceObjectMaskEditor;document.body.appendChild(modal);return modal;
+}
+
+function openReplaceObjectMaskEditor(e) {
+  if(e){e.preventDefault();e.stopPropagation()}
+  const state=photoToolStateFor('replace_object');if(!state||!state.files[0])return;
+  const modal=ensureReplaceObjectMaskEditor(),img=document.getElementById('replaceObjectMaskImage'),existing=state.maskUrl||'';
+  replaceObjectEditorHistory=[];modal.classList.add('show');
+  const draw=()=>initReplaceObjectMaskCanvas(existing);
+  if(img.src===state.files[0].url&&img.complete&&img.naturalWidth)window.requestAnimationFrame(draw);else{img.onload=draw;img.src=state.files[0].url}
+}
+
+function initReplaceObjectMaskCanvas(existingMask) {
+  const wrap=document.querySelector('#replaceObjectMaskEditorModal .replace-object-mask-canvas-wrap'),canvas=document.getElementById('replaceObjectMaskCanvas'),img=document.getElementById('replaceObjectMaskImage');
+  if(!wrap||!canvas||!img||!img.naturalWidth||!img.naturalHeight)return;
+  wrap.style.width='';wrap.style.height='';const available=wrap.getBoundingClientRect();if(!available.width||!available.height)return;
+  const ratio=img.naturalWidth/img.naturalHeight,availableRatio=available.width/available.height;
+  const width=ratio>availableRatio?available.width:available.height*ratio,height=ratio>availableRatio?available.width/ratio:available.height;
+  wrap.style.width=width+'px';wrap.style.height=height+'px';
+  const scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));canvas.style.width=width+'px';canvas.style.height=height+'px';
+  const ctx=canvas.getContext('2d');ctx.setTransform(scale,0,0,scale,0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='rgba(47,220,119,.9)';ctx.fillStyle='rgba(47,220,119,.9)';
+  const snapshot=()=>{try{return ctx.getImageData(0,0,canvas.width,canvas.height)}catch{return null}};
+  const connect=()=>{
+    replaceObjectEditorHistory=[snapshot()];let drawing=false,last=null;
+    const point=evt=>{const rect=canvas.getBoundingClientRect();return{x:evt.clientX-rect.left,y:evt.clientY-rect.top}};
+    const start=evt=>{evt.preventDefault();drawing=true;replaceObjectEditorHistory.push(snapshot());if(replaceObjectEditorHistory.length>21)replaceObjectEditorHistory.shift();last=point(evt);ctx.lineWidth=Math.max(12,width*.035);ctx.beginPath();ctx.arc(last.x,last.y,ctx.lineWidth/2,0,Math.PI*2);ctx.fill();canvas.setPointerCapture&&canvas.setPointerCapture(evt.pointerId)};
+    const move=evt=>{if(!drawing)return;evt.preventDefault();const next=point(evt);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};
+    const end=evt=>{if(!drawing)return;evt.preventDefault();drawing=false};
+    canvas.onpointerdown=start;canvas.onpointermove=move;canvas.onpointerup=end;canvas.onpointercancel=end;
+  };
+  if(existingMask){const maskImg=new Image();maskImg.onload=()=>{try{ctx.drawImage(maskImg,0,0,width,height)}catch{}connect()};maskImg.onerror=connect;maskImg.src=existingMask}else connect();
+}
+
+function undoReplaceObjectMask(e) {
+  if(e){e.preventDefault();e.stopPropagation()}
+  const canvas=document.getElementById('replaceObjectMaskCanvas');if(!canvas||replaceObjectEditorHistory.length<=1)return;
+  const snapshot=replaceObjectEditorHistory.pop(),ctx=canvas.getContext('2d'),scale=Math.max(1,window.devicePixelRatio||1);
+  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);if(snapshot)ctx.putImageData(snapshot,0,0);ctx.setTransform(scale,0,0,scale,0,0);
+}
+
+function clearReplaceObjectMask(e) {
+  if(e){e.preventDefault();e.stopPropagation()}
+  const canvas=document.getElementById('replaceObjectMaskCanvas');if(!canvas)return;
+  const ctx=canvas.getContext('2d'),scale=Math.max(1,window.devicePixelRatio||1);ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);ctx.setTransform(scale,0,0,scale,0,0);
+  replaceObjectEditorHistory=[ctx.getImageData(0,0,canvas.width,canvas.height)];
+}
+
+function saveReplaceObjectMask(e) {
+  if(e){e.preventDefault();e.stopPropagation()}
+  const canvas=document.getElementById('replaceObjectMaskCanvas'),state=photoToolStateFor('replace_object');if(!canvas||!state)return;
+  const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;let marked=false;
+  for(let i=3;i<pixels.length;i+=4){if(pixels[i]>10){marked=true;break}}
+  state.maskUrl=marked?canvas.toDataURL('image/png'):'';
+  const field=document.getElementById('photoToolExtraPrompt'),preservedText=field?field.value:'';
+  closeReplaceObjectMaskEditor();renderPhotoToolModal();
+  const restored=document.getElementById('photoToolExtraPrompt');if(restored&&preservedText)restored.value=preservedText;
+}
+
+function closeReplaceObjectMaskEditor(e) {
+  if(e&&typeof e.preventDefault==='function'){e.preventDefault();e.stopPropagation()}
+  const modal=document.getElementById('replaceObjectMaskEditorModal');if(modal)modal.classList.remove('show');
+}
 
 // =====================================================
 // REMOVE OBJECT: fullscreen mark-up editor
@@ -6940,6 +7038,8 @@ function photoToolStateFor(kind) {
   return photoToolState[kind] || null;
 }
 
+let replaceObjectEditorHistory = [];
+
 const LOGO_REFERENCES = [
   ['nivora','Nivora · wave'],['kerno','Kerno · geometry'],['lumae','Lumae · leaf'],['drift','Drift · coffee'],['vektor','Vektor · monogram'],
   ['melo','Melo · audio'],['arvo','Arvo · furniture'],['ferro','Ferro · lettermark'],['nubi','Nubi · cloud'],['sora','Sora · serif'],
@@ -7194,13 +7294,16 @@ function renderPhotoToolModal() {
       + '</button>';
   }).join('');
   const isRemoveObject = activePhotoTool === 'remove_object';
+  const isReplaceObject = activePhotoTool === 'replace_object';
   const hasHairPhoto = Boolean(state.files[0]);
   const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
   const hasTattooPhoto = Boolean(state.files[0]);
   const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
   const isAnimatePhoto = activePhotoTool === 'animate_photo';
   const hasLogoText = Boolean(String(logoState.prompt || '').trim());
-  const ready = isRemoveObject
+  const ready = isReplaceObject
+    ? Boolean(state.files[0] && state.files[1] && state.maskUrl)
+    : isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
         && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
     : (activePhotoTool === 'tattoo'
@@ -7219,8 +7322,8 @@ function renderPhotoToolModal() {
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
-    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
-    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml(config) : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + (activePhotoTool==='logo' ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p>') + '</div>'
+    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='replace_object'?' replace-object-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
+    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml(config) : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : activePhotoTool==='replace_object' ? replaceObjectComparisonHtml(config) : photoToolDemoHtml(config)) + ((activePhotoTool==='logo') ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : activePhotoTool==='replace_object'&&replaceObjectState.comparison ? 'Перетяните полоску, чтобы сравнить фото до и после замены.' : S.escapeHtml(config.description)) + '</p>') + '</div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
@@ -7231,8 +7334,9 @@ function renderPhotoToolModal() {
     + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':activePhotoTool==='logo'?'Создать логотип':'Сгенерировать'))
     + '</button>'
     + '</div></div>';
-  if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
+  if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object'&&activePhotoTool!=='replace_object')window.requestAnimationFrame(initPhotoToolMask);
   if(activePhotoTool==='tattoo'&&tattooState.comparison)syncTattooComparisonAspectRatio(tattooState.comparison.before);
+  if(activePhotoTool==='replace_object'&&replaceObjectState.comparison)syncReplaceObjectComparisonAspectRatio(replaceObjectState.comparison.before);
 }
 
 // =====================================================
@@ -7626,6 +7730,12 @@ function closePhotoToolModal(e) {
       logoState.result = null;
       logoState.generating = false;
     }
+    if (activePhotoTool === 'replace_object') {
+      const state = photoToolState.replace_object;
+      if (state) { state.files = []; state.maskUrl = ''; state.generating = false; }
+      replaceObjectState.comparison = null;
+      closeReplaceObjectMaskEditor();
+    }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
     // into image mode even when it was opened from Home or another mode -
@@ -7685,6 +7795,10 @@ async function onPhotoToolFiles(e) {
     const loaded = await Promise.all(files.map(readPhotoToolFile));
     loaded.forEach((file, offset) => {
       if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo') && file && files[offset]) file.originalFile = files[offset];
+      if (activePhotoTool === 'replace_object') {
+        replaceObjectState.comparison = null;
+        if (start + offset === 0) state.maskUrl = '';
+      }
       if (start + offset < config.max) state.files[start + offset] = file;
     });
     state.files = state.files.slice(0, config.max);
@@ -7706,6 +7820,10 @@ function removePhotoToolFile(e, kind, index) {
   state.files.splice(index, 1);
   if (kind === 'hair_beard') hairBeardState.comparison = null;
   if (kind === 'tattoo') tattooState.comparison = null;
+  if (kind === 'replace_object') {
+    replaceObjectState.comparison = null;
+    if (index === 0) state.maskUrl = '';
+  }
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -7728,7 +7846,7 @@ function photoToolPrompt(kind, extra) {
     return 'Create one original, production-ready vector logo from the user brief. Brief: "'+String(extra||'').trim()+'". '+(reference?'Use the attached local visual reference "'+reference.name+'" for its design direction, while creating a distinct original mark. ':'')+'Output a clean standalone logo on a plain white background, centered with generous clear space. Use crisp, scalable vector shapes and legible exact lettering when requested. No mockup, product scene, watermark, presentation board, decorative frame, or unrelated text.';
   }
   if (kind === 'remove_object') return 'Remove only the region marked by the user in the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
-  if (kind === 'replace_object') return 'Replace the region marked by the user in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
+  if (kind === 'replace_object') return 'Edit the first uploaded image in place. Replace only the object inside the user-marked region with the corresponding object from the second uploaded image. Keep the original canvas dimensions, aspect ratio, crop, framing, camera position, scene, people, pose, all unmarked objects, textures, lighting, and colors unchanged. Match the replacement object to the marked object’s scale, perspective, orientation, lighting, and contact shadows. Do not add, remove, or alter anything outside the marked region.' + suffix;
   if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
   if (kind === 'hair_beard') {
     const preset = hairBeardPresetById(hairBeardState.selectedPresetId);
@@ -7887,6 +8005,7 @@ async function generatePhotoTool(e) {
   const config = PHOTO_TOOL_CONFIG[kind];
   const state = photoToolStateFor(kind);
   if (!config || !state || state.generating) return;
+  if (kind === 'replace_object') return generateReplaceObjectTool(state, String((document.getElementById('photoToolExtraPrompt') || {}).value || '').trim());
   if (kind === 'remove_object') return generateRemoveObjectTool(state);
   if (kind === 'remove_bg') return generateRemoveBgTool(state);
   if (kind === 'enhance') return generateEnhancePhotoTool(state);
@@ -8049,6 +8168,40 @@ async function generateLogoTool(e, toolState, userBrief) {
 // result handling (chat card, History refresh, active-job cleanup) reuses
 // the same generic pipeline every other Photo Tool already uses.
 // =====================================================
+async function generateReplaceObjectTool(state, instruction) {
+  const source=state.files[0]&&state.files[0].url;
+  const replacement=state.files[1]&&state.files[1].url;
+  if(!source||!replacement){toast('Загрузите исходное фото и предмет для замены');return}
+  if(!state.maskUrl){toast('Отметьте на фото область предмета для замены');return}
+  const displayPrompt=instruction||'Замена отмеченного предмета';
+  const prompt=photoToolPrompt('replace_object',instruction);
+  const references=[source,replacement],model='gpt_image_2_5_sunburst';
+  const options={modelId:model,model,provider:'openai',quality:'high',size:'auto',count:1,tool:'replace_object',photo_tool:'replace_object',referenceImageUrls:references.slice(),referenceImages:references.slice()};
+  state.generating=true;renderPhotoToolModal();document.body.classList.add('ai-generating');
+  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')})-1;renderChat();
+  try{
+    const start=await callGenerate(displayPrompt,null,references,null,{
+      isolateRequest:true,model,provider:'openai',imageOptions:Object.assign({},options,{
+        replaceObjectSourceUrl:source,replaceObjectReferenceUrl:replacement,replaceObjectMaskUrl:state.maskUrl,replaceObjectInstruction:instruction,
+      }),
+      onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),loadingIndex,
+    });
+    const result=start.result||start,images=generatedUrlsFromResponse(result,'image'),thumbs=generatedThumbsFromResponse(result);
+    if(!images.length)throw new Error('Модель не вернула изображение');
+    addGeneratedImages(images,thumbs);
+    replaceObjectState.comparison={before:source,after:images[0]};
+    chatMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,references,result,Object.assign({},options,{mask_applied:true}))};
+    toast('Предмет заменён. Перетяните шторку, чтобы сравнить до и после');
+    loadConversations();
+  }catch(error){
+    chatMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось заменить предмет. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
+    toast(translateGenerationError(error,'Не удалось заменить предмет'));
+  }finally{
+    state.generating=false;document.body.classList.remove('ai-generating');renderPhotoToolModal();renderChat();rememberCurrentChatSpace();
+    if(!activeGeneration.jobId||!isActiveGenerationStatus(activeGeneration.status))clearActiveProStudioJob(activeGeneration.jobId);
+  }
+}
+
 async function generateRemoveObjectTool(state) {
   const sourceUrl = state.files[0] && state.files[0].url;
   if (!sourceUrl) {
@@ -17654,8 +17807,8 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     ? (Array.isArray(referenceImagesOverride) ? referenceImagesOverride.slice() : currentVideoReferenceImages())
     : [];
 
-  // isolateRequest is the Quick Tool escape hatch: a caller that sets it
-  // (currently only Remove Object) supplies image_options/model/provider
+  // isolateRequest is the Quick Tool escape hatch: masked Photo Tools
+  // (Remove Object and Replace Object) supply image_options/model/provider
   // completely on its own and gets no normal-composer state (including
   // chat history) merged in at all - unlike the plain
   // generationOptions.imageOptions override below, which only overwrites
@@ -22556,6 +22709,11 @@ async function waitGeneration(jobId, options) {
   });
 
   S.clearPhotoToolMask = clearPhotoToolMask;
+  S.openReplaceObjectMaskEditor = openReplaceObjectMaskEditor;
+  S.closeReplaceObjectMaskEditor = closeReplaceObjectMaskEditor;
+  S.undoReplaceObjectMask = undoReplaceObjectMask;
+  S.clearReplaceObjectMask = clearReplaceObjectMask;
+  S.saveReplaceObjectMask = saveReplaceObjectMask;
   S.openRemoveObjectMaskEditor = openRemoveObjectMaskEditor;
   S.closeRemoveObjectMaskEditor = closeRemoveObjectMaskEditor;
   S.pickRemoveObjectBrushColor = pickRemoveObjectBrushColor;
