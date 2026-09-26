@@ -7164,6 +7164,7 @@ CSS-БЛОК: .generation-info-actions button
   width:100%;min-height:64px;resize:vertical;border-radius:13px;border:1px solid var(--border);
   background:var(--surface);color:var(--text);padding:11px 12px;font:inherit;font-size:13px;outline:none;box-sizing:border-box
 }
+.photo-tool-char-counter{display:block;text-align:right;font-size:11px;color:var(--text-dim);margin:-6px 2px 2px}
 .photo-tool-generate{
   min-height:46px;border:0;border-radius:14px;background:var(--primary);color:#fff;
   display:flex;align-items:center;justify-content:center;gap:8px;font:inherit;font-size:14px;font-weight:800;cursor:pointer
