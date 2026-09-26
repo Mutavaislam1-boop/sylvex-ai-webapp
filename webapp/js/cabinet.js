@@ -301,7 +301,7 @@ const PHOTO_TOOL_CONFIG = {
   },
   animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
   tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
-  logo: { title:'Лого', shortTitle:'Лого', description:'Опишите логотип и при желании выберите визуальный референс.', min:0, max:0, labels:[], preview:'assets/photo-tools/logo/references/logo-01.png' },
+  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите изображение, опишите логотип и при желании выберите визуальный референс.', min:0, max:1, labels:['Загрузить своё изображение'], preview:'assets/quick-tools/logo-placement.jpg' },
   remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
   replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Отметьте заменяемую область и загрузите новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'], preview:'assets/quick-tools/replace-object.jpg', library:'object', mask:true },
   makeup: { title:'Макияж', shortTitle:'Макияж', description:'Перенесите выбранный стиль макияжа на портрет, сохранив лицо.', min:1, max:2, labels:['Портрет','Референс макияжа'], preview:'assets/quick-tools/enhance-photo.jpg', library:'makeup' },
@@ -7210,15 +7210,15 @@ function renderPhotoToolModal() {
     : (isAnimatePhoto ? ' oninput="SYLVEX.updateAnimatePhotoPromptCounter()"' : '');
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
-    + (activePhotoTool==='logo' ? logoCatalogHtml() : '')
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
     + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
     + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml() : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p></div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
-    + (activePhotoTool==='logo' ? '' : '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>')
+    + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
     + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : activePhotoTool==='logo' ? '<textarea id="photoToolExtraPrompt" rows="3" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">'+S.escapeHtml(logoState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
+    + (activePhotoTool==='logo' ? logoCatalogHtml() : '')
     + (isAnimatePhoto ? '<small class="photo-tool-char-counter" id="photoToolPromptCounter">0/250</small>' : '')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
     + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':activePhotoTool==='logo'?'Создать логотип':'Сгенерировать'))
@@ -7984,7 +7984,8 @@ async function generateLogoTool(e, toolState, userBrief) {
   const brief=String(userBrief||'').trim();
   if(!brief){toast('Опишите логотип');return;}
   const selected=logoReferenceById(logoState.selectedReferenceId);
-  const refs=selected?[selected.asset]:[];
+  const uploadedRefs=(toolState.files||[]).filter(Boolean).map((file)=>String(file.url||'')).filter(Boolean);
+  const refs=uploadedRefs.concat(selected?[selected.asset]:[]);
   const prompt=photoToolPrompt('logo',brief);
   toolState.generating=true;
   logoState.generating=true;
@@ -7996,7 +7997,7 @@ async function generateLogoTool(e, toolState, userBrief) {
   try{
     const imageOptions={
       modelId:'recraft_v4_1_pro_vector',model:'recraft_v4_1_pro_vector',provider:'recraft',size:'1:1',count:1,
-      referenceImageUrls:refs.slice(),referenceImages:refs.slice(),photo_tool:'logo',tool:'logo',
+      referenceImageUrls:refs.slice(),referenceImages:refs.slice(),uploadedImageUrls:uploadedRefs.slice(),photo_tool:'logo',tool:'logo',
       logo_reference_id:selected?selected.id:'',logo_reference_name:selected?selected.name:'',
       catalog_reference_url:selected?selected.asset:'',catalog_reference_hidden:false,
       catalog_prompt_hidden:true,catalog_display_prompt:brief,
