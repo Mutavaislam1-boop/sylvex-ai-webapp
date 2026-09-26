@@ -13329,6 +13329,29 @@ def poll_topaz_enhance_status(process_id: str, frontend_model: str, provider_mod
     return False, image_error_response("topaz", frontend_model, provider_model, endpoint, "Topaz enhance timeout")
 
 
+def _persist_enhance_photo_image_bytes(content: bytes, content_type: str) -> str:
+    """Persists a direct (non-JSON) image/* response from Topaz's download
+    endpoint straight to durable SYLVEX storage, preserving the format
+    Topaz actually returned. Mirrors _persist_remote_media_url's own
+    filename/upload logic for the case where the bytes are already in hand
+    and no second HTTP round trip is needed. Returns "" on failure, exactly
+    like _persist_remote_media_url does, so the caller's storage_key_from_
+    url() check treats it as a hard failure rather than a temporary URL."""
+    if not content:
+        return ""
+    clean_content_type = (content_type or "").split(";", 1)[0].strip().lower() or "image/png"
+    suffix = mimetypes.guess_extension(clean_content_type) or ".png"
+    object_key = generated_key("images", f"{uuid4().hex}{suffix}")
+    try:
+        prostudio_debug("R2_UPLOAD_START", provider="topaz", asset_type="images", object_key=object_key, content_type=clean_content_type)
+        uploaded_url = storage_put_bytes(content, object_key, clean_content_type)
+        prostudio_debug("R2_UPLOAD_DONE", provider="topaz", asset_type="images", object_key=object_key)
+        return uploaded_url
+    except Exception as exc:
+        prostudio_error("R2_UPLOAD_FAILED", exc, provider="topaz", asset_type="images", object_key=object_key, content_type=clean_content_type)
+        return ""
+
+
 async def generate_enhance_photo_image(payload: dict) -> dict:
     """The Enhance Photo provider call, using Topaz Labs' real Enhance API
     (POST /image/v1/enhance/async, multipart/form-data, X-API-KEY auth,
@@ -13418,15 +13441,36 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
         print(f"ENHANCE PHOTO DOWNLOAD ERROR HTTP {download_response.status_code}:", download_response.text[:2000])
         return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Provider request failed", download_response)
 
-    download_data = safe_provider_json(download_response, "topaz", download_endpoint)
-    result_url = str(download_data.get("url") or "").strip()
-    if not result_url:
-        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Topaz result URL not found", data=download_data)
+    download_content_type = (download_response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    download_content_length = download_response.headers.get("content-length") or ""
+    # Topaz's own download response can be either a JSON envelope ({"url":
+    # ...}) or the finished image bytes directly, undocumented which one a
+    # given request returns - only safe response metadata is ever logged
+    # here (never the API key, a signed URL, or the raw image/JSON body).
+    print("ENHANCE PHOTO DOWNLOAD RESPONSE:", {
+        "status_code": download_response.status_code,
+        "content_type": download_content_type,
+        "content_length": download_content_length,
+        "process_id": process_id,
+    })
 
-    # Topaz's download URL is temporary - persist it to durable SYLVEX
-    # storage right now, synchronously, rather than relying on the generic
-    # background persistence pass, which could run after the URL expires.
-    persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
+    if download_content_type.startswith("image/"):
+        # Direct image response - the completed result IS the response
+        # body. Persist it to durable SYLVEX storage right now, preserving
+        # the format Topaz actually returned, rather than assuming a JSON
+        # envelope and silently discarding an already-completed result.
+        persisted_url = _persist_enhance_photo_image_bytes(download_response.content, download_content_type)
+    else:
+        download_data = safe_provider_json(download_response, "topaz", download_endpoint)
+        result_url = str(download_data.get("url") or "").strip()
+        if not result_url:
+            return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Topaz result URL not found", data=download_data)
+        # Topaz's download URL is temporary - persist it to durable SYLVEX
+        # storage right now, synchronously, rather than relying on the
+        # generic background persistence pass, which could run after the
+        # URL expires.
+        persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
+
     if not storage_key_from_url(persisted_url):
         print("ENHANCE PHOTO STORAGE PERSIST FAILED:", persisted_url)
         return {"ok": False, "error": "Не удалось сохранить результат. Попробуйте ещё раз."}
