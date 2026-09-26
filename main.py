@@ -616,6 +616,7 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "recraft_v4_1": {"provider": "recraft", "provider_model": env_value("RECRAFT_V4_1_MODEL", "RECRAFT-V4-1-MODEL", default="recraftv4_1"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "recraft_v3": {"provider": "recraft", "provider_model": env_value("RECRAFT_V3_MODEL", "RECRAFT-V3-MODEL", default="recraftv3"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
     "recraft_v4_1_pro": {"provider": "recraft", "provider_model": env_value("RECRAFT_V4_1_PRO_MODEL", "RECRAFT-V4-1-PRO-MODEL", default="recraftv4_1_pro"), "endpoint": "https://external.api.recraft.ai/v1/images/generations"},
+    "recraft_v4_1_pro_vector": {"provider": "recraft", "provider_model": env_value("RECRAFT_V4_1_PRO_VECTOR_MODEL", "RECRAFT-V4-1-PRO-VECTOR-MODEL", default="recraftv4_1_pro_vector"), "endpoint": "https://external.api.recraft.ai/v1/images/generations/vector"},
     "seedream_4_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "seedream_5_0": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "seedream_5_0_lite": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_5_0_lite"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
@@ -737,6 +738,16 @@ RECRAFT_MODEL_VARIANTS = {
         "cost_usd": 0.21,
         "provider_cost_usd": 0.21,
         "tools": ["image_to_image"],
+    },
+    "recraft_v4_1_pro_vector": {
+        "provider_model": env_value("RECRAFT_V4_1_PRO_VECTOR_MODEL", "RECRAFT-V4-1-PRO-VECTOR-MODEL", default="recraftv4_1_pro_vector"),
+        "label": "Recraft V4.1 Pro Vector",
+        "seed": False,
+        # $0.30 native SVG generation plus $0.005 style-reference creation.
+        "cost_credits": 31,
+        "cost_usd": 0.305,
+        "provider_cost_usd": 0.305,
+        "tools": [],
     },
     "recraft_v3": {
         "provider_model": env_value("RECRAFT_V3_MODEL", "RECRAFT-V3-MODEL", default="recraftv3"),
@@ -980,6 +991,7 @@ IMAGE_MODEL_FEATURES = {
     "recraft_v4_1": {"character": False, "object": False, "seed": True},
     "recraft_v3": {"character": False, "object": False, "seed": True},
     "recraft_v4_1_pro": {"character": False, "object": False, "seed": False},
+    "recraft_v4_1_pro_vector": {"character": False, "object": False, "seed": False},
     "gpt_image_1": {"character": True, "object": True, "seed": False},
     "qwen_image": {"character": False, "object": False, "seed": False},
     "qwen_image_2": {"character": False, "object": False, "seed": True},
@@ -6144,6 +6156,12 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "objectReferences": _json_list(options.get("objectReferences")),
         "ratio": options.get("ratio") or options.get("size") or "",
         "size": options.get("size") or options.get("resolution") or options.get("ratio") or "",
+        "svg_url": result.get("svg_url") or result.get("svg_download_url") or "",
+        "svg_download_url": result.get("svg_download_url") or result.get("svg_url") or "",
+        "photo_tool": options.get("photo_tool") or options.get("tool") or "",
+        "catalog_reference_url": options.get("catalog_reference_url") or "",
+        "logo_reference_id": options.get("logo_reference_id") or "",
+        "logo_reference_name": options.get("logo_reference_name") or "",
         "duration": result.get("duration") or options.get("duration") or "",
         "quality": result.get("quality") or options.get("quality") or "",
         "count": options.get("count") or len(images) or 1,
@@ -6414,10 +6432,12 @@ def persist_generation_media(result: dict, mode: str) -> dict:
     scalar_fields = {
         "image_url": "images", "thumbnail_url": "thumbs", "video_url": "videos",
         "audio_url": "audio", "music_url": "audio", "file_url": "documents",
+        "svg_url": "documents", "svg_download_url": "documents",
     }
     list_fields = {
         "images": "images", "thumbnails": "thumbs", "videos": "videos",
         "audio_urls": "audio", "audios": "audio", "files": "documents",
+        "svg_urls": "documents",
     }
     for field, category in scalar_fields.items():
         if result.get(field):
@@ -6481,6 +6501,7 @@ def verify_persisted_generation_media(result: dict, mode: str) -> list[str]:
 
 _PROSTUDIO_STORAGE_MERGE_FIELDS = (
     "image_url", "images", "thumbnail_url", "thumb_url", "thumbnails",
+    "svg_url", "svg_download_url", "svg_urls",
     "video_url", "videos", "audio_url", "audio_urls", "audios", "music_url",
     "result_url", "full_url", "url", "file_url", "files", "metadata",
 )
@@ -6608,6 +6629,7 @@ def build_completed_job_result(result: dict, mode: str) -> dict:
     keep = {
         "ok", "type", "status", "provider", "model", "provider_model",
         "image_url", "images", "thumbnail_url", "thumb_url", "thumbnails",
+        "svg_url", "svg_download_url", "svg_urls",
         "video_url", "videos", "audio_url", "audio_urls", "audios", "music_url",
         "result_url", "full_url", "url", "file_url", "title", "text", "duration",
         "cost", "price", "cost_credits", "generation_cost", "unit_cost_credits",
@@ -6629,6 +6651,8 @@ def build_completed_job_result(result: dict, mode: str) -> dict:
         "result_url": primary_url,
         "full_url": primary_url,
         "image_url": final_result.get("image_url") or "",
+        "svg_url": final_result.get("svg_url") or final_result.get("svg_download_url") or "",
+        "svg_download_url": final_result.get("svg_download_url") or final_result.get("svg_url") or "",
         "thumbnail_url": final_result.get("thumbnail_url") or final_result.get("thumb_url") or "",
         "video_url": final_result.get("video_url") or "",
         "audio_url": final_result.get("audio_url") or final_result.get("music_url") or "",
@@ -10251,6 +10275,7 @@ def _prostudio_download_filename(mode: str, job_id: str, content_type: str, obje
     mime = str(content_type or "").split(";", 1)[0].strip().lower()
     mime_extensions = {
         "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
+        "image/svg+xml": ".svg",
         "video/mp4": ".mp4", "video/webm": ".webm",
         "audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/wav": ".wav",
         "audio/x-wav": ".wav", "audio/mp4": ".m4a", "audio/ogg": ".ogg",
@@ -10265,7 +10290,7 @@ def _prostudio_download_filename(mode: str, job_id: str, content_type: str, obje
 
 
 @app.get("/api/public/prostudio/download/{job_id}")
-async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data: str = ""):
+async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data: str = "", asset: str = ""):
     """Stream a completed job's durable R2 result without mutating the job."""
     if not telegram_id:
         raise HTTPException(status_code=400, detail="telegram_id_required")
@@ -10304,8 +10329,13 @@ async def public_prostudio_download(job_id: str, telegram_id: int = 0, init_data
     if mode not in {"image", "video", "music", "voice"}:
         raise HTTPException(status_code=400, detail="job_has_no_downloadable_media")
     result = _json_obj(row[3])
-    media_urls = generation_result_urls(result, mode)
-    media_url = media_urls[0] if media_urls else ""
+    if str(asset or "").strip().lower() == "svg":
+        media_url = str(result.get("svg_url") or result.get("svg_download_url") or "").strip()
+        if mode != "image" or not media_url:
+            raise HTTPException(status_code=404, detail="job_has_no_svg_asset")
+    else:
+        media_urls = generation_result_urls(result, mode)
+        media_url = media_urls[0] if media_urls else ""
     parsed_path = urllib.parse.unquote(urllib.parse.urlparse(media_url).path)
     if parsed_path.startswith("/webapp/generated/") or parsed_path.startswith("/generated/"):
         raise HTTPException(status_code=409, detail="job_result_is_not_in_r2")
@@ -16675,6 +16705,8 @@ def recraft_frontend_model(frontend_model: str, provider_model: str = "") -> str
     if raw in RECRAFT_MODEL_VARIANTS:
         return raw
     model = str(provider_model or "").lower()
+    if "v4_1_pro_vector" in model or "v4.1_pro_vector" in model:
+        return "recraft_v4_1_pro_vector"
     if "v4_1_pro" in model or "v4.1_pro" in model:
         return "recraft_v4_1_pro"
     if "v3" in model:
@@ -17706,6 +17738,28 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
     size_value = recraft_size_value(size)
     if size_value:
         request_payload["size"] = size_value
+    if str(opts.get("photo_tool") or opts.get("tool") or "").strip().lower() == "logo":
+        # Recraft V4.1 Pro Vector accepts style-reference URLs directly and
+        # returns a native SVG from its vector generation endpoint.
+        refs = image_reference_urls(payload)[:10]
+        normalized_refs = []
+        for ref in refs:
+            raw_ref = str(ref or "").strip()
+            if raw_ref.startswith("/webapp/"):
+                local_path = safe_local_path(WEBAPP_DIR, raw_ref.replace("/webapp/", "", 1))
+                content = local_path.read_bytes()
+                mime = mimetypes.guess_type(local_path.name)[0] or "image/png"
+                normalized_refs.append(f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}")
+            elif storage_key_from_url(raw_ref):
+                content = storage_read_bytes(raw_ref)
+                object_key = storage_key_from_url(raw_ref)
+                mime = mimetypes.guess_type(object_key)[0] or "image/png"
+                normalized_refs.append(f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}")
+            else:
+                normalized_refs.append(raw_ref)
+        if normalized_refs:
+            request_payload["style_reference_urls"] = normalized_refs
+        request_payload["style_match"] = "precise"
     if seed is not None:
         request_payload["random_seed"] = seed
     try:
@@ -17717,6 +17771,57 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
         return [], image_error_response("recraft", frontend_model, provider_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
     images = normalize_image_response(data)
     return images, {}, request_payload
+
+
+def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
+    """Download native Recraft SVG, render a PNG preview, and persist both."""
+    try:
+        import cairosvg
+        from xml.etree import ElementTree
+        import re as _re
+    except ImportError as exc:
+        raise RuntimeError("SVG preview renderer is unavailable") from exc
+    response = safe_get(svg_url, timeout=120)
+    response.raise_for_status()
+    svg_bytes = response.content
+    if not svg_bytes or len(svg_bytes) > 40 * 1024 * 1024:
+        raise ValueError("Recraft returned an invalid or oversized SVG")
+    root = ElementTree.fromstring(svg_bytes)
+    if str(root.tag).split("}")[-1].lower() != "svg":
+        raise ValueError("Recraft did not return an SVG document")
+    blocked_tags = {"script", "foreignObject", "iframe", "object", "embed"}
+    for parent in root.iter():
+        for child in list(parent):
+            if str(child.tag).split("}")[-1] in blocked_tags:
+                parent.remove(child)
+        for attr, value in list(parent.attrib.items()):
+            attr_name = str(attr).split("}")[-1].lower()
+            value = str(value or "").strip()
+            if attr_name in {"href", "src"} and value and not value.startswith(("#", "data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,")):
+                del parent.attrib[attr]
+            elif "url(" in value.lower() and _re.search(r"url\(\s*(['\"]?)(?!#|data:image/)[^)]+\)", value, _re.I):
+                parent.attrib[attr] = _re.sub(r"url\(\s*(['\"]?)(?!#|data:image/)[^)]+\)", "none", value, flags=_re.I)
+        if str(parent.tag).split("}")[-1].lower() == "style" and parent.text:
+            parent.text = _re.sub(r"@import[^;]+;|url\(\s*(['\"]?)(?!#|data:image/)[^)]+\)", "", parent.text, flags=_re.I)
+    svg_bytes = ElementTree.tostring(root, encoding="utf-8")
+    try:
+        view_box = [float(value) for value in str(root.get("viewBox") or "").replace(",", " ").split()]
+        aspect = (view_box[2] / view_box[3]) if len(view_box) == 4 and view_box[2] > 0 and view_box[3] > 0 else 1.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        aspect = 1.0
+    aspect = min(10.0, max(0.1, aspect))
+    max_preview_edge = 2048
+    output_width = max_preview_edge if aspect >= 1 else max(1, round(max_preview_edge * aspect))
+    output_height = max_preview_edge if aspect < 1 else max(1, round(max_preview_edge / aspect))
+    png_bytes = cairosvg.svg2png(bytestring=svg_bytes, output_width=output_width, output_height=output_height)
+    if not png_bytes:
+        raise ValueError("Could not render the SVG preview")
+    stem = uuid4().hex
+    svg_saved_url = storage_put_bytes(svg_bytes, generated_key("documents", f"{stem}.svg"), "image/svg+xml")
+    png_saved_url = storage_put_bytes(png_bytes, generated_key("images", f"{stem}.png"), "image/png")
+    if not svg_saved_url or not png_saved_url:
+        raise RuntimeError("Could not save the logo SVG and PNG preview")
+    return svg_saved_url, png_saved_url
 
 
 # =====================================================
@@ -18401,16 +18506,33 @@ async def image_generation(payload: dict) -> dict:
 
     if provider == "recraft":
         images, error, request_payload = call_recraft_image(requested_model, api_model, endpoint, prompt, payload, size, count)
-        print("RECRAFT IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": request_payload})
+        debug_payload = dict(request_payload or {})
+        if debug_payload.get("style_reference_urls"):
+            debug_payload["style_reference_urls"] = ["[style reference omitted]"] * len(debug_payload["style_reference_urls"])
+        print("RECRAFT IMAGE PAYLOAD:", {"frontend_model": requested_model, "provider_model": api_model, "endpoint": endpoint, "payload": debug_payload})
         if error:
             return error
         if images:
-            final_images = images[:count]
+            is_logo_vector = str((payload.get("image_options") or {}).get("photo_tool") or "").strip().lower() == "logo" and recraft_frontend_model(requested_model, api_model) == "recraft_v4_1_pro_vector"
+            svg_url = ""
+            if is_logo_vector:
+                try:
+                    svg_url, preview_url = await asyncio.to_thread(persist_recraft_logo_assets, images[0])
+                except Exception as exc:
+                    prostudio_error("RECRAFT_LOGO_ASSET_SAVE_FAILED", exc)
+                    return image_error_response(provider, requested_model, api_model, endpoint, "Не удалось сохранить SVG и PNG-preview логотипа", data={"body_preview": str(exc)[:500]})
+                final_images = [preview_url]
+            else:
+                final_images = images[:count]
             result = await finalize_image_result(payload, final_images)
             result.update(recraft_cost_info(requested_model, api_model, len(final_images) or count))
             result["provider"] = "recraft"
             result["model"] = requested_model
             result["provider_model"] = api_model
+            if is_logo_vector:
+                result["svg_url"] = svg_url
+                result["svg_download_url"] = svg_url
+                result["svg_urls"] = [svg_url]
             return result
         return image_error_response(provider, requested_model, api_model, endpoint, "Provider returned no image")
 
