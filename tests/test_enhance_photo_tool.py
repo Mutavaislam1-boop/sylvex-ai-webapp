@@ -5,8 +5,10 @@ and never from normal Pro Studio composer state (Character/Object/Style/prompt/
 references). It calls Topaz Labs' real Enhance API - POST
 https://api.topazlabs.com/image/v1/enhance/async, multipart/form-data, auth via
 the X-API-KEY header (TOPAZ_API_KEY env var), model="High Fidelity V2", the
-resize field is the documented outputHeight (never output_height/output_width/
-outputWidth) - then async polling of GET .../status/{process_id} for the
+resize field is the documented output_height (never outputHeight/output_width/
+outputWidth - Topaz's current High Fidelity 2 docs explicitly name output_height
+and say unsupported extra fields are ignored) - then async polling of GET
+.../status/{process_id} for the
 literal `status` field until Completed/Failed/Cancelled, then GET
 .../download/{process_id} for the literal `url` field.
 
@@ -312,14 +314,14 @@ def test_generate_enhance_photo_image_sends_correct_topaz_request_shape(monkeypa
     assert captured["headers"] == {"X-API-KEY": "test-topaz-key"}
     # Exact documented model name.
     assert captured["data"]["model"] == "High Fidelity V2"
-    # Exact documented resize field - outputHeight only, never
-    # output_height/output_width/outputWidth.
-    assert "outputHeight" in captured["data"]
-    assert "output_height" not in captured["data"]
+    # Exact documented resize field - output_height only, never
+    # outputHeight/output_width/outputWidth.
+    assert "output_height" in captured["data"]
+    assert "outputHeight" not in captured["data"]
     assert "output_width" not in captured["data"]
     assert "outputWidth" not in captured["data"]
     expected_width, expected_height = main.enhance_photo_output_dimensions(600, 900)
-    assert int(captured["data"]["outputHeight"]) == expected_height
+    assert int(captured["data"]["output_height"]) == expected_height
     # Exact multipart field name for the source image.
     assert "image" in captured["files"]
     filename, file_bytes, content_type = captured["files"]["image"]
@@ -332,7 +334,7 @@ def test_generate_enhance_photo_image_output_preserves_source_aspect_ratio(monke
     source_uri = _png_data_uri_sized(1200, 800)
 
     def fake_post(url, headers=None, data=None, files=None, timeout=None):
-        captured["output_height"] = int(data["outputHeight"])
+        captured["output_height"] = int(data["output_height"])
         return _FakeResponse(200, {"process_id": "proc_1"})
 
     monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
@@ -355,7 +357,7 @@ def test_generate_enhance_photo_image_approximately_doubles_resolution(monkeypat
     source_uri = _png_data_uri_sized(500, 400)
 
     def fake_post(url, headers=None, data=None, files=None, timeout=None):
-        captured["output_height"] = int(data["outputHeight"])
+        captured["output_height"] = int(data["output_height"])
         return _FakeResponse(200, {"process_id": "proc_1"})
 
     monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
@@ -488,6 +490,67 @@ def test_generate_enhance_photo_image_handles_network_error(monkeypatch):
     monkeypatch.setattr(main.requests, "post", fake_post)
     result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
     assert result["ok"] is False
+
+
+# --- Diagnostics: sanitized JSON shape logging for the download response ----
+# A production job reached status=Completed, HTTP 200, Content-Type:
+# application/json on the download endpoint, and still failed before any R2
+# upload started - the real top-level shape of that JSON is unconfirmed.
+# _sanitized_json_shape() must describe key names and each value's type/
+# emptiness without ever exposing the values themselves (which could be a
+# signed URL or other sensitive data).
+
+def test_sanitized_json_shape_never_exposes_values():
+    shape = main._sanitized_json_shape({
+        "url": "https://signed.example.com/secret-token-abc123",
+        "expires_in": 3600,
+        "ok": True,
+        "metadata": {"width": 1200},
+        "warnings": [],
+        "note": None,
+    })
+    assert shape["top_level_keys"] == ["expires_in", "metadata", "note", "ok", "url", "warnings"]
+    dumped = json.dumps(shape)
+    assert "signed.example.com" not in dumped
+    assert "secret-token-abc123" not in dumped
+    assert shape["fields"]["url"] == {"type": "str", "empty": False}
+    assert shape["fields"]["expires_in"] == {"type": "int", "empty": False}
+    assert shape["fields"]["ok"] == {"type": "bool", "empty": False}
+    assert shape["fields"]["metadata"] == {"type": "dict", "empty": False}
+    assert shape["fields"]["warnings"] == {"type": "list", "empty": True}
+    assert shape["fields"]["note"] == {"type": "NoneType", "empty": True}
+
+
+def test_sanitized_json_shape_handles_non_dict_top_level():
+    assert main._sanitized_json_shape(["a", "b"]) == {"top_level_type": "list"}
+    assert main._sanitized_json_shape("plain string") == {"top_level_type": "str"}
+
+
+def test_completed_download_json_logs_sanitized_shape_and_error_envelope_flag(monkeypatch, capsys):
+    # safe_provider_json() itself returns an {"ok": False, "error": ...}
+    # envelope when the body isn't valid JSON or is empty - the log must
+    # flag that case distinctly from a real Topaz payload lacking "url".
+    monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
+    monkeypatch.setattr(main.requests, "post", lambda *a, **k: _FakeResponse(200, {"process_id": "proc_1"}))
+
+    def fake_safe_get(url, headers=None, timeout=None):
+        if "/status/" in url:
+            return _FakeResponse(200, {"status": "Completed"})
+        # Valid JSON, but not the documented shape - e.g. a "data" wrapper
+        # instead of a top-level "url".
+        return _FakeResponse(200, {"data": {"url": "https://example.com/x.png"}}, headers={"content-type": "application/json"})
+
+    monkeypatch.setattr(main, "safe_get", fake_safe_get)
+    monkeypatch.setattr(main.time, "sleep", lambda *a, **k: None)
+
+    result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
+    assert result["ok"] is False
+
+    captured_output = capsys.readouterr().out
+    assert "ENHANCE PHOTO DOWNLOAD JSON SHAPE" in captured_output
+    assert "safe_provider_json_error_envelope" in captured_output
+    # The shape log must never contain the actual URL value.
+    assert "https://example.com/x.png" not in captured_output
 
 
 # --- Regression: Topaz's download step can return either a direct image or a
