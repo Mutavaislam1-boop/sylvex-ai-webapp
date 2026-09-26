@@ -13057,6 +13057,28 @@ def is_replace_character_request(payload: dict) -> bool:
     return str(opts.get("tool") or "").strip().lower() == CHARACTER_REPLACE_TOOL_KEY
 
 
+# =====================================================
+# PYTHON-БЛОК: is_enhance_photo_request
+# Enhance Photo is its own isolated generation flow (see
+# generate_enhance_photo_image) - it never reuses the normal Pro Studio
+# image-generation payload shape (Character/Object/Style/prompt/refs), so it
+# needs its own dispatch check, independent of is_seedream_request.
+# ENHANCE_PHOTO_TOOL_KEY is the single source of truth for the tool
+# identifier - the frontend request, this predicate, the job payload,
+# estimate_generation_cost's pricing branch, and generate_enhance_photo_
+# image's own result fields must all use this exact same value. It is
+# deliberately not "enhance" (the pre-existing generic PHOTO_TOOL_CONFIG key)
+# nor "upscaler" (estimate_generation_cost's own unrelated Recraft flat-fee
+# entry), to avoid any collision with either.
+# =====================================================
+ENHANCE_PHOTO_TOOL_KEY = "enhance_photo"
+
+
+def is_enhance_photo_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == ENHANCE_PHOTO_TOOL_KEY
+
+
 FLUX_2_MAX_ENDPOINT = "https://api.bfl.ai/v1/flux-2-max"
 # input_image (source) + input_image_2 (identity avatar/selected image) +
 # input_image_3/4/5 (up to 3 Character reference images) - BFL's own
@@ -13168,8 +13190,11 @@ def character_replace_output_dimensions(source_width: int, source_height: int) -
 
 def _detect_image_dimensions(image_bytes: bytes) -> tuple:
     """Returns (width, height), or (0, 0) if the bytes aren't a readable
-    image - the caller falls back to FLUX's own square default in that
-    case, exactly as if no source image had been analyzed at all."""
+    image - shared by every isolated Quick Tool that needs the source
+    photo's real pixel size to compute its own output dimensions (Character
+    Replace, Enhance Photo, ...). Callers fall back to their own default
+    behavior when this returns (0, 0), exactly as if no source image had
+    been analyzed at all."""
     if not image_bytes:
         return 0, 0
     from PIL import Image
@@ -13179,8 +13204,273 @@ def _detect_image_dimensions(image_bytes: bytes) -> tuple:
         with Image.open(io.BytesIO(image_bytes)) as img:
             return img.width, img.height
     except Exception as exc:
-        print("CHARACTER REPLACE SOURCE DIMENSION DETECT FAILED:", type(exc).__name__, str(exc))
+        print("SOURCE IMAGE DIMENSION DETECT FAILED:", type(exc).__name__, str(exc))
         return 0, 0
+
+
+# =====================================================
+# PYTHON-БЛОК: Enhance Photo Quick Tool (isolated generation flow, Topaz Labs)
+# Independent of normal Pro Studio image generation: never reads
+# Character/Object/Style/previous prompt/previous references. Its whole
+# request is built from exactly one tool-owned input -
+# image_options.enhancePhotoSourceUrl - and nothing else in the payload.
+# Provider is Topaz Labs' real Enhance API (POST /image/v1/enhance/async,
+# multipart/form-data, X-API-KEY auth, async submit+poll+download - not the
+# JSON/x-key convention used by FLUX/BFL elsewhere in this file). Only the
+# finished result re-joins the normal post-generation pipeline (Pro Studio
+# display, History, storage, Telegram) via the same job-completion path
+# every other image provider already uses.
+# =====================================================
+TOPAZ_ENHANCE_ENDPOINT = "https://api.topazlabs.com/image/v1/enhance/async"
+TOPAZ_STATUS_ENDPOINT = "https://api.topazlabs.com/image/v1/status/{process_id}"
+TOPAZ_DOWNLOAD_ENDPOINT = "https://api.topazlabs.com/image/v1/download/{process_id}"
+# Topaz's documented model name for the Enhance endpoint's automatic,
+# general-purpose enhancement mode (sharpen/denoise/de-artifact, no manual
+# per-parameter tuning) - sent verbatim in the "model" form field.
+TOPAZ_ENHANCE_MODEL = "High Fidelity V2"
+# Topaz's own terminal status values for GET /image/v1/status/{process_id} -
+# anything else (Pending, Processing, ...) means "keep polling". These are
+# the literal, documented values - do not add synonyms like "Ready"/"Error"
+# here, Topaz does not use them for this endpoint.
+TOPAZ_STATUS_COMPLETED = "Completed"
+TOPAZ_STATUS_FAILED = "Failed"
+TOPAZ_STATUS_CANCELLED = "Cancelled"
+TOPAZ_POLL_INTERVAL_SECONDS = 3
+TOPAZ_POLL_MAX_ATTEMPTS = 120  # ~6 minutes at 3s/attempt
+
+# Enhance Photo has no resolution selector of its own - it always targets
+# ~2x the source photo's linear resolution, capped at Topaz's 1-credit
+# billing tier (<=24 output megapixels).
+ENHANCE_PHOTO_UPSCALE_FACTOR = 2
+ENHANCE_PHOTO_OUTPUT_MAX_PIXELS = 24_000_000
+
+# Topaz Developer plan's published per-credit rate for a High Fidelity V2
+# enhance up to 24MP (1 API credit per request). Kept as its own named
+# constant, not inlined into the pricing formula below, so it can be
+# updated in one place if Topaz's own rate ever changes.
+TOPAZ_CREDIT_COST_USD = 0.10
+ENHANCE_PHOTO_MARKUP = 1.5
+
+
+def enhance_photo_output_dimensions(source_width: int, source_height: int) -> tuple:
+    """Computes the target (width, height) to send to Topaz: exactly 2x the
+    source photo's own linear resolution, preserving its aspect ratio - or,
+    if that would exceed Topaz's 24-megapixel 1-credit tier, both
+    dimensions scaled down together (never cropped, never stretched) until
+    the area is back at or under the cap."""
+    width = max(1, int(source_width or 0))
+    height = max(1, int(source_height or 0))
+    target_width = width * ENHANCE_PHOTO_UPSCALE_FACTOR
+    target_height = height * ENHANCE_PHOTO_UPSCALE_FACTOR
+    area = target_width * target_height
+    if area > ENHANCE_PHOTO_OUTPUT_MAX_PIXELS:
+        scale = math.sqrt(ENHANCE_PHOTO_OUTPUT_MAX_PIXELS / area)
+        target_width = max(1, int(target_width * scale))
+        target_height = max(1, int(target_height * scale))
+    return target_width, target_height
+
+
+def enhance_photo_cost_info() -> dict:
+    """SYLVEX's price is Topaz's real per-request provider cost (1 credit,
+    flat, regardless of output size within the 24MP tier) + 50% markup,
+    rounded up to a whole SYLVEX credit: credits = ceil(provider_cost_usd *
+    1.5 * 100), i.e. 1 SYLVEX credit = $0.01 of the marked-up price -
+    $0.10 * 1.5 = $0.15 -> 15 credits."""
+    unit_usd = TOPAZ_CREDIT_COST_USD * ENHANCE_PHOTO_MARKUP
+    # round() first to absorb float representation error (0.10 * 1.5 * 100
+    # == 15.000000000000002 in IEEE754) before ceiling - otherwise the
+    # intended flat 15 credits would silently become 16.
+    credits = int(math.ceil(round(unit_usd * 100, 6)))
+    return {
+        "credits": credits,
+        "cost_credits": credits,
+        "cost_usd": round(unit_usd, 4),
+        "provider_cost_usd": round(TOPAZ_CREDIT_COST_USD, 4),
+        "generation_cost": f"{credits} ⚡",
+    }
+
+
+def topaz_headers() -> dict:
+    api_key = os.getenv("TOPAZ_API_KEY")
+    if not api_key:
+        return {}
+    return {"X-API-KEY": api_key}
+
+
+def poll_topaz_enhance_status(process_id: str, frontend_model: str, provider_model: str, max_attempts: int = TOPAZ_POLL_MAX_ATTEMPTS) -> tuple:
+    """Polls GET /image/v1/status/{process_id}, reading the literal `status`
+    field, until it reaches one of Topaz's documented terminal values
+    (Completed/Failed/Cancelled) or the attempt budget runs out. Returns
+    (True, {}) once Completed, or (False, error_dict) for Failed/Cancelled/
+    timeout/HTTP/network errors. A 429 (rate limited) is treated as
+    transient and simply retried on the next polling interval rather than
+    failing outright."""
+    endpoint = TOPAZ_STATUS_ENDPOINT.format(process_id=process_id)
+    headers = topaz_headers()
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = safe_get(endpoint, headers=headers, timeout=30)
+        except Exception as exc:
+            return False, image_error_response("topaz", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+        if response.status_code == 429:
+            print("ENHANCE PHOTO STATUS RATE LIMITED:", {"attempt": attempt})
+            time.sleep(TOPAZ_POLL_INTERVAL_SECONDS)
+            continue
+        if response.status_code >= 400:
+            return False, image_error_response("topaz", frontend_model, provider_model, endpoint, "Provider request failed", response)
+        data = safe_provider_json(response, "topaz", endpoint)
+        status = data.get("status")
+        print("ENHANCE PHOTO STATUS POLL:", {"attempt": attempt, "status": status})
+        if status == TOPAZ_STATUS_COMPLETED:
+            return True, {}
+        if status in {TOPAZ_STATUS_FAILED, TOPAZ_STATUS_CANCELLED}:
+            return False, image_error_response("topaz", frontend_model, provider_model, endpoint, f"Topaz enhance {status.lower()}", data=data)
+        time.sleep(TOPAZ_POLL_INTERVAL_SECONDS)
+    return False, image_error_response("topaz", frontend_model, provider_model, endpoint, "Topaz enhance timeout")
+
+
+async def generate_enhance_photo_image(payload: dict) -> dict:
+    """The Enhance Photo provider call, using Topaz Labs' real Enhance API
+    (POST /image/v1/enhance/async, multipart/form-data, X-API-KEY auth,
+    model="High Fidelity V2" - Topaz's automatic enhancement mode, no manual
+    per-parameter tuning). Reads ONLY the one isolated field below - never
+    image_options.characterId/characterReferences/objectId/
+    objectReferences/style, never payload.prompt/history - so leaked normal
+    Pro Studio state can never reach this request.
+
+    Async flow: submit returns {"process_id"}; GET .../status/{process_id}
+    is polled for the literal {"status"} field until Completed/Failed/
+    Cancelled; on Completed, GET .../download/{process_id} returns the
+    literal {"url"} field. Topaz's download URL is temporary, so it is
+    downloaded and persisted to durable SYLVEX storage synchronously,
+    inside this function, before it ever returns - the result never carries
+    Topaz's own temporary URL."""
+    headers = topaz_headers()
+    if not headers:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("enhancePhotoSourceUrl") or "").strip()
+    if not source_url:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    source_bytes = _read_image_bytes_for_generation(source_url)
+    if not source_bytes:
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, TOPAZ_ENHANCE_ENDPOINT, "Не удалось загрузить исходное изображение.")
+
+    if source_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        content_type, ext = "image/png", "png"
+    elif source_bytes.startswith(b"\xff\xd8\xff"):
+        content_type, ext = "image/jpeg", "jpg"
+    elif source_bytes.startswith(b"RIFF") and source_bytes[8:12] == b"WEBP":
+        content_type, ext = "image/webp", "webp"
+    else:
+        return {"ok": False, "error": "Поддерживаются только форматы JPEG, PNG и WebP."}
+
+    source_width, source_height = _detect_image_dimensions(source_bytes)
+    output_width, output_height = enhance_photo_output_dimensions(source_width, source_height)
+
+    print("ENHANCE PHOTO REQUEST:", {
+        "tool": ENHANCE_PHOTO_TOOL_KEY,
+        "provider": "topaz",
+        "provider_model": TOPAZ_ENHANCE_MODEL,
+        "endpoint": TOPAZ_ENHANCE_ENDPOINT,
+        "source_dimensions": f"{source_width}x{source_height}",
+        "target_output_dimensions": f"{output_width}x{output_height}",
+    })
+
+    try:
+        response = requests.post(
+            TOPAZ_ENHANCE_ENDPOINT,
+            headers=headers,
+            data={"model": TOPAZ_ENHANCE_MODEL, "outputHeight": str(output_height)},
+            files={"image": (f"source.{ext}", source_bytes, content_type)},
+            timeout=int(os.getenv("TOPAZ_ENHANCE_TIMEOUT", "60")),
+        )
+    except requests.RequestException as exc:
+        print("ENHANCE PHOTO SUBMIT FAILED:", type(exc).__name__, str(exc))
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, TOPAZ_ENHANCE_ENDPOINT, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+
+    if response.status_code == 429:
+        print("ENHANCE PHOTO SUBMIT RATE LIMITED:", response.text[:1000])
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, TOPAZ_ENHANCE_ENDPOINT, "Too many requests", response)
+    if response.status_code >= 400:
+        print(f"ENHANCE PHOTO SUBMIT ERROR HTTP {response.status_code}:", response.text[:2000])
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, TOPAZ_ENHANCE_ENDPOINT, "Provider request failed", response)
+
+    data = safe_provider_json(response, "topaz", TOPAZ_ENHANCE_ENDPOINT)
+    process_id = str(data.get("process_id") or "").strip()
+    if not process_id:
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, TOPAZ_ENHANCE_ENDPOINT, "Topaz process_id not found", data=data)
+
+    status_ok, poll_error = poll_topaz_enhance_status(process_id, ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL)
+    if not status_ok:
+        print("ENHANCE PHOTO POLL FAILED:", poll_error)
+        return poll_error if poll_error else {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    download_endpoint = TOPAZ_DOWNLOAD_ENDPOINT.format(process_id=process_id)
+    try:
+        download_response = safe_get(download_endpoint, headers=headers, timeout=30)
+    except Exception as exc:
+        print("ENHANCE PHOTO DOWNLOAD REQUEST FAILED:", type(exc).__name__, str(exc))
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+    if download_response.status_code >= 400:
+        print(f"ENHANCE PHOTO DOWNLOAD ERROR HTTP {download_response.status_code}:", download_response.text[:2000])
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Provider request failed", download_response)
+
+    download_data = safe_provider_json(download_response, "topaz", download_endpoint)
+    result_url = str(download_data.get("url") or "").strip()
+    if not result_url:
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Topaz result URL not found", data=download_data)
+
+    # Topaz's download URL is temporary - persist it to durable SYLVEX
+    # storage right now, synchronously, rather than relying on the generic
+    # background persistence pass, which could run after the URL expires.
+    persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
+    if not storage_key_from_url(persisted_url):
+        print("ENHANCE PHOTO STORAGE PERSIST FAILED:", persisted_url)
+        return {"ok": False, "error": "Не удалось сохранить результат. Попробуйте ещё раз."}
+
+    images = [persisted_url]
+    cost_info = enhance_photo_cost_info()
+    extra_fields = {
+        "provider": "topaz",
+        "model": "topaz_enhance_photo",
+        "provider_model": TOPAZ_ENHANCE_MODEL,
+        "tool": ENHANCE_PHOTO_TOOL_KEY,
+        "cost_credits": cost_info["credits"],
+        "cost_usd": cost_info["cost_usd"],
+        "generation_cost": cost_info["generation_cost"],
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, result.get("images") or images))
+    else:
+        result = attach_image_thumbnails({
+            "ok": True,
+            "type": "image",
+            "image_url": images[0],
+            "images": images,
+            **extra_fields,
+        })
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nФото улучшено в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
+
 
 # =====================================================
 # PYTHON-БЛОК: build_image_prompt
@@ -17173,6 +17463,20 @@ def estimate_generation_cost(payload: dict) -> dict:
             "pricing_available": True,
             "operation": tool,
         }
+    if tool == ENHANCE_PHOTO_TOOL_KEY:
+        # Enhance Photo is a flat 1-Topaz-credit-per-request cost (unlike
+        # Character Replace's per-image formula above) - always the same
+        # 15 credits, computed from the named, adjustable
+        # TOPAZ_CREDIT_COST_USD constant rather than a hardcoded literal.
+        info = enhance_photo_cost_info()
+        return {
+            "credits": info["credits"],
+            "cost_credits": info["credits"],
+            "cost_usd": info["cost_usd"],
+            "generation_cost": info["generation_cost"],
+            "pricing_available": True,
+            "operation": tool,
+        }
     tool_prices = {
         "tryon": 9,             # Google Virtual Try-On
         "remove_bg": 2,         # Recraft Remove Background
@@ -17406,6 +17710,24 @@ async def image_generation(payload: dict) -> dict:
             "type": "image",
             "error": "Не удалось создать изображение. Попробуйте ещё раз.",
             "raw_error": "replace_character_misrouted_to_image_generation",
+        }
+    if is_enhance_photo_request(payload):
+        # Defense in depth: dispatch_prostudio_provider_request() must
+        # always route an Enhance Photo job to
+        # generate_enhance_photo_image() before it ever reaches this
+        # generic dispatcher - if one gets here anyway, fail loudly and
+        # specifically instead of silently trying to map "topaz_enhance_
+        # photo" as if it were a real selectable model.
+        prostudio_error(
+            "ENHANCE_PHOTO_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
+            RuntimeError("enhance_photo job reached image_generation() instead of generate_enhance_photo_image()"),
+            job_id=payload.get("job_id") or payload.get("generation_id") or "",
+        )
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Не удалось создать изображение. Попробуйте ещё раз.",
+            "raw_error": "enhance_photo_misrouted_to_image_generation",
         }
     opts = payload.get("image_options") or {}
     prompt = build_image_prompt(payload)
@@ -19100,6 +19422,12 @@ async def dispatch_prostudio_provider_request(
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
         result = await run_provider_coroutine_off_loop(lambda: generate_character_replace_image(payload))
+    elif mode == "image" and is_enhance_photo_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="topaz", model=selected_model, route="generate_enhance_photo_image")
+        # Isolated Quick Tool flow - never falls through to the normal
+        # Seedream/image_generation dispatch below, which would read
+        # image_options.characterReferences/objectReferences/style.
+        result = await run_provider_coroutine_off_loop(lambda: generate_enhance_photo_image(payload))
     elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.

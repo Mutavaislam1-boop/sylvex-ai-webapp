@@ -7366,6 +7366,7 @@ async function generatePhotoTool(e) {
   if (!config || !state || state.generating) return;
   if (kind === 'remove_object') return generateRemoveObjectTool(state);
   if (kind === 'remove_bg') return generateRemoveBgTool(state);
+  if (kind === 'enhance') return generateEnhancePhotoTool(state);
   const refs = state.files.filter(Boolean).map((item) => item.url);
   if (refs.length < config.min) {
     toast('Загрузите необходимые фотографии');
@@ -7568,6 +7569,86 @@ async function generateRemoveBgTool(state) {
       role: 'ai',
       imageResultMini: true,
       metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: 'remove_background' }),
+    };
+    state.files = [];
+    state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+      mode: 'image',
+      prompt: displayPrompt,
+    });
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось обработать фото'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
+  }
+}
+
+// =====================================================
+// ENHANCE PHOTO: isolated generation flow (Topaz Labs High Fidelity V2).
+// Deliberately does NOT reuse imageOptionsPayload()/imageState (the normal
+// Pro Studio composer's Character/Object/Style/prompt/reference state) -
+// its request is built from exactly the one tool-owned input below via
+// callGenerate's isolateRequest escape hatch, same pattern as Remove
+// Object/Remove Background/Try-On. ENHANCE_PHOTO_TOOL_KEY must match
+// main.py's ENHANCE_PHOTO_TOOL_KEY exactly, or a request can silently fall
+// through to the generic image_generation() dispatch instead of this
+// isolated flow. Only the post-generation result handling (chat card,
+// History refresh, active-job cleanup) reuses the same generic pipeline
+// every other Photo Tool already uses. The modal/UI itself is untouched -
+// PHOTO_TOOL_CONFIG.enhance's existing single-upload-slot config still
+// drives rendering via the shared renderPhotoToolModal(). Topaz's output
+// resolution (~2x upscale, capped at 24MP) is computed entirely
+// server-side - there is no resolution selector here.
+// =====================================================
+const ENHANCE_PHOTO_TOOL_KEY = 'enhance_photo';
+
+async function generateEnhancePhotoTool(state) {
+  const sourceUrl = state.files[0] && state.files[0].url;
+  if (!sourceUrl) {
+    toast('Загрузите фото');
+    return;
+  }
+  const displayPrompt = 'Улучшение фото';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('image'),
+  }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(displayPrompt, null, [], null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'topaz_enhance_photo',
+      provider: 'topaz',
+      imageOptions: {
+        tool: ENHANCE_PHOTO_TOOL_KEY,
+        enhancePhotoSourceUrl: sourceUrl,
+      },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (images.length) addGeneratedImages(images, thumbs);
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: imageGenerationMetadata(displayPrompt, [sourceUrl], result, { tool: ENHANCE_PHOTO_TOOL_KEY }),
     };
     state.files = [];
     state.generating = false;
