@@ -301,7 +301,7 @@ const PHOTO_TOOL_CONFIG = {
   },
   animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фото и по желанию опишите движение (до 250 символов). Без описания фото оживёт само.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4' },
   tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
-  logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите основное изображение и логотип для размещения.', min:2, max:2, labels:['Основное фото','Логотип'], preview:'assets/quick-tools/logo-placement.jpg', library:'logo' },
+  logo: { title:'Лого', shortTitle:'Лого', description:'Опишите логотип и при желании выберите визуальный референс.', min:0, max:0, labels:[], preview:'assets/photo-tools/logo/references/logo-01.png' },
   remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
   replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Отметьте заменяемую область и загрузите новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'], preview:'assets/quick-tools/replace-object.jpg', library:'object', mask:true },
   makeup: { title:'Макияж', shortTitle:'Макияж', description:'Перенесите выбранный стиль макияжа на портрет, сохранив лицо.', min:1, max:2, labels:['Портрет','Референс макияжа'], preview:'assets/quick-tools/enhance-photo.jpg', library:'makeup' },
@@ -309,6 +309,9 @@ const PHOTO_TOOL_CONFIG = {
   face_retouch: { title:'Ретушь лица', shortTitle:'Ретушь лица', description:'Естественно улучшите кожу и лицо без изменения личности.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/enhance-photo.jpg' },
 };
 const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((key) => [key, { files: [], generating: false }]));
+// Logo owns an isolated prompt/reference/output state. The selected visual
+// reference never reads from or writes to Pro Studio Character/Object/Style.
+const logoState = { selectedReferenceId:null, prompt:'', generating:false, result:null };
 // Try-On owns a completely separate, dedicated state shape - never the
 // generic {files: []} array every other Photo Tool uses - so the person
 // source (Character/Media/Upload, mutually exclusive) can never be
@@ -6937,6 +6940,49 @@ function photoToolStateFor(kind) {
   return photoToolState[kind] || null;
 }
 
+const LOGO_REFERENCES = [
+  ['nivora','Nivora · wave'],['kerno','Kerno · geometry'],['lumae','Lumae · leaf'],['drift','Drift · coffee'],['vektor','Vektor · monogram'],
+  ['melo','Melo · audio'],['arvo','Arvo · furniture'],['ferro','Ferro · lettermark'],['nubi','Nubi · cloud'],['sora','Sora · serif'],
+  ['plume','Plume · leaf'],['orbitra','Orbitra · orbit'],['moss','Moss · sprout'],['kubo','Kubo · geometry'],['fluxa','Fluxa · motion'],
+  ['runa','Runa · monogram'],['aroom','Aroom · landscape'],['taro','Taro · sun'],['voltix','Voltix · energy'],['onda','Onda · loop'],
+].map(([id,name],index)=>({id,name,asset:'/webapp/assets/photo-tools/logo/references/logo-'+String(index+1).padStart(2,'0')+'.png'}));
+
+function logoReferenceById(id) { return LOGO_REFERENCES.find((item)=>item.id===id)||null; }
+function logoSvgDownloadUrl(jobId) {
+  if(!jobId)return '';
+  const params=new URLSearchParams();
+  const app=window.SYLVEX||{},tg=app.tg||{},user=app.user||tg.initDataUnsafe?.user||{};
+  params.set('telegram_id',String(user.id||user.telegram_id||0));
+  if(window.SYLVEX&&window.SYLVEX.tg&&window.SYLVEX.tg.initData)params.set('init_data',window.SYLVEX.tg.initData);
+  params.set('asset','svg');
+  return '/api/public/prostudio/download/'+encodeURIComponent(jobId)+'?'+params.toString();
+}
+function logoCatalogHtml() {
+  return '<section class="logo-reference-catalog"><header><b>Визуальный референс</b><small>Выберите направление оформления</small></header><div class="logo-reference-grid">'
+    + LOGO_REFERENCES.map((item)=>'<button type="button" class="logo-reference-card '+(logoState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(logoState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectLogoReference(event,\''+item.id+'\')"><img src="'+item.asset+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy"><span>'+S.escapeHtml(item.name)+'</span></button>').join('')
+    + '</div></section>';
+}
+function logoResultPreviewHtml() {
+  const result=logoState.result;
+  if (!result || !result.pngUrl) return '<div class="photo-tool-demo logo-result-empty"><div class="photo-tool-demo-placeholder"><span></span><b>Создайте логотип</b><small>Результат появится здесь в формате PNG</small></div></div>';
+  const reference=logoReferenceById(result.referenceId);
+  return '<div class="photo-tool-demo logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"><span>PNG-preview</span></div>'
+    + '<div class="logo-result-links"><a href="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" download="sylvex-logo.svg">Скачать SVG</a>'
+    + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div>';
+}
+function selectLogoReference(e,id) {
+  if(e){e.preventDefault();e.stopPropagation()}
+  if(!logoReferenceById(id)||logoState.generating)return;
+  logoState.selectedReferenceId=id;
+  renderPhotoToolModal();
+}
+function updateLogoPrompt(e) {
+  const field=e&&e.currentTarget?e.currentTarget:document.getElementById('photoToolExtraPrompt');
+  logoState.prompt=String(field&&field.value||'');
+  const button=document.querySelector('#photoToolModalBody .photo-tool-generate');
+  if(button)button.disabled=!logoState.prompt.trim()||logoState.generating;
+}
+
 const HAIR_BEARD_CATEGORY_LABELS = { men:'Men', beard_mustache:'Beard & Mustache', women:'Women' };
 const HAIR_BEARD_PRESET_LABELS = {
   bald:'Bald',buzz_cut:'Buzz cut',very_short:'Very short',crew_cut:'Crew cut',short_crop:'Short crop',textured_crop:'Textured crop',side_part:'Side part',slick_back:'Slick back',quiff:'Quiff',medium_hair:'Medium hair',long_hair:'Long hair',long_wavy_hair:'Long wavy hair',curly_hair:'Curly hair',afro:'Afro',middle_part:'Middle part',man_bun:'Man bun',
@@ -7146,6 +7192,7 @@ function renderPhotoToolModal() {
   const hasTattooPhoto = Boolean(state.files[0]);
   const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
   const isAnimatePhoto = activePhotoTool === 'animate_photo';
+  const hasLogoText = Boolean(String(logoState.prompt || '').trim());
   const ready = isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
         && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
@@ -7153,6 +7200,8 @@ function renderPhotoToolModal() {
         ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId)) : hasTattooText)
         : activePhotoTool === 'hair_beard'
         ? (hasHairPhoto ? (hasHairText || Boolean(hairBeardState.selectedPresetId)) : hasHairText)
+        : activePhotoTool === 'logo'
+        ? hasLogoText
         : state.files.filter(Boolean).length >= config.min);
   const promptPlaceholder = isAnimatePhoto ? 'Опишите желаемое движение (необязательно, до 250 символов)' : 'Дополнительные пожелания (необязательно)';
   const promptMaxLength = isAnimatePhoto ? ' maxlength="250"' : '';
@@ -7161,17 +7210,18 @@ function renderPhotoToolModal() {
     : (isAnimatePhoto ? ' oninput="SYLVEX.updateAnimatePhotoPromptCounter()"' : '');
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    + (activePhotoTool==='logo' ? logoCatalogHtml() : '')
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
-    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+'">'
-    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p></div>'
+    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
+    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml() : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p></div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
-    + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
+    + (activePhotoTool==='logo' ? '' : '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>')
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
+    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : activePhotoTool==='logo' ? '<textarea id="photoToolExtraPrompt" rows="3" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">'+S.escapeHtml(logoState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
     + (isAnimatePhoto ? '<small class="photo-tool-char-counter" id="photoToolPromptCounter">0/250</small>' : '')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
-    + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':'Сгенерировать'))
+    + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':activePhotoTool==='logo'?'Создать логотип':'Сгенерировать'))
     + '</button>'
     + '</div></div>';
   if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
@@ -7563,6 +7613,12 @@ function closePhotoToolModal(e) {
       tattooState.comparison = null;
       tattooState.generatingReference = false;
     }
+    if (activePhotoTool === 'logo') {
+      logoState.selectedReferenceId = null;
+      logoState.prompt = '';
+      logoState.result = null;
+      logoState.generating = false;
+    }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
     // into image mode even when it was opened from Home or another mode -
@@ -7660,7 +7716,10 @@ function photoToolPrompt(kind, extra) {
     const instruction = String(extra || '').trim();
     return 'Edit the uploaded portrait in place by adding only the requested tattoo. Preserve the person\'s identity, anatomy, skin tone and texture, pose, exact original image canvas dimensions and aspect ratio, crop, camera framing, body scale and position, background, clothing and lighting. Do not crop, zoom, pan, resize the subject, extend the canvas or reframe. Do not change any other detail or add other tattoos. '+(selected?'Use the selected tattoo reference "'+selected.name+'" as the design/style reference. ':'')+(instruction?'Follow the user\'s tattoo placement and design instructions: "'+instruction+'". ':'Apply the selected tattoo reference as a realistic tattoo. ')+(selected&&instruction?'Combine the selected visual reference with the user\'s instructions. ':'')+'Make the tattoo follow the skin perspective, curvature, lighting and texture, with natural ink integration.';
   }
-  if (kind === 'logo') return 'Place the logo from the second reference image naturally into the first image. Preserve the logo design, proportions and legibility while matching perspective, material and lighting.' + suffix;
+  if (kind === 'logo') {
+    const reference=logoReferenceById(logoState.selectedReferenceId);
+    return 'Create one original, production-ready vector logo from the user brief. Brief: "'+String(extra||'').trim()+'". '+(reference?'Use the attached local visual reference "'+reference.name+'" for its design direction, while creating a distinct original mark. ':'')+'Output a clean standalone logo on a plain white background, centered with generous clear space. Use crisp, scalable vector shapes and legible exact lettering when requested. No mockup, product scene, watermark, presentation board, decorative frame, or unrelated text.';
+  }
   if (kind === 'remove_object') return 'Remove only the region marked by the user in the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
   if (kind === 'replace_object') return 'Replace the region marked by the user in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
   if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
@@ -7828,7 +7887,8 @@ async function generatePhotoTool(e) {
   const extraEl = document.getElementById('photoToolExtraPrompt');
   const extra = kind === 'hair_beard'
     ? String((extraEl && extraEl.value) || hairBeardState.referencePrompt || '').trim()
-    : kind === 'tattoo' ? String((extraEl && extraEl.value) || tattooState.prompt || '').trim() : String((extraEl && extraEl.value) || '').trim();
+    : kind === 'tattoo' ? String((extraEl && extraEl.value) || tattooState.prompt || '').trim() : kind === 'logo' ? String((extraEl && extraEl.value) || logoState.prompt || '').trim() : String((extraEl && extraEl.value) || '').trim();
+  if (kind === 'logo') return generateLogoTool(e, state, extra);
   if (kind === 'hair_beard' && !state.files[0] && extra) return generateHairBeardReference(e);
   if (kind === 'tattoo' && !state.files[0] && extra) return generateTattooReference(e);
   const hairDirectText = kind === 'hair_beard' && Boolean(state.files[0]) && Boolean(extra);
@@ -7916,6 +7976,59 @@ async function generatePhotoTool(e) {
     if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
       clearActiveProStudioJob(activeGeneration.jobId);
     }
+  }
+}
+
+async function generateLogoTool(e, toolState, userBrief) {
+  if (!toolState || toolState.generating) return;
+  const brief=String(userBrief||'').trim();
+  if(!brief){toast('Опишите логотип');return;}
+  const selected=logoReferenceById(logoState.selectedReferenceId);
+  const refs=selected?[selected.asset]:[];
+  const prompt=photoToolPrompt('logo',brief);
+  toolState.generating=true;
+  logoState.generating=true;
+  logoState.prompt=brief;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex=chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')})-1;
+  renderChat();
+  try{
+    const imageOptions={
+      modelId:'recraft_v4_1_pro_vector',model:'recraft_v4_1_pro_vector',provider:'recraft',size:'1:1',count:1,
+      referenceImageUrls:refs.slice(),referenceImages:refs.slice(),photo_tool:'logo',tool:'logo',
+      logo_reference_id:selected?selected.id:'',logo_reference_name:selected?selected.name:'',
+      catalog_reference_url:selected?selected.asset:'',catalog_reference_hidden:false,
+      catalog_prompt_hidden:true,catalog_display_prompt:brief,
+    };
+    const start=await callGenerate(prompt,null,refs,null,{
+      isolateRequest:true,model:'recraft_v4_1_pro_vector',provider:'recraft',imageOptions,
+      onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),loadingIndex,
+    });
+    const result=start.result||start;
+    const images=generatedUrlsFromResponse(result,'image');
+    const thumbs=generatedThumbsFromResponse(result);
+    const svgUrl=String(result.svg_url||result.svg_download_url||'');
+    if(!images.length||!svgUrl)throw new Error('Модель не вернула SVG и PNG-preview');
+    addGeneratedImages(images,thumbs);
+    logoState.result={pngUrl:images[0],svgUrl,jobId:result.job_id||result.generation_id||result.charge_id||'',referenceId:selected?selected.id:null};
+    chatMessages[loadingIndex]={role:'ai',imageResultMini:true,metadata:Object.assign(imageGenerationMetadata(prompt,refs,result,imageOptions),{
+      photo_tool:'logo',logo_reference_id:selected?selected.id:'',logo_reference_name:selected?selected.name:'',
+      catalog_reference_url:selected?selected.asset:'',svg_url:svgUrl,svg_download_url:svgUrl,
+    })};
+    toast('Логотип создан: PNG-preview и SVG сохранены');
+    loadConversations();
+  }catch(error){
+    chatMessages[loadingIndex]=resolveFailureMessage(error,{fallback:'Не удалось создать логотип. Попробуйте ещё раз.',mode:'image',prompt:userBrief});
+    toast(translateGenerationError(error,'Не удалось создать логотип'));
+  }finally{
+    toolState.generating=false;
+    logoState.generating=false;
+    document.body.classList.remove('ai-generating');
+    renderPhotoToolModal();
+    renderChat();
+    rememberCurrentChatSpace();
+    if(!activeGeneration.jobId||!isActiveGenerationStatus(activeGeneration.status))clearActiveProStudioJob(activeGeneration.jobId);
   }
 }
 
@@ -12923,6 +13036,8 @@ function renderGeneratedTelegramButton(url, kind) {
     return {
       type: 'image',
       result_url: imageUrl,
+      svg_url: String((result && (result.svg_url || result.svg_download_url)) || options.svg_url || ''),
+      svg_download_url: String((result && (result.svg_download_url || result.svg_url)) || options.svg_download_url || ''),
       model: modelId || model.id || '',
       model_label: backendMeta.model_label || model.label || model.name || modelId || '',
       provider: backendMeta.provider || (result && result.provider) || providerHintForModel(modelId),
@@ -13261,10 +13376,12 @@ function renderGeneratedTelegramButton(url, kind) {
       voice: 'Озвучка готова',
     };
     const iconMap = { image: 'IMG', video: 'VID', music: '♪', voice: 'VO' };
+    const logoRef = meta.photo_tool === 'logo' && meta.catalog_reference_url ? '<span class="generation-result-reference"><img src="' + S.escapeHtml(meta.catalog_reference_url) + '" alt=""><small>' + S.escapeHtml(meta.logo_reference_name || 'Визуальный референс') + '</small></span>' : '';
     const metaHtml = '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
       + '<span class="generation-result-sub">' + safeModel + '</span>'
       + (cost ? '<span class="generation-result-cost">' + S.escapeHtml(cost) + '</span>' : '')
-      + (prompt ? '<span class="generation-result-prompt">' + S.escapeHtml(prompt) + '</span>' : '');
+      + (prompt ? '<span class="generation-result-prompt">' + S.escapeHtml(prompt) + '</span>' : '')
+      + logoRef;
     const shareButton = '<button class="generation-result-share" type="button" aria-label="Поделиться генерацией" title="Поделиться" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + '</button>';
 
     if (!isMultiImage) {
@@ -15510,6 +15627,7 @@ function openGenerationInfoDrawer(e, index) {
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
+  const svgUrl = meta.photo_tool === 'logo' ? String(meta.svg_url || meta.svg_download_url || '') : '';
   const jobId = completedGenerationJobId(message, meta);
   const generationStatus = String(meta.status || message.generationStatus || (message.imageResultMini ? 'completed' : '')).toLowerCase();
   const previewFallbackUrl = meta.preview_fallback_url || imageUrl || resultUrl || '';
@@ -15566,6 +15684,7 @@ function openGenerationInfoDrawer(e, index) {
     actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
     actionHtml += '<button type="button" onclick="SYLVEX.shareGenerationCard(event,' + index + ')">' + generationActionIcon('share') + 'Поделиться</button>';
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
+    if (svgUrl && jobId) actionHtml += '<a class="generation-info-svg-download" href="' + S.escapeHtml(completedGenerationDownloadUrl(jobId) + '&asset=svg') + '" download="sylvex-logo.svg">Скачать SVG</a>';
     if (type === 'image') {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     } else if (type === 'video') {
@@ -22398,7 +22517,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
