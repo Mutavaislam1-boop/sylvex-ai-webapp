@@ -6651,7 +6651,7 @@ function initPhotoToolMask(){const canvas=document.getElementById('photoToolMask
 function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl=''}
 
 function replaceObjectMaskPanelHtml(state) {
-  const hasMask=!!state.maskUrl;
+  const hasMask=!!(state.markedPhotoStrokes&&state.markedPhotoStrokes.length);
   return '<div class="photo-tool-mask-editor replace-object-mask-panel"><header><div><b>'+(hasMask?'Область отмечена':'Отметьте предмет для замены')+'</b><small>'+(hasMask?'Нажмите на фото, чтобы изменить отметку':'Обведите предмет, который нужно заменить')+'</small></div></header>'
     +'<button type="button" class="replace-object-mask-preview" onclick="SYLVEX.openReplaceObjectMaskEditor(event)"><img src="'+S.escapeHtml(hasMask&&state.markedPhotoUrl?state.markedPhotoUrl:state.files[0].url)+'" alt="">'
     +'<span>'+(hasMask?'Изменить область':'Отметить область')+'</span></button></div>';
@@ -6667,43 +6667,43 @@ function ensureReplaceObjectMaskEditor() {
   modal.onclick=closeReplaceObjectMaskEditor;document.body.appendChild(modal);return modal;
 }
 
-let replaceObjectEditorRuntime={token:0,image:null,canvas:null,maskCanvas:null,baseMaskImage:null,strokes:[],history:[],brushSize:28,sourceUrl:'',resizeHandler:null};
+let replaceObjectEditorRuntime={token:0,image:null,canvas:null,strokes:[],brushSize:28,sourceUrl:'',resizeHandler:null};
 
 function openReplaceObjectMaskEditor(e) {
   if(e){e.preventDefault();e.stopPropagation()}
   const state=photoToolStateFor('replace_object');if(!state||!state.files[0])return;
   const modal=ensureReplaceObjectMaskEditor(),token=++replaceObjectEditorRuntime.token,sourceUrl=state.files[0].url;
   modal.classList.add('show');modal.setAttribute('aria-busy','true');
-  replaceObjectEditorRuntime={token,image:null,canvas:document.getElementById('replaceObjectPhotoCanvas'),maskCanvas:null,baseMaskImage:null,strokes:[],history:[],brushSize:28,sourceUrl,resizeHandler:null};
+  replaceObjectEditorRuntime={token,image:null,canvas:document.getElementById('replaceObjectPhotoCanvas'),strokes:(state.markedPhotoStrokes||[]).map(stroke=>({width:Number(stroke.width)||0,points:(stroke.points||[]).map(point=>({x:Number(point.x)||0,y:Number(point.y)||0}))})),brushSize:28,sourceUrl,resizeHandler:null};
   loadReplaceObjectEditorImage(sourceUrl).then(image=>{
     if(token!==replaceObjectEditorRuntime.token||!modal.classList.contains('show'))return;
-    window.requestAnimationFrame(()=>initReplaceObjectMaskCanvas(image,state.maskUrl||'',token));
-  }).catch(()=>{if(token===replaceObjectEditorRuntime.token){modal.removeAttribute('aria-busy');toast('Не удалось открыть фото. Попробуйте загрузить его ещё раз.')}});
+    window.requestAnimationFrame(()=>initReplaceObjectMaskCanvas(image,token));
+  }).catch(()=>{if(token===replaceObjectEditorRuntime.token){modal.removeAttribute('aria-busy');const loading=modal.querySelector('.replace-object-editor-loading');if(loading){loading.hidden=false;loading.textContent='Не удалось открыть фото. Попробуйте загрузить его ещё раз.'}toast('Не удалось открыть фото. Попробуйте загрузить его ещё раз.')}});
 }
 
 function loadReplaceObjectEditorImage(url) {
   return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('image_load_failed'));img.src=url;if(img.complete&&img.naturalWidth)resolve(img)});
 }
 
-function initReplaceObjectMaskCanvas(image,existingMask,token) {
+function initReplaceObjectMaskCanvas(image,token) {
   const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas,modal=document.getElementById('replaceObjectMaskEditorModal'),wrap=document.querySelector('#replaceObjectMaskEditorModal .replace-object-mask-canvas-wrap');
   if(!canvas||!modal||token!==runtime.token||!image||!image.naturalWidth||!image.naturalHeight)return;
   if(!wrap)return;
   wrap.style.width='';wrap.style.height='';
-  const maxSide=2048,scale=Math.min(1,maxSide/Math.max(image.naturalWidth,image.naturalHeight));
-  const width=Math.max(1,Math.round(image.naturalWidth*scale)),height=Math.max(1,Math.round(image.naturalHeight*scale));
-  canvas.width=width;canvas.height=height;
-  const maskCanvas=document.createElement('canvas');maskCanvas.width=width;maskCanvas.height=height;
-  runtime.image=image;runtime.maskCanvas=maskCanvas;runtime.baseMaskImage=null;
+  try{canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;if(canvas.width!==image.naturalWidth||canvas.height!==image.naturalHeight||!canvas.getContext('2d'))throw new Error('canvas_unavailable')}catch{modal.removeAttribute('aria-busy');const loading=modal.querySelector('.replace-object-editor-loading');if(loading){loading.hidden=false;loading.textContent='Фото слишком большое для редактора на этом устройстве.'}toast('Фото слишком большое для редактора на этом устройстве.');return}
+  canvas.style.pointerEvents='';
+  const saveButton=modal.querySelector('.replace-object-mask-toolbar .save');if(saveButton)saveButton.disabled=false;
+  runtime.image=image;
   const finish=()=>{
     if(token!==runtime.token)return;
-    runtime.history=[];runtime.strokes=[];fitReplaceObjectEditorToViewport();renderReplaceObjectEditor();modal.removeAttribute('aria-busy');
+    try{fitReplaceObjectEditorToViewport();renderReplaceObjectEditor()}catch{modal.removeAttribute('aria-busy');const loading=modal.querySelector('.replace-object-editor-loading');if(loading){loading.hidden=false;loading.textContent='Не удалось подготовить фото на этом устройстве.'}toast('Не удалось подготовить фото на этом устройстве.');return}
+    modal.removeAttribute('aria-busy');
     const loading=modal.querySelector('.replace-object-editor-loading');if(loading)loading.hidden=true;
     const slider=document.getElementById('replaceObjectBrushSize');if(slider)slider.value=String(runtime.brushSize);updateReplaceObjectBrushSizeLabel();
     bindReplaceObjectEditorCanvas();updateReplaceObjectEditorActions();
     runtime.resizeHandler=()=>window.requestAnimationFrame(fitReplaceObjectEditorToViewport);window.addEventListener('resize',runtime.resizeHandler);
   };
-  if(existingMask){loadReplaceObjectEditorImage(existingMask).then(mask=>{if(token!==runtime.token)return;runtime.baseMaskImage=mask;finish()}).catch(finish)}else finish();
+  finish();
 }
 
 function fitReplaceObjectEditorToViewport() {
@@ -6716,55 +6716,48 @@ function fitReplaceObjectEditorToViewport() {
   wrap.style.width=width+'px';wrap.style.height=height+'px';runtime.canvas.style.width=width+'px';runtime.canvas.style.height=height+'px';
 }
 
-function drawReplaceObjectEditorStroke(stroke,drawOnPhoto=true) {
-  const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas,maskCanvas=runtime.maskCanvas;if(!canvas||!maskCanvas||!stroke||!stroke.points.length)return;
-  const width=canvas.width,lineWidth=stroke.width*width;
-  const draw=(ctx,color)=>{ctx.save();ctx.setTransform(width,0,0,width,0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=lineWidth;const points=stroke.points;ctx.beginPath();ctx.arc(points[0].x,points[0].y,lineWidth/2,0,Math.PI*2);ctx.fill();if(points.length>1){ctx.beginPath();ctx.moveTo(points[0].x,points[0].y);for(let i=1;i<points.length;i++)ctx.lineTo(points[i].x,points[i].y);ctx.stroke()}ctx.restore()};
-  if(drawOnPhoto)draw(canvas.getContext('2d'),'rgba(47,220,119,.82)');draw(maskCanvas.getContext('2d'),'rgba(255,255,255,1)');
+function drawReplaceObjectEditorStroke(stroke) {
+  const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas;if(!canvas||!stroke||!stroke.points.length)return;
+  const ctx=canvas.getContext('2d'),points=stroke.points;ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='rgba(47,220,119,.82)';ctx.fillStyle='rgba(47,220,119,.82)';ctx.lineWidth=stroke.width;ctx.beginPath();ctx.arc(points[0].x,points[0].y,stroke.width/2,0,Math.PI*2);ctx.fill();if(points.length>1){ctx.beginPath();ctx.moveTo(points[0].x,points[0].y);for(let i=1;i<points.length;i++)ctx.lineTo(points[i].x,points[i].y);ctx.stroke()}ctx.restore();
 }
 
-function drawReplaceObjectEditorSegment(from,to,widthRatio) {
-  const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas,maskCanvas=runtime.maskCanvas;if(!canvas||!maskCanvas)return;
-  const width=canvas.width,lineWidth=widthRatio*width;
-  const draw=(ctx,color)=>{ctx.save();ctx.setTransform(width,0,0,width,0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();ctx.restore()};
-  draw(canvas.getContext('2d'),'rgba(47,220,119,.82)');draw(maskCanvas.getContext('2d'),'rgba(255,255,255,1)');
+function drawReplaceObjectEditorSegment(from,to,lineWidth) {
+  const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas;if(!canvas)return;
+  const ctx=canvas.getContext('2d');ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='rgba(47,220,119,.82)';ctx.lineWidth=lineWidth;ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();ctx.restore();
 }
 
 function renderReplaceObjectEditor() {
-  const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas,maskCanvas=runtime.maskCanvas,image=runtime.image;
-  if(!canvas||!maskCanvas||!image)return;
-  const ctx=canvas.getContext('2d'),maskCtx=maskCanvas.getContext('2d');
+  const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas,image=runtime.image;
+  if(!canvas||!image)return;
+  const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
-  maskCtx.clearRect(0,0,maskCanvas.width,maskCanvas.height);if(runtime.baseMaskImage)maskCtx.drawImage(runtime.baseMaskImage,0,0,maskCanvas.width,maskCanvas.height);
-  for(const stroke of runtime.strokes){drawReplaceObjectEditorStroke(stroke,false)}
-  const overlay=document.createElement('canvas');overlay.width=canvas.width;overlay.height=canvas.height;
-  const overlayCtx=overlay.getContext('2d');overlayCtx.fillStyle='rgba(47,220,119,.82)';overlayCtx.fillRect(0,0,overlay.width,overlay.height);overlayCtx.globalCompositeOperation='destination-in';overlayCtx.drawImage(maskCanvas,0,0);ctx.drawImage(overlay,0,0);
+  for(const stroke of runtime.strokes)drawReplaceObjectEditorStroke(stroke);
 }
 
 function bindReplaceObjectEditorCanvas() {
   const runtime=replaceObjectEditorRuntime,canvas=runtime.canvas;if(!canvas)return;
   let activeStroke=null;
-  const point=evt=>{const rect=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(evt.clientX-rect.left)/rect.width)),y:Math.max(0,Math.min(rect.height/rect.width,(evt.clientY-rect.top)/rect.width))}};
-  canvas.onpointerdown=evt=>{if(!runtime.image)return;evt.preventDefault();activeStroke={width:runtime.brushSize/Math.max(1,canvas.getBoundingClientRect().width),points:[point(evt)]};runtime.history.push(runtime.strokes.length);runtime.strokes.push(activeStroke);drawReplaceObjectEditorStroke(activeStroke);updateReplaceObjectEditorActions();canvas.setPointerCapture&&canvas.setPointerCapture(evt.pointerId)};
-  canvas.onpointermove=evt=>{if(!activeStroke)return;evt.preventDefault();const next=point(evt),prev=activeStroke.points[activeStroke.points.length-1];if(Math.hypot(next.x-prev.x,next.y-prev.y)<.00035)return;activeStroke.points.push(next);drawReplaceObjectEditorSegment(prev,next,activeStroke.width)};
+  const point=evt=>{const rect=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(canvas.width,(evt.clientX-rect.left)*canvas.width/rect.width)),y:Math.max(0,Math.min(canvas.height,(evt.clientY-rect.top)*canvas.height/rect.height))}};
+  canvas.onpointerdown=evt=>{if(!runtime.image)return;evt.preventDefault();const rect=canvas.getBoundingClientRect(),lineWidth=runtime.brushSize*canvas.width/Math.max(1,rect.width);activeStroke={width:lineWidth,points:[point(evt)]};runtime.strokes.push(activeStroke);drawReplaceObjectEditorStroke(activeStroke);updateReplaceObjectEditorActions();canvas.setPointerCapture&&canvas.setPointerCapture(evt.pointerId)};
+  canvas.onpointermove=evt=>{if(!activeStroke)return;evt.preventDefault();const next=point(evt),prev=activeStroke.points[activeStroke.points.length-1];if(Math.hypot(next.x-prev.x,next.y-prev.y)<.25)return;activeStroke.points.push(next);drawReplaceObjectEditorSegment(prev,next,activeStroke.width)};
   const finish=evt=>{if(!activeStroke)return;if(evt&&evt.preventDefault)evt.preventDefault();activeStroke=null};canvas.onpointerup=finish;canvas.onpointercancel=finish;canvas.onlostpointercapture=finish;
 }
 
 function undoReplaceObjectMask(e) {
   if(e){e.preventDefault();e.stopPropagation()}
-  const runtime=replaceObjectEditorRuntime;if(!runtime.strokes.length)return;runtime.strokes.pop();runtime.history.pop();renderReplaceObjectEditor();updateReplaceObjectEditorActions();
+  const runtime=replaceObjectEditorRuntime;if(!runtime.strokes.length)return;runtime.strokes.pop();renderReplaceObjectEditor();updateReplaceObjectEditorActions();
 }
 
 function clearReplaceObjectMask(e) {
   if(e){e.preventDefault();e.stopPropagation()}
-  const runtime=replaceObjectEditorRuntime;if(!runtime.maskCanvas)return;
-  runtime.baseMaskImage=null;runtime.strokes=[];runtime.history=[];renderReplaceObjectEditor();updateReplaceObjectEditorActions();
+  const runtime=replaceObjectEditorRuntime;if(!runtime.canvas)return;
+  runtime.strokes=[];renderReplaceObjectEditor();updateReplaceObjectEditorActions();
 }
 
 function updateReplaceObjectEditorActions() {
   const runtime=replaceObjectEditorRuntime,undo=document.getElementById('replaceObjectUndoButton'),clear=document.getElementById('replaceObjectClearButton');
   if(undo)undo.disabled=!runtime.strokes.length;
-  if(clear)clear.disabled=!runtime.baseMaskImage&&!runtime.strokes.length;
+  if(clear)clear.disabled=!runtime.strokes.length;
 }
 
 function setReplaceObjectBrushSize(e) {
@@ -6777,18 +6770,20 @@ function updateReplaceObjectBrushSizeLabel() {
 
 function saveReplaceObjectMask(e) {
   if(e){e.preventDefault();e.stopPropagation()}
-  const runtime=replaceObjectEditorRuntime,state=photoToolStateFor('replace_object');if(!runtime.canvas||!runtime.maskCanvas||!state)return;
-  const pixels=runtime.maskCanvas.getContext('2d').getImageData(0,0,runtime.maskCanvas.width,runtime.maskCanvas.height).data;let marked=false;
-  for(let i=3;i<pixels.length;i+=4){if(pixels[i]>10){marked=true;break}}
-  if(!marked){
-    if(state.maskUrl){state.maskUrl='';state.markedPhotoUrl='';const field=document.getElementById('photoToolExtraPrompt'),text=field?field.value:'';closeReplaceObjectMaskEditor();renderPhotoToolModal();const restored=document.getElementById('photoToolExtraPrompt');if(restored&&text)restored.value=text;toast('Сохранённая отметка удалена');return}
-    toast('Сначала отметьте кистью область предмета на фото');return
-  }
-  try{state.maskUrl=runtime.maskCanvas.toDataURL('image/png');state.markedPhotoUrl=runtime.canvas.toDataURL('image/jpeg',.9)}catch{toast('Не удалось сохранить отметку. Попробуйте ещё раз.');return}
-  const field=document.getElementById('photoToolExtraPrompt'),preservedText=field?field.value:'';
-  closeReplaceObjectMaskEditor();renderPhotoToolModal();
-  const restored=document.getElementById('photoToolExtraPrompt');if(restored&&preservedText)restored.value=preservedText;
-  toast('Фото с отметкой сохранено');
+  const runtime=replaceObjectEditorRuntime,state=photoToolStateFor('replace_object');if(!runtime.canvas||!state)return;
+  if(!runtime.strokes.length){if(state.markedPhotoStrokes&&state.markedPhotoStrokes.length){state.markedPhotoStrokes=[];state.markedPhotoUrl='';finishSaveReplaceObjectPhoto();toast('Сохранённая отметка удалена');return}toast('Сначала отметьте кистью область предмета на фото');return}
+  const canvas=runtime.canvas,token=runtime.token,strokes=runtime.strokes.map(stroke=>({width:stroke.width,points:stroke.points.map(point=>({x:point.x,y:point.y}))})),saveButton=document.querySelector('#replaceObjectMaskEditorModal .replace-object-mask-toolbar .save');
+  canvas.style.pointerEvents='none';if(saveButton)saveButton.disabled=true;
+  const resume=()=>{if(token!==replaceObjectEditorRuntime.token)return;canvas.style.pointerEvents='';if(saveButton)saveButton.disabled=false};
+  try{canvas.toBlob(blob=>{
+    if(token!==replaceObjectEditorRuntime.token)return;
+    if(!blob){resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.');return}
+    const reader=new FileReader();reader.onload=()=>{if(token!==replaceObjectEditorRuntime.token)return;state.markedPhotoStrokes=strokes;state.markedPhotoUrl=String(reader.result||'');finishSaveReplaceObjectPhoto();toast('Фото с отметкой сохранено')};reader.onerror=()=>{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')};reader.readAsDataURL(blob);
+  },'image/jpeg',.9)}catch{resume();toast('Не удалось сохранить фото. Попробуйте ещё раз.')}
+}
+
+function finishSaveReplaceObjectPhoto() {
+  const field=document.getElementById('photoToolExtraPrompt'),text=field?field.value:'';closeReplaceObjectMaskEditor();renderPhotoToolModal();const restored=document.getElementById('photoToolExtraPrompt');if(restored&&text)restored.value=text;
 }
 
 function closeReplaceObjectMaskEditor(e) {
@@ -7368,7 +7363,7 @@ function renderPhotoToolModal() {
   const isAnimatePhoto = activePhotoTool === 'animate_photo';
   const hasLogoText = Boolean(String(logoState.prompt || '').trim());
   const ready = isReplaceObject
-    ? Boolean(state.files[0] && state.files[1] && state.maskUrl && state.markedPhotoUrl)
+    ? Boolean(state.files[0] && state.files[1] && state.markedPhotoStrokes && state.markedPhotoStrokes.length && state.markedPhotoUrl)
     : isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
         && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
@@ -7798,7 +7793,7 @@ function closePhotoToolModal(e) {
     }
     if (activePhotoTool === 'replace_object') {
       const state = photoToolState.replace_object;
-      if (state) { state.files = []; state.maskUrl = ''; state.markedPhotoUrl=''; state.generating = false; }
+    if (state) { state.files = []; state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; state.generating = false; }
       replaceObjectState.comparison = null;
       closeReplaceObjectMaskEditor();
     }
@@ -7863,7 +7858,7 @@ async function onPhotoToolFiles(e) {
       if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo') && file && files[offset]) file.originalFile = files[offset];
       if (activePhotoTool === 'replace_object') {
         replaceObjectState.comparison = null;
-        if (start + offset === 0) { state.maskUrl = ''; state.markedPhotoUrl=''; }
+        if (start + offset === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
       }
       if (start + offset < config.max) state.files[start + offset] = file;
     });
@@ -7889,7 +7884,7 @@ function removePhotoToolFile(e, kind, index) {
   if (kind === 'tattoo') tattooState.comparison = null;
   if (kind === 'replace_object') {
     replaceObjectState.comparison = null;
-    if (index === 0) { state.maskUrl = ''; state.markedPhotoUrl=''; }
+    if (index === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
   }
   activePhotoTool = kind;
   renderPhotoToolModal();
@@ -8239,7 +8234,7 @@ async function generateReplaceObjectTool(state, instruction) {
   const source=state.files[0]&&state.files[0].url;
   const replacement=state.files[1]&&state.files[1].url;
   if(!source||!replacement){toast('Загрузите исходное фото и предмет для замены');return}
-  if(!state.maskUrl||!state.markedPhotoUrl){toast('Отметьте область и сохраните фото перед генерацией');return}
+  if(!state.markedPhotoStrokes||!state.markedPhotoStrokes.length||!state.markedPhotoUrl){toast('Отметьте область и сохраните фото перед генерацией');return}
   const displayPrompt=instruction||'Замена отмеченного предмета';
   const prompt=photoToolPrompt('replace_object',instruction);
   const references=[source,replacement],model='gpt_image_2_5_sunburst';
@@ -8249,7 +8244,7 @@ async function generateReplaceObjectTool(state, instruction) {
   try{
     const start=await callGenerate(displayPrompt,null,references,null,{
       isolateRequest:true,model,provider:'openai',imageOptions:Object.assign({},options,{
-        replaceObjectSourceUrl:source,replaceObjectMarkedSourceUrl:state.markedPhotoUrl,replaceObjectReferenceUrl:replacement,replaceObjectMaskUrl:state.maskUrl,replaceObjectInstruction:instruction,
+        replaceObjectSourceUrl:source,replaceObjectMarkedSourceUrl:state.markedPhotoUrl,replaceObjectReferenceUrl:replacement,replaceObjectMaskStrokes:state.markedPhotoStrokes,replaceObjectInstruction:instruction,
       }),
       onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),loadingIndex,
     });

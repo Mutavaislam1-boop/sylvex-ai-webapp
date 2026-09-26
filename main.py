@@ -14920,9 +14920,8 @@ def normalize_gpt_image_source(source_bytes: bytes) -> tuple:
 
 
 def build_gpt_image_removal_mask(source_bytes: bytes, mask_bytes: bytes) -> bytes:
-    """Convert the user's drawn strokes into the PNG mask GPT Image's edit
-    endpoint expects. The frontend's canvas draws opaque strokes on an
-    otherwise transparent layer (marked = alpha>0); GPT Image's own mask
+    """Convert an opaque marked-region alpha mask into the PNG mask GPT
+    Image's edit endpoint expects. GPT Image's own mask
     convention is the inverse - fully transparent pixels (alpha=0) are the
     area to regenerate, opaque pixels (alpha=255) are preserved untouched -
     so the alpha channel is inverted here, and resized to exactly match
@@ -14954,6 +14953,59 @@ def normalize_replace_object_image(source_bytes: bytes) -> tuple:
         output = io.BytesIO()
         rgba.save(output, format="PNG")
         return output.getvalue(), rgba.size
+
+
+def build_replace_object_mask(source_size: tuple, strokes: list, editor_size: tuple) -> bytes:
+    """Rasterize the saved single-canvas brush coordinates at source size."""
+    from PIL import Image, ImageDraw
+    import io
+
+    source_width, source_height = max(1, int(source_size[0])), max(1, int(source_size[1]))
+    editor_width, editor_height = max(1, int(editor_size[0])), max(1, int(editor_size[1]))
+    if not isinstance(strokes, list) or not strokes:
+        raise ValueError("replacement annotation has no strokes")
+
+    scale_x = source_width / editor_width
+    scale_y = source_height / editor_height
+    mask = Image.new("RGBA", (source_width, source_height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(mask)
+    point_count = 0
+    for stroke in strokes[:500]:
+        if not isinstance(stroke, dict):
+            continue
+        try:
+            line_width = max(1, round(float(stroke.get("width") or 1) * scale_x))
+        except (TypeError, ValueError):
+            line_width = 1
+        points = []
+        for point in (stroke.get("points") or [])[:100000]:
+            if not isinstance(point, dict):
+                continue
+            try:
+                x = max(0.0, min(float(editor_width), float(point.get("x")))) * scale_x
+                y = max(0.0, min(float(editor_height), float(point.get("y")))) * scale_y
+            except (TypeError, ValueError):
+                continue
+            points.append((round(x), round(y)))
+            point_count += 1
+            if point_count > 200000:
+                raise ValueError("replacement annotation is too complex")
+        if not points:
+            continue
+        radius = max(0, line_width // 2)
+        if len(points) > 1:
+            draw.line(points, fill=(255, 255, 255, 255), width=line_width, joint="curve")
+            endpoints = (points[0], points[-1])
+        else:
+            endpoints = points
+        for x, y in endpoints:
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(255, 255, 255, 255))
+
+    if mask.getchannel("A").getbbox() is None:
+        raise ValueError("replacement annotation has no visible area")
+    output = io.BytesIO()
+    mask.save(output, format="PNG")
+    return output.getvalue()
 
 
 def composite_replace_object_inside_mask(source_png: bytes, generated_bytes: bytes, drawn_mask_bytes: bytes) -> bytes:
@@ -15007,30 +15059,27 @@ async def generate_replace_object_image(payload: dict) -> dict:
     source_url = str(opts.get("replaceObjectSourceUrl") or "").strip()
     marked_source_url = str(opts.get("replaceObjectMarkedSourceUrl") or "").strip()
     replacement_url = str(opts.get("replaceObjectReferenceUrl") or "").strip()
-    mask_url = str(opts.get("replaceObjectMaskUrl") or "").strip()
+    annotation_strokes = opts.get("replaceObjectMaskStrokes")
     instruction = str(opts.get("replaceObjectInstruction") or "").strip()
     model = "gpt-image-2.5-sunburst"
     endpoint = f"{OPENAI_API_BASE}/images/edits"
-    if not source_url or not marked_source_url or not replacement_url or not mask_url:
+    if not source_url or not marked_source_url or not replacement_url or not isinstance(annotation_strokes, list):
         return {"ok": False, "error": "Загрузите исходное фото и предмет, отметьте область и сохраните фото."}
 
     source_raw = _read_image_bytes_for_generation(source_url)
     marked_source_raw = _read_image_bytes_for_generation(marked_source_url)
     reference_raw = _read_image_bytes_for_generation(replacement_url)
-    mask_raw = _read_image_bytes_for_generation(mask_url)
-    if not source_raw or not marked_source_raw or not reference_raw or not mask_raw:
-        return image_error_response("openai", "replace_object", model, endpoint, "Не удалось загрузить одно из изображений или маску.")
+    if not source_raw or not marked_source_raw or not reference_raw:
+        return image_error_response("openai", "replace_object", model, endpoint, "Не удалось загрузить одно из изображений.")
     try:
         from PIL import Image
         import io
 
         source_png, source_size = normalize_replace_object_image(source_raw)
-        marked_source_png, _ = normalize_replace_object_image(marked_source_raw)
+        marked_source_png, marked_size = normalize_replace_object_image(marked_source_raw)
         reference_png, _ = normalize_replace_object_image(reference_raw)
+        mask_raw = build_replace_object_mask(source_size, annotation_strokes, marked_size)
         api_mask = build_gpt_image_removal_mask(source_png, mask_raw)
-        with Image.open(io.BytesIO(mask_raw)) as drawn:
-            if drawn.convert("RGBA").getchannel("A").getbbox() is None:
-                raise ValueError("empty replacement mask")
     except Exception as exc:
         prostudio_error("REPLACE_OBJECT_INPUT_PREPARE_FAILED", exc)
         return image_error_response("openai", "replace_object", model, endpoint, "Не удалось подготовить изображения и область замены.")
