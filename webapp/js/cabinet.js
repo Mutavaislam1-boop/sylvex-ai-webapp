@@ -335,9 +335,9 @@ photoToolState.replace_character = {
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
 const hairBeardState = { category: 'men', selectedPresetId: null };
 const HAIR_BEARD_PRESETS = [
-  ...'bald buzz_cut very_short crew_cut short_crop textured_crop side_part slick_back quiff medium_hair long_hair long_wavy_hair curly_hair afro middle_part man_bun'.split(' ').map(id=>({id,category:'men',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.svg'})),
-  ...'clean_shaven light_stubble heavy_stubble short_beard medium_beard long_beard full_beard beard_without_mustache goatee mustache thick_mustache beard_and_mustache long_beard_long_hair long_beard_short_hair beard_bald beard_buzz_cut beard_medium_hair mustache_short_hair stubble_short_hair'.split(' ').map(id=>({id,category:'beard_mustache',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.svg'})),
-  ...'long_straight long_wavy long_curly medium_straight medium_wavy bob short_bob pixie layered_hair slick_back_women high_ponytail low_ponytail two_ponytails high_bun low_bun two_buns braids two_braids bangs curtain_bangs styled_waves voluminous_styling'.split(' ').map(id=>({id,category:'women',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.svg'})),
+  ...'bald buzz_cut very_short crew_cut short_crop textured_crop side_part slick_back quiff medium_hair long_hair long_wavy_hair curly_hair afro middle_part man_bun'.split(' ').map(id=>({id,category:'men',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
+  ...'clean_shaven light_stubble heavy_stubble short_beard medium_beard long_beard full_beard beard_without_mustache goatee mustache thick_mustache beard_and_mustache long_beard_long_hair long_beard_short_hair beard_bald beard_buzz_cut beard_medium_hair mustache_short_hair stubble_short_hair'.split(' ').map(id=>({id,category:'beard_mustache',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
+  ...'long_straight long_wavy long_curly medium_straight medium_wavy bob short_bob pixie layered_hair slick_back_women high_ponytail low_ponytail two_ponytails high_bun low_bun two_buns braids two_braids bangs curtain_bangs styled_waves voluminous_styling'.split(' ').map(id=>({id,category:'women',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
 ];
 let activePhotoTool = '';
 // Snapshot of studioMode from just before opening a Quick Tool (whichever
