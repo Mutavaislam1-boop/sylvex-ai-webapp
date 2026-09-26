@@ -300,7 +300,7 @@ const PHOTO_TOOL_CONFIG = {
     demo: '/webapp/assets/photo-tools/enhance/demo.mp4',
   },
   animate_photo: { title:'Оживление фото', shortTitle:'Оживление фото', description:'Загрузите фотографию и опишите желаемое движение.', min:1, max:1, labels:['Исходное фото'], demo:'/webapp/assets/photo-tools/animate-photo/demo.mp4', compare:false, route:'video' },
-  tattoo: { title:'Тату', shortTitle:'Тату', description:'Загрузите фото человека и изображение татуировки.', min:2, max:2, labels:['Человек','Татуировка'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', library:'tattoo' },
+  tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
   logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите основное изображение и логотип для размещения.', min:2, max:2, labels:['Основное фото','Логотип'], preview:'assets/quick-tools/logo-placement.jpg', library:'logo' },
   remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
   replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Отметьте заменяемую область и загрузите новый предмет.', min:2, max:2, labels:['Основное фото','Новый предмет'], preview:'assets/quick-tools/replace-object.jpg', library:'object', mask:true },
@@ -335,6 +335,12 @@ photoToolState.replace_character = {
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
 const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, sharedColorSourcePart: null, comparison: null, smartCrop: true, customPresets: [], referencePrompt: '', generatingReference: false };
 const HAIR_BEARD_IMAGE_MODEL = 'gpt_image_2_5_sunburst';
+const tattooState = { selectedReferenceId:null, customReferences:[], prompt:'', generatingReference:false };
+const TATTOO_REFERENCES = Array.from({length:24},(_,index)=>({
+  id:'tattoo_ref_'+String(index+1).padStart(2,'0'),
+  name:['Fine line hand','Mountain wrist','Wolf sleeve','Ornamental sleeve','Blackwork arm','Compass hand','Ocean sleeve','Floral hand','Feather neck','Pendant ear','Eagle portrait','Winged chest','Mountain torso','Lion chest','Landscape back','Wave shoulder','Viking sleeve','Eagle chest','Dragon shoulder','Forest calf','Mountain ankle','Compass foot','Tiger shoulder','Forest ankle'][index],
+  referenceAsset:'/webapp/assets/photo-tools/tattoo/references/tattoo_'+String(index+1).padStart(2,'0')+'.png',
+}));
 const HAIR_BEARD_PRESETS = [
   ...'bald buzz_cut very_short crew_cut short_crop textured_crop side_part slick_back quiff medium_hair long_hair long_wavy_hair curly_hair afro middle_part man_bun'.split(' ').map(id=>({id,category:'men',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
   ...'clean_shaven light_stubble heavy_stubble short_beard medium_beard long_beard full_beard beard_without_mustache goatee mustache thick_mustache beard_and_mustache long_beard_long_hair long_beard_short_hair beard_bald beard_buzz_cut beard_medium_hair mustache_short_hair stubble_short_hair'.split(' ').map(id=>({id,category:'beard_mustache',name:id,referenceAsset:'/webapp/assets/hairstyle-beard/'+id+'.png'})),
@@ -7052,6 +7058,35 @@ function hairBeardCatalogHtml() {
   return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="hair-beard-grid">'+cards+'</div>'+hairBeardColorsHtml()+'</section>';
 }
 
+function tattooReferenceById(id) {
+  return TATTOO_REFERENCES.find(item => item.id === id) || tattooState.customReferences.find(item => item.id === id) || null;
+}
+
+function selectTattooReference(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const reference = tattooReferenceById(id);
+  if (!reference || tattooState.generatingReference || photoToolState.tattoo.generating) return;
+  tattooState.selectedReferenceId = reference.id;
+  renderPhotoToolModal();
+}
+
+function updateTattooPrompt(e) {
+  const input = e && e.currentTarget;
+  if (!input) return;
+  tattooState.prompt = String(input.value || '').slice(0, 1000);
+  const state = photoToolState.tattoo;
+  const button = document.querySelector('#photoToolModalBody .photo-tool-generate');
+  if (!button || !state) return;
+  button.disabled = state.generating || tattooState.generatingReference || (!state.files[0] && !tattooState.prompt.trim());
+  if (!button.disabled) button.textContent = !state.files[0] ? 'Создать референс' : 'Сгенерировать';
+}
+
+function tattooCatalogHtml() {
+  const references = TATTOO_REFERENCES.concat(tattooState.customReferences);
+  const cards = references.map(item => '<button type="button" class="tattoo-reference-card '+(tattooState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(tattooState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectTattooReference(event,\''+S.escapeHtml(item.id)+'\')"><span><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy" decoding="async"></span><b>'+S.escapeHtml(item.name)+'</b></button>').join('');
+  return '<section class="tattoo-catalog" aria-label="Каталог референсов тату"><header><b>Референсы тату</b><small>Выберите рисунок</small></header><div class="tattoo-reference-grid">'+cards+'</div></section>';
+}
+
 function renderPhotoToolModal() {
   const body = document.getElementById('photoToolModalBody');
   if (!body) return;
@@ -7080,24 +7115,29 @@ function renderPhotoToolModal() {
   const isRemoveObject = activePhotoTool === 'remove_object';
   const hasHairPhoto = Boolean(state.files[0]);
   const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
+  const hasTattooPhoto = Boolean(state.files[0]);
+  const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
   const ready = isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
         && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
-    : (activePhotoTool === 'hair_beard'
+    : (activePhotoTool === 'tattoo'
+        ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId)) : hasTattooText)
+        : activePhotoTool === 'hair_beard'
         ? (hasHairPhoto ? (hasHairText || Boolean(hairBeardState.selectedPresetId)) : hasHairText)
         : state.files.filter(Boolean).length >= config.min);
   body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
-    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+'">'
+    + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+'">'
     + '<div class="photo-tool-demo-column">' + (activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : S.escapeHtml(config.description)) + '</p></div>'
-    + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
+    + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + (activePhotoTool==='hair_beard' ? '' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
-    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
+    + (activePhotoTool==='hair_beard' || activePhotoTool==='tattoo' ? '' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
+    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Дополнительные пожелания (необязательно)"' + (isRemoveObject ? ' oninput="SYLVEX.updateRemoveObjectReadiness()"' : '') + '></textarea>')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
-    + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : (activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText?'Создать':'Сгенерировать'))
+    + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':'Сгенерировать'))
     + '</button>'
     + '</div></div>';
   if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
@@ -7465,7 +7505,7 @@ function closePhotoToolModal(e) {
     e.stopPropagation();
   }
   const modal = document.getElementById('photoToolModal');
-  if (modal && !(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference)))) {
+  if (modal && !(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference) || (activePhotoTool === 'tattoo' && tattooState.generatingReference)))) {
     if (activePhotoTool === 'hair_beard') {
       const state = photoToolState.hair_beard;
       if (state) state.files = [];
@@ -7478,6 +7518,14 @@ function closePhotoToolModal(e) {
       hairBeardState.customPresets = [];
       hairBeardState.referencePrompt = '';
       hairBeardState.generatingReference = false;
+    }
+    if (activePhotoTool === 'tattoo') {
+      const state = photoToolState.tattoo;
+      if (state) state.files = [];
+      tattooState.selectedReferenceId = null;
+      tattooState.customReferences = [];
+      tattooState.prompt = '';
+      tattooState.generatingReference = false;
     }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
@@ -7537,7 +7585,7 @@ async function onPhotoToolFiles(e) {
   try {
     const loaded = await Promise.all(files.map(readPhotoToolFile));
     loaded.forEach((file, offset) => {
-      if (activePhotoTool === 'hair_beard' && file && files[offset]) file.originalFile = files[offset];
+      if ((activePhotoTool === 'hair_beard' || activePhotoTool === 'tattoo') && file && files[offset]) file.originalFile = files[offset];
       if (start + offset < config.max) state.files[start + offset] = file;
     });
     state.files = state.files.slice(0, config.max);
@@ -7569,7 +7617,11 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'replace_character') {
     return 'Replace the person in the first reference image with the person shown in the second reference image. Preserve the first image pose, clothing, background, objects, lighting, framing and spatial arrangement. Change only the person. Do not create a second person.' + suffix;
   }
-  if (kind === 'tattoo') return 'Apply the tattoo from the second reference image naturally to the person in the first image. Preserve identity, anatomy, pose, lighting and scene. Make the tattoo follow the skin perspective and texture.' + suffix;
+  if (kind === 'tattoo') {
+    const selected = tattooReferenceById(tattooState.selectedReferenceId);
+    const instruction = String(extra || '').trim();
+    return 'Edit the uploaded portrait in place by adding only the requested tattoo. Preserve the person\'s identity, anatomy, skin tone and texture, pose, exact original canvas, crop, camera framing, body proportions, background, clothing and lighting. Do not change any other detail or add other tattoos. '+(selected?'Use the selected tattoo reference "'+selected.name+'" as the design/style reference. ':'')+(instruction?'Follow the user\'s tattoo placement and design instructions: "'+instruction+'". ':'Apply the selected tattoo reference as a realistic tattoo. ')+(selected&&instruction?'Combine the selected visual reference with the user\'s instructions. ':'')+'Make the tattoo follow the skin perspective, curvature, lighting and texture, with natural ink integration.';
+  }
   if (kind === 'logo') return 'Place the logo from the second reference image naturally into the first image. Preserve the logo design, proportions and legibility while matching perspective, material and lighting.' + suffix;
   if (kind === 'remove_object') return 'Remove only the region marked by the user in the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
   if (kind === 'replace_object') return 'Replace the region marked by the user in the first image with the object from the second image. Preserve the scene, people, composition and lighting. Match scale, perspective and shadows.' + suffix;
@@ -7613,6 +7665,52 @@ function hairBeardOutputSize(sourceFile) {
     image.onerror = () => resolve(fallback);
     image.src = typeof sourceFile === 'string' ? sourceFile : URL.createObjectURL(sourceFile);
   });
+}
+
+async function generateTattooReference(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const promptText = String(tattooState.prompt || '').trim();
+  const state = photoToolState.tattoo;
+  if (!promptText || tattooState.generatingReference || !state) return;
+  const selected = tattooReferenceById(tattooState.selectedReferenceId);
+  const refs = Array.from(new Set([selected].concat(TATTOO_REFERENCES).filter(Boolean).map(item => item.referenceAsset).filter(Boolean))).slice(0,4);
+  const prompt = 'Create a clean tattoo design reference based on the user description: "'+promptText+'". Use the attached images as style guidance for tattoo linework, shading and composition. Show one clear tattoo flash/stencil design, centered and fully visible on a plain white background, black and grayscale ink only, crisp useful linework, no body or skin, no labels, text, watermark, decorative frame, colors, gradient or colored lighting. The image will be used as a visual reference for a later realistic tattoo application.';
+  tattooState.generatingReference = true;
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')})-1;
+  renderChat();
+  try {
+    const start = await callGenerate(prompt,null,refs,null,{
+      isolateRequest:true, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', loadingIndex,
+      onProgress:(completed)=>updateGenerationLoadingProgress(loadingIndex,completed),
+      imageOptions:{modelId:HAIR_BEARD_IMAGE_MODEL,size:'1024x1024',quality:'high',count:1,referenceImageUrls:refs.slice(),referenceImages:refs.slice(),tool:'tattoo_reference',photo_tool:'tattoo_reference',catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false},
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result,'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (!images.length) throw new Error('Модель не вернула изображение референса');
+    addGeneratedImages(images,thumbs);
+    const reference = {id:'tattoo_custom_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:promptText.length>28?promptText.slice(0,25).trim()+'…':promptText,referenceAsset:images[0],custom:true};
+    tattooState.customReferences.push(reference);
+    tattooState.selectedReferenceId = reference.id;
+    chatMessages[loadingIndex] = {role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,result,{modelId:HAIR_BEARD_IMAGE_MODEL,model:HAIR_BEARD_IMAGE_MODEL,provider:'openai',quality:'high',referenceImageUrls:refs.slice(),photo_tool:'tattoo_reference',catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false})};
+    renderPhotoToolModal();
+    toast('Референс тату добавлен в каталог и галерею Pro Studio');
+    loadConversations();
+  } catch (error) {
+    chatMessages[loadingIndex] = resolveFailureMessage(error,{fallback:'Не удалось создать референс тату. Попробуйте ещё раз.',mode:'image',prompt});
+    toast(translateGenerationError(error,'Не удалось создать референс тату'));
+  } finally {
+    tattooState.generatingReference = false;
+    state.generating = false;
+    renderPhotoToolModal();
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) clearActiveProStudioJob(activeGeneration.jobId);
+  }
 }
 
 async function generateHairBeardReference(e) {
@@ -7689,8 +7787,11 @@ async function generatePhotoTool(e) {
   if (kind === 'remove_bg') return generateRemoveBgTool(state);
   if (kind === 'enhance') return generateEnhancePhotoTool(state);
   const extraEl = document.getElementById('photoToolExtraPrompt');
-  const extra = kind === 'hair_beard' ? String((extraEl && extraEl.value) || hairBeardState.referencePrompt || '').trim() : String((extraEl && extraEl.value) || '').trim();
+  const extra = kind === 'hair_beard'
+    ? String((extraEl && extraEl.value) || hairBeardState.referencePrompt || '').trim()
+    : kind === 'tattoo' ? String((extraEl && extraEl.value) || tattooState.prompt || '').trim() : String((extraEl && extraEl.value) || '').trim();
   if (kind === 'hair_beard' && !state.files[0] && extra) return generateHairBeardReference(e);
+  if (kind === 'tattoo' && !state.files[0] && extra) return generateTattooReference(e);
   const hairDirectText = kind === 'hair_beard' && Boolean(state.files[0]) && Boolean(extra);
   const refs = state.files.filter(Boolean).map((item) => item.url);
   if (refs.length < config.min) {
@@ -7701,6 +7802,10 @@ async function generatePhotoTool(e) {
   if (kind === 'hair_beard' && !hairDirectText && hairBeardState.selectedPresetId) {
     const preset = hairBeardPresetById(hairBeardState.selectedPresetId);
     if (preset) refs.push(preset.referenceAsset);
+  }
+  if (kind === 'tattoo' && tattooState.selectedReferenceId) {
+    const reference = tattooReferenceById(tattooState.selectedReferenceId);
+    if (reference) refs.push(reference.referenceAsset);
   }
   if (config.route === 'video') {
     const source = refs[0];
@@ -7728,12 +7833,12 @@ async function generatePhotoTool(e) {
   }) - 1;
   renderChat();
   try {
-    const outputSize = kind === 'hair_beard' ? await hairBeardOutputSize(state.files[0].originalFile || state.files[0].url) : '';
-    const modelOptions = kind === 'hair_beard' ? {
+    const outputSize = kind === 'hair_beard' || kind === 'tattoo' ? await hairBeardOutputSize(state.files[0].originalFile || state.files[0].url) : '';
+    const modelOptions = kind === 'hair_beard' || kind === 'tattoo' ? {
       isolateRequest:true,
       model:HAIR_BEARD_IMAGE_MODEL,
       provider:'openai',
-      imageOptions:{ modelId:HAIR_BEARD_IMAGE_MODEL, size:outputSize, quality:'high', count:1, referenceImageUrls:refs.slice(), referenceImages:refs.slice(), tool:'hair_beard', catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false },
+      imageOptions:{ modelId:HAIR_BEARD_IMAGE_MODEL, size:outputSize, quality:'high', count:1, referenceImageUrls:refs.slice(), referenceImages:refs.slice(), tool:kind, photo_tool:kind, catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false },
     } : {};
     const start = await callGenerate(prompt, null, refs, null, Object.assign({}, modelOptions, {
       onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
@@ -7743,7 +7848,7 @@ async function generatePhotoTool(e) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    const options = kind === 'hair_beard'
+    const options = kind === 'hair_beard' || kind === 'tattoo'
       ? { modelId:HAIR_BEARD_IMAGE_MODEL, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', quality:'high', size:outputSize, referenceImageUrls:refs.slice(), photo_tool:kind, catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false }
       : Object.assign({}, imageOptionsPayload(refs), { photo_tool: kind });
     chatMessages[loadingIndex] = {
@@ -12641,6 +12746,13 @@ function renderGeneratedTelegramButton(url, kind) {
   function imageGenerationMetadata(prompt, referenceImages, result, optionsSnapshot) {
     const backendMeta = result && result.metadata && typeof result.metadata === 'object' ? result.metadata : {};
     const options = Object.assign({}, optionsSnapshot || imageState || {}, backendMeta.image_options || backendMeta.settings || {});
+    // Quick Tool implementation prompts are provider instructions, not user-facing chat text.
+    // Preserve this flag from the local request even when the provider returns its own settings.
+    const hideInternalPrompt = !!((optionsSnapshot || {}).catalog_prompt_hidden || options.catalog_prompt_hidden);
+    if (hideInternalPrompt) {
+      options.catalog_prompt_hidden = true;
+      options.catalog_display_prompt = '';
+    }
     const modelId = backendMeta.model || (result && result.model) || options.modelId || imageState.modelId || '';
     // =====================================================
     // JAVASCRIPT-БЛОК: model
@@ -12689,9 +12801,10 @@ function renderGeneratedTelegramButton(url, kind) {
       model: modelId || model.id || '',
       model_label: backendMeta.model_label || model.label || model.name || modelId || '',
       provider: backendMeta.provider || (result && result.provider) || providerHintForModel(modelId),
-      prompt: options.catalog_prompt_hidden ? String(options.catalog_display_prompt || '') : (backendMeta.prompt || prompt || ''),
-      catalog_prompt_hidden: !!options.catalog_prompt_hidden,
-      catalog_display_prompt: String(options.catalog_display_prompt || ''),
+      prompt: hideInternalPrompt ? '' : (backendMeta.prompt || prompt || ''),
+      catalog_prompt_hidden: hideInternalPrompt,
+      catalog_display_prompt: hideInternalPrompt ? '' : String(options.catalog_display_prompt || ''),
+      photo_tool: String(options.photo_tool || options.tool || backendMeta.photo_tool || ''),
       catalog_reference_url: String(options.catalog_reference_url || ''),
       user_reference_url: String(options.user_reference_url || ''),
       style: backendMeta.style || options.style || '',
@@ -13012,7 +13125,7 @@ function renderGeneratedTelegramButton(url, kind) {
       ? String(meta.cost_credits) + ' ⚡️'
       : '';
     const cost = creditsValue || String(meta.generation_cost || '');
-    const hiddenCatalogPrompt = !!(meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden);
+    const hiddenCatalogPrompt = !!(meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden || meta.photo_tool === 'hair_beard' || meta.photo_tool === 'hair_beard_reference' || meta.settings?.photo_tool === 'hair_beard' || meta.settings?.photo_tool === 'hair_beard_reference' || meta.image_options?.tool === 'hair_beard' || meta.image_options?.tool === 'hair_beard_reference');
     const prompt = hiddenCatalogPrompt
       ? String(meta.catalog_display_prompt || meta.image_options?.catalog_display_prompt || meta.settings?.catalog_display_prompt || '')
       : String(meta.prompt || '');
@@ -15356,7 +15469,7 @@ function openGenerationInfoDrawer(e, index) {
     + generationInfoRow('Created', created)
     + generationInfoRow('Telegram', meta.sent_to_telegram ? 'sent' : 'not sent')
     + '</div>'
-      + ((meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden) ? '' : (meta.prompt ? '<div class="generation-info-section generation-prompt-block"><div class="generation-info-label">Промт</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p>' + (String(meta.prompt).length > 180 ? '<button class="generation-prompt-toggle" type="button" aria-expanded="false" onclick="SYLVEX.toggleGenerationPrompt(event)">Развернуть</button>' : '') + '</div>' : ''))
+      + ((meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden || meta.photo_tool === 'hair_beard' || meta.photo_tool === 'hair_beard_reference' || meta.settings?.photo_tool === 'hair_beard' || meta.settings?.photo_tool === 'hair_beard_reference' || meta.image_options?.tool === 'hair_beard' || meta.image_options?.tool === 'hair_beard_reference') ? '' : (meta.prompt ? '<div class="generation-info-section generation-prompt-block"><div class="generation-info-label">Промт</div><p class="generation-info-text">' + S.escapeHtml(meta.prompt) + '</p>' + (String(meta.prompt).length > 180 ? '<button class="generation-prompt-toggle" type="button" aria-expanded="false" onclick="SYLVEX.toggleGenerationPrompt(event)">Развернуть</button>' : '') + '</div>' : ''))
     + (refImages.length ? '<div class="generation-info-section"><div class="generation-info-label">Reference images</div><div class="generation-info-ref-row">' + refImages.map((url) => '<img src="' + S.escapeHtml(url) + '" alt="reference" />').join('') + '</div></div>' : '')
     + (actionHtml ? '<div class="generation-info-actions">' + actionHtml + '</div>' : '');
 
@@ -22160,7 +22273,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
