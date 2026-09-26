@@ -623,6 +623,8 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "seedream_4_5": {"provider": "bytedance", "provider_model": BYTEPLUS_SEEDREAM_MODEL_MAP["seedream_4_5"], "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations"},
     "gpt_image_1": {"provider": "openai", "provider_model": "gpt-image-1", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
     "gpt_image_2": {"provider": "openai", "provider_model": "gpt-image-2", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
+    "gpt_image_2_5_sunburst": {"provider": "openai", "provider_model": "gpt-image-2.5-sunburst", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
+    "gpt-image-2.5-sunburst": {"provider": "openai", "provider_model": "gpt-image-2.5-sunburst", "endpoint": f"{OPENAI_API_BASE}/images/generations"},
     "flux_pro_kontext": {"provider": "flux", "provider_model": env_value("FLUX_PRO_KONTEXT_MODEL", "FLUX-PRO-KONTEXT-MODEL", default="flux-kontext-pro"), "endpoint": "https://api.bfl.ai/v1"},
     "flux_2": {"provider": "flux", "provider_model": env_value("FLUX_2_MODEL", "FLUX-2-MODEL", default="flux-2-pro"), "endpoint": "https://api.bfl.ai/v1"},
     "flux_2_turbo": {"provider": "flux", "provider_model": env_value("FLUX_2_TURBO_MODEL", "FLUX-2-TURBO-MODEL", default="flux-2-flex"), "endpoint": "https://api.bfl.ai/v1"},
@@ -707,6 +709,14 @@ OPENAI_IMAGE_MODEL_VARIANTS = {
         "default_quality": env_value("GPT_IMAGE_2_QUALITY", "GPT-IMAGE-2-QUALITY", default="medium"),
         "cost_credits": {"low": 1, "medium": 8, "high": 32},
         "cost_usd": {"low": 0.009, "medium": 0.0795, "high": 0.3165},
+    },
+    "gpt_image_2_5_sunburst": {
+        "provider_model": "gpt-image-2.5-sunburst",
+        "label": "GPT Image 2.5 Sunburst",
+        "seed": False,
+        "default_quality": "high",
+        "cost_credits": {"low": 1, "medium": 8, "high": 32, "xhigh": 48, "max": 64},
+        "cost_usd": {"low": 0.009, "medium": 0.0795, "high": 0.3165, "xhigh": 0.50, "max": 0.75},
     },
 }
 RECRAFT_MODEL_VARIANTS = {
@@ -949,6 +959,7 @@ IMAGE_MODEL_FEATURES = {
     "imagen_4_standard": {"character": False, "object": False, "seed": False},
     "imagen_4_ultra": {"character": False, "object": False, "seed": False},
     "gpt_image_2": {"character": True, "object": True, "seed": False},
+    "gpt_image_2_5_sunburst": {"character": False, "object": False, "seed": False},
     "seedream_5_0_lite": {"character": True, "object": True, "seed": True},
     "seedream_5_0": {"character": True, "object": True, "seed": True},
     "seedream_5": {"character": True, "object": True, "seed": True},
@@ -12914,7 +12925,7 @@ def find_image_model(model_id: str) -> dict:
 # =====================================================
 def infer_image_model(model_id: str, provider: str = "") -> dict:
     value = (model_id or "").strip()
-    normalized = value.lower().replace("-", "_")
+    normalized = value.lower().replace("-", "_").replace(".", "_")
     provider = (provider or "").strip().lower()
     if normalized in ("gpt_image_1", "openai_gpt_image_1"):
         return {"id": value, "provider": "openai", "api_model": "gpt-image-1", "sizes": [image_size("1024x1024")], "counts": [1]}
@@ -15837,12 +15848,14 @@ def text_generation(payload: dict) -> dict:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def openai_image_frontend_model(frontend_model: str, provider_model: str = "") -> str:
-    raw = str(frontend_model or "").strip().replace("-", "_").lower()
+    raw = str(frontend_model or "").strip().replace("-", "_").replace(".", "_").lower()
     if raw in OPENAI_IMAGE_MODEL_VARIANTS:
         return raw
-    model = str(provider_model or "").strip().replace("-", "_").lower()
+    model = str(provider_model or "").strip().replace("-", "_").replace(".", "_").lower()
     if model == "gpt_image_2":
         return "gpt_image_2"
+    if model in {"gpt_image_2_5_sunburst", "gpt_image_25_sunburst"}:
+        return "gpt_image_2_5_sunburst"
     return "gpt_image_1"
 
 
@@ -15857,8 +15870,9 @@ def normalize_openai_image_quality(frontend_model: str, provider_model: str, opt
     raw = str((opts or {}).get("quality") or cfg.get("default_quality") or "medium").strip().lower()
     if raw == "standard":
         raw = "medium"
-    if raw not in {"low", "medium", "high"}:
-        return "medium"
+    allowed = {"low", "medium", "high", "xhigh", "max"} if key == "gpt_image_2_5_sunburst" else {"low", "medium", "high"}
+    if raw not in allowed:
+        return cfg.get("default_quality") or "medium"
     return raw
 
 
@@ -17041,8 +17055,9 @@ def openai_image_cost_info(frontend_model: str, provider_model: str, quality: st
     cfg = OPENAI_IMAGE_MODEL_VARIANTS.get(key) or OPENAI_IMAGE_MODEL_VARIANTS["gpt_image_1"]
     image_count = max(1, int(count or 1))
     normalized_quality = str(quality or cfg.get("default_quality") or "medium").strip().lower()
-    if normalized_quality not in {"low", "medium", "high"}:
-        normalized_quality = "medium"
+    allowed_quality = {"low", "medium", "high", "xhigh", "max"} if key == "gpt_image_2_5_sunburst" else {"low", "medium", "high"}
+    if normalized_quality not in allowed_quality:
+        normalized_quality = cfg.get("default_quality") or "medium"
     unit_credits = int((cfg.get("cost_credits") or {}).get(normalized_quality, 0))
     unit_usd = float((cfg.get("cost_usd") or {}).get(normalized_quality, 0))
     return {
@@ -17903,8 +17918,9 @@ async def image_generation(payload: dict) -> dict:
                 "size": openai_size,
                 "quality": openai_quality,
                 "n": str(count),
-                "input_fidelity": "high",
             }
+            if api_model == "gpt-image-1":
+                request_data["input_fidelity"] = "high"
             response = None
             request_exception = None
             for attempt in range(1, 3):
