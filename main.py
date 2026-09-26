@@ -13350,29 +13350,6 @@ def _sanitized_json_shape(data) -> dict:
     return {"top_level_keys": sorted(fields.keys()), "fields": fields}
 
 
-def _persist_enhance_photo_image_bytes(content: bytes, content_type: str) -> str:
-    """Persists a direct (non-JSON) image/* response from Topaz's download
-    endpoint straight to durable SYLVEX storage, preserving the format
-    Topaz actually returned. Mirrors _persist_remote_media_url's own
-    filename/upload logic for the case where the bytes are already in hand
-    and no second HTTP round trip is needed. Returns "" on failure, exactly
-    like _persist_remote_media_url does, so the caller's storage_key_from_
-    url() check treats it as a hard failure rather than a temporary URL."""
-    if not content:
-        return ""
-    clean_content_type = (content_type or "").split(";", 1)[0].strip().lower() or "image/png"
-    suffix = mimetypes.guess_extension(clean_content_type) or ".png"
-    object_key = generated_key("images", f"{uuid4().hex}{suffix}")
-    try:
-        prostudio_debug("R2_UPLOAD_START", provider="topaz", asset_type="images", object_key=object_key, content_type=clean_content_type)
-        uploaded_url = storage_put_bytes(content, object_key, clean_content_type)
-        prostudio_debug("R2_UPLOAD_DONE", provider="topaz", asset_type="images", object_key=object_key)
-        return uploaded_url
-    except Exception as exc:
-        prostudio_error("R2_UPLOAD_FAILED", exc, provider="topaz", asset_type="images", object_key=object_key, content_type=clean_content_type)
-        return ""
-
-
 async def generate_enhance_photo_image(payload: dict) -> dict:
     """The Enhance Photo provider call, using Topaz Labs' real Enhance API
     (POST /image/v1/enhance/async, multipart/form-data, X-API-KEY auth,
@@ -13384,11 +13361,14 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
 
     Async flow: submit returns {"process_id"}; GET .../status/{process_id}
     is polled for the literal {"status"} field until Completed/Failed/
-    Cancelled; on Completed, GET .../download/{process_id} returns the
-    literal {"url"} field. Topaz's download URL is temporary, so it is
-    downloaded and persisted to durable SYLVEX storage synchronously,
-    inside this function, before it ever returns - the result never carries
-    Topaz's own temporary URL."""
+    Cancelled; on Completed, GET .../download/{process_id} returns a JSON
+    body carrying the result URL - production Topaz has been observed
+    returning it as "download_url" (alongside "head_url"/"expiry"), while
+    the official Quickstart still documents a plain "url" field, so both
+    are read (download_url preferred, url as a documented fallback).
+    Topaz's download URL is temporary, so it is downloaded and persisted to
+    durable SYLVEX storage synchronously, inside this function, before it
+    ever returns - the result never carries Topaz's own temporary URL."""
     headers = topaz_headers()
     if not headers:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
@@ -13427,7 +13407,7 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
         response = requests.post(
             TOPAZ_ENHANCE_ENDPOINT,
             headers=headers,
-            data={"model": TOPAZ_ENHANCE_MODEL, "output_height": str(output_height)},
+            data={"model": TOPAZ_ENHANCE_MODEL, "outputHeight": str(output_height)},
             files={"image": (f"source.{ext}", source_bytes, content_type)},
             timeout=int(os.getenv("TOPAZ_ENHANCE_TIMEOUT", "60")),
         )
@@ -13464,10 +13444,8 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
 
     download_content_type = (download_response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
     download_content_length = download_response.headers.get("content-length") or ""
-    # Topaz's own download response can be either a JSON envelope ({"url":
-    # ...}) or the finished image bytes directly, undocumented which one a
-    # given request returns - only safe response metadata is ever logged
-    # here (never the API key, a signed URL, or the raw image/JSON body).
+    # Only safe response metadata is ever logged here - never the API key,
+    # a signed URL, or the raw JSON body.
     print("ENHANCE PHOTO DOWNLOAD RESPONSE:", {
         "status_code": download_response.status_code,
         "content_type": download_content_type,
@@ -13475,36 +13453,28 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
         "process_id": process_id,
     })
 
-    if download_content_type.startswith("image/"):
-        # Direct image response - the completed result IS the response
-        # body. Persist it to durable SYLVEX storage right now, preserving
-        # the format Topaz actually returned, rather than assuming a JSON
-        # envelope and silently discarding an already-completed result.
-        persisted_url = _persist_enhance_photo_image_bytes(download_response.content, download_content_type)
-    else:
-        download_data = safe_provider_json(download_response, "topaz", download_endpoint)
-        # A production job reached status=Completed and HTTP 200 with
-        # Content-Type: application/json here, yet still failed before any
-        # R2 upload started - the real top-level shape of that body is
-        # still unconfirmed. Log only its safe structure (key names, each
-        # value's type/emptiness) - never the values, never a signed URL or
-        # API key, never the raw body - and flag whether safe_provider_
-        # json() itself already gave up and returned its own {"ok": False,
-        # ...} error envelope (e.g. because the body was empty or not
-        # valid JSON) rather than the real Topaz payload.
-        print("ENHANCE PHOTO DOWNLOAD JSON SHAPE:", {
-            "process_id": process_id,
-            "safe_provider_json_error_envelope": isinstance(download_data, dict) and download_data.get("ok") is False,
-            "shape": _sanitized_json_shape(download_data),
-        })
-        result_url = str(download_data.get("url") or "").strip()
-        if not result_url:
-            return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Topaz result URL not found", data=download_data)
-        # Topaz's download URL is temporary - persist it to durable SYLVEX
-        # storage right now, synchronously, rather than relying on the
-        # generic background persistence pass, which could run after the
-        # URL expires.
-        persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
+    download_data = safe_provider_json(download_response, "topaz", download_endpoint)
+    # Safe structural diagnostic only - top-level key names and each
+    # value's type/emptiness, never the values, a signed URL, or an API
+    # key - and flags whether safe_provider_json() itself already gave up
+    # and returned its own {"ok": False, ...} error envelope (e.g. an empty
+    # or non-JSON body) rather than the real Topaz payload.
+    print("ENHANCE PHOTO DOWNLOAD JSON SHAPE:", {
+        "process_id": process_id,
+        "safe_provider_json_error_envelope": isinstance(download_data, dict) and download_data.get("ok") is False,
+        "shape": _sanitized_json_shape(download_data),
+    })
+    # Production Topaz has been observed returning the result under
+    # "download_url" (alongside "head_url"/"expiry", neither used here) -
+    # the official Quickstart still documents a plain "url" field, so it is
+    # kept as a fallback. No other field name is guessed.
+    result_url = str(download_data.get("download_url") or download_data.get("url") or "").strip()
+    if not result_url:
+        return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, download_endpoint, "Topaz result URL not found", data=download_data)
+    # Topaz's download URL is temporary - persist it to durable SYLVEX
+    # storage right now, synchronously, rather than relying on the generic
+    # background persistence pass, which could run after the URL expires.
+    persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
 
     if not storage_key_from_url(persisted_url):
         print("ENHANCE PHOTO STORAGE PERSIST FAILED:", persisted_url)
