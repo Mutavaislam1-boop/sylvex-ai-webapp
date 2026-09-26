@@ -15005,24 +15005,27 @@ async def generate_replace_object_image(payload: dict) -> dict:
 
     opts = payload.get("image_options") or {}
     source_url = str(opts.get("replaceObjectSourceUrl") or "").strip()
+    marked_source_url = str(opts.get("replaceObjectMarkedSourceUrl") or "").strip()
     replacement_url = str(opts.get("replaceObjectReferenceUrl") or "").strip()
     mask_url = str(opts.get("replaceObjectMaskUrl") or "").strip()
     instruction = str(opts.get("replaceObjectInstruction") or "").strip()
     model = "gpt-image-2.5-sunburst"
     endpoint = f"{OPENAI_API_BASE}/images/edits"
-    if not source_url or not replacement_url or not mask_url:
-        return {"ok": False, "error": "Загрузите исходное фото и предмет, затем отметьте область для замены."}
+    if not source_url or not marked_source_url or not replacement_url or not mask_url:
+        return {"ok": False, "error": "Загрузите исходное фото и предмет, отметьте область и сохраните фото."}
 
     source_raw = _read_image_bytes_for_generation(source_url)
+    marked_source_raw = _read_image_bytes_for_generation(marked_source_url)
     reference_raw = _read_image_bytes_for_generation(replacement_url)
     mask_raw = _read_image_bytes_for_generation(mask_url)
-    if not source_raw or not reference_raw or not mask_raw:
+    if not source_raw or not marked_source_raw or not reference_raw or not mask_raw:
         return image_error_response("openai", "replace_object", model, endpoint, "Не удалось загрузить одно из изображений или маску.")
     try:
         from PIL import Image
         import io
 
         source_png, source_size = normalize_replace_object_image(source_raw)
+        marked_source_png, _ = normalize_replace_object_image(marked_source_raw)
         reference_png, _ = normalize_replace_object_image(reference_raw)
         api_mask = build_gpt_image_removal_mask(source_png, mask_raw)
         with Image.open(io.BytesIO(mask_raw)) as drawn:
@@ -15034,6 +15037,7 @@ async def generate_replace_object_image(payload: dict) -> dict:
 
     prompt = (
         "Edit the first image in place. Replace only the object inside the user-marked transparent mask area with the corresponding object shown in the second image. "
+        "The third image is the exact same source photo saved by the user with a translucent green brush annotation; use that visible annotation to understand the intended object and region. "
         "Preserve the original canvas dimensions, aspect ratio, crop, framing, camera viewpoint, people, pose, unmarked objects, background, colors, lighting, textures, and every other scene detail. "
         "Match the replacement object to the marked object's scale, perspective, orientation, lighting, and contact shadows. "
         "Do not change, add, remove, or move anything outside the marked region. "
@@ -15044,10 +15048,11 @@ async def generate_replace_object_image(payload: dict) -> dict:
     files = [
         ("image[]", ("source.png", source_png, "image/png")),
         ("image[]", ("replacement.png", reference_png, "image/png")),
+        ("image[]", ("user-marked-source.png", marked_source_png, "image/png")),
         ("mask", ("mask.png", api_mask, "image/png")),
     ]
     request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
-    prostudio_debug("REPLACE_OBJECT_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_replacement=True, has_mask=True, source_size=source_size)
+    prostudio_debug("REPLACE_OBJECT_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_marked_source=True, has_replacement=True, has_mask=True, source_size=source_size)
 
     response = None
     request_exception = None
