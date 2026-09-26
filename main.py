@@ -14956,7 +14956,12 @@ def normalize_replace_object_image(source_bytes: bytes) -> tuple:
 
 
 def build_replace_object_mask(source_size: tuple, strokes: list, editor_size: tuple) -> bytes:
-    """Rasterize the saved single-canvas brush coordinates at source size."""
+    """Build an object-sized edit region around the user's object locator marks.
+
+    The brush marks identify the object; they are not intended to trace its
+    silhouette. Expand their combined bounds substantially so the provider and
+    final composite can replace the complete object, including unpainted edges.
+    """
     from PIL import Image, ImageDraw
     import io
 
@@ -15001,8 +15006,27 @@ def build_replace_object_mask(source_size: tuple, strokes: list, editor_size: tu
         for x, y in endpoints:
             draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(255, 255, 255, 255))
 
-    if mask.getchannel("A").getbbox() is None:
+    marked_bounds = mask.getchannel("A").getbbox()
+    if marked_bounds is None:
         raise ValueError("replacement annotation has no visible area")
+
+    # Treat the user's point/stroke as a semantic locator, not an object
+    # contour. Give the model a generous context window around it; this region
+    # is also used for final compositing, so a replacement is never clipped to
+    # the narrow brush trace. The minimum padding scales with the source photo
+    # and grows further for broad annotations.
+    left, top, right, bottom = marked_bounds
+    marked_width = max(1, right - left)
+    marked_height = max(1, bottom - top)
+    pad_x = max(round(source_width * 0.30), marked_width)
+    pad_y = max(round(source_height * 0.30), marked_height)
+    expanded_bounds = (
+        max(0, left - pad_x),
+        max(0, top - pad_y),
+        min(source_width, right + pad_x),
+        min(source_height, bottom + pad_y),
+    )
+    draw.rectangle(expanded_bounds, fill=(255, 255, 255, 255))
     output = io.BytesIO()
     mask.save(output, format="PNG")
     return output.getvalue()
@@ -15085,12 +15109,14 @@ async def generate_replace_object_image(payload: dict) -> dict:
         return image_error_response("openai", "replace_object", model, endpoint, "Не удалось подготовить изображения и область замены.")
 
     prompt = (
-        "Edit the first image in place. Replace only the object inside the user-marked transparent mask area with the corresponding object shown in the second image. "
-        "The third image is the exact same source photo saved by the user with a translucent green brush annotation; use that visible annotation to understand the intended object and region. "
+        "Edit the first image in place. The user's brush mark is a locator point or rough hint identifying which complete object to replace; it is NOT the object's boundary and must NOT limit replacement to the painted pixels. "
+        "Identify the entire object containing or nearest to that mark, including all of its visible parts and edges, remove it completely, and replace it with the corresponding complete object shown in the second image. "
+        "The transparent edit mask is deliberately expanded around the locator to provide room for the whole object; use the third image's translucent green mark to identify the intended object, not as a silhouette to copy. "
+        "The third image is the exact same source photo saved by the user with the brush annotation. "
         "Preserve the original canvas dimensions, aspect ratio, crop, framing, camera viewpoint, people, pose, unmarked objects, background, colors, lighting, textures, and every other scene detail. "
         "Match the replacement object to the marked object's scale, perspective, orientation, lighting, and contact shadows. "
         "Do not change, add, remove, or move anything outside the marked region. "
-        "The mask applies to the first image and defines the only editable area."
+        "The mask applies to the first image and defines the only editable area. Complete the whole-object replacement within that expanded area; do not leave any part of the original target object behind."
     )
     if instruction:
         prompt += f" Additional user direction for the replacement object: {instruction}"
