@@ -6810,8 +6810,8 @@ let removeObjectEditorState = { color: REMOVE_OBJECT_BRUSH_COLORS[0], size: REMO
 function removeObjectMaskPanelHtml(state) {
   const hasMask = !!state.maskUrl;
   return '<div class="photo-tool-mask-editor remove-object-mask-panel">'
-    + '<header><div><b>' + (hasMask ? 'Область отмечена' : 'Отметьте область') + '</b>'
-    + '<small>' + (hasMask ? 'Нажмите, чтобы изменить отметку' : 'Откройте редактор и обведите предмет кистью') + '</small></div></header>'
+    + '<header><div><b>' + (hasMask ? 'Предмет указан' : 'Укажите предмет для удаления') + '</b>'
+    + '<small>' + (hasMask ? 'Нажмите, чтобы изменить отметку' : 'Поставьте отметку внутри предмета — обводить контур не нужно') + '</small></div></header>'
     + '<button type="button" class="remove-object-mask-preview" onclick="SYLVEX.openRemoveObjectMaskEditor(event)">'
     + '<img src="' + S.escapeHtml(state.files[0].url) + '" alt="" />'
     + (hasMask ? '<img class="remove-object-mask-overlay" src="' + S.escapeHtml(state.maskUrl) + '" alt="" />' : '')
@@ -6827,7 +6827,7 @@ function ensureRemoveObjectEditorModal() {
   modal.id = 'removeObjectEditorModal';
   modal.className = 'photo-tool-modal remove-object-editor';
   modal.innerHTML = '<section class="photo-tool-dialog remove-object-editor-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
-    + '<header class="photo-tool-head"><div><small>Удаление предмета</small><h3>Отметьте область</h3></div>'
+    + '<header class="photo-tool-head"><div><small>Удаление предмета</small><h3>Укажите предмет</h3><p>Поставьте отметку внутри предмета. Генерация определит предмет целиком и восстановит фон.</p></div>'
     + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeRemoveObjectMaskEditor(event)">×</button></header>'
     + '<div class="remove-object-editor-canvas-wrap"><img id="removeObjectEditorImage" alt="" /><canvas id="removeObjectEditorCanvas"></canvas></div>'
     + '<div class="remove-object-editor-controls">'
@@ -7907,7 +7907,7 @@ function photoToolPrompt(kind, extra) {
     const reference=logoReferenceById(logoState.selectedReferenceId);
     return 'Create one original, production-ready vector logo from the user brief. Brief: "'+String(extra||'').trim()+'". '+(reference?'Use the attached local visual reference "'+reference.name+'" for its design direction, while creating a distinct original mark. ':'')+'Output a clean standalone logo on a plain white background, centered with generous clear space. Use crisp, scalable vector shapes and legible exact lettering when requested. No mockup, product scene, watermark, presentation board, decorative frame, or unrelated text.';
   }
-  if (kind === 'remove_object') return 'Remove only the region marked by the user in the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
+  if (kind === 'remove_object') return 'Treat the user mark as a locator point or rough hint, not as the target object’s boundary. Identify the complete object at or nearest to the mark, remove every visible part of it, and naturally reconstruct the background behind it. Preserve all other people, objects, composition and lighting.' + suffix;
   if (kind === 'replace_object') return 'Edit the first uploaded image in place. Treat the user mark as a locator point or rough hint, never as the object’s contour. Identify the complete object at that location and fully remove and replace all of its visible parts with the corresponding complete object from the second uploaded image. Keep the original canvas dimensions, aspect ratio, crop, framing, camera position, scene, people, pose, unmarked objects, textures, lighting, and colors unchanged. Match scale, perspective, orientation, lighting, and contact shadows. Do not leave any part of the original target object behind.' + suffix;
   if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
   if (kind === 'hair_beard') {
