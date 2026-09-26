@@ -9287,15 +9287,12 @@ html.web-embed .studio-layout-switch{display:none!important}
 .hair-beard-card-image{display:block;width:100%;aspect-ratio:1;overflow:hidden;border-radius:9px;background:#fff}.hair-beard-card-image img{display:block;width:100%;height:100%;object-fit:contain}.hair-beard-card-name{display:block;min-height:30px;padding:6px 3px 2px;font-size:10px;line-height:1.15;font-weight:650;overflow-wrap:anywhere}.hair-beard-card-check{position:absolute;right:9px;top:9px;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#111;color:#fff;border:1px solid rgba(255,255,255,.82);font-size:12px;opacity:0;transform:scale(.8);transition:.16s}.hair-beard-card.selected .hair-beard-card-check{opacity:1;transform:scale(1)}
 .hair-beard-layout{grid-template-columns:minmax(0,.8fr) minmax(260px,1.2fr)}
 
-.hair-beard-reference-hint{display:block;margin:6px 2px 0;color:var(--st-mute,rgba(255,255,255,.5));font-size:10px;line-height:1.35}
-.hair-beard-create-reference{margin-top:8px}
 @media(max-width:680px){.hair-beard-catalog{padding:9px;margin-bottom:10px}.hair-beard-tabs{gap:6px;padding-bottom:9px}.hair-beard-tab{min-height:34px;padding:0 11px;font-size:11px}.hair-beard-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:36vh}.hair-beard-card{padding:4px;border-radius:11px}.hair-beard-card-name{font-size:10px;min-height:28px}.hair-beard-card-check{right:7px;top:7px}.hair-beard-layout{grid-template-columns:1fr}}
 @media(min-width:681px) and (max-width:900px){.hair-beard-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 
 /* Isolated hairstyle, facial-hair, color and custom-reference controls. */
 .hair-beard-colors{margin-top:13px;padding-top:12px;border-top:1px solid var(--st-border,rgba(255,255,255,.1))}
 .hair-beard-colors>header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:9px}.hair-beard-colors>header>b{font-size:12px;font-weight:700}.hair-beard-colors>header>small{font-size:10px;color:var(--st-mute,rgba(255,255,255,.5))}
-.hair-beard-shared-color{margin-bottom:8px;border-color:var(--st-border,rgba(255,255,255,.2));background:var(--st-bg-2,#18191d)}
 .hair-beard-color-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .hair-beard-color-control{min-width:0;padding:8px 9px;border:1px solid var(--st-border,rgba(255,255,255,.1));border-radius:12px;background:var(--st-bg-2,#18191d)}
 .hair-beard-color-label{display:block;margin-bottom:6px;font-size:11px;font-weight:650;color:var(--st-text,#f3f3f3)}
@@ -9308,4 +9305,6 @@ html.web-embed .studio-layout-switch{display:none!important}
 .hair-beard-color-reset:hover{background:rgba(255,255,255,.07);color:var(--st-text,#fff)}
 .hair-beard-color-status{display:block;margin-top:5px;min-height:12px;color:var(--st-mute,rgba(255,255,255,.48));font-size:9px;line-height:1.2}
 .hair-beard-color-control.has-color .hair-beard-color-status{color:var(--st-text,#f3f3f3)}
-@media(max-width:680px){.hair-beard-colors{margin-top:10px;padding-top:10px}.hair-beard-colors>header>small{font-size:9px}.hair-beard-color-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.hair-beard-shared-color{margin-bottom:6px}.hair-beard-color-control{padding:7px 6px}.hair-beard-color-label{font-size:10px}.hair-beard-color-actions{gap:4px}.hair-beard-color-swatch{width:27px;height:27px;flex-basis:27px}.hair-beard-color-swatch input{width:39px;height:39px}.hair-beard-color-hex{width:55px;height:28px;padding:0 5px;font-size:10px}.hair-beard-color-reset{font-size:8px;padding:5px 3px}}
+.hair-beard-color-all{display:inline-flex;align-items:center;justify-content:center;min-height:23px;margin-top:6px;padding:2px 8px;border:1px solid var(--st-border,rgba(255,255,255,.14));border-radius:999px;background:transparent;color:var(--st-mute,rgba(255,255,255,.6));font:inherit;font-size:9px;cursor:pointer;transition:background .16s ease,color .16s ease,border-color .16s ease}
+.hair-beard-color-all.active{background:var(--st-invert-bg,#f1f3f5);border-color:var(--st-invert-bg,#f1f3f5);color:var(--st-invert-text,#111216)}
+@media(max-width:680px){.hair-beard-colors{margin-top:10px;padding-top:10px}.hair-beard-colors>header>small{font-size:9px}.hair-beard-color-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.hair-beard-color-control{padding:7px 6px}.hair-beard-color-label{font-size:10px}.hair-beard-color-actions{gap:4px}.hair-beard-color-swatch{width:27px;height:27px;flex-basis:27px}.hair-beard-color-swatch input{width:39px;height:39px}.hair-beard-color-hex{width:55px;height:28px;padding:0 5px;font-size:10px}.hair-beard-color-reset{font-size:8px;padding:5px 3px}}

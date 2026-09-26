@@ -15883,9 +15883,17 @@ def normalize_openai_image_quality(frontend_model: str, provider_model: str, opt
 # =====================================================
 def normalize_openai_image_size(size: str, frontend_model: str = "", provider_model: str = "") -> str:
     raw = str(size or "").strip().lower()
+    key = openai_image_frontend_model(frontend_model, provider_model)
+    if key in {"gpt_image_2_5_sunburst", "gpt_image_2"}:
+        match = re.fullmatch(r"(\d{3,4})x(\d{3,4})", raw)
+        if match:
+            width, height = map(int, match.groups())
+            pixels = width * height
+            ratio = width / height if height else 0
+            if width % 16 == 0 and height % 16 == 0 and width <= 3840 and height <= 3840 and 655360 <= pixels <= 8294400 and 1 / 3 <= ratio <= 3:
+                return raw
     if raw in {"1024x1024", "1536x1024", "1024x1536", "auto"}:
         return raw
-    key = openai_image_frontend_model(frontend_model, provider_model)
     if key == "gpt_image_1":
         if raw in {"2:3", "2x3", "9:16", "portrait"}:
             return "1024x1536"
