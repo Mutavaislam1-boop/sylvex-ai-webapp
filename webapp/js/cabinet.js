@@ -287,12 +287,8 @@ const PHOTO_TOOL_CONFIG = {
   replace_character: {
     title: 'Замена персонажа',
     shortTitle: 'Замена персонажа',
-    description: 'Первое фото задаёт сцену, второе — персонажа для замены.',
-    min: 2,
-    max: 2,
-    labels: ['Основное фото', 'Новый персонаж'],
+    description: 'Загрузите основное фото, затем выберите персонажа, фото из истории или загрузите новое лицо для замены.',
     demo: '/webapp/assets/photo-tools/replace-character/demo.mp4',
-    library: 'character',
   },
   enhance: {
     title: 'Улучшение фото',
@@ -319,6 +315,22 @@ const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((ke
 // confused with the garment slots or with any normal Pro Studio state.
 // See renderTryOnModal()/generateTryOnTool() below.
 photoToolState.try_on = { generating: false, personSource: null, personImage: '', personLabel: '', characterId: null, garments: [null, null, null] };
+// Character Replace owns its own dedicated state shape too, same reasoning
+// as Try-On above - the source photo, the replacement identity's source
+// (Character/History/Upload, mutually exclusive) and its resolved image(s)
+// never touch imageState.characterReferences or any other normal Pro
+// Studio composer state. See renderCharacterReplaceModal()/
+// generateCharacterReplaceTool() below.
+photoToolState.replace_character = {
+  generating: false,
+  sourceImage: '',
+  sourceLabel: '',
+  identitySource: null,
+  identityImage: '',
+  identityLabel: '',
+  characterId: null,
+  characterReferenceUrls: [],
+};
 let activePhotoTool = '';
 // Snapshot of studioMode from just before opening a Quick Tool (whichever
 // screen/composer mode the user was actually on, including Home where no
@@ -6845,6 +6857,10 @@ function renderPhotoToolModal() {
     renderTryOnModal(body);
     return;
   }
+  if (activePhotoTool === 'replace_character') {
+    renderCharacterReplaceModal(body);
+    return;
+  }
   const config = PHOTO_TOOL_CONFIG[activePhotoTool];
   const state = photoToolStateFor(activePhotoTool);
   if (!config || !state) {
@@ -7555,6 +7571,373 @@ async function generateRemoveBgTool(state) {
     };
     state.files = [];
     state.generating = false;
+    closePhotoToolModal();
+    toast('Обработка завершена');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {
+      fallback: 'Не удалось обработать фото. Попробуйте ещё раз.',
+      mode: 'image',
+      prompt: displayPrompt,
+    });
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось обработать фото'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
+      clearActiveProStudioJob(activeGeneration.jobId);
+    }
+  }
+}
+
+// =====================================================
+// CHARACTER REPLACE: clean, self-contained input/state/request flow.
+//
+// Two independent inputs, both isolated in photoToolState.replace_character
+// (see its dedicated shape at declaration above) - never
+// imageState.characterReferences/imageOptionsPayload():
+//   - Source photo: Upload or an existing History/Media image (whichever
+//     was picked last simply replaces the other - there is nothing to keep
+//     "mutually exclusive" here since there is no 3rd Character option for
+//     this slot).
+//   - Replacement Character (identity): Character / History / Upload,
+//     mutually exclusive, same pattern as Try-On's person input. Character
+//     selection also captures up to 3 of that Character's own reference
+//     images (never its text description) for FLUX's input_image_3/4/5.
+// Character/Media selection only ever READS shared SYLVEX data sources
+// (imageCharacters(), getGeneratedPhotoHistoryItems()) - it never creates a
+// second Character or Media system.
+// =====================================================
+// Single source of truth for this tool's image_options.tool identifier -
+// must match main.py's CHARACTER_REPLACE_TOOL_KEY exactly, or a request
+// silently falls through to the generic image_generation() dispatch on the
+// backend instead of the isolated generate_character_replace_image() flow.
+const CHARACTER_REPLACE_TOOL_KEY = 'replace_character';
+const CHARACTER_REPLACE_IDENTITY_SOURCE_LABELS = { character: 'Персонаж', history: 'История', upload: 'Загрузка' };
+
+function resetCharacterReplaceState() {
+  const state = photoToolState.replace_character;
+  if (!state) return;
+  state.generating = false;
+  state.sourceImage = '';
+  state.sourceLabel = '';
+  state.identitySource = null;
+  state.identityImage = '';
+  state.identityLabel = '';
+  state.characterId = null;
+  state.characterReferenceUrls = [];
+}
+
+function renderCharacterReplaceModal(body) {
+  const config = PHOTO_TOOL_CONFIG.replace_character;
+  const state = photoToolState.replace_character;
+  if (!config || !state) {
+    renderPhotoToolCatalog();
+    return;
+  }
+  const ready = !!state.sourceImage && !!state.identityImage;
+  body.innerHTML = '<header class="photo-tool-head"><div><small>Фото-инструмент</small><h3>' + S.escapeHtml(config.title) + '</h3></div>'
+    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closePhotoToolModal(event)">×</button></header>'
+    + '<div class="photo-tool-layout">'
+    + '<div class="photo-tool-demo-column">' + photoToolDemoHtml(config) + '<p>' + S.escapeHtml(config.description) + '</p></div>'
+    + '<div class="photo-tool-work-column">'
+    + characterReplaceSourceSectionHtml(state)
+    + characterReplaceIdentitySectionHtml(state)
+    + '<input id="characterReplaceSourceFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onCharacterReplaceSourceUploadFile(event)" />'
+    + '<input id="characterReplaceIdentityFileInput" type="file" accept="image/*" hidden onchange="SYLVEX.onCharacterReplaceIdentityUploadFile(event)" />'
+    + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generateCharacterReplaceTool(event)">'
+    + (state.generating ? '<span class="photo-tool-spinner"></span>Обработка…' : 'Запустить обработку')
+    + '</button>'
+    + '</div></div>';
+}
+
+function characterReplaceSourceSectionHtml(state) {
+  return '<div class="character-replace-section">'
+    + '<small class="try-on-section-label">Основное фото</small>'
+    + '<div class="try-on-person-preview-box' + (state.sourceImage ? ' has-image' : '') + '">'
+    + (state.sourceImage
+        ? '<img src="' + S.escapeHtml(state.sourceImage) + '" alt="" />'
+          + '<i role="button" aria-label="Убрать" onclick="SYLVEX.clearCharacterReplaceSource(event)">×</i>'
+        : '<span class="try-on-person-empty">Не выбрано</span>')
+    + '</div>'
+    + '<div class="try-on-person-sources">'
+    + '<button type="button" class="try-on-source-btn" onclick="SYLVEX.chooseCharacterReplaceSource(event,\'history\')">История</button>'
+    + '<button type="button" class="try-on-source-btn" onclick="SYLVEX.chooseCharacterReplaceSource(event,\'upload\')">Загрузка</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function characterReplaceIdentitySectionHtml(state) {
+  const sourceLabel = CHARACTER_REPLACE_IDENTITY_SOURCE_LABELS[state.identitySource] || '';
+  return '<div class="character-replace-section">'
+    + '<small class="try-on-section-label">Новый персонаж</small>'
+    + '<div class="try-on-person-preview-box' + (state.identityImage ? ' has-image' : '') + '">'
+    + (state.identityImage
+        ? '<img src="' + S.escapeHtml(state.identityImage) + '" alt="" />'
+          + '<span class="try-on-person-source-tag">' + S.escapeHtml(sourceLabel) + '</span>'
+          + '<i role="button" aria-label="Убрать" onclick="SYLVEX.clearCharacterReplaceIdentity(event)">×</i>'
+        : '<span class="try-on-person-empty">Не выбрано</span>')
+    + '</div>'
+    + '<div class="try-on-person-sources">'
+    + ['character', 'history', 'upload'].map((key) => '<button type="button" class="try-on-source-btn '
+        + (state.identitySource === key ? 'active' : '') + '" onclick="SYLVEX.chooseCharacterReplaceIdentitySource(event,\'' + key + '\')">'
+        + S.escapeHtml(CHARACTER_REPLACE_IDENTITY_SOURCE_LABELS[key]) + '</button>').join('')
+    + '</div>'
+    + '</div>';
+}
+
+function chooseCharacterReplaceSource(e, source) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (source === 'history') return openCharacterReplacePicker(e, 'source_history');
+  if (source === 'upload') {
+    const input = document.getElementById('characterReplaceSourceFileInput');
+    if (!input) return;
+    input.value = '';
+    input.click();
+  }
+}
+
+function chooseCharacterReplaceIdentitySource(e, source) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (source === 'character') return openCharacterReplacePicker(e, 'identity_character');
+  if (source === 'history') return openCharacterReplacePicker(e, 'identity_history');
+  if (source === 'upload') {
+    const input = document.getElementById('characterReplaceIdentityFileInput');
+    if (!input) return;
+    input.value = '';
+    input.click();
+  }
+}
+
+let characterReplacePickerKind = '';
+
+function ensureCharacterReplacePickerModal() {
+  let modal = document.getElementById('characterReplacePickerModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'characterReplacePickerModal';
+  modal.className = 'photo-tool-modal character-replace-picker-modal';
+  modal.innerHTML = '<section class="photo-tool-dialog character-replace-picker-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
+    + '<header class="photo-tool-head"><div><small>Замена персонажа</small><h3 id="characterReplacePickerTitle"></h3></div>'
+    + '<button type="button" aria-label="Закрыть" onclick="SYLVEX.closeCharacterReplacePicker(event)">×</button></header>'
+    + '<div class="try-on-picker-grid" id="characterReplacePickerGrid"></div>'
+    + '</section>';
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function openCharacterReplacePicker(e, kind) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  characterReplacePickerKind = kind;
+  const modal = ensureCharacterReplacePickerModal();
+  const title = document.getElementById('characterReplacePickerTitle');
+  if (title) title.textContent = kind === 'identity_character' ? 'Выберите персонажа' : 'Выберите фото из истории';
+  renderCharacterReplacePickerGrid();
+  modal.classList.add('show');
+}
+
+function closeCharacterReplacePicker(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const modal = document.getElementById('characterReplacePickerModal');
+  if (modal) modal.classList.remove('show');
+}
+
+function renderCharacterReplacePickerGrid() {
+  const grid = document.getElementById('characterReplacePickerGrid');
+  const state = photoToolState.replace_character;
+  if (!grid || !state) return;
+  if (characterReplacePickerKind === 'identity_character') {
+    // Same Character data source the normal Pro Studio Character picker
+    // reads (imageCharacters()/visualPreviewUrl()) - read-only here, never
+    // written back to imageState.characterId.
+    const chars = imageCharacters();
+    grid.innerHTML = chars.length ? chars.map((item) => {
+      const preview = visualPreviewUrl(item);
+      const active = state.identitySource === 'character' && state.characterId === item.id;
+      return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.pickCharacterReplaceIdentityCharacter(event,\'' + S.escapeHtml(item.id) + '\')">'
+        + (preview ? '<img src="' + S.escapeHtml(preview) + '" alt="" />' : '<span class="try-on-picker-placeholder">' + S.escapeHtml((item.name || '?').slice(0, 1)) + '</span>')
+        + '<b>' + S.escapeHtml(item.name || '') + '</b>'
+        + '</button>';
+    }).join('') : '<div class="try-on-picker-empty">Нет персонажей</div>';
+    return;
+  }
+  // Same Media/History source the composer's own upload panel reads
+  // (getGeneratedPhotoHistoryItems()) - read-only here, used by both the
+  // source photo's History picker and the identity's History picker.
+  const items = getGeneratedPhotoHistoryItems();
+  grid.innerHTML = items.length ? items.map((entry) => {
+    const item = normalizeGeneratedImageItem(entry);
+    if (!item) return '';
+    const isSourcePicker = characterReplacePickerKind === 'source_history';
+    const active = isSourcePicker ? state.sourceImage === item.url : (state.identitySource === 'history' && state.identityImage === item.url);
+    const handler = isSourcePicker ? 'pickCharacterReplaceSourceMedia' : 'pickCharacterReplaceIdentityMedia';
+    return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.' + handler + '(event,\'' + S.escapeHtml(item.url) + '\')">'
+      + '<img src="' + S.escapeHtml(item.thumb || item.url) + '" alt="" loading="lazy" decoding="async" />'
+      + '</button>';
+  }).join('') : '<div class="try-on-picker-empty">Пока нет фото</div>';
+}
+
+function pickCharacterReplaceIdentityCharacter(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolState.replace_character;
+  const character = imageCharacters().find((item) => item.id === id);
+  if (!state || !character) return;
+  // The Character's own avatar/preview becomes the identity image, and up
+  // to 3 of its own reference images (never its text description) go
+  // along as additional FLUX inputs - never any normal Pro Studio
+  // Character prompt/state.
+  state.identitySource = 'character';
+  state.characterId = id;
+  state.identityImage = visualPreviewUrl(character);
+  state.identityLabel = character.name || '';
+  state.characterReferenceUrls = (character.referenceImages || []).filter(Boolean).slice(0, 3);
+  closeCharacterReplacePicker(e);
+  renderPhotoToolModal();
+}
+
+function pickCharacterReplaceIdentityMedia(e, url) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolState.replace_character;
+  if (!state || !url) return;
+  state.identitySource = 'history';
+  state.characterId = null;
+  state.identityImage = url;
+  state.identityLabel = '';
+  state.characterReferenceUrls = [];
+  closeCharacterReplacePicker(e);
+  renderPhotoToolModal();
+}
+
+function pickCharacterReplaceSourceMedia(e, url) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolState.replace_character;
+  if (!state || !url) return;
+  state.sourceImage = url;
+  state.sourceLabel = '';
+  closeCharacterReplacePicker(e);
+  renderPhotoToolModal();
+}
+
+async function onCharacterReplaceSourceUploadFile(e) {
+  const input = e && e.target;
+  const file = input && input.files && input.files[0];
+  const state = photoToolState.replace_character;
+  if (!file || !state) return;
+  try {
+    const loaded = await readPhotoToolFile(file);
+    state.sourceImage = loaded.url;
+    state.sourceLabel = loaded.name || '';
+    renderPhotoToolModal();
+  } catch (error) {
+    toast((error && error.message) || 'Не удалось загрузить фото');
+  }
+}
+
+async function onCharacterReplaceIdentityUploadFile(e) {
+  const input = e && e.target;
+  const file = input && input.files && input.files[0];
+  const state = photoToolState.replace_character;
+  if (!file || !state) return;
+  try {
+    const loaded = await readPhotoToolFile(file);
+    state.identitySource = 'upload';
+    state.characterId = null;
+    state.identityImage = loaded.url;
+    state.identityLabel = loaded.name || '';
+    state.characterReferenceUrls = [];
+    renderPhotoToolModal();
+  } catch (error) {
+    toast((error && error.message) || 'Не удалось загрузить фото');
+  }
+}
+
+function clearCharacterReplaceSource(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolState.replace_character;
+  if (!state) return;
+  state.sourceImage = '';
+  state.sourceLabel = '';
+  renderPhotoToolModal();
+}
+
+function clearCharacterReplaceIdentity(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolState.replace_character;
+  if (!state) return;
+  state.identitySource = null;
+  state.characterId = null;
+  state.identityImage = '';
+  state.identityLabel = '';
+  state.characterReferenceUrls = [];
+  renderPhotoToolModal();
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: generateCharacterReplaceTool
+// Character Replace is an isolated generation flow, same escape hatch as
+// Remove Object/Try-On/Remove Background above: it never reuses
+// imageOptionsPayload()/imageState (the normal Pro Studio composer's
+// Character/Object/Style/prompt/reference state). The request is built
+// from exactly photoToolState.replace_character's own sourceImage,
+// identityImage and (only when the identity source is a Character) its up
+// to 3 characterReferenceUrls. FLUX.2 [max] itself is billed and called
+// server-side (generate_character_replace_image in main.py); this only
+// builds the isolated request.
+// =====================================================
+async function generateCharacterReplaceTool(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolState.replace_character;
+  if (!state || state.generating) return;
+  const sourceUrl = state.sourceImage;
+  const identityUrl = state.identityImage;
+  if (!sourceUrl) {
+    toast('Загрузите основное фото');
+    return;
+  }
+  if (!identityUrl) {
+    toast('Выберите персонажа, фото из истории или загрузите фото');
+    return;
+  }
+  const displayPrompt = 'Замена персонажа';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({
+    role: 'ai',
+    generationLoading: true,
+    progress: createGenerationProgress('image'),
+  }) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(displayPrompt, null, [], null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'flux_2_max_character_replace',
+      provider: 'flux',
+      imageOptions: {
+        tool: CHARACTER_REPLACE_TOOL_KEY,
+        characterReplaceSourceUrl: sourceUrl,
+        characterReplaceIdentitySource: state.identitySource || 'upload',
+        characterReplaceIdentityImageUrl: identityUrl,
+        characterReplaceCharacterId: state.characterId || '',
+        characterReplaceIdentityReferenceUrls: state.identitySource === 'character' ? state.characterReferenceUrls.slice(0, 3) : [],
+      },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (images.length) addGeneratedImages(images, thumbs);
+    chatMessages[loadingIndex] = {
+      role: 'ai',
+      imageResultMini: true,
+      metadata: imageGenerationMetadata(displayPrompt, [sourceUrl, identityUrl], result, { tool: CHARACTER_REPLACE_TOOL_KEY }),
+    };
+    state.generating = false;
+    resetCharacterReplaceState();
     closePhotoToolModal();
     toast('Обработка завершена');
     loadConversations();
@@ -21392,6 +21775,17 @@ async function waitGeneration(jobId, options) {
   S.onTryOnGarmentFile = onTryOnGarmentFile;
   S.removeTryOnGarment = removeTryOnGarment;
   S.generateTryOnTool = generateTryOnTool;
+  S.chooseCharacterReplaceSource = chooseCharacterReplaceSource;
+  S.chooseCharacterReplaceIdentitySource = chooseCharacterReplaceIdentitySource;
+  S.closeCharacterReplacePicker = closeCharacterReplacePicker;
+  S.pickCharacterReplaceIdentityCharacter = pickCharacterReplaceIdentityCharacter;
+  S.pickCharacterReplaceIdentityMedia = pickCharacterReplaceIdentityMedia;
+  S.pickCharacterReplaceSourceMedia = pickCharacterReplaceSourceMedia;
+  S.onCharacterReplaceSourceUploadFile = onCharacterReplaceSourceUploadFile;
+  S.onCharacterReplaceIdentityUploadFile = onCharacterReplaceIdentityUploadFile;
+  S.clearCharacterReplaceSource = clearCharacterReplaceSource;
+  S.clearCharacterReplaceIdentity = clearCharacterReplaceIdentity;
+  S.generateCharacterReplaceTool = generateCharacterReplaceTool;
   // Also expose the inline-onclick handlers as globals.
   window.toggleModelPop = toggleModelPop;
   window.openImageOptionMenu = openImageOptionMenu;

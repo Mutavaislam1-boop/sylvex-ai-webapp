@@ -7149,6 +7149,17 @@ CSS-БЛОК: .generation-info-actions button
 .try-on-picker-card.selected{border-color:var(--primary)}
 .try-on-picker-empty{grid-column:1/-1;padding:24px 0;text-align:center;color:var(--text-mute);font-size:13px}
 
+/* Character Replace: reuses every Try-On preview-box/source-button/picker
+   class above as-is (same visual design) - .character-replace-section is
+   just Try-On's own .try-on-person-section spacing under a tool-specific
+   name, and the picker modal/dialog double up the same base
+   .photo-tool-modal/.photo-tool-dialog classes with their own, same
+   convention as .try-on-picker-modal/.try-on-picker-dialog above. See
+   renderCharacterReplaceModal() and friends in cabinet.js. */
+.character-replace-section{margin-bottom:4px}
+.character-replace-picker-modal{z-index:1000005}
+.character-replace-picker-dialog{width:min(560px,calc(100vw - 24px));max-height:min(78vh,640px);overflow:auto;display:flex;flex-direction:column;padding:16px}
+
 .photo-tool-work-column textarea{
   width:100%;min-height:64px;resize:vertical;border-radius:13px;border:1px solid var(--border);
   background:var(--surface);color:var(--text);padding:11px 12px;font:inherit;font-size:13px;outline:none;box-sizing:border-box

@@ -13037,6 +13037,152 @@ IDEOGRAM_REMOVE_BG_MAX_BYTES = 25 * 1024 * 1024
 IDEOGRAM_REMOVE_BG_CREDITS = 2
 
 # =====================================================
+# PYTHON-БЛОК: is_replace_character_request
+# Character Replace is its own isolated generation flow (see
+# generate_character_replace_image) - it never reuses the normal Pro Studio
+# image-generation payload shape (Character/Object/Style/prompt/refs), so it
+# needs its own dispatch check, independent of is_seedream_request.
+# CHARACTER_REPLACE_TOOL_KEY is the single source of truth for the tool
+# identifier - the frontend request, this predicate, the job payload,
+# estimate_generation_cost's pricing branch, and generate_character_replace_
+# image's own result fields must all use this exact same value, or a
+# request can silently fall through to the generic image_generation()
+# dispatch instead of this isolated flow.
+# =====================================================
+CHARACTER_REPLACE_TOOL_KEY = "replace_character"
+
+
+def is_replace_character_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == CHARACTER_REPLACE_TOOL_KEY
+
+
+FLUX_2_MAX_ENDPOINT = "https://api.bfl.ai/v1/flux-2-max"
+# input_image (source) + input_image_2 (identity avatar/selected image) +
+# input_image_3/4/5 (up to 3 Character reference images) - BFL's own
+# deterministic slot order for this tool, per the FLUX.2 [max] request.
+FLUX_2_MAX_MAX_INPUT_IMAGES = 5
+# BFL's own published FLUX.2 [max] pricing (https://api.bfl.ai pricing,
+# per-request, not per-model-catalog-entry like the other Flux variants in
+# FLUX_MODEL_VARIANTS - Character Replace's price genuinely varies with how
+# many reference images the user's chosen identity source contributes, so
+# it cannot be a single flat cost_credits value the way the other Quick
+# Tools are priced).
+FLUX_2_MAX_BASE_OUTPUT_MP_COST_USD = 0.07  # first output megapixel
+FLUX_2_MAX_EXTRA_OUTPUT_MP_COST_USD = 0.03  # each additional output megapixel
+FLUX_2_MAX_INPUT_IMAGE_COST_USD = 0.03  # each input/reference image, billed as 1 MP regardless of its real resolution
+CHARACTER_REPLACE_MARKUP = 1.5
+# Character Replace has no resolution selector of its own - it always
+# targets a 1-megapixel output.
+CHARACTER_REPLACE_OUTPUT_MP = 1
+
+
+def character_replace_input_image_count(opts: dict) -> int:
+    """Counts exactly the images generate_character_replace_image() will
+    actually send to FLUX, from the same isolated fields it reads - kept in
+    sync with that function (and with the pricing formula below) rather
+    than assuming a fixed count, since it varies with the chosen identity
+    source (a plain History/Upload image contributes 1; a Character
+    contributes its avatar + up to 3 references)."""
+    count = 0
+    if str(opts.get("characterReplaceSourceUrl") or "").strip():
+        count += 1
+    if str(opts.get("characterReplaceIdentityImageUrl") or "").strip():
+        count += 1
+    identity_source = str(opts.get("characterReplaceIdentitySource") or "").strip().lower()
+    if identity_source == "character":
+        refs = opts.get("characterReplaceIdentityReferenceUrls") or []
+        count += len([url for url in refs if str(url or "").strip()][:3])
+    return min(count, FLUX_2_MAX_MAX_INPUT_IMAGES)
+
+
+def character_replace_cost_info(input_image_count: int, output_mp: float = CHARACTER_REPLACE_OUTPUT_MP) -> dict:
+    """BFL bills FLUX.2 [max] as $0.07 for the first output megapixel, +
+    $0.03 per additional output megapixel, + $0.03 per input/reference
+    image (each counted as 1 MP). SYLVEX's price is that real provider cost
+    + 50% markup, rounded up to a whole credit:
+    credits = ceil(provider_cost_usd * 1.5 * 100), i.e. 1 credit = $0.01 of
+    the marked-up price - e.g. 2 inputs -> $0.13 provider cost -> 20 credits,
+    5 inputs -> $0.22 provider cost -> 33 credits."""
+    images = max(0, int(input_image_count or 0))
+    extra_mp = max(0.0, float(output_mp or 1) - 1)
+    provider_cost_usd = (
+        FLUX_2_MAX_BASE_OUTPUT_MP_COST_USD
+        + extra_mp * FLUX_2_MAX_EXTRA_OUTPUT_MP_COST_USD
+        + images * FLUX_2_MAX_INPUT_IMAGE_COST_USD
+    )
+    unit_usd = provider_cost_usd * CHARACTER_REPLACE_MARKUP
+    credits = int(math.ceil(unit_usd * 100))
+    return {
+        "credits": credits,
+        "cost_credits": credits,
+        "cost_usd": round(unit_usd, 4),
+        "provider_cost_usd": round(provider_cost_usd, 4),
+        "generation_cost": f"{credits} ⚡",
+        "input_image_count": images,
+    }
+
+
+def build_character_replace_prompt() -> str:
+    return (
+        "Replace the person in image 1 with the identity shown in the following reference images. "
+        "Preserve the original pose, body position, clothing, background and scene, framing, camera "
+        "angle and perspective, lighting and every existing object exactly as they are in image 1. "
+        "Change only the person's identity. Do not add another person. Do not change the gender, age "
+        "or identity characteristics established by the reference images. Do not beautify or redesign "
+        "the face."
+    )
+
+
+CHARACTER_REPLACE_OUTPUT_MAX_PIXELS = 1024 * 1024  # BFL's 1-megapixel billing tier (matches CHARACTER_REPLACE_OUTPUT_MP)
+CHARACTER_REPLACE_DIMENSION_STEP = 16  # BFL's own required width/height granularity
+
+
+def character_replace_output_dimensions(source_width: int, source_height: int) -> tuple:
+    """FLUX.2 [max] defaults to a square 1024x1024 output when width/height
+    are omitted, which would silently crop/distort a portrait or landscape
+    source into a square - this computes explicit width/height that keep
+    the source's own aspect ratio, land at ~1 output megapixel (BFL's
+    $0.07 first-MP tier, matching CHARACTER_REPLACE_OUTPUT_MP=1's pricing
+    assumption), and are both multiples of 16 as BFL's API requires.
+    Rounding to a multiple of 16 can only ever push the pixel count up, so
+    after rounding the larger side is trimmed one 16px step at a time
+    until back at or under the 1 MP cap - this always terminates, since
+    both sides are floored at 16px and every step strictly shrinks the
+    area."""
+    width = max(1, int(source_width or 0))
+    height = max(1, int(source_height or 0))
+    aspect_ratio = width / height
+    ideal_height = math.sqrt(CHARACTER_REPLACE_OUTPUT_MAX_PIXELS / aspect_ratio)
+    ideal_width = ideal_height * aspect_ratio
+    step = CHARACTER_REPLACE_DIMENSION_STEP
+    out_width = max(step, round(ideal_width / step) * step)
+    out_height = max(step, round(ideal_height / step) * step)
+    while out_width * out_height > CHARACTER_REPLACE_OUTPUT_MAX_PIXELS and (out_width > step or out_height > step):
+        if out_width >= out_height:
+            out_width = max(step, out_width - step)
+        else:
+            out_height = max(step, out_height - step)
+    return out_width, out_height
+
+
+def _detect_image_dimensions(image_bytes: bytes) -> tuple:
+    """Returns (width, height), or (0, 0) if the bytes aren't a readable
+    image - the caller falls back to FLUX's own square default in that
+    case, exactly as if no source image had been analyzed at all."""
+    if not image_bytes:
+        return 0, 0
+    from PIL import Image
+    import io
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            return img.width, img.height
+    except Exception as exc:
+        print("CHARACTER REPLACE SOURCE DIMENSION DETECT FAILED:", type(exc).__name__, str(exc))
+        return 0, 0
+
+# =====================================================
 # PYTHON-БЛОК: build_image_prompt
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -14356,6 +14502,151 @@ async def generate_remove_bg_image(payload: dict) -> dict:
                 telegram_id,
                 images,
                 "Готово ✅\nФон удалён в SYLVEX Pro Studio",
+            )
+        except Exception as exc:
+            print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
+
+    result["sent_to_telegram"] = sent_to_telegram
+    return result
+
+
+async def generate_character_replace_image(payload: dict) -> dict:
+    """The Character Replace provider call, using Black Forest Labs' real
+    FLUX.2 [max] API (POST /v1/flux-2-max, JSON body, x-key auth, async
+    submit+poll). Reads ONLY the isolated fields below - never
+    image_options.characterId/characterReferences/objectId/
+    objectReferences/style, never payload.prompt/history - so leaked
+    normal Pro Studio state can never reach this request. The frontend's
+    own isolated state (photoToolState.replace_character in cabinet.js)
+    resolves the "Replacement Character" input to exactly one of 3
+    mutually exclusive sources - a selected Character's avatar + up to 3
+    of its own reference images, an existing History/Media image, or a
+    fresh upload - before this function ever sees it.
+
+    Images are sent to FLUX in a fixed, deterministic order: input_image
+    (source scene), input_image_2 (identity avatar/selected image),
+    input_image_3/4/5 (up to 3 Character reference images, only when the
+    identity source is a Character). BFL's own result URL is temporary, so
+    it is downloaded and persisted to durable SYLVEX storage synchronously,
+    inside this function, before it ever returns."""
+    headers = flux_headers()
+    if not headers:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("characterReplaceSourceUrl") or "").strip()
+    identity_url = str(opts.get("characterReplaceIdentityImageUrl") or "").strip()
+    identity_source = str(opts.get("characterReplaceIdentitySource") or "").strip().lower()
+    reference_urls: list = []
+    if identity_source == "character":
+        raw_refs = opts.get("characterReplaceIdentityReferenceUrls") or []
+        reference_urls = [str(url).strip() for url in raw_refs if str(url or "").strip()][:3]
+
+    if not source_url:
+        return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+    if not identity_url:
+        return {"ok": False, "error": "Выберите персонажа, фото из истории или загрузите фото."}
+
+    # Resolve every image (a data: URI from a fresh upload, a relative
+    # preset-catalog Character path, or an already-absolute URL) into a
+    # real provider-fetchable URL before ever calling FLUX - it needs a
+    # fetchable URL, not a raw data: URI, exactly like Try-On's model_image.
+    images_in_order = [public_media_url(source_url), public_media_url(identity_url)]
+    images_in_order += [public_media_url(url) for url in reference_urls]
+    images_in_order = [url for url in images_in_order if url.startswith(("http://", "https://"))][:FLUX_2_MAX_MAX_INPUT_IMAGES]
+
+    if len(images_in_order) < 2:
+        return {"ok": False, "error": "Не удалось обработать фото. Попробуйте ещё раз."}
+
+    # FLUX.2 [max] defaults to a square 1024x1024 output when width/height
+    # are omitted - explicitly pass the source photo's own aspect ratio
+    # (at ~1 output megapixel, BFL's own $0.07 first-MP tier) so a
+    # portrait/landscape source is never silently squared off.
+    source_width, source_height = _detect_image_dimensions(_read_image_bytes_for_generation(source_url))
+    output_width, output_height = character_replace_output_dimensions(source_width, source_height)
+
+    request_payload = {
+        "prompt": build_character_replace_prompt(),
+        "output_format": "jpeg",
+        "width": output_width,
+        "height": output_height,
+    }
+    for index, url in enumerate(images_in_order, start=1):
+        key = "input_image" if index == 1 else f"input_image_{index}"
+        request_payload[key] = url
+
+    print("CHARACTER REPLACE REQUEST:", {
+        "tool": CHARACTER_REPLACE_TOOL_KEY,
+        "provider": "flux",
+        "provider_model": "flux-2-max",
+        "endpoint": FLUX_2_MAX_ENDPOINT,
+        "input_image_count": len(images_in_order),
+        "identity_source": identity_source,
+        "source_dimensions": f"{source_width}x{source_height}",
+        "output_dimensions": f"{output_width}x{output_height}",
+    })
+
+    try:
+        response = requests.post(FLUX_2_MAX_ENDPOINT, headers=headers, json=request_payload, timeout=60)
+    except requests.RequestException as exc:
+        print("CHARACTER REPLACE SUBMIT FAILED:", type(exc).__name__, str(exc))
+        return image_error_response("flux", CHARACTER_REPLACE_TOOL_KEY, "flux-2-max", FLUX_2_MAX_ENDPOINT, "Provider request failed", data={"body_preview": str(exc)[:1000]})
+
+    data = safe_provider_json(response, "flux", FLUX_2_MAX_ENDPOINT)
+    if response.status_code >= 400 or data.get("ok") is False:
+        print(f"CHARACTER REPLACE SUBMIT ERROR HTTP {response.status_code}:", response.text[:2000])
+        return image_error_response("flux", CHARACTER_REPLACE_TOOL_KEY, "flux-2-max", FLUX_2_MAX_ENDPOINT, data.get("error") or "Provider request failed", response, data)
+
+    polling_url = data.get("polling_url")
+    if not polling_url:
+        return image_error_response("flux", CHARACTER_REPLACE_TOOL_KEY, "flux-2-max", FLUX_2_MAX_ENDPOINT, "Flux polling_url not found", data=data)
+
+    provider_urls, poll_error = poll_flux_image(polling_url, CHARACTER_REPLACE_TOOL_KEY, "flux-2-max")
+    if not provider_urls:
+        print("CHARACTER REPLACE POLL FAILED:", poll_error)
+        return poll_error if poll_error else {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
+
+    # BFL's result URL is temporary - persist it to durable SYLVEX storage
+    # right now, synchronously, rather than relying on the generic
+    # background persistence pass, which could run after the URL expires.
+    persisted_url = _persist_remote_media_url(provider_urls[0], "images", provider="flux")
+    if not storage_key_from_url(persisted_url):
+        print("CHARACTER REPLACE STORAGE PERSIST FAILED:", persisted_url)
+        return {"ok": False, "error": "Не удалось сохранить результат. Попробуйте ещё раз."}
+
+    images = [persisted_url]
+    cost_info = character_replace_cost_info(len(images_in_order))
+    extra_fields = {
+        "provider": "flux",
+        "model": "flux_2_max_character_replace",
+        "provider_model": "flux-2-max",
+        "tool": CHARACTER_REPLACE_TOOL_KEY,
+        "cost_credits": cost_info["credits"],
+        "cost_usd": cost_info["cost_usd"],
+        "generation_cost": cost_info["generation_cost"],
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, result.get("images") or images))
+    else:
+        result = attach_image_thumbnails({
+            "ok": True,
+            "type": "image",
+            "image_url": images[0],
+            "images": images,
+            **extra_fields,
+        })
+
+    telegram_id = int(payload.get("telegram_id") or 0)
+    sent_to_telegram = False
+    if telegram_id and not payload.get("skip_telegram"):
+        try:
+            sent_to_telegram = await asyncio.to_thread(
+                send_generated_images_to_telegram,
+                telegram_id,
+                images,
+                "Готово ✅\nПерсонаж заменён в SYLVEX Pro Studio",
             )
         except Exception as exc:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
@@ -16865,6 +17156,23 @@ def estimate_generation_cost(payload: dict) -> dict:
             "pricing_available": True,
             "operation": tool,
         }
+    if tool == CHARACTER_REPLACE_TOOL_KEY:
+        # Character Replace's real provider cost varies with how many
+        # images the chosen identity source actually contributes (a plain
+        # History/Upload image vs. a Character's avatar + up to 3
+        # references), so - unlike the flat per-tool prices below - its
+        # price is computed from the real image count via
+        # character_replace_cost_info() (BFL's own $0.07 first-MP +
+        # $0.03/extra-MP + $0.03/input-image formula, +50% SYLVEX markup).
+        info = character_replace_cost_info(character_replace_input_image_count(opts))
+        return {
+            "credits": info["credits"],
+            "cost_credits": info["credits"],
+            "cost_usd": info["cost_usd"],
+            "generation_cost": info["generation_cost"],
+            "pricing_available": True,
+            "operation": tool,
+        }
     tool_prices = {
         "tryon": 9,             # Google Virtual Try-On
         "remove_bg": 2,         # Recraft Remove Background
@@ -17078,6 +17386,27 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def image_generation(payload: dict) -> dict:
+    if is_replace_character_request(payload):
+        # Defense in depth: dispatch_prostudio_provider_request() must
+        # always route a Character Replace job to
+        # generate_character_replace_image() before it ever reaches this
+        # generic dispatcher - if one gets here anyway (a future edit to
+        # the dispatch ordering, a caller that bypasses
+        # dispatch_prostudio_provider_request(), ...), fail loudly and
+        # specifically instead of silently trying to map
+        # "flux_2_max_character_replace" as if it were a real selectable
+        # model.
+        prostudio_error(
+            "CHARACTER_REPLACE_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
+            RuntimeError("replace_character job reached image_generation() instead of generate_character_replace_image()"),
+            job_id=payload.get("job_id") or payload.get("generation_id") or "",
+        )
+        return {
+            "ok": False,
+            "type": "image",
+            "error": "Не удалось создать изображение. Попробуйте ещё раз.",
+            "raw_error": "replace_character_misrouted_to_image_generation",
+        }
     opts = payload.get("image_options") or {}
     prompt = build_image_prompt(payload)
     requested_model = opts.get("modelId") or opts.get("model_id") or payload.get("model")
@@ -18765,6 +19094,12 @@ async def dispatch_prostudio_provider_request(
         # Seedream/image_generation dispatch below, which would read
         # image_options.characterReferences/objectReferences/style.
         result = await run_provider_coroutine_off_loop(lambda: generate_remove_bg_image(payload))
+    elif mode == "image" and is_replace_character_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="flux", model=selected_model, route="generate_character_replace_image")
+        # Isolated Quick Tool flow - never falls through to the normal
+        # Seedream/image_generation dispatch below, which would read
+        # image_options.characterReferences/objectReferences/style.
+        result = await run_provider_coroutine_off_loop(lambda: generate_character_replace_image(payload))
     elif mode == "image" and is_seedream_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="bytedance", model=selected_model, route="generateBytePlusSeedreamImage")
         # Seedream's image adapter makes blocking requests.post calls; keep them off the shared event loop.
