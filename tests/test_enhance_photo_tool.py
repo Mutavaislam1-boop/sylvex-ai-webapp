@@ -48,19 +48,27 @@ class _FakeResponse:
     # _persist_remote_media_url's own safe_get() call (headers/content/
     # raise_for_status) - the isolated flow routes both through
     # main.safe_get during the success path, so one fake response needs to
-    # satisfy both call sites.
+    # satisfy both call sites. headers/content are overridable per instance
+    # (defaulting to the class attrs below) so a test can control exactly
+    # what Content-Type/body the download step sees, since the fix under
+    # test branches on that header.
     headers = {"content-type": "image/png"}
     content = b"final-enhanced-photo-bytes"
 
-    def __init__(self, status_code=200, payload=None, text=None):
+    def __init__(self, status_code=200, payload=None, text=None, headers=None, content=None):
         self.status_code = status_code
         self.text = json.dumps(payload) if payload is not None else (text or "")
+        if headers is not None:
+            self.headers = headers
+        if content is not None:
+            self.content = content
 
     def raise_for_status(self):
         return None
 
 
 TOPAZ_RESULT_URL = "https://files.topazlabs.com/ephemeral/result-abc123.png"
+DIRECT_IMAGE_BYTES = b"\x89PNG\r\n\x1a\n-direct-topaz-image-bytes"
 
 
 def _fake_topaz_headers():
@@ -84,24 +92,34 @@ def _enhance_photo_payload(**overrides):
     }
 
 
-def _fake_safe_get_dispatch(status="Completed", download_url=TOPAZ_RESULT_URL):
+def _fake_safe_get_dispatch(status="Completed", download_url=TOPAZ_RESULT_URL, download_mode="json"):
     """Dispatches main.safe_get by URL: the status endpoint returns the
-    literal {"status": ...}, the download endpoint returns the literal
-    {"url": ...}, and any other URL (the persistence step's own fetch of
-    the real result bytes) returns the raw-bytes-shaped fake response."""
+    literal {"status": ...}; the download endpoint returns either a JSON
+    {"url": ...} envelope (download_mode="json") or the finished image
+    bytes directly with an image/* Content-Type (download_mode="image");
+    any other URL (the JSON path's own follow-up fetch of the real result
+    bytes for persistence) returns the raw-bytes-shaped fake response."""
     def _fake_safe_get(url, headers=None, timeout=None):
         if "/status/" in url:
             return _FakeResponse(200, {"status": status})
         if "/download/" in url:
-            return _FakeResponse(200, {"url": download_url})
+            if download_mode == "image":
+                return _FakeResponse(
+                    200, text="",
+                    headers={"content-type": "image/png", "content-length": str(len(DIRECT_IMAGE_BYTES))},
+                    content=DIRECT_IMAGE_BYTES,
+                )
+            if download_mode == "malformed":
+                return _FakeResponse(200, text="<html>not json, not an image</html>", headers={"content-type": "text/html"})
+            return _FakeResponse(200, {"url": download_url}, headers={"content-type": "application/json"})
         return _FakeResponse(200, text="")  # raw bytes path via class attrs
     return _fake_safe_get
 
 
-def _apply_success_mocks(monkeypatch, status="Completed", download_url=TOPAZ_RESULT_URL, process_id="proc_123"):
+def _apply_success_mocks(monkeypatch, status="Completed", download_url=TOPAZ_RESULT_URL, process_id="proc_123", download_mode="json"):
     monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
     monkeypatch.setattr(main.requests, "post", lambda *a, **k: _FakeResponse(200, {"process_id": process_id}))
-    monkeypatch.setattr(main, "safe_get", _fake_safe_get_dispatch(status=status, download_url=download_url))
+    monkeypatch.setattr(main, "safe_get", _fake_safe_get_dispatch(status=status, download_url=download_url, download_mode=download_mode))
     monkeypatch.setattr(main.time, "sleep", lambda *a, **k: None)
     monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: f"https://cdn.example.com/{key}")
     monkeypatch.setattr(main, "storage_key_from_url", _fake_storage_key_from_url)
@@ -441,7 +459,9 @@ def test_generate_enhance_photo_image_handles_download_url_missing(monkeypatch):
     def fake_safe_get(url, headers=None, timeout=None):
         if "/status/" in url:
             return _FakeResponse(200, {"status": "Completed"})
-        return _FakeResponse(200, {})  # download response missing "url"
+        # A JSON download response missing "url" - explicit application/json
+        # Content-Type so it takes the JSON branch, not the image/* one.
+        return _FakeResponse(200, {}, headers={"content-type": "application/json"})
 
     monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
     monkeypatch.setattr(main.requests, "post", lambda *a, **k: _FakeResponse(200, {"process_id": "proc_1"}))
@@ -468,6 +488,99 @@ def test_generate_enhance_photo_image_handles_network_error(monkeypatch):
     monkeypatch.setattr(main.requests, "post", fake_post)
     result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
     assert result["ok"] is False
+
+
+# --- Regression: Topaz's download step can return either a direct image or a
+# JSON envelope; a real "status: Completed" job was being marked failed
+# because the old code assumed the download response was always JSON. -------
+
+def test_completed_download_direct_image_response_is_persisted_successfully(monkeypatch):
+    submit_calls = []
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        submit_calls.append(url)
+        return _FakeResponse(200, {"process_id": "proc_1"})
+
+    monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    monkeypatch.setattr(main, "safe_get", _fake_safe_get_dispatch(download_mode="image"))
+    monkeypatch.setattr(main.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(main, "storage_put_bytes", lambda content, key, content_type: f"https://cdn.example.com/{key}")
+    monkeypatch.setattr(main, "storage_key_from_url", _fake_storage_key_from_url)
+    monkeypatch.setattr(main, "send_generated_images_to_telegram", lambda *a, **k: True)
+
+    result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
+    assert result["ok"] is True
+    assert result["images"][0].startswith("https://cdn.example.com/")
+    # Never resubmits/recharges Topaz once the job is already Completed.
+    assert submit_calls == ["https://api.topazlabs.com/image/v1/enhance/async"]
+
+
+def test_completed_download_json_result_url_is_downloaded_and_persisted_successfully(monkeypatch):
+    persist_calls = []
+
+    def fake_persist(url, category, provider=""):
+        persist_calls.append((url, category, provider))
+        return "https://cdn.example.com/images/final-enhanced.png"
+
+    monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
+    monkeypatch.setattr(main.requests, "post", lambda *a, **k: _FakeResponse(200, {"process_id": "proc_1"}))
+    monkeypatch.setattr(main, "safe_get", _fake_safe_get_dispatch(download_mode="json"))
+    monkeypatch.setattr(main.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(main, "_persist_remote_media_url", fake_persist)
+    monkeypatch.setattr(main, "storage_key_from_url", lambda url: "images/final-enhanced.png" if "cdn.example.com" in url else "")
+    monkeypatch.setattr(main, "send_generated_images_to_telegram", lambda *a, **k: True)
+
+    result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
+    assert result["ok"] is True
+    assert result["images"] == ["https://cdn.example.com/images/final-enhanced.png"]
+    assert persist_calls == [(TOPAZ_RESULT_URL, "images", "topaz")]
+
+
+def test_completed_download_malformed_response_fails_clearly(monkeypatch):
+    # Neither JSON nor an image/* Content-Type (e.g. an HTML error page from
+    # an intermediary) - must fail clearly rather than crash or silently
+    # treat garbage bytes as a finished image.
+    monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
+    monkeypatch.setattr(main.requests, "post", lambda *a, **k: _FakeResponse(200, {"process_id": "proc_1"}))
+    monkeypatch.setattr(main, "safe_get", _fake_safe_get_dispatch(download_mode="malformed"))
+    monkeypatch.setattr(main.time, "sleep", lambda *a, **k: None)
+
+    result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
+    assert result["ok"] is False
+
+
+def test_completed_download_direct_image_fails_when_storage_persist_fails(monkeypatch):
+    monkeypatch.setattr(main, "topaz_headers", _fake_topaz_headers)
+    monkeypatch.setattr(main.requests, "post", lambda *a, **k: _FakeResponse(200, {"process_id": "proc_1"}))
+    monkeypatch.setattr(main, "safe_get", _fake_safe_get_dispatch(download_mode="image"))
+    monkeypatch.setattr(main.time, "sleep", lambda *a, **k: None)
+
+    def failing_storage_put_bytes(content, key, content_type):
+        raise RuntimeError("R2 upload failed")
+
+    monkeypatch.setattr(main, "storage_put_bytes", failing_storage_put_bytes)
+
+    result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
+    assert result["ok"] is False
+
+
+def test_completed_job_never_resubmits_or_recharges_topaz(monkeypatch):
+    submit_calls = []
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        submit_calls.append(url)
+        return _FakeResponse(200, {"process_id": "proc_1"})
+
+    _apply_success_mocks(monkeypatch, download_mode="json")
+    monkeypatch.setattr(main.requests, "post", fake_post)
+
+    result = asyncio.run(main.generate_enhance_photo_image(_enhance_photo_payload()))
+    assert result["ok"] is True
+    # Exactly one submit call for the whole flow - a Completed job must
+    # never trigger a second /enhance/async submission (and therefore never
+    # a second Topaz credit charge).
+    assert len(submit_calls) == 1
 
 
 # --- Persistence to durable SYLVEX storage ------------------------------------
