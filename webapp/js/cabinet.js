@@ -335,7 +335,7 @@ photoToolState.replace_character = {
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
 const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, sharedColorSourcePart: null, comparison: null, smartCrop: true, customPresets: [], referencePrompt: '', generatingReference: false };
 const HAIR_BEARD_IMAGE_MODEL = 'gpt_image_2_5_sunburst';
-const tattooState = { selectedReferenceId:null, customReferences:[], prompt:'', generatingReference:false };
+const tattooState = { selectedReferenceId:null, customReferences:[], prompt:'', comparison:null, generatingReference:false };
 const TATTOO_REFERENCES = Array.from({length:24},(_,index)=>({
   id:'tattoo_ref_'+String(index+1).padStart(2,'0'),
   name:['Fine line hand','Mountain wrist','Wolf sleeve','Ornamental sleeve','Blackwork arm','Compass hand','Ocean sleeve','Floral hand','Feather neck','Pendant ear','Eagle portrait','Winged chest','Mountain torso','Lion chest','Landscape back','Wave shoulder','Viking sleeve','Eagle chest','Dragon shoulder','Forest calf','Mountain ankle','Compass foot','Tiger shoulder','Forest ankle'][index],
@@ -6543,6 +6543,26 @@ function hairBeardComparisonHtml(config) {
     + '<button type="button" class="hair-beard-smart-crop '+(hairBeardState.smartCrop?'active':'')+'" aria-pressed="'+hairBeardState.smartCrop+'" onclick="SYLVEX.toggleHairBeardSmartCrop(event)">Smart Crop · лицо</button>';
 }
 
+function tattooComparisonHtml(config) {
+  const comparison = tattooState.comparison;
+  if (!comparison || !comparison.before || !comparison.after) return photoToolDemoHtml(config);
+  return '<div class="photo-tool-demo photo-tool-compare tattoo-result-compare" style="--compare-position:50%">'
+    + photoToolMediaHtml(comparison.after,'photo-tool-after')
+    + photoToolMediaHtml(comparison.before,'photo-tool-before')
+    + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить фото до и после татуировки" oninput="SYLVEX.updatePhotoToolComparison(event)">'
+    + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+}
+
+function syncTattooComparisonAspectRatio(source) {
+  const image = new Image();
+  image.onload = () => {
+    const host = document.querySelector('.tattoo-result-compare');
+    if (!host || !image.naturalWidth || !image.naturalHeight) return;
+    host.style.aspectRatio = image.naturalWidth + ' / ' + image.naturalHeight;
+  };
+  image.src = source;
+}
+
 function loadPhotoToolDemos() {
   if (photoToolDemosPromise) return photoToolDemosPromise;
   photoToolDemosPromise = fetch('/api/public/prostudio/photo-tool-demos', { credentials:'same-origin' })
@@ -7130,7 +7150,7 @@ function renderPhotoToolModal() {
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
     + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+'">'
-    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : S.escapeHtml(config.description)) + '</p></div>'
+    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : photoToolDemoHtml(config)) + '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : S.escapeHtml(config.description)) + '</p></div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
@@ -7141,6 +7161,7 @@ function renderPhotoToolModal() {
     + '</button>'
     + '</div></div>';
   if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object')window.requestAnimationFrame(initPhotoToolMask);
+  if(activePhotoTool==='tattoo'&&tattooState.comparison)syncTattooComparisonAspectRatio(tattooState.comparison.before);
 }
 
 // =====================================================
@@ -7525,6 +7546,7 @@ function closePhotoToolModal(e) {
       tattooState.selectedReferenceId = null;
       tattooState.customReferences = [];
       tattooState.prompt = '';
+      tattooState.comparison = null;
       tattooState.generatingReference = false;
     }
     modal.classList.remove('show');
@@ -7590,6 +7612,7 @@ async function onPhotoToolFiles(e) {
     });
     state.files = state.files.slice(0, config.max);
     if (activePhotoTool === 'hair_beard') hairBeardState.comparison = null;
+    if (activePhotoTool === 'tattoo') tattooState.comparison = null;
     renderPhotoToolModal();
   } catch (error) {
     toast((error && error.message) || 'Не удалось загрузить фото');
@@ -7605,6 +7628,7 @@ function removePhotoToolFile(e, kind, index) {
   if (!state || state.generating) return;
   state.files.splice(index, 1);
   if (kind === 'hair_beard') hairBeardState.comparison = null;
+  if (kind === 'tattoo') tattooState.comparison = null;
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -7620,7 +7644,7 @@ function photoToolPrompt(kind, extra) {
   if (kind === 'tattoo') {
     const selected = tattooReferenceById(tattooState.selectedReferenceId);
     const instruction = String(extra || '').trim();
-    return 'Edit the uploaded portrait in place by adding only the requested tattoo. Preserve the person\'s identity, anatomy, skin tone and texture, pose, exact original canvas, crop, camera framing, body proportions, background, clothing and lighting. Do not change any other detail or add other tattoos. '+(selected?'Use the selected tattoo reference "'+selected.name+'" as the design/style reference. ':'')+(instruction?'Follow the user\'s tattoo placement and design instructions: "'+instruction+'". ':'Apply the selected tattoo reference as a realistic tattoo. ')+(selected&&instruction?'Combine the selected visual reference with the user\'s instructions. ':'')+'Make the tattoo follow the skin perspective, curvature, lighting and texture, with natural ink integration.';
+    return 'Edit the uploaded portrait in place by adding only the requested tattoo. Preserve the person\'s identity, anatomy, skin tone and texture, pose, exact original image canvas dimensions and aspect ratio, crop, camera framing, body scale and position, background, clothing and lighting. Do not crop, zoom, pan, resize the subject, extend the canvas or reframe. Do not change any other detail or add other tattoos. '+(selected?'Use the selected tattoo reference "'+selected.name+'" as the design/style reference. ':'')+(instruction?'Follow the user\'s tattoo placement and design instructions: "'+instruction+'". ':'Apply the selected tattoo reference as a realistic tattoo. ')+(selected&&instruction?'Combine the selected visual reference with the user\'s instructions. ':'')+'Make the tattoo follow the skin perspective, curvature, lighting and texture, with natural ink integration.';
   }
   if (kind === 'logo') return 'Place the logo from the second reference image naturally into the first image. Preserve the logo design, proportions and legibility while matching perspective, material and lighting.' + suffix;
   if (kind === 'remove_object') return 'Remove only the region marked by the user in the first image and reconstruct the hidden background naturally. Preserve all other people, objects, composition and lighting.' + suffix;
@@ -7864,6 +7888,11 @@ async function generatePhotoTool(e) {
       state.generating = false;
       renderPhotoToolModal();
       toast(hairBeardState.comparison ? 'Результат показан в сравнении до/после' : 'Обработка завершена');
+    } else if (kind === 'tattoo') {
+      if (images.length && state.files[0]) tattooState.comparison = { before:state.files[0].url, after:images[0] };
+      state.generating = false;
+      renderPhotoToolModal();
+      toast(tattooState.comparison ? 'Результат показан в сравнении до/после' : 'Обработка завершена');
     } else {
       state.files = [];
       state.generating = false;
