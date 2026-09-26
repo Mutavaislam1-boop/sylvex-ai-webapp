@@ -6964,11 +6964,16 @@ function logoCatalogHtml() {
 }
 function logoResultPreviewHtml(config) {
   const result=logoState.result;
-  if (!result || !result.pngUrl) return photoToolDemoHtml(config);
+  if (!result || !result.pngUrl) {
+    return '<div class="photo-tool-demo-column-result">'
+      + '<div class="logo-result-preview"><span class="logo-result-placeholder">Тут появится ваш результат</span></div>'
+      + '</div>';
+  }
   const reference=logoReferenceById(result.referenceId);
-  return '<div class="photo-tool-demo logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"><span>PNG-preview</span></div>'
+  return '<div class="photo-tool-demo-column-result">'
+    + '<div class="logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"></div>'
     + '<div class="logo-result-links"><a href="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" download="sylvex-logo.svg">Скачать SVG</a>'
-    + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div>';
+    + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div></div>';
 }
 function selectLogoReference(e,id) {
   if(e){e.preventDefault();e.stopPropagation()}
@@ -7164,6 +7169,8 @@ function tattooCatalogHtml() {
 function renderPhotoToolModal() {
   const body = document.getElementById('photoToolModalBody');
   if (!body) return;
+  const photoToolModal = document.getElementById('photoToolModal');
+  if (photoToolModal) photoToolModal.classList.toggle('logo-tool-modal', activePhotoTool === 'logo');
   if (activePhotoTool === 'try_on') {
     renderTryOnModal(body);
     return;
@@ -12919,9 +12926,10 @@ function renderGeneratedTelegramButton(url, kind) {
       + generationActionIcon('download') + 'Скачать</button>';
   }
 
-  function renderGeneratedActions(url, kind, jobId, status) {
+  function renderGeneratedActions(url, kind, jobId, status, options) {
     const safeUrl = S.escapeHtml(url);
-    let actions = renderGeneratedOpenButton(url, kind) + renderGeneratedTelegramButton(url, kind);
+    const suppressImageViewer = !!(options && options.suppressImageViewer && kind === 'image');
+    let actions = (suppressImageViewer ? '' : renderGeneratedOpenButton(url, kind)) + renderGeneratedTelegramButton(url, kind);
     actions += renderCompletedGenerationDownload(jobId, status, 'gen-action-btn', kind);
     if (kind === 'image') {
       actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
@@ -12970,11 +12978,12 @@ function renderGeneratedTelegramButton(url, kind) {
     const thumb = typeof item === 'string' ? item : (item.thumb || item.url);
     const safeUrl = S.escapeHtml(url);
     const safeThumb = S.escapeHtml(thumb || url);
+    const isLogoResult = !!(generationMeta && (generationMeta.photo_tool === 'logo' || generationMeta.image_options && generationMeta.image_options.photo_tool === 'logo' || generationMeta.settings && generationMeta.settings.photo_tool === 'logo'));
     return '<div class="gen-media-card gen-image-card">'
-      + '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">'
+      + (isLogoResult ? '<div class="gen-img-open gen-img-static">' : '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">')
       + '<img class="gen-img" src="' + safeThumb + '" alt="generated" loading="lazy" decoding="async" />'
-      + '</button>'
-      + renderGeneratedActions(url, 'image', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status)
+      + (isLogoResult ? '</div>' : '</button>')
+      + renderGeneratedActions(url, 'image', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status, {suppressImageViewer:isLogoResult})
       + '</div>';
   }
 
@@ -15629,6 +15638,7 @@ function openGenerationInfoDrawer(e, index) {
   const audioUrl = meta.audio_url || ((meta.audios || [])[0]) || ((type === 'music' || type === 'voice') ? meta.result_url : '') || message.audioUrl || '';
   const resultUrl = type === 'video' ? videoUrl : ((type === 'music' || type === 'voice') ? audioUrl : (meta.full_url || meta.result_url || imageUrl));
   const svgUrl = meta.photo_tool === 'logo' ? String(meta.svg_url || meta.svg_download_url || '') : '';
+  const isLogoResult = meta.photo_tool === 'logo';
   const jobId = completedGenerationJobId(message, meta);
   const generationStatus = String(meta.status || message.generationStatus || (message.imageResultMini ? 'completed' : '')).toLowerCase();
   const previewFallbackUrl = meta.preview_fallback_url || imageUrl || resultUrl || '';
@@ -15658,7 +15668,9 @@ function openGenerationInfoDrawer(e, index) {
         + '</button>').join('')
       + '</div>'
     : type === 'image' && imageUrl
-      ? '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>'
+      ? (isLogoResult
+        ? '<div class="generation-info-preview generation-info-preview-logo">' + previewImgHtml(previewUrl, 'generated logo', previewFallbackUrl) + '</div>'
+        : '<button class="generation-info-preview generation-info-preview-button" type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.openImageViewer(event)">' + previewImgHtml(previewUrl, 'generated image', previewFallbackUrl) + '</button>')
     : type === 'video' && videoUrl
       ? '<video class="generation-info-media-player generation-info-video-player" src="' + S.escapeHtml(videoUrl) + '" controls playsinline preload="metadata"></video>'
       : type === 'music' && audioUrl
@@ -15677,7 +15689,7 @@ function openGenerationInfoDrawer(e, index) {
       actionHtml += '<button type="button" data-audio-url="' + S.escapeHtml(audioUrl) + '" data-result-url="' + S.escapeHtml(audioUrl) + '" data-result-kind="voice" onclick="SYLVEX.playVoiceInCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else if (type === 'video') {
       actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
-    } else {
+    } else if (!isLogoResult) {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '"'
         + (type === 'image' ? imageViewerSetAttribute(imageItems) : '')
         + ' data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
