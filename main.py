@@ -14943,6 +14943,42 @@ def build_gpt_image_removal_mask(source_bytes: bytes, mask_bytes: bytes) -> byte
     return output.getvalue()
 
 
+def expand_remove_object_locator_region(source_bytes: bytes, mark_bytes: bytes) -> bytes:
+    """Expand a brush mark into a broad inpaint region around the target.
+
+    The mark locates the object; it is not expected to trace the object's
+    silhouette. Padding leaves room for full-object removal and background
+    reconstruction when the user makes only a short stroke or a single dot.
+    """
+    from PIL import Image, ImageDraw
+    import io
+
+    with Image.open(io.BytesIO(source_bytes)) as source_img:
+        size = source_img.size
+    with Image.open(io.BytesIO(mark_bytes)) as mark_img:
+        alpha = mark_img.convert("RGBA").resize(size).getchannel("A")
+    bounds = alpha.getbbox()
+    if bounds is None:
+        raise ValueError("remove-object mark is empty")
+
+    left, top, right, bottom = bounds
+    mark_width = max(1, right - left)
+    mark_height = max(1, bottom - top)
+    pad_x = max(round(size[0] * 0.30), mark_width)
+    pad_y = max(round(size[1] * 0.30), mark_height)
+    expanded = (
+        max(0, left - pad_x),
+        max(0, top - pad_y),
+        min(size[0], right + pad_x),
+        min(size[1], bottom + pad_y),
+    )
+    region = Image.new("RGBA", size, (255, 255, 255, 0))
+    ImageDraw.Draw(region).rectangle(expanded, fill=(255, 255, 255, 255))
+    output = io.BytesIO()
+    region.save(output, format="PNG")
+    return output.getvalue()
+
+
 def normalize_replace_object_image(source_bytes: bytes) -> tuple:
     """Normalize an uploaded replacement-tool image to orientation-correct PNG."""
     from PIL import Image, ImageOps
@@ -15059,14 +15095,18 @@ def composite_replace_object_inside_mask(source_png: bytes, generated_bytes: byt
 
 def build_remove_object_prompt(has_mask: bool, instruction: str) -> str:
     parts = [
-        "Remove only the object or region the user has specified and reconstruct the "
-        "hidden background naturally, matching the surrounding lighting, texture and "
-        "perspective. Preserve everything else in the image exactly as it is."
+        "Treat the user's brush mark as a locator point or rough hint, not as the "
+        "target object's boundary. Identify the complete object at or nearest to "
+        "the mark, remove every visible part of that object, and naturally reconstruct "
+        "the background that was behind it. Preserve all other objects and the rest "
+        "of the image exactly as they are."
     ]
     if has_mask:
         parts.append(
-            "A transparent mask marks exactly the area to remove and regenerate - "
-            "fill it in using the surrounding context so the removal is undetectable."
+            "The transparent mask is deliberately expanded around the locator to "
+            "provide room for complete-object removal and seamless background "
+            "reconstruction; do not treat the painted pixels as the object's silhouette. "
+            "Remove the entire target object and leave no fragments or remnants."
         )
     clean_instruction = str(instruction or "").strip()
     if clean_instruction:
@@ -15220,7 +15260,8 @@ async def generate_remove_object_image(payload: dict) -> dict:
         mask_bytes_raw = _read_image_bytes_for_generation(mask_url)
         if mask_bytes_raw:
             try:
-                mask_png = build_gpt_image_removal_mask(source_png, mask_bytes_raw)
+                expanded_mark = expand_remove_object_locator_region(source_png, mask_bytes_raw)
+                mask_png = build_gpt_image_removal_mask(source_png, expanded_mark)
             except Exception as exc:
                 print("REMOVE OBJECT MASK BUILD FAILED:", type(exc).__name__, str(exc))
                 mask_png = b""
