@@ -411,6 +411,7 @@ const UPLOAD_TARGETS = {
 };
 let currentUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
 let activeUploadTarget = UPLOAD_TARGETS.IMAGE_UPLOAD;
+const pendingPhotoUploads = [];
 let videoTemplatesCache = null;
 let photoCatalogCache = null;
 let quickImageCatalogCache = null;
@@ -14985,15 +14986,16 @@ function renderGeneratedTelegramButton(url, kind) {
 function uploadPhotoButtonHtml() {
   const uploadImages = currentUploadImages();
   const target = getUploadTarget();
+  const pendingCount = target === UPLOAD_TARGETS.IMAGE_UPLOAD ? pendingPhotoUploads.length : 0;
   const isVideoReferences = target === UPLOAD_TARGETS.VIDEO_REFERENCES;
   const allowVideo = videoUploadTargetAllowsVideo(target);
-  if (uploadImages.length >= uploadLimitForTarget()) {
+  if (uploadImages.length + pendingCount >= uploadLimitForTarget()) {
     return (isVideoReferences && !currentVideoReferenceUrl())
       ? '<button class="upload-photo-thumb upload-photo-add" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + (allowVideo ? 'media' : 'image') + '\')" aria-label="Добавить медиа"><span class="upload-photo-add-icon" aria-hidden="true">＋</span></button>'
       : '';
   }
 
-  if (!uploadImages.length) {
+  if (!uploadImages.length && !pendingCount) {
     return '<button class="upload-photo-center-btn" type="button" onclick="SYLVEX.openNativeFilePicker(\'' + (allowVideo ? 'media' : 'image') + '\')">'
       + '<span class="upload-photo-center-icon" aria-hidden="true">'
       + '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
@@ -15025,14 +15027,18 @@ function uploadPhotoButtonHtml() {
     if (!grid) return;
 
     const uploadImages = currentUploadImages();
+    const pendingUploads = getUploadTarget() === UPLOAD_TARGETS.IMAGE_UPLOAD ? pendingPhotoUploads : [];
     const uploadingReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES ? (videoState.referenceUploading || null) : null;
     const hasVideoReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES && Boolean(currentVideoReferenceUrl());
-    const hasUploads = uploadImages.length > 0 || hasVideoReference || !!uploadingReference;
+    const hasUploads = uploadImages.length > 0 || pendingUploads.length > 0 || hasVideoReference || !!uploadingReference;
 
     grid.classList.toggle('empty', !hasUploads);
 
     const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
-    if (chooseBtn) chooseBtn.hidden = !hasUploads;
+    if (chooseBtn) {
+      chooseBtn.hidden = !uploadImages.length && !hasVideoReference;
+      chooseBtn.disabled = pendingUploads.length > 0;
+    }
     const clearBtn = document.getElementById('uploadClearPhotosBtn');
     if (clearBtn) clearBtn.hidden = !hasUploads;
 
@@ -15049,6 +15055,15 @@ function uploadPhotoButtonHtml() {
         + '<span class="upload-thumb-check">✓</span>'
         + '<span class="upload-photo-remove" onclick="SYLVEX.removeUploadedPhoto(event,' + index + ')">×</span>'
         + '</button>';
+    });
+    pendingUploads.forEach((upload) => {
+      const safePreview = S.escapeHtml(upload.previewUrl);
+      const progress = Math.max(0, Math.min(100, upload.progress || 0));
+      items.push('<div class="upload-photo-thumb upload-photo-pending" role="status" aria-label="Загрузка фото ' + progress + '%">'
+        + '<img src="' + safePreview + '" alt="" />'
+        + '<span class="upload-photo-progress-label">' + (upload.processing ? '…' : progress + '%') + '</span>'
+        + '<span class="upload-photo-progress-track"><span class="upload-photo-progress-fill' + (upload.processing ? ' is-processing' : '') + '" style="width:' + progress + '%"></span></span>'
+        + '</div>');
     });
     if (uploadingReference) {
       const safePreview = S.escapeHtml(uploadingReference.previewUrl || '');
@@ -15133,6 +15148,10 @@ function uploadPhotoButtonHtml() {
       e.stopPropagation();
     }
     const target = getUploadTarget();
+    if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
+      pendingPhotoUploads.forEach((upload) => { upload.cancelled = true; });
+      pendingPhotoUploads.length = 0;
+    }
     setCurrentUploadImages([], target);
     if (target === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
       if (videoState.editUploading && videoState.editUploading.previewUrl) {
@@ -16403,13 +16422,33 @@ function closeUploadPanel(e) {
   // ЗАГРУЗКА В MINI APP: uploadProStudioMediaFile
   // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
   // =====================================================
-  async function uploadProStudioMediaFile(file, kind, preferInternalPath) {
+  async function uploadProStudioMediaFile(file, kind, preferInternalPath, onProgress) {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image'), {
-      method: 'POST',
-      body: form,
-    });
+    const endpoint = '/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image');
+    if (onProgress) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', endpoint);
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total) onProgress(Math.min(90, Math.floor(event.loaded / event.total * 90)), false);
+        };
+        request.upload.onload = () => onProgress(90, true);
+        request.onerror = () => reject(new Error('Не удалось загрузить файл'));
+        request.onabort = () => reject(new Error('Загрузка прервана'));
+        request.onload = () => {
+          let data = {};
+          try { data = JSON.parse(request.responseText || '{}'); } catch {}
+          if (request.status < 200 || request.status >= 300 || !data.ok || !data.url) {
+            reject(new Error(data.error || 'Не удалось загрузить файл'));
+            return;
+          }
+          resolve(String((preferInternalPath && kind !== 'image' && data.path) || data.url || ''));
+        };
+        request.send(form);
+      });
+    }
+    const res = await fetch(endpoint, { method: 'POST', body: form });
     // =====================================================
     // JAVASCRIPT-БЛОК: data
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -16476,9 +16515,10 @@ function closeUploadPanel(e) {
     const audioUploads = (isVoiceMode() || isMusicMode())
       ? ((currentAudioState().uploads || []).filter(Boolean).length)
       : 0;
+    const pendingPhotoCount = target === UPLOAD_TARGETS.IMAGE_UPLOAD ? pendingPhotoUploads.length : 0;
     const remaining = singleSelection
       ? 1
-      : ((isVoiceMode() || isMusicMode()) ? Math.max(0, 4 - audioUploads) : Math.max(0, targetLimit - currentCount));
+      : ((isVoiceMode() || isMusicMode()) ? Math.max(0, 4 - audioUploads) : Math.max(0, targetLimit - currentCount - pendingPhotoCount));
     if (remaining <= 0) {
       toast('Можно загрузить не больше ' + targetLimit + ' фото');
       return;
@@ -16486,8 +16526,11 @@ function closeUploadPanel(e) {
     if (files.length > remaining) {
       toast('Можно выбрать не больше ' + (singleSelection ? 1 : targetLimit) + ' файлов одновременно');
     }
-    for (const file of files.slice(0, remaining)) {
-      await processAttachFile(file, pending);
+    const selectedFiles = files.slice(0, remaining);
+    if (target === UPLOAD_TARGETS.IMAGE_UPLOAD && isImageMode() && (pending === 'image' || pending === 'media')) {
+      await Promise.all(selectedFiles.map((file) => processAttachFile(file, pending)));
+    } else {
+      for (const file of selectedFiles) await processAttachFile(file, pending);
     }
   }
 
@@ -16721,15 +16764,42 @@ function closeUploadPanel(e) {
     }
     if (pendingKind === 'image' && isImageMode()) {
       const target = getUploadTarget();
-      toast('Загружаем фото…');
+      const upload = {
+        previewUrl: URL.createObjectURL(f),
+        progress: 0,
+        processing: false,
+        cancelled: false,
+      };
+      pendingPhotoUploads.push(upload);
+      renderUploadedPhotoGrid();
       try {
-        const url = await uploadProStudioMediaFile(f, 'image');
-        applyUploadToTarget(url, target, 'upload');
+        const url = await uploadProStudioMediaFile(f, 'image', false, (progress, processing) => {
+          upload.progress = progress;
+          upload.processing = processing;
+          const card = Array.from(document.querySelectorAll('.upload-photo-pending')).find((node) => node.querySelector('img')?.getAttribute('src') === upload.previewUrl);
+          if (!card) return;
+          card.setAttribute('aria-label', 'Загрузка фото ' + progress + '%');
+          const label = card.querySelector('.upload-photo-progress-label');
+          const fill = card.querySelector('.upload-photo-progress-fill');
+          if (label) label.textContent = processing ? '…' : progress + '%';
+          if (fill) { fill.style.width = progress + '%'; fill.classList.toggle('is-processing', processing); }
+        });
+        if (upload.cancelled) return;
+        upload.progress = 100;
+        upload.processing = false;
         renderUploadedPhotoGrid();
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        if (upload.cancelled) return;
+        applyUploadToTarget(url, target, 'upload');
         renderUploadPreviewForTarget(target);
         toast('Фото загружено');
       } catch (err) {
-        toast((err && err.message) || 'Не удалось загрузить фото');
+        if (!upload.cancelled) toast((err && err.message) || 'Не удалось загрузить фото');
+      } finally {
+        const index = pendingPhotoUploads.indexOf(upload);
+        if (index !== -1) pendingPhotoUploads.splice(index, 1);
+        URL.revokeObjectURL(upload.previewUrl);
+        renderUploadedPhotoGrid();
       }
       return;
     }
