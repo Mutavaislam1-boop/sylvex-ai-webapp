@@ -1,6 +1,5 @@
 """update_prostudio_generation_job must never let a late/duplicate callback
-overwrite a job that has already reached a terminal state (completed or
-failed) - otherwise a straggling poll response arriving after stale-job
+overwrite a job that has already reached a terminal state - otherwise a straggling poll response arriving after stale-job
 recovery already failed+refunded a job could "revive" it as completed,
 or a delayed retry could quietly flip an already-completed result."""
 import os
@@ -83,6 +82,17 @@ def test_late_failed_callback_cannot_override_a_completed_job(db):
 
     assert updated is False
     assert _job_status(database, "job-1") == "completed"
+
+
+@pytest.mark.parametrize("terminal_status", ["cancelled", "timeout"])
+def test_late_success_callback_cannot_revive_cancelled_or_timed_out_job(db, terminal_status):
+    database, main = db
+    _insert_job(database, "job-1", terminal_status)
+
+    updated = main.update_prostudio_generation_job("job-1", "completed", result={"ok": True})
+
+    assert updated is False
+    assert _job_status(database, "job-1") == terminal_status
 
 
 def test_reaffirming_the_same_terminal_status_is_allowed(db):

@@ -94,9 +94,9 @@ def _insert_live_slot(db, job_id, lease_seconds_remaining):
             )
 
 
-def test_job_with_live_slot_is_never_recovered_no_matter_how_old(db):
+def test_job_with_live_slot_is_not_recovered_before_hard_runtime_limit(db):
     database, main = db
-    _insert_job(database, "job-1", "provider_processing", age_minutes=60)
+    _insert_job(database, "job-1", "provider_processing", age_minutes=10)
     _insert_live_slot(database, "job-1", lease_seconds_remaining=60)
 
     outcome = main._recover_stale_prostudio_job_once("job-1")
@@ -109,6 +109,30 @@ def test_job_with_live_slot_is_never_recovered_no_matter_how_old(db):
             assert cur.fetchone() == ["provider_processing"]
             cur.execute("SELECT balance FROM users WHERE telegram_id=101")
             assert cur.fetchone() == [0], "credits must stay reserved for a genuinely live job"
+
+
+def test_job_past_hard_runtime_fails_even_with_live_slot(db, monkeypatch):
+    database, main = db
+    monkeypatch.setattr(main, "PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", 60)
+    _insert_job(database, "job-1", "provider_processing", age_minutes=2)
+    _insert_live_slot(database, "job-1", lease_seconds_remaining=600)
+
+    outcome = main._recover_stale_prostudio_job_once("job-1")
+
+    assert outcome["recovered"] is True
+    assert outcome["reason"] == "generation_timeout"
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status, error_json FROM prostudio_generation_jobs WHERE id='job-1'")
+            status, error = cur.fetchone()
+            assert status == "failed"
+            assert error["error_code"] == "generation_timeout"
+            cur.execute("SELECT count(*) FROM prostudio_provider_slots WHERE job_id='job-1'")
+            assert cur.fetchone() == [0]
+            cur.execute("SELECT status FROM generation_reservations WHERE generation_id='job-1'")
+            assert cur.fetchone() == ["released"]
+            cur.execute("SELECT balance FROM users WHERE telegram_id=101")
+            assert cur.fetchone() == [20]
 
 
 def test_job_within_threshold_and_no_slot_is_left_alone(db):
@@ -143,6 +167,8 @@ def test_abandoned_job_past_threshold_with_no_live_slot_is_recovered(db):
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM prostudio_generation_jobs WHERE id='job-1'")
             assert cur.fetchone() == ["failed"]
+            cur.execute("SELECT error_json FROM prostudio_generation_jobs WHERE id='job-1'")
+            assert cur.fetchone()[0]["error_code"] == "generation_timeout"
             cur.execute("SELECT status FROM generation_reservations WHERE generation_id='job-1'")
             assert cur.fetchone() == ["released"]
             cur.execute("SELECT balance FROM users WHERE telegram_id=101")

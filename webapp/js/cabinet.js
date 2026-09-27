@@ -210,6 +210,9 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   const expandedHistorySections = {};
   const activeGenerationWatchers = new Set();
   const activeGenerationWatchControllers = new Map();
+  const PROSTUDIO_GENERATION_WATCHDOG_MS = 16 * 60 * 1000;
+  const PROSTUDIO_GENERATION_SUBMIT_TIMEOUT_MS = 60 * 1000;
+  let generationSubmissionInFlight = false;
   let textRequestInFlight = false;
   let textSpeechMessageIndex = -1;
   let textSpeechUtterance = null;
@@ -5195,7 +5198,10 @@ function localizedGreeting() {
         localStorage.removeItem(activeGenerationStorageKey());
         return;
       }
-      if (!isActiveGenerationStatus(snapshot.status) && snapshot.status !== 'submitting') return;
+      if (!snapshot.jobId || !isActiveGenerationStatus(snapshot.status)) {
+        localStorage.removeItem(activeGenerationStorageKey());
+        return;
+      }
       transitionActiveGeneration('restore', snapshot);
     } catch {}
   }
@@ -18034,26 +18040,8 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
 async function callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
   const requestMode = studioMode;
   const isDirectTextRequest = isTextGenerationMode(requestMode);
-  if (!isDirectTextRequest && !activeGenerationLocked()) {
-    transitionActiveGeneration('begin', {
-      mode: currentChatType(),
-      model: pickStudioModel(),
-      startedAt: Date.now(),
-    });
-  }
-  if (!isDirectTextRequest && activeGenerationPlaceholderIndex() < 0) {
-    const requestedLoadingIndex = Number(generationOptions && generationOptions.loadingIndex);
-    if (Number.isInteger(requestedLoadingIndex) && requestedLoadingIndex >= 0) {
-      adoptActiveGenerationPlaceholder(requestedLoadingIndex);
-    } else {
-      for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
-        if (chatMessages[index] && chatMessages[index].generationLoading) {
-          adoptActiveGenerationPlaceholder(index);
-          break;
-        }
-      }
-    }
-    ensureActiveGenerationPlaceholder(false);
+  if (!isDirectTextRequest && (activeGenerationLocked() || generationSubmissionInFlight)) {
+    throw new Error('Сейчас уже отправляется или выполняется генерация. Дождитесь её завершения.');
   }
   let promptText = (prompt || '').trim();
   if (isVoiceMode() && voiceState.pronunciationRules && typeof voiceState.pronunciationRules === 'object') {
@@ -18151,18 +18139,15 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     text_options: payload.text_options,
   });
 
-  // Text requests are synchronous by design.  A browser or proxy must not keep
-  // the chat's lightweight "…" indicator alive indefinitely when that request
-  // gets stranded in transit.  Media generation keeps its existing job/polling
-  // lifecycle and is intentionally not given this client-side deadline.
-  const textRequestController = isDirectTextRequest ? new AbortController() : null;
-  let textRequestTimedOut = false;
-  const textRequestTimeout = textRequestController
-    ? setTimeout(() => {
-        textRequestTimedOut = true;
-        textRequestController.abort();
-      }, 75_000)
-    : null;
+  // Bound request submission too: until the server confirms a job_id this is
+  // only a short-lived HTTP submission, never a persistent processing state.
+  const requestController = new AbortController();
+  let requestTimedOut = false;
+  const requestTimeout = setTimeout(() => {
+    requestTimedOut = true;
+    requestController.abort();
+  }, isDirectTextRequest ? 75_000 : PROSTUDIO_GENERATION_SUBMIT_TIMEOUT_MS);
+  if (!isDirectTextRequest) generationSubmissionInFlight = true;
   const generateRequest = async () => {
     try {
       return await fetch('/api/public/prostudio/generate', {
@@ -18173,12 +18158,13 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
         },
         cache: 'no-store',
         body: JSON.stringify(payload),
-        signal: textRequestController ? textRequestController.signal : undefined,
+        signal: requestController.signal,
       });
     } catch (err) {
-      if (textRequestTimedOut) {
-        const timeoutError = new Error('TEXT_REQUEST_TIMEOUT');
-        timeoutError.textRequestTimeout = true;
+      if (requestTimedOut) {
+        const timeoutError = new Error(isDirectTextRequest ? 'TEXT_REQUEST_TIMEOUT' : 'GENERATION_SUBMIT_TIMEOUT');
+        timeoutError.textRequestTimeout = isDirectTextRequest;
+        timeoutError.generationSubmitTimeout = !isDirectTextRequest;
         throw timeoutError;
       }
       throw err;
@@ -18192,37 +18178,20 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
       await new Promise((resolve) => setTimeout(resolve, 700));
       res = await generateRequest();
     } else {
+      generationSubmissionInFlight = false;
       throw err;
     }
   } finally {
-    if (textRequestTimeout) clearTimeout(textRequestTimeout);
+    clearTimeout(requestTimeout);
   }
 
-  // =====================================================
-  // JAVASCRIPT-БЛОК: j
-  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
-  // =====================================================
-  const j = await res.json().catch(() => ({}));
-  if (res.status === 409 && j && j.active_job_id) {
-    if (isDirectTextRequest) {
-      throw new Error('Сейчас выполняется другая генерация. Попробуйте ещё раз после её завершения.');
-    }
-    // The backend is authoritative here: the active job may belong to a
-    // different mode than the locally attempted request.
-    clearActiveProStudioJob();
-    await restoreActiveProStudioJob();
-    if (!activeGenerationLocked()) {
-      transitionActiveGeneration('job', { id: j.active_job_id, status: j.status || 'queued', mode: studioMode });
-      ensureActiveGenerationPlaceholder(true);
-      watchGenerationJob(j.active_job_id, { id: j.active_job_id, status: j.status || 'queued', mode: studioMode });
-    }
-    const err = new Error('Дождитесь завершения текущей генерации.');
-    err.activeGeneration = true;
-    err.activeJobId = j.active_job_id;
-    throw err;
-  }
+  const responseText = await res.text().catch(() => '');
+  let j = {};
+  try { j = responseText ? JSON.parse(responseText) : {}; }
+  catch { j = { error: responseText || `HTTP ${res.status}` }; }
   if (res.status === 402 && j && j.paywall) {
-    const err = new Error(j.error || 'Недостаточно токенов');
+    generationSubmissionInFlight = false;
+    const err = new Error(j.message || j.error || 'Недостаточно токенов');
     err.paywall = true;
     err.insufficientBalance = !!j.insufficient_balance;
     err.requiredCredits = j.required_credits || 0;
@@ -18231,20 +18200,48 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     throw err;
   }
   if (res.status === 403 && j && j.subscription_required) {
-    const err = new Error('Pro Studio доступна после активации подписки.');
+    generationSubmissionInFlight = false;
+    const err = new Error(j.message || 'Pro Studio доступна после активации подписки.');
     err.subscriptionRequired = true;
     err.shopUrl = j.shop_url || '';
     throw err;
   }
-  if (!res.ok || !j.ok) throw new Error(translateGenerationError(j, 'Генерация не прошла. Попробуйте повторить немного позже.'));
+  if (!res.ok || !j.ok) {
+    generationSubmissionInFlight = false;
+    const returnedError = j.message || j.error || j.detail || j.body_preview || `HTTP ${res.status}`;
+    throw new Error(translateGenerationError(Object.assign({}, j, { error: returnedError }), 'Генерация не прошла. Попробуйте повторить немного позже.'));
+  }
+  if (!isDirectTextRequest && (typeof j.job_id !== 'string' || !j.job_id.trim() || j.job_id.trim().length > 160)) {
+    generationSubmissionInFlight = false;
+    throw new Error('Сервис не подтвердил создание задачи генерации. Попробуйте ещё раз.');
+  }
+  if (!isDirectTextRequest) {
+    transitionActiveGeneration('begin', {
+      mode: currentChatType(),
+      model: pickStudioModel(),
+      startedAt: Date.now(),
+      requestId: j.job_id.trim(),
+    });
+    const requestedLoadingIndex = Number(generationOptions && generationOptions.loadingIndex);
+    if (Number.isInteger(requestedLoadingIndex) && requestedLoadingIndex >= 0) {
+      adoptActiveGenerationPlaceholder(requestedLoadingIndex);
+    } else {
+      for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+        if (chatMessages[index] && chatMessages[index].generationLoading) {
+          adoptActiveGenerationPlaceholder(index);
+          break;
+        }
+      }
+    }
+    ensureActiveGenerationPlaceholder(false);
+    generationSubmissionInFlight = false;
+    document.body.classList.add('ai-generating');
+  }
   if (j.conversation_id) {
     currentConvId = j.conversation_id;
     rememberCurrentChatSpace();
   }
-  if (j.job_id) {
-    if (isDirectTextRequest) {
-      throw new Error('Текстовый запрос не был завершён. Попробуйте ещё раз.');
-    }
+  if (!isDirectTextRequest) {
     transitionActiveGeneration('job', { id: j.job_id, status: j.status || 'queued', mode: activeGeneration.mode || studioMode });
     j.result = await waitGeneration(j.job_id, generationOptions || {});
   }
@@ -18285,6 +18282,9 @@ function isNetworkLoadError(value) {
 function translateGenerationError(value, fallback) {
   if (value && typeof value === 'object' && value.textRequestTimeout) {
     return 'Ответ не получен за отведённое время. Повторите запрос ещё раз.';
+  }
+  if (value && typeof value === 'object' && value.generationSubmitTimeout) {
+    return 'Не удалось подтвердить отправку за отведённое время. Проверьте соединение и попробуйте снова.';
   }
   const text = errorMessage(value, fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
   const low = String(text || '').toLowerCase();
@@ -18483,7 +18483,26 @@ function updateGenerationLoadingProgress(index, completed) {
 // =====================================================
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
-  const signal = options && options.signal ? options.signal : null;
+  const externalSignal = options && options.signal ? options.signal : null;
+  const watchdogController = new AbortController();
+  const signal = watchdogController.signal;
+  let watchdogExpired = false;
+  const watchdogTimer = setTimeout(() => {
+    watchdogExpired = true;
+    watchdogController.abort();
+  }, PROSTUDIO_GENERATION_WATCHDOG_MS);
+  const abortFromCaller = () => watchdogController.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) watchdogController.abort();
+    else externalSignal.addEventListener('abort', abortFromCaller, { once: true });
+  }
+  const makeTimeoutError = () => {
+    const error = new Error('GENERATION_TIMEOUT');
+    error.terminalStatus = 'timeout';
+    error.errorCode = 'generation_timeout';
+    error.jobId = jobId;
+    return error;
+  };
   const wait = (milliseconds) => new Promise((resolve, reject) => {
     if (!signal) {
       setTimeout(resolve, milliseconds);
@@ -18506,9 +18525,10 @@ async function waitGeneration(jobId, options) {
   });
   let transientErrors = 0;
   const startedAt = Date.now();
-  const networkGraceMs = 15 * 60 * 1000;
+  const networkGraceMs = PROSTUDIO_GENERATION_WATCHDOG_MS;
   let lastStatus = '';
-  while (true) {
+  try {
+    while (true) {
     let res;
     try {
       res = await fetch(
@@ -18516,7 +18536,8 @@ async function waitGeneration(jobId, options) {
         { cache: 'no-store', signal }
       );
     } catch (err) {
-      if (signal && signal.aborted) throw err;
+      if (watchdogExpired) throw makeTimeoutError();
+      if (signal.aborted || (externalSignal && externalSignal.aborted)) throw err;
       transientErrors += 1;
       if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw err;
       await wait(Math.min(8000, 1500 + transientErrors * 250));
@@ -18529,10 +18550,11 @@ async function waitGeneration(jobId, options) {
     // =====================================================
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
-      transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
-      await wait(Math.min(8000, 1500 + transientErrors * 250));
-      continue;
+      const statusError = new Error(translateGenerationError(job, 'Не удалось проверить статус генерации.'));
+      statusError.terminalStatus = 'failed';
+      statusError.errorCode = job.error_code || job.error || `http_${res.status}`;
+      statusError.jobId = jobId;
+      throw statusError;
     }
     transientErrors = 0;
 
@@ -18562,24 +18584,39 @@ async function waitGeneration(jobId, options) {
       return result;
     }
 
-    if (job.status === 'failed' || job.status === 'cancelled') {
+    const normalizedStatus = String(job.status || '').toLowerCase();
+    if (['failed', 'cancelled', 'canceled', 'timeout'].includes(normalizedStatus)) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
-        status: job.status,
+        status: normalizedStatus,
         mode: job.mode || '',
       });
       const error = job.error || {};
-      const terminalError = new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
-      terminalError.terminalStatus = job.status;
+      const isTimeout = normalizedStatus === 'timeout' || error.error_code === 'generation_timeout' || error.errorCode === 'generation_timeout';
+      const terminalError = new Error(isTimeout
+        ? 'Генерация превысила допустимое время.'
+        : translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
+      terminalError.terminalStatus = isTimeout ? 'timeout' : normalizedStatus;
+      terminalError.errorCode = isTimeout ? 'generation_timeout' : (error.error_code || '');
       terminalError.jobId = jobId;
       throw terminalError;
     }
 
     if (!isActiveGenerationStatus(job.status)) {
-      throw new Error('Генерация не завершилась. Попробуйте повторить немного позже.');
+      const statusError = new Error('Сервис вернул неизвестное состояние генерации. Попробуйте повторить позже.');
+      statusError.terminalStatus = 'failed';
+      statusError.jobId = jobId;
+      throw statusError;
     }
 
     await wait(1500);
+  }
+  } catch (err) {
+    if (watchdogExpired) throw makeTimeoutError();
+    throw err;
+  } finally {
+    clearTimeout(watchdogTimer);
+    if (externalSignal) externalSignal.removeEventListener('abort', abortFromCaller);
   }
 }
 
@@ -18769,11 +18806,6 @@ async function waitGeneration(jobId, options) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
     }
-    transitionActiveGeneration('begin', {
-      mode: currentChatType(),
-      model: pickStudioModel(),
-      startedAt: Date.now(),
-    });
     const ta = document.getElementById('chatInput');
     const catalogGeneration = isImageMode() ? pendingCatalogImageGeneration : null;
     pendingCatalogImageGeneration = null;
@@ -18915,7 +18947,6 @@ async function waitGeneration(jobId, options) {
     if (loadingIndex < 0) loadingIndex = ensureActiveGenerationPlaceholder(false);
     renderChat();
     rememberCurrentChatSpace();
-    document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     let unlockAfterRender = false;
     try {
