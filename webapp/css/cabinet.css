@@ -5762,17 +5762,33 @@ CSS-БЛОК: .composer-image-remove
   font-weight:900 !important;
   z-index:2 !important;
 }
-/* ===== User sent reference photos in chat: medium preview, not full size ===== */
-/* =====================================================
-CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img-row
-Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
-===================================================== */
+/* Keep the existing row for other modes and older messages. */
 .view[data-view="tools"].active .msg.user .bubble .msg-ref-img-row{
   display:flex !important;
   flex-wrap:wrap !important;
   justify-content:flex-end !important;
   gap:8px !important;
   margin-top:8px !important;
+}
+
+/* Every image request reference shares one compact center, regardless of count. */
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-pile{
+  position:relative !important;
+  display:block !important;
+  width:82px !important;
+  height:78px !important;
+  margin:0 0 6px !important;
+  padding:0 !important;
+  border:0 !important;
+  background:transparent !important;
+  cursor:pointer !important;
+  overflow:visible !important;
+  touch-action:manipulation !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-pile:focus-visible{
+  outline:2px solid #8fc4ff !important;
+  outline-offset:3px !important;
 }
 
 .view[data-view="tools"].active .msg.user .bubble .msg-ref-video-row{
@@ -5800,6 +5816,34 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img
   display:block !important;
 }
 
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-pile .msg-ref-img{
+  position:absolute !important;
+  left:50% !important;
+  top:50% !important;
+  width:54px !important;
+  height:54px !important;
+  aspect-ratio:1 !important;
+  box-sizing:border-box !important;
+  border-radius:14px !important;
+  overflow:hidden !important;
+  background:rgba(255,255,255,.08) !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  display:block !important;
+  transform:translate(-50%,-50%) translate(var(--pile-x),var(--pile-y)) rotate(var(--pile-angle)) !important;
+  transition:transform 220ms ease !important;
+  box-shadow:0 3px 8px rgba(0,0,0,.18) !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-pile.is-expanded .msg-ref-img{
+  transform:translate(-50%,-50%) translate(var(--pile-open-x),var(--pile-open-y)) rotate(var(--pile-open-angle)) !important;
+}
+
+@media (hover:hover) and (pointer:fine){
+  .view[data-view="tools"].active .msg.user .bubble .msg-ref-pile:hover .msg-ref-img{
+    transform:translate(-50%,-50%) translate(var(--pile-open-x),var(--pile-open-y)) rotate(var(--pile-open-angle)) !important;
+  }
+}
+
 /* =====================================================
 CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
@@ -5813,6 +5857,10 @@ CSS-БЛОК: .view[data-view="tools"].active .msg.user .bubble .msg-ref-img img
   display:block !important;
   margin:0 !important;
   border-radius:0 !important;
+}
+
+.view[data-view="tools"].active .msg.user .bubble .msg-ref-user-prompt{
+  margin-top:4px !important;
 }
 
 .view[data-view="tools"].active .msg.user .bubble .msg-ref-video{
