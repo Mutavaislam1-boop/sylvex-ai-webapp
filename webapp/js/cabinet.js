@@ -14752,9 +14752,6 @@ function renderGeneratedTelegramButton(url, kind) {
           </div>
         <div class="upload-panel-half upload-panel-actions">
         <div id="uploadPhotoGrid" class="upload-photo-grid"></div>
-        <button id="uploadClearPhotosBtn" class="upload-choose-photos-btn" type="button" onclick="SYLVEX.clearCurrentUploadTarget(event)" hidden>
-            Очистить
-        </button>
         <button id="uploadChoosePhotosBtn" class="upload-choose-photos-btn" type="button" onclick="SYLVEX.confirmUploadedPhotos(event)" hidden>
             Выбрать фото
         </button>
@@ -15039,9 +15036,6 @@ function uploadPhotoButtonHtml() {
       chooseBtn.hidden = !uploadImages.length && !hasVideoReference;
       chooseBtn.disabled = pendingUploads.length > 0;
     }
-    const clearBtn = document.getElementById('uploadClearPhotosBtn');
-    if (clearBtn) clearBtn.hidden = !hasUploads;
-
     const selectedUrl = currentSelectedUploadImage();
     // =====================================================
     // JAVASCRIPT-БЛОК: items
