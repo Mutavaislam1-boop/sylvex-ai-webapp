@@ -17952,6 +17952,21 @@ def grok_input_image_url(payload: dict) -> str:
     return refs[0] if refs else ""
 
 
+def grok_has_selected_style(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    style = opts.get("style")
+    if isinstance(style, dict):
+        style = style.get("id") or style.get("style") or style.get("name")
+    return str(style or "").strip().lower() not in {"", "auto", "none"}
+
+
+def grok_image_edit_endpoint(endpoint: str) -> str:
+    configured_endpoint = str(endpoint or "").rstrip("/")
+    if configured_endpoint.endswith("/images/generations"):
+        return configured_endpoint[: -len("/images/generations")] + "/images/edits"
+    return "https://api.x.ai/v1/images/edits"
+
+
 # =====================================================
 # БАЛАНС И СТОИМОСТЬ: grok_cost_info
 # Рассчитывает стоимость генерации, проверяет токены пользователя или фиксирует списание после успешного результата.
@@ -18016,40 +18031,57 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
     opts = payload.get("image_options") or {}
     resolution = grok_resolution_value(opts)
     input_image = grok_input_image_url(payload)
-    request_payload = {
-        "model": provider_model,
-        "prompt": prompt,
-        "n": max(1, int(count or 1)),
-        "aspect_ratio": grok_aspect_ratio(size),
-        "resolution": resolution,
-    }
-    if input_image:
-        request_payload["image_url"] = input_image
+    is_style_edit = bool(input_image and grok_has_selected_style(payload))
+    request_endpoint = endpoint
+    if is_style_edit:
+        request_endpoint = grok_image_edit_endpoint(endpoint)
+        request_payload = {
+            "model": provider_model,
+            "prompt": (
+                "Edit the supplied source image by applying the selected visual style. "
+                "Treat the selected style as an instruction for this image, not as a request "
+                "to create an unrelated image. Preserve the source image's main subject and "
+                "composition while applying the style.\n\n"
+                + str(prompt or "Apply the selected style to the source image.")
+            ),
+            "image": {"url": input_image, "type": "image_url"},
+        }
+    else:
+        request_payload = {
+            "model": provider_model,
+            "prompt": prompt,
+            "n": max(1, int(count or 1)),
+            "aspect_ratio": grok_aspect_ratio(size),
+            "resolution": resolution,
+        }
+        if input_image:
+            request_payload["image_url"] = input_image
     try:
         prostudio_debug(
             "GROK_PROVIDER_REQUEST",
-            endpoint=endpoint,
+            endpoint=request_endpoint,
             frontend_model=frontend_model,
             provider_model=provider_model,
             aspect_ratio=request_payload.get("aspect_ratio"),
             resolution=request_payload.get("resolution"),
             count=request_payload.get("n"),
-            has_input_image=bool(request_payload.get("image_url")),
+            has_input_image=bool(input_image),
+            operation="style_edit" if is_style_edit else "generation",
         )
-        response = requests.post(endpoint, headers=headers, json=request_payload, timeout=180)
+        response = requests.post(request_endpoint, headers=headers, json=request_payload, timeout=180)
     except requests.RequestException as exc:
-        prostudio_error("GROK_PROVIDER_REQUEST_FAILED", exc, endpoint=endpoint, frontend_model=frontend_model, provider_model=provider_model)
-        return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
-    data = safe_provider_json(response, "grok", endpoint)
+        prostudio_error("GROK_PROVIDER_REQUEST_FAILED", exc, endpoint=request_endpoint, frontend_model=frontend_model, provider_model=provider_model)
+        return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "grok", request_endpoint)
     prostudio_debug(
         "GROK_PROVIDER_RESPONSE",
-        endpoint=endpoint,
+        endpoint=request_endpoint,
         status_code=response.status_code,
         data_keys=sorted(data.keys()) if isinstance(data, dict) else [],
         image_count=len(normalize_image_response(data)) if isinstance(data, dict) else 0,
     )
     if response.status_code >= 400 or data.get("ok") is False:
-        return [], image_error_response("grok", frontend_model, provider_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+        return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
     images = normalize_image_response(data)
     return images, {}, request_payload
 
@@ -19237,12 +19269,18 @@ async def image_generation(payload: dict) -> dict:
 
     if provider in ("grok", "xai"):
         images, error, request_payload = call_grok_image(requested_model, api_model, endpoint, prompt, payload, size, count)
+        grok_request_endpoint = (
+            grok_image_edit_endpoint(endpoint)
+            if isinstance(request_payload, dict) and request_payload.get("image")
+            else endpoint
+        )
+        has_grok_input = bool(isinstance(request_payload, dict) and (request_payload.get("image") or request_payload.get("image_url")))
         print("GROK IMAGE PAYLOAD:", {
             "frontend_model": requested_model,
             "provider_model": api_model,
-            "endpoint": endpoint,
+            "endpoint": grok_request_endpoint,
             "payload": request_payload,
-            "has_input_image": bool(request_payload.get("image_url")),
+            "has_input_image": has_grok_input,
         })
         if error:
             return error
@@ -19254,7 +19292,7 @@ async def image_generation(payload: dict) -> dict:
                 api_model,
                 len(final_images) or count,
                 request_payload.get("resolution") or "1k",
-                bool(request_payload.get("image_url")),
+                has_grok_input,
             ))
             result["provider"] = "grok"
             result["model"] = requested_model
