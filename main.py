@@ -13301,6 +13301,7 @@ TOPAZ_POLL_MAX_ATTEMPTS = 120  # ~6 minutes at 3s/attempt
 # billing tier (<=24 output megapixels).
 ENHANCE_PHOTO_UPSCALE_FACTOR = 2
 ENHANCE_PHOTO_OUTPUT_MAX_PIXELS = 24_000_000
+EDIT_UPSCALE_OUTPUT_MAX_PIXELS = 100_000_000
 
 # Topaz Developer plan's published per-credit rate for a High Fidelity V2
 # enhance up to 24MP (1 API credit per request). Kept as its own named
@@ -13451,6 +13452,18 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
 
     source_width, source_height = _detect_image_dimensions(source_bytes)
     output_width, output_height = enhance_photo_output_dimensions(source_width, source_height)
+    edit_upscale = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else None
+    if edit_upscale:
+        try:
+            requested_width = max(1, min(24000, int(edit_upscale.get("width") or output_width)))
+            requested_height = max(1, min(24000, int(edit_upscale.get("height") or output_height)))
+            pixels = requested_width * requested_height
+            if pixels > EDIT_UPSCALE_OUTPUT_MAX_PIXELS:
+                scale = math.sqrt(EDIT_UPSCALE_OUTPUT_MAX_PIXELS / pixels)
+                requested_width, requested_height = int(requested_width * scale), int(requested_height * scale)
+            output_width, output_height = requested_width, requested_height
+        except (TypeError, ValueError):
+            pass
 
     print("ENHANCE PHOTO REQUEST:", {
         "tool": ENHANCE_PHOTO_TOOL_KEY,
@@ -13465,7 +13478,15 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
         response = requests.post(
             TOPAZ_ENHANCE_ENDPOINT,
             headers=headers,
-            data={"model": TOPAZ_ENHANCE_MODEL, "outputHeight": str(output_height)},
+            data={"model": TOPAZ_ENHANCE_MODEL, "outputHeight": str(output_height), **({
+                "sharpen": str(max(0, min(1, float(edit_upscale.get("sharpness", 20)) / 100))),
+                "denoise": str(max(0, min(1, float(edit_upscale.get("denoise", 20)) / 100))),
+                "subjectDetection": {"all": "all", "face": "foreground", "none": "all"}.get(str(edit_upscale.get("subject") or "All").lower(), "all"),
+                "faceEnhancement": str(bool(edit_upscale.get("faceEnhancement"))).lower(),
+                "faceEnhancementStrength": str(max(0.01, min(1, float(edit_upscale.get("strength", 80)) / 100))),
+                "faceEnhancementCreativity": str(max(0, min(1, float(edit_upscale.get("creativity", 0)) / 100))),
+                "strength": str(max(0.01, min(1, float(edit_upscale.get("strength", 80)) / 100))),
+            } if edit_upscale else {})},
             files={"image": (f"source.{ext}", source_bytes, content_type)},
             timeout=int(os.getenv("TOPAZ_ENHANCE_TIMEOUT", "60")),
         )
@@ -13540,11 +13561,21 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
 
     images = [persisted_url]
     cost_info = enhance_photo_cost_info()
+    if edit_upscale:
+        output_mp = (output_width * output_height) / 1_000_000
+        provider_credits = 1 if output_mp <= 24 else 2 if output_mp <= 50 else 3 if output_mp <= 64 else 5
+        provider_cost = TOPAZ_CREDIT_COST_USD * provider_credits
+        credits = max(1, int(math.ceil(round(provider_cost * ENHANCE_PHOTO_MARKUP * 100, 6))))
+        cost_info = {"credits": credits, "cost_credits": credits, "cost_usd": round(provider_cost * ENHANCE_PHOTO_MARKUP, 4), "provider_cost_usd": round(provider_cost, 4), "generation_cost": f"{credits} ⚡"}
     extra_fields = {
         "provider": "topaz",
         "model": "topaz_enhance_photo",
         "provider_model": TOPAZ_ENHANCE_MODEL,
-        "tool": ENHANCE_PHOTO_TOOL_KEY,
+        "tool": "edit_workspace" if edit_upscale else ENHANCE_PHOTO_TOOL_KEY,
+        "photo_tool": "edit_workspace" if edit_upscale else ENHANCE_PHOTO_TOOL_KEY,
+        "edit_mode": "upscale" if edit_upscale else None,
+        "source_image_url": source_url if edit_upscale else None,
+        "reference_images": [source_url] if edit_upscale else None,
         "cost_credits": cost_info["credits"],
         "cost_usd": cost_info["cost_usd"],
         "generation_cost": cost_info["generation_cost"],
@@ -15393,6 +15424,15 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     source_url = str(opts.get("editWorkspaceSourceUrl") or "").strip()
     if not source_url:
         return {"ok": False, "type": "image", "error": "Загрузите исходное изображение."}
+    if mode == "upscale":
+        topaz_payload = dict(payload)
+        topaz_options = dict(opts)
+        topaz_options.update({"tool": ENHANCE_PHOTO_TOOL_KEY, "enhancePhotoSourceUrl": source_url})
+        topaz_payload["image_options"] = topaz_options
+        result = await generate_enhance_photo_image(topaz_payload)
+        if result.get("ok"):
+            result.update({"tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": "upscale", "source_image_url": source_url, "reference_images": [source_url]})
+        return result
     source_raw = _read_image_bytes_for_generation(source_url)
     if not source_raw:
         return image_error_response("edit", "edit_workspace", "", "", "Could not read workspace source image")
@@ -15444,6 +15484,8 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
             layer_descriptions = []
             for layer in layers[:8]:
                 if not isinstance(layer, dict):
+                    continue
+                if layer.get("enabled") is False:
                     continue
                 layer_h = max(-100, min(100, int(float(layer.get("horizontal") or 0))))
                 layer_v = max(-100, min(100, int(float(layer.get("vertical") or 0))))
@@ -18649,7 +18691,17 @@ def calculate_generation_price(payload: dict) -> dict:
     if is_edit_workspace_request(payload):
         opts = payload.get("image_options") or {}
         operation = str(opts.get("editWorkspaceMode") or "edit").lower()
-        if operation == "camera":
+        if operation == "upscale":
+            settings = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else {}
+            try:
+                output_mp = max(0.01, min(100.0, int(settings.get("width") or 2048) * int(settings.get("height") or 2048) / 1_000_000))
+            except (TypeError, ValueError):
+                output_mp = 4.0
+            provider_credits = 1 if output_mp <= 24 else 2 if output_mp <= 50 else 3 if output_mp <= 64 else 5
+            provider_cost = TOPAZ_CREDIT_COST_USD * provider_credits
+            credits = max(1, int(math.ceil(round(provider_cost * ENHANCE_PHOTO_MARKUP * 100, 6))))
+            estimate = {"credits": credits, "cost_usd": round(provider_cost * ENHANCE_PHOTO_MARKUP, 4), "provider_cost_usd": round(provider_cost, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "model_label": "Topaz High Fidelity V2", "output_megapixels": round(output_mp, 3)}
+        elif operation == "camera":
             provider_cost = 0.035
             model_label = "Qwen Image Edit 2511 Multiple Angles"
         elif operation == "lighting":
@@ -20461,6 +20513,8 @@ def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model
         return "SYLVEX_TEST"
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit").lower()
+        if edit_mode == "upscale":
+            return "TOPAZ"
         return "FAL" if edit_mode in {"camera", "lighting"} else "OPENAI"
     candidate = selected_provider
     if mode == "image":
@@ -20511,7 +20565,7 @@ async def dispatch_prostudio_provider_request(
     result = None
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit")
-        edit_provider = "fal" if edit_mode in {"camera", "lighting"} else "openai"
+        edit_provider = "topaz" if edit_mode == "upscale" else "fal" if edit_mode in {"camera", "lighting"} else "openai"
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=edit_provider, model=selected_model, route="generate_edit_workspace_image", edit_mode=edit_mode)
         result = await run_provider_coroutine_off_loop(lambda: generate_edit_workspace_image(payload))
     elif mode == "image" and is_watermark_removal_request(payload):

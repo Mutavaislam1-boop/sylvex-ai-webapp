@@ -17,7 +17,7 @@ from db_pool import db_connection
 SUPPORTED_PROVIDERS = {
     "KLING", "RUNWAY", "BYTEPLUS", "QWEN", "OPENAI", "GEMINI",
     "ELEVENLABS", "HEYGEN", "HEDRA", "HIGGSFIELD", "LUMA", "FLUX",
-    "IDEOGRAM", "RECRAFT", "FASHN", "GROK", "FAL",
+    "IDEOGRAM", "RECRAFT", "FASHN", "GROK", "FAL", "TOPAZ",
 }
 
 PROVIDER_ALIASES = {
@@ -61,6 +61,7 @@ _DEFAULT_PROVIDER_LIMITS = {
     "FASHN": 2,
     "GROK": 4,
     "FAL": 2,
+    "TOPAZ": 2,
 }
 
 
