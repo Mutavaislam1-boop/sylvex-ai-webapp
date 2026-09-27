@@ -303,6 +303,7 @@ const PHOTO_TOOL_CONFIG = {
   tattoo: { title:'Тату', shortTitle:'Тату', description:'Выберите референс тату или опишите свой дизайн, загрузите фото и примените его.', min:1, max:1, labels:['Ваше фото'], demo:'/webapp/assets/photo-tools/tattoo/demo.mp4', preview:'/webapp/assets/quick-tools/tattoo.jpg' },
   logo: { title:'Лого', shortTitle:'Лого', description:'Загрузите изображение, опишите логотип и при желании выберите визуальный референс.', min:0, max:1, labels:['Загрузить своё изображение'], preview:'assets/quick-tools/logo-placement.jpg' },
   remove_object: { title:'Удаление предмета', shortTitle:'Удалить предмет', description:'Загрузите фото и отметьте кистью предмет, который нужно удалить.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
+  watermark_removal: { title:'Удаление водяных знаков', shortTitle:'Удалить водяной знак', description:'Загрузите фото и отметьте водяной знак. GPT аккуратно удалит его и восстановит изображение.', min:1, max:1, labels:['Исходное фото'], preview:'assets/quick-tools/remove-object.jpg', mask:true },
   replace_object: { title:'Замена предмета', shortTitle:'Заменить предмет', description:'Загрузите фото и предмет для замены, затем отметьте область на фото.', min:2, max:2, labels:['Основное фото','Предмет для замены'], preview:'assets/quick-tools/replace-object.jpg', mask:true },
   makeup: { title:'Макияж', shortTitle:'Макияж', description:'Перенесите выбранный стиль макияжа на портрет, сохранив лицо.', min:1, max:2, labels:['Портрет','Референс макияжа'], preview:'assets/quick-tools/enhance-photo.jpg', library:'makeup' },
   hair_beard: { title:'Причёска и борода', shortTitle:'Причёска и борода', description:'Загрузите портрет и выберите форму причёски или растительности на лице.', min:1, max:1, labels:['Портрет'], preview:'assets/quick-tools/replace-character.jpg' },
@@ -6645,10 +6646,12 @@ function photoToolMaskHtml(config,state){
   // with the displayed source image, including portrait and landscape photos.
   if(activePhotoTool==='remove_object')return removeObjectMaskPanelHtml(state);
   if(activePhotoTool==='replace_object')return replaceObjectMaskPanelHtml(state);
+  if(activePhotoTool==='watermark_removal')return '<div class="photo-tool-mask-editor watermark-removal-mask-editor"><header><div><b>'+(state.maskUrl?'Водяной знак отмечен':'Отметьте водяной знак')+'</b><small>'+(state.maskUrl?'При необходимости отметьте ещё':'Проведите кистью по водяному знаку')+'</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>';
   return '<div class="photo-tool-mask-editor"><header><div><b>Отметьте область</b><small>Проведите по предмету зелёной кистью</small></div><button type="button" onclick="SYLVEX.clearPhotoToolMask(event)">Очистить</button></header><div><img src="'+S.escapeHtml(state.files[0].url)+'" alt=""><canvas id="photoToolMaskCanvas"></canvas></div></div>';
 }
-function initPhotoToolMask(){const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(!canvas||!state)return;const rect=canvas.getBoundingClientRect(),scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.strokeStyle='rgba(47,220,119,.88)';ctx.lineWidth=Math.max(13,rect.width*.045);ctx.lineCap='round';ctx.lineJoin='round';let drawing=false,last=null;const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId)};const move=e=>{if(!drawing)return;e.preventDefault();const next=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};const end=e=>{if(!drawing)return;e.preventDefault();drawing=false;state.maskUrl=canvas.toDataURL('image/png')};canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end)}
-function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl=''}
+function initPhotoToolMask(){const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(!canvas||!state)return;const rect=canvas.getBoundingClientRect(),scale=Math.max(1,window.devicePixelRatio||1);canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));const ctx=canvas.getContext('2d');ctx.scale(scale,scale);if(activePhotoTool==='watermark_removal'&&state.maskUrl){const savedMark=new Image();savedMark.onload=()=>ctx.drawImage(savedMark,0,0,rect.width,rect.height);savedMark.src=state.maskUrl}ctx.strokeStyle='rgba(47,220,119,.88)';ctx.lineWidth=Math.max(13,rect.width*.045);ctx.lineCap='round';ctx.lineJoin='round';let drawing=false,last=null;const point=e=>{const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};const start=e=>{e.preventDefault();drawing=true;last=point(e);canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId)};const move=e=>{if(!drawing)return;e.preventDefault();const next=point(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(next.x,next.y);ctx.stroke();last=next};const end=e=>{if(!drawing)return;e.preventDefault();drawing=false;state.maskUrl=canvas.toDataURL('image/png');if(activePhotoTool==='watermark_removal')updateWatermarkRemovalReadiness()};canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end)}
+function clearPhotoToolMask(e){if(e){e.preventDefault();e.stopPropagation()}const canvas=document.getElementById('photoToolMaskCanvas'),state=photoToolStateFor(activePhotoTool);if(canvas)canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);if(state)state.maskUrl='';if(activePhotoTool==='watermark_removal')updateWatermarkRemovalReadiness()}
+function updateWatermarkRemovalReadiness(){if(activePhotoTool!=='watermark_removal')return;const state=photoToolStateFor('watermark_removal'),button=document.querySelector('#photoToolModalBody .photo-tool-generate');if(button&&state)button.disabled=!(state.files&&state.files[0]&&state.maskUrl)||state.generating}
 
 function replaceObjectMaskPanelHtml(state) {
   const hasMask=!!(state.markedPhotoStrokes&&state.markedPhotoStrokes.length);
@@ -7355,6 +7358,7 @@ function renderPhotoToolModal() {
       + '</button>';
   }).join('');
   const isRemoveObject = activePhotoTool === 'remove_object';
+  const isWatermarkRemoval = activePhotoTool === 'watermark_removal';
   const isReplaceObject = activePhotoTool === 'replace_object';
   const hasHairPhoto = Boolean(state.files[0]);
   const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
@@ -7367,6 +7371,8 @@ function renderPhotoToolModal() {
     : isRemoveObject
     ? (state.files.filter(Boolean).length >= config.min
         && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
+    : isWatermarkRemoval
+    ? Boolean(state.files[0] && state.maskUrl)
     : (activePhotoTool === 'tattoo'
         ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId)) : hasTattooText)
         : activePhotoTool === 'hair_beard'
@@ -7388,7 +7394,7 @@ function renderPhotoToolModal() {
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
-    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : activePhotoTool==='logo' ? '<textarea id="photoToolExtraPrompt" rows="3" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">'+S.escapeHtml(logoState.prompt)+'</textarea>' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
+    + (activePhotoTool==='hair_beard' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateHairBeardReferencePrompt(event)">'+S.escapeHtml(hairBeardState.referencePrompt)+'</textarea>' : activePhotoTool==='tattoo' ? '<textarea id="photoToolExtraPrompt" rows="2" placeholder="Введите текст" oninput="SYLVEX.updateTattooPrompt(event)">'+S.escapeHtml(tattooState.prompt)+'</textarea>' : activePhotoTool==='logo' ? '<textarea id="photoToolExtraPrompt" rows="3" placeholder="Опишите логотип" oninput="SYLVEX.updateLogoPrompt(event)">'+S.escapeHtml(logoState.prompt)+'</textarea>' : activePhotoTool==='watermark_removal' ? '' : '<textarea id="photoToolExtraPrompt" rows="2" placeholder="' + S.escapeHtml(promptPlaceholder) + '"' + promptMaxLength + promptOninput + '></textarea>')
     + (activePhotoTool==='logo' ? logoCatalogHtml() : '')
     + (isAnimatePhoto ? '<small class="photo-tool-char-counter" id="photoToolPromptCounter">0/250</small>' : '')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
@@ -7797,6 +7803,10 @@ function closePhotoToolModal(e) {
       replaceObjectState.comparison = null;
       closeReplaceObjectMaskEditor();
     }
+    if (activePhotoTool === 'watermark_removal') {
+      const state = photoToolState.watermark_removal;
+      if (state) { state.files = []; state.maskUrl = ''; state.generating = false; }
+    }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
     // into image mode even when it was opened from Home or another mode -
@@ -7886,6 +7896,7 @@ function removePhotoToolFile(e, kind, index) {
     replaceObjectState.comparison = null;
     if (index === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
   }
+  if (kind === 'watermark_removal') state.maskUrl = '';
   activePhotoTool = kind;
   renderPhotoToolModal();
 }
@@ -7908,6 +7919,7 @@ function photoToolPrompt(kind, extra) {
     return 'Create one original, production-ready vector logo from the user brief. Brief: "'+String(extra||'').trim()+'". '+(reference?'Use the attached local visual reference "'+reference.name+'" for its design direction, while creating a distinct original mark. ':'')+'Output a clean standalone logo on a plain white background, centered with generous clear space. Use crisp, scalable vector shapes and legible exact lettering when requested. No mockup, product scene, watermark, presentation board, decorative frame, or unrelated text.';
   }
   if (kind === 'remove_object') return 'Treat the user mark as a locator point or rough hint, not as the target object’s boundary. Identify the complete object at or nearest to the mark, remove every visible part of it, and naturally reconstruct the background behind it. Preserve all other people, objects, composition and lighting.' + suffix;
+  if (kind === 'watermark_removal') return 'Remove the complete watermark, logo, or text overlay marked by the user from the uploaded image. Treat the mark as a locator; remove all visible parts of that watermark and seamlessly reconstruct the underlying image using nearby texture, color, lighting, and perspective. Preserve the original image dimensions, composition, subjects, and every unmarked detail.' + suffix;
   if (kind === 'replace_object') return 'Edit the first uploaded image in place. Treat the user mark as a locator point or rough hint, never as the object’s contour. Identify the complete object at that location and fully remove and replace all of its visible parts with the corresponding complete object from the second uploaded image. Keep the original canvas dimensions, aspect ratio, crop, framing, camera position, scene, people, pose, unmarked objects, textures, lighting, and colors unchanged. Match scale, perspective, orientation, lighting, and contact shadows. Do not leave any part of the original target object behind.' + suffix;
   if (kind === 'makeup') return 'Apply the makeup style from the optional second reference to the portrait. Preserve identity, facial anatomy, skin texture and lighting. The result must remain natural and photorealistic.' + suffix;
   if (kind === 'hair_beard') {
@@ -8069,6 +8081,7 @@ async function generatePhotoTool(e) {
   if (!config || !state || state.generating) return;
   if (kind === 'replace_object') return generateReplaceObjectTool(state, String((document.getElementById('photoToolExtraPrompt') || {}).value || '').trim());
   if (kind === 'remove_object') return generateRemoveObjectTool(state);
+  if (kind === 'watermark_removal') return generateWatermarkRemovalTool(state);
   if (kind === 'remove_bg') return generateRemoveBgTool(state);
   if (kind === 'enhance') return generateEnhancePhotoTool(state);
   if (kind === 'animate_photo') return generateAnimatePhotoTool(state);
@@ -8334,6 +8347,57 @@ async function generateRemoveObjectTool(state) {
     if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
       clearActiveProStudioJob(activeGeneration.jobId);
     }
+  }
+}
+
+async function generateWatermarkRemovalTool(state) {
+  const sourceUrl = state.files[0] && state.files[0].url;
+  if (!sourceUrl) { toast('Загрузите фото'); return; }
+  if (!state.maskUrl) { toast('Отметьте водяной знак на фото'); return; }
+  const displayPrompt = 'Удаление водяного знака на фото';
+  state.generating = true;
+  renderPhotoToolModal();
+  document.body.classList.add('ai-generating');
+  const loadingIndex = chatMessages.push({role:'ai',generationLoading:true,progress:createGenerationProgress('image')}) - 1;
+  renderChat();
+  try {
+    const start = await callGenerate(displayPrompt, null, [], null, {
+      onProgress: (completed) => updateGenerationLoadingProgress(loadingIndex, completed),
+      loadingIndex,
+      isolateRequest: true,
+      model: 'gpt_image_2_5_sunburst',
+      provider: 'openai',
+      imageOptions: {
+        tool: 'watermark_removal',
+        watermarkSourceUrl: sourceUrl,
+        watermarkMarkUrl: state.maskUrl,
+      },
+    });
+    const result = start.result || start;
+    const images = generatedUrlsFromResponse(result, 'image');
+    const thumbs = generatedThumbsFromResponse(result);
+    if (!images.length) throw new Error('Модель не вернула изображение');
+    addGeneratedImages(images, thumbs);
+    chatMessages[loadingIndex] = {
+      role:'ai', imageResultMini:true,
+      metadata:imageGenerationMetadata(displayPrompt, [sourceUrl], result, {tool:'watermark_removal',model:'gpt_image_2_5_sunburst',provider:'openai',quality:'high'}),
+    };
+    state.generating = false;
+    state.files = [];
+    state.maskUrl = '';
+    closePhotoToolModal();
+    toast('Водяной знак удалён');
+    loadConversations();
+  } catch (error) {
+    state.generating = false;
+    chatMessages[loadingIndex] = resolveFailureMessage(error, {fallback:'Не удалось удалить водяной знак. Попробуйте ещё раз.',mode:'image',prompt:displayPrompt});
+    renderPhotoToolModal();
+    toast(translateGenerationError(error, 'Не удалось удалить водяной знак'));
+  } finally {
+    document.body.classList.remove('ai-generating');
+    renderChat();
+    rememberCurrentChatSpace();
+    if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) clearActiveProStudioJob(activeGeneration.jobId);
   }
 }
 
@@ -13850,6 +13914,7 @@ function renderGeneratedTelegramButton(url, kind) {
     {key:'tattoo',title:'Тату',note:'Реалистичное нанесение',image:'assets/quick-tools/tattoo.jpg'},
     {key:'logo',title:'Лого',note:'Размещение на изображении',image:'assets/quick-tools/logo-placement.jpg'},
     {key:'remove_object',title:'Удаление предмета',note:'Восстановление фона',image:'assets/quick-tools/remove-object.jpg'},
+    {key:'watermark_removal',title:'Удаление водяных знаков',note:'Чистое восстановление фото',image:'assets/quick-tools/remove-object.jpg'},
     {key:'replace_object',title:'Замена предмета',note:'Новый объект в сцене',image:'assets/quick-tools/replace-object.jpg'},
     {key:'makeup',title:'Макияж',note:'Новый образ с сохранением лица',image:'assets/quick-tools/enhance-photo.jpg'},
     {key:'hair_beard',title:'Причёска и борода',note:'Стиль, форма и цвет волос',image:'assets/quick-tools/replace-character.jpg'},

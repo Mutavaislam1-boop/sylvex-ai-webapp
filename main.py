@@ -13043,11 +13043,17 @@ def is_remove_object_request(payload: dict) -> bool:
     return str(opts.get("tool") or "").strip().lower() == "remove_object"
 
 
+def is_watermark_removal_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == "watermark_removal"
+
+
 def is_replace_object_request(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     return str(opts.get("tool") or "").strip().lower() == "replace_object"
 
 REMOVE_OBJECT_TOOL_FEE_CREDITS = 5
+WATERMARK_REMOVAL_TOOL_FEE_CREDITS = 5
 
 # =====================================================
 # PYTHON-БЛОК: is_try_on_request
@@ -15366,6 +15372,86 @@ async def generate_remove_object_image(payload: dict) -> dict:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
 
     result["sent_to_telegram"] = sent_to_telegram
+    return result
+
+
+async def generate_watermark_removal_image(payload: dict) -> dict:
+    """Remove a user-marked watermark using an isolated GPT Image edit."""
+    if not OPENAI_API_KEY:
+        return {"ok": False, "error": "Не удалось удалить водяной знак. Попробуйте ещё раз."}
+
+    opts = payload.get("image_options") or {}
+    source_url = str(opts.get("watermarkSourceUrl") or "").strip()
+    mark_url = str(opts.get("watermarkMarkUrl") or "").strip()
+    model = "gpt-image-2.5-sunburst"
+    endpoint = f"{OPENAI_API_BASE}/images/edits"
+    if not source_url or not mark_url:
+        return {"ok": False, "error": "Загрузите фото и отметьте водяной знак."}
+
+    source_raw = _read_image_bytes_for_generation(source_url)
+    mark_raw = _read_image_bytes_for_generation(mark_url)
+    if not source_raw or not mark_raw:
+        return image_error_response("openai", "watermark_removal", model, endpoint, "Не удалось загрузить фото или отметку.")
+    try:
+        source_png, _ = normalize_gpt_image_source(source_raw)
+        expanded_mark = expand_remove_object_locator_region(source_png, mark_raw)
+        api_mask = build_gpt_image_removal_mask(source_png, expanded_mark)
+    except Exception as exc:
+        prostudio_error("WATERMARK_REMOVAL_INPUT_PREPARE_FAILED", exc)
+        return image_error_response("openai", "watermark_removal", model, endpoint, "Не удалось подготовить водяной знак и область удаления.")
+
+    prompt = (
+        "Remove the complete watermark, logo, or text overlay identified by the user's mark. "
+        "The brush mark is a locator, not the watermark's exact outline; identify and remove all visible parts of that same watermark, including portions outside the painted stroke. "
+        "Seamlessly reconstruct the image underneath using surrounding texture, colors, lighting, and perspective. "
+        "Preserve the original image dimensions, composition, subjects, and every unrelated or unmarked detail. "
+        "The transparent mask is an expanded editing area around the locator to provide enough room for complete removal and natural reconstruction."
+    )
+    files = [
+        ("image", ("source.png", source_png, "image/png")),
+        ("mask", ("mask.png", api_mask, "image/png")),
+    ]
+    request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
+    prostudio_debug("WATERMARK_REMOVAL_PROVIDER_REQUEST", model=model, endpoint=endpoint, has_source=True, has_mask=True)
+
+    response = None
+    request_exception = None
+    for attempt in range(1, 3):
+        try:
+            response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
+                timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+            if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
+                break
+            prostudio_debug("WATERMARK_REMOVAL_TRANSIENT_RESPONSE", attempt=attempt, status_code=response.status_code)
+        except requests.RequestException as exc:
+            request_exception = exc
+            prostudio_error("WATERMARK_REMOVAL_TRANSIENT_ERROR", exc, attempt=attempt, endpoint=endpoint)
+        if attempt < 2:
+            time.sleep(2)
+    if response is None:
+        return image_error_response("openai", "watermark_removal", model, endpoint, "Provider request failed", data={"body_preview": str(request_exception or "No provider response")[:1000]})
+
+    data = safe_provider_json(response, "openai", endpoint)
+    if response.status_code >= 400 or data.get("ok") is False:
+        return image_error_response("openai", "watermark_removal", model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data)
+    images = normalize_image_response(data)[:1]
+    if not images:
+        return image_error_response("openai", "watermark_removal", model, endpoint, "Provider returned no image", response, data)
+
+    price = openai_image_cost_info("gpt_image_2_5_sunburst", model, "high", 1)
+    total_credits = int(price.get("cost_credits") or 0) + WATERMARK_REMOVAL_TOOL_FEE_CREDITS
+    extra_fields = {
+        "provider": "openai", "model": "gpt_image_2_5_sunburst", "provider_model": model,
+        "tool": "watermark_removal", "photo_tool": "watermark_removal", "mask_applied": True,
+        "cost_credits": total_credits, "cost_usd": round(total_credits / 150, 4),
+        "generation_cost": f"{total_credits} ⚡",
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails(images), **extra_fields}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, result.get("images") or images))
+    else:
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": images[0], "images": images, **extra_fields})
     return result
 
 
@@ -18412,6 +18498,9 @@ def calculate_generation_price(payload: dict) -> dict:
         # the Quick Tool modal never displays cost.
         fee_credits = int(estimate["credits"]) + REMOVE_OBJECT_TOOL_FEE_CREDITS
         estimate = {**estimate, "credits": fee_credits, "cost_credits": fee_credits, "generation_cost": f"{fee_credits} ⚡"}
+    if is_watermark_removal_request(payload) and estimate.get("credits"):
+        fee_credits = int(estimate["credits"]) + WATERMARK_REMOVAL_TOOL_FEE_CREDITS
+        estimate = {**estimate, "credits": fee_credits, "cost_credits": fee_credits, "generation_cost": f"{fee_credits} ⚡"}
     if not estimate.get("pricing_available", bool(estimate.get("credits"))):
         return estimate
     return apply_snapshot_to_estimate(payload, estimate)
@@ -18478,6 +18567,13 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def image_generation(payload: dict) -> dict:
+    if is_watermark_removal_request(payload):
+        prostudio_error(
+            "WATERMARK_REMOVAL_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
+            RuntimeError("watermark_removal job reached image_generation() instead of generate_watermark_removal_image()"),
+            job_id=payload.get("job_id") or payload.get("generation_id") or "",
+        )
+        return {"ok": False, "type": "image", "error": "Не удалось удалить водяной знак. Попробуйте ещё раз.", "raw_error": "watermark_removal_misrouted_to_image_generation"}
     if is_replace_object_request(payload):
         prostudio_error(
             "REPLACE_OBJECT_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
@@ -20211,7 +20307,10 @@ async def dispatch_prostudio_provider_request(
 ) -> dict:
     """Perform one initial provider submission/generation attempt."""
     result = None
-    if mode == "image" and is_replace_object_request(payload):
+    if mode == "image" and is_watermark_removal_request(payload):
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="openai", model=selected_model, route="generate_watermark_removal_image")
+        result = await run_provider_coroutine_off_loop(lambda: generate_watermark_removal_image(payload))
+    elif mode == "image" and is_replace_object_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="openai", model=selected_model, route="generate_replace_object_image")
         result = await run_provider_coroutine_off_loop(lambda: generate_replace_object_image(payload))
     elif mode == "image" and is_remove_object_request(payload):
