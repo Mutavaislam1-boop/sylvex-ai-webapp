@@ -194,6 +194,7 @@ SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_IN
 # the 60s job heartbeat interval while cutting the previous 30-minute
 # worst-case stuck time down to something a user won't just give up on.
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "5"))
+PROSTUDIO_MAX_JOB_RUNTIME_SECONDS = max(60, int(os.getenv("PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", "480")))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
@@ -5603,6 +5604,7 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
         released_slots = cursor.fetchall()
         error_payload = {
             "ok": False,
+            "error_code": "generation_timeout",
             "error": reason,
             "message": "Предыдущая генерация была остановлена после перезапуска worker.",
         }
@@ -21254,6 +21256,28 @@ async def _prostudio_job_heartbeat_loop(job_id: str, finished_event: asyncio.Eve
             await asyncio.to_thread(heartbeat_prostudio_generation_job, job_id)
 
 
+async def run_prostudio_generation_with_timeout(job_id: str, payload: dict):
+    """Bound a claimed job's full provider lifecycle and commit a terminal timeout."""
+    try:
+        await asyncio.wait_for(
+            process_prostudio_generation(job_id, payload),
+            timeout=PROSTUDIO_MAX_JOB_RUNTIME_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        error = {
+            "ok": False,
+            "error_code": "generation_timeout",
+            "error": "Generation exceeded the Pro Studio hard runtime limit",
+        }
+        prostudio_debug(
+            "JOB_PROVIDER_TIMEOUT",
+            job_id=job_id,
+            timeout_seconds=PROSTUDIO_MAX_JOB_RUNTIME_SECONDS,
+        )
+        update_prostudio_generation_job(job_id, "failed", error=error)
+        log_prostudio_error(payload, error, job_id=job_id)
+
+
 async def _run_prostudio_generation_pool(
     stop_event: asyncio.Event,
     concurrency: Optional[int] = None,
@@ -21333,7 +21357,7 @@ async def _run_prostudio_generation_pool(
                 queue_wait_ms=claimed.get("queue_wait_ms"),
             )
             try:
-                await process_prostudio_generation(job_id, claimed["payload"])
+                await run_prostudio_generation_with_timeout(job_id, claimed["payload"])
             except Exception as exc:
                 # process_prostudio_generation already isolates provider errors,
                 # but keep the pool healthy if an unexpected exception escapes.

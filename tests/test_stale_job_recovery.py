@@ -143,7 +143,24 @@ def test_abandoned_job_past_threshold_with_no_live_slot_is_recovered(db):
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM prostudio_generation_jobs WHERE id='job-1'")
             assert cur.fetchone() == ["failed"]
+            cur.execute("SELECT error_json FROM prostudio_generation_jobs WHERE id='job-1'")
+            assert main._json_obj(cur.fetchone()[0])["error_code"] == "generation_timeout"
             cur.execute("SELECT status FROM generation_reservations WHERE generation_id='job-1'")
             assert cur.fetchone() == ["released"]
             cur.execute("SELECT balance FROM users WHERE telegram_id=101")
             assert cur.fetchone() == [20], "the reserved credits must be refunded, not lost"
+
+
+def test_stale_queued_job_becomes_terminal_timeout(db):
+    database, main = db
+    _insert_job(database, "job-1", "queued", age_minutes=10)
+
+    outcome = main._recover_stale_prostudio_job_once("job-1")
+
+    assert outcome["recovered"] is True
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT status, error_json FROM prostudio_generation_jobs WHERE id='job-1'")
+            row = cur.fetchone()
+            assert row[0] == "failed"
+            assert main._json_obj(row[1])["error_code"] == "generation_timeout"
