@@ -210,6 +210,7 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   const expandedHistorySections = {};
   const activeGenerationWatchers = new Set();
   const activeGenerationWatchControllers = new Map();
+  let generationSubmitting = false;
   let textRequestInFlight = false;
   let textSpeechMessageIndex = -1;
   let textSpeechUtterance = null;
@@ -260,6 +261,7 @@ let imageState = {
     referenceImageUrl: '',
     referenceImageUrls: [],
     uploadedImageUrls: [],
+    referenceSourceByUrl: {},
     attachment: null,
     seed: null,
     // Only meaningful for seedream_5_0_pro (see IMAGE_MODEL_LIST's
@@ -5009,6 +5011,10 @@ function localizedGreeting() {
     return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
   }
 
+  function isRestorableServerJobStatus(status) {
+    return ['queued', 'processing'].includes(String(status || '').toLowerCase());
+  }
+
   function activeGenerationButtonLabel(status) {
     return ['submitting', 'queued'].includes(String(status || '').toLowerCase()) ? 'В очереди' : 'Генерация…';
   }
@@ -5111,6 +5117,15 @@ function localizedGreeting() {
     return index;
   }
 
+  function appendPendingGenerationPlaceholder() {
+    return chatMessages.push({
+      role: 'ai',
+      generationLoading: true,
+      generationStatus: 'submitting',
+      progress: createGenerationProgress(generationKindForCurrentMode()),
+    }) - 1;
+  }
+
   function transitionActiveGeneration(action, data) {
     const payload = data || {};
     if (action === 'begin') {
@@ -5178,31 +5193,41 @@ function localizedGreeting() {
   }
 
   function restoreLocalActiveGeneration() {
-    try {
-      const snapshot = JSON.parse(localStorage.getItem(activeGenerationStorageKey()) || '{}');
-      if (!snapshot || !snapshot.mode || !snapshot.status) return;
-      // Text is a direct request, never a worker job.  Old persisted text
-      // locks came from the former shared media queue and must not survive a
-      // close/reopen of the Mini App.
-      if (isTextGenerationMode(snapshot.mode)) {
-        localStorage.removeItem(activeGenerationStorageKey());
-        return;
+    // A local draft is never proof that a server job is still alive. The
+    // active-job endpoint is authoritative and will restore a real queued or
+    // processing job shortly after startup.
+    try { localStorage.removeItem(activeGenerationStorageKey()); } catch {}
+    transitionActiveGeneration('reset');
+  }
+
+  function discardStaleGenerationPlaceholders() {
+    let changed = false;
+    for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+      if (chatMessages[index] && chatMessages[index].generationLoading) {
+        chatMessages.splice(index, 1);
+        changed = true;
       }
-      if (!isActiveGenerationStatus(snapshot.status) && snapshot.status !== 'submitting') return;
-      transitionActiveGeneration('restore', snapshot);
-    } catch {}
+    }
+    clearActiveProStudioJob();
+    document.body.classList.remove('ai-generating');
+    if (changed) {
+      renderChat();
+      rememberCurrentChatSpace();
+    }
   }
 
   async function restoreActiveProStudioJob() {
     const telegramId = getTelegramId();
-    if (!telegramId) return;
+    if (!telegramId) {
+      discardStaleGenerationPlaceholders();
+      return;
+    }
     try {
       const response = await fetch('/api/public/prostudio/active-job?telegram_id=' + encodeURIComponent(telegramId), { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) return;
-      if (data.active && data.job) {
+      if (response.ok && data.ok && data.active && data.job && isRestorableServerJobStatus(data.job.status)) {
         if (isTextGenerationMode(data.job.mode)) {
-          clearActiveProStudioJob();
+          discardStaleGenerationPlaceholders();
           return;
         }
         applyActiveProStudioJob(data.job);
@@ -5214,11 +5239,12 @@ function localizedGreeting() {
         ensureActiveGenerationPlaceholder(true);
         rememberCurrentChatSpace();
         watchGenerationJob(data.active_job_id || data.job.id, data.job);
-      } else if (activeGeneration.locked) {
-        clearActiveProStudioJob(activeGeneration.jobId);
+      } else {
+        discardStaleGenerationPlaceholders();
       }
     } catch (error) {
       console.warn('[SYLVEX] active generation restore failed', error);
+      discardStaleGenerationPlaceholders();
     }
   }
 
@@ -5229,7 +5255,7 @@ function localizedGreeting() {
   function restoreActiveGenerationJobs(jobs) {
     const activeJob = (jobs || []).find((job) => job && job.id
       && !isTextGenerationMode(job.mode)
-      && isActiveGenerationStatus(job.status));
+      && isRestorableServerJobStatus(job.status));
     if (!activeJob) return;
     applyActiveProStudioJob(activeJob);
     watchGenerationJob(activeJob.id, activeJob);
@@ -5645,10 +5671,10 @@ function localizedGreeting() {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function syncImageFeatureAvailability() {
-    const caps = getModelCapabilities(imageState.modelId);
-    if (!caps.character && imageState.characterId) clearSelectedCharacter();
-    if (!caps.object && imageState.objectId) clearSelectedObject();
-    return caps;
+    // Keep selected visual inputs stable when the model changes. The
+    // capability matrix still controls model-specific options, but must not
+    // erase or hide the shared Character/Object controls.
+    return getModelCapabilities(imageState.modelId);
   }
 
   // =====================================================
@@ -5676,7 +5702,7 @@ function localizedGreeting() {
   // =====================================================
   function renderImageReferenceSections() {
     ensureImageReferenceSections();
-    const caps = syncImageFeatureAvailability();
+    syncImageFeatureAvailability();
     const character = selectedImageCharacter();
     const object = selectedImageObject();
 
@@ -5695,25 +5721,21 @@ function localizedGreeting() {
 
     const characterVal = document.getElementById('imageCharacterVal');
     if (characterVal) {
-      characterVal.textContent = caps.character
-        ? (character ? character.name : 'Персонаж')
-        : 'Недоступно для выбранной модели';
-      setButtonState(characterVal, !caps.character);
+      characterVal.textContent = character ? character.name : 'Персонаж';
+      setButtonState(characterVal, false);
       renderUploadPreviewOnButton(
         document.getElementById('imageCharacterButton'),
-        caps.character && character ? [visualPreviewUrl(character)].filter(Boolean) : []
+        character ? [visualPreviewUrl(character)].filter(Boolean) : []
       );
     }
 
     const objectVal = document.getElementById('imageObjectVal');
     if (objectVal) {
-      objectVal.textContent = caps.object
-        ? (object ? object.name : 'Объект')
-        : 'Недоступно для выбранной модели';
-      setButtonState(objectVal, !caps.object);
+      objectVal.textContent = object ? object.name : 'Объект';
+      setButtonState(objectVal, false);
       renderUploadPreviewOnButton(
         document.getElementById('imageObjectButton'),
-        caps.object && object ? [visualPreviewUrl(object)].filter(Boolean) : []
+        object ? [visualPreviewUrl(object)].filter(Boolean) : []
       );
     }
   }
@@ -6021,25 +6043,16 @@ function uploadLimitForTarget(targetOverride) {
   const target = targetOverride || getUploadTarget();
   if (target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END) return 1;
   const base = 4;
-  if (target !== UPLOAD_TARGETS.IMAGE_UPLOAD || !isImageMode()) return base;
-  // Some models (currently Seedream) publish a combined reference cap
-  // across user uploads + Character + Object. Free up upload slots as a
-  // selected Character/Object consumes them, so the composer never lets a
-  // user assemble a request the model can't accept - instead of disabling
-  // Character/Object outright, which would block valid combinations that
-  // still fit.
-  const maxReferences = getModelCapabilities(imageState.modelId).maxReferences;
-  if (!maxReferences) return base;
-  const usedByVisuals = (imageState.characterId ? (imageState.characterReferences || []).length : 0)
-    + (imageState.objectId ? (imageState.objectReferences || []).length : 0);
-  return Math.max(0, Math.min(base, maxReferences - usedByVisuals));
+  // Keep the shared upload controls model-independent. The provider routing
+  // and capability matrix remain unchanged; this layer only collects inputs.
+  return base;
 }
 
 // =====================================================
 // ЗАГРУЗКА В MINI APP: applyUploadToTarget
 // Принимает файл/ссылку пользователя и кладёт её в нужную upload-зону без смешивания режимов.
 // =====================================================
-function applyUploadToTarget(url, targetOverride) {
+function applyUploadToTarget(url, targetOverride, sourceOverride) {
   if (!url) return;
   const target = targetOverride || getUploadTarget();
   if (target === UPLOAD_TARGETS.VIDEO_START) {
@@ -6074,10 +6087,12 @@ function applyUploadToTarget(url, targetOverride) {
     // =====================================================
     const uploads = (imageState.uploadedImageUrls || []).filter((item) => item && item !== url);
     uploads.unshift(url);
+    imageState.referenceSourceByUrl = imageState.referenceSourceByUrl || {};
+    imageState.referenceSourceByUrl[url] = sourceOverride || 'upload';
     imageState.uploadedImageUrls = uploads.slice(0, uploadLimitForTarget(target));
     imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
     imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
-    imageState.attachment = imageState.attachment || null;
+    imageState.attachment = null;
     renderImageUploadPreview();
     renderUploadedPhotoGrid();
     updateSendButton();
@@ -6147,8 +6162,11 @@ function setCurrentUploadImages(urls, targetOverride) {
     renderVideoReferencesPreview();
   } else if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
     imageState.uploadedImageUrls = clean.slice(0, uploadLimitForTarget(target));
+    imageState.referenceSourceByUrl = imageState.referenceSourceByUrl || {};
+    imageState.uploadedImageUrls.forEach((url) => { if (!imageState.referenceSourceByUrl[url]) imageState.referenceSourceByUrl[url] = 'upload'; });
     imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
     imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+    imageState.attachment = null;
     renderImageUploadPreview();
   }
   renderUploadedPhotoGrid();
@@ -6597,14 +6615,17 @@ async function generateQuickImageDetail(e) {
   document.querySelectorAll('#quickImageDetailFields [data-quick-image-field]').forEach((field) => { if (String(field.value || '').trim()) customValues[field.dataset.quickImageField] = String(field.value).trim(); });
   Object.assign(customValues, state.extraUploads || {});
   if (state.source === 'quick') switchView('tools');
-  updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [item.url, state.uploadedUrl]; imageState.referenceImageUrl = item.url;
+  updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
+  imageState.referenceSourceByUrl = Object.assign({}, imageState.referenceSourceByUrl || {}, { [state.uploadedUrl]: 'upload' });
   let prompt = extra;
   if (item.kind === 'styles') {
-    imageState.modelId = 'seedream_5_0_lite';
-    imageState.style = item.styleId || 'auto';
-    imageState.referenceImageUrls = [item.url, state.uploadedUrl].concat(Object.values(state.extraUploads || {}));
-    prompt = item.prompt || ('Примени выбранный стиль «' + item.title + '» к загруженному изображению, сохранив узнаваемость и композицию.');
-    const customization = Object.entries(customValues).map(([key,value]) => key + ': ' + value).join('\n');
+    imageState.style = item.styleId || item.id || 'auto';
+    const userImageReferences = [state.uploadedUrl].concat(Object.values(state.extraUploads || {})).filter(Boolean);
+    imageState.referenceImageUrls = userImageReferences;
+    imageState.uploadedImageUrls = userImageReferences.slice();
+    userImageReferences.forEach((url) => { imageState.referenceSourceByUrl[url] = 'upload'; });
+    prompt = extra;
+    const customization = Object.entries(customValues).filter(([key]) => !state.extraUploads || !state.extraUploads[key]).map(([key,value]) => key + ': ' + value).join('\n');
     if (customization) prompt += '\n\nUSER CUSTOMIZATION (use these values exactly):\n' + customization;
   } else if (item.kind === 'objects') {
     imageState.objectId = item.id; imageState.objectName = item.title;
@@ -6612,10 +6633,10 @@ async function generateQuickImageDetail(e) {
       ? (item.objectItem.referenceImages || item.objectItem.reference_images || item.objectItem.photos || [visualPreviewUrl(item.objectItem)]).filter(Boolean)
       : [item.url];
     imageState.objectPrompt = item.prompt || '';
-    if (!item.objectItem) imageState.referenceImageUrls = [item.url, state.uploadedUrl];
     prompt = [item.prompt || ('Добавь выбранный объект «' + item.title + '» в загруженное изображение.'), extra].filter(Boolean).join('\n\n');
   } else {
     imageState.referenceImageUrls = [item.url, state.uploadedUrl]; imageState.referenceImageUrl = item.url;
+    imageState.referenceSourceByUrl[item.url] = 'history';
     prompt = [item.prompt || 'Создай новое изображение на основе выбранного визуального референса, сохранив персонажа с загруженного фото.', extra].filter(Boolean).join('\n\n');
   }
   const input = document.getElementById('chatInput'); if (!input) return;
@@ -9646,11 +9667,6 @@ function openVisualCreateModal(e, kind) {
     e.preventDefault();
     e.stopPropagation();
   }
-  const caps = getModelCapabilities(imageState.modelId);
-  if (!isVideoMode() && ((kind === 'character' && !caps.character) || (kind === 'object' && !caps.object))) {
-    imageFeatureUnavailableToast(kind === 'character' ? 'character' : 'object');
-    return;
-  }
   visualCreateDraft = { kind, name: '', gender: '', description: '', photos: [] };
   renderVisualCreateModal();
 }
@@ -9790,7 +9806,22 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   imageState.style = 'auto';
   try {
     const prompt = visualCreatePrompt(kind, name, gender, description);
-    const start = await callGenerate(prompt, null, photos, null, {});
+    const start = await callGenerate(prompt, null, photos, null, {
+      imageOptions: {
+        style: 'auto',
+        referenceImageUrls: (photos || []).slice(),
+        referenceImages: (photos || []).slice(),
+        uploadedImageUrls: (photos || []).slice(),
+        characterId: null,
+        characterName: '',
+        characterPrompt: '',
+        characterReferences: [],
+        objectId: null,
+        objectName: '',
+        objectPrompt: '',
+        objectReferences: [],
+      },
+    });
     const result = start && (start.result || start);
     const urls = generatedUrlsFromResponse(result, 'image');
     return urls[0] || photos[0] || '';
@@ -9996,9 +10027,6 @@ function pickVisualReference(e, kind, id) {
     e.preventDefault();
     e.stopPropagation();
   }
-  const caps = getModelCapabilities(imageState.modelId);
-  if (!isVideoMode() && kind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
-  if (!isVideoMode() && kind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
   const list = kind === 'character' ? imageCharacters() : imageObjects();
   // =====================================================
   // JAVASCRIPT-БЛОК: item
@@ -11140,12 +11168,6 @@ function openImageStylePanel(e, kind) {
   }
 
   const nextKind = kind || 'style';
-  if (nextKind === 'character' || nextKind === 'object') {
-    const caps = getModelCapabilities(imageState.modelId);
-    if (nextKind === 'character' && !caps.character) return imageFeatureUnavailableToast('character');
-    if (nextKind === 'object' && !caps.object) return imageFeatureUnavailableToast('object');
-  }
-
   activeImageStylePanelKind = nextKind;
   const panel = ensureImageStylePanel();
   renderImageStylePanel();
@@ -11469,11 +11491,13 @@ function imageModelButton(model) {
   function imageOptionsPayload(referenceImages) {
     const capabilities = getModelCapabilities(imageState.modelId);
     const seed = capabilities.seed ? normalizeImageSeed(imageState.seed) : null;
-    return Object.assign({}, imageState, {
+    const payload = Object.assign({}, imageState, {
       seed,
       referenceImageUrls: (referenceImages || []).slice(),
       referenceImages: (referenceImages || []).slice(),
     }, imageVisualReferenceOptions());
+    delete payload.referenceSourceByUrl;
+    return payload;
   }
 
   // =====================================================
@@ -15061,7 +15085,7 @@ function uploadPhotoButtonHtml() {
     const uploadImages = currentUploadImages().filter((item) => item !== url);
     uploadImages.push(url);
     setCurrentUploadImages(uploadImages, target);
-    applyUploadToTarget(url, target);
+    applyUploadToTarget(url, target, 'upload');
     renderUploadedPhotoGrid();
     renderUploadPreviewForTarget(target);
   }
@@ -15076,7 +15100,7 @@ function uploadPhotoButtonHtml() {
       e.stopPropagation();
     }
     const target = getUploadTarget();
-    applyUploadToTarget(url, target);
+    applyUploadToTarget(url, target, 'history');
     renderUploadedPhotoGrid();
     renderUploadPreviewForTarget(target);
     toast('Фото выбрано');
@@ -16156,7 +16180,7 @@ function selectGeneratedImage(e, url) {
   }
 
   const target = getUploadTarget();
-  applyUploadToTarget(url, target);
+  applyUploadToTarget(url, target, 'history');
   renderUploadedPhotoGrid();
   renderUploadPreviewForTarget(target);
   renderUploadPanelImages();
@@ -16394,7 +16418,9 @@ function closeUploadPanel(e) {
     if (!res.ok || !data.ok || !data.url) {
       throw new Error(data.error || 'Не удалось загрузить файл');
     }
-    return String((preferInternalPath && data.path) || (kind === 'image' && data.inline_url) || data.url || '');
+    // Image inputs must stay as server references. inline_url is intentionally
+    // not used here because it serializes the complete image into /generate.
+    return String((preferInternalPath && kind !== 'image' && data.path) || data.url || '');
   }
 
   function revokeVoiceUploadPreview() {
@@ -16693,6 +16719,20 @@ function closeUploadPanel(e) {
         });
       return;
     }
+    if (pendingKind === 'image' && isImageMode()) {
+      const target = getUploadTarget();
+      toast('Загружаем фото…');
+      try {
+        const url = await uploadProStudioMediaFile(f, 'image');
+        applyUploadToTarget(url, target, 'upload');
+        renderUploadedPhotoGrid();
+        renderUploadPreviewForTarget(target);
+        toast('Фото загружено');
+      } catch (err) {
+        toast((err && err.message) || 'Не удалось загрузить фото');
+      }
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || '');
@@ -16703,16 +16743,7 @@ function closeUploadPanel(e) {
         name: f.name,
         dataBase64: b64,
       };
-      if (pendingKind === 'image' && result) {
-        const target = getUploadTarget();
-        if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
-        applyUploadToTarget(result, target);
-        renderUploadedPhotoGrid();
-        renderUploadPreviewForTarget(target);
-        toast('Фото загружено');
-      } else {
-        setCurrentModeAttachment(attachment);
-      }
+      setCurrentModeAttachment(attachment);
 
       if ((isMusicMode() || isVoiceMode()) && result && pendingKind !== 'image') {
         const state = currentAudioState();
@@ -18000,30 +18031,198 @@ async function callGenerate(prompt, attachment, referenceImagesOverride, videoOp
   }
 }
 
+function generationReferenceType(reference) {
+  if (typeof File !== 'undefined' && reference instanceof File) return 'file';
+  if (typeof Blob !== 'undefined' && reference instanceof Blob) return 'blob';
+  if (reference && typeof reference === 'object' && (reference.dataBase64 || reference.base64)) return 'base64';
+  const value = typeof reference === 'string'
+    ? reference
+    : String(reference && (reference.url || reference.image_url || reference.dataUrl || reference.data_url || reference.dataBase64 || reference.base64) || '');
+  if (/^data:/i.test(value)) return 'data_url';
+  if (/^blob:/i.test(value)) return 'blob';
+  if (/^[a-z0-9+/=\r\n]+$/i.test(value) && value.length > 128) return 'base64';
+  return value ? 'url' : 'unknown';
+}
+
+async function normalizeGenerationImageReference(reference, source) {
+  if (!reference) return null;
+  let uploadFile = null;
+  let value = reference;
+  if (typeof Blob !== 'undefined' && reference instanceof Blob) {
+    uploadFile = reference;
+  } else if (reference && typeof reference === 'object') {
+    uploadFile = (typeof Blob !== 'undefined' && (reference.file instanceof Blob || reference.blob instanceof Blob))
+      ? (reference.file || reference.blob)
+      : null;
+    value = reference.url || reference.image_url || reference.dataUrl || reference.data_url || '';
+    if (!value && reference.dataBase64) value = 'data:' + (reference.mime || 'image/png') + ';base64,' + reference.dataBase64;
+    if (!value && reference.base64) value = 'data:' + (reference.mime || 'image/png') + ';base64,' + reference.base64;
+  }
+  if (!uploadFile && typeof value === 'string') {
+    const raw = value.trim();
+    if (/^data:/i.test(raw) || /^blob:/i.test(raw)) {
+      const response = await fetch(raw);
+      if (!response.ok) throw new Error('Не удалось подготовить изображение для генерации');
+      uploadFile = await response.blob();
+    } else if (/^[a-z0-9+/=\r\n]+$/i.test(raw) && raw.length > 128) {
+      const binary = atob(raw.replace(/\s/g, ''));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      uploadFile = new Blob([bytes], { type: 'image/png' });
+    } else if (raw) {
+      return { source, url: raw, originalType: 'url', stringLength: raw.length };
+    }
+  }
+  if (!uploadFile) return null;
+  const mime = String(uploadFile.type || 'image/png');
+  const ext = mime.includes('jpeg') ? 'jpg' : (mime.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '') || 'png';
+  const namedFile = typeof File !== 'undefined'
+    ? new File([uploadFile], 'prostudio-reference.' + ext, { type: mime })
+    : uploadFile;
+  const url = await uploadProStudioMediaFile(namedFile, 'image');
+  if (!url || generationReferenceType(url) !== 'url') throw new Error('Не удалось получить ссылку на изображение');
+  return { source, url, originalType: generationReferenceType(reference), stringLength: typeof reference === 'string' ? reference.length : 0 };
+}
+
+async function buildGenerationRequest(state) {
+  const input = state || {};
+  const options = input.generationOptions || {};
+  const isImageRequest = input.mode === 'image' && !options.isolateRequest;
+  let prompt = String(input.prompt || '').trim();
+  let imageOptions = input.imageOptions ? Object.assign({}, input.imageOptions) : null;
+  let normalizedReferences = [];
+  let safeAttachment = input.attachment || null;
+
+  if (isImageRequest) {
+    imageOptions = imageOptions || {};
+    const rawUserReferences = Array.isArray(input.userReferences)
+      ? input.userReferences.slice()
+      : (Array.isArray(imageOptions.referenceImageUrls) ? imageOptions.referenceImageUrls.slice()
+        : (Array.isArray(imageOptions.referenceImages) ? imageOptions.referenceImages.slice() : []));
+    const referenceSourceByUrl = Object.assign({}, imageState.referenceSourceByUrl || {}, imageOptions.referenceSourceByUrl || {});
+    const characterReferences = Array.isArray(imageOptions.characterReferences) ? imageOptions.characterReferences.slice() : [];
+    const objectReferences = Array.isArray(imageOptions.objectReferences) ? imageOptions.objectReferences.slice() : [];
+    const attachmentIsImage = safeAttachment && (
+      String(safeAttachment.kind || '').toLowerCase() === 'image'
+      || String(safeAttachment.mime || safeAttachment.type || '').toLowerCase().startsWith('image/')
+    );
+    const attachmentImage = attachmentIsImage
+      ? ((typeof Blob !== 'undefined' && safeAttachment instanceof Blob)
+        ? safeAttachment
+        : (safeAttachment.url || safeAttachment.dataUrl || safeAttachment.data_url
+          || (safeAttachment.dataBase64 ? 'data:' + (safeAttachment.mime || 'image/png') + ';base64,' + safeAttachment.dataBase64 : null)))
+      : null;
+    const uploadedUserReferences = rawUserReferences.concat(attachmentImage ? [attachmentImage] : []);
+    const uploadedUser = [];
+    for (const reference of uploadedUserReferences) {
+      const sourceHint = reference === attachmentImage
+        ? 'upload'
+        : (referenceSourceByUrl[String(reference)] || ((Array.isArray(imageOptions.uploadedImageUrls) && imageOptions.uploadedImageUrls.includes(reference)) ? 'upload' : 'history'));
+      const normalized = await normalizeGenerationImageReference(reference,
+        sourceHint);
+      if (normalized && !uploadedUser.some((item) => item.url === normalized.url)) uploadedUser.push(normalized);
+    }
+    const normalizedCharacters = [];
+    for (const reference of characterReferences) {
+      const normalized = await normalizeGenerationImageReference(reference, 'character');
+      if (normalized) normalizedCharacters.push(normalized);
+    }
+    const normalizedObjects = [];
+    for (const reference of objectReferences) {
+      const normalized = await normalizeGenerationImageReference(reference, 'object');
+      if (normalized) normalizedObjects.push(normalized);
+    }
+    normalizedReferences = uploadedUser.concat(normalizedCharacters, normalizedObjects);
+    const userUrls = uploadedUser.map((item) => item.url);
+    imageOptions.referenceImageUrls = userUrls;
+    imageOptions.referenceImages = userUrls.slice();
+    imageOptions.referenceImageUrl = userUrls[0] || '';
+    delete imageOptions.referenceSourceByUrl;
+    if (Array.isArray(imageOptions.reference_image_urls)) imageOptions.reference_image_urls = userUrls.slice();
+    if (Array.isArray(imageOptions.images)) imageOptions.images = userUrls.slice();
+    imageOptions.uploadedImageUrls = userUrls.slice();
+    imageOptions.characterReferences = normalizedCharacters.map((item) => item.url);
+    imageOptions.objectReferences = normalizedObjects.map((item) => item.url);
+    delete imageOptions.attachment;
+    const styleValue = imageOptions.style && typeof imageOptions.style === 'object'
+      ? imageOptions.style.id || imageOptions.style.style || imageOptions.style.name
+      : imageOptions.style;
+    const styleId = String(styleValue || imageState.style || 'auto');
+    const styleItem = typeof imageStyleSheetItem === 'function' ? imageStyleSheetItem(styleId) : null;
+    const stylePrompt = String(imageOptions.style_prompt || imageOptions.stylePrompt
+      || (imageOptions.style && typeof imageOptions.style === 'object' && (imageOptions.style.prompt || imageOptions.style.stylePrompt))
+      || (styleItem && styleItem.prompt) || '').trim();
+    // Style assets remain presentation-only. The backend receives the stable
+    // style id/instruction and never receives the style thumbnail as an image.
+    imageOptions.style = styleId;
+    imageOptions.style_id = styleId;
+    if (stylePrompt) imageOptions.style_prompt = stylePrompt;
+    else delete imageOptions.style_prompt;
+    if (attachmentIsImage) safeAttachment = null;
+  }
+
+  const payload = {
+    telegram_id: getTelegramId(),
+    prompt,
+    mode: input.mode,
+    category: input.mode,
+    model: input.model,
+    provider: input.provider,
+    image_options: imageOptions,
+    video_options: input.videoOptions || null,
+    music_options: input.musicOptions || null,
+    voice_options: input.voiceOptions || null,
+    text_options: input.textOptions || null,
+    history: input.history || [],
+    attachment: safeAttachment,
+    conversation_id: currentConvId,
+    client_request_id: input.clientRequestId,
+    language: uiLang(),
+    sylvex_test: !!input.sylvexTest,
+  };
+  const serialized = JSON.stringify(payload);
+  if (isImageRequest) {
+    const referenceValues = [
+      imageOptions.referenceImageUrls,
+      imageOptions.characterReferences,
+      imageOptions.objectReferences,
+      imageOptions.referenceImageUrl,
+      imageOptions.reference_image_urls,
+      imageOptions.images,
+      safeAttachment,
+    ];
+    const serializedReferences = JSON.stringify(referenceValues);
+    const referenceMetadata = normalizedReferences.map((item) => ({
+      source: item.source,
+      type: item.originalType || generationReferenceType(item.url),
+      string_length: item.stringLength || undefined,
+    }));
+    console.info('PROSTUDIO CLIENT REQUEST DEBUG', {
+      model: payload.model,
+      client_request_id: payload.client_request_id,
+      prompt_length: payload.prompt.length,
+      has_style: !!(imageOptions && imageOptions.style && imageOptions.style !== 'auto'),
+      style_id: imageOptions && imageOptions.style_id || '',
+      style_prompt_length: imageOptions && imageOptions.style_prompt ? imageOptions.style_prompt.length : 0,
+      user_reference_count: imageOptions.referenceImageUrls.length,
+      character_reference_count: imageOptions.characterReferences.length,
+      object_reference_count: imageOptions.objectReferences.length,
+      reference_types: referenceMetadata,
+      request_body_bytes: new Blob([serialized]).size,
+      has_data_url: /data:/i.test(serializedReferences),
+      has_blob: /blob:/i.test(serializedReferences) || (typeof Blob !== 'undefined' && safeAttachment instanceof Blob),
+      has_base64: /(?:base64,|[A-Za-z0-9+/]{128,}={0,2})/.test(serializedReferences),
+    });
+    if (/data:/i.test(serializedReferences) || /blob:/i.test(serializedReferences) || /(?:base64,|[A-Za-z0-9+/]{128,}={0,2})/.test(serializedReferences)) {
+      throw new Error('Не удалось подготовить изображения для безопасной отправки');
+    }
+  }
+  return { payload, serialized, references: normalizedReferences };
+}
+
 async function callGenerateCore(prompt, attachment, referenceImagesOverride, videoOptionsOverride, generationOptions) {
   const requestMode = studioMode;
   const isDirectTextRequest = isTextGenerationMode(requestMode);
-  if (!isDirectTextRequest && !activeGenerationLocked()) {
-    transitionActiveGeneration('begin', {
-      mode: currentChatType(),
-      model: pickStudioModel(),
-      startedAt: Date.now(),
-    });
-  }
-  if (!isDirectTextRequest && activeGenerationPlaceholderIndex() < 0) {
-    const requestedLoadingIndex = Number(generationOptions && generationOptions.loadingIndex);
-    if (Number.isInteger(requestedLoadingIndex) && requestedLoadingIndex >= 0) {
-      adoptActiveGenerationPlaceholder(requestedLoadingIndex);
-    } else {
-      for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
-        if (chatMessages[index] && chatMessages[index].generationLoading) {
-          adoptActiveGenerationPlaceholder(index);
-          break;
-        }
-      }
-    }
-    ensureActiveGenerationPlaceholder(false);
-  }
   let promptText = (prompt || '').trim();
   if (isVoiceMode() && voiceState.pronunciationRules && typeof voiceState.pronunciationRules === 'object') {
     Object.entries(voiceState.pronunciationRules).forEach(([word, spoken]) => {
@@ -18084,53 +18283,38 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
       })
     : null;
 
-  const payload = {
-    telegram_id: getTelegramId(),
-    prompt: promptText,
+  const builtRequest = await buildGenerationRequest({
     mode: requestMode,
-    category: requestMode,
+    prompt: promptText,
     model: isolateRequest ? (generationOptions.model || pickStudioModel()) : pickStudioModel(),
     provider: isolateRequest ? (generationOptions.provider || 'bytedance') : (isVideoMode() ? currentVideoProvider() : pickProviderHint()),
-    image_options: imageOptions,
-    video_options: videoOptions,
-    music_options: musicOptions,
-    voice_options: voiceOptions,
-    text_options: textOptions,
+    imageOptions,
+    userReferences: imageReferenceImages,
+    videoOptions,
+    musicOptions,
+    voiceOptions,
+    textOptions,
     history,
     attachment: attachment || null,
-    conversation_id: currentConvId,
-    client_request_id: (generationOptions && generationOptions.clientRequestId)
+    clientRequestId: (generationOptions && generationOptions.clientRequestId)
       || 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10),
-    language: uiLang(),
-    // Admin/developer-only - lets a tool with no model picker of its own
-    // (Photo Tools: Try-On, Remove BG, etc.) still be run through SYLVEX
-    // Test without a fake model selector; real backend re-check either way.
-    sylvex_test: !!(generationOptions && generationOptions.sylvexTest && sylvexTestModeAvailable()),
-  };
-
-  console.log('PRO STUDIO FRONTEND PAYLOAD:', {
-    mode: payload.mode,
-    category: payload.category,
-    model: payload.model,
-    provider: payload.provider,
-    image_options: payload.image_options,
-    video_options: payload.video_options,
-    music_options: payload.music_options,
-    voice_options: payload.voice_options,
-    text_options: payload.text_options,
+    sylvexTest: !!(generationOptions && generationOptions.sylvexTest && sylvexTestModeAvailable()),
+    generationOptions,
   });
+  const payload = builtRequest.payload;
 
   // Text requests are synchronous by design.  A browser or proxy must not keep
   // the chat's lightweight "…" indicator alive indefinitely when that request
   // gets stranded in transit.  Media generation keeps its existing job/polling
   // lifecycle and is intentionally not given this client-side deadline.
-  const textRequestController = isDirectTextRequest ? new AbortController() : null;
-  let textRequestTimedOut = false;
-  const textRequestTimeout = textRequestController
+  const submissionTimeoutMs = isDirectTextRequest ? 75_000 : (isolateRequest ? 0 : 90_000);
+  const submissionController = submissionTimeoutMs ? new AbortController() : null;
+  let submissionTimedOut = false;
+  const submissionTimeout = submissionController
     ? setTimeout(() => {
-        textRequestTimedOut = true;
-        textRequestController.abort();
-      }, 75_000)
+        submissionTimedOut = true;
+        submissionController.abort();
+      }, submissionTimeoutMs)
     : null;
   const generateRequest = async () => {
     try {
@@ -18141,13 +18325,14 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
           'Cache-Control': 'no-cache',
         },
         cache: 'no-store',
-        body: JSON.stringify(payload),
-        signal: textRequestController ? textRequestController.signal : undefined,
+        body: builtRequest.serialized,
+        signal: submissionController ? submissionController.signal : undefined,
       });
     } catch (err) {
-      if (textRequestTimedOut) {
-        const timeoutError = new Error('TEXT_REQUEST_TIMEOUT');
-        timeoutError.textRequestTimeout = true;
+      if (submissionTimedOut) {
+        const timeoutError = new Error('GENERATION_SUBMISSION_TIMEOUT');
+        if (isDirectTextRequest) timeoutError.textRequestTimeout = true;
+        else timeoutError.submissionTimeout = true;
         throw timeoutError;
       }
       throw err;
@@ -18164,7 +18349,7 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
       throw err;
     }
   } finally {
-    if (textRequestTimeout) clearTimeout(textRequestTimeout);
+    if (submissionTimeout) clearTimeout(submissionTimeout);
   }
 
   // =====================================================
@@ -18173,22 +18358,8 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
   // =====================================================
   const j = await res.json().catch(() => ({}));
   if (res.status === 409 && j && j.active_job_id) {
-    if (isDirectTextRequest) {
-      throw new Error('Сейчас выполняется другая генерация. Попробуйте ещё раз после её завершения.');
-    }
-    // The backend is authoritative here: the active job may belong to a
-    // different mode than the locally attempted request.
     clearActiveProStudioJob();
-    await restoreActiveProStudioJob();
-    if (!activeGenerationLocked()) {
-      transitionActiveGeneration('job', { id: j.active_job_id, status: j.status || 'queued', mode: studioMode });
-      ensureActiveGenerationPlaceholder(true);
-      watchGenerationJob(j.active_job_id, { id: j.active_job_id, status: j.status || 'queued', mode: studioMode });
-    }
-    const err = new Error('Дождитесь завершения текущей генерации.');
-    err.activeGeneration = true;
-    err.activeJobId = j.active_job_id;
-    throw err;
+    throw new Error('Сейчас уже есть активная задача. Обновите экран и попробуйте ещё раз позже.');
   }
   if (res.status === 402 && j && j.paywall) {
     const err = new Error(j.error || 'Недостаточно токенов');
@@ -18210,12 +18381,39 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     currentConvId = j.conversation_id;
     rememberCurrentChatSpace();
   }
-  if (j.job_id) {
+  const returnedJobIdRaw = typeof j.job_id === 'string' ? j.job_id.trim() : '';
+  const returnedJobId = /^[A-Za-z0-9_-]{1,128}$/.test(returnedJobIdRaw) ? returnedJobIdRaw : '';
+  if (!isDirectTextRequest && !returnedJobId) {
+    throw new Error('Сервис принял запрос без номера задачи. Попробуйте повторить генерацию.');
+  }
+  if (returnedJobId) {
     if (isDirectTextRequest) {
       throw new Error('Текстовый запрос не был завершён. Попробуйте ещё раз.');
     }
-    transitionActiveGeneration('job', { id: j.job_id, status: j.status || 'queued', mode: activeGeneration.mode || studioMode });
-    j.result = await waitGeneration(j.job_id, generationOptions || {});
+    transitionActiveGeneration('job', {
+      id: returnedJobId,
+      status: j.status || 'queued',
+      mode: currentChatType() || studioMode,
+      model: payload.model,
+      requestId: payload.client_request_id,
+      startedAt: Date.now(),
+    });
+    if (activeGenerationPlaceholderIndex() < 0) {
+      const requestedLoadingIndex = Number(generationOptions && generationOptions.loadingIndex);
+      if (Number.isInteger(requestedLoadingIndex) && requestedLoadingIndex >= 0 && chatMessages[requestedLoadingIndex]?.generationLoading) {
+        adoptActiveGenerationPlaceholder(requestedLoadingIndex);
+      } else {
+        for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+          if (chatMessages[index] && chatMessages[index].generationLoading) {
+            adoptActiveGenerationPlaceholder(index);
+            break;
+          }
+        }
+      }
+      ensureActiveGenerationPlaceholder(false);
+    }
+    rememberCurrentChatSpace();
+    j.result = await waitGeneration(returnedJobId, generationOptions || {});
   }
 
   return j;
@@ -18254,6 +18452,9 @@ function isNetworkLoadError(value) {
 function translateGenerationError(value, fallback) {
   if (value && typeof value === 'object' && value.textRequestTimeout) {
     return 'Ответ не получен за отведённое время. Повторите запрос ещё раз.';
+  }
+  if (value && typeof value === 'object' && value.submissionTimeout) {
+    return 'Не удалось подтвердить запуск генерации. Проверьте соединение и попробуйте ещё раз.';
   }
   const text = errorMessage(value, fallback || 'Во время генерации произошла временная ошибка сервиса. Попробуйте повторить попытку немного позже.');
   const low = String(text || '').toLowerCase();
@@ -18476,8 +18677,15 @@ async function waitGeneration(jobId, options) {
   let transientErrors = 0;
   const startedAt = Date.now();
   const networkGraceMs = 15 * 60 * 1000;
+  const clientWatchdogMs = 45 * 60 * 1000;
   let lastStatus = '';
   while (true) {
+    if (Date.now() - startedAt > clientWatchdogMs) {
+      const unconfirmed = new Error('Генерация выполняется дольше ожидаемого. Обновите статус, чтобы восстановить задачу.');
+      unconfirmed.terminalStatus = 'unconfirmed';
+      unconfirmed.jobId = jobId;
+      throw unconfirmed;
+    }
     let res;
     try {
       res = await fetch(
@@ -18487,7 +18695,12 @@ async function waitGeneration(jobId, options) {
     } catch (err) {
       if (signal && signal.aborted) throw err;
       transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw err;
+      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) {
+        const unconfirmed = new Error('Не удалось подтвердить состояние генерации. Обновите статус и попробуйте восстановить задачу.');
+        unconfirmed.terminalStatus = 'unconfirmed';
+        unconfirmed.jobId = jobId;
+        throw unconfirmed;
+      }
       await wait(Math.min(8000, 1500 + transientErrors * 250));
       continue;
     }
@@ -18499,26 +18712,32 @@ async function waitGeneration(jobId, options) {
     const job = await res.json().catch(() => ({}));
     if (!res.ok || !job.ok) {
       transientErrors += 1;
-      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось проверить статус генерации. Попробуйте позже.'));
+      if (Date.now() - startedAt > networkGraceMs && transientErrors > 80) {
+        const unconfirmed = new Error(translateGenerationError(job, 'Не удалось подтвердить состояние генерации. Обновите статус и попробуйте восстановить задачу.'));
+        unconfirmed.terminalStatus = 'unconfirmed';
+        unconfirmed.jobId = jobId;
+        throw unconfirmed;
+      }
       await wait(Math.min(8000, 1500 + transientErrors * 250));
       continue;
     }
     transientErrors = 0;
 
-    if (isActiveGenerationStatus(job.status)) {
+    const status = String(job.status || '').toLowerCase();
+    if (isActiveGenerationStatus(status)) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: job.status,
         mode: job.mode || '',
         conversation_id: job.conversation_id || '',
       });
-      if (job.status !== lastStatus) {
-        lastStatus = job.status;
+      if (status !== lastStatus) {
+        lastStatus = status;
         patchActiveGenerationDom();
       }
     }
 
-    if (job.status === 'completed') {
+    if (status === 'completed') {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
         status: 'completed',
@@ -18531,21 +18750,27 @@ async function waitGeneration(jobId, options) {
       return result;
     }
 
-    if (job.status === 'failed' || job.status === 'cancelled') {
+    if (['failed', 'cancelled', 'canceled', 'timeout', 'timed_out'].includes(status)) {
       transitionActiveGeneration('status', {
         id: job.job_id || job.generation_id || jobId,
-        status: job.status,
+        status: status === 'canceled' ? 'cancelled' : status,
         mode: job.mode || '',
       });
       const error = job.error || {};
-      const terminalError = new Error(translateGenerationError(error, 'Генерация не прошла. Попробуйте повторить немного позже.'));
-      terminalError.terminalStatus = job.status;
+      const fallback = status === 'timeout' || status === 'timed_out'
+        ? 'Генерация превысила допустимое время ожидания.'
+        : 'Генерация не прошла. Попробуйте повторить немного позже.';
+      const terminalError = new Error(translateGenerationError(error, fallback));
+      terminalError.terminalStatus = status === 'canceled' ? 'cancelled' : (status === 'timed_out' ? 'timeout' : status);
       terminalError.jobId = jobId;
       throw terminalError;
     }
 
-    if (!isActiveGenerationStatus(job.status)) {
-      throw new Error('Генерация не завершилась. Попробуйте повторить немного позже.');
+    if (!isActiveGenerationStatus(status)) {
+      const unconfirmed = new Error('Сервис вернул неизвестное состояние генерации. Обновите статус, чтобы восстановить задачу.');
+      unconfirmed.terminalStatus = 'unconfirmed';
+      unconfirmed.jobId = jobId;
+      throw unconfirmed;
     }
 
     await wait(1500);
@@ -18732,22 +18957,17 @@ async function waitGeneration(jobId, options) {
    // ЗАПУСК ГЕНЕРАЦИИ: sendChat
    // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
    // =====================================================
-   async function sendChat() {
+  async function sendChat() {
     if (studioMode === 'text') return sendTextChat();
-    if (activeGenerationLocked()) {
+    if (activeGenerationLocked() || generationSubmitting) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
       return;
     }
-    transitionActiveGeneration('begin', {
-      mode: currentChatType(),
-      model: pickStudioModel(),
-      startedAt: Date.now(),
-    });
     const ta = document.getElementById('chatInput');
     const catalogGeneration = isImageMode() ? pendingCatalogImageGeneration : null;
     pendingCatalogImageGeneration = null;
     const visibleInputValue = (ta.value || '').trim();
-    const v = String((catalogGeneration && catalogGeneration.prompt) || visibleInputValue).trim();
+    const v = String(catalogGeneration ? (catalogGeneration.prompt || '') : visibleInputValue).trim();
     if (studioMode === 'text' && textState.attachment && textState.attachment.uploading) {
       toast('Файл ещё загружается');
       clearActiveProStudioJob();
@@ -18780,11 +19000,11 @@ async function waitGeneration(jobId, options) {
       Object.assign(imageOptionsSnapshot, {
         catalog_prompt_hidden: true,
         catalog_display_prompt: catalogGeneration.displayPrompt,
-        catalog_reference_url: catalogGeneration.catalogUrl,
+        catalog_reference_url: catalogGeneration.kind === 'styles' ? '' : catalogGeneration.catalogUrl,
         user_reference_url: catalogGeneration.userUrl,
         catalog_item_id: catalogGeneration.itemId,
         catalog_item_kind: catalogGeneration.kind,
-        reference_roles: ['catalog', 'user'],
+        reference_roles: catalogGeneration.kind === 'styles' ? ['user'] : ['catalog', 'user'],
       });
     }
     const videoOptionsSnapshot = isVideoMode() ? videoOptionsPayload(referenceImages) : null;
@@ -18795,7 +19015,12 @@ async function waitGeneration(jobId, options) {
         ].filter(Boolean)))
       : [];
 
-    if (!v && !attachment && !referenceImages.length && !referenceVideos.length && !audioUploads.length) {
+    const hasImageControlInput = !!(imageOptionsSnapshot && (
+      (imageOptionsSnapshot.style && String(imageOptionsSnapshot.style) !== 'auto' && String(imageOptionsSnapshot.style) !== 'none')
+      || (Array.isArray(imageOptionsSnapshot.characterReferences) && imageOptionsSnapshot.characterReferences.length)
+      || (Array.isArray(imageOptionsSnapshot.objectReferences) && imageOptionsSnapshot.objectReferences.length)
+    ));
+    if (!v && !attachment && !referenceImages.length && !referenceVideos.length && !audioUploads.length && !hasImageControlInput) {
       clearActiveProStudioJob();
       return;
     }
@@ -18827,6 +19052,7 @@ async function waitGeneration(jobId, options) {
       return;
     }
 
+    generationSubmitting = true;
     dismissGenerationInputUi();
 
     const photoMode = isImageMode();
@@ -18834,7 +19060,7 @@ async function waitGeneration(jobId, options) {
     let loadingIndex = -1;
     const uploadOnlyVoice = isVoiceMode() && !v && audioUploads.length && !attachment && !referenceImages.length;
     if (photoMode) {
-      loadingIndex = ensureActiveGenerationPlaceholder(false);
+      loadingIndex = appendPendingGenerationPlaceholder();
     } else if (!uploadOnlyVoice) {
       chatMessages.push({
         role: 'user',
@@ -18844,7 +19070,7 @@ async function waitGeneration(jobId, options) {
         referenceImages: referenceImages.length ? referenceImages : null,
         referenceVideos: referenceVideos.length ? referenceVideos : null,
       });
-      loadingIndex = ensureActiveGenerationPlaceholder(false);
+      loadingIndex = appendPendingGenerationPlaceholder();
     }
     ta.value = ''; autoGrow(ta); updateSendButton();
     saveCurrentDraftSoon();
@@ -18881,9 +19107,8 @@ async function waitGeneration(jobId, options) {
     renderUploadedPhotoGrid();
     updateImageUploadButtonPreview();
     if (isVoiceMode()) renderVoiceToolPanel();
-    if (loadingIndex < 0) loadingIndex = ensureActiveGenerationPlaceholder(false);
+    if (loadingIndex < 0) loadingIndex = appendPendingGenerationPlaceholder();
     renderChat();
-    rememberCurrentChatSpace();
     document.body.classList.add('ai-generating');
     S.haptic.impact('light');
     let unlockAfterRender = false;
@@ -18978,11 +19203,13 @@ async function waitGeneration(jobId, options) {
       unlockAfterRender = true;
     } catch (err) {
       if (err && err.activeGeneration) {
+        if (catalogGeneration) pendingCatalogImageGeneration = catalogGeneration;
         renderChat();
         rememberCurrentChatSpace();
         return;
       }
       if (err && err.paywall) {
+        if (catalogGeneration) pendingCatalogImageGeneration = catalogGeneration;
         if (loadingIndex >= 0) {
           chatMessages[loadingIndex] = buildInsufficientBalanceMessage(
             err,
@@ -19007,6 +19234,7 @@ async function waitGeneration(jobId, options) {
       loadingIndex = activeGenerationPlaceholderIndex() >= 0 ? activeGenerationPlaceholderIndex() : loadingIndex;
       if (loadingIndex >= 0) chatMessages.splice(loadingIndex, 1);
       chatMessages.push(resolveFailureMessage(err, { prompt: v }));
+      if (catalogGeneration) pendingCatalogImageGeneration = catalogGeneration;
       rememberCurrentChatSpace();
       if (err && err.terminalStatus) unlockAfterRender = true;
       else if (!activeGeneration.jobId) {
@@ -19037,6 +19265,7 @@ async function waitGeneration(jobId, options) {
       }
     } finally {
       document.body.classList.remove('ai-generating');
+      generationSubmitting = false;
     }
     renderChat();
     rememberCurrentChatSpace();
@@ -22915,7 +23144,7 @@ async function waitGeneration(jobId, options) {
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
-    sendChat, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
+    sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
     openSupport, closeSupport, sendSupport, openAiAssistant, closeAiAssistant, sendAiAssistant, toggleAiAssistantVisibility, searchAppMenu, openAppMenuSearchResult, openAppVersion, closeAppVersion,
