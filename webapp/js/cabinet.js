@@ -16429,7 +16429,10 @@ function closeUploadPanel(e) {
     if (onProgress) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
+        const authOptions = window.__sylvexApiAuthOptions(endpoint, { method: 'POST' });
         request.open('POST', endpoint);
+        request.withCredentials = authOptions.credentials === 'same-origin' || authOptions.credentials === 'include';
+        authOptions.headers.forEach((value, name) => request.setRequestHeader(name, value));
         request.upload.onprogress = (event) => {
           if (event.lengthComputable && event.total) onProgress(Math.min(90, Math.floor(event.loaded / event.total * 90)), false);
         };
@@ -16767,6 +16770,7 @@ function closeUploadPanel(e) {
       const upload = {
         previewUrl: URL.createObjectURL(f),
         progress: 0,
+        status: 'uploading',
         processing: false,
         cancelled: false,
       };
@@ -16786,6 +16790,7 @@ function closeUploadPanel(e) {
         });
         if (upload.cancelled) return;
         upload.progress = 100;
+        upload.status = 'uploaded';
         upload.processing = false;
         renderUploadedPhotoGrid();
         await new Promise((resolve) => setTimeout(resolve, 220));
@@ -16794,6 +16799,7 @@ function closeUploadPanel(e) {
         renderUploadPreviewForTarget(target);
         toast('Фото загружено');
       } catch (err) {
+        upload.status = 'error';
         if (!upload.cancelled) toast((err && err.message) || 'Не удалось загрузить фото');
       } finally {
         const index = pendingPhotoUploads.indexOf(upload);

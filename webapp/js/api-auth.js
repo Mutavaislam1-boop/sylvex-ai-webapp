@@ -4,11 +4,11 @@
   if (window.__sylvexAuthenticatedFetch) return;
   window.__sylvexAuthenticatedFetch = true;
   const originalFetch = window.fetch.bind(window);
-  window.fetch = function (input, init) {
+  window.__sylvexApiAuthOptions = function (input, init) {
     const options = Object.assign({}, init || {});
     const source = input instanceof Request ? input.url : String(input);
     let url;
-    try { url = new URL(source, window.location.href); } catch (_) { return originalFetch(input, init); }
+    try { url = new URL(source, window.location.href); } catch (_) { return options; }
     if (url.origin === window.location.origin && (url.pathname.startsWith('/api/') || url.pathname === '/save-settings')) {
       const tg = window.Telegram && window.Telegram.WebApp;
       const signed = tg && tg.initData;
@@ -17,6 +17,10 @@
       options.headers = headers;
       if (!options.credentials) options.credentials = 'same-origin';
     }
+    return options;
+  };
+  window.fetch = function (input, init) {
+    const options = window.__sylvexApiAuthOptions(input, init);
     return originalFetch(input, options);
   };
 })();
