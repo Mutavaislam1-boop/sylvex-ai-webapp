@@ -653,121 +653,6 @@ IMAGE_PROVIDER_MODEL_MAP = {
     "grok_imagine_image": {"provider": "grok", "provider_model": env_value("GROK_IMAGE_MODEL", "GROK-IMAGE-MODEL", default="grok-imagine-image"), "endpoint": env_value("XAI_IMAGE_ENDPOINT", "XAI-IMAGE-ENDPOINT", default="https://api.x.ai/v1/images/generations")},
    
 }
-
-# Image input contract for every selectable image model. `reference_param` is
-# the provider's actual input field, not a frontend alias. Models with more
-# capacity than the product's supported 10-image range are capped at 10.
-# Source documentation checked 2026-09-27; this matrix is also returned by
-# /api/public/prostudio/image-capabilities and drives backend validation.
-IMAGE_REFERENCE_CAPABILITY_MATRIX = {
-    "ideogram_3_0": {"supports_references": True, "max_references": 3, "endpoint": "https://api.ideogram.ai/v1/ideogram-v3/generate", "reference_param": "style_reference_images", "reference_format": "multipart"},
-    "ideogram_4_0": {"supports_references": True, "max_references": 1, "endpoint": "https://api.ideogram.ai/v1/ideogram-v4/remix", "reference_param": "image", "reference_format": "multipart", "edit_endpoint": True},
-    "recraft_v4_1": {"supports_references": True, "max_references": 1, "endpoint": "https://external.api.recraft.ai/v1/images/imageToImage", "reference_param": "image", "reference_format": "multipart", "edit_endpoint": True},
-    "recraft_v4_1_pro": {"supports_references": True, "max_references": 1, "endpoint": "https://external.api.recraft.ai/v1/images/imageToImage", "reference_param": "image", "reference_format": "multipart", "edit_endpoint": True},
-    "recraft_v3": {"supports_references": True, "max_references": 1, "endpoint": "https://external.api.recraft.ai/v1/images/imageToImage", "reference_param": "image", "reference_format": "multipart", "edit_endpoint": True},
-    "recraft_v4_1_pro_vector": {"supports_references": True, "max_references": 10, "endpoint": "https://external.api.recraft.ai/v1/images/generations/vector", "reference_param": "style_reference_urls", "reference_format": "url_list"},
-    "seedream_4_0": {"supports_references": True, "max_references": 10, "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "reference_param": "image", "reference_format": "url_or_data_url_list"},
-    "seedream_4_5": {"supports_references": True, "max_references": 10, "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "reference_param": "image", "reference_format": "url_or_data_url_list"},
-    "seedream_5_0": {"supports_references": True, "max_references": 10, "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "reference_param": "image", "reference_format": "url_or_data_url_list"},
-    "seedream_5_0_lite": {"supports_references": True, "max_references": 10, "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "reference_param": "image", "reference_format": "url_or_data_url_list"},
-    "seedream_5_0_pro": {"supports_references": True, "max_references": 10, "endpoint": f"{BYTEPLUS_ARK_ENDPOINT}/images/generations", "reference_param": "image", "reference_format": "url_or_data_url_list"},
-    "gpt_image_1": {"supports_references": True, "max_references": 10, "endpoint": f"{OPENAI_API_BASE}/images/edits", "reference_param": "image[]", "reference_format": "multipart", "edit_endpoint": True},
-    "gpt_image_2": {"supports_references": True, "max_references": 10, "endpoint": f"{OPENAI_API_BASE}/images/edits", "reference_param": "image[]", "reference_format": "multipart", "edit_endpoint": True},
-    "gpt_image_2_5_sunburst": {"supports_references": True, "max_references": 10, "endpoint": f"{OPENAI_API_BASE}/images/edits", "reference_param": "image[]", "reference_format": "multipart", "edit_endpoint": True},
-    "flux_pro_kontext": {"supports_references": True, "max_references": 4, "endpoint": "https://api.bfl.ai/v1/flux-kontext-pro", "reference_param": "input_image, input_image_2..input_image_4", "reference_format": "numbered_url_or_data_url"},
-    "flux_2": {"supports_references": True, "max_references": 8, "endpoint": "https://api.bfl.ai/v1/flux-2-pro", "reference_param": "input_image, input_image_2..input_image_8", "reference_format": "numbered_url_or_data_url"},
-    "flux_2_turbo": {"supports_references": True, "max_references": 8, "endpoint": "https://api.bfl.ai/v1/flux-2-flex", "reference_param": "input_image, input_image_2..input_image_8", "reference_format": "numbered_url_or_data_url"},
-    "qwen_image": {"supports_references": True, "max_references": 3, "endpoint": "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", "reference_param": "input.messages[0].content[].image", "reference_format": "content_parts"},
-    "qwen_image_2": {"supports_references": True, "max_references": 3, "endpoint": "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", "reference_param": "input.messages[0].content[].image", "reference_format": "content_parts"},
-    "qwen_image_2_pro": {"supports_references": True, "max_references": 3, "endpoint": "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", "reference_param": "input.messages[0].content[].image", "reference_format": "content_parts"},
-    "nano_banana_pro": {"supports_references": True, "max_references": 10, "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions", "reference_param": "input[].data (type=image)", "reference_format": "interactions_parts"},
-    "nano_banana_2": {"supports_references": True, "max_references": 10, "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions", "reference_param": "input[].data (type=image)", "reference_format": "interactions_parts"},
-    "nano_banana_2_lite": {"supports_references": True, "max_references": 10, "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions", "reference_param": "input[].data (type=image)", "reference_format": "interactions_parts"},
-    "nano_banana": {"supports_references": True, "max_references": 3, "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions", "reference_param": "input[].data (type=image)", "reference_format": "interactions_parts"},
-    "grok_pro": {"supports_references": True, "max_references": 5, "endpoint": "https://api.x.ai/v1/images/edits", "reference_param": "image.url + image.type; images[].url + images[].type", "reference_format": "image_url_objects", "edit_endpoint": True},
-    "grok": {"supports_references": True, "max_references": 5, "endpoint": "https://api.x.ai/v1/images/edits", "reference_param": "image.url + image.type; images[].url + images[].type", "reference_format": "image_url_objects", "edit_endpoint": True},
-    "krea_2": {"supports_references": False, "max_references": 0, "endpoint": "", "reference_param": None, "reference_format": None},
-    "microsoft_mai_image_2_5": {"supports_references": False, "max_references": 0, "endpoint": "", "reference_param": None, "reference_format": None},
-}
-
-# Explicit aliases in IMAGE_PROVIDER_MODEL_MAP resolve to the same model
-# contract. Other selectable models (e.g. Imagen) deliberately advertise no
-# reference input until their official API supports it.
-for _image_alias, _image_canonical in {
-    "gpt-image-2.5-sunburst": "gpt_image_2_5_sunburst",
-    "gemini-3.1-flash-image": "nano_banana_2",
-    "gemini-3.1-flash-lite-image": "nano_banana_2_lite",
-    "gemini-3-pro-image": "nano_banana_pro",
-    "gemini-2.5-flash-image": "nano_banana",
-    "grok_imagine_image_quality": "grok_pro",
-    "grok_imagine_image": "grok",
-    "imagen_4_fast": "imagen_4_fast",
-    "imagen_4_standard": "imagen_4_standard",
-    "imagen_4_ultra": "imagen_4_ultra",
-    "imagen-4.0-fast-generate-001": "imagen_4_fast",
-    "imagen-4.0-generate-001": "imagen_4_standard",
-    "imagen-4.0-ultra-generate-001": "imagen_4_ultra",
-}.items():
-    IMAGE_REFERENCE_CAPABILITY_MATRIX.setdefault(
-        _image_alias,
-        IMAGE_REFERENCE_CAPABILITY_MATRIX.get(_image_canonical, {
-            "supports_references": False, "max_references": 0,
-            "endpoint": IMAGE_PROVIDER_MODEL_MAP.get(_image_alias, {}).get("endpoint", ""),
-            "reference_param": None, "reference_format": None,
-        }),
-    )
-for _image_model_id, _image_model_cfg in IMAGE_PROVIDER_MODEL_MAP.items():
-    IMAGE_REFERENCE_CAPABILITY_MATRIX.setdefault(_image_model_id, {
-        "supports_references": False,
-        "max_references": 0,
-        "endpoint": _image_model_cfg.get("endpoint", ""),
-        "reference_param": None,
-        "reference_format": None,
-    })
-
-
-def image_reference_capabilities(frontend_model: str, provider_model: str = "") -> dict:
-    key = str(frontend_model or "").strip().lower()
-    key = key.rsplit(":", 1)[-1]
-    normalized = key.replace("-", "_")
-    caps = IMAGE_REFERENCE_CAPABILITY_MATRIX.get(key) or IMAGE_REFERENCE_CAPABILITY_MATRIX.get(normalized)
-    if not caps and provider_model:
-        provider_key = str(provider_model).strip().lower().replace("-", "_")
-        caps = IMAGE_REFERENCE_CAPABILITY_MATRIX.get(provider_key)
-    if not caps:
-        caps = {"supports_references": False, "max_references": 0, "endpoint": "", "reference_param": None, "reference_format": None}
-    result = dict(caps)
-    result["supports_references"] = bool(result.get("supports_references"))
-    result["max_references"] = max(0, min(10, int(result.get("max_references") or 0)))
-    mapping = IMAGE_PROVIDER_MODEL_MAP.get(key) or IMAGE_PROVIDER_MODEL_MAP.get(normalized) or {}
-    configured_endpoint = str(mapping.get("endpoint") or "")
-    provider = str(mapping.get("provider") or "").lower()
-    resolved_provider_model = str(provider_model or mapping.get("provider_model") or "")
-    if provider == "google" and resolved_provider_model.lower().startswith("imagen-4.0-"):
-        # Google has retired Imagen 4 from the Gemini API. Keep its old model
-        # route in the legacy dispatcher untouched, but don't advertise a
-        # retired URL as a current capability endpoint.
-        result["endpoint"] = ""
-        result["endpoint_status"] = "retired"
-    elif result.get("edit_endpoint") and provider == "openai" and configured_endpoint.endswith("/images/generations"):
-        result["endpoint"] = configured_endpoint[:-len("/images/generations")] + "/images/edits"
-    elif result.get("edit_endpoint") and provider == "grok":
-        result["endpoint"] = grok_image_edit_endpoint(configured_endpoint)
-    elif provider == "flux" and configured_endpoint:
-        result["endpoint"] = f"{configured_endpoint.rstrip('/')}/{resolved_provider_model}"
-    elif provider == "google" and configured_endpoint and "{model}" in configured_endpoint:
-        result["endpoint"] = configured_endpoint.replace("{model}", resolved_provider_model)
-    elif provider in {"google", "qwen", "bytedance", "byteplus"} and configured_endpoint:
-        result["endpoint"] = configured_endpoint
-    return result
-
-
-def get_image_reference_capability_matrix() -> dict:
-    matrix = {}
-    for model_id in IMAGE_REFERENCE_CAPABILITY_MATRIX:
-        mapping = IMAGE_PROVIDER_MODEL_MAP.get(model_id) or IMAGE_PROVIDER_MODEL_MAP.get(model_id.replace("-", "_")) or {}
-        matrix[model_id] = image_reference_capabilities(model_id, mapping.get("provider_model") or "")
-    return matrix
 IDEOGRAM_MODEL_VARIANTS = {
     "ideogram_3_0": {
         "rendering_speed": env_value("IDEOGRAM_3_RENDERING_SPEED", "IDEOGRAM-3-RENDERING-SPEED", default="TURBO").upper(),
@@ -925,21 +810,29 @@ SEEDREAM_MODEL_VARIANTS = {
         "cost_usd": 0.045,
     },
 }
-# Seedream-only transport detail. Reference count and provider field are
-# resolved from IMAGE_REFERENCE_CAPABILITY_MATRIX below.
+# Per-model BytePlus Seedream request capabilities. Every variant shares the
+# same /images/generations endpoint, but they don't share one request shape:
+# Seedream 5.0 Pro's own API contract takes reference images under
+# "image_urls" (a list of hosted URLs only - no inline Base64) while every
+# other Seedream variant takes them under "image" (one URL/data-URI, or a
+# list). Sending Pro a body built the 4.5 way silently drops/rejects the
+# references, which is why Pro can fail even though 4.5 succeeds under the
+# same integration. max_references reflects each model's published
+# multi-reference support; keep it per-model (not a single shared constant)
+# so a future model with a tighter real limit doesn't inherit a value that
+# doesn't apply to it.
 SEEDREAM_MODEL_CAPABILITIES = {
-    "seedream_5_0_lite": {"allow_inline_base64": True},
-    "seedream_5_0": {"allow_inline_base64": True},
-    "seedream_4_5": {"allow_inline_base64": True},
-    "seedream_5_0_pro": {"allow_inline_base64": True},
-    "seedream_4_0": {"allow_inline_base64": True},
+    "seedream_5_0_lite": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+    "seedream_5_0": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+    "seedream_4_5": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
+    "seedream_5_0_pro": {"max_references": 10, "reference_param": "image_urls", "allow_inline_base64": False},
+    "seedream_4_0": {"max_references": 10, "reference_param": "image", "allow_inline_base64": True},
 }
 
 
 def seedream_capabilities(frontend_model: str, provider_model: str = "") -> dict:
     key = seedream_frontend_model(frontend_model, provider_model)
-    transport = SEEDREAM_MODEL_CAPABILITIES.get(key) or SEEDREAM_MODEL_CAPABILITIES["seedream_5_0_lite"]
-    return {**image_reference_capabilities(key, provider_model), **transport}
+    return SEEDREAM_MODEL_CAPABILITIES.get(key) or SEEDREAM_MODEL_CAPABILITIES["seedream_5_0_lite"]
 
 
 FLUX_MODEL_VARIANTS = {
@@ -6854,6 +6747,55 @@ def byteplus_image_input(value: str, index: int = 0) -> str:
     _, content, mime_type = file_tuple
     mime_type = str(mime_type or "image/png").lower()
     return f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}"
+
+
+def materialize_seedream_reference_bytes(content: bytes, mime_type: str, index: int = 0) -> str:
+    """Upload raw image bytes to SYLVEX's own object storage and return a
+    real, publicly fetchable HTTPS URL for them. Used only when a reference
+    a model needs as a URL (Seedream 5.0 Pro's image_urls) has no URL form
+    at all - a raw inline Base64/data: reference, or a bare local path -
+    so it gets one instead of being dropped."""
+    if not content:
+        return ""
+    try:
+        clean_mime = str(mime_type or "image/png").lower()
+        ext = (clean_mime.split("/", 1)[1] if "/" in clean_mime else "png").split("+")[0] or "png"
+        key = f"generated/seedream-refs/{uuid.uuid4().hex}-{index}.{ext}"
+        return storage_put_bytes(content, key, clean_mime) or ""
+    except Exception as exc:
+        print("SEEDREAM REFERENCE MATERIALIZE FAILED:", type(exc).__name__, str(exc))
+        return ""
+
+
+def byteplus_image_reference_url(value: str, index: int = 0) -> str:
+    """Like byteplus_image_input, but for models whose reference param only
+    accepts URLs (no inline Base64 - e.g. Seedream 5.0 Pro's image_urls):
+    it never returns a data: URI. SYLVEX's own signed media URLs
+    (WEBAPP_URL/R2, minted by services.media_access.sign_media_url) are
+    already publicly fetchable as-is - the security middleware validates
+    their signature with no other auth required - so they're passed
+    through unchanged instead of being stripped to a local path and
+    re-encoded as Base64 the way byteplus_image_input does. Only a
+    reference with no URL at all (a raw data: URI, or a bare local path)
+    gets uploaded via materialize_seedream_reference_bytes so it has one."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if raw.startswith("data:image/") and ";base64," in raw:
+        head, encoded = raw.split(";base64,", 1)
+        mime_type = head.replace("data:", "").strip().lower() or "image/png"
+        try:
+            content = base64.b64decode(encoded.strip())
+        except Exception:
+            content = b""
+        return materialize_seedream_reference_bytes(content, mime_type, index)
+    file_tuple = image_file_tuple_from_url(raw, fallback_name=f"reference-{index + 1}.png")
+    if not file_tuple:
+        return ""
+    _, content, mime_type = file_tuple
+    return materialize_seedream_reference_bytes(content, mime_type, index)
 
 
 def provider_object_to_dict(value) -> dict:
@@ -12892,7 +12834,6 @@ def get_image_capabilities() -> dict:
                 .replace("seedream-4-0-250828", "seedream_4_0")
             )
             item.update(image_model_features(frontend_id))
-            item.update(image_reference_capabilities(frontend_id, item.get("api_model") or item.get("provider_model") or ""))
             out.append(item)
         return out
 
@@ -12901,10 +12842,10 @@ def get_image_capabilities() -> dict:
             raw = json.loads(IMAGE_MODELS_JSON)
             models = raw.get("models", raw) if isinstance(raw, dict) else raw
             if isinstance(models, list):
-                return {"ok": True, "models": enrich(models), "reference_capabilities": get_image_reference_capability_matrix()}
+                return {"ok": True, "models": enrich(models)}
         except Exception as exc:
             print("IMAGE_MODELS_JSON FAILED:", exc)
-    return {"ok": True, "models": enrich(default_image_capabilities()), "reference_capabilities": get_image_reference_capability_matrix()}
+    return {"ok": True, "models": enrich(default_image_capabilities())}
 
 # =====================================================
 # PYTHON-БЛОК: map_image_model_to_provider_model
@@ -14498,24 +14439,51 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
         body["seed"] = seed
 
     refs = []
+    dropped_refs = 0
+    materialized_refs = 0
     for index, value in enumerate(reference_images or []):
         if not isinstance(value, str) or not value.strip():
             continue
         raw_value = value.strip()
-        provider_input = byteplus_image_input(raw_value, index)
+        if caps["allow_inline_base64"]:
+            provider_input = byteplus_image_input(raw_value, index)
+        else:
+            # This model's reference param is URL-only (no inline Base64,
+            # e.g. Seedream 5.0 Pro's image_urls) - keep the same assembled
+            # reference and only adapt its final form here: an already
+            # public URL (SYLVEX's own signed media URLs included - they
+            # are fetchable with no other auth, see media_access.py) is
+            # passed through unchanged; only a reference with no URL form
+            # at all (raw Base64/local) gets uploaded so it has one -
+            # never silently dropped.
+            provider_input = byteplus_image_reference_url(raw_value, index)
+            if provider_input and not raw_value.startswith(("http://", "https://")):
+                materialized_refs += 1
         if not provider_input:
-            raise ValueError(f"Could not materialize selected Seedream reference #{index + 1}; refusing to omit it.")
+            dropped_refs += 1
+            continue
         if provider_input not in refs:
             refs.append(provider_input)
 
     max_references = int(caps["max_references"] or 5)
-    if len(refs) > max_references:
-        raise ValueError(f"Seedream accepts at most {max_references} reference images; received {len(refs)}.")
+    clipped_from = len(refs) if len(refs) > max_references else 0
+    refs = refs[:max_references]
 
     if refs:
         field = caps["reference_param"]
-        # `image` accepts a single URL/data-URI or an ordered list.
-        body[field] = refs[0] if len(refs) == 1 else refs
+        # "image" accepts a single URL/data-URI for one reference, or an
+        # ordered list for several - "image_urls" (Pro) is always a list.
+        body[field] = (refs[0] if len(refs) == 1 else refs) if field == "image" else refs
+
+    if dropped_refs or materialized_refs or clipped_from:
+        print("BYTEPLUS IMAGE REFERENCES ADAPTED:", {
+            "model_key": model_key,
+            "reference_param": caps["reference_param"],
+            "materialized_to_url": materialized_refs or None,
+            "dropped_unresolvable_refs": dropped_refs or None,
+            "clipped_from": clipped_from or None,
+            "clipped_to": max_references if clipped_from else None,
+        })
 
     return body
 
@@ -16883,36 +16851,14 @@ def image_reference_urls(payload: dict) -> list:
             refs.append(value)
         elif isinstance(value, list):
             refs.extend(value)
-    character_refs = _json_list(opts.get("characterReferences"))
+    character_refs = _json_list(opts.get("characterReferences"))[:4]
     refs.extend(character_refs)
-    refs.extend(_json_list(opts.get("objectReferences")))
+    refs.extend(_json_list(opts.get("objectReferences"))[:4])
     clean = []
     for url in refs:
         if isinstance(url, str) and url.strip() and url not in clean:
             clean.append(url)
     return clean
-
-
-def validate_image_reference_count(frontend_model: str, provider_model: str, refs: list) -> Optional[dict]:
-    caps = image_reference_capabilities(frontend_model, provider_model)
-    count = len(refs or [])
-    limit = int(caps.get("max_references") or 0)
-    if count <= limit:
-        return None
-    if limit == 0:
-        message = "The selected image model does not support reference images."
-    else:
-        message = f"The selected image model accepts at most {limit} reference image(s); received {count}."
-    return {
-        "ok": False,
-        "type": "image",
-        "error": message,
-        "error_code": "unsupported_image_references" if limit == 0 else "too_many_image_references",
-        "model": frontend_model or "",
-        "provider_model": provider_model or "",
-        "reference_count": count,
-        "max_references": limit,
-    }
 
 
 def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
@@ -17168,7 +17114,7 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
             "aspect_ratio": normalize_flux_aspect_ratio(size),
             "output_format": output_format,
         }
-        for index, ref in enumerate(refs, start=1):
+        for index, ref in enumerate(refs[:4], start=1):
             key = "input_image" if index == 1 else f"input_image_{index}"
             request_payload[key] = ref
     else:
@@ -17179,9 +17125,8 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
             "height": height,
             "output_format": output_format,
         }
-        for index, ref in enumerate(refs, start=1):
-            key = "input_image" if index == 1 else f"input_image_{index}"
-            request_payload[key] = ref
+        if refs:
+            request_payload["input_image"] = refs[0]
     submit_endpoint = f"{endpoint.rstrip('/')}/{provider_model}"
     try:
         response = requests.post(submit_endpoint, headers=headers, json=request_payload, timeout=60)
@@ -17696,10 +17641,10 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
     included_references = []
     for reference in received_references:
         image_value = qwen_image_reference_value(reference)
-        if not image_value:
-            return [], image_error_response("qwen", frontend_model, provider_model, endpoint, "Could not load every selected reference image."), {}
-        if image_value not in included_references:
+        if image_value and image_value not in included_references:
             included_references.append(image_value)
+        if len(included_references) >= 3:
+            break
     effective_provider_model = qwen_image_edit_model(provider_model, bool(included_references))
     seed_supported = bool((QWEN_MODEL_VARIANTS.get(key) or {}).get("seed"))
     seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
@@ -18085,11 +18030,8 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
         return [], image_error_response("grok", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
     opts = payload.get("image_options") or {}
     resolution = grok_resolution_value(opts)
-    reference_images = image_reference_urls(payload)
     input_image = grok_input_image_url(payload)
-    if input_image and input_image not in reference_images:
-        reference_images.insert(0, input_image)
-    is_style_edit = bool(reference_images)
+    is_style_edit = bool(input_image and grok_has_selected_style(payload))
     request_endpoint = endpoint
     if is_style_edit:
         request_endpoint = grok_image_edit_endpoint(endpoint)
@@ -18102,12 +18044,8 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
                 "composition while applying the style.\n\n"
                 + str(prompt or "Apply the selected style to the source image.")
             ),
+            "image": {"url": input_image, "type": "image_url"},
         }
-        image_items = [{"url": ref, "type": "image_url"} for ref in reference_images]
-        if len(image_items) == 1:
-            request_payload["image"] = image_items[0]
-        else:
-            request_payload["images"] = image_items
     else:
         request_payload = {
             "model": provider_model,
@@ -18127,8 +18065,7 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
             aspect_ratio=request_payload.get("aspect_ratio"),
             resolution=request_payload.get("resolution"),
             count=request_payload.get("n"),
-            has_input_image=bool(reference_images),
-            reference_count=len(reference_images),
+            has_input_image=bool(input_image),
             operation="style_edit" if is_style_edit else "generation",
         )
         response = requests.post(request_endpoint, headers=headers, json=request_payload, timeout=180)
@@ -18299,12 +18236,10 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
         request_endpoint = endpoint.replace("{model}", provider_model)
     else:
         input_items = [{"type": "text", "text": prompt}]
-        references = image_reference_urls(payload)
-        for ref in references:
+        for ref in image_reference_urls(payload):
             part = google_local_or_remote_image_part(ref)
-            if not part:
-                return [], image_error_response("google", frontend_model, provider_model, endpoint, "Could not load every selected reference image."), {}
-            input_items.append(part)
+            if part:
+                input_items.append(part)
         response_format = {
             "type": "image",
             "mime_type": "image/jpeg",
@@ -18384,11 +18319,6 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
         return [], image_error_response("recraft", frontend_model, provider_model, endpoint, "Provider API key is missing"), {}
     opts = payload.get("image_options") or {}
     frontend_key = recraft_frontend_model(frontend_model, provider_model)
-    references = image_reference_urls(payload)
-    is_vector_style_reference = frontend_key == "recraft_v4_1_pro_vector" and bool(references)
-    request_endpoint = endpoint
-    if references and not is_vector_style_reference:
-        request_endpoint = "https://external.api.recraft.ai/v1/images/imageToImage"
     seed_supported = bool((RECRAFT_MODEL_VARIANTS.get(frontend_key) or {}).get("seed"))
     seed = normalize_image_seed(opts.get("seed")) if seed_supported else None
     request_payload = {
@@ -18400,10 +18330,10 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
     size_value = recraft_size_value(size)
     if size_value:
         request_payload["size"] = size_value
-    if is_vector_style_reference:
+    if str(opts.get("photo_tool") or opts.get("tool") or "").strip().lower() == "logo":
         # Recraft V4.1 Pro Vector accepts style-reference URLs directly and
         # returns a native SVG from its vector generation endpoint.
-        refs = references
+        refs = image_reference_urls(payload)[:10]
         normalized_refs = []
         for ref in refs:
             raw_ref = str(ref or "").strip()
@@ -18425,20 +18355,12 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
     if seed is not None:
         request_payload["random_seed"] = seed
     try:
-        if references and not is_vector_style_reference:
-            reference_file = openai_image_reference_file(references[0], 0)
-            if not reference_file:
-                return [], image_error_response("recraft", frontend_model, provider_model, request_endpoint, "Could not load the selected reference image."), request_payload
-            _field, file_tuple = reference_file
-            multipart = {key: (None, str(value)) for key, value in request_payload.items() if value is not None and value != ""}
-            response = requests.post(request_endpoint, headers={"Authorization": headers.get("Authorization", "")}, data=multipart, files=[("image", file_tuple)], timeout=120)
-        else:
-            response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=120)
+        response = requests.post(endpoint, headers=headers, data=json.dumps(request_payload), timeout=120)
     except requests.RequestException as exc:
-        return [], image_error_response("recraft", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
-    data = safe_provider_json(response, "recraft", request_endpoint)
+        return [], image_error_response("recraft", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+    data = safe_provider_json(response, "recraft", endpoint)
     if response.status_code >= 400 or data.get("ok") is False:
-        return [], image_error_response("recraft", frontend_model, provider_model, request_endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
+        return [], image_error_response("recraft", frontend_model, provider_model, endpoint, data.get("error") or data.get("message") or "Provider request failed", response, data), request_payload
     images = normalize_image_response(data)
     return images, {}, request_payload
 
@@ -18870,7 +18792,7 @@ def calculate_generation_price(payload: dict) -> dict:
 # =====================================================
 def ideogram_form_files(request_payload: dict) -> dict:
     return {
-        key: value if isinstance(value, tuple) else (None, str(value))
+        key: (None, str(value))
         for key, value in (request_payload or {}).items()
         if value is not None and value != ""
     }
@@ -18889,10 +18811,6 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
     rendering_speed = ideogram_rendering_speed(frontend_model, provider_model, opts)
     seed = normalize_image_seed(opts.get("seed")) if frontend_key == "ideogram_3_0" else None
     is_v4 = frontend_key == "ideogram_4_0"
-    references = image_reference_urls(payload)
-    request_endpoint = endpoint
-    if references and is_v4:
-        request_endpoint = "https://api.ideogram.ai/v1/ideogram-v4/remix"
     request_payload = {
         "rendering_speed": rendering_speed,
         **ideogram_size_params(frontend_model, provider_model, size),
@@ -18905,31 +18823,21 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
         if seed is not None:
             request_payload["seed"] = str(seed)
 
-    reference_files = []
-    if references:
-        reference_field = "image" if is_v4 else "style_reference_images"
-        for index, reference in enumerate(references, start=1):
-            part = openai_image_reference_file(reference, index - 1)
-            if not part:
-                return [], image_error_response("ideogram", frontend_model, provider_model, request_endpoint, "Could not load every selected reference image."), request_payload
-            _field, file_tuple = part
-            reference_files.append((reference_field, file_tuple))
-
     images = []
     attempts = 1 if not is_v4 else max(1, min(int(count or 1), 4))
     try:
         for _ in range(attempts):
-            response = requests.post(request_endpoint, headers=headers, files=[*ideogram_form_files(request_payload).items(), *reference_files], timeout=120)
-            data = safe_provider_json(response, "ideogram", request_endpoint)
+            response = requests.post(endpoint, headers=headers, files=ideogram_form_files(request_payload), timeout=120)
+            data = safe_provider_json(response, "ideogram", endpoint)
             if response.status_code >= 400 or data.get("ok") is False:
-                return [], image_error_response("ideogram", frontend_model, provider_model, request_endpoint, data.get("error") or "Provider request failed", response, data), request_payload
+                return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, data.get("error") or "Provider request failed", response, data), request_payload
             for url in normalize_image_response(data):
                 if url and url not in images:
                     images.append(url)
             if len(images) >= count:
                 break
     except requests.RequestException as exc:
-        return [], image_error_response("ideogram", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
+        return [], image_error_response("ideogram", frontend_model, provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
     return images, {}, request_payload
 
 
@@ -19051,10 +18959,6 @@ async def image_generation(payload: dict) -> dict:
     if not api_model:
         return unknown_image_model_mapping_response(requested_model, provider)
 
-    reference_error = validate_image_reference_count(requested_model, api_model, image_reference_urls(payload))
-    if reference_error:
-        return reference_error
-
     size = opts.get("size") or (model_cfg.get("sizes") or [{}])[0].get("id") or "1024x1024"
     count = safe_image_count(opts.get("count") or (model_cfg.get("counts") or [1])[0] or 1, default=1, max_count=4)
     prostudio_debug(
@@ -19110,11 +19014,12 @@ async def image_generation(payload: dict) -> dict:
                 file_part
                 for file_part in (
                     openai_image_reference_file(url, index)
-                    for index, url in enumerate(reference_images)
+                    # One scene/source image plus avatar and three character references.
+                    for index, url in enumerate(reference_images[:5])
                 )
                 if file_part
             ]
-            if len(files) != len(reference_images):
+            if not files:
                 return image_error_response(provider, requested_model, api_model, endpoint, "Не удалось обработать загруженное изображение.")
 
             request_data = {
