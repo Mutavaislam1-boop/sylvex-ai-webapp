@@ -21117,6 +21117,14 @@ async function waitGeneration(jobId, options) {
   // ЗАПУСК ГЕНЕРАЦИИ: updateSendButton
   // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
   // =====================================================
+  function canGenerateImageFromControls(state) {
+    const inputs = state || {};
+    const structuredSelectionCount = Number(!!inputs.hasStyle)
+      + Number(!!inputs.hasCharacter)
+      + Number(!!inputs.hasObject);
+    return !!inputs.hasPrompt || !!inputs.hasUserImageReference || structuredSelectionCount >= 2;
+  }
+
   function updateSendButton() {
     const ta = document.getElementById('chatInput');
     const mic = document.getElementById('micBtn');
@@ -21155,9 +21163,20 @@ async function waitGeneration(jobId, options) {
       || !!(activeReferences && activeReferences.length)
       || !!(isVideoMode() && (currentVideoEditInputUrl() || currentVideoReferenceUrl()))
       || !!(activeAudioUploads && activeAudioUploads.length);
+    const canGenerate = isImageMode()
+      ? canGenerateImageFromControls({
+          hasPrompt: (ta.value || '').trim().length > 0,
+          hasUserImageReference: !!(activeReferences && activeReferences.length)
+            || !!imageState.referenceImageUrl
+            || !!(imageState.uploadedImageUrls && imageState.uploadedImageUrls.length),
+          hasStyle: !!imageState.style && !['auto', 'none'].includes(String(imageState.style).toLowerCase()),
+          hasCharacter: !!imageState.characterId,
+          hasObject: !!imageState.objectId,
+        })
+      : has;
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
-      send.disabled = !has || textUploading;
+      send.disabled = !canGenerate || textUploading;
       send.hidden = false;
       send.setAttribute('aria-label', studioMode === 'text' ? 'Отправить сообщение' : 'Сгенерировать');
       send.title = studioMode === 'text' ? 'Отправить' : 'Сгенерировать';
