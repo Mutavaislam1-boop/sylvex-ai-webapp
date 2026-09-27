@@ -243,6 +243,7 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   let textMicLimitTimer = 0;
   let currentModelLabel = 'SYLVEX Pro';
 let imageCapabilities = [];
+let imageReferenceCapabilities = {};
 let generatedImageLibrary = [];
 let imageState = {
     modelId: 'seedream_5_0_lite',
@@ -1221,14 +1222,20 @@ function getModelCapabilities(modelId) {
   const raw = String(modelId || '').trim();
   const normalized = raw.replace(/_0$/, '').replace(/-/g, '_');
   const cfg = MODEL_FEATURES[raw] || MODEL_FEATURES[normalized] || fallback;
+  const serverModel = (imageCapabilities || []).find((item) => {
+    const id = String(item && item.id || '').trim();
+    return id === raw || id.replace(/-/g, '_') === normalized || id.split(':').pop() === raw;
+  }) || {};
+  const referenceKey = raw.replace(/-/g, '_');
+  const matrixModel = imageReferenceCapabilities[raw] || imageReferenceCapabilities[referenceKey] || {};
+  const referenceLimitValue = matrixModel.max_references ?? serverModel.max_references ?? serverModel.maxReferences ?? cfg.maxReferences;
+  const maxReferences = Number.isFinite(Number(referenceLimitValue)) ? Math.max(0, Math.min(10, Number(referenceLimitValue))) : 0;
   return {
     character: !!cfg.character,
     object: !!cfg.object,
     seed: !!cfg.seed,
-    // Combined cap across user uploads + Character refs + Object refs for
-    // models that publish one (currently Seedream) - null means "no known
-    // per-model cap", so callers must not treat it as zero/unlimited.
-    maxReferences: typeof cfg.maxReferences === 'number' ? cfg.maxReferences : null,
+    supportsReferences: matrixModel.supports_references === true || serverModel.supports_references === true || maxReferences > 0,
+    maxReferences,
   };
 }
 
@@ -6020,19 +6027,21 @@ function currentUploadImages(targetOverride) {
 function uploadLimitForTarget(targetOverride) {
   const target = targetOverride || getUploadTarget();
   if (target === UPLOAD_TARGETS.VIDEO_START || target === UPLOAD_TARGETS.VIDEO_END) return 1;
-  const base = 4;
-  if (target !== UPLOAD_TARGETS.IMAGE_UPLOAD || !isImageMode()) return base;
-  // Some models (currently Seedream) publish a combined reference cap
-  // across user uploads + Character + Object. Free up upload slots as a
-  // selected Character/Object consumes them, so the composer never lets a
-  // user assemble a request the model can't accept - instead of disabling
-  // Character/Object outright, which would block valid combinations that
-  // still fit.
+  if (target !== UPLOAD_TARGETS.IMAGE_UPLOAD || !isImageMode()) return 4;
   const maxReferences = getModelCapabilities(imageState.modelId).maxReferences;
-  if (!maxReferences) return base;
-  const usedByVisuals = (imageState.characterId ? (imageState.characterReferences || []).length : 0)
-    + (imageState.objectId ? (imageState.objectReferences || []).length : 0);
-  return Math.max(0, Math.min(base, maxReferences - usedByVisuals));
+  const usedByVisuals = new Set([
+    ...(imageState.characterId ? (imageState.characterReferences || []) : []),
+    ...(imageState.objectId ? (imageState.objectReferences || []) : []),
+  ].filter(Boolean)).size;
+  return Math.max(0, maxReferences - usedByVisuals);
+}
+
+function clampImageReferencesToSelectedModel() {
+  const maxUserReferences = uploadLimitForTarget(UPLOAD_TARGETS.IMAGE_UPLOAD);
+  const refs = (imageState.referenceImageUrls || imageState.uploadedImageUrls || []).filter(Boolean).slice(0, maxUserReferences);
+  imageState.referenceImageUrls = refs.slice();
+  imageState.uploadedImageUrls = refs.slice();
+  imageState.referenceImageUrl = refs[0] || '';
 }
 
 // =====================================================
@@ -10019,6 +10028,15 @@ function pickVisualReference(e, kind, id) {
     if (imageState.characterId === item.id) {
       clearSelectedCharacter();
     } else {
+      const combined = new Set([
+        ...(imageState.referenceImageUrls || []),
+        ...(imageState.objectId ? (imageState.objectReferences || []) : []),
+        ...(item.referenceImages || []),
+      ].filter(Boolean));
+      if (combined.size > caps.maxReferences) {
+        toast('Эта модель принимает не больше ' + caps.maxReferences + ' референсов. Удалите часть фото и попробуйте снова.');
+        return;
+      }
       imageState.characterId = item.id;
       imageState.characterName = item.name;
       imageState.characterReferences = (item.referenceImages || []).slice();
@@ -10028,6 +10046,15 @@ function pickVisualReference(e, kind, id) {
     if (imageState.objectId === item.id) {
       clearSelectedObject();
     } else {
+      const combined = new Set([
+        ...(imageState.referenceImageUrls || []),
+        ...(imageState.characterId ? (imageState.characterReferences || []) : []),
+        ...(item.referenceImages || []),
+      ].filter(Boolean));
+      if (combined.size > caps.maxReferences) {
+        toast('Эта модель принимает не больше ' + caps.maxReferences + ' референсов. Удалите часть фото и попробуйте снова.');
+        return;
+      }
       imageState.objectId = item.id;
       imageState.objectName = item.name;
       imageState.objectReferences = (item.referenceImages || []).slice();
@@ -11469,10 +11496,11 @@ function imageModelButton(model) {
   function imageOptionsPayload(referenceImages) {
     const capabilities = getModelCapabilities(imageState.modelId);
     const seed = capabilities.seed ? normalizeImageSeed(imageState.seed) : null;
+    const references = (referenceImages || []).slice(0, uploadLimitForTarget(UPLOAD_TARGETS.IMAGE_UPLOAD));
     return Object.assign({}, imageState, {
       seed,
-      referenceImageUrls: (referenceImages || []).slice(),
-      referenceImages: (referenceImages || []).slice(),
+      referenceImageUrls: references,
+      referenceImages: references.slice(),
     }, imageVisualReferenceOptions());
   }
 
@@ -11544,6 +11572,7 @@ function imageModelButton(model) {
     try {
       const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
       const data = await res.json();
+      imageReferenceCapabilities = (data && data.reference_capabilities) || {};
       imageCapabilities = mergeImageModels((data && data.models) || []);
       if (!imageState.modelId && IMAGE_MODEL_LIST.length) {
         imageState.modelId = IMAGE_MODEL_LIST[0].id;
@@ -12616,6 +12645,8 @@ function imageModelButton(model) {
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           imageState.modelId = model.id;
+          syncImageFeatureAvailability();
+          clampImageReferencesToSelectedModel();
           syncImageModelOptionDefaults(model);
           syncImageFeatureAvailability();
           renderImageReferenceSections();
