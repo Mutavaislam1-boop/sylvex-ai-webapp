@@ -13782,8 +13782,9 @@ function renderGeneratedTelegramButton(url, kind) {
       ? String(meta.cost_credits) + ' ⚡️'
       : '';
     const cost = creditsValue || String(meta.generation_cost || '');
+    const hasRequestRefs = requestImageReferences(meta).length > 0;
     const hiddenCatalogPrompt = !!(meta.catalog_prompt_hidden || meta.image_options?.catalog_prompt_hidden || meta.settings?.catalog_prompt_hidden || meta.photo_tool === 'hair_beard' || meta.photo_tool === 'hair_beard_reference' || meta.settings?.photo_tool === 'hair_beard' || meta.settings?.photo_tool === 'hair_beard_reference' || meta.image_options?.tool === 'hair_beard' || meta.image_options?.tool === 'hair_beard_reference');
-    const prompt = hiddenCatalogPrompt
+    const prompt = hasRequestRefs ? '' : hiddenCatalogPrompt
       ? String(meta.catalog_display_prompt || meta.image_options?.catalog_display_prompt || meta.settings?.catalog_display_prompt || '')
       : String(meta.prompt || '');
     const titleMap = {
@@ -13793,7 +13794,7 @@ function renderGeneratedTelegramButton(url, kind) {
       voice: 'Озвучка готова',
     };
     const iconMap = { image: 'IMG', video: 'VID', music: '♪', voice: 'VO' };
-    const logoRef = meta.photo_tool === 'logo' && meta.catalog_reference_url ? '<span class="generation-result-reference"><img src="' + S.escapeHtml(meta.catalog_reference_url) + '" alt=""><small>' + S.escapeHtml(meta.logo_reference_name || 'Визуальный референс') + '</small></span>' : '';
+    const logoRef = !hasRequestRefs && meta.photo_tool === 'logo' && meta.catalog_reference_url ? '<span class="generation-result-reference"><img src="' + S.escapeHtml(meta.catalog_reference_url) + '" alt=""><small>' + S.escapeHtml(meta.logo_reference_name || 'Визуальный референс') + '</small></span>' : '';
     const metaHtml = '<span class="generation-result-title">' + S.escapeHtml(titleMap[type] || 'Результат готов') + '</span>'
       + '<span class="generation-result-sub">' + safeModel + '</span>'
       + (cost ? '<span class="generation-result-cost">' + S.escapeHtml(cost) + '</span>' : '')
@@ -13905,6 +13906,52 @@ function renderGeneratedTelegramButton(url, kind) {
       + '</a>';
   }
 
+  // Read only the image inputs saved with this request, never the current studio controls.
+  function requestImageReferences(meta) {
+    if (!meta || meta.type !== 'image') return [];
+    const options = meta.image_options && Object.keys(meta.image_options).length
+      ? meta.image_options : (meta.settings || {});
+    const list = (...values) => values.find((value) => Array.isArray(value) && value.length) || [];
+    return [
+      ...list(options.referenceImageUrls, options.referenceImages, meta.reference_images),
+      ...list(options.characterReferences, meta.characterReferences),
+      ...list(options.objectReferences, meta.objectReferences),
+    ].filter((url) => typeof url === 'string' && url);
+  }
+
+  function renderReferencePile(refs) {
+    if (!refs || !refs.length) return '';
+    const center = (refs.length - 1) / 2;
+    const radius = center || 1;
+    const cards = refs.map((url, index) => {
+      const position = (index - center) / radius;
+      const angle = +(position * 15).toFixed(2);
+      const x = +(position * 4).toFixed(2);
+      const y = +(Math.abs(position) * 2 + (index % 2 ? -1 : 1)).toFixed(2);
+      const depth = Math.round(100 - Math.abs(index - center));
+      return '<span class="msg-ref-img" style="--pile-angle:' + angle + 'deg;--pile-x:' + x + 'px;--pile-y:' + y
+        + 'px;--pile-open-angle:' + +(angle * 1.5).toFixed(2) + 'deg;--pile-open-x:' + +(x * 1.5).toFixed(2)
+        + 'px;--pile-open-y:' + +(y * 1.5).toFixed(2) + 'px;z-index:' + depth + '">'
+        + '<img src="' + S.escapeHtml(url) + '" alt="" loading="lazy" decoding="async" /></span>';
+    }).join('');
+    return '<button class="msg-ref-pile" type="button" data-ref-count="' + refs.length
+      + '" aria-label="Референсы: ' + refs.length + '" aria-expanded="false"'
+      + ' onclick="this.classList.toggle(\'is-expanded\');this.setAttribute(\'aria-expanded\',this.classList.contains(\'is-expanded\'))">'
+      + cards + '</button>';
+  }
+
+  function renderReferenceRequest(refs, prompt) {
+    return renderReferencePile(refs)
+      + (prompt ? '<div class="msg-ref-user-prompt">' + S.escapeHtml(prompt).replace(/\n/g, '<br>') + '</div>' : '');
+  }
+
+  function requestPromptIsInternal(meta) {
+    const options = meta && (meta.image_options || meta.settings) || {};
+    const tool = String((meta && meta.photo_tool) || options.photo_tool || options.tool || '');
+    return !!(meta && (meta.catalog_prompt_hidden || options.catalog_prompt_hidden
+      || tool === 'hair_beard' || tool === 'hair_beard_reference'));
+  }
+
   // =====================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА: renderChat
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
@@ -13947,7 +13994,14 @@ function renderGeneratedTelegramButton(url, kind) {
           + '</div>';
       }
       if (m.imageResultMini) {
-        return '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
+        const refs = requestImageReferences(m.metadata);
+        const previous = chatMessages[i - 1];
+        const pairedUser = refs.length && previous && previous.role === 'user' && !Object.prototype.hasOwnProperty.call(m, 'userPrompt');
+        const userPrompt = requestPromptIsInternal(m.metadata) ? '' : String(m.userPrompt || '');
+        const referenceMessage = refs.length && !pairedUser
+          ? '<div class="msg user msg-reference-request"><div class="bubble">' + renderReferenceRequest(refs, userPrompt) + '</div></div>'
+          : '';
+        return referenceMessage + '<div class="msg ai generation-result-msg" data-i="' + i + '"><div class="ai-avatar">S</div>'
           + renderImageResultMiniCard(m, i)
           + renderMsgActionsBar(m, i)
           + '</div>';
@@ -13967,13 +14021,16 @@ function renderGeneratedTelegramButton(url, kind) {
       }
       const actions = renderMsgActionsBar(m, i);
       let inner = '';
-      if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
+      const next = chatMessages[i + 1];
+      const resultRefs = m.role === 'user' && next && next.imageResultMini ? requestImageReferences(next.metadata) : [];
+      if (resultRefs.length) inner += renderReferenceRequest(resultRefs, requestPromptIsInternal(next.metadata) ? '' : String(m.text || ''));
+      else if (m.text) inner += S.escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.attachment) inner += renderMessageAttachment(m.attachment);
-      if (m.referenceImages && m.referenceImages.length) {
+      if (!resultRefs.length && m.referenceImages && m.referenceImages.length) {
         inner += '<div class="msg-ref-img-row">' + m.referenceImages.map((url) =>
             '<span class="msg-ref-img"><img src="' + S.escapeHtml(url) + '" alt="reference image" /></span>'
         ).join('') + '</div>';
-        }
+      }
       if (m.referenceVideos && m.referenceVideos.length) {
         inner += '<div class="msg-ref-video-row">' + m.referenceVideos.map((url) =>
             '<span class="msg-ref-video"><video src="' + S.escapeHtml(url) + '" controls playsinline preload="metadata"></video></span>'
@@ -19216,6 +19273,7 @@ async function waitGeneration(jobId, options) {
         chatMessages[loadingIndex] = {
           role: 'ai',
           imageResultMini: true,
+          userPrompt: visibleInputValue,
           metadata: imageGenerationMetadata(
             v,
             referenceImages,
