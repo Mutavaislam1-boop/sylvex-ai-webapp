@@ -9390,3 +9390,38 @@ html.web-embed .studio-layout-switch{display:none!important}
 @media(max-width:999px){.edit-workspace{display:none!important}}
 @media(min-width:1000px) and (max-width:1320px){.edit-workspace-panel{width:340px;right:14px}.edit-workspace-action{width:min(720px,calc(100vw - 385px))}.edit-workspace-tab{padding:0 8px;font-size:10px}.edit-workspace-dock{max-width:calc(100vw - 36px)}}
 @media(min-width:1000px) and (max-height:760px){.edit-workspace-panel{max-height:calc(100dvh - 70px);padding:13px;gap:11px}.edit-workspace-orbit{height:120px}.edit-workspace-action{bottom:89px;padding:9px 12px}.edit-workspace-dock{bottom:12px;height:53px}.edit-workspace-tab{height:39px}.edit-workspace-close{top:12px;right:14px}}
+
+/* DaVinci editor reference: scope extracted dark-theme tokens to the desktop Edit workspace only. */
+.edit-workspace{
+  --edit-primary:#296ce8;
+  --edit-primary-hover:#2562d3;
+  --edit-bg:#070708;
+  --edit-surface:#111112;
+  --edit-surface-raised:#0f0f10;
+  --edit-text:#fff;
+  --edit-muted:#a3a3a3;
+  --edit-subtle:#7f7f7f;
+  --edit-border:#ffffff14;
+  --edit-border-strong:#ffffff1f;
+  --edit-selected:#ffffff1a;
+  --edit-radius-small:8px;
+  --edit-radius-medium:12px;
+  --edit-radius-large:16px;
+  --edit-radius-xlarge:20px;
+  font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;
+  background:var(--edit-bg);
+  color:var(--edit-text);
+}
+.edit-workspace-main{background:var(--edit-bg)}
+.edit-workspace-panel,.edit-workspace-action,.edit-workspace-dock{border-color:var(--edit-border);background-color:var(--edit-surface)}
+.edit-workspace-panel{border-radius:var(--edit-radius-xlarge)}
+.edit-workspace-control-card{border-color:var(--edit-border);border-radius:var(--edit-radius-medium);background:var(--edit-surface-raised)}
+.edit-workspace-generate{border-radius:var(--edit-radius-medium);background:var(--edit-primary);color:var(--edit-text)}
+.edit-workspace-generate:hover{background:var(--edit-primary-hover)}
+.edit-workspace-range input[type=range],.edit-workspace-action-row input[type=range],.edit-workspace-switch-row input{accent-color:var(--edit-primary)}
+.edit-workspace-tab{border-radius:var(--edit-radius-small);color:var(--edit-muted)}
+.edit-workspace-tab:hover,.edit-workspace-tab.active{background:var(--edit-selected);color:var(--edit-text)}
+.edit-workspace-presets button.active,.edit-workspace-action-row>button.active,.edit-workspace-light-chip.active{background:var(--edit-selected);border-color:var(--edit-border-strong);color:var(--edit-text)}
+.edit-workspace-action-row>button:not(.edit-workspace-generate),.edit-workspace-action-row select,.edit-workspace-model-label,.edit-workspace-canvas-actions button,.edit-workspace-change-image,.edit-workspace-close{border-color:var(--edit-border);border-radius:var(--edit-radius-small);background:var(--edit-surface-raised);color:var(--edit-text)}
+.edit-workspace-close{border-radius:var(--edit-radius-medium)}
+.edit-workspace-action textarea::placeholder,.edit-workspace-action-row output,.edit-workspace-range output{color:var(--edit-muted)}
