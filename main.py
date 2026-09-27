@@ -586,6 +586,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
 FASHN_API_KEY = os.getenv("FASHN_API_KEY")
 FASHN_API_BASE = os.getenv("FASHN_API_BASE", "https://api.fashn.ai/v1").rstrip("/")
+FAL_API_KEY = os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY") or ""
 # SYLVEX Assistant AI Mode model - deliberately its own env var (not reused
 # from any Pro Studio model id) so it can be moved to a newer OpenAI model
 # without touching Pro Studio's own text-generation config. gpt-5.6 is the
@@ -13048,6 +13049,11 @@ def is_watermark_removal_request(payload: dict) -> bool:
     return str(opts.get("tool") or "").strip().lower() == "watermark_removal"
 
 
+def is_edit_workspace_request(payload: dict) -> bool:
+    opts = payload.get("image_options") or {}
+    return str(opts.get("tool") or "").strip().lower() == "edit_workspace"
+
+
 def is_replace_object_request(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     return str(opts.get("tool") or "").strip().lower() == "replace_object"
@@ -15372,6 +15378,168 @@ async def generate_remove_object_image(payload: dict) -> dict:
             print("TELEGRAM SEND GENERATED IMAGES FAILED:", str(exc))
 
     result["sent_to_telegram"] = sent_to_telegram
+    return result
+
+
+async def generate_edit_workspace_image(payload: dict) -> dict:
+    """Isolated full-screen Edit workspace provider adapter.
+
+    Camera and lighting edits use Fal's numeric/structured model contracts;
+    the remaining image edit modes use the configured OpenAI image edit API.
+    Only the workspace's own source and settings are read here.
+    """
+    opts = payload.get("image_options") or {}
+    mode = str(opts.get("editWorkspaceMode") or "edit").strip().lower()
+    source_url = str(opts.get("editWorkspaceSourceUrl") or "").strip()
+    if not source_url:
+        return {"ok": False, "type": "image", "error": "Загрузите исходное изображение."}
+    source_raw = _read_image_bytes_for_generation(source_url)
+    if not source_raw:
+        return image_error_response("edit", "edit_workspace", "", "", "Could not read workspace source image")
+    try:
+        source_png, source_size = normalize_gpt_image_source(source_raw)
+    except Exception as exc:
+        return image_error_response("edit", "edit_workspace", "", "", "Could not prepare workspace source image", data={"body_preview": str(exc)[:500]})
+
+    provider = "openai"
+    model = "gpt-image-2.5-sunburst"
+    endpoint = f"{OPENAI_API_BASE}/images/edits"
+    provider_response = None
+    response_data = {}
+    if mode in {"camera", "lighting"}:
+        if not FAL_API_KEY:
+            return image_error_response("fal", "edit_workspace", "", "https://queue.fal.run", "FAL_KEY is not configured")
+        provider = "fal"
+        camera = opts.get("editWorkspaceCamera") if isinstance(opts.get("editWorkspaceCamera"), dict) else {}
+        light = opts.get("editWorkspaceLight") if isinstance(opts.get("editWorkspaceLight"), dict) else {}
+        image_data_uri = "data:image/png;base64," + base64.b64encode(source_png).decode("ascii")
+        if mode == "camera":
+            model = "fal-ai/qwen-image-edit-2511-multiple-angles"
+            endpoint = f"https://queue.fal.run/{model}"
+            request_body = {
+                "image_urls": [image_data_uri],
+                "horizontal_angle": max(0, min(360, int(float(camera.get("horizontal") or 0)))),
+                "vertical_angle": max(-30, min(90, int(float(camera.get("vertical") or 0)))),
+                "zoom": max(0, min(10, float(camera.get("zoom") if camera.get("zoom") is not None else 5))),
+                "additional_prompt": "Preserve the same subject identity, clothing, scene objects, environment and overall style.",
+            }
+        else:
+            model = "fal-ai/iclight-v2"
+            endpoint = f"https://queue.fal.run/{model}"
+            horizontal = max(-100, min(100, int(float(light.get("horizontal") or 0))))
+            vertical = max(-100, min(100, int(float(light.get("vertical") or 0))))
+            brightness = max(0, min(2, float(light.get("brightness") if light.get("brightness") is not None else 1)))
+            color = str(light.get("color") or "#ffffff")
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                color = "#ffffff"
+            layers = light.get("layers") if isinstance(light.get("layers"), list) else []
+            active_index = max(0, min(len(layers) - 1, int(light.get("active") or 0))) if layers else 0
+            direction_layer = layers[active_index] if layers and isinstance(layers[active_index], dict) else light
+            direction_h = max(-100, min(100, int(float(direction_layer.get("horizontal") or 0))))
+            direction_v = max(-100, min(100, int(float(direction_layer.get("vertical") or 0))))
+            if abs(direction_h) >= abs(direction_v):
+                latent = "Right" if direction_h > 15 else "Left" if direction_h < -15 else "None"
+            else:
+                latent = "Top" if direction_v > 15 else "Bottom" if direction_v < -15 else "None"
+            layer_descriptions = []
+            for layer in layers[:8]:
+                if not isinstance(layer, dict):
+                    continue
+                layer_h = max(-100, min(100, int(float(layer.get("horizontal") or 0))))
+                layer_v = max(-100, min(100, int(float(layer.get("vertical") or 0))))
+                layer_b = max(0, min(2, float(layer.get("brightness") if layer.get("brightness") is not None else 1)))
+                layer_color = str(layer.get("color") or "#ffffff")
+                if not re.fullmatch(r"#[0-9a-fA-F]{6}", layer_color):
+                    layer_color = "#ffffff"
+                layer_descriptions.append(f"source {len(layer_descriptions) + 1}: {layer_color}, horizontal {layer_h}, vertical {layer_v}, brightness {layer_b:.1f}")
+            layers_prompt = "; ".join(layer_descriptions) or f"one light: {color}, horizontal {horizontal}, vertical {vertical}, brightness {brightness:.1f}"
+            request_body = {
+                "image_url": image_data_uri,
+                "prompt": f"Relight using {len(layer_descriptions) or 1} light source(s): {layers_prompt}. Preserve the subject, identity, objects, environment and composition.",
+                "initial_latent": latent,
+            }
+        headers = {"Authorization": f"Key {FAL_API_KEY}", "Content-Type": "application/json"}
+        try:
+            provider_response = requests.post(endpoint, headers=headers, json=request_body, timeout=120)
+            response_data = safe_provider_json(provider_response, "fal", endpoint)
+            if provider_response.status_code >= 400:
+                return image_error_response("fal", "edit_workspace", model, endpoint, "Fal request failed", provider_response, response_data)
+            status_url = str(response_data.get("status_url") or "")
+            response_url = str(response_data.get("response_url") or "")
+            if not response_url:
+                request_id = str(response_data.get("request_id") or "")
+                if request_id:
+                    status_url = status_url or f"https://queue.fal.run/{model}/requests/{request_id}/status"
+                    response_url = f"https://queue.fal.run/{model}/requests/{request_id}"
+            if not response_url:
+                return image_error_response("fal", "edit_workspace", model, endpoint, "Fal queue returned no request URL", provider_response, response_data)
+            deadline = time.monotonic() + 600
+            while status_url and time.monotonic() < deadline:
+                status_response = requests.get(status_url, headers={"Authorization": f"Key {FAL_API_KEY}"}, timeout=45)
+                status_data = safe_provider_json(status_response, "fal", status_url)
+                if status_response.status_code >= 400:
+                    return image_error_response("fal", "edit_workspace", model, status_url, "Fal status check failed", status_response, status_data)
+                status = str(status_data.get("status") or "").upper()
+                if status == "COMPLETED":
+                    break
+                if status in {"FAILED", "CANCELLED"}:
+                    return image_error_response("fal", "edit_workspace", model, status_url, status_data.get("error") or "Fal generation failed", status_response, status_data)
+                time.sleep(2)
+            else:
+                if status_url:
+                    return image_error_response("fal", "edit_workspace", model, status_url, "Fal generation timed out")
+            provider_response = requests.get(response_url, headers={"Authorization": f"Key {FAL_API_KEY}"}, timeout=120)
+            response_data = safe_provider_json(provider_response, "fal", response_url)
+            if provider_response.status_code >= 400:
+                return image_error_response("fal", "edit_workspace", model, response_url, "Fal result request failed", provider_response, response_data)
+        except requests.RequestException as exc:
+            return image_error_response("fal", "edit_workspace", model, endpoint, "Fal request failed", data={"body_preview": str(exc)[:1000]})
+        provider_urls = []
+        for item in response_data.get("images") or []:
+            candidate = item.get("url") if isinstance(item, dict) else str(item or "")
+            if candidate:
+                provider_urls.append(candidate)
+        if not provider_urls and isinstance(response_data.get("image"), dict) and response_data["image"].get("url"):
+            provider_urls = [response_data["image"]["url"]]
+    else:
+        if not OPENAI_API_KEY:
+            return {"ok": False, "type": "image", "error": "Сервис генерации временно недоступен."}
+        prompt = str(payload.get("prompt") or "Edit the image faithfully while preserving the subject's identity and original composition.")
+        files = [("image", ("source.png", source_png, "image/png"))]
+        request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
+        try:
+            provider_response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files, timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+            response_data = safe_provider_json(provider_response, "openai", endpoint)
+        except requests.RequestException as exc:
+            return image_error_response("openai", "edit_workspace", model, endpoint, "OpenAI image edit failed", data={"body_preview": str(exc)[:1000]})
+        if provider_response.status_code >= 400 or response_data.get("ok") is False:
+            return image_error_response("openai", "edit_workspace", model, endpoint, response_data.get("error") or "OpenAI image edit failed", provider_response, response_data)
+        provider_urls = normalize_image_response(response_data)[:1]
+
+    if not provider_urls:
+        return image_error_response(provider, "edit_workspace", model, endpoint, "Provider returned no image", provider_response, response_data)
+    try:
+        image_url = _persist_remote_media_url(provider_urls[0], "images", provider=provider)
+    except Exception as exc:
+        prostudio_error("EDIT_WORKSPACE_RESULT_PERSIST_FAILED", exc, provider=provider, mode=mode)
+        return image_error_response(provider, "edit_workspace", model, endpoint, "Could not persist edit result")
+    if not image_url:
+        return image_error_response(provider, "edit_workspace", model, endpoint, "Could not persist edit result")
+    price = calculate_generation_price(payload)
+    extra = {
+        "provider": provider, "model": "edit_workspace", "provider_model": model,
+        "tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": mode,
+        "source_image_url": source_url, "reference_images": [source_url],
+        "canvas_width": source_size[0], "canvas_height": source_size[1],
+        "cost_credits": int(price.get("credits") or 0), "cost_usd": price.get("cost_usd") or 0,
+        "generation_cost": price.get("generation_cost") or "",
+    }
+    job_id = str(payload.get("job_id") or "")
+    if job_id:
+        result = {**_build_image_result_without_thumbnails([image_url]), **extra}
+        asyncio.create_task(_finalize_image_thumbnails_background(job_id, [image_url]))
+    else:
+        result = attach_image_thumbnails({"ok": True, "type": "image", "image_url": image_url, "images": [image_url], **extra})
     return result
 
 
@@ -18478,6 +18646,34 @@ def estimate_generation_cost(payload: dict) -> dict:
 def calculate_generation_price(payload: dict) -> dict:
     """Single entry point for all new estimates, reservations and settlements."""
     estimate = estimate_generation_cost(payload)
+    if is_edit_workspace_request(payload):
+        opts = payload.get("image_options") or {}
+        operation = str(opts.get("editWorkspaceMode") or "edit").lower()
+        if operation == "camera":
+            provider_cost = 0.035
+            model_label = "Qwen Image Edit 2511 Multiple Angles"
+        elif operation == "lighting":
+            provider_cost = 0.10
+            model_label = "IC-Light v2"
+        else:
+            detail = openai_image_cost_info("gpt_image_2_5_sunburst", "gpt-image-2.5-sunburst", "high", 1)
+            credits = max(1, int(detail.get("cost_credits") or 32))
+            provider_cost = float(detail.get("cost_usd") or 0.3165)
+            estimate = {"credits": credits, "cost_usd": provider_cost, "generation_cost": f"{credits} ⚡", "pricing_available": True, "model_label": "GPT Image 2.5 Sunburst"}
+        if operation in {"camera", "lighting"}:
+            source_url = str(opts.get("editWorkspaceSourceUrl") or "")
+            source_bytes = _read_image_bytes_for_generation(source_url) if source_url else b""
+            megapixels = 1.0
+            if source_bytes:
+                try:
+                    import io
+                    from PIL import Image
+                    with Image.open(io.BytesIO(source_bytes)) as image:
+                        megapixels = max(0.25, min(20.0, (image.width * image.height) / 1_000_000))
+                except Exception:
+                    pass
+            credits = max(1, int(math.ceil(provider_cost * megapixels * 1.5 * 100)))
+            estimate = {"credits": credits, "cost_usd": round(provider_cost * megapixels * 1.5, 4), "provider_cost_usd": round(provider_cost * megapixels, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "model_label": model_label, "input_megapixels": round(megapixels, 3)}
     video_options = payload.get("video_options") if isinstance(payload.get("video_options"), dict) else {}
     video_template = video_options.get("video_template") if isinstance(video_options.get("video_template"), dict) else {}
     if str(payload.get("mode") or payload.get("category") or "").lower() == "video" and video_template:
@@ -18574,6 +18770,9 @@ async def image_generation(payload: dict) -> dict:
             job_id=payload.get("job_id") or payload.get("generation_id") or "",
         )
         return {"ok": False, "type": "image", "error": "Не удалось удалить водяной знак. Попробуйте ещё раз.", "raw_error": "watermark_removal_misrouted_to_image_generation"}
+    if is_edit_workspace_request(payload):
+        prostudio_error("EDIT_WORKSPACE_MISROUTED_TO_GENERIC_IMAGE_GENERATION", RuntimeError("edit_workspace job reached generic image_generation"), job_id=payload.get("job_id") or "")
+        return {"ok": False, "type": "image", "error": "Не удалось отредактировать изображение.", "raw_error": "edit_workspace_misrouted_to_image_generation"}
     if is_replace_object_request(payload):
         prostudio_error(
             "REPLACE_OBJECT_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
@@ -20260,6 +20459,9 @@ def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model
     """Resolve the real provider before any external generation request."""
     if payload.get("_sylvex_test_authorized"):
         return "SYLVEX_TEST"
+    if mode == "image" and is_edit_workspace_request(payload):
+        edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit").lower()
+        return "FAL" if edit_mode in {"camera", "lighting"} else "OPENAI"
     candidate = selected_provider
     if mode == "image":
         if is_seedream_request(payload):
@@ -20307,7 +20509,12 @@ async def dispatch_prostudio_provider_request(
 ) -> dict:
     """Perform one initial provider submission/generation attempt."""
     result = None
-    if mode == "image" and is_watermark_removal_request(payload):
+    if mode == "image" and is_edit_workspace_request(payload):
+        edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit")
+        edit_provider = "fal" if edit_mode in {"camera", "lighting"} else "openai"
+        prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=edit_provider, model=selected_model, route="generate_edit_workspace_image", edit_mode=edit_mode)
+        result = await run_provider_coroutine_off_loop(lambda: generate_edit_workspace_image(payload))
+    elif mode == "image" and is_watermark_removal_request(payload):
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider="openai", model=selected_model, route="generate_watermark_removal_image")
         result = await run_provider_coroutine_off_loop(lambda: generate_watermark_removal_image(payload))
     elif mode == "image" and is_replace_object_request(payload):
