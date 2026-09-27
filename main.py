@@ -194,7 +194,25 @@ SUBSCRIPTION_REMINDER_INTERVAL_SECONDS = int(os.getenv("SUBSCRIPTION_REMINDER_IN
 # the 60s job heartbeat interval while cutting the previous 30-minute
 # worst-case stuck time down to something a user won't just give up on.
 PROSTUDIO_STALE_PROCESSING_MINUTES = int(os.getenv("PROSTUDIO_STALE_PROCESSING_MINUTES", "5"))
+# Hard wall-clock ceiling for one media job, independent of worker/provider
+# heartbeats. A healthy lease must not keep a request alive forever.
+PROSTUDIO_MAX_JOB_RUNTIME_SECONDS = max(60, int(os.getenv("PROSTUDIO_MAX_JOB_RUNTIME_SECONDS", "900")))
+PROSTUDIO_PROVIDER_CONNECT_TIMEOUT_SECONDS = max(1, int(os.getenv("PROSTUDIO_PROVIDER_CONNECT_TIMEOUT_SECONDS", "15")))
+PROSTUDIO_PROVIDER_READ_TIMEOUT_SECONDS = max(10, int(os.getenv("PROSTUDIO_PROVIDER_READ_TIMEOUT_SECONDS", "180")))
+XAI_IMAGE_EDIT_READ_TIMEOUT_SECONDS = max(10, int(os.getenv("XAI_IMAGE_EDIT_READ_TIMEOUT_SECONDS", "300")))
 PROSTUDIO_MAX_JOB_ATTEMPTS = int(os.getenv("PROSTUDIO_MAX_JOB_ATTEMPTS", "3"))
+
+
+def prostudio_provider_timeout(read_timeout: Optional[int] = None) -> tuple[int, int]:
+    """Requests timeout tuple: bounded connection establishment and read."""
+    return (
+        PROSTUDIO_PROVIDER_CONNECT_TIMEOUT_SECONDS,
+        max(10, int(read_timeout or PROSTUDIO_PROVIDER_READ_TIMEOUT_SECONDS)),
+    )
+
+
+XAI_IMAGE_EDIT_TIMEOUT = prostudio_provider_timeout(XAI_IMAGE_EDIT_READ_TIMEOUT_SECONDS)
+PROSTUDIO_PROVIDER_TIMEOUT = prostudio_provider_timeout()
 SUPERADMIN_TELEGRAM_ID = int(os.getenv("SUPERADMIN_TELEGRAM_ID", "7932380565") or 7932380565)
 PROSTUDIO_ADMIN_ID = int(os.getenv("ADMIN_ID", str(SUPERADMIN_TELEGRAM_ID)) or SUPERADMIN_TELEGRAM_ID)
 # Lets the separate SYLVEX Support Bot (its own Telegram bot/token, so it can
@@ -5166,7 +5184,7 @@ def _json_obj(value) -> dict:
 # Job error records may carry raw provider/exception text (repr(exc), raw_error,
 # traceback) that can embed secrets from a failed HTTP call. Any route that
 # returns a job's stored error to its owner must go through this whitelist.
-_PUBLIC_JOB_ERROR_FIELDS = {"ok", "error", "message", "status_code", "provider", "type"}
+_PUBLIC_JOB_ERROR_FIELDS = {"ok", "error", "error_code", "message", "status_code", "provider", "type"}
 
 
 def _public_error_json(value) -> dict:
@@ -5484,16 +5502,14 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
         if not current:
             conn.rollback()
             return False
-        # A terminal job (completed or failed) must never be overwritten by a
-        # late/duplicate callback - e.g. a straggling poll response arriving
-        # after stale-job recovery already marked the job failed and
-        # refunded its reservation, or a retried provider call resolving
-        # after the first attempt's response already settled the job.
-        # Re-affirming the same terminal status is harmless and allowed.
-        if current[0] in {"completed", "failed"} and status != current[0]:
+        terminal_statuses = {"completed", "failed", "cancelled", "canceled", "timeout"}
+        # A late provider response must never revive a timed-out/cancelled job
+        # or overwrite any other terminal result. Reaffirming the same state
+        # is allowed for idempotent worker cleanup.
+        if current[0] in terminal_statuses and status != current[0]:
             conn.rollback()
             return False
-        if status in {"failed", "cancelled", "canceled"}:
+        if status in {"failed", "cancelled", "canceled", "timeout"}:
             release_generation(cursor, job_id)
         cursor.execute("""
             UPDATE prostudio_generation_jobs
@@ -5504,7 +5520,7 @@ def update_prostudio_generation_job(job_id: str, status: str, result: Optional[d
                 error_json = COALESCE(%s::jsonb, error_json),
                 cost = CASE WHEN %s IN ('completed', 'provider_processing') THEN COALESCE(%s, cost) ELSE cost END,
                 updated_at = NOW(),
-                completed_at = CASE WHEN %s IN ('completed', 'failed') THEN NOW() ELSE completed_at END
+                completed_at = CASE WHEN %s IN ('completed', 'failed', 'cancelled', 'canceled', 'timeout') THEN NOW() ELSE completed_at END
             WHERE id = %s
         """, (
             status,
@@ -5614,10 +5630,13 @@ def requeue_stale_prostudio_jobs():
                 SELECT id
                 FROM prostudio_generation_jobs
                 WHERE status IN ('queued', 'processing', 'provider_processing')
-                  AND COALESCE(heartbeat_at, updated_at, created_at) < NOW() - (%s || ' minutes')::interval
+                  AND (
+                    created_at < NOW() - (%s * INTERVAL '1 second')
+                    OR COALESCE(heartbeat_at, updated_at, created_at) < NOW() - (%s || ' minutes')::interval
+                  )
                 ORDER BY created_at ASC
                 LIMIT 200
-            """, (PROSTUDIO_STALE_PROCESSING_MINUTES,))
+            """, (PROSTUDIO_MAX_JOB_RUNTIME_SECONDS, PROSTUDIO_STALE_PROCESSING_MINUTES))
             job_ids = [str(row[0]) for row in cursor.fetchall()]
         finally:
             cursor.close()
@@ -5669,14 +5688,16 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
         """, (job_id,))
         slot_rows = cursor.fetchall()
         live_slot = next((slot for slot in slot_rows if bool(slot[4])), None)
+        age_seconds = float(row[6] or 0)
         heartbeat_age = float(row[7]) if row[7] is not None else None
         reference_time = row[5] or row[4] or row[3]
         cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - %s::timestamp))", (reference_time,))
         stale_age = float(cursor.fetchone()[0] or 0)
-        if stale_age <= threshold_seconds and not force:
+        max_runtime_expired = age_seconds >= PROSTUDIO_MAX_JOB_RUNTIME_SECONDS
+        if stale_age <= threshold_seconds and not force and not max_runtime_expired:
             conn.rollback()
             return {"recovered": False, "reason": "heartbeat_fresh", "status": old_status}
-        if live_slot:
+        if live_slot and not max_runtime_expired:
             conn.rollback()
             return {
                 "recovered": False, "reason": "live_provider_slot", "status": old_status,
@@ -5685,7 +5706,6 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
 
         worker_id = str(slot_rows[0][1] or "") if slot_rows else ""
         provider = str(row[2] or (slot_rows[0][0] if slot_rows else "") or "")
-        age_seconds = float(row[6] or 0)
         saved_result = _json_obj(row[8])
         cursor.execute(
             "SELECT EXISTS(SELECT 1 FROM generation_charges WHERE generation_id = %s)",
@@ -5693,7 +5713,7 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
         )
         has_charge = bool(cursor.fetchone()[0])
         has_final_result = generation_has_completed_result(saved_result, "")
-        reason = "stale_worker_recovered"
+        reason = "generation_timeout" if max_runtime_expired else "stale_worker_recovered"
         detected = {
             "job_id": job_id, "old_status": old_status,
             "age_seconds": round(age_seconds, 3),
@@ -5704,15 +5724,22 @@ def _recover_stale_prostudio_job_once(job_id: str, force: bool = False) -> dict:
         prostudio_debug("PROSTUDIO_STALE_JOB_DETECTED", **detected)
         cursor.execute("""
             DELETE FROM prostudio_provider_slots
-            WHERE job_id = %s AND lease_until <= NOW()
+            WHERE job_id = %s
+              AND (%s OR lease_until <= NOW())
             RETURNING provider, worker_id
-        """, (job_id,))
+        """, (job_id, max_runtime_expired))
         released_slots = cursor.fetchall()
-        error_payload = {
+        error_payload = ({
             "ok": False,
-            "error": reason,
-            "message": "Предыдущая генерация была остановлена после перезапуска worker.",
-        }
+            "error": "generation_timeout",
+            "error_code": "generation_timeout",
+            "message": "Генерация превысила допустимое время и была остановлена.",
+        } if max_runtime_expired else {
+            "ok": False,
+            "error": "generation_timeout",
+            "error_code": "generation_timeout",
+            "message": "Генерация была остановлена, потому что worker перестал подтверждать её выполнение.",
+        })
         cursor.execute("""
             UPDATE prostudio_generation_jobs
             SET status = 'failed', error_json = %s::jsonb,
@@ -8739,7 +8766,9 @@ async def public_prostudio_job(job_id: str):
                     result_json,
                     error_json,
                     conversation_id,
-                    mode
+                    mode,
+                    EXTRACT(EPOCH FROM (NOW() - created_at)),
+                    EXTRACT(EPOCH FROM (NOW() - COALESCE(heartbeat_at, updated_at, created_at)))
                 FROM prostudio_generation_jobs
                 WHERE id = %s AND telegram_id = %s
                 LIMIT 1
@@ -8758,6 +8787,22 @@ async def public_prostudio_job(job_id: str):
                 {"ok": False, "error": "job_not_found"},
                 status_code=404,
             )
+        job_age_seconds = float(row[5] or 0)
+        heartbeat_age_seconds = float(row[6] or 0)
+        should_reconcile = (
+            job_age_seconds >= PROSTUDIO_MAX_JOB_RUNTIME_SECONDS
+            or heartbeat_age_seconds >= max(60, PROSTUDIO_STALE_PROCESSING_MINUTES * 60)
+        )
+        if str(row[0] or "").lower() in PROSTUDIO_ACTIVE_JOB_STATUSES and should_reconcile:
+            # Reconcile on the authenticated poll path as well as in the
+            # worker loop. This covers deployments where the worker crashed
+            # or is currently disabled, while the recovery function keeps
+            # fresh jobs with live leases untouched until the hard deadline.
+            recovery = await asyncio.to_thread(recover_stale_prostudio_job, job_id)
+            if recovery.get("recovered"):
+                row = await asyncio.to_thread(_fetch_job_row)
+                if not row:
+                    return JSONResponse({"ok": False, "error": "job_not_found"}, status_code=404)
         result_json = _json_obj(row[1])
         error_json = _public_error_json(_json_obj(row[2]))
         if error_json:
@@ -14557,7 +14602,7 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
                 "Content-Type": "application/json",
             },
             data=json.dumps(request_payload),
-            timeout=timeout_seconds,
+            timeout=(PROSTUDIO_PROVIDER_CONNECT_TIMEOUT_SECONDS, timeout_seconds),
         )
 
     try:
@@ -15249,7 +15294,7 @@ async def generate_replace_object_image(payload: dict) -> dict:
     for attempt in range(1, 3):
         try:
             response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
-                timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+                timeout=prostudio_provider_timeout(max(10, int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))))
             if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
                 break
             prostudio_debug("REPLACE_OBJECT_TRANSIENT_RESPONSE", attempt=attempt, status_code=response.status_code)
@@ -15375,7 +15420,7 @@ async def generate_remove_object_image(payload: dict) -> dict:
                 headers=openai_auth_headers(),
                 data=request_data,
                 files=files,
-                timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")),
+                timeout=prostudio_provider_timeout(max(10, int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))),
             )
             if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
                 break
@@ -15534,7 +15579,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
             }
         headers = {"Authorization": f"Key {FAL_API_KEY}", "Content-Type": "application/json"}
         try:
-            provider_response = requests.post(endpoint, headers=headers, json=request_body, timeout=120)
+            provider_response = requests.post(endpoint, headers=headers, json=request_body, timeout=PROSTUDIO_PROVIDER_TIMEOUT)
             response_data = safe_provider_json(provider_response, "fal", endpoint)
             if provider_response.status_code >= 400:
                 return image_error_response("fal", "edit_workspace", model, endpoint, "Fal request failed", provider_response, response_data)
@@ -15549,7 +15594,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
                 return image_error_response("fal", "edit_workspace", model, endpoint, "Fal queue returned no request URL", provider_response, response_data)
             deadline = time.monotonic() + 600
             while status_url and time.monotonic() < deadline:
-                status_response = requests.get(status_url, headers={"Authorization": f"Key {FAL_API_KEY}"}, timeout=45)
+                status_response = requests.get(status_url, headers={"Authorization": f"Key {FAL_API_KEY}"}, timeout=PROSTUDIO_PROVIDER_TIMEOUT)
                 status_data = safe_provider_json(status_response, "fal", status_url)
                 if status_response.status_code >= 400:
                     return image_error_response("fal", "edit_workspace", model, status_url, "Fal status check failed", status_response, status_data)
@@ -15562,7 +15607,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
             else:
                 if status_url:
                     return image_error_response("fal", "edit_workspace", model, status_url, "Fal generation timed out")
-            provider_response = requests.get(response_url, headers={"Authorization": f"Key {FAL_API_KEY}"}, timeout=120)
+            provider_response = requests.get(response_url, headers={"Authorization": f"Key {FAL_API_KEY}"}, timeout=PROSTUDIO_PROVIDER_TIMEOUT)
             response_data = safe_provider_json(provider_response, "fal", response_url)
             if provider_response.status_code >= 400:
                 return image_error_response("fal", "edit_workspace", model, response_url, "Fal result request failed", provider_response, response_data)
@@ -15582,7 +15627,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         files = [("image", ("source.png", source_png, "image/png"))]
         request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
         try:
-            provider_response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files, timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+            provider_response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files, timeout=prostudio_provider_timeout(max(10, int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))))
             response_data = safe_provider_json(provider_response, "openai", endpoint)
         except requests.RequestException as exc:
             return image_error_response("openai", "edit_workspace", model, endpoint, "OpenAI image edit failed", data={"body_preview": str(exc)[:1000]})
@@ -15661,7 +15706,7 @@ async def generate_watermark_removal_image(payload: dict) -> dict:
     for attempt in range(1, 3):
         try:
             response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files,
-                timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
+                timeout=prostudio_provider_timeout(max(10, int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))))
             if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
                 break
             prostudio_debug("WATERMARK_REMOVAL_TRANSIENT_RESPONSE", attempt=attempt, status_code=response.status_code)
@@ -17133,7 +17178,7 @@ def poll_flux_image(polling_url: str, frontend_model: str, provider_model: str, 
     headers = flux_headers()
     for attempt in range(1, max_attempts + 1):
         try:
-            response = safe_get(polling_url, headers=headers, timeout=60)
+            response = safe_get(polling_url, headers=headers, timeout=PROSTUDIO_PROVIDER_TIMEOUT)
         except requests.RequestException as exc:
             return [], image_error_response("flux", frontend_model, provider_model, polling_url, "Provider request failed", data={"body_preview": str(exc)[:1000]})
         data = safe_provider_json(response, "flux", polling_url)
@@ -17184,7 +17229,7 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
             request_payload[key] = ref
     submit_endpoint = f"{endpoint.rstrip('/')}/{provider_model}"
     try:
-        response = requests.post(submit_endpoint, headers=headers, json=request_payload, timeout=60)
+        response = requests.post(submit_endpoint, headers=headers, json=request_payload, timeout=PROSTUDIO_PROVIDER_TIMEOUT)
     except requests.RequestException as exc:
         return [], image_error_response("flux", frontend_model, provider_model, submit_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
     data = safe_provider_json(response, "flux", submit_endpoint)
@@ -17753,7 +17798,7 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
                 attempt=attempt,
                 seed_present=seed is not None,
             )
-            response = requests.post(endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
+            response = requests.post(endpoint, headers=headers, data=json.dumps(request_payload), timeout=PROSTUDIO_PROVIDER_TIMEOUT)
         except requests.RequestException as exc:
             prostudio_error("QWEN_IMAGE_PROVIDER_REQUEST_FAILED", exc, endpoint=endpoint, frontend_model=frontend_model, provider_model=effective_provider_model)
             return [], image_error_response("qwen", frontend_model, effective_provider_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), last_payload
@@ -18131,7 +18176,7 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
             reference_count=len(reference_images),
             operation="style_edit" if is_style_edit else "generation",
         )
-        response = requests.post(request_endpoint, headers=headers, json=request_payload, timeout=180)
+        response = requests.post(request_endpoint, headers=headers, json=request_payload, timeout=XAI_IMAGE_EDIT_TIMEOUT if is_style_edit else PROSTUDIO_PROVIDER_TIMEOUT)
     except requests.RequestException as exc:
         prostudio_error("GROK_PROVIDER_REQUEST_FAILED", exc, endpoint=request_endpoint, frontend_model=frontend_model, provider_model=provider_model)
         return [], image_error_response("grok", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
@@ -18335,7 +18380,7 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
             response_modalities=request_payload.get("response_modalities") if not is_imagen else [],
             response_format=request_payload.get("response_format") if not is_imagen else {},
         )
-        response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=180)
+        response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=PROSTUDIO_PROVIDER_TIMEOUT)
     except requests.RequestException as exc:
         prostudio_error("GOOGLE_PROVIDER_REQUEST_FAILED", exc, endpoint=request_endpoint, frontend_model=frontend_model, provider_model=provider_model)
         return [], image_error_response("google", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
@@ -18431,9 +18476,9 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
                 return [], image_error_response("recraft", frontend_model, provider_model, request_endpoint, "Could not load the selected reference image."), request_payload
             _field, file_tuple = reference_file
             multipart = {key: (None, str(value)) for key, value in request_payload.items() if value is not None and value != ""}
-            response = requests.post(request_endpoint, headers={"Authorization": headers.get("Authorization", "")}, data=multipart, files=[("image", file_tuple)], timeout=120)
+            response = requests.post(request_endpoint, headers={"Authorization": headers.get("Authorization", "")}, data=multipart, files=[("image", file_tuple)], timeout=PROSTUDIO_PROVIDER_TIMEOUT)
         else:
-            response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=120)
+            response = requests.post(request_endpoint, headers=headers, data=json.dumps(request_payload), timeout=PROSTUDIO_PROVIDER_TIMEOUT)
     except requests.RequestException as exc:
         return [], image_error_response("recraft", frontend_model, provider_model, request_endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]}), request_payload
     data = safe_provider_json(response, "recraft", request_endpoint)
@@ -18919,7 +18964,7 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
     attempts = 1 if not is_v4 else max(1, min(int(count or 1), 4))
     try:
         for _ in range(attempts):
-            response = requests.post(request_endpoint, headers=headers, files=[*ideogram_form_files(request_payload).items(), *reference_files], timeout=120)
+            response = requests.post(request_endpoint, headers=headers, files=[*ideogram_form_files(request_payload).items(), *reference_files], timeout=PROSTUDIO_PROVIDER_TIMEOUT)
             data = safe_provider_json(response, "ideogram", request_endpoint)
             if response.status_code >= 400 or data.get("ok") is False:
                 return [], image_error_response("ideogram", frontend_model, provider_model, request_endpoint, data.get("error") or "Provider request failed", response, data), request_payload
@@ -19135,7 +19180,7 @@ async def image_generation(payload: dict) -> dict:
                         headers=openai_auth_headers(),
                         data=request_data,
                         files=files,
-                        timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")),
+                        timeout=prostudio_provider_timeout(max(10, int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))),
                     )
                     if response.status_code not in {408, 409, 429, 500, 502, 503, 504}:
                         break
@@ -19198,7 +19243,7 @@ async def image_generation(payload: dict) -> dict:
                 endpoint,
                 headers=openai_headers(),
                 data=json.dumps(request_payload),
-                timeout=180,
+                timeout=PROSTUDIO_PROVIDER_TIMEOUT,
             )
         except requests.RequestException as exc:
             return image_error_response(provider, requested_model, api_model, endpoint, "Provider request failed", data={"body_preview": str(exc)[:1000]})
