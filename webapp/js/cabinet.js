@@ -235,7 +235,6 @@ console.log("SYLVEX_CABINET_JS_STARTED");
   // Pending attachment for next send.
   let pendingAttachment = null; // { kind, mime, name, dataBase64 }
   let pendingAttachAccept = '';
-  let pendingImageUploads = 0;
   // Voice recording state.
   let mediaRecorder = null;
   let mediaChunks = [];
@@ -6093,6 +6092,7 @@ function applyUploadToTarget(url, targetOverride) {
     imageState.uploadedImageUrls = uploads.slice(0, uploadLimitForTarget(target));
     imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
     imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
+    imageState.attachment = imageState.attachment || null;
     renderImageUploadPreview();
     renderUploadedPhotoGrid();
     updateSendButton();
@@ -6164,9 +6164,6 @@ function setCurrentUploadImages(urls, targetOverride) {
     imageState.uploadedImageUrls = clean.slice(0, uploadLimitForTarget(target));
     imageState.referenceImageUrls = imageState.uploadedImageUrls.slice();
     imageState.referenceImageUrl = imageState.uploadedImageUrls[0] || '';
-    if (imageState.attachment && imageState.attachment.url && !clean.includes(imageState.attachment.url)) {
-      imageState.attachment = null;
-    }
     renderImageUploadPreview();
   }
   renderUploadedPhotoGrid();
@@ -16434,7 +16431,6 @@ function closeUploadPanel(e) {
     if (!res.ok || !data.ok || !data.url) {
       throw new Error(data.error || 'Не удалось загрузить файл');
     }
-    if (preferInternalPath === 'url') return String(data.url || '');
     return String((preferInternalPath && data.path) || (kind === 'image' && data.inline_url) || data.url || '');
   }
 
@@ -16734,33 +16730,6 @@ function closeUploadPanel(e) {
         });
       return;
     }
-    if (pendingKind === 'image') {
-      const target = getUploadTarget();
-      pendingImageUploads += 1;
-      updateSendButton();
-      try {
-        const url = await uploadProStudioMediaFile(f, 'image', 'url');
-        if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
-          imageState.attachment = {
-            kind: 'image',
-            url,
-            name: f.name,
-            mime: f.type || 'image/jpeg',
-            size: f.size || 0,
-          };
-        }
-        applyUploadToTarget(url, target);
-        renderUploadedPhotoGrid();
-        renderUploadPreviewForTarget(target);
-        toast('Фото загружено');
-      } catch (err) {
-        toast((err && err.message) || 'Не удалось загрузить фото');
-      } finally {
-        pendingImageUploads = Math.max(0, pendingImageUploads - 1);
-        updateSendButton();
-      }
-      return;
-    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || '');
@@ -16771,7 +16740,16 @@ function closeUploadPanel(e) {
         name: f.name,
         dataBase64: b64,
       };
-      setCurrentModeAttachment(attachment);
+      if (pendingKind === 'image' && result) {
+        const target = getUploadTarget();
+        if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) imageState.attachment = attachment;
+        applyUploadToTarget(result, target);
+        renderUploadedPhotoGrid();
+        renderUploadPreviewForTarget(target);
+        toast('Фото загружено');
+      } else {
+        setCurrentModeAttachment(attachment);
+      }
 
       if ((isMusicMode() || isVoiceMode()) && result && pendingKind !== 'image') {
         const state = currentAudioState();
@@ -18826,10 +18804,6 @@ async function waitGeneration(jobId, options) {
     if (studioMode === 'text') return sendTextChat();
     if (activeGenerationLocked()) {
       toast(activeGenerationButtonLabel(activeGeneration.status));
-      return;
-    }
-    if (pendingImageUploads > 0) {
-      toast('Дождитесь завершения загрузки фото');
       return;
     }
     const ta = document.getElementById('chatInput');
@@ -20999,15 +20973,6 @@ async function waitGeneration(jobId, options) {
       if (label) label.textContent = activeLabel;
       send.setAttribute('aria-label', activeLabel);
       send.title = activeLabel;
-      return;
-    }
-    if (pendingImageUploads > 0) {
-      send.disabled = true;
-      send.hidden = false;
-      send.classList.remove('has-active-job');
-      if (label) label.textContent = 'Загрузка фото…';
-      send.setAttribute('aria-label', 'Загрузка фото');
-      send.title = 'Загрузка фото';
       return;
     }
     send.classList.remove('has-active-job');
