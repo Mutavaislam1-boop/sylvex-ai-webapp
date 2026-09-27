@@ -14027,7 +14027,11 @@ def build_image_prompt(payload: dict) -> str:
     if size and size.lower() != "auto":
         parts.append(ratio_map.get(size, f"Generate the image with {size} aspect ratio."))
 
-    style = str(opts.get("style") or "").strip()
+    style_value = opts.get("style")
+    if isinstance(style_value, dict):
+        style_value = style_value.get("id") or style_value.get("style") or style_value.get("name")
+    style = str(style_value or "").strip()
+    selected_style_prompt = str(opts.get("style_prompt") or opts.get("stylePrompt") or "").strip()
     
     # Add new visual style prompts here. The key must exactly match the Mini App style id from cabinet.js.
     # Example: cabinet.js id "aegean_luxury" -> main.py style_map key "aegean_luxury".
@@ -14265,7 +14269,9 @@ def build_image_prompt(payload: dict) -> str:
         }
     
 
-    if style and style.lower() not in {"auto", "none"}:
+    if selected_style_prompt:
+        parts.append(selected_style_prompt)
+    elif style and style.lower() not in {"auto", "none"}:
         parts.append(style_map.get(style, f"Apply this visual style: {style}."))
 
     character = str(opts.get("character") or opts.get("mood") or "").strip()
