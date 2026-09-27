@@ -5370,10 +5370,13 @@ CSS-БЛОК: .upload-photo-thumb
 CSS-БЛОК: .upload-photo-thumb img
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-.upload-photo-thumb img{
+.upload-photo-thumb > img{
+  position:absolute !important;
+  inset:0 !important;
   width:100% !important;
   height:100% !important;
   object-fit:cover !important;
+  object-position:center !important;
   display:block !important;
 }
 
