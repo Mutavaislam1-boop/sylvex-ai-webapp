@@ -17604,7 +17604,7 @@ function maybeShowVideoTemplateIntro(force) {
       const poster = S.escapeHtml(template.poster_url || '');
       const ratio = String(template.aspect_ratio || '').trim();
       const ratioClass = ratio === '16:9' ? 'wide' : (ratio === '1:1' ? 'square' : 'tall');
-      return '<button class="video-template-card ' + ratioClass + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\')">'
+      return '<button class="video-template-card ' + ratioClass + '" type="button" data-template-id="' + id + '" onclick="SYLVEX.openVideoTemplateFromCatalog(event,\'' + encodedId + '\',\'' + (isEffects ? 'effects' : 'templates') + '\')">'
         + '<span class="video-template-card-poster"><span>▶</span></span>'
         + (src ? '<video data-template-src="' + src + '"' + (poster ? ' poster="' + poster + '"' : '') + ' loop muted playsinline preload="none" onerror="this.style.display=\'none\'"></video>' : '')
         + '<span class="video-template-card-shade"></span>'
@@ -17642,15 +17642,25 @@ function maybeShowVideoTemplateIntro(force) {
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openVideoTemplateFromCatalog
   // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
   // =====================================================
-  function openVideoTemplateFromCatalog(event, id) {
+  function openVideoTemplateFromCatalog(event, id, catalogType) {
     if (event) event.stopPropagation();
     try { id = decodeURIComponent(String(id || '')); } catch {}
-    const templates = (Array.isArray(klingEffectsCache) ? klingEffectsCache : []).concat(Array.isArray(videoTemplatesCache) ? videoTemplatesCache : []);
+    const effects = Array.isArray(klingEffectsCache) ? klingEffectsCache : [];
+    const templates = Array.isArray(videoTemplatesCache) ? videoTemplatesCache : [];
+    // Kling Video Effects and Video Templates are two independent backend
+    // catalogs with no shared id namespace - concatenating them and
+    // searching by id alone would let one catalog's item silently shadow
+    // the other's whenever their ids happen to collide (the card that
+    // rendered this click already knows which catalog it came from, via
+    // catalogType, so look there first and only fall back to the combined
+    // list for older call sites that don't pass it).
+    const primary = catalogType === 'effects' ? effects : (catalogType === 'templates' ? templates : null);
     // =====================================================
     // JAVASCRIPT-БЛОК: template
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
     // =====================================================
-    const template = templates.find((item) => String(item.id) === String(id));
+    const template = (primary && primary.find((item) => String(item.id) === String(id)))
+      || effects.concat(templates).find((item) => String(item.id) === String(id));
     if (template) openVideoTemplateModal(template);
   }
 
