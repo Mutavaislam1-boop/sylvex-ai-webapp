@@ -15781,6 +15781,64 @@ function restoreImageStateFromGenerationMetadata(meta) {
 }
 
 // =====================================================
+// JAVASCRIPT-БЛОК: restoreVideoStateFromGenerationMetadata
+// "Повторить генерацию" (regenMsg) counterpart to
+// restoreImageStateFromGenerationMetadata - restores the video-specific
+// settings actually used for this generation (model, ratio, resolution,
+// duration, quality, sound, reference images) instead of leaving whatever
+// the composer currently happens to be set to. Deliberately does not touch
+// generationMode/section (text_to_video/image_to_video/edit/motion) - that
+//3-way state is set consistently by updateComposerMode('video') right
+// before this runs, and re-deriving it here from a flat settings snapshot
+// risks an inconsistent section/generationMode combination.
+// =====================================================
+function restoreVideoStateFromGenerationMetadata(meta) {
+  if (!meta || meta.type !== 'video') return;
+  const settings = meta.settings || {};
+  videoState.modelId = meta.model || settings.model || settings.modelId || videoState.modelId;
+  videoState.ratio = meta.ratio || settings.ratio || videoState.ratio;
+  videoState.resolution = meta.size || settings.resolution || settings.size || videoState.resolution;
+  videoState.duration = Number(meta.duration || settings.duration || videoState.duration || 5);
+  if (settings.quality) videoState.quality = settings.quality;
+  if (settings.sound !== undefined) videoState.sound = !!settings.sound;
+  const refs = Array.isArray(settings.reference_images) && settings.reference_images.length
+    ? settings.reference_images.slice()
+    : (Array.isArray(settings.referenceImageUrls) ? settings.referenceImageUrls.slice() : []);
+  if (refs.length) setCurrentVideoReferenceImages(refs);
+  renderVideoControls();
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: restoreMusicStateFromGenerationMetadata
+// "Повторить генерацию" (regenMsg) counterpart for Music.
+// =====================================================
+function restoreMusicStateFromGenerationMetadata(meta) {
+  if (!meta || meta.type !== 'music') return;
+  const settings = meta.settings || {};
+  musicState.modelId = meta.model || settings.model || musicState.modelId;
+  if (settings.genre) musicState.genre = settings.genre;
+  if (settings.duration !== undefined && settings.duration !== null && settings.duration !== '') musicState.duration = settings.duration;
+  if (!musicState.settings || typeof musicState.settings !== 'object') musicState.settings = {};
+  ['mood', 'tempo', 'theme', 'vocal'].forEach((key) => { if (settings[key]) musicState.settings[key] = settings[key]; });
+  renderMusicControls();
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: restoreVoiceStateFromGenerationMetadata
+// "Повторить генерацию" (regenMsg) counterpart for Voice.
+// =====================================================
+function restoreVoiceStateFromGenerationMetadata(meta) {
+  if (!meta || meta.type !== 'voice') return;
+  const settings = meta.settings || {};
+  voiceState.modelId = meta.model || settings.model || voiceState.modelId;
+  if (settings.voice) voiceState.voice = settings.voice;
+  if (settings.elevenlabs_voice) voiceState.elevenlabsVoice = settings.elevenlabs_voice;
+  if (settings.runway_voice) voiceState.runwayVoice = settings.runway_voice;
+  if (settings.target_language) voiceState.targetLanguage = settings.target_language;
+  renderVoiceControls();
+}
+
+// =====================================================
 // ЗАПУСК ГЕНЕРАЦИИ: animateGeneratedImage
 // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
 // =====================================================
@@ -19555,6 +19613,29 @@ async function waitGeneration(jobId, options) {
   const prev = chatMessages[i - 1];
   if (!prev || prev.role !== 'user') return;
 
+  // "Повторить генерацию" must restore the ORIGINAL generation's mode and
+  // settings, not fire a request using whatever the composer currently
+  // happens to be set to - otherwise switching Pro Studio tabs between the
+  // original generation and clicking regenerate silently produces a
+  // different kind of media (e.g. re-running a video item while now in
+  // Image mode generates an image), and even a same-mode regenerate drops
+  // the original model/aspect-ratio/resolution/duration/Character/Object.
+  const meta = (chatMessages[i] && chatMessages[i].metadata) || null;
+  const modeForMeta = meta && meta.type && { image: 'image', video: 'video', music: 'music', voice: 'voice' }[meta.type];
+  if (modeForMeta) {
+    updateComposerMode(modeForMeta);
+    if (meta.type === 'image') restoreImageStateFromGenerationMetadata(meta);
+    else if (meta.type === 'video') restoreVideoStateFromGenerationMetadata(meta);
+    else if (meta.type === 'music') restoreMusicStateFromGenerationMetadata(meta);
+    else if (meta.type === 'voice') restoreVoiceStateFromGenerationMetadata(meta);
+  }
+  // Once state has been restored from metadata, let the normal options
+  // payload builders (imageOptionsPayload/videoOptionsPayload) read the
+  // just-restored reference images from state instead of forcing back the
+  // plain chat-attachment list, which would silently drop Character/Object/
+  // catalog references the restore just put back.
+  const referenceImagesOverride = modeForMeta ? undefined : (prev.referenceImages || []);
+
   chatMessages[i] = {
     generationLoading: true,
     role: 'ai',
@@ -19562,18 +19643,18 @@ async function waitGeneration(jobId, options) {
   };
   renderChat();
 
-  callGenerate(prev.text, null, prev.referenceImages || [], null, {
+  callGenerate(prev.text, null, referenceImagesOverride, null, {
     onProgress: (completed) => updateGenerationLoadingProgress(i, completed),
     loadingIndex: i,
   })
     .then(async (start) => {
       const j = start.result || start;
 
-      const resultType = isVideoMode()
+      const resultType = modeForMeta || (isVideoMode()
         ? 'video'
         : (isMusicMode()
             ? 'music'
-            : (isVoiceMode() ? 'voice' : 'image'));
+            : (isVoiceMode() ? 'voice' : 'image')));
 
       chatMessages[i] = {
         role: 'ai',
@@ -22597,7 +22678,14 @@ async function waitGeneration(jobId, options) {
   }
 
   function gridNodePreview(node,status) {
-    const output=node.output||null;
+    // Never render a stale/superseded result while the node is currently
+    // regenerating (RUNNING), has failed/been cancelled on its latest run,
+    // or was edited since its last run (READY, via markStudioGridDownstreamStale)
+    // - only a COMPLETED node's own output is current. The one exception is
+    // a "task" (grid auto-build planner) node's WAITING clarification
+    // question, which is itself the immediate, non-stale output of its run.
+    const isClarificationWaiting=node.type==='task'&&status==='WAITING';
+    const output=(status==='COMPLETED'||isClarificationWaiting)?(node.output||null):null;
     if(node.type==='task'&&output?.type==='clarification')return `<div class="studio-grid-clarification"><b>Нужно уточнение</b><span>${gridEscape(output.value||'')}</span></div>`;
     if (node.type==='text'&&output?.value) return `<textarea class="studio-grid-text-output" data-grid-output-text aria-label="Результат текста">${gridEscape(output.value)}</textarea>`;
     if (output?.type==='image'&&Array.isArray(output.items)) return `<div class="studio-grid-result-list">${output.items.map((item,index)=>`<button type="button" data-grid-pick-result="${index}" class="${index===Number(output.selected_index||0)?'active':''}"><img src="${gridEscape(item.preview_url||item.url)}" alt="" loading="lazy"></button>`).join('')}</div>`;
@@ -22642,7 +22730,7 @@ async function waitGeneration(jobId, options) {
         ${inputPorts}<button class="studio-grid-port out side-right" type="button" data-grid-output="${outputPort}" data-grid-side="right" aria-label="Подключить выход справа"></button><button class="studio-grid-port out side-bottom" type="button" data-grid-output="${outputPort}" data-grid-side="bottom" aria-label="Подключить выход снизу"></button>
         <header class="studio-grid-node-header"><i class="studio-grid-node-icon">${type.icon}</i><b>${gridEscape(node.title || type.title)}</b><button type="button" data-grid-expand-text aria-label="Развернуть редактор" title="Развернуть текст">↗</button><button type="button" data-grid-delete aria-label="Удалить">×</button></header>
         <div class="studio-grid-node-body">${gridNodeSettingsHtml(node)}${gridNodeInputSummary(node)}${gridNodeAttachmentsHtml(node)}<textarea data-grid-prompt placeholder="${gridEscape(type.placeholder)}">${gridEscape(visiblePrompt)}</textarea><div class="studio-grid-node-result">${preview}</div></div>
-        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:''}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Строим…':'Построить цепочку'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
+        <footer class="studio-grid-node-footer"><span class="studio-grid-node-status">${gridEscape(status)}</span>${node.estimated_cost&&node.estimated_cost.credits===null?`<span class="studio-grid-node-cost studio-grid-node-cost-unknown" title="Не удалось оценить стоимость">? ⚡</span>`:(node.estimated_cost?.credits?`<span class="studio-grid-node-cost">${Number(node.estimated_cost.credits)} ⚡</span>`:'')}${node.type==='task'?`<button type="button" data-grid-build${studioGridPlannerRunning?' disabled':''}>${studioGridPlannerRunning?'Строим…':'Построить цепочку'}</button>`:`<button type="button" data-grid-run${status==='RUNNING'?' disabled':''}>${status==='FAILED'?'Повторить':'Запустить'}</button>`}<button type="button" data-grid-more aria-label="Действия">•••</button></footer>
       </article>`;
     }).join('');
     const workflowButton=document.getElementById('studioGridRunWorkflow');
@@ -22917,7 +23005,14 @@ async function waitGeneration(jobId, options) {
   }
 
   function getGridNodeOutputValue(node,sourceOutput) {
-    const output=node&&node.output;
+    // A downstream node must never consume a parent's output while that
+    // parent is regenerating, has just failed/been cancelled, or was edited
+    // since its last successful run (status READY, via
+    // markStudioGridDownstreamStale) - only a COMPLETED parent's output is
+    // current. Without this gate, a downstream "Запустить" click (which
+    // bypasses runStudioGridWorkflow's own parent-readiness gate) could
+    // silently build its request from a stale or superseded parent result.
+    const output=node&&node.status==='COMPLETED'?node.output:null;
     if(!output)return null;
     if(sourceOutput==='text')return output.value||'';
     if(sourceOutput==='image')return output.items?.[Number(output.selected_index||0)]||null;
@@ -23007,15 +23102,28 @@ async function waitGeneration(jobId, options) {
     return {telegram_id:getTelegramId(),prompt,mode,category:mode,model,provider,image_options:imageOptions,video_options:videoOptions,music_options:musicOptions,voice_options:voiceOptions,text_options:textOptions,history:[],attachment:null,conversation_id:'',client_request_id:`grid_${node.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`,language:uiLang(),grid_project_id:loadStudioGridState().projectId,grid_node_id:node.id,sylvex_test:gridTestModeEnabled()};
   }
 
+  // Returns a real credits number, or null when the estimate genuinely
+  // could not be determined (network error, thrown exception, or the
+  // backend responding not-ok/ok:false - e.g. an unpriced/unsupported
+  // model). null must never be coerced to 0 by a caller: a node whose cost
+  // is unknown is not a free node, and silently treating it as $0 hides the
+  // cost badge, drops it from the workflow total, and skips the client-side
+  // insufficient-balance pre-check below as if it truly cost nothing.
   async function estimateGridNodeCost(nodeId) {
     const state=loadStudioGridState(),node=state.nodes.find(item=>item.id===nodeId);if(!node||node.type==='task'||node.type==='text')return 0;
     try{const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gridGenerationPayload(node,resolveGridNodeInputs(nodeId)))}),estimate=await response.json();if(response.ok&&estimate.ok){node.estimated_cost={credits:Number(estimate.credits||0),generation_cost:estimate.generation_cost||'',cost_usd:Number(estimate.cost_usd||0)};saveStudioGridState();renderStudioGrid();return node.estimated_cost.credits}}catch(_){}
-    return Number(node.estimated_cost?.credits||0);
+    node.estimated_cost={credits:null};saveStudioGridState();renderStudioGrid();
+    return null;
   }
 
+  // Returns null (unknown) if ANY node's estimate is unknown, rather than
+  // silently dropping that node's real (unknown, possibly nonzero) cost
+  // from the sum - an understated total is worse than an honest "unknown".
   async function estimateGridWorkflowCost() {
     const nodes=loadStudioGridState().nodes.filter(node=>node.type!=='task'&&node.type!=='text'&&node.status!=='COMPLETED');
-    const costs=[];for(const node of nodes)costs.push(await estimateGridNodeCost(node.id));return costs.reduce((sum,value)=>sum+Number(value||0),0);
+    const costs=[];for(const node of nodes)costs.push(await estimateGridNodeCost(node.id));
+    if(costs.some(value=>value===null))return null;
+    return costs.reduce((sum,value)=>sum+Number(value||0),0);
   }
 
   async function waitGridGeneration(jobId,onStatus) {
@@ -23064,7 +23172,18 @@ async function waitGeneration(jobId, options) {
       if(!validation.ok){node.status=options.workflow?'WAITING':'FAILED';node.error=`Не хватает: ${validation.missing.join(', ')}`;saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
       const estimatedCost=await estimateGridNodeCost(nodeId),knownBalance=S.user&&S.user.balance!==undefined&&S.user.balance!==null?Number(S.user.balance):null;
       if(estimatedCost>0&&knownBalance!==null&&knownBalance<estimatedCost){node.status='FAILED';node.error='Недостаточно токенов';saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
-      node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
+      // estimatedCost===null means the pre-check itself could not run (see
+      // estimateGridNodeCost) - the real balance check still happens
+      // server-side inside executeGridNodeRequest (402 handling below), so
+      // this never lets an unaffordable run through unchecked, it only
+      // means the client couldn't warn about it in advance.
+      if(estimatedCost===null&&!options.workflow)toast('Не удалось оценить стоимость узла — запуск на свой риск');
+      // Clear any output from a previous run before starting - a stale
+      // success (or nothing at all, if this is a first run) must never be
+      // readable as "current" by a downstream node or by the preview while
+      // this run is in flight or if it fails (see getGridNodeOutputValue/
+      // gridNodePreview, both gated on status==='COMPLETED').
+      node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
       try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.selectedResultVersion=output.type==='image'?0:null;node.error='';getGridDownstreamNodes(node.id).forEach(child=>{if(child.status!=='RUNNING'&&child.status!=='COMPLETED')child.status='READY'});saveStudioGridState();renderStudioGrid();return output}
       catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
@@ -23086,7 +23205,7 @@ async function waitGeneration(jobId, options) {
     if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();toast('Цепочка будет остановлена после текущей генерации');return}
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
     state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
-    studioGridWorkflowRun=(async()=>{const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);for(const id of order){if(state.workflow.stop_requested)break;const node=state.nodes.find(item=>item.id===id);if(!node||node.type==='task'||node.status==='COMPLETED')continue;const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');if(parents.some(parent=>parent.status==='FAILED'||parent.status==='CANCELLED')){node.status='CANCELLED';node.error='Предыдущий узел не завершён';saveStudioGridState();renderStudioGrid();continue}if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';saveStudioGridState();renderStudioGrid();continue}await runGridNode(id,{workflow:true})}const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();state.nodes.filter(node=>node.status==='WAITING'&&state.workflow.stop_requested).forEach(node=>node.status='CANCELLED');saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')})().finally(()=>{studioGridWorkflowRun=null});
+    studioGridWorkflowRun=(async()=>{const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);for(const id of order){if(state.workflow.stop_requested)break;const node=state.nodes.find(item=>item.id===id);if(!node||node.type==='task'||node.status==='COMPLETED')continue;const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');if(parents.some(parent=>parent.status==='FAILED'||parent.status==='CANCELLED')){node.status='CANCELLED';node.error='Предыдущий узел не завершён';saveStudioGridState();renderStudioGrid();continue}if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';saveStudioGridState();renderStudioGrid();continue}await runGridNode(id,{workflow:true})}const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();state.nodes.filter(node=>node.status==='WAITING'&&state.workflow.stop_requested).forEach(node=>node.status='CANCELLED');saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')})().finally(()=>{studioGridWorkflowRun=null});
     return studioGridWorkflowRun;
   }
 
