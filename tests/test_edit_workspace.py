@@ -230,3 +230,32 @@ def test_resize_worker_does_not_acquire_ai_provider_slot(monkeypatch, provider):
     request = payload('resize', editWorkspaceResize={'width': 90, 'height': 60})
     result, status = asyncio.run(main.run_prostudio_provider_request('test', request, 'image', 'gpt_image_2_5_sunburst', 'openai', {'text'}, 'OPENAI'))
     assert result['ok'] and status == 'completed' and not provider[0]
+
+
+@pytest.mark.parametrize('camera', [
+    {'horizontal': 217.4, 'vertical': 38.2, 'zoom': 6.7},
+    {'horizontal': 360, 'vertical': -30, 'zoom': 0},
+    {'horizontal': 0, 'vertical': 90, 'zoom': 10},
+])
+def test_camera_exact_angles_reach_provider_prompt_and_saved_result(monkeypatch, provider, camera):
+    calls = []
+    monkeypatch.setattr(main, 'FAL_API_KEY', 'fake')
+    def post(url, **kw):
+        calls.append(kw['json'])
+        return Response({'status_url': 'https://queue.fal.run/status', 'response_url': 'https://queue.fal.run/result'})
+    def get(url, **kw):
+        if url.endswith('/status'):
+            return Response({'status': 'COMPLETED'})
+        return Response({'images': [{'url': 'https://cdn.example.com/generated.png'}]})
+    monkeypatch.setattr(main.requests, 'post', post)
+    monkeypatch.setattr(main.requests, 'get', get)
+    result = asyncio.run(main.generate_edit_workspace_image(payload('camera', editWorkspaceCamera=camera)))
+    assert result['ok']
+    data = calls[0]
+    assert [data['horizontal_angle'], data['vertical_angle'], data['zoom']] == [camera['horizontal'], camera['vertical'], camera['zoom']]
+    assert f"azimuth {camera['horizontal']:g} degrees" in data['additional_prompt']
+    assert f"elevation {camera['vertical']:g} degrees" in data['additional_prompt']
+    assert f"zoom {camera['zoom']:g}/10" in data['additional_prompt']
+    assert result['edit_camera'] == camera
+    assert result['camera_prompt'] == data['additional_prompt']
+    assert len(data['image_urls']) == 1 and 'UNRELATED' not in str(data)

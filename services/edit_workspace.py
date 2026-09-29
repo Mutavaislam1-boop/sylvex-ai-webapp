@@ -102,6 +102,18 @@ def validate_options(opts):
     return mode
 
 
+def camera_parameters(settings):
+    """The exact same angles are used for numeric controls, prompt and history."""
+    return {key: number(settings.get(key), low, high, default) for key, low, high, default in (
+        ('horizontal', 0, 360, 0), ('vertical', -30, 90, 0), ('zoom', 0, 10, 5))}
+
+
+def camera_prompt(camera):
+    return (f"Camera azimuth {camera['horizontal']:g} degrees (0 front, 90 right, 180 back, 270 left); "
+            f"elevation {camera['vertical']:g} degrees; zoom {camera['zoom']:g}/10 (0 far, 10 close). "
+            "Preserve the same subject identity, clothing, scene objects, environment and overall style.")
+
+
 def png(image):
     output = io.BytesIO()
     image.save(output, format='PNG')
