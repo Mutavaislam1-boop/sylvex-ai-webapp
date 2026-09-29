@@ -15798,9 +15798,14 @@ function playMusicTrackFromMessage(e, index) {
 function restoreImageStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'image') return;
   const settings = meta.image_options || meta.settings || {};
-  imageState.modelId = meta.model || settings.modelId || imageState.modelId;
-  imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || imageState.size;
-  imageState.count = Number(meta.count || settings.count || imageState.count || 1);
+  // Falls back to a fixed default, never to the live imageState value - this
+  // restore's whole purpose is to reproduce the ORIGINAL generation's
+  // settings; falling back to whatever the composer currently happens to
+  // hold would silently mix in an unrelated generation's model/size/count
+  // whenever older metadata is missing one of these fields.
+  imageState.modelId = meta.model || settings.modelId || 'seedream_5_0_lite';
+  imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || '';
+  imageState.count = Number(meta.count || settings.count || 1);
   imageState.style = meta.style || settings.style || imageState.style || 'auto';
   imageState.character = meta.character || settings.character || imageState.character || 'auto';
   imageState.objects = meta.objectName || meta.objects || settings.objects || imageState.objects || '';
@@ -15844,10 +15849,15 @@ function restoreImageStateFromGenerationMetadata(meta) {
 function restoreVideoStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'video') return;
   const settings = meta.settings || {};
-  videoState.modelId = meta.model || settings.model || settings.modelId || videoState.modelId;
-  videoState.ratio = meta.ratio || settings.ratio || videoState.ratio;
-  videoState.resolution = meta.size || settings.resolution || settings.size || videoState.resolution;
-  videoState.duration = Number(meta.duration || settings.duration || videoState.duration || 5);
+  // Same principle as restoreImageStateFromGenerationMetadata: fall back to
+  // a fixed default, never to the live videoState value, or a Regenerate on
+  // older metadata missing one of these fields would silently inherit
+  // whatever unrelated model/ratio/resolution/duration the composer
+  // currently happens to hold instead of reproducing the original request.
+  videoState.modelId = meta.model || settings.model || settings.modelId || 'seedance_2_fast';
+  videoState.ratio = meta.ratio || settings.ratio || '16:9';
+  videoState.resolution = meta.size || settings.resolution || settings.size || '720p';
+  videoState.duration = Number(meta.duration || settings.duration || 5);
   if (settings.quality) videoState.quality = settings.quality;
   if (settings.sound !== undefined) videoState.sound = !!settings.sound;
   const refs = Array.isArray(settings.reference_images) && settings.reference_images.length
@@ -15864,7 +15874,9 @@ function restoreVideoStateFromGenerationMetadata(meta) {
 function restoreMusicStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'music') return;
   const settings = meta.settings || {};
-  musicState.modelId = meta.model || settings.model || musicState.modelId;
+  // Fixed default, never the live musicState value - see
+  // restoreImageStateFromGenerationMetadata's comment for why.
+  musicState.modelId = meta.model || settings.model || 'suno_chirp_5';
   if (settings.genre) musicState.genre = settings.genre;
   if (settings.duration !== undefined && settings.duration !== null && settings.duration !== '') musicState.duration = settings.duration;
   if (!musicState.settings || typeof musicState.settings !== 'object') musicState.settings = {};
@@ -15879,7 +15891,9 @@ function restoreMusicStateFromGenerationMetadata(meta) {
 function restoreVoiceStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'voice') return;
   const settings = meta.settings || {};
-  voiceState.modelId = meta.model || settings.model || voiceState.modelId;
+  // Fixed default, never the live voiceState value - see
+  // restoreImageStateFromGenerationMetadata's comment for why.
+  voiceState.modelId = meta.model || settings.model || 'elevenlabs_eleven_v3';
   if (settings.voice) voiceState.voice = settings.voice;
   if (settings.elevenlabs_voice) voiceState.elevenlabsVoice = settings.elevenlabs_voice;
   if (settings.runway_voice) voiceState.runwayVoice = settings.runway_voice;
