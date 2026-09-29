@@ -9858,12 +9858,24 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   const previousSize = imageState.size;
   const previousCount = imageState.count;
   const previousStyle = imageState.style;
+  // imageOptions below already clears the structured Character/Object
+  // selection (characterId/objectId/etc.), but imageOptionsPayload() still
+  // spreads the live imageState on top of it (this call is not
+  // isolateRequest:true, since it depends on buildGenerationRequest's own
+  // data:-URI upload normalization for the raw photos passed in) - so the
+  // main composer's mood dropdown and free-text "important objects" field
+  // must be cleared here too, or they silently ride along into what's
+  // supposed to be a clean reference-portrait generation.
+  const previousCharacterMood = imageState.character;
+  const previousObjects = imageState.objects;
   studioMode = 'image';
   imageState.modelId = 'gpt_image_1';
   imageState.provider = 'openai';
   imageState.size = '1024x1024';
   imageState.count = 1;
   imageState.style = 'auto';
+  imageState.character = '';
+  imageState.objects = '';
   try {
     const prompt = visualCreatePrompt(kind, name, gender, description);
     const start = await callGenerate(prompt, null, photos, null, {
@@ -9892,6 +9904,8 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
     imageState.size = previousSize;
     imageState.count = previousCount;
     imageState.style = previousStyle;
+    imageState.character = previousCharacterMood;
+    imageState.objects = previousObjects;
     if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
       clearActiveProStudioJob(activeGeneration.jobId);
     }
@@ -17849,6 +17863,17 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.inputVideo = videoState.editInputVideo;
     videoState.videoUrl = videoState.editInputVideo;
     videoState.referenceVideoUrl = '';
+    // Stale Character/Object/end-frame selection from the main composer
+    // must not leak into a template-driven generation - videoOptionsPayload()
+    // below reads all of these directly off videoState, and previousVideoState
+    // is only restored in the finally block AFTER that request has already
+    // gone out, so clearing them there would be too late.
+    videoState.characterVisual = null;
+    videoState.objectVisual = null;
+    videoState.referenceVisual = null;
+    videoState.characterImage = '';
+    videoState.endImage = '';
+    videoState.advanced = {};
     // KEEP: working Kling editor catalog flow.
     // Internal template video + user image + template prompt go directly to Kling O3/Omni edit.
     videoState.videoTemplate = {
