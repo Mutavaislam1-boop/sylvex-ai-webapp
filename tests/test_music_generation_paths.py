@@ -50,7 +50,7 @@ async def test_lyria_realtime_times_out_cleanly_without_hanging(monkeypatch):
 
     fake_genai = type("_FakeGenaiModule", (), {"Client": _HangingClient})()
     fake_types_module = type("_FakeTypesModule", (), {
-        "MusicGenerationMode": type("_Mode", (), {"QUALITY": "QUALITY"}),
+        "MusicGenerationMode": type("_Mode", (), {"QUALITY": "QUALITY", "VOCALIZATION": "VOCALIZATION"}),
         "WeightedPrompt": lambda text, weight: {"text": text, "weight": weight},
         "LiveMusicGenerationConfig": lambda **kw: kw,
     })()
