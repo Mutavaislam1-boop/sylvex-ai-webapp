@@ -7934,10 +7934,16 @@ function closePhotoToolModal(e) {
       tattooState.generatingReference = false;
     }
     if (activePhotoTool === 'logo') {
+      const state = photoToolState.logo;
+      if (state) state.files = [];
       logoState.selectedReferenceId = null;
       logoState.prompt = '';
       logoState.result = null;
       logoState.generating = false;
+    }
+    if (activePhotoTool === 'makeup' || activePhotoTool === 'face_retouch') {
+      const state = photoToolState[activePhotoTool];
+      if (state) state.files = [];
     }
     if (activePhotoTool === 'replace_object') {
       const state = photoToolState.replace_object;
@@ -8260,8 +8266,14 @@ async function generatePhotoTool(e) {
   }) - 1;
   renderChat();
   try {
-    const outputSize = kind === 'hair_beard' || kind === 'tattoo' ? await hairBeardOutputSize(state.files[0].originalFile || state.files[0].url) : '';
-    const modelOptions = kind === 'hair_beard' || kind === 'tattoo' ? {
+    // Makeup and Face Retouch are identity-preserving portrait edits, same as
+    // Hair&Beard/Tattoo - they must get the same isolateRequest treatment
+    // (fixed model/quality/count, imageOptions built only from tool-owned
+    // refs) or the request silently inherits the main composer's currently
+    // selected model/Character/Object/Style instead of this tool's own.
+    const isIsolatedGptEditKind = kind === 'hair_beard' || kind === 'tattoo' || kind === 'makeup' || kind === 'face_retouch';
+    const outputSize = isIsolatedGptEditKind ? await hairBeardOutputSize(state.files[0].originalFile || state.files[0].url) : '';
+    const modelOptions = isIsolatedGptEditKind ? {
       isolateRequest:true,
       model:HAIR_BEARD_IMAGE_MODEL,
       provider:'openai',
@@ -8275,7 +8287,7 @@ async function generatePhotoTool(e) {
     const images = generatedUrlsFromResponse(result, 'image');
     const thumbs = generatedThumbsFromResponse(result);
     if (images.length) addGeneratedImages(images, thumbs);
-    const options = kind === 'hair_beard' || kind === 'tattoo'
+    const options = isIsolatedGptEditKind
       ? { modelId:HAIR_BEARD_IMAGE_MODEL, model:HAIR_BEARD_IMAGE_MODEL, provider:'openai', quality:'high', size:outputSize, referenceImageUrls:refs.slice(), photo_tool:kind, catalog_prompt_hidden:true, catalog_display_prompt:'', catalog_reference_hidden:false }
       : Object.assign({}, imageOptionsPayload(refs), { photo_tool: kind });
     chatMessages[loadingIndex] = {
@@ -15497,6 +15509,24 @@ function openImageViewer(e, url, urls) {
 }
 
 // =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: selectGenerationInfoImage
+// Тап по превью в сетке из нескольких изображений: открывает просмотр И
+// переключает "Открыть"/"Оживить фото" на выбранное изображение, а не на
+// первое из набора (data-tracks-selected-image).
+// =====================================================
+function selectGenerationInfoImage(e) {
+  const btn = e && e.currentTarget ? e.currentTarget : null;
+  const url = btn && btn.dataset ? btn.dataset.imageUrl : '';
+  if (url) {
+    const drawer = document.getElementById('generationInfoDrawer');
+    if (drawer) {
+      drawer.querySelectorAll('[data-tracks-selected-image]').forEach((el) => { el.dataset.imageUrl = url; });
+    }
+  }
+  openImageViewer(e);
+}
+
+// =====================================================
 // ОБРАБОТЧИК ИНТЕРФЕЙСА: closeImageViewer
 // Открывает, закрывает или переключает экран, шторку, меню, drawer или модальное окно Mini App.
 // =====================================================
@@ -16141,7 +16171,7 @@ function openGenerationInfoDrawer(e, index) {
     ? '<div class="generation-info-image-grid">'
       + imageItems.map((item, imageIndex) => '<button class="generation-info-image-button" type="button" data-image-url="' + S.escapeHtml(item.url) + '"'
         + imageViewerSetAttribute(imageItems)
-        + ' aria-label="Открыть изображение ' + (imageIndex + 1) + ' из ' + imageItems.length + '" onclick="SYLVEX.openImageViewer(event)">'
+        + ' aria-label="Открыть изображение ' + (imageIndex + 1) + ' из ' + imageItems.length + '" onclick="SYLVEX.selectGenerationInfoImage(event)">'
         + previewImgHtml(item.thumb, 'generated image ' + (imageIndex + 1), item.url)
         + '</button>').join('')
       + '</div>'
@@ -16169,7 +16199,7 @@ function openGenerationInfoDrawer(e, index) {
       actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(videoUrl) + '" data-result-url="' + S.escapeHtml(videoUrl) + '" data-result-kind="video" onclick="SYLVEX.playVideoInGenerationCard(event)">' + generationActionIcon('play') + 'Воспроизвести</button>';
     } else if (!isLogoResult) {
       actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '"'
-        + (type === 'image' ? imageViewerSetAttribute(imageItems) : '')
+        + (type === 'image' ? ' data-tracks-selected-image="1"' + imageViewerSetAttribute(imageItems) : '')
         + ' data-result-kind="' + S.escapeHtml(type) + '" onclick="SYLVEX.openImageViewer(event)">' + generationActionIcon('open') + 'Открыть</button>';
     }
     actionHtml += renderCompletedGenerationDownload(jobId, generationStatus, '', type);
@@ -16177,7 +16207,7 @@ function openGenerationInfoDrawer(e, index) {
     actionHtml += renderGeneratedTelegramButton(resultUrl, type);
     if (svgUrl && jobId) actionHtml += '<button type="button" class="generation-info-svg-download" data-download-url="' + S.escapeHtml(completedGenerationDownloadUrl(jobId) + '&asset=svg') + '" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>';
     if (type === 'image') {
-      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
+      actionHtml += '<button type="button" data-image-url="' + S.escapeHtml(resultUrl) + '" data-tracks-selected-image="1" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
     } else if (type === 'video') {
       actionHtml += '<button type="button" data-video-url="' + S.escapeHtml(resultUrl) + '" onclick="SYLVEX.editGeneratedVideo(event)">' + generationActionIcon('edit') + 'Редактировать видео</button>';
     }
@@ -20960,9 +20990,9 @@ async function waitGeneration(jobId, options) {
   // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
   // =====================================================
   function renderThemeGrid() {
-    const g = document.getElementById('themeGrid'); if (!g) return;
+    const grids = document.querySelectorAll('.theme-grid'); if (!grids.length) return;
     const cur = (epAppearanceDraft && epAppearanceDraft.id) || currentProfileAppearance().id;
-    g.innerHTML = THEMES.map((t) => {
+    const html = THEMES.map((t) => {
       const sel = cur === t.id ? 'sel' : '';
       const sw = 'background:' + t.covers[0];
       const swInner = 'background:' + t.css['--surface-2'];
@@ -20970,6 +21000,7 @@ async function waitGeneration(jobId, options) {
         + '<div class="th-sw" style="' + sw + '"><div class="th-sw-inner" style="' + swInner + '"></div></div>'
         + '<div class="th-lbl">' + t.label + '</div></button>';
     }).join('');
+    grids.forEach((g) => { g.innerHTML = html; });
   }
   // =====================================================
   // ОБРАБОТЧИК ИНТЕРФЕЙСА: openThemePicker
@@ -23254,7 +23285,7 @@ async function waitGeneration(jobId, options) {
     openCreativeCatalog, closeCreativeCatalog, useCreativeCatalogItem,
     openThemePicker, applyTheme, applyStoredTheme,
     openReferrals, copyRefLink, activateRefLink,
-    signOut, openImageViewer, closeImageViewer, navigateImageViewer, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
+    signOut, openImageViewer, closeImageViewer, navigateImageViewer, selectGenerationInfoImage, openGeneratedContent, openMusicInPlayer, playMusicTrack, playMusicTrackFromMessage, playVoiceInCard, playVideoInGenerationCard, toggleStudioAudioPlayer, openTelegramBot, animateGeneratedImage, editGeneratedVideo, openGenerationInfoDrawer, closeGenerationInfoDrawer,
     openGenerationSharePage, closeGenerationSharePage, handleGenerationShareAction, downloadGeneratedFile,
     PromptPlaceholderManager, VoiceDialogueComposer,
     initAudioPlayer,
