@@ -16835,7 +16835,11 @@ def normalize_openai_image_size(size: str, frontend_model: str = "", provider_mo
                 return raw
     if raw in {"1024x1024", "1536x1024", "1024x1536", "auto"}:
         return raw
-    if key == "gpt_image_1":
+    if key in {"gpt_image_1", "gpt_image_2"}:
+        # Both models only accept these 3 real OpenAI image sizes - 4:3/16:9
+        # and 3:4/9:16 are not distinct boxes here (see the comment on the
+        # gpt_image_2 sizes list in cabinet.js), so only the ratios that
+        # actually correspond to a real, distinct box are recognized.
         if raw in {"2:3", "2x3", "9:16", "portrait"}:
             return "1024x1536"
         if raw in {"3:2", "3x2", "16:9", "landscape"}:
