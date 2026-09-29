@@ -1498,6 +1498,18 @@ def _kling_resolution_key(value):
     return "720p"
 
 
+def _video_resolution_key(value):
+    # Like _kling_resolution_key, but also recognizes 480p - a real, cheaper
+    # tier for several non-Kling models (Seedance, Runway Seedance) whose
+    # price tables would otherwise be unreachable and silently overcharge
+    # at the 720p rate. Kling itself never offers 480p, so its own pricing
+    # path keeps using _kling_resolution_key unchanged.
+    raw = str(value or "720p").strip().lower().replace(" ", "")
+    if raw in {"480", "480p", "sd"}:
+        return "480p"
+    return _kling_resolution_key(value)
+
+
 # =====================================================
 # PYTHON-БЛОК: _kling_duration_key
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -1599,7 +1611,7 @@ def estimate_video_generation_cost(payload: dict):
     provider = (mapping.get("provider") or payload.get("provider") or "").strip().lower()
     if provider != "kling":
         options = payload.get("video_options") or {}
-        resolution = _kling_resolution_key(options.get("resolution") or payload.get("resolution"))
+        resolution = _video_resolution_key(options.get("resolution") or payload.get("resolution"))
         try:
             duration = int(float(options.get("duration") or payload.get("duration") or 5))
         except (TypeError, ValueError):
@@ -1613,12 +1625,15 @@ def estimate_video_generation_cost(payload: dict):
             per_second = {"720p": 18, "1080p": 18}.get(resolution, 9)
         elif model_key == "seedance_2_0":
             per_second = {"720p": 22.5, "1080p": 55.5, "4k": 117}.get(resolution, 10.5)
-        elif model_key == "seedance_1_5_pro" and duration == 5:
-            seedance_15 = {
-                False: {"480p": 9, "720p": 20, "1080p": 44},
-                True: {"480p": 18, "720p": 39, "1080p": 87},
+        elif model_key == "seedance_1_5_pro":
+            # Published SYLVEX catalog gives a fixed 5s rate; converted to a
+            # per-second rate so every offered duration (4-12s), not just the
+            # default 5s, is actually priced instead of falling through to 0.
+            seedance_15_per_second = {
+                False: {"480p": 1.8, "720p": 4.0, "1080p": 8.8},
+                True: {"480p": 3.6, "720p": 7.8, "1080p": 17.4},
             }
-            fixed = seedance_15[bool(options.get("sound") or options.get("generate_audio"))].get(resolution, 20)
+            per_second = seedance_15_per_second[bool(options.get("sound") or options.get("generate_audio"))].get(resolution, 4.0)
         elif model_key == "runway_gen4_5":
             per_second = 18
         elif model_key in {"runway_gen4_turbo", "runway_gen", "runway_gen3a_turbo", "runway_act_two"}:
@@ -1656,7 +1671,9 @@ def estimate_video_generation_cost(payload: dict):
             per_second = pixverse_rates[with_audio].get(resolution, pixverse_rates[with_audio]["720p"])
         elif model_key == "minimax_hailuo_2_3":
             # Published Hailuo 2.3 tariffs are request prices, not a flat rate.
-            minimax = {"720p": {6: 42, 10: 84}, "768p": {6: 42, 10: 84}, "1080p": {6: 74}}
+            # Real offered durations are 5/10s (see VIDEO_MODEL_CONFIG); the
+            # table used to be keyed on 6, which no option ever supplies.
+            minimax = {"720p": {5: 42, 10: 84}, "768p": {5: 42, 10: 84}, "1080p": {5: 74}}
             fixed = (minimax.get(resolution) or minimax["720p"]).get(duration)
         elif model_key == "heygen_v3_video_agent":
             per_second = 14.55
@@ -2218,6 +2235,11 @@ def _kling_text_settings(provider_model: str, body: dict):
     if model in {"kling-3.0", "kling-3.0-omni"}:
         settings["audio"] = "native" if body.get("sound") else "off"
         settings["multi_shot"] = True
+    elif model == "kling-3.0-turbo":
+        # Billed unconditionally at the native_audio tier (KLING_COST_MATRIX
+        # has no silent tier for this model) - it must actually request that
+        # audio from Kling, or the user pays for sound they never receive.
+        settings["audio"] = "native" if body.get("sound") else "off"
     if model == "kling-2.6":
         settings["audio"] = "native" if body.get("sound") else "off"
     return settings
@@ -2247,6 +2269,10 @@ def _kling_image_settings(provider_model: str, body: dict, has_last_frame=False)
     if model in {"kling-3.0", "kling-3.0-omni"}:
         settings["audio"] = "native" if body.get("sound") else "off"
         settings["multi_shot"] = True
+    elif model == "kling-3.0-turbo":
+        # See the matching branch in _kling_text_settings: billed at the
+        # native_audio tier unconditionally, so it must actually be requested.
+        settings["audio"] = "native" if body.get("sound") else "off"
     if model == "kling-2.6":
         settings["audio"] = "native" if body.get("sound") and not has_last_frame else "off"
     return settings
