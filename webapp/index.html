@@ -26,7 +26,7 @@ HTML-ЭЛЕМЕНТ: элемент
 <!-- ==================================================
 HTML-ЭЛЕМЕНТ: элемент
 =================================================== -->
-<link rel="stylesheet" href="css/cabinet.css" />
+<link rel="stylesheet" href="css/cabinet.css?v=camera-20260929" />
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://www.paypal.com/sdk/js?client-id=AWzAbTq2zQJEQGWAe6B4ANghmstVUYArt5w3wVdiXpt9xu1-q69PRWHB4N5sDxtSJWFSJ62oDQbe584K&vault=true&intent=subscription"></script>
 </head>
@@ -41,10 +41,10 @@ HTML-ЭЛЕМЕНТ: элемент
 <script src="js/ui.js"></script>
 <script src="js/user.js"></script>
 <script src="js/account-auth.js"></script>
-<script src="js/cabinet.js"></script>
+<script src="js/cabinet.js?v=camera-20260929"></script>
 <script>
   // Load the cabinet markup, then boot the app.
-  fetch('cabinet.html')
+  fetch('cabinet.html?v=camera-20260929')
     .then(r => {
       if (!r.ok) throw new Error('Failed to load cabinet.html: ' + r.status);
       return r.text();

@@ -6560,9 +6560,186 @@ function createEditWorkspaceState() {
     width:0,height:0,showBefore:false,history:[],maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{layers:[{horizontal:0,vertical:0,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:128,right:128,top:128,bottom:128},
-    backgroundMode:'replace',translateLanguage:'',zoom:100,
+    backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
 }
+// Camera coordinates use the provider's convention: 0 front, 90 right,
+// 180 back, 270 left. Canvas navigation never changes these values.
+function editCameraValues(value) {
+  const limits={horizontal:[0,360,0],vertical:[-30,90,0],zoom:[0,10,5]};
+  return Object.fromEntries(Object.entries(limits).map(([key,[min,max,fallback]])=>{
+    const number=Number(value?.[key] ?? fallback);
+    return [key,Math.round(Math.max(min,Math.min(max,Number.isFinite(number)?number:fallback))*10)/10];
+  }));
+}
+function editCameraProject(horizontal,vertical=0,radius=112) {
+  const h=horizontal*Math.PI/180,v=vertical*Math.PI/180;
+  const x=radius*Math.sin(h)*Math.cos(v),z=radius*Math.cos(h)*Math.cos(v),y=radius*Math.sin(v);
+  return {x:170+.9063*x+.4226*z,y:151-.159*x+.341*z-.925*y};
+}
+function editCameraGeometry(camera) {
+  const c=editCameraValues(camera),near=editCameraProject(c.horizontal,c.vertical,28),far=editCameraProject(c.horizontal,c.vertical,124);
+  return {horizontal:editCameraProject(c.horizontal,0,140),vertical:editCameraProject(c.horizontal,c.vertical,100),
+    camera:editCameraProject(c.horizontal,c.vertical,124-c.zoom*9.6),near,far};
+}
+function editCameraHorizontalAt(point) {
+  const x=point.x-170,y=point.y-151,det=.9063*.341+.4226*.159;
+  const wx=(.341*x-.4226*y)/det,wz=(.159*x+.9063*y)/det;
+  return (Math.atan2(wx,wz)*180/Math.PI+360)%360;
+}
+function editCameraVerticalAt(point,horizontal,previous=0) {
+  // Closest point on the half-orbit; proximity to the last angle resolves
+  // the edge-on view without jumping to the other side of the orbit.
+  let best=previous,distance=Infinity;
+  for(let value=-30;value<=90;value+=.25){
+    const p=editCameraProject(horizontal,value,100),score=(p.x-point.x)**2+(p.y-point.y)**2+Math.abs(value-previous)*.002;
+    if(score<distance){distance=score;best=value;}
+  }
+  return best;
+}
+function editCameraZoomAt(point,camera) {
+  const {near,far}=editCameraGeometry(camera),dx=near.x-far.x,dy=near.y-far.y;
+  return Math.max(0,Math.min(10,((point.x-far.x)*dx+(point.y-far.y)*dy)/(dx*dx+dy*dy)*10));
+}
+function editCameraPath(points) { return points.map((p,i)=>(i?'L':'M')+p.x.toFixed(2)+' '+p.y.toFixed(2)).join(' '); }
+function editCameraDescription(camera) {
+  const c=editCameraValues(camera);
+  return `Camera azimuth ${c.horizontal} degrees (0 front, 90 right, 180 back, 270 left); elevation ${c.vertical} degrees; zoom ${c.zoom}/10 (0 far, 10 close).`;
+}
+class EditCameraOrbit {
+  constructor(host,camera,image,onChange,disabled) {
+    this.host=host;this.current=editCameraValues(camera);this.onChange=onChange;this.disabled=disabled;this.drag=null;this.frame=0;
+    const safe=v=>S.escapeHtml(String(v));
+    host.innerHTML=`<svg viewBox="0 0 340 270" class="edit-camera-svg" aria-label="Положение камеры вокруг фото">
+      <defs><clipPath id="edit-camera-photo-clip"><rect x="149" y="126" width="42" height="50" rx="5"/></clipPath></defs>
+      <path class="edit-camera-floor" d="M38 165L159 109L303 151L174 215Z"/>
+      <path class="edit-camera-guide" d="M170 38V235M34 151H306"/>
+      <path data-orbit="horizontal" class="edit-camera-ring horizontal" data-camera-drag="horizontal"/>
+      <path data-orbit="vertical-full" class="edit-camera-ring unavailable"/>
+      <path data-orbit="vertical" class="edit-camera-ring vertical" data-camera-drag="vertical"/>
+      <path data-orbit="foot" class="edit-camera-guide"/>
+      <path data-orbit="sight" class="edit-camera-sight"/>
+      <path data-orbit="zoom" class="edit-camera-zoom-rail" data-camera-drag="zoom"/>
+      <g class="edit-camera-subject"><rect x="145" y="122" width="50" height="58" rx="8"/><image x="149" y="126" width="42" height="50" preserveAspectRatio="xMidYMid slice" clip-path="url(#edit-camera-photo-clip)" href="${safe(image || '')}"/><text x="170" y="155" text-anchor="middle" ${image?'visibility="hidden"':''}>＋</text></g>
+      <g data-handle="horizontal" data-camera-drag="horizontal" class="edit-camera-handle horizontal" tabindex="0" role="slider" aria-label="Горизонтальный угол камеры" aria-valuemin="0" aria-valuemax="360"><circle class="hit" r="15"/><circle class="dot" r="6"/></g>
+      <g data-handle="vertical" data-camera-drag="vertical" class="edit-camera-handle vertical" tabindex="0" role="slider" aria-label="Вертикальный угол камеры" aria-valuemin="-30" aria-valuemax="90"><circle class="hit" r="15"/><circle class="dot" r="6"/></g>
+      <g data-handle="zoom" data-camera-drag="zoom" class="edit-camera-body" tabindex="0" role="slider" aria-label="Расстояние камеры" aria-valuemin="0" aria-valuemax="10"><circle class="hit" r="12"/><path d="M-12-8H3L3-4L11-8V8L3 4V8H-12Z"/><circle cx="-4" cy="0" r="3"/></g>
+      <text class="edit-camera-axis" x="17" y="26">КАМЕРА</text><text class="edit-camera-axis" x="323" y="26" text-anchor="end">360°</text>
+      <text class="edit-camera-label" x="170" y="253" text-anchor="middle" data-orbit="readout"></text>
+    </svg><div class="edit-camera-legend"><span><i class="horizontal"></i>Горизонталь</span><span><i class="vertical"></i>Высота</span><span><i class="distance"></i>Расстояние</span></div>`;
+    this.svg=host.querySelector('svg');this.paint(this.current);
+    this.svg.onpointerdown=e=>{
+      const target=e.target.closest('[data-camera-drag]');if(!target||this.disabled()||e.button!==0)return;
+      e.preventDefault();this.cancelAnimation();this.drag={key:target.dataset.cameraDrag,id:e.pointerId};
+      this.svg.setPointerCapture(e.pointerId);target.closest('[tabindex]')?.focus({preventScroll:true});this.move(e);
+    };
+    this.svg.onpointermove=e=>{if(this.drag?.id===e.pointerId){e.preventDefault();this.move(e);}};
+    this.svg.onpointerup=this.svg.onpointercancel=this.svg.onlostpointercapture=e=>{if(this.drag?.id===e.pointerId)this.drag=null;};
+    this.svg.onkeydown=e=>{
+      const key=e.target.dataset.cameraDrag;if(!key||this.disabled())return;
+      const delta=['ArrowUp','ArrowRight'].includes(e.key)?1:['ArrowDown','ArrowLeft'].includes(e.key)?-1:0;
+      if(!delta&&!['Home','End'].includes(e.key))return;e.preventDefault();e.stopPropagation();
+      const min=key==='vertical'?-30:0,max=key==='horizontal'?360:key==='vertical'?90:10;
+      const value=e.key==='Home'?min:e.key==='End'?max:this.current[key]+delta*(key==='zoom'?.1:e.shiftKey?10:1);
+      this.onChange({[key]:value});
+    };
+  }
+  point(event) {
+    const matrix=this.svg.getScreenCTM();if(!matrix)return null;
+    const p=this.svg.createSVGPoint();p.x=event.clientX;p.y=event.clientY;return p.matrixTransform(matrix.inverse());
+  }
+  move(event) {
+    const p=this.point(event);if(!p||!this.drag)return;
+    const key=this.drag.key,value=key==='horizontal'?editCameraHorizontalAt(p):key==='vertical'?editCameraVerticalAt(p,this.current.horizontal,this.current.vertical):editCameraZoomAt(p,this.current);
+    this.onChange({[key]:value});
+  }
+  paint(camera) {
+    this.current={...camera};const g=editCameraGeometry(camera),path=(key,d)=>this.svg.querySelector(`[data-orbit="${key}"]`).setAttribute('d',d);
+    path('horizontal',editCameraPath(Array.from({length:73},(_,i)=>editCameraProject(i*5,0,140)))+' Z');
+    path('vertical-full',editCameraPath(Array.from({length:73},(_,i)=>editCameraProject(camera.horizontal,-90+i*2.5,100))));
+    path('vertical',editCameraPath(Array.from({length:49},(_,i)=>editCameraProject(camera.horizontal,-30+i*2.5,100))));
+    path('foot',editCameraPath([g.horizontal,g.vertical]));
+    path('sight',editCameraPath([g.camera,{x:170,y:151}]));
+    path('zoom',editCameraPath([g.far,g.near]));
+    for(const key of ['horizontal','vertical','zoom']){
+      const p=key==='zoom'?g.camera:g[key],handle=this.svg.querySelector(`[data-handle="${key}"]`);
+      const rotation=key==='zoom'?` rotate(${Math.atan2(151-p.y,170-p.x)*180/Math.PI})`:'';
+      handle.setAttribute('transform',`translate(${p.x} ${p.y})${rotation}`);
+      handle.setAttribute('aria-valuenow',camera[key]);handle.setAttribute('aria-valuetext',camera[key]+(key==='zoom'?' из 10':' градусов'));
+    }
+    this.svg.querySelector('[data-orbit="readout"]').textContent=`${Number(camera.horizontal.toFixed(1))}° / ${Number(camera.vertical.toFixed(1))}° · ${Number(camera.zoom.toFixed(1))}/10`;
+  }
+  update(camera,animate=false) {
+    this.cancelAnimation();const target=editCameraValues(camera),start={...this.current};
+    if(!animate||typeof requestAnimationFrame==='undefined'||window.matchMedia('(prefers-reduced-motion: reduce)').matches){this.paint(target);return;}
+    const horizontalDelta=((target.horizontal-start.horizontal+540)%360)-180;
+    let begun;
+    const tick=time=>{
+      if(!this.host.isConnected)return;
+      if(begun===undefined)begun=time;const t=Math.min(1,(time-begun)/220),ease=1-(1-t)**3;
+      this.paint({horizontal:((start.horizontal+horizontalDelta*ease)%360+360)%360,vertical:start.vertical+(target.vertical-start.vertical)*ease,zoom:start.zoom+(target.zoom-start.zoom)*ease});
+      if(t<1)this.frame=requestAnimationFrame(tick);else{this.frame=0;this.paint(target);}
+    };this.frame=requestAnimationFrame(tick);
+  }
+  cancelAnimation(){if(this.frame){cancelAnimationFrame(this.frame);this.frame=0;}}
+  destroy(){this.cancelAnimation();this.drag=null;}
+}
+function updateEditCamera(patch,animate=false) {
+  if(editWorkspaceLocked())return;
+  const state=editWorkspaceState;state.camera=editCameraValues({...state.camera,...patch});
+  const root=document.getElementById('editWorkspace');if(!root)return;
+  for(const [key,value] of Object.entries(state.camera)){
+    const input=root.querySelector(`[data-camera-input="${key}"]`);if(input)input.value=value;
+    const output=root.querySelector(`[data-range-output="camera-${key}"]`);if(output)output.textContent=value+(key==='zoom'?' / 10':'°');
+  }
+  root.querySelectorAll('[data-camera-preset]').forEach(button=>{
+    const active=Math.abs((state.camera.horizontal%360)-Number(button.dataset.horizontal))<.05&&Math.abs(state.camera.vertical-Number(button.dataset.vertical))<.05;
+    button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+  });
+  root._cameraOrbit?.update(state.camera,animate);updateEditWorkspaceReady();
+}
+function initEditCameraOrbit() {
+  const root=document.getElementById('editWorkspace'),host=root?.querySelector('#editCameraOrbit');if(!host)return;
+  root._cameraOrbit=new EditCameraOrbit(host,editWorkspaceState.camera,editWorkspaceState.sourcePreview||editWorkspaceState.sourceUrl,patch=>updateEditCamera(patch),editWorkspaceLocked);
+}
+function editWorkspaceSetViewZoom(value,point) {
+  const state=editWorkspaceState,old=state.zoom,next=Math.max(10,Math.min(400,value));
+  if(point){const ratio=next/old;state.viewport.x=point.x-(point.x-state.viewport.x)*ratio;state.viewport.y=point.y-(point.y-state.viewport.y)*ratio;}
+  state.zoom=next;
+  const root=document.getElementById('editWorkspace');root?._editLayout?.();
+  const output=root?.querySelector('[data-view-zoom]');if(output)output.textContent=Math.round(next)+'%';
+}
+function fitEditWorkspace(e) {
+  if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
+  editWorkspaceState.viewport={x:0,y:0};editWorkspaceSetViewZoom(100);
+}
+function initEditWorkspaceNavigation(stage,frame) {
+  const state=editWorkspaceState;let drag=null,space=false;
+  stage.tabIndex=0;stage.setAttribute('aria-label','Холст: перемещайте фото мышью, колесо меняет масштаб');
+  stage.onpointerdown=e=>{
+    if(editWorkspaceLocked()||!frame||e.button>1)return;
+    if(state.mode==='retouch'&&!space&&e.button===0&&!state.showBefore)return;
+    e.preventDefault();stage.focus({preventScroll:true});stage.setPointerCapture(e.pointerId);
+    drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...state.viewport}};stage.classList.add('is-panning');
+  };
+  stage.onpointermove=e=>{if(drag?.id!==e.pointerId)return;e.preventDefault();state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};document.getElementById('editWorkspace')?._editLayout?.();};
+  const end=e=>{if(drag?.id===e.pointerId){drag=null;stage.classList.remove('is-panning');}};
+  stage.onpointerup=stage.onpointercancel=stage.onlostpointercapture=end;
+  stage.addEventListener('wheel',e=>{
+    if(editWorkspaceLocked()||!frame)return;e.preventDefault();const rect=stage.getBoundingClientRect();
+    editWorkspaceSetViewZoom(state.zoom*Math.exp(-Math.max(-150,Math.min(150,e.deltaY))*.003),{x:e.clientX-rect.left-rect.width/2,y:e.clientY-rect.top-rect.height/2});
+  },{passive:false});
+  stage.onkeydown=e=>{
+    if(e.code==='Space'){e.preventDefault();space=true;stage.classList.add('can-pan');}
+    if(e.key==='0'){e.preventDefault();fitEditWorkspace();}
+    if(['+','=','-'].includes(e.key)){e.preventDefault();editWorkspaceSetViewZoom(state.zoom*(e.key==='-'?.8:1.25));}
+    const direction={ArrowLeft:[-24,0],ArrowRight:[24,0],ArrowUp:[0,-24],ArrowDown:[0,24]}[e.key];
+    if(direction&&!editWorkspaceLocked()){e.preventDefault();state.viewport.x+=direction[0];state.viewport.y+=direction[1];document.getElementById('editWorkspace')?._editLayout?.();}
+  };
+  stage.onkeyup=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
+  stage.onblur=()=>{space=false;stage.classList.remove('can-pan');};
+}
+
 function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading; }
 function editWorkspaceValidation() {
   const s=editWorkspaceState, prompt=s.prompt.trim();
@@ -6649,11 +6826,16 @@ function initEditWorkspaceStage() {
     const width=img.naturalWidth+expansion.left+expansion.right,height=img.naturalHeight+expansion.top+expansion.bottom;
     const scale=Math.min((stage.clientWidth-48)/width,(stage.clientHeight-48)/height,1)*s.zoom/100;
     frame.style.width=Math.max(1,width*scale)+'px';frame.style.height=Math.max(1,height*scale)+'px';
+    const maxX=stage.clientWidth/2+width*scale/2-40,maxY=stage.clientHeight/2+height*scale/2-40;
+    s.viewport.x=Math.max(-maxX,Math.min(maxX,s.viewport.x));s.viewport.y=Math.max(-maxY,Math.min(maxY,s.viewport.y));
+    frame.style.transform='translate('+s.viewport.x+'px,'+s.viewport.y+'px)';
     img.style.left=expansion.left/width*100+'%';img.style.top=expansion.top/height*100+'%';img.style.width=img.naturalWidth/width*100+'%';img.style.height=img.naturalHeight/height*100+'%';
     const canvas=root.querySelector('#editWorkspaceMask');
     if(canvas){const ratio=Math.min(1,2048/img.naturalWidth,2048/img.naturalHeight);canvas.width=Math.max(1,Math.round(img.naturalWidth*ratio));canvas.height=Math.max(1,Math.round(img.naturalHeight*ratio));drawEditWorkspaceMask();}
     updateEditWorkspaceReady();
   };
+  root._editLayout=layout;
+  initEditWorkspaceNavigation(stage,frame);
   img.onload=layout;if(img.complete)layout();
   if(root._editObserver)root._editObserver.disconnect();
   if(typeof ResizeObserver!=='undefined'){root._editObserver=new ResizeObserver(layout);root._editObserver.observe(stage);}
@@ -6661,7 +6843,7 @@ function initEditWorkspaceStage() {
   let stroke=null;
   const point=e=>{const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};};
   canvas.onpointerdown=e=>{
-    if(editWorkspaceLocked()||s.showBefore||e.button!==0)return;e.preventDefault();canvas.setPointerCapture(e.pointerId);
+    if(editWorkspaceLocked()||s.showBefore||e.button!==0)return;if(stage.classList.contains('can-pan'))return;e.preventDefault();e.stopPropagation();canvas.setPointerCapture(e.pointerId);
     stroke={size:s.brushSize/canvas.getBoundingClientRect().width,points:[point(e)]};s.maskRedo=[];s.maskStrokes.push(stroke);drawEditWorkspaceMask();updateEditWorkspaceReady();
   };
   canvas.onpointermove=e=>{if(!stroke)return;e.preventDefault();stroke.points.push(point(e));drawEditWorkspaceMask();};
@@ -6680,7 +6862,7 @@ async function loadEditWorkspaceImage(file) {
     // Keep the old document intact until the new upload succeeds.
     const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl])]);
     previews.forEach(url=>{if(url.startsWith('blob:'))URL.revokeObjectURL(url);});
-    s.history=[];Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100});
+    s.history=[];Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0}});
     setEditWorkspaceDimensions(probe.naturalWidth,probe.naturalHeight);
   } catch(error){URL.revokeObjectURL(preview);editWorkspaceToast(error.message||'Не удалось загрузить изображение.');}
   finally{if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
@@ -6703,13 +6885,14 @@ function openEditWorkspace(e) {
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
-  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root.remove();}
+  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._cameraOrbit?.destroy();root.remove();}
   document.body.classList.remove('edit-workspace-open');
   // Keep this editing session when the user closes and reopens the workspace.
 }
 function renderEditWorkspace() {
   const root=document.getElementById('editWorkspace'); if(!root)return;
   if(root._editObserver)root._editObserver.disconnect();
+  root._cameraOrbit?.destroy();
   const state=editWorkspaceState, mode=state.mode, light=state.light.layers[state.light.active]||state.light, safe=(v)=>S.escapeHtml(String(v??''));
   const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
   const image=state.showBefore?state.beforeUrl:(state.resultUrl||state.sourcePreview);
@@ -6717,10 +6900,10 @@ function renderEditWorkspace() {
   root.setAttribute('aria-label','Edit image');root.setAttribute('aria-busy',String(editWorkspaceLocked()));
   const view=image?'<div class="edit-workspace-frame"><img class="edit-workspace-image" src="'+safe(image)+'" alt="'+(state.showBefore?'До редактирования':state.resultUrl?'Результат редактирования':'Исходное изображение')+'">'+(mode==='retouch'&&!state.showBefore?'<canvas id="editWorkspaceMask" aria-label="Выделение области кистью"></canvas>':'')+'</div>':'<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Загрузите фото или перетащите его сюда</b><small>JPEG, PNG, WebP · до 50 MB</small></button>';
   const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Обработка…':state.uploading?'Загрузка…':mode==='resize'?'Apply · Free':'Generate')+'</button>';
-  const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
+  const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input '+(group==='camera'?'data-camera-input="'+key+'" ':'')+'aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
   let panel='';let action='';
   if(mode==='camera'){
-    panel='<div class="edit-workspace-orbit"><div class="edit-orbit-rings"><i></i><b></b><span></span><em>▣</em></div></div><div class="edit-workspace-presets">'+[['Front',0,0],['Top',0,90],['Left',270,0],['Back',180,0],['Bottom',0,-30],['Right',90,0]].map(([n,h,v])=>'<button type="button" class="'+(state.camera.horizontal===h&&state.camera.vertical===v?'active':'')+'" onclick="SYLVEX.setEditCameraPreset(event,'+h+','+v+')">'+n+'</button>').join('')+'</div>'+range('Horizontal','horizontal',0,360,1,state.camera.horizontal)+range('Vertical','vertical',-30,90,1,state.camera.vertical)+range('Zoom','zoom',0,10,.1,state.camera.zoom,'camera','')+generate;
+    panel='<div class="edit-camera-panel-title"><h3>Положение камеры</h3><span>Qwen Multiple Angles</span></div><div id="editCameraOrbit" class="edit-workspace-orbit"></div><p class="edit-camera-help">Перетащите точки на орбитах или настройте ползунки. Камера всегда смотрит на фото.</p><div class="edit-workspace-presets">'+[['Спереди',0,0],['Сверху',0,90],['Слева',270,0],['Сзади',180,0],['Снизу',0,-30],['Справа',90,0]].map(([n,h,v])=>'<button type="button" data-camera-preset data-horizontal="'+h+'" data-vertical="'+v+'" aria-pressed="'+(state.camera.horizontal%360===h&&state.camera.vertical===v)+'" class="'+(state.camera.horizontal%360===h&&state.camera.vertical===v?'active':'')+'" onclick="SYLVEX.setEditCameraPreset(event,'+h+','+v+')">'+n+'</button>').join('')+'</div>'+range('Горизонталь','horizontal',0,360,.1,state.camera.horizontal)+range('Высота','vertical',-30,90,.1,state.camera.vertical)+range('Приближение','zoom',0,10,.1,state.camera.zoom,'camera',' / 10')+'<div class="edit-camera-limits"><span>−30° снизу · 90° сверху</span><span>0 далеко · 10 близко</span></div>'+generate;
   } else if(mode==='lighting'){
     panel='<div class="edit-workspace-light-head">'+state.light.layers.map((item,index)=>'<button type="button" class="edit-workspace-light-chip '+(state.light.active===index?'active':'')+'" onclick="SYLVEX.selectEditWorkspaceLight(event,'+index+')"><i style="--light-color:'+safe(item.color)+'"></i>Light '+(index+1)+'</button>').join('')+'<button type="button" class="edit-workspace-add-light" onclick="SYLVEX.addEditWorkspaceLight(event)">＋</button></div><div class="edit-workspace-light-tools"><button title="Показать/скрыть" class="'+(light.enabled===false?'muted':'')+'" onclick="SYLVEX.toggleEditWorkspaceLight(event)">◉</button><button title="Удалить" onclick="SYLVEX.removeEditWorkspaceLight(event)">⌫</button></div><div class="edit-workspace-control-card">'+range('Horizontal','horizontal',-100,100,1,light.horizontal,'light')+range('Vertical','vertical',-100,100,1,light.vertical,'light')+range('Brightness','brightness',0,2,.1,light.brightness,'light','')+'<label class="edit-workspace-hex">Color <span><i style="--swatch:'+safe(light.color)+'"></i><input aria-label="HEX color" value="'+safe(light.color).toUpperCase()+'" onchange="SYLVEX.updateEditLightHex(event)"></span><input type="color" value="'+safe(light.color)+'" oninput="SYLVEX.updateEditLightColor(event)"></label></div>'+generate;
   } else if(mode==='upscale'){
@@ -6735,14 +6918,14 @@ function renderEditWorkspace() {
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action='<p>Expand canvas · '+(state.width+state.expand.left+state.expand.right)+' × '+(state.height+state.expand.top+state.expand.bottom)+' px</p><textarea maxlength="8000" placeholder="Describe the extended scene (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row">'+['left','right','top','bottom'].map(key=>'<label>'+key+' <input aria-label="Expand '+key+'" type="number" min="0" max="4096" value="'+state.expand[key]+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'expand\',\''+key+'\')"> px</label>').join('')+generate+'</div>';
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
-  root.innerHTML='<main class="edit-workspace-main"><div class="edit-workspace-grid"></div><section class="edit-workspace-stage">'+view+'</section>'+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Zoom" onclick="SYLVEX.cycleEditWorkspaceZoom(event)">'+(state.zoom===100?'Fit':state.zoom+'%')+'⌄</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  root.innerHTML='<main class="edit-workspace-main"><div class="edit-workspace-grid"></div><section class="edit-workspace-stage">'+view+'</section>'+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
-  initEditWorkspaceStage();updateEditWorkspaceReady();
+  initEditWorkspaceStage();initEditCameraOrbit();updateEditWorkspaceReady();
 
 }
 function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;renderEditWorkspace()}
-function setEditCameraPreset(e,h,v){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.camera.horizontal=h;editWorkspaceState.camera.vertical=v;renderEditWorkspace()}
-function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;const target=group==='light'?(editWorkspaceState.light.layers[editWorkspaceState.light.active]||editWorkspaceState.light):editWorkspaceState[group];target[key]=Number(input.value);updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=(group==='camera'&&key!=='zoom'?input.value+'°':key==='brightness'?Number(input.value).toFixed(1):input.value+(key==='zoom'?'':group==='light'?'°':''))}
+function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
+function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}const target=group==='light'?(editWorkspaceState.light.layers[editWorkspaceState.light.active]||editWorkspaceState.light):editWorkspaceState[group];target[key]=Number(input.value);updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=(group==='camera'&&key!=='zoom'?input.value+'°':key==='brightness'?Number(input.value).toFixed(1):input.value+(key==='zoom'?'':group==='light'?'°':''))}
 function updateEditLightColor(e){if(editWorkspaceLocked())return;if(e&&e.currentTarget){const current=editWorkspaceState.light.layers[editWorkspaceState.light.active];if(current){current.color=e.currentTarget.value;const swatch=document.querySelector('.edit-workspace-hex i');if(swatch)swatch.style.setProperty('--swatch',current.color);const hex=document.querySelector('.edit-workspace-hex input[aria-label="HEX color"]');if(hex)hex.value=current.color.toUpperCase()}}}
 function updateEditWorkspacePrompt(e){if(editWorkspaceLocked())return;if(e&&e.currentTarget)editWorkspaceState.prompt=e.currentTarget.value;updateEditWorkspaceReady()}
 function addEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const state=editWorkspaceState.light,current=state.layers[state.active]||state;if(state.layers.length>=8)return editWorkspaceToast('Максимум 8 источников света.');state.layers.push(Object.assign({},current));state.active=state.layers.length-1;renderEditWorkspace()}
@@ -6767,8 +6950,9 @@ function setEditBrushMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preven
 function updateEditBrushSize(e){const input=e&&e.currentTarget;if(input&&!editWorkspaceLocked()){editWorkspaceState.brushSize=Number(input.value)||24;const out=document.getElementById('editBrushSizeOutput');if(out)out.textContent=editWorkspaceState.brushSize}}
 function setEditBackgroundMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.backgroundMode=mode;renderEditWorkspace()}
 function resetEditResize(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;s.resize={width:s.width,height:s.height,locked:s.resize.locked};renderEditWorkspace()}
-function cycleEditWorkspaceZoom(e){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const levels=[25,50,75,100,150,200];const index=levels.indexOf(editWorkspaceState.zoom);editWorkspaceState.zoom=levels[(index+1)%levels.length];renderEditWorkspace()}
-function adjustEditWorkspaceZoom(e,delta){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.zoom=Math.max(25,Math.min(200,(editWorkspaceState.zoom||100)+delta));renderEditWorkspace()}
+function cycleEditWorkspaceZoom(e){fitEditWorkspace(e);}
+function adjustEditWorkspaceZoom(e,delta){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceSetViewZoom(editWorkspaceState.zoom+delta);}
+
 async function downloadEditWorkspaceResult(e){
   if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(!s.resultUrl)return;
   if(s.jobId)return downloadGeneratedFile({currentTarget:{dataset:{downloadUrl:completedGenerationDownloadUrl(s.jobId),fileName:'sylvex-edit.png'}}});
@@ -6776,7 +6960,7 @@ async function downloadEditWorkspaceResult(e){
   catch(error){editWorkspaceToast('Не удалось скачать изображение. Попробуйте снова.');}
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
-function editWorkspaceInstruction(state){return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(state.prompt.trim()?': '+state.prompt.trim():'')}
+function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(state.prompt.trim()?': '+state.prompt.trim():'')}
 async function generateEditWorkspace(e){
   if(e){e.preventDefault();e.stopPropagation()}
   const state=editWorkspaceState;if(editWorkspaceLocked())return;const reason=editWorkspaceValidation();if(reason)return editWorkspaceToast(reason);
@@ -22047,7 +22231,7 @@ async function waitGeneration(jobId, options) {
   // (sylvex-website/pro-studio.html appends ?embed=web) rather than the
   // Telegram Mini App. Never true for Telegram, which never sends this param.
   function isWebEmbed() {
-    try { return new URLSearchParams(window.location.search || '').get('embed') === 'web'; }
+    try { return document.querySelector('meta[name="sylvex-studio-embed"]')?.content === 'web' || new URLSearchParams(window.location.search || '').get('embed') === 'web'; }
     catch { return false; }
   }
 
@@ -23663,7 +23847,7 @@ async function waitGeneration(jobId, options) {
 
   S.clearPhotoToolMask = clearPhotoToolMask;
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
-  S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom;
+  S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditWorkspacePrompt=updateEditWorkspacePrompt; S.addEditWorkspaceLight=addEditWorkspaceLight; S.onEditWorkspaceFile=onEditWorkspaceFile;
   S.clearEditWorkspaceMask=clearEditWorkspaceMask;S.redoEditWorkspaceMask=redoEditWorkspaceMask;S.undoEditWorkspace=undoEditWorkspace;S.compareEditWorkspace=compareEditWorkspace;
   S.generateEditWorkspace=generateEditWorkspace; S.useEditWorkspaceResult=useEditWorkspaceResult;

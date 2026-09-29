@@ -9502,3 +9502,53 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-tab.active{padding-inline:17px}
 .edit-workspace-action{border-radius:24px;background:#242426e8;backdrop-filter:blur(18px)}
 .edit-workspace-action-row button:disabled{opacity:.4;cursor:default}
+
+/* The photo is a movable object on the editor grid. Camera distance is separate. */
+.edit-workspace-stage{overflow:hidden;touch-action:none;cursor:grab;outline:none}
+.edit-workspace-stage.is-panning,.edit-workspace-stage.is-panning *{cursor:grabbing!important}
+.edit-workspace-frame{will-change:transform;transform-origin:center;user-select:none}
+.edit-workspace-stage.can-pan #editWorkspaceMask{cursor:grab}
+.edit-workspace[data-mode="retouch"] .edit-workspace-stage:not(.can-pan){cursor:default}
+.edit-workspace[data-mode="camera"] .edit-workspace-stage{bottom:100px;top:65px}
+.edit-camera-panel-title{display:flex;flex-direction:column;gap:4px}
+.edit-camera-panel-title h3{margin:0;font-size:16px;font-weight:600}
+.edit-camera-panel-title span{font-size:10px;color:var(--edit-muted)}
+.edit-workspace-panel-camera{gap:12px;padding:18px}
+.edit-workspace-panel-camera .edit-workspace-orbit{display:block;height:auto;min-height:0;padding:0 3px 10px;border-radius:16px;background:radial-gradient(ellipse at 50% 55%,#23252d,#141519 75%)}
+.edit-camera-svg{display:block;width:100%;height:220px;overflow:visible;touch-action:none;user-select:none}
+.edit-camera-floor{fill:#ffffff02;stroke:#ffffff08;stroke-width:1}
+.edit-camera-guide{fill:none;stroke:#8b8c9c44;stroke-width:1;stroke-dasharray:3 5;pointer-events:none}
+.edit-camera-ring{fill:none;stroke-width:1.7;cursor:grab;pointer-events:stroke}
+.edit-camera-ring.horizontal{stroke:#759affb0}
+.edit-camera-ring.vertical{stroke:#5fd8b0c0}
+.edit-camera-ring.unavailable{stroke:#66697745;stroke-dasharray:3 5;pointer-events:none}
+.edit-camera-sight{stroke:#dcdff138;stroke-width:1;stroke-dasharray:4 4;fill:none;pointer-events:none}
+.edit-camera-zoom-rail{stroke:#dedff0a0;stroke-width:2;fill:none;cursor:grab;pointer-events:stroke}
+.edit-camera-subject{pointer-events:none}
+.edit-camera-subject rect{fill:#2b2d35;stroke:#bec4df88;stroke-width:1}
+.edit-camera-subject text{fill:#aeb4c8;font-size:21px}
+.edit-camera-handle,.edit-camera-body{cursor:grab;outline:none}
+.edit-camera-handle .hit,.edit-camera-body .hit{fill:transparent;stroke:none}
+.edit-camera-handle .dot{stroke:#111318;stroke-width:2}
+.edit-camera-handle.horizontal .dot{fill:#7c9dff}
+.edit-camera-handle.vertical .dot{fill:#6ce1ba}
+.edit-camera-body path{fill:#e5e9ff;stroke:#141823;stroke-width:1.5}
+.edit-camera-body>circle:not(.hit){fill:#262c40;stroke:#a6b8ff;stroke-width:1}
+.edit-camera-handle:focus .dot,.edit-camera-handle:hover .dot{stroke:white;stroke-width:2}
+.edit-camera-body:focus path,.edit-camera-body:hover path{fill:white;stroke:#7da2ff;stroke-width:2}
+.edit-camera-axis{fill:#767b8d;font-size:9px;letter-spacing:1.3px}
+.edit-camera-label{fill:#b7bed1;font-size:11px;font-variant-numeric:tabular-nums}
+.edit-camera-legend{display:flex;justify-content:center;gap:14px;font-size:9px;color:#9399ad}
+.edit-camera-legend span{display:flex;align-items:center;gap:4px}
+.edit-camera-legend i{width:5px;height:5px;border-radius:50%;background:#dfe4f7}
+.edit-camera-legend i.horizontal{background:#7c9dff}.edit-camera-legend i.vertical{background:#6ce1ba}
+.edit-camera-help{margin:0;font-size:11px;line-height:1.5;color:var(--edit-muted)}
+.edit-workspace-panel-camera .edit-workspace-range{display:grid;grid-template-columns:85px minmax(0,1fr) 57px;gap:8px;align-items:center;min-height:30px}
+.edit-workspace-panel-camera .edit-workspace-range span{font-size:11px}
+.edit-workspace-panel-camera .edit-workspace-range input{width:100%;min-width:0;margin:0;accent-color:#8ba7ff}
+.edit-workspace-panel-camera .edit-workspace-range output{font-size:11px;text-align:right;font-variant-numeric:tabular-nums}
+.edit-camera-limits{display:flex;justify-content:space-between;gap:8px;font-size:9px;color:#858b9d}
+.edit-workspace-panel-camera .edit-workspace-presets button{min-height:32px;font-size:11px}
+.edit-workspace-panel-camera .edit-workspace-presets button.active{background:#657bb529;border-color:#879fee77}
+.edit-workspace[data-busy="true"] .edit-camera-svg{pointer-events:none;opacity:.6}
+@media(min-width:1000px) and (max-height:760px){.edit-workspace-panel-camera{gap:8px;padding:13px}.edit-camera-svg{height:180px}.edit-camera-help{font-size:10px}.edit-workspace-panel-camera .edit-workspace-range{min-height:27px}}

@@ -15503,12 +15503,13 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         if mode == "camera":
             model = "fal-ai/qwen-image-edit-2511-multiple-angles"
             endpoint = f"https://queue.fal.run/{model}"
+            camera = edit_workspace_service.camera_parameters(camera)
             request_body = {
                 "image_urls": [image_data_uri],
-                "horizontal_angle": max(0, min(360, int(float(camera.get("horizontal") or 0)))),
-                "vertical_angle": max(-30, min(90, int(float(camera.get("vertical") or 0)))),
-                "zoom": max(0, min(10, float(camera.get("zoom") if camera.get("zoom") is not None else 5))),
-                "additional_prompt": "Preserve the same subject identity, clothing, scene objects, environment and overall style.",
+                "horizontal_angle": camera["horizontal"],
+                "vertical_angle": camera["vertical"],
+                "zoom": camera["zoom"],
+                "additional_prompt": edit_workspace_service.camera_prompt(camera),
                 "output_format": "png",
                 "num_images": 1,
             }
@@ -15659,6 +15660,9 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         "cost_credits": int(price.get("credits") or 0), "cost_usd": price.get("cost_usd") or 0,
         "generation_cost": price.get("generation_cost") or "",
     }
+    if mode == "camera":
+        extra["edit_camera"] = camera
+        extra["camera_prompt"] = request_body["additional_prompt"]
     job_id = str(payload.get("job_id") or "")
     if job_id:
         result = {**_build_image_result_without_thumbnails([image_url]), **extra}
