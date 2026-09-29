@@ -40,12 +40,12 @@ VIDEO_MODEL_CONFIG = {
     "seedance_2_fast": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "seedance_2_0": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
     "seedance_1_5_pro": {"provider": "bytedance", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12], "ratios": ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16", "21:9"], "resolutions": ["720p", "480p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": False},
-    "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
-    "heygen_avatar_iv": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
-    "heygen_avatar_v": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
-    "heygen_avatar_iii": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p", "4k"], "sound": True, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
-    "heygen_image_video": {"provider": "heygen", "modes": ["image_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "heygen_cinematic_avatar": {"provider": "heygen", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "avatar": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
+    "heygen_v3_video_agent": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_avatar_iv": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_avatar_v": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_avatar_iii": {"provider": "heygen", "modes": ["text_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p", "4k"], "sound": False, "avatar": True, "start_image": False, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_image_video": {"provider": "heygen", "modes": ["image_to_video"], "durations": [5], "ratios": ["auto", "16:9", "9:16", "4:5", "5:4", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "avatar": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "heygen_cinematic_avatar": {"provider": "heygen", "modes": ["text_to_video", "image_to_video"], "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "avatar": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": False},
     "luma_ray_v3_2": {"provider": "luma", "modes": ["text_to_video", "image_to_video", "video_edit", "video_reframe"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": True},
     "luma_dream_machine": {"provider": "luma", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
     "runway_gen4_5": {"provider": "runway", "modes": ["text_to_video", "image_to_video"], "durations": [2, 3, 4, 5, 6, 7, 8, 9, 10], "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -64,11 +64,11 @@ VIDEO_MODEL_CONFIG = {
     "runway_gemini_omni_flash": {"provider": "runway", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [3, 4, 5, 6, 7, 8, 9, 10], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_input": True, "video_upload": True, "video_edit": True},
     "minimax_hailuo_2_3": {"provider": "minimax", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "pixverse_v6": {"provider": "pixverse", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": False, "video_edit": False},
-    "sora_2": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "sora_2_pro": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "sora_2": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [4, 8, 12], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
+    "sora_2_pro": {"provider": "sora", "modes": ["text_to_video", "image_to_video"], "durations": [4, 8, 12], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "veo_3_1": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p", "1080p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
     "veo_3_1_fast": {"provider": "veo", "modes": ["text_to_video", "image_to_video"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
-    "gemini_omni_flash": {"provider": "gemini", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": True, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
+    "gemini_omni_flash": {"provider": "gemini", "modes": ["text_to_video", "image_to_video", "video_edit"], "durations": [5, 8], "ratios": ["16:9", "9:16"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": True, "video_edit": True},
     "wan_2_7": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1", "4:3", "3:4"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": True, "end_image": True, "video_upload": True, "video_edit": False},
     "wan_2_7_edit": {"provider": "wan", "modes": ["video_edit"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p", "1080p"], "sound": False, "start_image": False, "end_image": False, "video_upload": True, "video_edit": True},
     "wan_2_6": {"provider": "wan", "modes": ["text_to_video", "image_to_video"], "durations": [5, 10], "ratios": ["16:9", "9:16", "1:1"], "resolutions": ["720p"], "sound": False, "start_image": True, "end_image": False, "video_upload": False, "video_edit": False},
@@ -655,10 +655,14 @@ def _openai_sora_model(model_id: str):
 # =====================================================
 def _openai_sora_seconds(duration):
     try:
-        value = int(duration or 16)
+        value = int(duration or 4)
     except Exception:
-        value = 16
-    return "20" if value >= 20 else "16"
+        value = 4
+    # OpenAI's Sora API only accepts 4, 8 or 12 seconds (its documented
+    # enum) - snap to the nearest one instead of the old 16/20 threshold,
+    # which the frontend never even offered and the API rejects.
+    valid = (4, 8, 12)
+    return str(min(valid, key=lambda v: abs(v - value)))
 
 
 # =====================================================
@@ -1885,12 +1889,18 @@ def _seedance_body(frontend_model: str, prompt: str, payload: dict):
         image_refs.append(body.get("image_url"))
     if body.get("character_image"):
         image_refs.append(body.get("character_image"))
+    # Every collected reference may be a relative/internal path (e.g.
+    # /generated/...) - resolve each to a fully-qualified, provider-fetchable
+    # URL before it ever reaches _seedance_reference_content(), same as every
+    # other provider that forwards a raw URL string.
+    image_refs = [_public_input_url(url) for url in image_refs if url]
 
     video_refs = []
     if body.get("input_video"):
         video_refs.append(body.get("input_video"))
     if body.get("video_url"):
         video_refs.append(body.get("video_url"))
+    video_refs = [_public_input_url(url) for url in video_refs if url]
 
     _seedance_reference_content(content, "image_url", image_refs)
     _seedance_reference_content(content, "video_url", video_refs)
@@ -4567,7 +4577,7 @@ def _call_minimax(model_id: str, prompt: str, payload: dict):
         "aspect_ratio": body.get("ratio") or "16:9",
     }
     if body.get("start_image"):
-        minimax_body["first_frame_image"] = body.get("start_image")
+        minimax_body["first_frame_image"] = _public_input_url(body.get("start_image"))
     try:
         endpoint = os.getenv("MINIMAX_API_ENDPOINT", "https://api.minimax.io/v1/video/generation")
         response = _request_json(
@@ -4739,7 +4749,7 @@ def _call_veo(model_id: str, prompt: str, payload: dict):
             },
         }
         if body.get("start_image"):
-            veo_body["instances"][0]["image"] = {"url": body.get("start_image")}
+            veo_body["instances"][0]["image"] = {"url": _public_input_url(body.get("start_image"))}
         response = _request_json(
             endpoint,
             {"x-goog-api-key": api_key, "Content-Type": "application/json"},
@@ -4800,6 +4810,15 @@ def _call_gemini_video(model_id: str, prompt: str, payload: dict):
         "generation_config": {
             "video_config": {
                 "task": task,
+                # Google's own docs confirm Gemini Omni Flash clips always
+                # include audio - there is no mute/generate_audio toggle at
+                # the API level, so SYLVEX's sound option is not forwarded
+                # here (see the matching sound:false in VIDEO_MODEL_CONFIG).
+                # duration_seconds follows the same snake_case convention as
+                # every other field this endpoint already accepts below;
+                # verify against Google's published schema if this model's
+                # length ever needs adjusting.
+                "duration_seconds": int(body.get("duration") or 5),
             }
         },
     }
@@ -5042,6 +5061,12 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
         duration = 0
     if duration:
         grok_body["duration"] = duration
+    # xAI's docs (docs.x.ai/developers/model-capabilities/video/generation)
+    # confirm generated videos include audio by default; pass
+    # generate_audio=False for a silent video - this was previously never
+    # sent at all, so the sound toggle had no effect on the request.
+    raw_options = payload.get("video_options") or payload.get("options") or {}
+    grok_body["generate_audio"] = bool(raw_options.get("sound"))
     input_video = _public_input_url(
         body.get("input_video") or body.get("video_url") or body.get("reference_video") or ""
     )
