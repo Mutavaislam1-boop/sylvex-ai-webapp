@@ -16410,7 +16410,12 @@ function openGenerationInfoDrawer(e, index) {
   if (!body) return;
 
   const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? (currentChatType() === 'voice' ? 'voice' : 'music') : 'image'));
-  if (type === 'image') restoreImageStateFromGenerationMetadata(meta);
+  // This drawer only displays details (generatedImageResultItems below reads
+  // purely from meta/message) - it must never mutate live composer state.
+  // restoreImageStateFromGenerationMetadata is regenMsg's Regenerate-only
+  // helper (it even overwrites the live chat input textarea); calling it
+  // here silently changed the composer's model/style/character/object/seed
+  // and the in-progress draft just from tapping to view an old generation.
   const imageItems = type === 'image' ? generatedImageResultItems(meta, message) : [];
   const imageUrl = (imageItems[0] && imageItems[0].url) || meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
@@ -22833,11 +22838,37 @@ async function waitGeneration(jobId, options) {
   }
 
   function renderStudioGridProjects() {
-    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><b>История сеток</b><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<button type="button" class="studio-grid-project${item.id===active.projectId?' active':''}" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><b>История сеток</b><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Удалить проект">🗑</button></div>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
   }
 
   function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}
   function toggleStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;if(panel.hidden){touchStudioGridProject(loadStudioGridState());renderStudioGridProjects();panel.hidden=false}else panel.hidden=true}
+
+  // Grid Mode had a full save/list/open project history but no way to ever
+  // remove one from it - projects could only accumulate forever. Deleting
+  // the currently-open project also resets the live canvas to a fresh empty
+  // one, the same way createStudioGridProject() does, since its state would
+  // otherwise vanish from storage while still being rendered on screen.
+  function deleteStudioGridProject(projectId) {
+    if (!projectId) return;
+    if (studioGridHasActiveRun()) { toast('Сначала дождитесь завершения текущей генерации'); return; }
+    if (!window.confirm('Удалить этот проект сетки?')) return;
+    const items = loadStudioGridProjects().filter((item) => item.id !== projectId);
+    saveStudioGridProjects(items);
+    try { localStorage.removeItem(STUDIO_GRID_PROJECT_PREFIX + projectId); } catch (_) {}
+    const current = loadStudioGridState();
+    if (current.projectId === projectId) {
+      studioGridState = emptyStudioGridState();
+      studioGridSelectedIds = new Set();
+      clearStudioGridConnectionMode();
+      saveStudioGridState();
+      touchStudioGridProject(studioGridState);
+      renderStudioGrid();
+      resetStudioGridView();
+    }
+    renderStudioGridProjects();
+    toast('Проект сетки удалён');
+  }
 
   function createStudioGridProject() {
     if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}archiveStudioGridProject();studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Создана новая чистая сетка');
@@ -23485,7 +23516,7 @@ async function waitGeneration(jobId, options) {
     if (title) title.addEventListener('input', () => { loadStudioGridState().title = title.value; saveStudioGridState(); });
     projectsButton?.addEventListener('click',toggleStudioGridProjects);
     newProjectButton?.addEventListener('click',createStudioGridProject);
-    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
+    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const del=event.target.closest('[data-grid-project-delete]');if(del){deleteStudioGridProject(del.dataset.gridProjectDelete);return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
     if (host) {
       host.addEventListener('input', (event) => {
         const card = event.target.closest('.studio-grid-node');
