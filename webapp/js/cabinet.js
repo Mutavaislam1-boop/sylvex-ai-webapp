@@ -942,12 +942,16 @@ const IMAGE_MODEL_LIST = [
     quality:'medium',
     costUsd:0.0795,
     costCredits:8,
+    // Real OpenAI image sizes are exactly 3 boxes: 1024x1024, 1536x1024
+    // (landscape) and 1024x1536 (portrait) - normalize_openai_image_size()
+    // collapses any of 4:3/16:9 to the same landscape box and 3:4/9:16 to
+    // the same portrait box, so offering 5 distinct ratios made two pairs
+    // of them (4:3/16:9, 3:4/9:16) produce byte-identical output despite
+    // looking like different choices.
     sizes:[
       { id:'1:1', label:'1:1', ratio:'1:1' },
-      { id:'4:3', label:'4:3', ratio:'4:3' },
-      { id:'3:4', label:'3:4', ratio:'3:4' },
-      { id:'16:9', label:'16:9', ratio:'16:9' },
-      { id:'9:16', label:'9:16', ratio:'9:16' }
+      { id:'3:2', label:'3:2', ratio:'3:2' },
+      { id:'2:3', label:'2:3', ratio:'2:3' }
     ]
   },
 
@@ -2446,6 +2450,14 @@ function normalizeVideoStateForModel() {
   if (!ratios.includes(videoState.ratio)) videoState.ratio = ratios[0] || '16:9';
   if (!resolutions.includes(videoState.resolution)) videoState.resolution = resolutions[0] || '720p';
   if (!config.sound) videoState.sound = false;
+  // A stale start/end frame from a previous model selection must not
+  // survive a switch to a model that doesn't support it - besides showing
+  // a misleading uploaded-but-unusable image, a leftover start_image can
+  // silently change which provider endpoint gets used (e.g. Kling's
+  // image-to-video vs text-to-video routing is driven purely by whether
+  // start_image is present).
+  if (!config.start_image && videoState.startImage) videoState.startImage = '';
+  if (!config.end_image && videoState.endImage) videoState.endImage = '';
 }
 
 // =====================================================
@@ -5720,9 +5732,15 @@ function localizedGreeting() {
   // =====================================================
   function renderImageReferenceSections() {
     ensureImageReferenceSections();
-    syncImageFeatureAvailability();
+    const capabilities = syncImageFeatureAvailability();
     const character = selectedImageCharacter();
     const object = selectedImageObject();
+    // These buttons are shared between Image and Video mode (same DOM
+    // elements, reused via isVideoMode() branches elsewhere). There is no
+    // equivalent per-model capability table for video's Character/Object
+    // yet, so gating only applies in Image mode - video keeps its prior
+    // always-enabled behavior unchanged.
+    const gateByModel = isImageMode();
 
     // =====================================================
     // JAVASCRIPT-БЛОК: setButtonState
@@ -5740,7 +5758,7 @@ function localizedGreeting() {
     const characterVal = document.getElementById('imageCharacterVal');
     if (characterVal) {
       characterVal.textContent = character ? character.name : 'Персонаж';
-      setButtonState(characterVal, false);
+      setButtonState(characterVal, gateByModel && !capabilities.character);
       renderUploadPreviewOnButton(
         document.getElementById('imageCharacterButton'),
         character ? [visualPreviewUrl(character)].filter(Boolean) : []
@@ -5750,7 +5768,7 @@ function localizedGreeting() {
     const objectVal = document.getElementById('imageObjectVal');
     if (objectVal) {
       objectVal.textContent = object ? object.name : 'Объект';
-      setButtonState(objectVal, false);
+      setButtonState(objectVal, gateByModel && !capabilities.object);
       renderUploadPreviewOnButton(
         document.getElementById('imageObjectButton'),
         object ? [visualPreviewUrl(object)].filter(Boolean) : []
@@ -5904,6 +5922,7 @@ function renderImageUploadPreview() {
 // =====================================================
 function renderVideoStartPreview() {
   const button = document.getElementById('videoStartUploadButton') || document.getElementById('videoStartFrameCard');
+  if (button) button.hidden = !(currentVideoConfig() || {}).start_image;
   setFramePreview(button, videoState.startImage || '', 'start image');
   const label = button && button.querySelector(':scope > span:last-child');
   if (label) label.textContent = videoState.startImage ? 'Начальное изображение выбрано' : 'Начальное изображение';
@@ -5915,6 +5934,7 @@ function renderVideoStartPreview() {
 // =====================================================
 function renderVideoEndPreview() {
   const button = document.getElementById('videoEndUploadButton') || document.getElementById('videoEndFrameCard');
+  if (button) button.hidden = !(currentVideoConfig() || {}).end_image;
   setFramePreview(button, videoState.endImage || '', 'end image');
   const label = button && button.querySelector(':scope > span:last-child');
   if (label) label.textContent = videoState.endImage ? 'Конечный образ выбран' : 'Конечный образ';
@@ -6267,8 +6287,18 @@ function clearSelectionButton(kind) {
 
 function openSelectionButton(kind) {
   if (kind === 'style') return openImageOptionMenu(null, 'style');
-  if (kind === 'character') return openImageOptionMenu(null, 'character');
-  if (kind === 'object') return openImageOptionMenu(null, 'objects');
+  if (kind === 'character') {
+    if (isImageMode() && !getModelCapabilities(imageState.modelId).character) {
+      return imageFeatureUnavailableToast('character');
+    }
+    return openImageOptionMenu(null, 'character');
+  }
+  if (kind === 'object') {
+    if (isImageMode() && !getModelCapabilities(imageState.modelId).object) {
+      return imageFeatureUnavailableToast('object');
+    }
+    return openImageOptionMenu(null, 'objects');
+  }
   if (kind === 'image_upload') return openImageUpload(null);
   if (kind === 'video_start') return openVideoStartUpload(null);
   if (kind === 'video_end') return openVideoEndUpload(null);
@@ -9984,12 +10014,24 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   const previousSize = imageState.size;
   const previousCount = imageState.count;
   const previousStyle = imageState.style;
+  // imageOptions below already clears the structured Character/Object
+  // selection (characterId/objectId/etc.), but imageOptionsPayload() still
+  // spreads the live imageState on top of it (this call is not
+  // isolateRequest:true, since it depends on buildGenerationRequest's own
+  // data:-URI upload normalization for the raw photos passed in) - so the
+  // main composer's mood dropdown and free-text "important objects" field
+  // must be cleared here too, or they silently ride along into what's
+  // supposed to be a clean reference-portrait generation.
+  const previousCharacterMood = imageState.character;
+  const previousObjects = imageState.objects;
   studioMode = 'image';
   imageState.modelId = 'gpt_image_1';
   imageState.provider = 'openai';
   imageState.size = '1024x1024';
   imageState.count = 1;
   imageState.style = 'auto';
+  imageState.character = '';
+  imageState.objects = '';
   try {
     const prompt = visualCreatePrompt(kind, name, gender, description);
     const start = await callGenerate(prompt, null, photos, null, {
@@ -10018,6 +10060,8 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
     imageState.size = previousSize;
     imageState.count = previousCount;
     imageState.style = previousStyle;
+    imageState.character = previousCharacterMood;
+    imageState.objects = previousObjects;
     if (!activeGeneration.jobId || !isActiveGenerationStatus(activeGeneration.status)) {
       clearActiveProStudioJob(activeGeneration.jobId);
     }
@@ -12008,8 +12052,8 @@ function imageModelButton(model) {
         const runwayLanguageRow = isRunway && runwayTool === 'voice_dubbing'
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_language&quot;)"><span class="image-size-label">Язык дубляжа</span><span class="image-size-check">' + S.escapeHtml(voiceState.runwayTargetLanguage || 'en') + '</span></button>'
           : '';
-        const runwayDurationRow = isRunway && runwayTool === 'sound_effect'
-          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_duration&quot;)"><span class="image-size-label">Длительность</span><span class="image-size-check">' + S.escapeHtml(String(voiceState.runwayDuration || 5)) + ' сек</span></button>'
+        const runwayDurationRow = isRunway && ['sound_effect', 'voice_isolation', 'voice_dubbing', 'speech_to_speech'].includes(runwayTool)
+          ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;runway_duration&quot;)"><span class="image-size-label">Длительность материала</span><span class="image-size-check">' + S.escapeHtml(String(voiceState.runwayDuration || 5)) + ' сек</span></button>'
           : '';
         const runwayVoiceRow = isRunway && !['voice_dubbing', 'voice_isolation', 'sound_effect'].includes(runwayTool)
           ? '<button class="image-size-row image-seed-row" type="button" onclick="SYLVEX.openImageOptionMenu(event,&quot;voice&quot;)"><span class="image-size-label">Основной голос</span><span class="image-size-check">' + S.escapeHtml(activeVoiceLabel) + '</span></button>'
@@ -14543,6 +14587,7 @@ function renderGeneratedTelegramButton(url, kind) {
     if (!items.length) { host.innerHTML = '<div class="profile-gallery-state">Здесь появятся ваши завершённые генерации.</div>'; return; }
     host.innerHTML = items.map((item) => {
       const type = normalizeGalleryType(item.type), id = String(item.id), media = String(item.media_url || ''), preview = String(item.preview_url || media || '');
+      const galleryImageUrls = Array.isArray(item.media_urls) ? item.media_urls.filter(Boolean) : [];
       const title = String(item.prompt || item.text || 'Генерация').trim().slice(0, 90);
       let visual = '';
       if (type === 'image' && preview) visual = '<img src="' + S.escapeHtml(preview) + '" alt="" loading="lazy">';
@@ -14550,7 +14595,7 @@ function renderGeneratedTelegramButton(url, kind) {
       else visual = '<div class="profile-gallery-placeholder">' + profileGalleryIcon(type) + '<span>' + S.escapeHtml(type === 'music' ? 'Музыка' : type === 'voice' ? 'Озвучка' : 'Текст') + '</span></div>';
       const viewAttrs = type === 'text'
         ? 'onclick="SYLVEX.viewProfileGalleryText(event,\'' + S.escapeHtml(id) + '\')"'
-        : type === 'image' ? 'data-image-url="' + S.escapeHtml(media) + '" onclick="SYLVEX.openImageViewer(event)"' : 'data-result-url="' + S.escapeHtml(media) + '" data-audio-url="' + S.escapeHtml(media) + '" data-result-kind="' + type + '" onclick="SYLVEX.openGeneratedContent(event)"';
+        : type === 'image' ? 'data-image-url="' + S.escapeHtml(media) + '"' + (galleryImageUrls.length > 1 ? ' data-image-urls="' + S.escapeHtml(JSON.stringify(galleryImageUrls)) + '"' : '') + ' onclick="SYLVEX.openImageViewer(event)"' : 'data-result-url="' + S.escapeHtml(media) + '" data-audio-url="' + S.escapeHtml(media) + '" data-result-kind="' + type + '" onclick="SYLVEX.openGeneratedContent(event)"';
       const downloadUrl = item.job_id ? completedGenerationDownloadUrl(item.job_id) : media;
       return '<article class="profile-gallery-card" data-gallery-id="' + S.escapeHtml(id) + '"><button class="profile-gallery-preview" type="button" ' + viewAttrs + '>' + visual + '</button>'
         + '<div class="profile-gallery-copy"><b>' + S.escapeHtml(title || 'Без названия') + '</b><small>' + S.escapeHtml([item.model, item.created_at ? new Date(item.created_at).toLocaleDateString() : ''].filter(Boolean).join(' · ')) + '</small></div>'
@@ -16291,8 +16336,16 @@ function applySharedMedia(share, includeSettings) {
     imageState.uploadedImageUrls = [share.media_url];
     if (includeSettings) {
       if (meta.style) imageState.style = meta.style;
-      if (meta.character) imageState.characterName = meta.character;
-      if (meta.object) imageState.objectName = meta.object;
+      // meta.character/meta.object are display-only strings - the backend's
+      // public share metadata deliberately never includes characterId/
+      // objectId/characterReferences/objectReferences (it would leak the
+      // original owner's private catalog reference images to anyone who
+      // opens the shared link). Setting only the name here would silently
+      // trigger the backend's "include the object reference" instruction
+      // with zero attached images, or - if a Character/Object was already
+      // selected locally - relabel it under a different name while still
+      // sending the old, unrelated reference images. Neither is restorable
+      // from a share, so they're intentionally left untouched.
     }
   } else if (mode === 'video') {
     videoState.inputVideo = share.media_url;
@@ -17966,6 +18019,17 @@ function maybeShowVideoTemplateIntro(force) {
     videoState.inputVideo = videoState.editInputVideo;
     videoState.videoUrl = videoState.editInputVideo;
     videoState.referenceVideoUrl = '';
+    // Stale Character/Object/end-frame selection from the main composer
+    // must not leak into a template-driven generation - videoOptionsPayload()
+    // below reads all of these directly off videoState, and previousVideoState
+    // is only restored in the finally block AFTER that request has already
+    // gone out, so clearing them there would be too late.
+    videoState.characterVisual = null;
+    videoState.objectVisual = null;
+    videoState.referenceVisual = null;
+    videoState.characterImage = '';
+    videoState.endImage = '';
+    videoState.advanced = {};
     // KEEP: working Kling editor catalog flow.
     // Internal template video + user image + template prompt go directly to Kling O3/Omni edit.
     videoState.videoTemplate = {
@@ -20403,6 +20467,7 @@ async function waitGeneration(jobId, options) {
   async function deleteConv(e, id, type) {
     e.stopPropagation();
     const tg = getTelegramId(); if (!tg) return;
+    if (!window.confirm('Удалить этот диалог?')) return;
     await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id, { method: 'DELETE' });
     const deletedType = chatTypeForMode(type || currentChatType());
     if (id === currentConvId && deletedType === currentChatType()) newChat();
@@ -21477,7 +21542,16 @@ async function waitGeneration(jobId, options) {
     const structuredSelectionCount = Number(!!inputs.hasStyle)
       + Number(!!inputs.hasCharacter)
       + Number(!!inputs.hasObject);
-    return !!inputs.hasPrompt || !!inputs.hasUserImageReference || structuredSelectionCount >= 2;
+    // A selected Character/Object alone is enough - the backend's own
+    // readiness check (public_prostudio_generate's reference_images
+    // OR-chain) accepts characterReferences/objectReferences alone as
+    // satisfying "prompt or attachment required", but this control
+    // previously required 2 of {style, character, object}, so picking
+    // only a Character (or only an Object) left Generate disabled even
+    // though the backend would have accepted the request.
+    return !!inputs.hasPrompt || !!inputs.hasUserImageReference
+      || !!inputs.hasCharacter || !!inputs.hasObject
+      || structuredSelectionCount >= 2;
   }
 
   function updateSendButton() {
@@ -22672,7 +22746,14 @@ async function waitGeneration(jobId, options) {
   const GRID_TYPES = {
     task:  { title:'Задача', icon:'✦', placeholder:'Опишите желаемый результат…', inputs:[], outputs:['task'] },
     text:  { title:'Текст', icon:'T', placeholder:'Введите или создайте текст…', inputs:['task','text'], outputs:['text'] },
-    image: { title:'Изображение', icon:'▧', placeholder:'Опишите изображение…', inputs:['text','image_reference','character','object'], outputs:['image'] },
+    // The reference-image input port must be named 'image' (matching what
+    // an image node's own output type is called, and what
+    // gridGenerationPayload actually reads via inputs.image) - it was
+    // previously named 'image_reference', which both mismatched the key
+    // gridGenerationPayload read and, since no node output type is ever
+    // literally called 'image_reference', meant gridConnectionCompatible()
+    // could never actually let a connection reach this port at all.
+    image: { title:'Изображение', icon:'▧', placeholder:'Опишите изображение…', inputs:['text','image','character','object'], outputs:['image'] },
     video: { title:'Видео', icon:'▶', placeholder:'Опишите движение и сцену…', inputs:['text','image','video','character','audio'], outputs:['video'] },
     music: { title:'Музыка', icon:'♫', placeholder:'Опишите трек, настроение и жанр…', inputs:['text','lyrics'], outputs:['audio'] },
     voice: { title:'Голос', icon:'◉', placeholder:'Введите текст или диалог…', inputs:['text'], outputs:['audio'] }
@@ -23204,7 +23285,7 @@ async function waitGeneration(jobId, options) {
 
   function validateGridNodeInputs(node,inputs) {
     const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video');
-    if(node.type==='text'&&!String(node.prompt||'').trim())missing.push('Инструкция для текста');
+    if(node.type==='text'&&!inputs.effective_prompt?.value)missing.push('Инструкция для текста');
     if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
     if(node.type==='video'){
       const mode=node.settings?.generation_mode||'text_to_video';
@@ -23350,7 +23431,7 @@ async function waitGeneration(jobId, options) {
       // this run is in flight or if it fails (see getGridNodeOutputValue/
       // gridNodePreview, both gated on status==='COMPLETED').
       node.output=null;node.status='RUNNING';node.error='';node.started_at=new Date().toISOString();node.completed_at='';saveStudioGridState();renderStudioGrid();
-      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.selectedResultVersion=output.type==='image'?0:null;node.error='';getGridDownstreamNodes(node.id).forEach(child=>{if(child.status!=='RUNNING'&&child.status!=='COMPLETED')child.status='READY'});saveStudioGridState();renderStudioGrid();return output}
+      try{const execution=await executeGridNodeRequest(node,inputs,(jobId)=>{node.generation_id=jobId;saveStudioGridState();renderStudioGrid()}),output=normalizeGridNodeResult(node,execution);node.output=output;node.generation_id=output.generation_id||execution.generation_id||'';node.status='COMPLETED';node.completed_at=new Date().toISOString();node.results=output.type==='image'?output.items.slice():[output];node.selectedResultVersion=output.type==='image'?0:null;node.error='';markStudioGridDownstreamStale(node.id);saveStudioGridState();renderStudioGrid();return output}
       catch(error){node.status=error?.terminalStatus==='cancelled'?'CANCELLED':'FAILED';node.error=error?.insufficientBalance?'Недостаточно токенов':translateGenerationError(error,'Генерация не прошла');node.completed_at=new Date().toISOString();saveStudioGridState();renderStudioGrid();if(!options.workflow)toast(node.error);return null}
     })().finally(()=>studioGridNodeRuns.delete(nodeId));
     studioGridNodeRuns.set(nodeId,promise);return promise;
@@ -23371,7 +23452,7 @@ async function waitGeneration(jobId, options) {
     if(studioGridWorkflowRun){state.workflow.stop_requested=true;state.workflow.status='STOPPING';saveStudioGridState();renderStudioGrid();toast('Цепочка будет остановлена после текущей генерации');return}
     const order=gridTopologicalOrder();if(!order){toast('В цепочке обнаружен цикл');return}
     state.workflow={status:'RUNNING',started_at:new Date().toISOString(),completed_at:'',stop_requested:false};saveStudioGridState();renderStudioGrid();
-    studioGridWorkflowRun=(async()=>{const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);for(const id of order){if(state.workflow.stop_requested)break;const node=state.nodes.find(item=>item.id===id);if(!node||node.type==='task'||node.status==='COMPLETED')continue;const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');if(parents.some(parent=>parent.status==='FAILED'||parent.status==='CANCELLED')){node.status='CANCELLED';node.error='Предыдущий узел не завершён';saveStudioGridState();renderStudioGrid();continue}if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';saveStudioGridState();renderStudioGrid();continue}await runGridNode(id,{workflow:true})}const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();state.nodes.filter(node=>node.status==='WAITING'&&state.workflow.stop_requested).forEach(node=>node.status='CANCELLED');saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')})().finally(()=>{studioGridWorkflowRun=null});
+    studioGridWorkflowRun=(async()=>{const estimatedTotal=await estimateGridWorkflowCost();if(estimatedTotal===null)toast('⚠️ Не удалось оценить стоимость части узлов — запуск на свой риск');else if(estimatedTotal>0)toast(`Оценка цепочки: ${estimatedTotal} ⚡`);for(const id of order){if(state.workflow.stop_requested)break;const node=state.nodes.find(item=>item.id===id);if(!node||node.type==='task'||node.status==='COMPLETED')continue;const parents=state.edges.filter(edge=>edge.to===id).map(edge=>state.nodes.find(item=>item.id===edge.from)).filter(item=>item&&item.type!=='task');if(parents.some(parent=>parent.status==='FAILED'||parent.status==='CANCELLED')){node.status='CANCELLED';node.error='Предыдущий узел не завершён';saveStudioGridState();renderStudioGrid();continue}if(parents.some(parent=>parent.status!=='COMPLETED')){node.status='WAITING';node.error='Ожидание предыдущего узла';saveStudioGridState();renderStudioGrid();continue}await runGridNode(id,{workflow:true})}const unfinished=state.nodes.some(node=>node.type!=='task'&&['FAILED','WAITING','CANCELLED'].includes(node.status));state.workflow.status=state.workflow.stop_requested?'CANCELLED':(unfinished?'FAILED':'COMPLETED');state.workflow.completed_at=new Date().toISOString();state.nodes.filter(node=>node.status==='WAITING'&&state.workflow.stop_requested).forEach(node=>node.status='CANCELLED');saveStudioGridState();renderStudioGrid();toast(state.workflow.status==='COMPLETED'?'Цепочка завершена':state.workflow.status==='FAILED'?'Цепочка завершена с ошибками':'Цепочка остановлена')})().finally(()=>{studioGridWorkflowRun=null});
     return studioGridWorkflowRun;
   }
 
