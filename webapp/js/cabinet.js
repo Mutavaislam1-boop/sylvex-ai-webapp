@@ -15801,14 +15801,18 @@ function restoreImageStateFromGenerationMetadata(meta) {
   // Falls back to a fixed default, never to the live imageState value - this
   // restore's whole purpose is to reproduce the ORIGINAL generation's
   // settings; falling back to whatever the composer currently happens to
-  // hold would silently mix in an unrelated generation's model/size/count
-  // whenever older metadata is missing one of these fields.
+  // hold would silently mix in an unrelated generation's model/size/count/
+  // style/character/objects whenever older metadata is missing one of
+  // these fields. (Two prior fixes on this same file mistakenly left the
+  // style/character/objects lines with `|| imageState.X` still in the
+  // middle of the chain - it still wins over the final default whenever
+  // the live value happens to be non-empty, since it's checked first.)
   imageState.modelId = meta.model || settings.modelId || 'seedream_5_0_lite';
   imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || '';
   imageState.count = Number(meta.count || settings.count || 1);
-  imageState.style = meta.style || settings.style || imageState.style || 'auto';
-  imageState.character = meta.character || settings.character || imageState.character || 'auto';
-  imageState.objects = meta.objectName || meta.objects || settings.objects || imageState.objects || '';
+  imageState.style = meta.style || settings.style || 'auto';
+  imageState.character = meta.character || settings.character || 'auto';
+  imageState.objects = meta.objectName || meta.objects || settings.objects || '';
   imageState.characterId = meta.characterId || settings.characterId || null;
   imageState.characterName = meta.characterName || settings.characterName || '';
   imageState.characterReferences = Array.isArray(meta.characterReferences) ? meta.characterReferences.slice() : (Array.isArray(settings.characterReferences) ? settings.characterReferences.slice() : []);

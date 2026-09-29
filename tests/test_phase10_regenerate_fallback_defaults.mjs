@@ -49,9 +49,9 @@ function baseSandbox() {
   };
 }
 
-test('restoreImageStateFromGenerationMetadata: missing model/size/count fall back to fixed defaults, not the live (unrelated) composer state', () => {
+test('restoreImageStateFromGenerationMetadata: missing model/size/count/style/character/objects fall back to fixed defaults, not the live (unrelated) composer state', () => {
   const sandbox = Object.assign(baseSandbox(), {
-    imageState: {modelId: 'nano_banana_pro', size: '1:1', count: 4},
+    imageState: {modelId: 'nano_banana_pro', size: '1:1', count: 4, style: 'anime', character: 'happy', objects: 'a red bicycle'},
   });
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('restoreImageStateFromGenerationMetadata'), context);
@@ -59,18 +59,27 @@ test('restoreImageStateFromGenerationMetadata: missing model/size/count fall bac
   assert.equal(vm.runInContext('imageState.modelId', context), 'seedream_5_0_lite');
   assert.equal(vm.runInContext('imageState.size', context), '');
   assert.equal(vm.runInContext('imageState.count', context), 1);
+  // These three were the part of M-022 a prior fix mistakenly left in place:
+  // `meta.X || settings.X || imageState.X || default` still lets the live
+  // (unrelated) value win over the default because it's checked first.
+  assert.equal(vm.runInContext('imageState.style', context), 'auto');
+  assert.equal(vm.runInContext('imageState.character', context), 'auto');
+  assert.equal(vm.runInContext('imageState.objects', context), '');
 });
 
 test('restoreImageStateFromGenerationMetadata: an explicit value in metadata is still used over the default', () => {
   const sandbox = Object.assign(baseSandbox(), {
-    imageState: {modelId: 'nano_banana_pro', size: '1:1', count: 4},
+    imageState: {modelId: 'nano_banana_pro', size: '1:1', count: 4, style: 'anime', character: 'happy', objects: 'a red bicycle'},
   });
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('restoreImageStateFromGenerationMetadata'), context);
-  vm.runInContext(`restoreImageStateFromGenerationMetadata({type:'image', model:'flux_2', size:'16:9', count:2, settings:{}})`, context);
+  vm.runInContext(`restoreImageStateFromGenerationMetadata({type:'image', model:'flux_2', size:'16:9', count:2, style:'cinematic', character:'serious', objects:'a blue kite', settings:{}})`, context);
   assert.equal(vm.runInContext('imageState.modelId', context), 'flux_2');
   assert.equal(vm.runInContext('imageState.size', context), '16:9');
   assert.equal(vm.runInContext('imageState.count', context), 2);
+  assert.equal(vm.runInContext('imageState.style', context), 'cinematic');
+  assert.equal(vm.runInContext('imageState.character', context), 'serious');
+  assert.equal(vm.runInContext('imageState.objects', context), 'a blue kite');
 });
 
 test('restoreVideoStateFromGenerationMetadata: missing fields fall back to fixed defaults, not the live composer state', () => {
