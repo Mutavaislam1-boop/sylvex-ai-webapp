@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING
 from typing import Any
+from services.edit_workspace import is_free_resize
 
 PRICE_VERSION = "2026-09-full"
 STYLE_CREDITS = Decimal("0.1")
@@ -34,6 +35,8 @@ def _option(payload: dict, *keys: str) -> Any:
 def sylvex_additions(payload: dict) -> dict[str, Decimal]:
     """Return internal additions without conflating them with provider input fees."""
     additions: dict[str, Decimal] = {}
+    if is_free_resize(payload):
+        return additions
     if _option(payload, "style", "style_id", "selected_style"):
         additions["style"] = STYLE_CREDITS
     if _option(payload, "character", "character_id", "selected_character"):
@@ -99,5 +102,5 @@ def apply_snapshot_to_estimate(payload: dict, estimate: dict) -> dict:
     enriched["generation_cost"] = f"{snapshot['final_credits']} ⚡"
     enriched["price_snapshot"] = snapshot
     enriched["pricing_version"] = PRICE_VERSION
-    enriched["pricing_available"] = bool(snapshot["final_credits"])
+    enriched["pricing_available"] = bool(snapshot["final_credits"]) or is_free_resize(payload)
     return enriched
