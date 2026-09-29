@@ -1288,6 +1288,10 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         opts.get("objectReferences"),
     )
     sound = bool(opts.get("sound")) if config.get("sound") else False
+
+    def _gated_flag(key: str) -> bool:
+        return bool(opts.get(key)) if config.get(key) else False
+
     return {
         "model": model_id,
         "prompt": prompt,
@@ -1322,14 +1326,14 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "objectPrompt": opts.get("objectPrompt") or "",
         "objectReferences": _clean_url_list(opts.get("objectReferences")),
         "seed": opts.get("seed") if opts.get("seed") not in (None, "") else payload.get("seed"),
-        "native_audio": bool(opts.get("native_audio")),
-        "motion_control": bool(opts.get("motion_control")),
-        "video_input": bool(opts.get("video_input")),
-        "avatar": bool(opts.get("avatar")),
-        "lip_sync": bool(opts.get("lip_sync")),
-        "multi_image": bool(opts.get("multi_image")),
-        "multi_element_editing": bool(opts.get("multi_element_editing")),
-        "video_extension": bool(opts.get("video_extension")),
+        "native_audio": _gated_flag("native_audio"),
+        "motion_control": _gated_flag("motion_control"),
+        "video_input": _gated_flag("video_input"),
+        "avatar": _gated_flag("avatar"),
+        "lip_sync": _gated_flag("lip_sync"),
+        "multi_image": _gated_flag("multi_image"),
+        "multi_element_editing": _gated_flag("multi_element_editing"),
+        "video_extension": _gated_flag("video_extension"),
         "advanced": opts.get("advanced") or {},
         "telegram_id": payload.get("telegram_id"),
     }
@@ -1445,41 +1449,27 @@ KLING_COST_MATRIX = {
             "720p": {5: 42, 10: 84, 15: 126},
             "1080p": {5: 74, 10: 147, 15: 221},
         },
-        "multi_element_editing": {
-            "720p": {5: 63, 10: 126, 15: 189},
-            "1080p": {5: 105, 10: 210, 15: 315},
-        },
-        "video_extension": {
-            "720p": {5: 42, 10: 42, 15: 42},
-            "1080p": {5: 74, 10: 74, 15: 74},
-        },
+        # multi_element_editing/video_extension tiers removed: this model's own
+        # VIDEO_MODEL_CONFIG entry declares both capabilities False, and
+        # _build_video_payload now gates those flags against that config, so
+        # these tiers were priced but permanently unreachable (billing/config drift).
     },
     "kling_1_5": {
         "standard": {
             "720p": {5: 42, 10: 84, 15: 126},
             "1080p": {5: 74, 10: 147, 15: 221},
         },
-        "video_extension": {
-            "720p": {5: 42, 10: 42, 15: 42},
-            "1080p": {5: 74, 10: 74, 15: 74},
-        },
+        # video_extension tier removed: config declares this capability False.
     },
     "kling_1_0": {
         "standard": {
             "720p": {5: 21, 10: 42, 15: 63},
             "1080p": {5: 74, 10: 147, 15: 221},
         },
-        "video_extension": {
-            "720p": {5: 42, 10: 42, 15: 42},
-            "1080p": {5: 74, 10: 74, 15: 74},
-        },
+        # video_extension tier removed: config declares this capability False.
     },
-    "kling_avatar": {
-        "avatar": {
-            "720p": {5: 42, 10: 84, 15: 126},
-            "1080p": {5: 84, 10: 168, 15: 252},
-        },
-    },
+    # kling_avatar removed: no VIDEO_MODEL_CONFIG entry and no routing anywhere
+    # (orphaned pricing entry, never reachable from any real request).
     "kling_lip_sync": {
         "lip_sync": {
             "720p": {5: 11, 10: 21, 15: 32},
@@ -1550,6 +1540,7 @@ def _kling_has_video_input(body: dict):
 def _kling_cost_variant(model_id: str, body: dict):
     mode = str((body or {}).get("mode") or (body or {}).get("generation_mode") or "").lower()
     advanced = (body or {}).get("advanced") if isinstance((body or {}).get("advanced"), dict) else {}
+    model_config = VIDEO_MODEL_CONFIG.get(model_id, {})
     if model_id == "kling_3_0_turbo":
         return "native_audio"
     if body.get("lip_sync") or mode in {"lip_sync", "lip sync"} or model_id == "kling_lip_sync":
@@ -1564,7 +1555,7 @@ def _kling_cost_variant(model_id: str, body: dict):
         return "multi_element_editing"
     if body.get("video_extension") or mode in {"video_extension", "video extension"}:
         return "video_extension"
-    if advanced.get("voice_control"):
+    if model_config.get("voice_control") and advanced.get("voice_control"):
         return "voice_control"
     if model_id in {"kling_o1", "kling_o3_omni", "kling_o3_edit"} and _kling_has_video_input(body):
         return "video_input"
@@ -1620,6 +1611,17 @@ def estimate_video_generation_cost(payload: dict):
             duration = int(float(options.get("duration") or payload.get("duration") or 5))
         except (TypeError, ValueError):
             duration = 5
+        # Clamp duration/resolution to the model's declared capabilities the
+        # same way _build_video_payload does before the real provider request
+        # is built, so an out-of-range value can never be priced/charged at a
+        # rate the video actually generated never uses.
+        model_config = VIDEO_MODEL_CONFIG.get(model_id, {})
+        config_durations = model_config.get("durations") or [duration]
+        if duration not in config_durations:
+            duration = config_durations[0]
+        config_resolutions = [_video_resolution_key(r) for r in (model_config.get("resolutions") or [resolution])]
+        if resolution not in config_resolutions:
+            resolution = config_resolutions[0] if config_resolutions else resolution
         model_key = str(model_id).lower()
         per_second = None
         fixed = None
