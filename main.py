@@ -16563,7 +16563,7 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
     # while sending the provider's published endpoint-compatible names.
     provider_model = {
         "gemini-3.1-pro": "gemini-3.1-pro-preview",
-        "gemini-3.1-flash": "gemini-3-flash-preview",
+        "gemini-3.1-flash": "gemini-3.1-flash-preview",
     }.get(str(provider_model or "").strip(), provider_model)
     system_text = "\n\n".join(str(item.get("content") or "") for item in messages if item.get("role") == "system")
     contents = []
@@ -16637,7 +16637,7 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
         ok, text, data = openai_compatible_text_request("qwen", endpoint_base, api_key, provider_model, request_messages)
     elif provider == "byteplus":
         endpoint_base = BYTEPLUS_ARK_ENDPOINT
-        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, messages, {"thinking": {"type": "disabled"}})
+        ok, text, data = openai_compatible_text_request("byteplus", endpoint_base, BYTEPLUS_ARK_API_KEY, provider_model, request_messages, {"thinking": {"type": "disabled"}})
     else:
         if cfg.get("api") == "responses":
             ok, text, data = openai_responses_text_request(provider_model, request_messages)
@@ -16672,6 +16672,16 @@ def text_generation(payload: dict) -> dict:
     gemini_media_tools = {"video_prompt", "audio_to_text", "video_to_text"}
     if tool in gemini_media_tools and model_provider != "gemini":
         return {"ok": False, "error": "Этот медиа-инструмент доступен только для моделей Gemini.", "model": model, "tool": tool}
+    # "Промпт по фото" needs the model to actually see the attached image.
+    # with_text_media_attachment() only forwards image content for these
+    # three providers - Qwen/BytePlus never receive it, so without this gate
+    # they would silently answer as if they'd seen the photo and still bill
+    # the user for the (fabricated) analysis.
+    image_prompt_vision_providers = {"openai", "gemini", "grok"}
+    if tool == "image_prompt" and model_provider not in image_prompt_vision_providers:
+        return {"ok": False, "error": "Промпт по фото доступен только для моделей с поддержкой изображений (OpenAI, Gemini, Grok).", "model": model, "tool": tool}
+    if tool == "image_prompt" and not attachment_mime.startswith("image/"):
+        return {"ok": False, "error": "Для создания промта по фото загрузите изображение."}
     if tool == "video_prompt" and not attachment_mime.startswith("video/"):
         return {"ok": False, "error": "Для создания промта загрузите поддерживаемый видеофайл."}
     if tool == "video_to_text" and not attachment_mime.startswith("video/"):
@@ -17133,8 +17143,14 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
             "height": height,
             "output_format": output_format,
         }
-        if refs:
-            request_payload["input_image"] = refs[0]
+        # flux_2/flux_2_turbo advertise simultaneous Character+Object
+        # reference support (up to 4 each), same as FLUX.2 [max] elsewhere
+        # in this file - forward every reference via BFL's numbered
+        # input_image/input_image_2.. scheme instead of only refs[0],
+        # which silently dropped every reference past the first.
+        for index, ref in enumerate(refs[:FLUX_2_MAX_MAX_INPUT_IMAGES], start=1):
+            key = "input_image" if index == 1 else f"input_image_{index}"
+            request_payload[key] = ref
     submit_endpoint = f"{endpoint.rstrip('/')}/{provider_model}"
     try:
         response = requests.post(submit_endpoint, headers=headers, json=request_payload, timeout=60)
