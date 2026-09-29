@@ -2450,6 +2450,14 @@ function normalizeVideoStateForModel() {
   if (!ratios.includes(videoState.ratio)) videoState.ratio = ratios[0] || '16:9';
   if (!resolutions.includes(videoState.resolution)) videoState.resolution = resolutions[0] || '720p';
   if (!config.sound) videoState.sound = false;
+  // A stale start/end frame from a previous model selection must not
+  // survive a switch to a model that doesn't support it - besides showing
+  // a misleading uploaded-but-unusable image, a leftover start_image can
+  // silently change which provider endpoint gets used (e.g. Kling's
+  // image-to-video vs text-to-video routing is driven purely by whether
+  // start_image is present).
+  if (!config.start_image && videoState.startImage) videoState.startImage = '';
+  if (!config.end_image && videoState.endImage) videoState.endImage = '';
 }
 
 // =====================================================
@@ -5724,9 +5732,15 @@ function localizedGreeting() {
   // =====================================================
   function renderImageReferenceSections() {
     ensureImageReferenceSections();
-    syncImageFeatureAvailability();
+    const capabilities = syncImageFeatureAvailability();
     const character = selectedImageCharacter();
     const object = selectedImageObject();
+    // These buttons are shared between Image and Video mode (same DOM
+    // elements, reused via isVideoMode() branches elsewhere). There is no
+    // equivalent per-model capability table for video's Character/Object
+    // yet, so gating only applies in Image mode - video keeps its prior
+    // always-enabled behavior unchanged.
+    const gateByModel = isImageMode();
 
     // =====================================================
     // JAVASCRIPT-БЛОК: setButtonState
@@ -5744,7 +5758,7 @@ function localizedGreeting() {
     const characterVal = document.getElementById('imageCharacterVal');
     if (characterVal) {
       characterVal.textContent = character ? character.name : 'Персонаж';
-      setButtonState(characterVal, false);
+      setButtonState(characterVal, gateByModel && !capabilities.character);
       renderUploadPreviewOnButton(
         document.getElementById('imageCharacterButton'),
         character ? [visualPreviewUrl(character)].filter(Boolean) : []
@@ -5754,7 +5768,7 @@ function localizedGreeting() {
     const objectVal = document.getElementById('imageObjectVal');
     if (objectVal) {
       objectVal.textContent = object ? object.name : 'Объект';
-      setButtonState(objectVal, false);
+      setButtonState(objectVal, gateByModel && !capabilities.object);
       renderUploadPreviewOnButton(
         document.getElementById('imageObjectButton'),
         object ? [visualPreviewUrl(object)].filter(Boolean) : []
@@ -5908,6 +5922,7 @@ function renderImageUploadPreview() {
 // =====================================================
 function renderVideoStartPreview() {
   const button = document.getElementById('videoStartUploadButton') || document.getElementById('videoStartFrameCard');
+  if (button) button.hidden = !(currentVideoConfig() || {}).start_image;
   setFramePreview(button, videoState.startImage || '', 'start image');
   const label = button && button.querySelector(':scope > span:last-child');
   if (label) label.textContent = videoState.startImage ? 'Начальное изображение выбрано' : 'Начальное изображение';
@@ -5919,6 +5934,7 @@ function renderVideoStartPreview() {
 // =====================================================
 function renderVideoEndPreview() {
   const button = document.getElementById('videoEndUploadButton') || document.getElementById('videoEndFrameCard');
+  if (button) button.hidden = !(currentVideoConfig() || {}).end_image;
   setFramePreview(button, videoState.endImage || '', 'end image');
   const label = button && button.querySelector(':scope > span:last-child');
   if (label) label.textContent = videoState.endImage ? 'Конечный образ выбран' : 'Конечный образ';
@@ -6271,8 +6287,18 @@ function clearSelectionButton(kind) {
 
 function openSelectionButton(kind) {
   if (kind === 'style') return openImageOptionMenu(null, 'style');
-  if (kind === 'character') return openImageOptionMenu(null, 'character');
-  if (kind === 'object') return openImageOptionMenu(null, 'objects');
+  if (kind === 'character') {
+    if (isImageMode() && !getModelCapabilities(imageState.modelId).character) {
+      return imageFeatureUnavailableToast('character');
+    }
+    return openImageOptionMenu(null, 'character');
+  }
+  if (kind === 'object') {
+    if (isImageMode() && !getModelCapabilities(imageState.modelId).object) {
+      return imageFeatureUnavailableToast('object');
+    }
+    return openImageOptionMenu(null, 'objects');
+  }
   if (kind === 'image_upload') return openImageUpload(null);
   if (kind === 'video_start') return openVideoStartUpload(null);
   if (kind === 'video_end') return openVideoEndUpload(null);
