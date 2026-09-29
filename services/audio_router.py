@@ -951,7 +951,7 @@ def _lyria_prompt(payload: dict, provider_model: str) -> str:
     if style:
         parts.append(f"Genre, mood and style: {style}.")
     vocal = _music_option_value(music_options, "vocal").lower()
-    if provider_model == "models/lyria-realtime-exp" or vocal == "instrumental":
+    if vocal == "instrumental":
         parts.append("Instrumental only, no vocals.")
     elif vocal == "female":
         parts.append("Use a female lead vocal.")
@@ -1025,7 +1025,15 @@ async def lyria_music_generation(payload: dict, frontend_model: str, provider_mo
         received_bytes = 0
         tempo = _music_option_value(music_options, "tempo").lower()
         bpm_map = {"slow": 70, "slow_medium": 90, "medium": 110, "medium_fast": 135, "fast": 160}
-        config_kwargs: dict[str, Any] = {"music_generation_mode": types.MusicGenerationMode.QUALITY}
+        vocal = _music_option_value(music_options, "vocal").lower()
+        # Lyria RealTime only ever produces wordless vocal-like textures, never
+        # coherent lyrics (Google's own docs) - VOCALIZATION mode is what
+        # actually lets those textures through; QUALITY is the model's
+        # instrumental-focused default. "auto" (the frontend's non-instrumental
+        # option for this model) should get a real shot at vocals instead of
+        # being silently forced instrumental regardless of this choice.
+        generation_mode = types.MusicGenerationMode.QUALITY if vocal == "instrumental" else types.MusicGenerationMode.VOCALIZATION
+        config_kwargs: dict[str, Any] = {"music_generation_mode": generation_mode}
         if tempo in bpm_map:
             config_kwargs["bpm"] = bpm_map[tempo]
         try:
