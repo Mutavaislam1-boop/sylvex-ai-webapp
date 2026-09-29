@@ -14391,6 +14391,7 @@ function renderGeneratedTelegramButton(url, kind) {
     if (!items.length) { host.innerHTML = '<div class="profile-gallery-state">Здесь появятся ваши завершённые генерации.</div>'; return; }
     host.innerHTML = items.map((item) => {
       const type = normalizeGalleryType(item.type), id = String(item.id), media = String(item.media_url || ''), preview = String(item.preview_url || media || '');
+      const galleryImageUrls = Array.isArray(item.media_urls) ? item.media_urls.filter(Boolean) : [];
       const title = String(item.prompt || item.text || 'Генерация').trim().slice(0, 90);
       let visual = '';
       if (type === 'image' && preview) visual = '<img src="' + S.escapeHtml(preview) + '" alt="" loading="lazy">';
@@ -14398,7 +14399,7 @@ function renderGeneratedTelegramButton(url, kind) {
       else visual = '<div class="profile-gallery-placeholder">' + profileGalleryIcon(type) + '<span>' + S.escapeHtml(type === 'music' ? 'Музыка' : type === 'voice' ? 'Озвучка' : 'Текст') + '</span></div>';
       const viewAttrs = type === 'text'
         ? 'onclick="SYLVEX.viewProfileGalleryText(event,\'' + S.escapeHtml(id) + '\')"'
-        : type === 'image' ? 'data-image-url="' + S.escapeHtml(media) + '" onclick="SYLVEX.openImageViewer(event)"' : 'data-result-url="' + S.escapeHtml(media) + '" data-audio-url="' + S.escapeHtml(media) + '" data-result-kind="' + type + '" onclick="SYLVEX.openGeneratedContent(event)"';
+        : type === 'image' ? 'data-image-url="' + S.escapeHtml(media) + '"' + (galleryImageUrls.length > 1 ? ' data-image-urls="' + S.escapeHtml(JSON.stringify(galleryImageUrls)) + '"' : '') + ' onclick="SYLVEX.openImageViewer(event)"' : 'data-result-url="' + S.escapeHtml(media) + '" data-audio-url="' + S.escapeHtml(media) + '" data-result-kind="' + type + '" onclick="SYLVEX.openGeneratedContent(event)"';
       const downloadUrl = item.job_id ? completedGenerationDownloadUrl(item.job_id) : media;
       return '<article class="profile-gallery-card" data-gallery-id="' + S.escapeHtml(id) + '"><button class="profile-gallery-preview" type="button" ' + viewAttrs + '>' + visual + '</button>'
         + '<div class="profile-gallery-copy"><b>' + S.escapeHtml(title || 'Без названия') + '</b><small>' + S.escapeHtml([item.model, item.created_at ? new Date(item.created_at).toLocaleDateString() : ''].filter(Boolean).join(' · ')) + '</small></div>'
@@ -16139,8 +16140,16 @@ function applySharedMedia(share, includeSettings) {
     imageState.uploadedImageUrls = [share.media_url];
     if (includeSettings) {
       if (meta.style) imageState.style = meta.style;
-      if (meta.character) imageState.characterName = meta.character;
-      if (meta.object) imageState.objectName = meta.object;
+      // meta.character/meta.object are display-only strings - the backend's
+      // public share metadata deliberately never includes characterId/
+      // objectId/characterReferences/objectReferences (it would leak the
+      // original owner's private catalog reference images to anyone who
+      // opens the shared link). Setting only the name here would silently
+      // trigger the backend's "include the object reference" instruction
+      // with zero attached images, or - if a Character/Object was already
+      // selected locally - relabel it under a different name while still
+      // sending the old, unrelated reference images. Neither is restorable
+      // from a share, so they're intentionally left untouched.
     }
   } else if (mode === 'video') {
     videoState.inputVideo = share.media_url;
