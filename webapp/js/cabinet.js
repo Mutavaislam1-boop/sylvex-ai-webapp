@@ -20311,6 +20311,7 @@ async function waitGeneration(jobId, options) {
   async function deleteConv(e, id, type) {
     e.stopPropagation();
     const tg = getTelegramId(); if (!tg) return;
+    if (!window.confirm('Удалить этот диалог?')) return;
     await fetch('/api/public/prostudio/conversations?telegram_id=' + tg + '&conversation_id=' + id, { method: 'DELETE' });
     const deletedType = chatTypeForMode(type || currentChatType());
     if (id === currentConvId && deletedType === currentChatType()) newChat();
@@ -21385,7 +21386,16 @@ async function waitGeneration(jobId, options) {
     const structuredSelectionCount = Number(!!inputs.hasStyle)
       + Number(!!inputs.hasCharacter)
       + Number(!!inputs.hasObject);
-    return !!inputs.hasPrompt || !!inputs.hasUserImageReference || structuredSelectionCount >= 2;
+    // A selected Character/Object alone is enough - the backend's own
+    // readiness check (public_prostudio_generate's reference_images
+    // OR-chain) accepts characterReferences/objectReferences alone as
+    // satisfying "prompt or attachment required", but this control
+    // previously required 2 of {style, character, object}, so picking
+    // only a Character (or only an Object) left Generate disabled even
+    // though the backend would have accepted the request.
+    return !!inputs.hasPrompt || !!inputs.hasUserImageReference
+      || !!inputs.hasCharacter || !!inputs.hasObject
+      || structuredSelectionCount >= 2;
   }
 
   function updateSendButton() {
@@ -23119,7 +23129,7 @@ async function waitGeneration(jobId, options) {
 
   function validateGridNodeInputs(node,inputs) {
     const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video');
-    if(node.type==='text'&&!String(node.prompt||'').trim())missing.push('Инструкция для текста');
+    if(node.type==='text'&&!inputs.effective_prompt?.value)missing.push('Инструкция для текста');
     if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
     if(node.type==='video'){
       const mode=node.settings?.generation_mode||'text_to_video';

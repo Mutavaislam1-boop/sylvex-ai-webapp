@@ -1285,7 +1285,7 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
     reference_images = _clean_url_list(
         source_reference_images,
         _clean_url_list(opts.get("characterReferences"))[:4],
-        opts.get("objectReferences"),
+        _clean_url_list(opts.get("objectReferences"))[:4],
     )
     sound = bool(opts.get("sound")) if config.get("sound") else False
 
