@@ -1285,9 +1285,13 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
     reference_images = _clean_url_list(
         source_reference_images,
         _clean_url_list(opts.get("characterReferences"))[:4],
-        opts.get("objectReferences"),
+        _clean_url_list(opts.get("objectReferences"))[:4],
     )
     sound = bool(opts.get("sound")) if config.get("sound") else False
+
+    def _gated_flag(key: str) -> bool:
+        return bool(opts.get(key)) if config.get(key) else False
+
     return {
         "model": model_id,
         "prompt": prompt,
@@ -1322,14 +1326,14 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "objectPrompt": opts.get("objectPrompt") or "",
         "objectReferences": _clean_url_list(opts.get("objectReferences")),
         "seed": opts.get("seed") if opts.get("seed") not in (None, "") else payload.get("seed"),
-        "native_audio": bool(opts.get("native_audio")),
-        "motion_control": bool(opts.get("motion_control")),
-        "video_input": bool(opts.get("video_input")),
-        "avatar": bool(opts.get("avatar")),
-        "lip_sync": bool(opts.get("lip_sync")),
-        "multi_image": bool(opts.get("multi_image")),
-        "multi_element_editing": bool(opts.get("multi_element_editing")),
-        "video_extension": bool(opts.get("video_extension")),
+        "native_audio": _gated_flag("native_audio"),
+        "motion_control": _gated_flag("motion_control"),
+        "video_input": _gated_flag("video_input"),
+        "avatar": _gated_flag("avatar"),
+        "lip_sync": _gated_flag("lip_sync"),
+        "multi_image": _gated_flag("multi_image"),
+        "multi_element_editing": _gated_flag("multi_element_editing"),
+        "video_extension": _gated_flag("video_extension"),
         "advanced": opts.get("advanced") or {},
         "telegram_id": payload.get("telegram_id"),
     }
@@ -1445,41 +1449,27 @@ KLING_COST_MATRIX = {
             "720p": {5: 42, 10: 84, 15: 126},
             "1080p": {5: 74, 10: 147, 15: 221},
         },
-        "multi_element_editing": {
-            "720p": {5: 63, 10: 126, 15: 189},
-            "1080p": {5: 105, 10: 210, 15: 315},
-        },
-        "video_extension": {
-            "720p": {5: 42, 10: 42, 15: 42},
-            "1080p": {5: 74, 10: 74, 15: 74},
-        },
+        # multi_element_editing/video_extension tiers removed: this model's own
+        # VIDEO_MODEL_CONFIG entry declares both capabilities False, and
+        # _build_video_payload now gates those flags against that config, so
+        # these tiers were priced but permanently unreachable (billing/config drift).
     },
     "kling_1_5": {
         "standard": {
             "720p": {5: 42, 10: 84, 15: 126},
             "1080p": {5: 74, 10: 147, 15: 221},
         },
-        "video_extension": {
-            "720p": {5: 42, 10: 42, 15: 42},
-            "1080p": {5: 74, 10: 74, 15: 74},
-        },
+        # video_extension tier removed: config declares this capability False.
     },
     "kling_1_0": {
         "standard": {
             "720p": {5: 21, 10: 42, 15: 63},
             "1080p": {5: 74, 10: 147, 15: 221},
         },
-        "video_extension": {
-            "720p": {5: 42, 10: 42, 15: 42},
-            "1080p": {5: 74, 10: 74, 15: 74},
-        },
+        # video_extension tier removed: config declares this capability False.
     },
-    "kling_avatar": {
-        "avatar": {
-            "720p": {5: 42, 10: 84, 15: 126},
-            "1080p": {5: 84, 10: 168, 15: 252},
-        },
-    },
+    # kling_avatar removed: no VIDEO_MODEL_CONFIG entry and no routing anywhere
+    # (orphaned pricing entry, never reachable from any real request).
     "kling_lip_sync": {
         "lip_sync": {
             "720p": {5: 11, 10: 21, 15: 32},
@@ -1550,6 +1540,7 @@ def _kling_has_video_input(body: dict):
 def _kling_cost_variant(model_id: str, body: dict):
     mode = str((body or {}).get("mode") or (body or {}).get("generation_mode") or "").lower()
     advanced = (body or {}).get("advanced") if isinstance((body or {}).get("advanced"), dict) else {}
+    model_config = VIDEO_MODEL_CONFIG.get(model_id, {})
     if model_id == "kling_3_0_turbo":
         return "native_audio"
     if body.get("lip_sync") or mode in {"lip_sync", "lip sync"} or model_id == "kling_lip_sync":
@@ -1564,7 +1555,7 @@ def _kling_cost_variant(model_id: str, body: dict):
         return "multi_element_editing"
     if body.get("video_extension") or mode in {"video_extension", "video extension"}:
         return "video_extension"
-    if advanced.get("voice_control"):
+    if model_config.get("voice_control") and advanced.get("voice_control"):
         return "voice_control"
     if model_id in {"kling_o1", "kling_o3_omni", "kling_o3_edit"} and _kling_has_video_input(body):
         return "video_input"
@@ -1620,6 +1611,17 @@ def estimate_video_generation_cost(payload: dict):
             duration = int(float(options.get("duration") or payload.get("duration") or 5))
         except (TypeError, ValueError):
             duration = 5
+        # Clamp duration/resolution to the model's declared capabilities the
+        # same way _build_video_payload does before the real provider request
+        # is built, so an out-of-range value can never be priced/charged at a
+        # rate the video actually generated never uses.
+        model_config = VIDEO_MODEL_CONFIG.get(model_id, {})
+        config_durations = model_config.get("durations") or [duration]
+        if duration not in config_durations:
+            duration = config_durations[0]
+        config_resolutions = [_video_resolution_key(r) for r in (model_config.get("resolutions") or [resolution])]
+        if resolution not in config_resolutions:
+            resolution = config_resolutions[0] if config_resolutions else resolution
         model_key = str(model_id).lower()
         per_second = None
         fixed = None
@@ -2221,7 +2223,7 @@ def _kling_model_family(provider_model: str):
 # =====================================================
 def _kling_supports_last_frame(provider_model: str):
     model = _kling_model_family(provider_model)
-    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6"}
+    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6", "kling-2.5-turbo"}
 
 
 # =====================================================
@@ -4513,6 +4515,16 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         ratio = _runway_ratio(body.get("ratio"), body.get("resolution"), model_id=model_id, has_image=bool(prompt_image))
         if ratio:
             runway_body["ratio"] = ratio
+        config = VIDEO_MODEL_CONFIG.get(model_id, {})
+        if config.get("sound"):
+            # Field name follows this codebase's existing convention for the
+            # same underlying models (direct Seedance/Grok both use
+            # generate_audio) - Runway's own top-level field name for this
+            # is not independently confirmed against live docs, but an
+            # unrecognized JSON field is inert rather than harmful, so this
+            # is a safe best-effort forward rather than a guaranteed no-op.
+            runway_body["generate_audio"] = bool(body.get("sound"))
+        end_image = body.get("end_image") or ""
         if is_video_to_video:
             if not input_video:
                 return _provider_error("runway", model_id, "Для Runway Aleph нужно загрузить исходное видео")
@@ -4520,7 +4532,12 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         else:
             if model_id in {"runway_gen4_turbo", "runway_gen", "runway_gen3a_turbo"} and not prompt_image:
                 return _provider_error("runway", model_id, "Для этой модели Runway нужно загрузить начальное изображение")
-            if prompt_image:
+            if prompt_image and end_image and config.get("end_image"):
+                runway_body["promptImage"] = [
+                    {"uri": _public_input_url(prompt_image), "position": "first"},
+                    {"uri": _public_input_url(end_image), "position": "last"},
+                ]
+            elif prompt_image:
                 runway_body["promptImage"] = _public_input_url(prompt_image)
         print("RUNWAY REQUEST DEBUG:", {
             "endpoint": endpoint,
@@ -5061,6 +5078,12 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
         duration = 0
     if duration:
         grok_body["duration"] = duration
+    # xAI's docs confirm a plain "resolution" field (e.g. "720p") on the same
+    # /v1/videos/generations endpoint - this was computed by
+    # _build_video_payload but never actually included in the request body.
+    resolution = body.get("resolution")
+    if resolution:
+        grok_body["resolution"] = resolution
     # xAI's docs (docs.x.ai/developers/model-capabilities/video/generation)
     # confirm generated videos include audio by default; pass
     # generate_audio=False for a silent video - this was previously never

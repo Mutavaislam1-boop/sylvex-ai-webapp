@@ -120,9 +120,15 @@ def test_flux_2_forwards_every_reference_not_only_the_first(monkeypatch):
     }
     main.call_flux_image("flux_2", "flux-2-pro", "https://api.bfl.ai/v1", "a cat", payload, "1024x1024")
     body = captured["json"]
+    # image_reference_urls() now round-robins [user, character, object]
+    # (a later audit fix, see test_video_pricing_capability_gating.py's
+    # sibling reference-starvation tests) instead of a flat concat, so with
+    # no user uploads the order is character[0], object[0], character[1] -
+    # the important invariant this test protects is unchanged: all 3
+    # references are forwarded, none dropped.
     assert body["input_image"] == "https://x.test/char1.png"
-    assert body["input_image_2"] == "https://x.test/char2.png"
-    assert body["input_image_3"] == "https://x.test/obj1.png"
+    assert body["input_image_2"] == "https://x.test/obj1.png"
+    assert body["input_image_3"] == "https://x.test/char2.png"
 
 
 def test_flux_kontext_reference_forwarding_unaffected(monkeypatch):

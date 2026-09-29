@@ -7243,6 +7243,12 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
             response_data = _json_obj(response_json)
             kind = str(metadata.get("type") or mode or ("video" if videos else "music" if audios else "image" if images else "text")).lower()
             media_url = (videos[0] if videos else audios[0] if audios else images[0] if images else "")
+            # Third instance of the "images[0]-only" truncation bug class
+            # found by the Pro Studio A-Z audit (the other two - the chat
+            # mini-card and the Generation Info drawer - were already fixed).
+            # media_urls carries the full set so a multi-image generation's
+            # remaining images aren't silently dropped by this endpoint.
+            media_urls = videos if videos else (audios if audios else images)
             preview_url = (
                 thumbs[0] if thumbs else images[0] if images else
                 metadata.get("thumbnail_url") or metadata.get("cover_url") or
@@ -7255,7 +7261,7 @@ async def public_prostudio_gallery(telegram_id: int = 0, limit: int = 80, offset
                 "prompt": prompt or metadata.get("prompt") or "", "text": response_text or "",
                 "title": metadata.get("title") or response_data.get("title") or prompt or "",
                 "genre": metadata.get("genre") or response_data.get("genre") or "",
-                "media_url": media_url, "preview_url": preview_url,
+                "media_url": media_url, "media_urls": media_urls, "preview_url": preview_url,
                 "job_id": metadata.get("job_id") or response_data.get("job_id") or "",
                 "status": status or metadata.get("status") or "completed",
                 "model": metadata.get("model_label") or model or "", "provider": provider or "",
@@ -16904,7 +16910,11 @@ def normalize_openai_image_size(size: str, frontend_model: str = "", provider_mo
                 return raw
     if raw in {"1024x1024", "1536x1024", "1024x1536", "auto"}:
         return raw
-    if key == "gpt_image_1":
+    if key in {"gpt_image_1", "gpt_image_2"}:
+        # Both models only accept these 3 real OpenAI image sizes - 4:3/16:9
+        # and 3:4/9:16 are not distinct boxes here (see the comment on the
+        # gpt_image_2 sizes list in cabinet.js), so only the ratios that
+        # actually correspond to a real, distinct box are recognized.
         if raw in {"2:3", "2x3", "9:16", "portrait"}:
             return "1024x1536"
         if raw in {"3:2", "3x2", "16:9", "landscape"}:
@@ -16938,13 +16948,34 @@ def image_reference_urls(payload: dict) -> list:
             refs.append(value)
         elif isinstance(value, list):
             refs.extend(value)
-    character_refs = _json_list(opts.get("characterReferences"))[:4]
-    refs.extend(character_refs)
-    refs.extend(_json_list(opts.get("objectReferences"))[:4])
-    clean = []
+    user_refs = []
     for url in refs:
-        if isinstance(url, str) and url.strip() and url not in clean:
-            clean.append(url)
+        if isinstance(url, str) and url.strip() and url not in user_refs:
+            user_refs.append(url)
+    character_refs = []
+    for url in _json_list(opts.get("characterReferences"))[:4]:
+        if isinstance(url, str) and url.strip() and url not in character_refs:
+            character_refs.append(url)
+    object_refs = []
+    for url in _json_list(opts.get("objectReferences"))[:4]:
+        if isinstance(url, str) and url.strip() and url not in object_refs:
+            object_refs.append(url)
+    # Round-robin merge (same fairness pattern as seedream_merge_references)
+    # instead of a flat concat: every provider consumer of this list
+    # truncates it to a fixed cap (e.g. reference_images[:5] for OpenAI,
+    # refs[:5] for Flux.2), so a naive [user, character, object] order let
+    # enough user uploads silently starve Character/Object out of the
+    # request entirely, with no error and no truncation notice.
+    groups = [user_refs, character_refs, object_refs]
+    clean = []
+    seen = set()
+    index = 0
+    while any(index < len(group) for group in groups):
+        for group in groups:
+            if index < len(group) and group[index] not in seen:
+                seen.add(group[index])
+                clean.append(group[index])
+        index += 1
     return clean
 
 

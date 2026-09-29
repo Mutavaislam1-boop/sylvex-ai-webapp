@@ -2,11 +2,14 @@
 GROK_VIDEO_EDIT_MODEL had no hardcoded default, so provider_model was None
 and every request failed with "unknown provider model mapping" unless the
 env var was set; (2) _call_grok forwarded SYLVEX's raw internal payload
-dict (start_image/ratio/resolution/etc, our own key names) straight to
-xAI instead of building an explicit request body; (3) poll_video_generation
-had no "grok" branch, so an async Grok Video job that didn't finish on the
-first submit call fell into the generic catch-all and stayed "processing"
-forever."""
+dict (start_image/ratio/etc, our own key names) straight to xAI instead of
+building an explicit request body; (3) poll_video_generation had no "grok"
+branch, so an async Grok Video job that didn't finish on the first submit
+call fell into the generic catch-all and stayed "processing" forever.
+
+A later audit pass (Pro Studio A-Z audit, F9) found that the computed
+resolution was dropped entirely rather than sent under xAI's own confirmed
+"resolution" field name - _call_grok now includes it explicitly."""
 import json
 
 import pytest
@@ -54,9 +57,12 @@ def test_call_grok_builds_an_explicit_body_not_the_raw_internal_payload(monkeypa
     body = captured["body"]
     assert body["model"] == "grok-video-1"
     assert body["prompt"] == "a rocket launching"
-    # Internal SYLVEX keys must not leak into the provider request.
+    # Internal SYLVEX keys that don't correspond to a real xAI field must
+    # not leak into the provider request.
     assert "start_image" not in body
-    assert "resolution" not in body
+    # xAI's own field is also named "resolution" (confirmed via docs.x.ai) -
+    # it must be present, defaulted from the model's declared resolutions.
+    assert body["resolution"] == "720p"
 
 
 @pytest.mark.asyncio
