@@ -34,6 +34,34 @@ def test_gemini_3_1_flash_default_matches_the_3_1_family(monkeypatch):
         importlib.reload(main)
 
 
+def test_gemini_text_request_flash_shorthand_remaps_to_3_1_preview(monkeypatch):
+    """gemini_text_request()'s own legacy-shorthand remap table (separate
+    from TEXT_MODEL_VARIANTS's default above) used to drop the ".1" when
+    resolving the bare "gemini-3.1-flash" shorthand, sending the wrong
+    provider model ("gemini-3-flash-preview") to Google whenever an
+    operator set GEMINI_TEXT_FLASH_MODEL to that shorthand directly."""
+    import main
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        content = b'{"candidates": []}'
+        text = "{}"
+
+        def json(self):
+            return {"candidates": []}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        return FakeResponse()
+
+    monkeypatch.setattr(main.requests, "post", fake_post)
+    main.gemini_text_request("gemini-3.1-flash", [{"role": "user", "content": "hi"}])
+    assert captured["url"].split("/")[-1].startswith("gemini-3.1-flash-preview:")
+
+
 def test_luma_dream_machine_has_its_own_distinct_default_model(monkeypatch):
     monkeypatch.delenv("LUMA_DREAM_MACHINE_MODEL", raising=False)
     monkeypatch.delenv("LUMA_RAY_V3_2_MODEL", raising=False)

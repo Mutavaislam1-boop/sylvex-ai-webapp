@@ -1530,10 +1530,19 @@ const TEXT_TOOL_OPTIONS = [
 ];
 
 const TEXT_GEMINI_MEDIA_TOOLS = new Set(['video_prompt', 'audio_to_text', 'video_to_text']);
+// Providers whose text API actually receives the attached image (must match
+// with_text_media_attachment()'s provider set in main.py) - Qwen/BytePlus
+// never get the photo, so offering "Промпт по фото" there would let the
+// model answer blind while still billing the user for a real analysis.
+const TEXT_VISION_FAMILIES = new Set(['gpt', 'gemini', 'grok']);
 
 function textToolOptionsForCurrentModel() {
   const family = textState.familyId || textModelFamilyId(currentTextModel());
-  return TEXT_TOOL_OPTIONS.filter((item) => !TEXT_GEMINI_MEDIA_TOOLS.has(item.id) || family === 'gemini');
+  return TEXT_TOOL_OPTIONS.filter((item) => {
+    if (TEXT_GEMINI_MEDIA_TOOLS.has(item.id)) return family === 'gemini';
+    if (item.id === 'image_prompt') return TEXT_VISION_FAMILIES.has(family);
+    return true;
+  });
 }
 
 function normalizeTextToolForModel() {
@@ -1543,6 +1552,13 @@ function normalizeTextToolForModel() {
 function selectGeminiForTextMedia() {
   textState.familyId = 'gemini';
   if (textModelFamilyId(textState.modelId) !== 'gemini') textState.modelId = 'gemini_3_1_pro';
+}
+
+function selectVisionModelForTextImage() {
+  const family = textState.familyId || textModelFamilyId(currentTextModel());
+  if (TEXT_VISION_FAMILIES.has(family)) return;
+  textState.familyId = 'gpt';
+  textState.modelId = 'gpt-5.5';
 }
 
 const TEXT_STYLE_OPTIONS = [
@@ -16700,7 +16716,10 @@ function closeUploadPanel(e) {
             selectGeminiForTextMedia();
             textState.tool = 'audio_to_text';
           }
-          if (uploadKind === 'image' && textState.tool === 'text') textState.tool = 'image_prompt';
+          if (uploadKind === 'image') {
+            selectVisionModelForTextImage();
+            if (textState.tool === 'text') textState.tool = 'image_prompt';
+          }
           renderTextControls();
           updateSendButton();
           toast(uploadKind === 'video' ? 'Видео добавлено' : (uploadKind === 'audio' ? 'Аудио добавлено' : (uploadKind === 'image' ? 'Фото добавлено' : 'Файл добавлен')));
@@ -20253,8 +20272,6 @@ async function waitGeneration(jobId, options) {
     const bEl = document.getElementById('payBalance');    if (bEl) bEl.textContent = bal.toLocaleString();
     const bU  = document.getElementById('payBalanceUsd'); if (bU)  bU.textContent  = '≈ $' + (bal/100).toFixed(2);
     resetPayPalSubscriptionPanel();
-    const lsqBtn = document.getElementById('pmLemonsqueezy');
-    if (lsqBtn) lsqBtn.hidden = !(packId === 'sub_month' || packId === 'sub_year');
     switchView('pay');
     S.haptic && S.haptic.impact('light');
   }
@@ -21062,7 +21079,7 @@ async function waitGeneration(jobId, options) {
       tgApp.openTelegramLink(url);
       return;
     }
-    if (method === 'paypal' || method === 'lemonsqueezy') {
+    if (method === 'paypal') {
       window.location.href = url;
       return;
     }
@@ -21099,7 +21116,6 @@ async function waitGeneration(jobId, options) {
       if (method === 'stars')  path = '/api/public/payments/stars/invoice';
       if (method === 'paypal') path = '/api/public/payments/paypal/create-order';
       if (method === 'crypto') path = '/api/public/payments/crypto/invoice';
-      if (method === 'lemonsqueezy') path = '/api/public/payments/lemonsqueezy/checkout';
       if (!path) { toast('Способ оплаты недоступен'); return; }
       const r = await fetch(path, {
         method: 'POST',
@@ -21115,7 +21131,6 @@ async function waitGeneration(jobId, options) {
       if (!r.ok || j.error) {
         if (j.error === 'paypal_not_configured') { toast('PayPal ещё не настроен'); return; }
         if (j.error === 'crypto_not_configured') { toast('Крипто-оплата ещё не настроена'); return; }
-        if (j.error === 'lemonsqueezy_not_configured') { toast('Оплата картой ещё не настроена'); return; }
         toast('Ошибка: ' + (j.error || r.status));
         return;
       }
