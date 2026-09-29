@@ -16136,28 +16136,6 @@ async def generate_try_on_image(payload: dict) -> dict:
 # =====================================================
 # ТЕКСТОВАЯ ГЕНЕРАЦИЯ: модели, транскрибация и PDF
 # =====================================================
-TEXT_MODEL_ALIASES = {
-    "gpt-5.6": "gpt-5.6",
-    "gpt-5.5": "gpt-5.5",
-    "gpt-5": "gpt-5",
-    "gpt-5-mini": "gpt-5-mini",
-    "gpt-4.1": "gpt-4.1",
-    "gpt-4.1-mini": "gpt-4.1-mini",
-    "gpt-4o": "gpt-4o",
-    "gpt-4o-mini": "gpt-4o-mini",
-    "gemini_3_1_pro": "gemini_3_1_pro",
-    "gemini_3_1_flash": "gemini_3_1_flash",
-    "gemini_2_5_pro": "gemini_2_5_pro",
-    "gemini_2_5_flash": "gemini_2_5_flash",
-    "grok_4_1": "grok_4_1",
-    "grok_4_fast": "grok_4_fast",
-    "grok_3": "grok_3",
-    "qwen_plus": "qwen_plus",
-    "qwen_turbo": "qwen_turbo",
-    "qwen_max": "qwen_max",
-    "byteplus_seed_2_lite": "byteplus_seed_2_lite",
-}
-
 TEXT_MODEL_VARIANTS = {
     "gpt-5.6": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT56_MODEL", default="gpt-5.6"), "api": "responses"},
     "gpt-5.5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT55_MODEL", default="gpt-5.5"), "api": "responses"},
@@ -16185,7 +16163,7 @@ def normalize_text_model(model: str) -> str:
     raw = str(model or "").strip()
     if is_internal_ui_model(raw) or raw in {"gpt-image-1", "gpt_image_1", "gpt-image-2", "gpt_image_2"}:
         return "gpt-5.5"
-    return TEXT_MODEL_ALIASES.get(raw, raw or "gpt-5.5")
+    return raw or "gpt-5.5"
 
 
 def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:

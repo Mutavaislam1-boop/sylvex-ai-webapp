@@ -2256,7 +2256,11 @@ const VIDEO_MODEL_CONFIG = {
   luma_dream_machine: { provider:'luma', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   minimax_hailuo_2_3: { provider:'minimax', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   pixverse_v6: { provider:'pixverse', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
-  sora_2_pro: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  // sound:false - OpenAI's Sora 2 API has no documented audio control at
+  // all (_call_sora never sends any audio field); the toggle was pure UI
+  // decoration with zero effect either way, so it's now hidden instead of
+  // implying a control that doesn't exist.
+  sora_2_pro: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   wan_2_7: { provider:'wan', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1','4:3','3:4'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:true, video_edit:false },
   veo_3_1: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video_edit: { provider:'grok', modes:['video_edit'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
@@ -2279,7 +2283,7 @@ const VIDEO_MODEL_CONFIG = {
   seedance_2_fast: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['adaptive','16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['720p','480p'], sound:true, start_image:true, end_image:false, video_input:true, video_upload:true, video_edit:false },
   seedance_2_0: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['adaptive','16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['720p','480p','1080p'], sound:true, start_image:true, end_image:false, video_input:true, video_upload:true, video_edit:false },
   gemini_omni_flash: { provider:'gemini', modes:['text_to_video','image_to_video','video_edit'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:true, video_edit:true },
-  sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video: { provider:'grok', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
   veo_3_1_fast: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   runway_gen: { provider:'runway', modes:['image_to_video'], durations:[2,3,4,5,6,7,8,9,10], ratios:['16:9','21:9','4:3','9:16','3:4','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false }
@@ -22624,7 +22628,11 @@ async function waitGeneration(jobId, options) {
 
   function gridDefaultModel(type) {
     if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
-    if (type === 'video') return videoState.modelId || 'seedance_2_fast';
+    // Fall back past an avatar:true model too - Grid has no Character port
+    // to feed it an avatar_id (see gridModelsForType's video filter), so a
+    // freshly-created node must never default to one even if that's what
+    // the main composer currently has selected.
+    if (type === 'video') return (videoState.modelId && !(VIDEO_MODEL_CONFIG[videoState.modelId] || {}).avatar ? videoState.modelId : '') || 'seedance_2_fast';
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';
@@ -22757,7 +22765,14 @@ async function waitGeneration(jobId, options) {
 
   function gridModelsForType(type) {
     if (type === 'image') return filterSylvexTestEntries(IMAGE_MODEL_LIST);
-    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS);
+    // avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar) require
+    // an avatar_id tied to a Character reference - Grid Mode has no
+    // Character-reference picker at all (see gridGenerationPayload's video
+    // branch, which never sets avatar_id/heygen_*), so leaving them
+    // selectable here would run every generation against whatever avatar
+    // HEYGEN_AVATAR_ID happens to default to server-side, never the one the
+    // user actually intended. Excluded until Grid gets a Character port.
+    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => !(VIDEO_MODEL_CONFIG[item.id] || {}).avatar);
     if (type === 'music') return filterSylvexTestEntries(MUSIC_MODEL_LIST);
     if (type === 'voice') return filterSylvexTestEntries(VOICE_MODEL_LIST);
     if (type === 'text') return filterSylvexTestEntries(TEXT_MODEL_LIST);
