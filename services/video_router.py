@@ -2223,7 +2223,7 @@ def _kling_model_family(provider_model: str):
 # =====================================================
 def _kling_supports_last_frame(provider_model: str):
     model = _kling_model_family(provider_model)
-    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6"}
+    return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6", "kling-2.5-turbo"}
 
 
 # =====================================================
@@ -4515,6 +4515,16 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         ratio = _runway_ratio(body.get("ratio"), body.get("resolution"), model_id=model_id, has_image=bool(prompt_image))
         if ratio:
             runway_body["ratio"] = ratio
+        config = VIDEO_MODEL_CONFIG.get(model_id, {})
+        if config.get("sound"):
+            # Field name follows this codebase's existing convention for the
+            # same underlying models (direct Seedance/Grok both use
+            # generate_audio) - Runway's own top-level field name for this
+            # is not independently confirmed against live docs, but an
+            # unrecognized JSON field is inert rather than harmful, so this
+            # is a safe best-effort forward rather than a guaranteed no-op.
+            runway_body["generate_audio"] = bool(body.get("sound"))
+        end_image = body.get("end_image") or ""
         if is_video_to_video:
             if not input_video:
                 return _provider_error("runway", model_id, "Для Runway Aleph нужно загрузить исходное видео")
@@ -4522,7 +4532,12 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         else:
             if model_id in {"runway_gen4_turbo", "runway_gen", "runway_gen3a_turbo"} and not prompt_image:
                 return _provider_error("runway", model_id, "Для этой модели Runway нужно загрузить начальное изображение")
-            if prompt_image:
+            if prompt_image and end_image and config.get("end_image"):
+                runway_body["promptImage"] = [
+                    {"uri": _public_input_url(prompt_image), "position": "first"},
+                    {"uri": _public_input_url(end_image), "position": "last"},
+                ]
+            elif prompt_image:
                 runway_body["promptImage"] = _public_input_url(prompt_image)
         print("RUNWAY REQUEST DEBUG:", {
             "endpoint": endpoint,
@@ -5063,6 +5078,12 @@ def _call_grok(model_id: str, prompt: str, payload: dict):
         duration = 0
     if duration:
         grok_body["duration"] = duration
+    # xAI's docs confirm a plain "resolution" field (e.g. "720p") on the same
+    # /v1/videos/generations endpoint - this was computed by
+    # _build_video_payload but never actually included in the request body.
+    resolution = body.get("resolution")
+    if resolution:
+        grok_body["resolution"] = resolution
     # xAI's docs (docs.x.ai/developers/model-capabilities/video/generation)
     # confirm generated videos include audio by default; pass
     # generate_audio=False for a silent video - this was previously never
