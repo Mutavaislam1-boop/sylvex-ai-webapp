@@ -380,3 +380,25 @@ def register_video_models(video_model_config: dict, kling_cost_matrix: Optional[
             avatar=bool(config.get("avatar")),
             pricing=_video_pricing(model_id, kling_cost_matrix),
         )
+
+
+def video_character_object_visual_reference_supported(model_id: str) -> dict:
+    """Phase 1 Batch 5 (see /root/.claude/plans/splendid-moseying-starlight.md,
+    roadmap step 5) counterpart to image_character_object_seed(): whether a
+    video model accepts an actual reference IMAGE for character/object
+    (cap.character/object.visual_reference.visual_mode != UNSUPPORTED) - not
+    whether it can be told about a character/object by name/description in
+    the prompt text, which is the separate text_conditioning axis. That axis
+    is True for every video model today (see _video_character_capability
+    above) and is never gated by this function or its callers - a text-only
+    character/object mention must always be allowed through, per this
+    batch's plan text. Fails closed (both False) for an unknown model id or
+    a non-video model, matching image_character_object_seed()'s own
+    fail-closed behavior for the same case."""
+    cap = get_capability(model_id)
+    if not cap or cap.category != MediaCategory.VIDEO:
+        return {"character": False, "object": False}
+    return {
+        "character": cap.character.visual_reference.visual_mode != VisualReferenceMode.UNSUPPORTED,
+        "object": cap.object.visual_reference.visual_mode != VisualReferenceMode.UNSUPPORTED,
+    }

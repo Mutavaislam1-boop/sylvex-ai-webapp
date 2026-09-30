@@ -1277,6 +1277,27 @@ def _video_capability_supports_sound(model_id: str) -> bool:
     return bool(cap and cap.sound_toggle)
 
 
+# Phase 1 Batch 5 (see /root/.claude/plans/splendid-moseying-starlight.md,
+# roadmap step 5): "extend _build_video_payload's _gated_flag() to
+# start_image/end_image/visual character/object references". Thin wrappers
+# around model_capabilities.video_character_object_visual_reference_supported()
+# - the same function main.py's validate_video_feature_request() calls to
+# reject a request outright - so the silent in-payload stripping done here
+# and the explicit 400 rejection done there agree by construction. Gating
+# here is defense in depth: validate_video_feature_request() is the primary
+# gate (run before _build_video_payload is ever reached, per the request
+# flow), but every one of _build_video_payload's ~16 callers trusts its
+# output directly with no independent re-check, so an unsupported reference
+# image must never survive this function even if some future/internal
+# caller skips the request-level validation.
+def _video_capability_supports_character_visual_reference(model_id: str) -> bool:
+    return bool(model_capabilities.video_character_object_visual_reference_supported(model_id)["character"])
+
+
+def _video_capability_supports_object_visual_reference(model_id: str) -> bool:
+    return bool(model_capabilities.video_character_object_visual_reference_supported(model_id)["object"])
+
+
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
     video_template = opts.get("video_template") if isinstance(opts.get("video_template"), dict) else {}
@@ -1306,10 +1327,30 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
     )
     if not source_reference_images and isinstance(payload.get("reference_images"), list):
         source_reference_images = _clean_url_list(payload.get("reference_images"))
+    # Phase 1 Batch 5: character/object reference IMAGES are gated on the
+    # model's visual_reference support - characterId/characterName/
+    # objectId/objectName (text-only conditioning) are NOT gated by this and
+    # always flow through further down, since every video model supports
+    # text conditioning today (see model_capabilities._video_character_capability).
+    # validate_video_feature_request() (main.py) is the primary gate and
+    # rejects the request outright before this function ever runs; this is
+    # the defense-in-depth backstop for the ~16 callers of this function
+    # that trust its output directly (see the comment above the two
+    # _video_capability_supports_*_visual_reference helpers).
+    character_references = (
+        _clean_url_list(opts.get("characterReferences"))
+        if _video_capability_supports_character_visual_reference(model_id)
+        else []
+    )
+    object_references = (
+        _clean_url_list(opts.get("objectReferences"))
+        if _video_capability_supports_object_visual_reference(model_id)
+        else []
+    )
     reference_images = _clean_url_list(
         source_reference_images,
-        _clean_url_list(opts.get("characterReferences"))[:4],
-        _clean_url_list(opts.get("objectReferences"))[:4],
+        character_references[:4],
+        object_references[:4],
     )
     sound = bool(opts.get("sound")) if _video_capability_supports_sound(model_id) else False
 
@@ -1327,8 +1368,16 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "generation_mode": mode,
         "section": opts.get("section") or "generate",
         "sound": sound,
-        "start_image": opts.get("start_image") or payload.get("start_image") or "",
-        "end_image": opts.get("end_image") or "",
+        # Phase 1 Batch 5: gated the same way the boolean flags below
+        # already are via _gated_flag() - config already carries correct
+        # per-model start_image/end_image booleans (Batch 1's
+        # register_video_models() mirrors these into the registry's
+        # start_frame/end_frame, used by _kling_capability_supports_end_frame
+        # and the frontend's currentVideoConfig() repoint) - reused directly
+        # rather than through a new registry-reading helper since there is
+        # only this one call site, unlike sound's two independent sites.
+        "start_image": (opts.get("start_image") or payload.get("start_image") or "") if config.get("start_image") else "",
+        "end_image": (opts.get("end_image") or "") if config.get("end_image") else "",
         "reference_images": reference_images,
         "input_video": opts.get("input_video") or "",
         "video_url": opts.get("video_url") or "",
@@ -1344,11 +1393,11 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "characterId": opts.get("characterId") or "",
         "characterName": opts.get("characterName") or "",
         "characterPrompt": "",
-        "characterReferences": _clean_url_list(opts.get("characterReferences")),
+        "characterReferences": character_references,
         "objectId": opts.get("objectId") or "",
         "objectName": opts.get("objectName") or opts.get("objects") or "",
         "objectPrompt": opts.get("objectPrompt") or "",
-        "objectReferences": _clean_url_list(opts.get("objectReferences")),
+        "objectReferences": object_references,
         "seed": opts.get("seed") if opts.get("seed") not in (None, "") else payload.get("seed"),
         "native_audio": _gated_flag("native_audio"),
         "motion_control": _gated_flag("motion_control"),
