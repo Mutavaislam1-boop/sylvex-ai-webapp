@@ -19677,7 +19677,13 @@ def prostudio_builtin_video_template_slots() -> list:
             description = folder_description or descriptions[index]
         else:
             description = folder_description or f"Загрузите изображение для видео «{title}»."
-        preferred_model = "kling_effects" if is_provider_effect else "kling_o3_omni"
+        # Phase 1 Batch 7 correction (see /root/.claude/plans/splendid-moseying-starlight.md):
+        # the Motion Catalog (non-effect, reference-video-driven templates)
+        # is a dedicated fixed-model workflow and must always resolve to
+        # kling_motion_3_0 - never kling_o3_omni - matching the env-sourced
+        # templates in prostudio_video_templates_from_env() above, which
+        # already hardcode kling_motion_3_0 for this same catalog.
+        preferred_model = "kling_effects" if is_provider_effect else "kling_motion_3_0"
         duration = max(1, int(output.get("duration") or metadata.get("duration") or 5))
         resolution = str(output.get("resolution") or metadata.get("resolution") or "720p")
         has_video_reference = not is_provider_effect
