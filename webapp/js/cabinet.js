@@ -1314,27 +1314,49 @@ async function loadModelCapabilities() {
   }
 }
 
-// Video Character/Object visual-reference gating (Phase 1 Batch 2 - see
+// Video Character/Object gating (Phase 1 Batch 2 - see
 // /root/.claude/plans/splendid-moseying-starlight.md roadmap step 2). Reads
 // the same fetched capability data as getModelCapabilities() above, for a
-// video model id. Unlike the image fallback, there is no pre-existing
-// hardcoded per-video-model character/object table to fall back to (this is
-// net-new gating, not a migration of prior behavior) - so with no fetched
-// data yet this fails OPEN (assume supported), never newly restricting a
-// control that was always enabled before this batch just because capability
-// data hasn't loaded yet.
+// video model id.
+//
+// Correction: text_conditioning and visual_reference are two independent
+// axes (per the capability schema) and must be gated independently.
+// text_conditioning - whether the selected character/object's name/id may
+// reach the prompt - is true for effectively every video model
+// (confirmed via character_prompts.py + _build_video_visual_prompt's
+// has_character branch), so the SELECTOR itself must stay usable regardless
+// of visual_reference support; only visual_reference decides how many
+// reference IMAGES may be sent (0 for unsupported, up to max_count
+// otherwise - applied in videoOptionsPayload() below, not here). Blocking
+// the whole picker whenever visual_reference was UNSUPPORTED (the original
+// version of this function) would have silently broken text_conditioning
+// for the ~32 video models that can't take a reference image but can
+// perfectly well take a character/object by name - fixed per explicit
+// review.
+//
+// Unlike the image fallback, there is no pre-existing hardcoded per-video-
+// model character/object table to fall back to (this is net-new gating,
+// not a migration of prior behavior) - so with no fetched data yet this
+// fails fully OPEN (selectable, and no reference-count limit applied),
+// never newly restricting behavior that was always available before this
+// batch just because capability data hasn't loaded yet.
 function getVideoModelCapabilities(modelId) {
-  const fallback = { character: true, object: true };
+  const openFallback = { selectable: true, maxRefs: null }; // maxRefs: null = no known limit, don't restrict
   const raw = String(modelId || '').trim();
   const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
   const entry = fetchedModels ? fetchedModels[raw] : null;
-  if (!entry) return fallback;
-  const charMode = entry.character && entry.character.visual_reference && entry.character.visual_reference.visual_mode;
-  const objMode = entry.object && entry.object.visual_reference && entry.object.visual_reference.visual_mode;
-  return {
-    character: charMode != null ? charMode !== 'unsupported' : true,
-    object: objMode != null ? objMode !== 'unsupported' : true,
+  if (!entry) return { character: Object.assign({}, openFallback), object: Object.assign({}, openFallback) };
+  const build = (sub) => {
+    const cap = entry[sub] || {};
+    const visual = cap.visual_reference || {};
+    return {
+      // text_conditioning missing/unknown defaults to selectable, matching
+      // the open-fallback philosophy above.
+      selectable: cap.text_conditioning !== false,
+      maxRefs: typeof visual.max_count === 'number' ? visual.max_count : 0,
+    };
   };
+  return { character: build('character'), object: build('object') };
 }
 
 // =====================================================
@@ -2592,12 +2614,21 @@ function videoOptionsPayload(referenceImagesOverride) {
   const heygenAvatarId = characterVisual.heygenVideoAvatarId || characterVisual.heygenPhotoAvatarId || '';
   const heygenFiles = [];
   if (isHeygenModel && characterVisual.videoReferenceUrl) heygenFiles.push(characterVisual.videoReferenceUrl);
-  // Video Character/Object visual-reference gating (Phase 1 Batch 2). Only
-  // the reference-IMAGE arrays are withheld for a model the provider
-  // silently drops them for - characterId/characterName/objectId/objectName
-  // below always still flow so the text/name reference keeps reaching the
-  // prompt (text_conditioning) regardless of this gate.
+  // Video Character/Object gating (Phase 1 Batch 2). characterId/
+  // characterName/objectId/objectName below always still flow - the
+  // selector itself is never blocked by reference-image support (see
+  // getVideoModelCapabilities()) - only the reference-IMAGE arrays are
+  // limited to what that model's visual_reference mode actually forwards:
+  // 0 refs for UNSUPPORTED, at most 1 for DEGRADED_SINGLE_IMAGE, up to the
+  // registry's max_count for REAL_MULTI_IMAGE. maxRefs === null means no
+  // capability data has loaded yet - fail open, send everything attached,
+  // exactly like the pre-gate behavior.
   const videoVisualCapabilities = getVideoModelCapabilities(videoState.modelId);
+  const sliceReferencesForCapability = (references, capability) => {
+    const list = Array.isArray(references) ? references : [];
+    if (capability.maxRefs === null) return list.slice();
+    return list.slice(0, capability.maxRefs);
+  };
 
   return {
     section: videoState.section || 'generate',
@@ -2626,7 +2657,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     characterId: characterVisual.id || '',
     characterName: characterVisual.name || '',
     characterPrompt: '',
-    characterReferences: (videoVisualCapabilities.character && Array.isArray(characterVisual.references)) ? characterVisual.references.slice() : [],
+    characterReferences: sliceReferencesForCapability(characterVisual.references, videoVisualCapabilities.character),
     avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_photo_avatar_id: characterVisual.heygenPhotoAvatarId || '',
@@ -2637,7 +2668,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     objectId: objectVisual.id || '',
     objectName: objectVisual.name || '',
     objectPrompt: objectVisual.prompt || '',
-    objectReferences: (videoVisualCapabilities.object && Array.isArray(objectVisual.references)) ? objectVisual.references.slice() : [],
+    objectReferences: sliceReferencesForCapability(objectVisual.references, videoVisualCapabilities.object),
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
     motion_control: !!config.motion_control && !isKlingEffect,
@@ -5827,15 +5858,17 @@ function localizedGreeting() {
 
   // =====================================================
   // JAVASCRIPT-БЛОК: videoFeatureUnavailableToast
-  // Video-mode counterpart to imageFeatureUnavailableToast() above. Only
-  // the reference-IMAGE part of a Character/Object selection is unsupported
-  // for the current video model - picking a saved character/object by name
-  // still works and still reaches the prompt (text_conditioning), so the
-  // wording is scoped to the image specifically, not the feature as a whole.
+  // Video-mode counterpart to imageFeatureUnavailableToast() above. This
+  // only fires when text_conditioning itself is false for the current
+  // model - i.e. the character/object concept as a whole is unsupported,
+  // not merely its reference image (which has no user-facing block; see
+  // videoOptionsPayload() for where the image count is silently limited
+  // instead). No video model has text_conditioning=false today, so this is
+  // currently unreachable in practice - kept for when one legitimately does.
   // =====================================================
   function videoFeatureUnavailableToast(feature) {
-    const label = feature === 'character' ? 'персонажа' : 'объекта';
-    toast('Выбранная AI-модель не поддерживает референс-изображение для ' + label + '.');
+    const label = feature === 'character' ? 'персонажей' : 'объекты';
+    toast('Выбранная AI-модель не поддерживает ' + label + '.');
   }
 
   // =====================================================
@@ -5854,12 +5887,11 @@ function localizedGreeting() {
   // Character/Object icon buttons (#videoCharacterButton/#videoObjectButton
   // in the .video-add-icon-row) - same disabled/aria-disabled/CSS-class
   // treatment as renderImageReferenceSections()'s setButtonState, so the
-  // visual language matches Image mode's existing gating. Only the
-  // reference-image affordance is gated; the buttons still open the picker
-  // when enabled, and picking a character/object by name always still
-  // reaches the prompt via characterId/characterName regardless of this gate
-  // (see the videoOptionsPayload() strip below for where the image part is
-  // actually withheld).
+  // visual language matches Image mode's existing gating. Gated on
+  // .selectable (text_conditioning) only - a model with no reference-image
+  // support still lets the user pick a character/object by name, so the
+  // button must stay enabled for it; only the number of reference images
+  // sent varies by model (see videoOptionsPayload()'s per-field slicing).
   // =====================================================
   function renderVideoReferenceButtons() {
     const capabilities = syncVideoFeatureAvailability();
@@ -5869,8 +5901,8 @@ function localizedGreeting() {
       btn.classList.toggle('image-setting-disabled', !!disabled);
       btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     };
-    setButtonState(document.getElementById('videoCharacterButton'), !capabilities.character);
-    setButtonState(document.getElementById('videoObjectButton'), !capabilities.object);
+    setButtonState(document.getElementById('videoCharacterButton'), !capabilities.character.selectable);
+    setButtonState(document.getElementById('videoObjectButton'), !capabilities.object.selectable);
   }
 
   // =====================================================
@@ -10366,7 +10398,7 @@ function chooseVideoAddMedia(e) {
 
 function chooseVideoAddCharacter(e) {
   closeVideoAddMenu();
-  if (!getVideoModelCapabilities(videoState.modelId).character) {
+  if (!getVideoModelCapabilities(videoState.modelId).character.selectable) {
     return videoFeatureUnavailableToast('character');
   }
   openVideoVisualPicker(e, 'character');
@@ -10374,7 +10406,7 @@ function chooseVideoAddCharacter(e) {
 
 function chooseVideoAddObject(e) {
   closeVideoAddMenu();
-  if (!getVideoModelCapabilities(videoState.modelId).object) {
+  if (!getVideoModelCapabilities(videoState.modelId).object.selectable) {
     return videoFeatureUnavailableToast('object');
   }
   openVideoVisualPicker(e, 'object');
