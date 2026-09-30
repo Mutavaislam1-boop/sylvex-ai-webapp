@@ -35,7 +35,8 @@ from services.audio_router import audio_generation, elevenlabs_clone_voice_from_
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
-from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url
+from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
+from services import model_capabilities as model_capabilities_service
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -1002,6 +1003,20 @@ IMAGE_MODEL_FEATURES = {
     "krea_2": {"character": False, "object": False},
     "microsoft_mai_image_2_5": {"character": False, "object": False},
 }
+
+# Central Model Capability System (Phase 1, Batch 1 of the Pro Studio master
+# remediation plan - see /root/.claude/plans/splendid-moseying-starlight.md).
+# Additive-only: IMAGE_MODEL_FEATURES/SEEDREAM_MODEL_CAPABILITIES/
+# VIDEO_MODEL_CONFIG/KLING_COST_MATRIX above and in services/video_router.py
+# are left untouched and stay authoritative for every existing call site.
+# This registration only feeds the new /model-capabilities endpoint and the
+# one repointed consumer, image_model_features() below.
+model_capabilities_service.register_image_models(IMAGE_MODEL_FEATURES, SEEDREAM_MODEL_CAPABILITIES)
+model_capabilities_service.register_video_models(_VIDEO_MODEL_CONFIG, _KLING_COST_MATRIX)
+MODEL_CAPABILITIES_VERSION = hashlib.sha256(
+    json.dumps(model_capabilities_service.serialize_capabilities(), sort_keys=True, default=str).encode("utf-8")
+).hexdigest()[:16]
+
 IMAGE_MODELS_JSON = os.getenv("IMAGE_MODELS_JSON")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVENLABS-API-KEY")
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
@@ -12887,17 +12902,17 @@ def image_provider_mapping(frontend_model: str) -> dict:
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 def image_model_features(frontend_model: str) -> dict:
+    # Repointed to read values from services.model_capabilities (Phase 1,
+    # Batch 1 of the master remediation plan) instead of IMAGE_MODEL_FEATURES
+    # directly. The id-resolution logic below (direct match, else strip a
+    # trailing "_0") is unchanged from before the repoint, so this resolves
+    # to the exact same model id IMAGE_MODEL_FEATURES would have; only the
+    # source of the character/object/seed values themselves has moved.
+    # IMAGE_MODEL_FEATURES itself is left untouched (additive-only migration)
+    # and stays the source register_image_models() was populated from.
     normalized = (frontend_model or "").strip().lower().replace("-", "_")
-    features = IMAGE_MODEL_FEATURES.get(normalized) or re.sub(r"_0$", "", normalized)
-    if isinstance(features, str):
-        features = IMAGE_MODEL_FEATURES.get(features)
-    if not features:
-        features = {"character": False, "object": False, "seed": False}
-    return {
-        "character": bool(features.get("character")),
-        "object": bool(features.get("object")),
-        "seed": bool(features.get("seed")),
-    }
+    resolved_id = normalized if normalized in IMAGE_MODEL_FEATURES else re.sub(r"_0$", "", normalized)
+    return model_capabilities_service.image_character_object_seed(resolved_id)
 
 # =====================================================
 # PYTHON-БЛОК: unknown_byteplus_image_model_response
@@ -16209,28 +16224,6 @@ async def generate_try_on_image(payload: dict) -> dict:
 # =====================================================
 # ТЕКСТОВАЯ ГЕНЕРАЦИЯ: модели, транскрибация и PDF
 # =====================================================
-TEXT_MODEL_ALIASES = {
-    "gpt-5.6": "gpt-5.6",
-    "gpt-5.5": "gpt-5.5",
-    "gpt-5": "gpt-5",
-    "gpt-5-mini": "gpt-5-mini",
-    "gpt-4.1": "gpt-4.1",
-    "gpt-4.1-mini": "gpt-4.1-mini",
-    "gpt-4o": "gpt-4o",
-    "gpt-4o-mini": "gpt-4o-mini",
-    "gemini_3_1_pro": "gemini_3_1_pro",
-    "gemini_3_1_flash": "gemini_3_1_flash",
-    "gemini_2_5_pro": "gemini_2_5_pro",
-    "gemini_2_5_flash": "gemini_2_5_flash",
-    "grok_4_1": "grok_4_1",
-    "grok_4_fast": "grok_4_fast",
-    "grok_3": "grok_3",
-    "qwen_plus": "qwen_plus",
-    "qwen_turbo": "qwen_turbo",
-    "qwen_max": "qwen_max",
-    "byteplus_seed_2_lite": "byteplus_seed_2_lite",
-}
-
 TEXT_MODEL_VARIANTS = {
     "gpt-5.6": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT56_MODEL", default="gpt-5.6"), "api": "responses"},
     "gpt-5.5": {"provider": "openai", "provider_model": env_value("OPENAI_TEXT_GPT55_MODEL", default="gpt-5.5"), "api": "responses"},
@@ -16258,7 +16251,7 @@ def normalize_text_model(model: str) -> str:
     raw = str(model or "").strip()
     if is_internal_ui_model(raw) or raw in {"gpt-image-1", "gpt_image_1", "gpt-image-2", "gpt_image_2"}:
         return "gpt-5.5"
-    return TEXT_MODEL_ALIASES.get(raw, raw or "gpt-5.5")
+    return raw or "gpt-5.5"
 
 
 def _text_attachment_bytes(attachment: dict) -> tuple[bytes, str, str]:
@@ -19474,6 +19467,24 @@ async def image_generation(payload: dict) -> dict:
 # =====================================================
 async def public_prostudio_image_capabilities():
     return get_image_capabilities()
+
+# =====================================================
+# API ENDPOINT: public_prostudio_model_capabilities
+# Central Model Capability System (Phase 1, Batch 1 of the master
+# remediation plan). Deploy-static, unauthenticated catalog data, added
+# alongside (not replacing) /image-capabilities above - additive-only
+# migration, per the approved plan. Supports conditional revalidation via
+# If-None-Match so the frontend's bootstrap fetch can cheaply confirm its
+# cached copy is still current instead of re-downloading the full payload.
+# Маршрут FastAPI: @app.get("/api/public/prostudio/model-capabilities")
+# =====================================================
+@app.get("/api/public/prostudio/model-capabilities")
+async def public_prostudio_model_capabilities(request: Request):
+    client_version = (request.headers.get("if-none-match") or "").strip('"')
+    if client_version and client_version == MODEL_CAPABILITIES_VERSION:
+        return Response(status_code=304, headers={"ETag": f'"{MODEL_CAPABILITIES_VERSION}"'})
+    body = {"ok": True, "version": MODEL_CAPABILITIES_VERSION, "models": model_capabilities_service.serialize_capabilities()}
+    return JSONResponse(body, headers={"ETag": f'"{MODEL_CAPABILITIES_VERSION}"'})
 
 # =====================================================
 # PYTHON-БЛОК: prostudio_video_templates_from_env

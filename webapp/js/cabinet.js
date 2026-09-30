@@ -1219,6 +1219,16 @@ const MODEL_FEATURES = {
   microsoft_mai_image_2_5: { character: false, object: false },
 };
 
+// Central Model Capability System (Phase 1, Batch 1 of the Pro Studio master
+// remediation plan - see /root/.claude/plans/splendid-moseying-starlight.md).
+// MODEL_FEATURES above is left untouched (additive-only migration) and
+// remains the fallback source whenever no fetched/cached capability data is
+// available yet - see getModelCapabilities() and loadModelCapabilities()
+// below. fetchedModelCapabilities is null until the first successful fetch
+// or cache read; getModelCapabilities() must tolerate that.
+const MODEL_CAPABILITIES_CACHE_KEY = 'sylvex-model-capabilities-v1';
+let fetchedModelCapabilities = null; // {version, models} once loaded, else null
+
 // =====================================================
 // JAVASCRIPT-БЛОК: getModelCapabilities
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -1227,6 +1237,20 @@ function getModelCapabilities(modelId) {
   const fallback = { character: false, object: false, seed: false };
   const raw = String(modelId || '').trim();
   const normalized = raw.replace(/_0$/, '').replace(/-/g, '_');
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const fetchedEntry = fetchedModels ? (fetchedModels[raw] || fetchedModels[normalized]) : null;
+  if (fetchedEntry) {
+    const charLimits = (fetchedEntry.character && fetchedEntry.character.visual_reference) || {};
+    const objLimits = (fetchedEntry.object && fetchedEntry.object.visual_reference) || {};
+    const maxCount = (typeof charLimits.max_count === 'number' && charLimits.max_count > 0) ? charLimits.max_count
+      : ((typeof objLimits.max_count === 'number' && objLimits.max_count > 0) ? objLimits.max_count : null);
+    return {
+      character: charLimits.visual_mode != null && charLimits.visual_mode !== 'unsupported',
+      object: objLimits.visual_mode != null && objLimits.visual_mode !== 'unsupported',
+      seed: !!fetchedEntry.seed,
+      maxReferences: maxCount,
+    };
+  }
   const cfg = MODEL_FEATURES[raw] || MODEL_FEATURES[normalized] || fallback;
   return {
     character: !!cfg.character,
@@ -1237,6 +1261,102 @@ function getModelCapabilities(modelId) {
     // per-model cap", so callers must not treat it as zero/unlimited.
     maxReferences: typeof cfg.maxReferences === 'number' ? cfg.maxReferences : null,
   };
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: model capabilities fetch/cache (Batch 1)
+// localStorage is a last-known-good accelerator, never the sole source of
+// truth (approved-plan correction 2): every bootstrap revalidates against
+// the backend, a failed fetch falls back to the cached snapshot, and with
+// no cache at all getModelCapabilities() above falls back to the
+// still-present MODEL_FEATURES table.
+// =====================================================
+function readCachedModelCapabilities() {
+  try {
+    const raw = localStorage.getItem(MODEL_CAPABILITIES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.version && parsed.models) return parsed;
+  } catch (err) {
+    // Corrupt or blocked storage (private window, cleared site data) -
+    // treat exactly like no cache.
+  }
+  return null;
+}
+
+function writeCachedModelCapabilities(snapshot) {
+  try {
+    localStorage.setItem(MODEL_CAPABILITIES_CACHE_KEY, JSON.stringify(snapshot));
+  } catch (err) {
+    // Storage full/blocked - the in-memory copy still serves this session.
+  }
+}
+
+async function loadModelCapabilities() {
+  const cached = readCachedModelCapabilities();
+  if (cached) fetchedModelCapabilities = cached;
+  try {
+    const headers = {};
+    if (cached && cached.version) headers['If-None-Match'] = `"${cached.version}"`;
+    const res = await fetch('/api/public/prostudio/model-capabilities', { headers, cache: 'no-store' });
+    if (res.status === 304) return; // cached snapshot confirmed current
+    if (!res.ok) return; // keep whatever is already loaded (cache or fallback)
+    const data = await res.json();
+    if (!data || !data.ok || !data.models) return;
+    const snapshot = { version: data.version, models: data.models };
+    fetchedModelCapabilities = snapshot;
+    writeCachedModelCapabilities(snapshot);
+    renderImageControls();
+    renderModelPop();
+    if (typeof renderVideoControls === 'function' && isVideoMode()) renderVideoControls();
+  } catch (err) {
+    console.warn('[SYLVEX] model capabilities fetch failed, using cached/fallback data', err);
+  }
+}
+
+// Video Character/Object gating (Phase 1 Batch 2 - see
+// /root/.claude/plans/splendid-moseying-starlight.md roadmap step 2). Reads
+// the same fetched capability data as getModelCapabilities() above, for a
+// video model id.
+//
+// Correction: text_conditioning and visual_reference are two independent
+// axes (per the capability schema) and must be gated independently.
+// text_conditioning - whether the selected character/object's name/id may
+// reach the prompt - is true for effectively every video model
+// (confirmed via character_prompts.py + _build_video_visual_prompt's
+// has_character branch), so the SELECTOR itself must stay usable regardless
+// of visual_reference support; only visual_reference decides how many
+// reference IMAGES may be sent (0 for unsupported, up to max_count
+// otherwise - applied in videoOptionsPayload() below, not here). Blocking
+// the whole picker whenever visual_reference was UNSUPPORTED (the original
+// version of this function) would have silently broken text_conditioning
+// for the ~32 video models that can't take a reference image but can
+// perfectly well take a character/object by name - fixed per explicit
+// review.
+//
+// Unlike the image fallback, there is no pre-existing hardcoded per-video-
+// model character/object table to fall back to (this is net-new gating,
+// not a migration of prior behavior) - so with no fetched data yet this
+// fails fully OPEN (selectable, and no reference-count limit applied),
+// never newly restricting behavior that was always available before this
+// batch just because capability data hasn't loaded yet.
+function getVideoModelCapabilities(modelId) {
+  const openFallback = { selectable: true, maxRefs: null }; // maxRefs: null = no known limit, don't restrict
+  const raw = String(modelId || '').trim();
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const entry = fetchedModels ? fetchedModels[raw] : null;
+  if (!entry) return { character: Object.assign({}, openFallback), object: Object.assign({}, openFallback) };
+  const build = (sub) => {
+    const cap = entry[sub] || {};
+    const visual = cap.visual_reference || {};
+    return {
+      // text_conditioning missing/unknown defaults to selectable, matching
+      // the open-fallback philosophy above.
+      selectable: cap.text_conditioning !== false,
+      maxRefs: typeof visual.max_count === 'number' ? visual.max_count : 0,
+    };
+  };
+  return { character: build('character'), object: build('object') };
 }
 
 // =====================================================
@@ -2256,7 +2376,11 @@ const VIDEO_MODEL_CONFIG = {
   luma_dream_machine: { provider:'luma', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   minimax_hailuo_2_3: { provider:'minimax', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   pixverse_v6: { provider:'pixverse', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
-  sora_2_pro: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  // sound:false - OpenAI's Sora 2 API has no documented audio control at
+  // all (_call_sora never sends any audio field); the toggle was pure UI
+  // decoration with zero effect either way, so it's now hidden instead of
+  // implying a control that doesn't exist.
+  sora_2_pro: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   wan_2_7: { provider:'wan', modes:['text_to_video','image_to_video'], durations:[5,10], ratios:['16:9','9:16','1:1','4:3','3:4'], resolutions:['720p','1080p'], sound:false, start_image:true, end_image:true, video_upload:true, video_edit:false },
   veo_3_1: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p','1080p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video_edit: { provider:'grok', modes:['video_edit'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:true, video_edit:true },
@@ -2279,7 +2403,7 @@ const VIDEO_MODEL_CONFIG = {
   seedance_2_fast: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['adaptive','16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['720p','480p'], sound:true, start_image:true, end_image:false, video_input:true, video_upload:true, video_edit:false },
   seedance_2_0: { provider:'bytedance', modes:['text_to_video','image_to_video'], durations:[4,5,6,7,8,9,10,11,12,13,14,15], ratios:['adaptive','16:9','4:3','1:1','3:4','9:16','21:9'], resolutions:['720p','480p','1080p'], sound:true, start_image:true, end_image:false, video_input:true, video_upload:true, video_edit:false },
   gemini_omni_flash: { provider:'gemini', modes:['text_to_video','image_to_video','video_edit'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:true, video_edit:true },
-  sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  sora_2: { provider:'sora', modes:['text_to_video','image_to_video'], durations:[4,8,12], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
   grok_video: { provider:'grok', modes:['text_to_video'], durations:[5], ratios:['16:9','9:16','1:1'], resolutions:['720p'], sound:true, start_image:false, end_image:false, video_upload:false, video_edit:false },
   veo_3_1_fast: { provider:'veo', modes:['text_to_video','image_to_video'], durations:[5,8], ratios:['16:9','9:16'], resolutions:['720p'], sound:true, start_image:true, end_image:false, video_upload:false, video_edit:false },
   runway_gen: { provider:'runway', modes:['image_to_video'], durations:[2,3,4,5,6,7,8,9,10], ratios:['16:9','21:9','4:3','9:16','3:4','1:1'], resolutions:['720p'], sound:false, start_image:true, end_image:false, video_upload:false, video_edit:false }
@@ -2370,8 +2494,29 @@ function currentAudioState() {
 // JAVASCRIPT-БЛОК: currentVideoConfig
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
+// Phase 1 Batch 3 (see /root/.claude/plans/splendid-moseying-starlight.md
+// roadmap step 3). VIDEO_MODEL_CONFIG above is the local JS-side mirror of
+// the same data services/video_router.py's own VIDEO_MODEL_CONFIG declares
+// - two independently hand-maintained copies that can (and, per the
+// original audit, do) drift. start_image/end_image here are repointed to
+// prefer the fetched capability registry's start_frame/end_frame (the
+// Python side, sourced from that same Python VIDEO_MODEL_CONFIG - so this
+// also collapses the JS-vs-Python mirror gap, not just presentation).
+// normalizeVideoStateForModel()'s stale-state clearing and the End Frame
+// button's visibility (renderVideoStartPreview/renderVideoEndPreview) both
+// already read through this function, so repointing here alone fixes both.
+// Fails open (keeps the local value) when no fetched data has loaded yet,
+// same additive philosophy as every other Phase 1 repoint. Sound is
+// deliberately NOT touched here - that's a separate, later roadmap step.
 function currentVideoConfig() {
-  return VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
+  const local = VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const fetched = fetchedModels ? fetchedModels[videoState.modelId] : null;
+  if (!fetched) return local;
+  return Object.assign({}, local, {
+    start_image: !!fetched.start_frame,
+    end_image: !!fetched.end_frame,
+  });
 }
 
 // =====================================================
@@ -2490,6 +2635,21 @@ function videoOptionsPayload(referenceImagesOverride) {
   const heygenAvatarId = characterVisual.heygenVideoAvatarId || characterVisual.heygenPhotoAvatarId || '';
   const heygenFiles = [];
   if (isHeygenModel && characterVisual.videoReferenceUrl) heygenFiles.push(characterVisual.videoReferenceUrl);
+  // Video Character/Object gating (Phase 1 Batch 2). characterId/
+  // characterName/objectId/objectName below always still flow - the
+  // selector itself is never blocked by reference-image support (see
+  // getVideoModelCapabilities()) - only the reference-IMAGE arrays are
+  // limited to what that model's visual_reference mode actually forwards:
+  // 0 refs for UNSUPPORTED, at most 1 for DEGRADED_SINGLE_IMAGE, up to the
+  // registry's max_count for REAL_MULTI_IMAGE. maxRefs === null means no
+  // capability data has loaded yet - fail open, send everything attached,
+  // exactly like the pre-gate behavior.
+  const videoVisualCapabilities = getVideoModelCapabilities(videoState.modelId);
+  const sliceReferencesForCapability = (references, capability) => {
+    const list = Array.isArray(references) ? references : [];
+    if (capability.maxRefs === null) return list.slice();
+    return list.slice(0, capability.maxRefs);
+  };
 
   return {
     section: videoState.section || 'generate',
@@ -2518,7 +2678,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     characterId: characterVisual.id || '',
     characterName: characterVisual.name || '',
     characterPrompt: '',
-    characterReferences: Array.isArray(characterVisual.references) ? characterVisual.references.slice() : [],
+    characterReferences: sliceReferencesForCapability(characterVisual.references, videoVisualCapabilities.character),
     avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_avatar_id: isHeygenModel ? heygenAvatarId : '',
     heygen_photo_avatar_id: characterVisual.heygenPhotoAvatarId || '',
@@ -2529,7 +2689,7 @@ function videoOptionsPayload(referenceImagesOverride) {
     objectId: objectVisual.id || '',
     objectName: objectVisual.name || '',
     objectPrompt: objectVisual.prompt || '',
-    objectReferences: Array.isArray(objectVisual.references) ? objectVisual.references.slice() : [],
+    objectReferences: sliceReferencesForCapability(objectVisual.references, videoVisualCapabilities.object),
     model: videoState.modelId || '',
     native_audio: !!(config.native_audio && videoState.sound),
     motion_control: !!config.motion_control && !isKlingEffect,
@@ -2655,6 +2815,7 @@ function renderVideoControls() {
   renderVideoEndPreview();
   renderVideoEditPreview();
   renderVideoReferencesPreview();
+  renderVideoReferenceButtons();
 }
 
 // =====================================================
@@ -5717,6 +5878,55 @@ function localizedGreeting() {
   }
 
   // =====================================================
+  // JAVASCRIPT-БЛОК: videoFeatureUnavailableToast
+  // Video-mode counterpart to imageFeatureUnavailableToast() above. This
+  // only fires when text_conditioning itself is false for the current
+  // model - i.e. the character/object concept as a whole is unsupported,
+  // not merely its reference image (which has no user-facing block; see
+  // videoOptionsPayload() for where the image count is silently limited
+  // instead). No video model has text_conditioning=false today, so this is
+  // currently unreachable in practice - kept for when one legitimately does.
+  // =====================================================
+  function videoFeatureUnavailableToast(feature) {
+    const label = feature === 'character' ? 'персонажей' : 'объекты';
+    toast('Выбранная AI-модель не поддерживает ' + label + '.');
+  }
+
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncVideoFeatureAvailability
+  // Video Character/Object visual-reference gating (Phase 1 Batch 2). Same
+  // shape as syncImageFeatureAvailability(), driven by
+  // getVideoModelCapabilities() instead.
+  // =====================================================
+  function syncVideoFeatureAvailability() {
+    return getVideoModelCapabilities(videoState.modelId);
+  }
+
+  // =====================================================
+  // ОТРИСОВКА ИНТЕРФЕЙСА: renderVideoReferenceButtons
+  // Applies syncVideoFeatureAvailability()'s result to the video composer's
+  // Character/Object icon buttons (#videoCharacterButton/#videoObjectButton
+  // in the .video-add-icon-row) - same disabled/aria-disabled/CSS-class
+  // treatment as renderImageReferenceSections()'s setButtonState, so the
+  // visual language matches Image mode's existing gating. Gated on
+  // .selectable (text_conditioning) only - a model with no reference-image
+  // support still lets the user pick a character/object by name, so the
+  // button must stay enabled for it; only the number of reference images
+  // sent varies by model (see videoOptionsPayload()'s per-field slicing).
+  // =====================================================
+  function renderVideoReferenceButtons() {
+    const capabilities = syncVideoFeatureAvailability();
+    const setButtonState = (btn, disabled) => {
+      if (!btn) return;
+      btn.disabled = !!disabled;
+      btn.classList.toggle('image-setting-disabled', !!disabled);
+      btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    };
+    setButtonState(document.getElementById('videoCharacterButton'), !capabilities.character.selectable);
+    setButtonState(document.getElementById('videoObjectButton'), !capabilities.object.selectable);
+  }
+
+  // =====================================================
   // JAVASCRIPT-БЛОК: ensureImageReferenceSections
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
@@ -7593,7 +7803,12 @@ function closeRemoveObjectMaskEditor(e) {
   const modal = document.getElementById('removeObjectEditorModal');
   if (modal) modal.classList.remove('show');
 }
-function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character')return openVisualCreateModal(e,'character');toast('Слот для нового референса подготовлен')}
+// openVisualCreateModal already supports 'object' just as well as
+// 'character' (see its use from the main composer's Object picker at
+// cabinet.js:11184) - Photo Tools' own "Create" button only checked for
+// 'character', so picking Object in a Photo Tool's library silently fell
+// through to a placeholder toast instead of the real creation modal.
+function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character'||kind==='object')return openVisualCreateModal(e,kind);toast('Слот для нового референса подготовлен')}
 function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagation()}const config=PHOTO_TOOL_CONFIG[activePhotoTool],state=photoToolStateFor(activePhotoTool);if(!config||!state||!url)return;const slot=config.library==='character'?1:Math.max(0,config.max-1);state.files[slot]={name:'Референс из каталога',mime:'image/*',url};renderPhotoToolModal()}
 
 function renderPhotoToolCatalog() {
@@ -10544,11 +10759,17 @@ function chooseVideoAddMedia(e) {
 
 function chooseVideoAddCharacter(e) {
   closeVideoAddMenu();
+  if (!getVideoModelCapabilities(videoState.modelId).character.selectable) {
+    return videoFeatureUnavailableToast('character');
+  }
   openVideoVisualPicker(e, 'character');
 }
 
 function chooseVideoAddObject(e) {
   closeVideoAddMenu();
+  if (!getVideoModelCapabilities(videoState.modelId).object.selectable) {
+    return videoFeatureUnavailableToast('object');
+  }
   openVideoVisualPicker(e, 'object');
 }
 
@@ -15167,6 +15388,26 @@ function renderGeneratedTelegramButton(url, kind) {
     const url = String(raw || '').trim();
     if (!url) return;
 
+    // Text mode's attach-by-URL counterpart to attach()'s file-picker
+    // routing above - same textState.attachment shape and the same
+    // capability-gated model/tool auto-switch processAttachFile already
+    // applies for an uploaded file, so a pasted URL behaves identically.
+    if (studioMode === 'text' && (kind === 'image' || kind === 'video')) {
+      textState.attachment = { kind, url, name: '', mime: kind === 'video' ? 'video/mp4' : 'image/png', size: 0 };
+      pendingAttachment = textState.attachment;
+      if (kind === 'video') {
+        selectGeminiForTextMedia();
+        if (!textState.tool || textState.tool === 'text') textState.tool = 'video_prompt';
+      } else {
+        selectVisionModelForTextImage();
+        if (textState.tool === 'text') textState.tool = 'image_prompt';
+      }
+      renderTextControls();
+      updateSendButton();
+      toast('Ссылка добавлена');
+      return;
+    }
+
     if (isVideoMode()) {
       if (kind === 'video') {
         if (getUploadTarget() === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
@@ -16134,12 +16375,21 @@ function playMusicTrackFromMessage(e, index) {
 function restoreImageStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'image') return;
   const settings = meta.image_options || meta.settings || {};
-  imageState.modelId = meta.model || settings.modelId || imageState.modelId;
-  imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || imageState.size;
-  imageState.count = Number(meta.count || settings.count || imageState.count || 1);
-  imageState.style = meta.style || settings.style || imageState.style || 'auto';
-  imageState.character = meta.character || settings.character || imageState.character || 'auto';
-  imageState.objects = meta.objectName || meta.objects || settings.objects || imageState.objects || '';
+  // Falls back to a fixed default, never to the live imageState value - this
+  // restore's whole purpose is to reproduce the ORIGINAL generation's
+  // settings; falling back to whatever the composer currently happens to
+  // hold would silently mix in an unrelated generation's model/size/count/
+  // style/character/objects whenever older metadata is missing one of
+  // these fields. (Two prior fixes on this same file mistakenly left the
+  // style/character/objects lines with `|| imageState.X` still in the
+  // middle of the chain - it still wins over the final default whenever
+  // the live value happens to be non-empty, since it's checked first.)
+  imageState.modelId = meta.model || settings.modelId || 'seedream_5_0_lite';
+  imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || '';
+  imageState.count = Number(meta.count || settings.count || 1);
+  imageState.style = meta.style || settings.style || 'auto';
+  imageState.character = meta.character || settings.character || 'auto';
+  imageState.objects = meta.objectName || meta.objects || settings.objects || '';
   imageState.characterId = meta.characterId || settings.characterId || null;
   imageState.characterName = meta.characterName || settings.characterName || '';
   imageState.characterReferences = Array.isArray(meta.characterReferences) ? meta.characterReferences.slice() : (Array.isArray(settings.characterReferences) ? settings.characterReferences.slice() : []);
@@ -16180,10 +16430,15 @@ function restoreImageStateFromGenerationMetadata(meta) {
 function restoreVideoStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'video') return;
   const settings = meta.settings || {};
-  videoState.modelId = meta.model || settings.model || settings.modelId || videoState.modelId;
-  videoState.ratio = meta.ratio || settings.ratio || videoState.ratio;
-  videoState.resolution = meta.size || settings.resolution || settings.size || videoState.resolution;
-  videoState.duration = Number(meta.duration || settings.duration || videoState.duration || 5);
+  // Same principle as restoreImageStateFromGenerationMetadata: fall back to
+  // a fixed default, never to the live videoState value, or a Regenerate on
+  // older metadata missing one of these fields would silently inherit
+  // whatever unrelated model/ratio/resolution/duration the composer
+  // currently happens to hold instead of reproducing the original request.
+  videoState.modelId = meta.model || settings.model || settings.modelId || 'seedance_2_fast';
+  videoState.ratio = meta.ratio || settings.ratio || '16:9';
+  videoState.resolution = meta.size || settings.resolution || settings.size || '720p';
+  videoState.duration = Number(meta.duration || settings.duration || 5);
   if (settings.quality) videoState.quality = settings.quality;
   if (settings.sound !== undefined) videoState.sound = !!settings.sound;
   const refs = Array.isArray(settings.reference_images) && settings.reference_images.length
@@ -16200,7 +16455,9 @@ function restoreVideoStateFromGenerationMetadata(meta) {
 function restoreMusicStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'music') return;
   const settings = meta.settings || {};
-  musicState.modelId = meta.model || settings.model || musicState.modelId;
+  // Fixed default, never the live musicState value - see
+  // restoreImageStateFromGenerationMetadata's comment for why.
+  musicState.modelId = meta.model || settings.model || 'suno_chirp_5';
   if (settings.genre) musicState.genre = settings.genre;
   if (settings.duration !== undefined && settings.duration !== null && settings.duration !== '') musicState.duration = settings.duration;
   if (!musicState.settings || typeof musicState.settings !== 'object') musicState.settings = {};
@@ -16215,7 +16472,9 @@ function restoreMusicStateFromGenerationMetadata(meta) {
 function restoreVoiceStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'voice') return;
   const settings = meta.settings || {};
-  voiceState.modelId = meta.model || settings.model || voiceState.modelId;
+  // Fixed default, never the live voiceState value - see
+  // restoreImageStateFromGenerationMetadata's comment for why.
+  voiceState.modelId = meta.model || settings.model || 'elevenlabs_eleven_v3';
   if (settings.voice) voiceState.voice = settings.voice;
   if (settings.elevenlabs_voice) voiceState.elevenlabsVoice = settings.elevenlabs_voice;
   if (settings.runway_voice) voiceState.runwayVoice = settings.runway_voice;
@@ -16590,7 +16849,12 @@ function openGenerationInfoDrawer(e, index) {
   if (!body) return;
 
   const type = meta.type || (message.videoUrl ? 'video' : (message.audioUrl ? (currentChatType() === 'voice' ? 'voice' : 'music') : 'image'));
-  if (type === 'image') restoreImageStateFromGenerationMetadata(meta);
+  // This drawer only displays details (generatedImageResultItems below reads
+  // purely from meta/message) - it must never mutate live composer state.
+  // restoreImageStateFromGenerationMetadata is regenMsg's Regenerate-only
+  // helper (it even overwrites the live chat input textarea); calling it
+  // here silently changed the composer's model/style/character/object/seed
+  // and the in-progress draft just from tapping to view an old generation.
   const imageItems = type === 'image' ? generatedImageResultItems(meta, message) : [];
   const imageUrl = (imageItems[0] && imageItems[0].url) || meta.image_url || (type === 'image' ? (meta.full_url || meta.result_url) : '') || ((meta.result_images || [])[0]) || '';
   const videoUrl = meta.video_url || ((meta.videos || [])[0]) || (type === 'video' ? meta.result_url : '') || message.videoUrl || '';
@@ -16927,6 +17191,7 @@ function closeUploadPanel(e) {
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'text_image') { inp.accept = 'image/*,.heic,.heif'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_audio') { inp.accept = '.wav,.mp3,.aiff,.aif,.aac,.ogg,.oga,.flac,audio/wav,audio/mpeg,audio/aiff,audio/aac,audio/ogg,audio/flac'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_video') { inp.accept = '.mp4,.mpeg,.mpg,.mov,.avi,.flv,.webm,.wmv,.3gp,video/mp4,video/mpeg,video/quicktime,video/x-msvideo,video/x-flv,video/webm,video/x-ms-wmv,video/3gpp'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
@@ -16988,6 +17253,22 @@ function closeUploadPanel(e) {
     if (target && target.preventDefault) {
       e = target;
       target = '';
+    }
+    // Text mode's "attach + describe/create a prompt from it" flow
+    // (M-060) - the plusSheet's Photo/Video/Audio/File buttons had no
+    // Text-mode routing at all here, so they fell through to the
+    // image-generation reference-upload default below, which is the wrong
+    // destination in Text mode. Routes into the same text_image/text_video/
+    // text_audio/text_document pickers openNativeFilePicker already
+    // supports, so processAttachFile's existing studioMode==='text' branch
+    // (textState.attachment, capability-gated tool/model auto-switch) picks
+    // it up unchanged.
+    if (studioMode === 'text') {
+      if (kind === 'video') { openNativeFilePicker('text_video'); return; }
+      if (kind === 'audio') { openNativeFilePicker('text_audio'); return; }
+      if (kind === 'file') { openNativeFilePicker('text_document'); return; }
+      openNativeFilePicker('text_image');
+      return;
     }
     if (isMusicMode()) {
       openNativeFilePicker('music_audio');
@@ -22964,7 +23245,11 @@ async function waitGeneration(jobId, options) {
 
   function gridDefaultModel(type) {
     if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
-    if (type === 'video') return videoState.modelId || 'seedance_2_fast';
+    // Fall back past an avatar:true model too - Grid has no Character port
+    // to feed it an avatar_id (see gridModelsForType's video filter), so a
+    // freshly-created node must never default to one even if that's what
+    // the main composer currently has selected.
+    if (type === 'video') return (videoState.modelId && !(VIDEO_MODEL_CONFIG[videoState.modelId] || {}).avatar ? videoState.modelId : '') || 'seedance_2_fast';
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';
@@ -23009,11 +23294,37 @@ async function waitGeneration(jobId, options) {
   }
 
   function renderStudioGridProjects() {
-    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><b>История сеток</b><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<button type="button" class="studio-grid-project${item.id===active.projectId?' active':''}" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
+    const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;const active=loadStudioGridState(),items=loadStudioGridProjects();panel.innerHTML=`<header><b>История сеток</b><button type="button" data-grid-project-close aria-label="Закрыть">×</button></header><div>${items.map(item=>`<div class="studio-grid-project${item.id===active.projectId?' active':''}"><button type="button" class="studio-grid-project-open" data-grid-project-open="${gridEscape(item.id)}"><span><b>${gridEscape(item.title||'Без названия')}</b><small>${item.id===active.projectId?'Открыт сейчас':new Date(item.updated_at||Date.now()).toLocaleString()}</small></span><i>›</i></button><button type="button" class="studio-grid-project-delete" data-grid-project-delete="${gridEscape(item.id)}" aria-label="Удалить проект">🗑</button></div>`).join('')||'<p>Сохранённых проектов пока нет</p>'}</div>`;
   }
 
   function closeStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(panel)panel.hidden=true}
   function toggleStudioGridProjects(){const panel=document.getElementById('studioGridProjectsPanel');if(!panel)return;if(panel.hidden){touchStudioGridProject(loadStudioGridState());renderStudioGridProjects();panel.hidden=false}else panel.hidden=true}
+
+  // Grid Mode had a full save/list/open project history but no way to ever
+  // remove one from it - projects could only accumulate forever. Deleting
+  // the currently-open project also resets the live canvas to a fresh empty
+  // one, the same way createStudioGridProject() does, since its state would
+  // otherwise vanish from storage while still being rendered on screen.
+  function deleteStudioGridProject(projectId) {
+    if (!projectId) return;
+    if (studioGridHasActiveRun()) { toast('Сначала дождитесь завершения текущей генерации'); return; }
+    if (!window.confirm('Удалить этот проект сетки?')) return;
+    const items = loadStudioGridProjects().filter((item) => item.id !== projectId);
+    saveStudioGridProjects(items);
+    try { localStorage.removeItem(STUDIO_GRID_PROJECT_PREFIX + projectId); } catch (_) {}
+    const current = loadStudioGridState();
+    if (current.projectId === projectId) {
+      studioGridState = emptyStudioGridState();
+      studioGridSelectedIds = new Set();
+      clearStudioGridConnectionMode();
+      saveStudioGridState();
+      touchStudioGridProject(studioGridState);
+      renderStudioGrid();
+      resetStudioGridView();
+    }
+    renderStudioGridProjects();
+    toast('Проект сетки удалён');
+  }
 
   function createStudioGridProject() {
     if(studioGridHasActiveRun()){toast('Сначала дождитесь завершения текущей генерации');return}archiveStudioGridProject();studioGridState=emptyStudioGridState();studioGridSelectedIds=new Set();clearStudioGridConnectionMode();saveStudioGridState();touchStudioGridProject(studioGridState);closeStudioGridProjects();renderStudioGrid();resetStudioGridView();toast('Создана новая чистая сетка');
@@ -23097,7 +23408,14 @@ async function waitGeneration(jobId, options) {
 
   function gridModelsForType(type) {
     if (type === 'image') return filterSylvexTestEntries(IMAGE_MODEL_LIST);
-    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS);
+    // avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar) require
+    // an avatar_id tied to a Character reference - Grid Mode has no
+    // Character-reference picker at all (see gridGenerationPayload's video
+    // branch, which never sets avatar_id/heygen_*), so leaving them
+    // selectable here would run every generation against whatever avatar
+    // HEYGEN_AVATAR_ID happens to default to server-side, never the one the
+    // user actually intended. Excluded until Grid gets a Character port.
+    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => !(VIDEO_MODEL_CONFIG[item.id] || {}).avatar);
     if (type === 'music') return filterSylvexTestEntries(MUSIC_MODEL_LIST);
     if (type === 'voice') return filterSylvexTestEntries(VOICE_MODEL_LIST);
     if (type === 'text') return filterSylvexTestEntries(TEXT_MODEL_LIST);
@@ -23654,7 +23972,7 @@ async function waitGeneration(jobId, options) {
     if (title) title.addEventListener('input', () => { loadStudioGridState().title = title.value; saveStudioGridState(); });
     projectsButton?.addEventListener('click',toggleStudioGridProjects);
     newProjectButton?.addEventListener('click',createStudioGridProject);
-    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
+    projectsPanel?.addEventListener('click',event=>{if(event.target.closest('[data-grid-project-close]')){closeStudioGridProjects();return}const del=event.target.closest('[data-grid-project-delete]');if(del){deleteStudioGridProject(del.dataset.gridProjectDelete);return}const project=event.target.closest('[data-grid-project-open]');if(project)openStudioGridProject(project.dataset.gridProjectOpen)});
     if (host) {
       host.addEventListener('input', (event) => {
         const card = event.target.closest('.studio-grid-node');
@@ -23786,6 +24104,7 @@ async function waitGeneration(jobId, options) {
     }
     updateSendButton();
     loadImageCapabilities();
+    loadModelCapabilities();
     handlePaymentReturnFromUrl();
     applyStoredTheme();
     applyInitialViewFromUrl();

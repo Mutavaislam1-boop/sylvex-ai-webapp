@@ -18,7 +18,7 @@ actor_init_data = contextvars.ContextVar('sylvex_init_data', default='')
 PUBLIC_GETS = frozenset({
  '/health/live', '/health/ready', '/api/public/config', '/api/payment-links',
  '/api/public/prostudio/preset-catalog', '/api/public/prostudio/voice-avatars',
- '/api/public/prostudio/image-capabilities', '/api/public/prostudio/video-templates',
+ '/api/public/prostudio/image-capabilities', '/api/public/prostudio/model-capabilities', '/api/public/prostudio/video-templates',
  '/api/public/prostudio/photo-catalog', '/api/public/prostudio/photo-tool-demos',
  '/api/public/prostudio/quick-image-catalog', '/api/public/prostudio/kling/effects',
  '/api/public/prostudio/pricing-catalog',
