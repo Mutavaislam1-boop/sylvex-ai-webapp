@@ -2582,7 +2582,22 @@ function restoreVideoModelSettings(modelId) {
 // =====================================================
 function normalizeVideoStateForModel() {
   const previousConfig = currentVideoConfig() || {};
-  if ((videoState.section === 'edit' || videoState.section === 'motion') && !previousConfig.video_effects && videoState.modelId !== 'kling_o3_omni') {
+  // Phase 1 Batch 6 fix (roadmap step 6): this force-switch used to check
+  // video_effects (a Kling-effects-catalog flag, true only for
+  // kling_effects) for BOTH Edit and Motion Control sections - since no
+  // other model ever sets video_effects, every video_edit-capable model
+  // except kling_o3_omni itself got silently snapped back to it the
+  // instant it was picked, which would have made currentComposerModelList()'s
+  // new Edit-mode filter above a no-op (a filtered-in model immediately
+  // reverting anyway). Edit mode's force-switch now checks the picked
+  // model's own video_edit support instead. Motion Control's force-switch
+  // is left exactly as it was (still keyed off video_effects) since Motion
+  // Control's own picker filtering is roadmap step 7, not this batch -
+  // changing its force-switch now would let it diverge from a picker list
+  // that doesn't yet reflect that change.
+  const editSectionBlocksModel = videoState.section === 'edit' && !previousConfig.video_edit && videoState.modelId !== 'kling_o3_omni';
+  const motionSectionBlocksModel = videoState.section === 'motion' && !previousConfig.video_effects && videoState.modelId !== 'kling_o3_omni';
+  if (editSectionBlocksModel || motionSectionBlocksModel) {
     videoState.modelId = 'kling_o3_omni';
   }
   const config = currentVideoConfig();
@@ -2889,9 +2904,36 @@ function filterSylvexTestEntries(list) {
   return (list || []).filter((item) => !(item && item.sylvexTest));
 }
 
+// Phase 1 Batch 6 (see /root/.claude/plans/splendid-moseying-starlight.md,
+// roadmap step 6): whether a video model supports Video Edit mode, preferring
+// the fetched capability registry's video_input field (a direct mirror of
+// Python's VIDEO_MODEL_CONFIG[model_id]["video_edit"], see
+// services/model_capabilities.py register_video_models()) over the local
+// VIDEO_MODEL_CONFIG mirror's own video_edit key, same fail-open pattern as
+// currentVideoConfig(). Deliberately NOT the same field as
+// VIDEO_MODEL_CONFIG[modelId].video_input, a differently-sourced key used
+// elsewhere (videoOptionsPayload's config.video_input, _build_video_payload's
+// _gated_flag("video_input")) for an unrelated Kling-omni-specific purpose -
+// only the fetched registry's video_input and the local video_edit key mean
+// "supports Video Edit mode" here.
+function videoModelSupportsEdit(modelId) {
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const fetched = fetchedModels ? fetchedModels[modelId] : null;
+  if (fetched) return !!fetched.video_input;
+  const local = VIDEO_MODEL_CONFIG[modelId];
+  return !!(local && local.video_edit);
+}
+
 function currentComposerModelList() {
   if (isImageMode()) return filterSylvexTestEntries(IMAGE_MODEL_LIST);
-  if (isVideoMode()) return filterSylvexTestEntries(VIDEO_MODELS);
+  if (isVideoMode()) {
+    const videoModels = filterSylvexTestEntries(VIDEO_MODELS);
+    // Video Edit mode: only show models that actually support it - Motion
+    // Control mode's own picker filtering is a separate, later roadmap
+    // step (7), not this batch, so it still shows the full list.
+    if (videoState.section === 'edit') return videoModels.filter((item) => videoModelSupportsEdit(item.id));
+    return videoModels;
+  }
   if (isMusicMode()) return filterSylvexTestEntries(MUSIC_MODEL_LIST);
   if (isVoiceMode()) return filterSylvexTestEntries(VOICE_MODEL_LIST);
   if (studioMode === 'text') return filterSylvexTestEntries(TEXT_MODEL_FAMILIES);
