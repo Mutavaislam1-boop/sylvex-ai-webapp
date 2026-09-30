@@ -6870,7 +6870,7 @@ function createEditWorkspaceState() {
     width:0,height:0,showBefore:false,history:[],maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:128,right:128,top:128,bottom:128},
-    backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},
+    backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
 }
 // Camera coordinates use the provider's convention: 0 front, 90 right,
@@ -7162,41 +7162,65 @@ function editLightingPanel(generate) {
     ${generate}`;
 }
 function editWorkspaceSetViewZoom(value,point) {
-  const state=editWorkspaceState,old=state.zoom,next=Math.max(10,Math.min(400,value));
+  if(!Number.isFinite(value))return;
+  const state=editWorkspaceState,old=state.zoom,next=Math.max(1,Math.min(800,value));
   if(point){const ratio=next/old;state.viewport.x=point.x-(point.x-state.viewport.x)*ratio;state.viewport.y=point.y-(point.y-state.viewport.y)*ratio;}
   state.zoom=next;
-  const root=document.getElementById('editWorkspace');root?._editLayout?.();
+  const root=document.getElementById('editWorkspace');root?._editView?.();
   const output=root?.querySelector('[data-view-zoom]');if(output)output.textContent=Math.round(next)+'%';
+}
+function editWorkspaceFitView(area,image,expansion={left:0,right:0,top:0,bottom:0}) {
+  const width=image.width+expansion.left+expansion.right,height=image.height+expansion.top+expansion.bottom;
+  const scale=Math.max(.01,Math.min(area.width/width,area.height/height,1));
+  return {zoom:scale*100,viewport:{x:area.x-(expansion.right-expansion.left)*scale/2,y:area.y-(expansion.bottom-expansion.top)*scale/2}};
 }
 function fitEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
-  editWorkspaceState.viewport={x:0,y:0};editWorkspaceSetViewZoom(100);
+  const fit=document.getElementById('editWorkspace')?._editFit?.();
+  editWorkspaceState.viewport=fit?.viewport||{x:0,y:0};editWorkspaceSetViewZoom(fit?.zoom||100);
 }
-function initEditWorkspaceNavigation(stage,frame) {
+function initEditWorkspaceNavigation(stage) {
   const state=editWorkspaceState;let drag=null,space=false;
-  stage.tabIndex=0;stage.setAttribute('aria-label','Холст: перемещайте фото мышью, колесо меняет масштаб');
+  stage.tabIndex=0;stage.setAttribute('aria-label','Бесконечный холст: перетаскивание и прокрутка перемещают холст, Ctrl или ⌘ с прокруткой меняют масштаб, 0 вписывает фото');
   stage.onpointerdown=e=>{
-    if(editWorkspaceLocked()||!frame||e.button>1)return;
-    if(state.mode==='retouch'&&!space&&e.button===0&&!state.showBefore)return;
+    if(editWorkspaceLocked()||e.button>1||e.target.closest('button'))return;
+    if(state.mode==='retouch'&&!space&&e.button===0&&!state.showBefore&&e.target.closest('#editWorkspaceMask'))return;
     e.preventDefault();stage.focus({preventScroll:true});stage.setPointerCapture(e.pointerId);
     drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...state.viewport}};stage.classList.add('is-panning');
   };
-  stage.onpointermove=e=>{if(drag?.id!==e.pointerId)return;e.preventDefault();state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};document.getElementById('editWorkspace')?._editLayout?.();};
-  const end=e=>{if(drag?.id===e.pointerId){drag=null;stage.classList.remove('is-panning');}};
+  stage.onpointermove=e=>{if(drag?.id!==e.pointerId)return;e.preventDefault();state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};document.getElementById('editWorkspace')?._editView?.();};
+  const end=e=>{if(drag?.id===e.pointerId){drag=null;stage.classList.remove('is-panning');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);}};
   stage.onpointerup=stage.onpointercancel=stage.onlostpointercapture=end;
+  stage.onauxclick=e=>{if(e.button===1)e.preventDefault();};
   stage.addEventListener('wheel',e=>{
-    if(editWorkspaceLocked()||!frame)return;e.preventDefault();const rect=stage.getBoundingClientRect();
-    editWorkspaceSetViewZoom(state.zoom*Math.exp(-Math.max(-150,Math.min(150,e.deltaY))*.003),{x:e.clientX-rect.left-rect.width/2,y:e.clientY-rect.top-rect.height/2});
+    if(editWorkspaceLocked())return;e.preventDefault();const rect=stage.getBoundingClientRect();
+    const unit=e.deltaMode===1?16:e.deltaMode===2?rect.height:1;
+    if(e.ctrlKey||e.metaKey){
+      editWorkspaceSetViewZoom(state.zoom*Math.exp(-Math.max(-150,Math.min(150,e.deltaY*unit))*.003),{x:e.clientX-rect.left-rect.width/2,y:e.clientY-rect.top-rect.height/2});
+    }else{
+      state.viewport.x-=(e.shiftKey&&!e.deltaX?e.deltaY:e.deltaX)*unit;
+      if(!e.shiftKey||e.deltaX)state.viewport.y-=e.deltaY*unit;
+      document.getElementById('editWorkspace')?._editView?.();
+    }
   },{passive:false});
   stage.onkeydown=e=>{
+    if(editWorkspaceLocked()||e.target.closest('button,input,textarea,select'))return;
     if(e.code==='Space'){e.preventDefault();space=true;stage.classList.add('can-pan');}
     if(e.key==='0'){e.preventDefault();fitEditWorkspace();}
     if(['+','=','-'].includes(e.key)){e.preventDefault();editWorkspaceSetViewZoom(state.zoom*(e.key==='-'?.8:1.25));}
     const direction={ArrowLeft:[-24,0],ArrowRight:[24,0],ArrowUp:[0,-24],ArrowDown:[0,24]}[e.key];
-    if(direction&&!editWorkspaceLocked()){e.preventDefault();state.viewport.x+=direction[0];state.viewport.y+=direction[1];document.getElementById('editWorkspace')?._editLayout?.();}
+    if(direction){e.preventDefault();state.viewport.x+=direction[0];state.viewport.y+=direction[1];document.getElementById('editWorkspace')?._editView?.();}
   };
   stage.onkeyup=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
   stage.onblur=()=>{space=false;stage.classList.remove('can-pan');};
+  const spaceDown=e=>{
+    if(e.code!=='Space'||editWorkspaceLocked()||e.target.closest?.('button,input,textarea,select,[contenteditable="true"]'))return;
+    e.preventDefault();space=true;stage.classList.add('can-pan');
+  };
+  const spaceUp=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
+  document.addEventListener('keydown',spaceDown);document.addEventListener('keyup',spaceUp);
+  window.addEventListener('blur',stage.onblur);
+  return ()=>{document.removeEventListener('keydown',spaceDown);document.removeEventListener('keyup',spaceUp);window.removeEventListener('blur',stage.onblur);};
 }
 
 function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading; }
@@ -7224,7 +7248,7 @@ function updateEditWorkspaceReady() {
   const reason=editWorkspaceValidation(),root=document.getElementById('editWorkspace');if(!root)return;
   root.querySelectorAll('.edit-workspace-generate').forEach(button=>{button.disabled=!!reason||editWorkspaceLocked();button.title=reason;});
   root.querySelectorAll('[data-mask-action]').forEach(button=>{button.disabled=editWorkspaceLocked()||!(button.dataset.maskAction==='redo'?editWorkspaceState.maskRedo:editWorkspaceState.maskStrokes).length;});
-  const hint=root.querySelector('.edit-workspace-status');if(hint)hint.textContent=editWorkspaceState.busy?'Обработка изображения…':reason;
+  const hint=root.querySelector('.edit-workspace-status');if(hint)hint.textContent=editWorkspaceState.busy?'Обработка изображения…':reason||'Тяните холст · Ctrl / ⌘ + прокрутка — масштаб · 0 — вписать фото'+(editWorkspaceState.mode==='retouch'?' · Пробел + перетаскивание — поверх фото':'');
 }
 function editWorkspaceSnapshot() {
   const s=editWorkspaceState;return {sourceUrl:s.sourceUrl,sourcePreview:s.sourcePreview,sourceName:s.sourceName,resultUrl:s.resultUrl,jobId:s.jobId,beforeUrl:s.beforeUrl,width:s.width,height:s.height};
@@ -7265,7 +7289,17 @@ function drawEditWorkspaceMask() {
 }
 function initEditWorkspaceStage() {
   const root=document.getElementById('editWorkspace');if(!root)return;
-  const s=editWorkspaceState,stage=root.querySelector('.edit-workspace-stage'),frame=root.querySelector('.edit-workspace-frame'),img=root.querySelector('.edit-workspace-image');
+  const s=editWorkspaceState,stage=root.querySelector('.edit-workspace-stage'),world=root.querySelector('.edit-workspace-world'),grid=root.querySelector('.edit-workspace-grid'),frame=root.querySelector('.edit-workspace-frame'),img=root.querySelector('.edit-workspace-image');
+  // The image stays in world coordinates. Only this view transform moves it and the grid.
+  const view=()=>{
+    const scale=s.zoom/100,x=stage.clientWidth/2+s.viewport.x,y=stage.clientHeight/2+s.viewport.y;
+    world.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
+    const spacing=30*scale*Math.pow(2,Math.ceil(Math.log2(16/(30*scale))));
+    grid.style.backgroundSize=`${spacing}px ${spacing}px`;
+    grid.style.backgroundPosition=`${x%spacing}px ${y%spacing}px`;
+  };
+  root._editView=view;root._editFit=null;
+  root._editNavigationCleanup=initEditWorkspaceNavigation(stage);
   root.ondragover=e=>{e.preventDefault();if(!editWorkspaceLocked())root.classList.add('is-dragging');};
   root.ondragleave=e=>{if(!root.contains(e.relatedTarget))root.classList.remove('is-dragging');};
   root.ondrop=e=>{e.preventDefault();root.classList.remove('is-dragging');if(!editWorkspaceLocked())onEditWorkspaceFile({target:{files:e.dataTransfer.files,value:''}});};
@@ -7277,24 +7311,32 @@ function initEditWorkspaceStage() {
       if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
     }
   };
-  if(!img||!frame)return;
+  if(!img||!frame){
+    view();
+    if(typeof ResizeObserver!=='undefined'){root._editObserver=new ResizeObserver(view);root._editObserver.observe(stage);}
+    return;
+  }
+  const expansion=()=>s.mode==='expand'&&!s.showBefore?s.expand:{left:0,right:0,top:0,bottom:0};
+  root._editFit=()=>{
+    const rect=stage.getBoundingClientRect();let left=rect.left+32,right=rect.right-32,top=rect.top+76,bottom=rect.bottom-100;
+    const panel=root.querySelector('.edit-workspace-panel'),action=root.querySelector('.edit-workspace-action');
+    if(panel)right=Math.min(right,panel.getBoundingClientRect().left-24);
+    if(action)bottom=Math.min(bottom,action.getBoundingClientRect().top-24);
+    return editWorkspaceFitView({width:Math.max(80,right-left),height:Math.max(80,bottom-top),x:(left+right)/2-rect.left-rect.width/2,y:(top+bottom)/2-rect.top-rect.height/2},{width:img.naturalWidth||s.width,height:img.naturalHeight||s.height},expansion());
+  };
   const layout=()=>{
     if(!root.isConnected||!img.naturalWidth)return;
     if(!s.width||!s.height){setEditWorkspaceDimensions(img.naturalWidth,img.naturalHeight);renderEditWorkspace();return;}
-    const expansion=s.mode==='expand'&&!s.showBefore?s.expand:{left:0,right:0,top:0,bottom:0};
-    const width=img.naturalWidth+expansion.left+expansion.right,height=img.naturalHeight+expansion.top+expansion.bottom;
-    const scale=Math.min((stage.clientWidth-48)/width,(stage.clientHeight-48)/height,1)*s.zoom/100;
-    frame.style.width=Math.max(1,width*scale)+'px';frame.style.height=Math.max(1,height*scale)+'px';
-    const maxX=stage.clientWidth/2+width*scale/2-40,maxY=stage.clientHeight/2+height*scale/2-40;
-    s.viewport.x=Math.max(-maxX,Math.min(maxX,s.viewport.x));s.viewport.y=Math.max(-maxY,Math.min(maxY,s.viewport.y));
-    frame.style.transform='translate('+s.viewport.x+'px,'+s.viewport.y+'px)';
-    img.style.left=expansion.left/width*100+'%';img.style.top=expansion.top/height*100+'%';img.style.width=img.naturalWidth/width*100+'%';img.style.height=img.naturalHeight/height*100+'%';
+    const edges=expansion(),width=img.naturalWidth+edges.left+edges.right,height=img.naturalHeight+edges.top+edges.bottom;
+    frame.style.width=width+'px';frame.style.height=height+'px';
+    frame.style.left=(-img.naturalWidth/2-edges.left)+'px';frame.style.top=(-img.naturalHeight/2-edges.top)+'px';
+    img.style.left=edges.left+'px';img.style.top=edges.top+'px';img.style.width=img.naturalWidth+'px';img.style.height=img.naturalHeight+'px';
+    if(s.viewNeedsFit){s.viewNeedsFit=false;const fit=root._editFit();s.viewport=fit.viewport;editWorkspaceSetViewZoom(fit.zoom);}
+    view();
     const canvas=root.querySelector('#editWorkspaceMask');
     if(canvas){const ratio=Math.min(1,2048/img.naturalWidth,2048/img.naturalHeight);canvas.width=Math.max(1,Math.round(img.naturalWidth*ratio));canvas.height=Math.max(1,Math.round(img.naturalHeight*ratio));drawEditWorkspaceMask();}
     updateEditWorkspaceReady();
   };
-  root._editLayout=layout;
-  initEditWorkspaceNavigation(stage,frame);
   img.onload=layout;if(img.complete)layout();
   if(root._editObserver)root._editObserver.disconnect();
   if(typeof ResizeObserver!=='undefined'){root._editObserver=new ResizeObserver(layout);root._editObserver.observe(stage);}
@@ -7302,11 +7344,11 @@ function initEditWorkspaceStage() {
   let stroke=null;
   const point=e=>{const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};};
   canvas.onpointerdown=e=>{
-    if(editWorkspaceLocked()||s.showBefore||e.button!==0)return;if(stage.classList.contains('can-pan'))return;e.preventDefault();e.stopPropagation();canvas.setPointerCapture(e.pointerId);
+    if(editWorkspaceLocked()||s.showBefore||e.button!==0)return;if(stage.classList.contains('can-pan'))return;e.preventDefault();e.stopPropagation();stage.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);
     stroke={size:s.brushSize/canvas.getBoundingClientRect().width,points:[point(e)]};s.maskRedo=[];s.maskStrokes.push(stroke);drawEditWorkspaceMask();updateEditWorkspaceReady();
   };
   canvas.onpointermove=e=>{if(!stroke)return;e.preventDefault();stroke.points.push(point(e));drawEditWorkspaceMask();};
-  canvas.onpointerup=canvas.onpointercancel=()=>{stroke=null;};
+  canvas.onpointerup=canvas.onpointercancel=canvas.onlostpointercapture=()=>{stroke=null;};
 }
 async function loadEditWorkspaceImage(file) {
   const s=editWorkspaceState;if(editWorkspaceLocked())return;
@@ -7321,7 +7363,7 @@ async function loadEditWorkspaceImage(file) {
     // Keep the old document intact until the new upload succeeds.
     const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl])]);
     previews.forEach(url=>{if(url.startsWith('blob:'))URL.revokeObjectURL(url);});
-    s.history=[];Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0}});
+    s.history=[];Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
     setEditWorkspaceDimensions(probe.naturalWidth,probe.naturalHeight);
   } catch(error){URL.revokeObjectURL(preview);editWorkspaceToast(error.message||'Не удалось загрузить изображение.');}
   finally{if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
@@ -7344,13 +7386,14 @@ function openEditWorkspace(e) {
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
-  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root.remove();}
+  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._editNavigationCleanup?.();root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root.remove();}
   document.body.classList.remove('edit-workspace-open');
   // Keep this editing session when the user closes and reopens the workspace.
 }
 function renderEditWorkspace() {
   const root=document.getElementById('editWorkspace'); if(!root)return;
   if(root._editObserver)root._editObserver.disconnect();
+  root._editNavigationCleanup?.();
   root._cameraOrbit?.destroy();
   root._lightOrbit?.destroy();
   const state=editWorkspaceState, mode=state.mode, safe=(v)=>S.escapeHtml(String(v??''));
@@ -7378,7 +7421,8 @@ function renderEditWorkspace() {
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action='<p>Expand canvas · '+(state.width+state.expand.left+state.expand.right)+' × '+(state.height+state.expand.top+state.expand.bottom)+' px</p><textarea maxlength="8000" placeholder="Describe the extended scene (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row">'+['left','right','top','bottom'].map(key=>'<label>'+key+' <input aria-label="Expand '+key+'" type="number" min="0" max="4096" value="'+state.expand[key]+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'expand\',\''+key+'\')"> px</label>').join('')+generate+'</div>';
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
-  root.innerHTML='<main class="edit-workspace-main"><div class="edit-workspace-grid"></div><section class="edit-workspace-stage">'+view+'</section>'+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  const surface='<section class="edit-workspace-stage"><div class="edit-workspace-grid"></div><div class="edit-workspace-world">'+view+'</div></section>';
+  root.innerHTML='<main class="edit-workspace-main">'+surface+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
   initEditWorkspaceStage();initEditCameraOrbit();initEditLightOrbit();updateEditWorkspaceReady();
 
