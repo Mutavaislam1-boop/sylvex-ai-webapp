@@ -115,6 +115,7 @@ function buildModelListContext() {
   vm.runInContext('function isImageMode(){return false;} function isVideoMode(){return true;} function isMusicMode(){return false;} function isVoiceMode(){return false;} var studioMode="video";', context);
   vm.runInContext('function sylvexTestModeAvailable(){return !!(S && S.user && S.user.sylvex_test_available);} function filterSylvexTestEntries(list){if(sylvexTestModeAvailable())return list;return (list||[]).filter((item)=>!(item&&item.sylvexTest));}', context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
+  vm.runInContext(extractFunction('videoModelSupportsMotionControl'), context);
   vm.runInContext(extractFunction('currentComposerModelList'), context);
   return context;
 }
@@ -153,12 +154,12 @@ test('currentComposerModelList: edit section excludes kling_motion_3_0 despite i
   assert.ok(!ids.includes('kling_motion_3_0'), 'kling_motion_3_0 must not appear in the Edit mode picker');
 });
 
-test('currentComposerModelList: motion section is unaffected (step 7 is a separate batch)', () => {
+test('currentComposerModelList: motion section is now filtered too (Batch 7 landed) - spot-check only, see test_motion_control_mode_model_filter.mjs for full coverage', () => {
   const context = buildModelListContext();
   vm.runInContext('videoState.section = "motion";', context);
   const ids = vm.runInContext('currentComposerModelList().map((m) => m.id)', context);
-  const allVideoModelIds = vm.runInContext('VIDEO_MODELS.map((m) => m.id)', context).filter((id) => id !== 'sylvex_test');
-  assert.deepEqual(ids.sort(), allVideoModelIds.sort());
+  assert.ok(ids.includes('kling_motion_2_6'));
+  assert.ok(!ids.includes('sora_2'), 'Motion Control mode filtering shipped in Batch 7 - this list is no longer the full unfiltered VIDEO_MODELS set');
 });
 
 test('videoModelSupportsEdit: kling_motion_3_0 is false despite its legacy video_edit:true boolean', () => {
@@ -198,6 +199,7 @@ function buildNormalizeContext(modelId, section, fetchedOverride) {
   vm.runInContext(extractVideoModelConfigWithKling(), context);
   vm.runInContext(extractFunction('currentVideoConfig'), context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
+  vm.runInContext(extractFunction('videoModelSupportsMotionControl'), context);
   vm.runInContext(extractFunction('normalizeVideoStateForModel'), context);
   vm.runInContext('normalizeVideoStateForModel();', context);
   return vm.runInContext('videoState.modelId', context);
@@ -218,11 +220,12 @@ test('normalizeVideoStateForModel: edit section force-switches kling_motion_3_0 
   assert.equal(buildNormalizeContext('kling_motion_3_0', 'edit'), 'kling_o3_omni');
 });
 
-test('normalizeVideoStateForModel: motion section behavior is unchanged (still forces non-kling_o3_omni models)', () => {
-  // kling_motion_2_6 genuinely supports motion_control, but Motion
-  // Control's own force-switch fix is roadmap step 7, not this batch - it
-  // must still be forced to kling_o3_omni today, exactly as before.
-  assert.equal(buildNormalizeContext('kling_motion_2_6', 'motion'), 'kling_o3_omni');
+test('normalizeVideoStateForModel: motion section now also uses the capability check (Batch 7 landed) - spot-check only, see test_motion_control_mode_model_filter.mjs for full coverage', () => {
+  // kling_motion_2_6 genuinely supports motion_control - Batch 7 fixed
+  // Motion Control's own force-switch, so it now survives selection
+  // instead of being forced to kling_o3_omni (the old, pre-Batch-7 bug
+  // this repo used to have).
+  assert.equal(buildNormalizeContext('kling_motion_2_6', 'motion'), 'kling_motion_2_6');
   assert.equal(buildNormalizeContext('kling_o3_omni', 'motion'), 'kling_o3_omni');
 });
 
