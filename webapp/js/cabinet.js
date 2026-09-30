@@ -1219,6 +1219,16 @@ const MODEL_FEATURES = {
   microsoft_mai_image_2_5: { character: false, object: false },
 };
 
+// Central Model Capability System (Phase 1, Batch 1 of the Pro Studio master
+// remediation plan - see /root/.claude/plans/splendid-moseying-starlight.md).
+// MODEL_FEATURES above is left untouched (additive-only migration) and
+// remains the fallback source whenever no fetched/cached capability data is
+// available yet - see getModelCapabilities() and loadModelCapabilities()
+// below. fetchedModelCapabilities is null until the first successful fetch
+// or cache read; getModelCapabilities() must tolerate that.
+const MODEL_CAPABILITIES_CACHE_KEY = 'sylvex-model-capabilities-v1';
+let fetchedModelCapabilities = null; // {version, models} once loaded, else null
+
 // =====================================================
 // JAVASCRIPT-БЛОК: getModelCapabilities
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -1227,6 +1237,20 @@ function getModelCapabilities(modelId) {
   const fallback = { character: false, object: false, seed: false };
   const raw = String(modelId || '').trim();
   const normalized = raw.replace(/_0$/, '').replace(/-/g, '_');
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const fetchedEntry = fetchedModels ? (fetchedModels[raw] || fetchedModels[normalized]) : null;
+  if (fetchedEntry) {
+    const charLimits = (fetchedEntry.character && fetchedEntry.character.visual_reference) || {};
+    const objLimits = (fetchedEntry.object && fetchedEntry.object.visual_reference) || {};
+    const maxCount = (typeof charLimits.max_count === 'number' && charLimits.max_count > 0) ? charLimits.max_count
+      : ((typeof objLimits.max_count === 'number' && objLimits.max_count > 0) ? objLimits.max_count : null);
+    return {
+      character: charLimits.visual_mode != null && charLimits.visual_mode !== 'unsupported',
+      object: objLimits.visual_mode != null && objLimits.visual_mode !== 'unsupported',
+      seed: !!fetchedEntry.seed,
+      maxReferences: maxCount,
+    };
+  }
   const cfg = MODEL_FEATURES[raw] || MODEL_FEATURES[normalized] || fallback;
   return {
     character: !!cfg.character,
@@ -1237,6 +1261,56 @@ function getModelCapabilities(modelId) {
     // per-model cap", so callers must not treat it as zero/unlimited.
     maxReferences: typeof cfg.maxReferences === 'number' ? cfg.maxReferences : null,
   };
+}
+
+// =====================================================
+// JAVASCRIPT-БЛОК: model capabilities fetch/cache (Batch 1)
+// localStorage is a last-known-good accelerator, never the sole source of
+// truth (approved-plan correction 2): every bootstrap revalidates against
+// the backend, a failed fetch falls back to the cached snapshot, and with
+// no cache at all getModelCapabilities() above falls back to the
+// still-present MODEL_FEATURES table.
+// =====================================================
+function readCachedModelCapabilities() {
+  try {
+    const raw = localStorage.getItem(MODEL_CAPABILITIES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.version && parsed.models) return parsed;
+  } catch (err) {
+    // Corrupt or blocked storage (private window, cleared site data) -
+    // treat exactly like no cache.
+  }
+  return null;
+}
+
+function writeCachedModelCapabilities(snapshot) {
+  try {
+    localStorage.setItem(MODEL_CAPABILITIES_CACHE_KEY, JSON.stringify(snapshot));
+  } catch (err) {
+    // Storage full/blocked - the in-memory copy still serves this session.
+  }
+}
+
+async function loadModelCapabilities() {
+  const cached = readCachedModelCapabilities();
+  if (cached) fetchedModelCapabilities = cached;
+  try {
+    const headers = {};
+    if (cached && cached.version) headers['If-None-Match'] = `"${cached.version}"`;
+    const res = await fetch('/api/public/prostudio/model-capabilities', { headers, cache: 'no-store' });
+    if (res.status === 304) return; // cached snapshot confirmed current
+    if (!res.ok) return; // keep whatever is already loaded (cache or fallback)
+    const data = await res.json();
+    if (!data || !data.ok || !data.models) return;
+    const snapshot = { version: data.version, models: data.models };
+    fetchedModelCapabilities = snapshot;
+    writeCachedModelCapabilities(snapshot);
+    renderImageControls();
+    renderModelPop();
+  } catch (err) {
+    console.warn('[SYLVEX] model capabilities fetch failed, using cached/fallback data', err);
+  }
 }
 
 // =====================================================
@@ -23708,6 +23782,7 @@ async function waitGeneration(jobId, options) {
     }
     updateSendButton();
     loadImageCapabilities();
+    loadModelCapabilities();
     handlePaymentReturnFromUrl();
     applyStoredTheme();
     applyInitialViewFromUrl();
