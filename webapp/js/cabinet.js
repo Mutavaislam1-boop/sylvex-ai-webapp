@@ -23498,17 +23498,62 @@ async function waitGeneration(jobId, options) {
     return { model_mode:'manual' };
   }
 
+  // Phase 1 Batch 8 correction (see
+  // /root/.claude/plans/splendid-moseying-starlight.md, roadmap step 8):
+  // whether a video model is structurally usable inside Grid at all -
+  // prefers the fetched capability registry (avatar/modes, a direct
+  // mirror of Python's VIDEO_MODEL_CONFIG[model_id], see
+  // services/model_capabilities.py register_video_models()) over the
+  // local VIDEO_MODEL_CONFIG mirror, same fail-open pattern as
+  // videoModelSupportsEdit()/videoModelSupportsMotionControl() - the
+  // local data is used only as the additive fallback when no fetched
+  // data has loaded yet, never blended with a fetched result. Both
+  // gridModelsForType('video') (the picker filter) and
+  // gridDefaultModel('video') (the new-node default) call this one
+  // function, so they can never independently drift on which video
+  // models Grid can actually drive.
+  //
+  // Excluded:
+  // - avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar)
+  //   require an avatar_id tied to a Character reference - Grid Mode has
+  //   no Character-reference picker at all (see gridGenerationPayload's
+  //   video branch, which never sets avatar_id/heygen_*), so leaving
+  //   them selectable would run every generation against whatever avatar
+  //   HEYGEN_AVATAR_ID happens to default to server-side, never the one
+  //   the user actually intended. Excluded until Grid gets a Character
+  //   port.
+  // - models whose modes include 'video_effects' (kling_effects) require
+  //   an effect_scene, which only the Kling Effects catalog
+  //   (startVideoTemplateGeneration) ever supplies -
+  //   gridNodeSettingsHtml's video branch has no effect_scene control at
+  //   all, so every Grid generation with this model selected would fail
+  //   server-side with "effect_scene is missing" (_build_video_payload).
+  //
+  // Motion Control models (kling_motion_3_0, kling_motion_2_6,
+  // kling_o3_omni) are deliberately NOT excluded: motion_control needs
+  // both a subject image and a motion/reference video, and Grid's video
+  // node now has ports, payload propagation and validation for both (see
+  // gridGenerationPayload's inputs.video/inputs.image resolution and
+  // validateGridNodeInputs' motion_control check, added alongside this
+  // correction) - nothing about either required input is catalog-only or
+  // missing a Grid control anymore, so these models are structurally
+  // usable here.
+  function gridVideoModelSupported(modelId) {
+    const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+    const fetched = fetchedModels ? fetchedModels[modelId] : null;
+    if (fetched) return !fetched.avatar && !(Array.isArray(fetched.modes) && fetched.modes.includes('video_effects'));
+    const local = VIDEO_MODEL_CONFIG[modelId] || {};
+    return !local.avatar && !(Array.isArray(local.modes) && local.modes.includes('video_effects'));
+  }
+
   function gridDefaultModel(type) {
     if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
-    // Fall back past an avatar:true or video_effects:true model too - Grid
-    // has no Character port for an avatar_id, nor any control for
-    // effect_scene (see gridModelsForType's video filter, Phase 1 Batch 8),
-    // so a freshly-created node must never default to either even if
+    // A freshly-created node must never default to a video model Grid
+    // can't actually drive (see gridVideoModelSupported above) even if
     // that's what the main composer currently has selected - it would be
     // a default value gridModelsForType's own dropdown no longer offers.
     if (type === 'video') {
-      const current = VIDEO_MODEL_CONFIG[videoState.modelId] || {};
-      return (videoState.modelId && !current.avatar && !current.video_effects ? videoState.modelId : '') || 'seedance_2_fast';
+      return (videoState.modelId && gridVideoModelSupported(videoState.modelId) ? videoState.modelId : '') || 'seedance_2_fast';
     }
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
@@ -23669,36 +23714,11 @@ async function waitGeneration(jobId, options) {
   function gridModelsForType(type) {
     if (type === 'image') return filterSylvexTestEntries(IMAGE_MODEL_LIST);
     // Phase 1 Batch 8 (see /root/.claude/plans/splendid-moseying-starlight.md,
-    // roadmap step 8): generalizes the avatar exclusion below to the same
-    // "Grid structurally cannot drive this model" reasoning for every
-    // video model whose only real modes require a fixed, catalog-only
-    // dispatch Grid has no UI for:
-    // - avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar)
-    //   require an avatar_id tied to a Character reference - Grid Mode has
-    //   no Character-reference picker at all (see gridGenerationPayload's
-    //   video branch, which never sets avatar_id/heygen_*), so leaving
-    //   them selectable here would run every generation against whatever
-    //   avatar HEYGEN_AVATAR_ID happens to default to server-side, never
-    //   the one the user actually intended. Excluded until Grid gets a
-    //   Character port.
-    // - video_effects:true (kling_effects) requires an effect_scene, which
-    //   only the Kling Effects catalog (startVideoTemplateGeneration) ever
-    //   supplies - gridNodeSettingsHtml's video branch has no effect_scene
-    //   control at all, so every Grid generation with this model selected
-    //   would fail server-side with "effect_scene is missing"
-    //   (_build_video_payload). Same reasoning as the avatar exclusion:
-    //   Grid has no UI for this model's one required input, so it can
-    //   never work correctly here.
-    // kling_motion_3_0/kling_motion_2_6/kling_o3_omni are deliberately NOT
-    // excluded here: their motion_control mode is driven by a prompt plus
-    // an optional image/video input, both of which Grid's video node
-    // already has ports for (GRID_TYPES.video.inputs includes 'image' and
-    // 'video') - unlike avatar_id/effect_scene, nothing about their
-    // required inputs is catalog-only or missing a Grid control.
-    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => {
-      const config = VIDEO_MODEL_CONFIG[item.id] || {};
-      return !config.avatar && !config.video_effects;
-    });
+    // roadmap step 8): which video models Grid can actually drive - see
+    // gridVideoModelSupported() above gridDefaultModel for the full
+    // rationale (avatar/video_effects exclusion, registry-first decision
+    // source, why Motion Control models stay included).
+    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => gridVideoModelSupported(item.id));
     if (type === 'music') return filterSylvexTestEntries(MUSIC_MODEL_LIST);
     if (type === 'voice') return filterSylvexTestEntries(VOICE_MODEL_LIST);
     if (type === 'text') return filterSylvexTestEntries(TEXT_MODEL_LIST);
