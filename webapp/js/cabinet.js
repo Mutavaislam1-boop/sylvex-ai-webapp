@@ -23500,11 +23500,16 @@ async function waitGeneration(jobId, options) {
 
   function gridDefaultModel(type) {
     if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
-    // Fall back past an avatar:true model too - Grid has no Character port
-    // to feed it an avatar_id (see gridModelsForType's video filter), so a
-    // freshly-created node must never default to one even if that's what
-    // the main composer currently has selected.
-    if (type === 'video') return (videoState.modelId && !(VIDEO_MODEL_CONFIG[videoState.modelId] || {}).avatar ? videoState.modelId : '') || 'seedance_2_fast';
+    // Fall back past an avatar:true or video_effects:true model too - Grid
+    // has no Character port for an avatar_id, nor any control for
+    // effect_scene (see gridModelsForType's video filter, Phase 1 Batch 8),
+    // so a freshly-created node must never default to either even if
+    // that's what the main composer currently has selected - it would be
+    // a default value gridModelsForType's own dropdown no longer offers.
+    if (type === 'video') {
+      const current = VIDEO_MODEL_CONFIG[videoState.modelId] || {};
+      return (videoState.modelId && !current.avatar && !current.video_effects ? videoState.modelId : '') || 'seedance_2_fast';
+    }
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';
@@ -23663,14 +23668,37 @@ async function waitGeneration(jobId, options) {
 
   function gridModelsForType(type) {
     if (type === 'image') return filterSylvexTestEntries(IMAGE_MODEL_LIST);
-    // avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar) require
-    // an avatar_id tied to a Character reference - Grid Mode has no
-    // Character-reference picker at all (see gridGenerationPayload's video
-    // branch, which never sets avatar_id/heygen_*), so leaving them
-    // selectable here would run every generation against whatever avatar
-    // HEYGEN_AVATAR_ID happens to default to server-side, never the one the
-    // user actually intended. Excluded until Grid gets a Character port.
-    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => !(VIDEO_MODEL_CONFIG[item.id] || {}).avatar);
+    // Phase 1 Batch 8 (see /root/.claude/plans/splendid-moseying-starlight.md,
+    // roadmap step 8): generalizes the avatar exclusion below to the same
+    // "Grid structurally cannot drive this model" reasoning for every
+    // video model whose only real modes require a fixed, catalog-only
+    // dispatch Grid has no UI for:
+    // - avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar)
+    //   require an avatar_id tied to a Character reference - Grid Mode has
+    //   no Character-reference picker at all (see gridGenerationPayload's
+    //   video branch, which never sets avatar_id/heygen_*), so leaving
+    //   them selectable here would run every generation against whatever
+    //   avatar HEYGEN_AVATAR_ID happens to default to server-side, never
+    //   the one the user actually intended. Excluded until Grid gets a
+    //   Character port.
+    // - video_effects:true (kling_effects) requires an effect_scene, which
+    //   only the Kling Effects catalog (startVideoTemplateGeneration) ever
+    //   supplies - gridNodeSettingsHtml's video branch has no effect_scene
+    //   control at all, so every Grid generation with this model selected
+    //   would fail server-side with "effect_scene is missing"
+    //   (_build_video_payload). Same reasoning as the avatar exclusion:
+    //   Grid has no UI for this model's one required input, so it can
+    //   never work correctly here.
+    // kling_motion_3_0/kling_motion_2_6/kling_o3_omni are deliberately NOT
+    // excluded here: their motion_control mode is driven by a prompt plus
+    // an optional image/video input, both of which Grid's video node
+    // already has ports for (GRID_TYPES.video.inputs includes 'image' and
+    // 'video') - unlike avatar_id/effect_scene, nothing about their
+    // required inputs is catalog-only or missing a Grid control.
+    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => {
+      const config = VIDEO_MODEL_CONFIG[item.id] || {};
+      return !config.avatar && !config.video_effects;
+    });
     if (type === 'music') return filterSylvexTestEntries(MUSIC_MODEL_LIST);
     if (type === 'voice') return filterSylvexTestEntries(VOICE_MODEL_LIST);
     if (type === 'text') return filterSylvexTestEntries(TEXT_MODEL_LIST);
