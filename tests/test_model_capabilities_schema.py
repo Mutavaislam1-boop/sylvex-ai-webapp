@@ -76,6 +76,26 @@ def test_seedream_reference_limits_carried_into_registry():
     assert limits.visual_mode == mc.VisualReferenceMode.REAL_MULTI_IMAGE
 
 
+def test_seedream_bare_aliases_resolve_to_canonical_reference_limits():
+    # seedream_5/seedream_5_pro/seedream_4 exist in IMAGE_MODEL_FEATURES but
+    # SEEDREAM_MODEL_CAPABILITIES only has their canonical "_0" keys - a code
+    # review caught register_image_models() missing this alias resolution,
+    # which silently capped these three ids to max_count=1 instead of 10.
+    aliases = {
+        "seedream_5": ("image", True),
+        "seedream_5_pro": ("image_urls", False),
+        "seedream_4": ("image", True),
+    }
+    for model_id, (param_name, accepts_inline_base64) in aliases.items():
+        cap = mc.get_capability(model_id)
+        assert cap is not None, model_id
+        limits = cap.character.visual_reference
+        assert limits.max_count == 10, model_id
+        assert limits.param_name == param_name, model_id
+        assert limits.accepts_inline_base64 is accepts_inline_base64, model_id
+        assert limits.visual_mode == mc.VisualReferenceMode.REAL_MULTI_IMAGE, model_id
+
+
 def test_model_without_character_support_is_unsupported_not_missing():
     cap = mc.get_capability("grok")
     assert cap.character.visual_reference.visual_mode == mc.VisualReferenceMode.UNSUPPORTED
