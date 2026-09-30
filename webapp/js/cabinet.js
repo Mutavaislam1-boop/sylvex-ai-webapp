@@ -2356,6 +2356,7 @@ const VIDEO_MODELS = [
   { id:'kling_1_6', label:'Kling 1.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_1_5', label:'Kling 1.5', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_1_0', label:'Kling 1.0', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_lip_sync', label:'Kling Lip Sync', desc:'Kling AI lip sync video model', icon:'kling' },
 
   { id:'seedance_1_5_pro', label:'Seedance 1.5 Pro', desc:'ByteDance Seedance video', icon:'seedance' },
   { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'FAST', badgeClass:'yellow' },
@@ -2434,6 +2435,15 @@ Object.assign(VIDEO_MODEL_CONFIG, {
   kling_1_6: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, multi_image:false, multi_element_editing:false, video_extension:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_1_5: { provider:'kling', modes:['image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_extension:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_1_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_extension:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  // Phase 1 roadmap step 9 (see /root/.claude/plans/splendid-moseying-starlight.md):
+  // kling_lip_sync was already fully implemented server-side
+  // (services/video_router.py - dispatch, polling, pricing) but absent
+  // from this picker list and config mirror, so no user could ever select
+  // it. Mirrors services/video_router.py VIDEO_MODEL_CONFIG["kling_lip_sync"]
+  // exactly - resolutions is the literal ["720p"] (not
+  // KLING_VIDEO_STANDARD_RESOLUTIONS), matching the backend's own
+  // single-resolution declaration for this model.
+  kling_lip_sync: { provider:'kling', modes:['lip_sync'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:['720p'], sound:true, lip_sync:true, video_input:true, video_upload:true, video_edit:true },
 });
 
 const VIDEO_MOTION_PRESETS = [
@@ -6297,6 +6307,23 @@ function renderVideoReferencesPreview() {
 function renderVideoEditPreview() {
   const button = document.getElementById('videoEditUploadButton');
   if (!button) return;
+  // Phase 1 roadmap step 9: this button is normally only visible while
+  // videoState.section === 'edit' (gated purely by the .video-edit-only
+  // CSS class, see webapp/css/cabinet.css - display:none by default,
+  // display:flex only under [data-video-section="edit"]). A lip_sync-only
+  // model (kling_lip_sync, modes:['lip_sync']) never enters the 'edit'
+  // section - it fails videoModelSupportsEdit()'s modes.includes
+  // ('video_edit') check - so it would otherwise have no way at all to
+  // attach its required source video. The click handler itself
+  // (handleSelectionButtonClick -> openSelectionButton('video_edit') ->
+  // openVideoEditInputUpload -> openNativeFilePicker('video')) has no
+  // section gating of its own, so forcing this button visible here is
+  // sufficient - no new upload plumbing is needed. An inline style
+  // reliably overrides the CSS class (inline styles beat any non-!important
+  // external stylesheet rule) without touching the CSS file or affecting
+  // the button's normal edit-section visibility.
+  const lipSyncActive = !!(currentVideoConfig() || {}).lip_sync;
+  button.style.display = lipSyncActive ? 'flex' : '';
   const uploading = videoState.editUploading || null;
   const url = uploading && uploading.previewUrl ? uploading.previewUrl : currentVideoEditInputUrl();
   let preview = button.querySelector(':scope > .studio-video-edit-preview');
