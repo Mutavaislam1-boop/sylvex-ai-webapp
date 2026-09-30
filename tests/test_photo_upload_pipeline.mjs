@@ -148,16 +148,35 @@ test('fresh local photo: imageState.uploading is populated (and Generate-blockin
   assert.deepEqual(imageState.referenceImageUrls, ['https://cdn.sylvex.ai/uploads/real-photo.jpg']);
 });
 
-test('HEIC/HEIF photo: rejected client-side before ever calling upload-media', async () => {
+test('HEIC/HEIF photo: uploaded like any other image - the backend decodes/converts it to JPEG', async () => {
+  // The backend (public_prostudio_upload_media in main.py) now decodes
+  // HEIC/HEIF via pillow-heif and re-encodes as JPEG before storage, so
+  // the frontend no longer special-cases this format at all - it just
+  // calls uploadProStudioMediaFile like for any other image and stores
+  // whatever real URL comes back.
   const imageState = baseImageState();
-  let uploadCalled = false;
   const { context, toasts } = makeUploadContext(imageState, {
-    uploadProStudioMediaFile: async () => { uploadCalled = true; return 'https://cdn.sylvex.ai/uploads/should-not-happen.jpg'; },
+    uploadProStudioMediaFile: async (file, kind) => {
+      assert.equal(kind, 'image');
+      return 'https://cdn.sylvex.ai/uploads/converted-from-heic.jpg';
+    },
   });
   const file = { name: 'IMG_0001.HEIC', type: 'image/heic', size: 4_000_000 };
   await vm.runInContext('processAttachFile(f, "image", undefined, 0)', Object.assign(context, { f: file }));
 
-  assert.equal(uploadCalled, false);
+  assert.deepEqual(imageState.referenceImageUrls, ['https://cdn.sylvex.ai/uploads/converted-from-heic.jpg']);
+  assert.deepEqual(imageState.uploading, []);
+  assert.ok(toasts.includes('Фото добавлено'));
+});
+
+test('corrupt HEIC photo: the backend-reported decode failure is shown, not a silent success', async () => {
+  const imageState = baseImageState();
+  const { context, toasts } = makeUploadContext(imageState, {
+    uploadProStudioMediaFile: async () => { throw new Error('Could not read this HEIC photo'); },
+  });
+  const file = { name: 'IMG_0002.heic', type: 'image/heic', size: 1000 };
+  await vm.runInContext('processAttachFile(f, "image", undefined, 0)', Object.assign(context, { f: file }));
+
   assert.deepEqual(imageState.referenceImageUrls, []);
   assert.deepEqual(imageState.uploading, []);
   assert.ok(toasts.some((msg) => /HEIC/i.test(msg)));

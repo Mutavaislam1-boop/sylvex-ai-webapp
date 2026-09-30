@@ -8437,11 +8437,33 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
 # Маршрут FastAPI: @app.post("/api/public/prostudio/upload-media")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
-@app.post("/api/public/prostudio/upload-media")
-# =====================================================
-# ЗАГРУЗКА ФАЙЛОВ: public_prostudio_upload_media
-# Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
-# =====================================================
+try:
+    import pillow_heif as _pillow_heif
+    _pillow_heif.register_heif_opener()
+    HEIC_UPLOAD_SUPPORTED = True
+except Exception:
+    # Degrade gracefully rather than crash startup if the dependency is ever
+    # missing in a given deploy - HEIC/HEIF simply falls back to the
+    # pre-existing "unsupported_extension" 400 below.
+    HEIC_UPLOAD_SUPPORTED = False
+
+
+def _convert_heic_to_jpeg(content):
+    # iPhones default to HEIC and Pro Studio's own file picker lists
+    # .heic/.heif as selectable (openNativeFilePicker in cabinet.js), but no
+    # AI provider or browser <img> tag reliably consumes HEIC. Decode once
+    # here and store a normal JPEG instead - everything downstream
+    # (validated_upload_type's dimension/format check, storage, the
+    # generation reference pipeline) then sees a plain, already-supported
+    # image the same as any other upload.
+    from PIL import Image
+    import io
+    with Image.open(io.BytesIO(content)) as img:
+        buffer = io.BytesIO()
+        img.convert("RGB").save(buffer, format="JPEG", quality=92)
+        return buffer.getvalue()
+
+
 def _probe_image_dimensions(content):
     # Best-effort only, for the UPLOAD_MEDIA_REJECTED diagnostic below - never
     # raises and never gates acceptance (that stays validated_upload_type's
@@ -8474,6 +8496,11 @@ def _log_upload_media_rejected(reason, media_kind, suffix, mime, size_bytes, sta
     })
 
 
+# =====================================================
+# ЗАГРУЗКА ФАЙЛОВ: public_prostudio_upload_media
+# Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
+# =====================================================
+@app.post("/api/public/prostudio/upload-media")
 async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str = "image"):
     media_kind = (kind or "").strip().lower()
     filename = pathlib.Path(file.filename or "").name
@@ -8490,6 +8517,8 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
         allowed_exts = {".txt", ".md", ".json", ".csv", ".pdf", ".doc", ".docx"}
     else:
         allowed_exts = {".jpg", ".jpeg", ".png", ".webp"}
+        if HEIC_UPLOAD_SUPPORTED:
+            allowed_exts = allowed_exts | {".heic", ".heif"}
     max_bytes = 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024
 
     if suffix not in allowed_exts:
@@ -8504,6 +8533,13 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     if not content:
         _log_upload_media_rejected("empty_file", media_kind, suffix, content_type, 0, 400)
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
+    if suffix in {".heic", ".heif"}:
+        try:
+            content = _convert_heic_to_jpeg(content)
+        except Exception:
+            _log_upload_media_rejected("heic_decode_failed", media_kind, suffix, content_type, len(content), 400)
+            return JSONResponse({"ok": False, "error": "Could not read this HEIC photo"}, status_code=400)
+        suffix = ".jpg"
     try:
         content_type = validated_upload_type(content, suffix)
     except SecurityError as exc:
