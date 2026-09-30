@@ -24,6 +24,7 @@ from services.character_prompts import build_character_prompt, infer_character_o
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.storage import generated_key, key_from_url as storage_key_from_url, put_bytes as storage_put_bytes, read_bytes as storage_read_bytes
 import services.sylvex_test_provider as sylvex_test_provider
+import services.model_capabilities as model_capabilities
 from db_pool import db_connect
 
 _SYLVEX_TEST_DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL") or os.getenv("DATABASE_URL")
@@ -2229,6 +2230,27 @@ def _kling_supports_last_frame(provider_model: str):
     return model in {"kling-3.0", "kling-3.0-omni", "kling-2.6", "kling-2.5-turbo"}
 
 
+# Phase 1 Batch 3 (see /root/.claude/plans/splendid-moseying-starlight.md,
+# roadmap step 3). Dedicated research (this effort) traced every one of the
+# 17 Kling models' actual end-frame behavior against three previously
+# independent, hand-maintained decision points - this function's own
+# provider_model-family set above, a hardcoded legacy model_id set
+# (KLING_LEGACY_MODEL_NAMES-adjacent, see _call_kling's is_legacy_model
+# branch), and an ungated mode-only check in the omni branch - and found
+# they currently agree for every model, but only by manual diligence: none
+# of the three is actually derived from VIDEO_MODEL_CONFIG/the capability
+# registry's own end_frame flag, so an env var override or a new model
+# added to one set without the others would silently drift with no runtime
+# error. The provider_model-family helper defined just above (still named
+# `_kling_supports_last_frame`) and the legacy hardcoded id set are kept in
+# place, unused by _call_kling below, per the additive-only migration rule -
+# callers are repointed to this single function instead of deleting the old
+# ones outright.
+def _kling_capability_supports_end_frame(model_id: str) -> bool:
+    cap = model_capabilities.get_capability(model_id)
+    return bool(cap and cap.end_frame)
+
+
 # =====================================================
 # PYTHON-БЛОК: _kling_text_settings
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -4221,7 +4243,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             kling_body["external_task_id"] = str(payload.get("job_id"))
         if input_image_url:
             kling_body["image"] = input_image_url
-            if end_image_url and model_id in {"kling_2_1", "kling_1_6", "kling_1_5"}:
+            if end_image_url and _kling_capability_supports_end_frame(model_id):
                 kling_body["image_tail"] = end_image_url
         else:
             kling_body["aspect_ratio"] = _kling_aspect_ratio(body.get("ratio"))
@@ -4252,7 +4274,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             contents.append({"type": image_type, "url": input_image_url, "id": "image_1"})
         if input_video:
             contents.append({"type": reference_type, "url": input_video, "id": "video_1"})
-        if end_image_url and reference_type != "base_video" and input_image_url:
+        if end_image_url and reference_type != "base_video" and input_image_url and _kling_capability_supports_end_frame(model_id):
             contents.append({"type": "last_frame", "url": end_image_url, "id": "image_2"})
         kling_body = {
             "contents": contents,
@@ -4266,11 +4288,11 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
             if prompt:
                 contents.append({"type": "prompt", "text": prompt})
             contents.append({"type": "first_frame", "url": input_image_url})
-            if end_image_url and _kling_supports_last_frame(provider_model):
+            if end_image_url and _kling_capability_supports_end_frame(model_id):
                 contents.append({"type": "last_frame", "url": end_image_url})
             kling_body = {
                 "contents": contents,
-                "settings": _kling_image_settings(provider_model, body, bool(end_image_url and _kling_supports_last_frame(provider_model))),
+                "settings": _kling_image_settings(provider_model, body, bool(end_image_url and _kling_capability_supports_end_frame(model_id))),
                 "options": _kling_options(payload),
             }
         else:
