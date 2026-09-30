@@ -169,6 +169,18 @@ def _image_character_capability(supports_visual_reference: bool, seedream: Optio
     return CharacterCapability(text_conditioning=True, visual_reference=limits)
 
 
+# IMAGE_MODEL_FEATURES carries a few bare aliases (no "_0") of ids that
+# SEEDREAM_MODEL_CAPABILITIES only declares in their canonical "_0" form -
+# without this map, register_image_models() would silently miss the real
+# per-model reference limits for these three ids and fall back to a generic
+# max_count=1 default (code review caught this against the review commit).
+_SEEDREAM_ALIAS_TO_CANONICAL = {
+    "seedream_5": "seedream_5_0",
+    "seedream_5_pro": "seedream_5_0_pro",
+    "seedream_4": "seedream_4_0",
+}
+
+
 def register_image_models(image_model_features: dict, seedream_model_capabilities: Optional[dict] = None) -> None:
     """Populate MODEL_CAPABILITIES for every image model in
     main.py's IMAGE_MODEL_FEATURES, folding in SEEDREAM_MODEL_CAPABILITIES's
@@ -176,7 +188,8 @@ def register_image_models(image_model_features: dict, seedream_model_capabilitie
     module never imports main.py itself (see module docstring)."""
     seedream_model_capabilities = seedream_model_capabilities or {}
     for model_id, features in image_model_features.items():
-        seedream = seedream_model_capabilities.get(model_id)
+        seedream_key = _SEEDREAM_ALIAS_TO_CANONICAL.get(model_id, model_id)
+        seedream = seedream_model_capabilities.get(seedream_key)
         character_supported = bool(features.get("character"))
         object_supported = bool(features.get("object"))
         MODEL_CAPABILITIES[model_id] = ModelCapability(
