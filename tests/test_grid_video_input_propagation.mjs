@@ -213,7 +213,25 @@ test('validateGridNodeInputs: video_edit with neither connected nor attached vid
   assert.ok(result.missing.includes('Исходное видео'));
 });
 
-test('validateGridNodeInputs: motion_control with a connected video passes validation', () => {
+// motion_control needs BOTH a video (motion/reference source) and an
+// image (subject) - the Kling provider path's own requires_image gate
+// (services/video_router.py's requires_image) includes motion_control
+// alongside image_to_video, so a motion_control request with a video but
+// no image would pass a video-only check here and still fail server-side.
+test('validateGridNodeInputs: motion_control with a connected video AND a connected image passes validation', () => {
+  const context = buildValidateContext();
+  const node = {type: 'video', settings: {generation_mode: 'motion_control'}, attachments: []};
+  const inputs = {
+    effective_prompt: {value: 'apply this motion'},
+    video: {value: {url: 'https://cdn.example.com/connected.mp4'}},
+    image: {value: {url: 'https://cdn.example.com/subject.jpg'}},
+  };
+  const result = runValidate(context, node, inputs);
+  assert.equal(result.ok, true);
+  assert.equal(result.missing.length, 0);
+});
+
+test('validateGridNodeInputs: motion_control with a connected video but no image fails with the image message', () => {
   const context = buildValidateContext();
   const node = {type: 'video', settings: {generation_mode: 'motion_control'}, attachments: []};
   const inputs = {
@@ -221,17 +239,48 @@ test('validateGridNodeInputs: motion_control with a connected video passes valid
     video: {value: {url: 'https://cdn.example.com/connected.mp4'}},
   };
   const result = runValidate(context, node, inputs);
-  assert.equal(result.ok, true);
-  assert.equal(result.missing.length, 0);
+  assert.equal(result.ok, false);
+  assert.ok(result.missing.includes('Исходное изображение'));
+  assert.ok(!result.missing.includes('Исходное видео'));
 });
 
-test('validateGridNodeInputs: motion_control with neither connected nor attached video fails (previously unvalidated)', () => {
+test('validateGridNodeInputs: motion_control with a connected image but no video fails with the video message', () => {
+  const context = buildValidateContext();
+  const node = {type: 'video', settings: {generation_mode: 'motion_control'}, attachments: []};
+  const inputs = {
+    effective_prompt: {value: 'apply this motion'},
+    image: {value: {url: 'https://cdn.example.com/subject.jpg'}},
+  };
+  const result = runValidate(context, node, inputs);
+  assert.equal(result.ok, false);
+  assert.ok(result.missing.includes('Исходное видео'));
+  assert.ok(!result.missing.includes('Исходное изображение'));
+});
+
+test('validateGridNodeInputs: motion_control with neither video nor image fails with both messages', () => {
   const context = buildValidateContext();
   const node = {type: 'video', settings: {generation_mode: 'motion_control'}, attachments: []};
   const inputs = {effective_prompt: {value: 'apply this motion'}};
   const result = runValidate(context, node, inputs);
   assert.equal(result.ok, false);
   assert.ok(result.missing.includes('Исходное видео'));
+  assert.ok(result.missing.includes('Исходное изображение'));
+});
+
+test('validateGridNodeInputs: motion_control with both required inputs supplied through local attachments passes', () => {
+  const context = buildValidateContext();
+  const node = {
+    type: 'video',
+    settings: {generation_mode: 'motion_control'},
+    attachments: [
+      {kind: 'video', url: 'https://cdn.example.com/attached.mp4'},
+      {kind: 'image', url: 'https://cdn.example.com/attached.jpg'},
+    ],
+  };
+  const inputs = {effective_prompt: {value: 'apply this motion'}};
+  const result = runValidate(context, node, inputs);
+  assert.equal(result.ok, true);
+  assert.equal(result.missing.length, 0);
 });
 
 test('validateGridNodeInputs: video_edit with a local attachment only (no connection) still passes (fallback preserved)', () => {
