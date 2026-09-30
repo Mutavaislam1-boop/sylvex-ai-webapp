@@ -616,11 +616,16 @@ HTML-страница Mini App. Комментарии подписывают э
             =================================================== -->
             <div class="studio-media-column studio-music-tools music-only voice-only" aria-hidden="true"></div>
             <div class="studio-media-column studio-text-tools text-only" aria-hidden="true">
-              <button class="studio-image-tool" type="button" onclick="SYLVEX.openNativeFilePicker('text_media')">
+              <!-- Attach a photo/video/audio/file and ask the model to
+              describe it or build a prompt from it (M-060): opens the same
+              plusSheet the Photo/Video/Audio/File flows already use, with
+              attach()/addMediaLink() routing Text mode into
+              textState.attachment - see cabinet.js. -->
+              <button class="studio-image-tool" type="button" onclick="SYLVEX.togglePlusPop(event)" aria-label="Прикрепить файл">
                 <span class="studio-frame-ico">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                 </span>
-                <span id="textUploadVal">Файл</span>
+                <span id="textUploadVal">Прикрепить</span>
               </button>
             </div>
             <div class="studio-media-column image-only">
@@ -988,6 +993,16 @@ HTML-страница Mini App. Комментарии подписывают э
               При нажатии вызывает: SYLVEX.attach('image')
               =================================================== -->
               <button onclick="SYLVEX.attach('image')"><span data-i18n="att_photo">Photo</span></button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: Video
+              При нажатии вызывает: SYLVEX.attach('video')
+              =================================================== -->
+              <button onclick="SYLVEX.attach('video')"><span>Video</span></button>
+              <!-- ==================================================
+              HTML-ЭЛЕМЕНТ: Audio
+              При нажатии вызывает: SYLVEX.attach('audio')
+              =================================================== -->
+              <button onclick="SYLVEX.attach('audio')"><span>Audio</span></button>
               <!-- ==================================================
               HTML-ЭЛЕМЕНТ: Image URL
               При нажатии вызывает: SYLVEX.addMediaLink('image')
