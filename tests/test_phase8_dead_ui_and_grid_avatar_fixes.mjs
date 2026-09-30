@@ -115,18 +115,28 @@ test('gridModelsForType(video): non-avatar models (including non-avatar HeyGen) 
 });
 
 test('gridDefaultModel(video): falls back past an avatar model the main composer currently has selected', () => {
-  const context = vm.createContext({fetchedModelCapabilities: null, videoState: {modelId: 'heygen_avatar_iv'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
+  // gridDefaultModel('video') now delegates to gridDefaultVideoModel(),
+  // which builds its fallback chain from gridModelsForType('video') - so
+  // this context needs the same pieces as loadGridModelContext(), not
+  // just VIDEO_MODEL_CONFIG.
+  const context = vm.createContext({fetchedModelCapabilities: null, filterSylvexTestEntries: (list) => list, videoState: {modelId: 'heygen_avatar_iv'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
   vm.runInContext(extractConstObject('VIDEO_MODEL_CONFIG'), context);
+  vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);
+  vm.runInContext(extractFunction('gridModelsForType'), context);
+  vm.runInContext(extractFunction('gridDefaultVideoModel'), context);
   vm.runInContext(extractFunction('gridDefaultModel'), context);
   const result = vm.runInContext(`gridDefaultModel('video')`, context);
   assert.equal(result, 'seedance_2_fast');
 });
 
 test('gridDefaultModel(video): a non-avatar current selection passes through unchanged', () => {
-  const context = vm.createContext({fetchedModelCapabilities: null, videoState: {modelId: 'runway_gen4_5'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
+  const context = vm.createContext({fetchedModelCapabilities: null, filterSylvexTestEntries: (list) => list, videoState: {modelId: 'runway_gen4_5'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
   vm.runInContext(extractConstObject('VIDEO_MODEL_CONFIG'), context);
+  vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);
+  vm.runInContext(extractFunction('gridModelsForType'), context);
+  vm.runInContext(extractFunction('gridDefaultVideoModel'), context);
   vm.runInContext(extractFunction('gridDefaultModel'), context);
   const result = vm.runInContext(`gridDefaultModel('video')`, context);
   assert.equal(result, 'runway_gen4_5');
