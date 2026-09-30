@@ -23542,19 +23542,44 @@ async function waitGeneration(jobId, options) {
     const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
     const fetched = fetchedModels ? fetchedModels[modelId] : null;
     if (fetched) return !fetched.avatar && !(Array.isArray(fetched.modes) && fetched.modes.includes('video_effects'));
-    const local = VIDEO_MODEL_CONFIG[modelId] || {};
+    // No fetched entry AND no local VIDEO_MODEL_CONFIG entry means this id
+    // is unknown to both capability sources - it must not be treated as
+    // supported just because an empty {} fallback object has no avatar/
+    // video_effects flags to trip. Only a genuinely known, unflagged model
+    // counts as supported.
+    const local = VIDEO_MODEL_CONFIG[modelId];
+    if (!local) return false;
     return !local.avatar && !(Array.isArray(local.modes) && local.modes.includes('video_effects'));
+  }
+
+  // Phase 1 Batch 8 final correction: the shared fallback resolver for
+  // Grid's video model default, used by gridDefaultModel('video'). The
+  // previous version ended in an unconditional `|| 'seedance_2_fast'`,
+  // which broke the registry-driven guarantee gridVideoModelSupported()
+  // exists to provide - if a fetched capability update ever marked
+  // seedance_2_fast itself as Grid-incompatible, the picker
+  // (gridModelsForType) would hide it while this resolver kept handing it
+  // out anyway. The fallback chain is now built entirely from
+  // gridModelsForType('video')'s own filtered set, so it can never return
+  // a model the picker itself excludes:
+  // 1. keep the current model if the picker still lists it;
+  // 2. else prefer seedance_2_fast, but only if the picker still lists it
+  //    too - the traditional default, not an unconditional escape hatch;
+  // 3. else fall back to whatever the picker's own first entry is.
+  function gridDefaultVideoModel(currentModelId) {
+    const candidates = gridModelsForType('video');
+    if (currentModelId && candidates.some((item) => item.id === currentModelId)) return currentModelId;
+    if (candidates.some((item) => item.id === 'seedance_2_fast')) return 'seedance_2_fast';
+    return candidates.length ? candidates[0].id : '';
   }
 
   function gridDefaultModel(type) {
     if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
     // A freshly-created node must never default to a video model Grid
-    // can't actually drive (see gridVideoModelSupported above) even if
+    // can't actually drive (see gridDefaultVideoModel above) even if
     // that's what the main composer currently has selected - it would be
     // a default value gridModelsForType's own dropdown no longer offers.
-    if (type === 'video') {
-      return (videoState.modelId && gridVideoModelSupported(videoState.modelId) ? videoState.modelId : '') || 'seedance_2_fast';
-    }
+    if (type === 'video') return gridDefaultVideoModel(videoState.modelId);
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';

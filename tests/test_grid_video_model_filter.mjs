@@ -42,6 +42,32 @@
 // (validateGridNodeInputs) for both - nothing about either required input
 // is catalog-only or missing a Grid control, so these models are
 // structurally usable here.
+//
+// Final correction (this file's third pass, per review): two bugs
+// remained even after sharing gridVideoModelSupported() between the two
+// consumers.
+// 1. gridVideoModelSupported(modelId) treated an id with neither a
+//    fetched entry nor a local VIDEO_MODEL_CONFIG entry as supported -
+//    `VIDEO_MODEL_CONFIG[modelId] || {}` produced an empty object with no
+//    avatar/video_effects flags to trip, so any unknown/stale id passed.
+//    It now returns false outright when the id is unknown to both
+//    sources.
+// 2. gridDefaultModel('video') ended in an unconditional
+//    `|| 'seedance_2_fast'` - the registry-driven guarantee
+//    gridVideoModelSupported() exists to provide broke at exactly the
+//    point the fallback itself was not re-checked: if a fetched
+//    capability update ever marked seedance_2_fast itself
+//    Grid-incompatible, the picker (gridModelsForType) would hide it
+//    while this resolver kept handing it out anyway. The fallback logic
+//    is now its own shared function, gridDefaultVideoModel(currentModelId),
+//    which builds its entire chain (keep current -> prefer
+//    seedance_2_fast -> first picker entry) from gridModelsForType
+//    ('video')'s own filtered set, so it can never return a model the
+//    picker itself excludes. The "agree under a fetched-registry
+//    override" cross-check test below was itself wrong before this pass -
+//    it excluded seedance_2_fast from the picker and then asserted
+//    gridDefaultModel() still returned it, which was asserting the bug,
+//    not catching it.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -118,6 +144,7 @@ function loadGridModelContext(fetchedOverride, videoModelId) {
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);
   vm.runInContext(extractFunction('gridModelsForType'), context);
+  vm.runInContext(extractFunction('gridDefaultVideoModel'), context);
   vm.runInContext(extractFunction('gridDefaultModel'), context);
   return context;
 }
@@ -240,45 +267,93 @@ test('gridModelsForType(video): reflects a fetched-registry exclusion end to end
 test('gridDefaultModel(video): reflects a fetched-registry exclusion end to end', () => {
   // runway_gen4_5 has no avatar/video_effects locally or by default - the
   // fetched registry saying otherwise must still force the fallback to
-  // the hardcoded ultimate default (seedance_2_fast, a different model
-  // than the one under test, so this can't pass by coincidence).
+  // seedance_2_fast, which is untouched by this particular override (a
+  // different model than the one under test, so this can't pass by
+  // coincidence).
   const context = loadGridModelContext({version: 'v1', models: {runway_gen4_5: {avatar: false, modes: ['video_effects']}}}, 'runway_gen4_5');
   const result = vm.runInContext(`gridDefaultModel('video')`, context);
   assert.equal(result, 'seedance_2_fast');
 });
 
 // =====================================================================
-// gridModelsForType() and gridDefaultModel() must always agree - the
-// required cross-check for sharing one decision function.
+// gridVideoModelSupported must not treat an unknown id as supported -
+// the guard added alongside gridDefaultVideoModel's registry-aware
+// fallback (an empty {} local lookup has no avatar/video_effects flags
+// to trip, so without this check any nonsense id would pass).
 // =====================================================================
 
-test('gridModelsForType and gridDefaultModel agree under the local fallback for every video model', () => {
+test('gridVideoModelSupported: an unknown model id (no fetched entry, no local VIDEO_MODEL_CONFIG entry) is not supported', () => {
   const context = loadGridModelContext();
+  assert.equal(vm.runInContext(`gridVideoModelSupported('totally_made_up_model_id')`, context), false);
+});
+
+test('gridVideoModelSupported: an unknown model id stays unsupported even with unrelated fetched data loaded', () => {
+  const context = loadGridModelContext({version: 'v1', models: {seedance_2_fast: {avatar: false, modes: ['text_to_video']}}});
+  assert.equal(vm.runInContext(`gridVideoModelSupported('totally_made_up_model_id')`, context), false);
+});
+
+// =====================================================================
+// The Grid default resolver must be capability-aware even for its own
+// traditional fallback (seedance_2_fast) - the bug this correction
+// exists to fix: the old gridDefaultModel('video') ended in an
+// unconditional `|| 'seedance_2_fast'`, so if the fetched registry ever
+// marked seedance_2_fast itself Grid-incompatible, the picker would hide
+// it while the default resolver kept handing it out anyway.
+// =====================================================================
+
+test('gridDefaultVideoModel: when the fetched registry excludes seedance_2_fast itself, the default is some other visible/supported model', () => {
+  const context = loadGridModelContext({version: 'v1', models: {seedance_2_fast: {avatar: false, modes: ['video_effects']}}}, 'seedance_2_fast');
+  const pickerIds = new Set(vm.runInContext(`gridModelsForType('video')`, context).map((item) => item.id));
+  assert.ok(!pickerIds.has('seedance_2_fast'), 'sanity check: the picker must actually exclude seedance_2_fast under this override');
+
+  const result = vm.runInContext(`gridDefaultModel('video')`, context);
+  assert.notEqual(result, 'seedance_2_fast');
+  assert.ok(pickerIds.has(result), `the selected fallback (${result}) must itself be present in gridModelsForType('video')`);
+});
+
+test('gridDefaultVideoModel: an unknown/stale current model id does not survive as the Grid default', () => {
+  const context = loadGridModelContext(null, 'a_model_id_that_no_longer_exists');
+  const pickerIds = new Set(vm.runInContext(`gridModelsForType('video')`, context).map((item) => item.id));
+  const result = vm.runInContext(`gridDefaultModel('video')`, context);
+  assert.notEqual(result, 'a_model_id_that_no_longer_exists');
+  assert.ok(pickerIds.has(result), `the selected fallback (${result}) must itself be present in gridModelsForType('video')`);
+});
+
+// =====================================================================
+// gridModelsForType() and gridDefaultModel() must always agree - the
+// required cross-check for sharing one decision function. Under BOTH the
+// local fallback and a fetched override: if the picker lists a model, the
+// default resolver must keep it as the current selection unchanged; if
+// the picker excludes it, the default resolver must never return that
+// same id, and whatever it returns instead must itself be a picker entry
+// (or '' if the picker is empty).
+// =====================================================================
+
+function assertPickerAndDefaultAgree(context) {
   const pickerIds = new Set(vm.runInContext(`gridModelsForType('video')`, context).map((item) => item.id));
   const allIds = vm.runInContext('VIDEO_MODELS', context).map((item) => item.id).filter((id) => id !== 'sylvex_test');
   for (const id of allIds) {
     vm.runInContext(`videoState.modelId = ${JSON.stringify(id)};`, context);
     const defaulted = vm.runInContext(`gridDefaultModel('video')`, context);
-    const pickerIncludesIt = pickerIds.has(id);
-    assert.equal(defaulted === id, pickerIncludesIt, `disagreement for ${id}: picker includes=${pickerIncludesIt}, default kept it=${defaulted === id}`);
+    if (pickerIds.has(id)) {
+      assert.equal(defaulted, id, `picker includes ${id} but the default resolver replaced it with ${defaulted}`);
+    } else {
+      assert.notEqual(defaulted, id, `picker excludes ${id} but the default resolver still returned it`);
+      assert.ok(pickerIds.size === 0 ? defaulted === '' : pickerIds.has(defaulted), `fallback ${defaulted} for excluded ${id} must itself be in the picker`);
+    }
   }
+}
+
+test('gridModelsForType and gridDefaultModel agree under the local fallback for every video model', () => {
+  assertPickerAndDefaultAgree(loadGridModelContext());
 });
 
-test('gridModelsForType and gridDefaultModel agree under a fetched-registry override', () => {
+test('gridModelsForType and gridDefaultModel agree under a fetched-registry override for every video model', () => {
   const fetchedOverride = {version: 'v1', models: {
     seedance_2_fast: {avatar: false, modes: ['video_effects']}, // now excluded, was allowed locally
     kling_effects: {avatar: false, modes: ['text_to_video']},   // now allowed, was excluded locally
   }};
-  const context = loadGridModelContext(fetchedOverride);
-  const pickerIds = new Set(vm.runInContext(`gridModelsForType('video')`, context).map((item) => item.id));
-  assert.ok(!pickerIds.has('seedance_2_fast'));
-  assert.ok(pickerIds.has('kling_effects'));
-
-  vm.runInContext(`videoState.modelId = 'seedance_2_fast';`, context);
-  assert.equal(vm.runInContext(`gridDefaultModel('video')`, context), 'seedance_2_fast');
-
-  vm.runInContext(`videoState.modelId = 'kling_effects';`, context);
-  assert.equal(vm.runInContext(`gridDefaultModel('video')`, context), 'kling_effects');
+  assertPickerAndDefaultAgree(loadGridModelContext(fetchedOverride));
 });
 
 test('gridModelsForType: non-video types are unaffected (image/music/voice/text still return their unfiltered lists)', () => {
