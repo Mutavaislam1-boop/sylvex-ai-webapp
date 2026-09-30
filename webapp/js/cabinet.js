@@ -2506,8 +2506,17 @@ function currentAudioState() {
 // button's visibility (renderVideoStartPreview/renderVideoEndPreview) both
 // already read through this function, so repointing here alone fixes both.
 // Fails open (keeps the local value) when no fetched data has loaded yet,
-// same additive philosophy as every other Phase 1 repoint. Sound is
-// deliberately NOT touched here - that's a separate, later roadmap step.
+// same additive philosophy as every other Phase 1 repoint.
+//
+// Phase 1 Batch 4 (roadmap step 4): sound is now repointed the same way,
+// reading fetched.sound_toggle - a direct, complete mirror of Python's
+// VIDEO_MODEL_CONFIG[model_id]["sound"] (see services/model_capabilities.py
+// register_video_models()). This is deliberately NOT the same as
+// fetched.native_audio: that field only ever reflects the narrower,
+// Kling-cost-tier-only "native_audio" key a handful of Kling models set in
+// VIDEO_MODEL_CONFIG, and stays untouched here to avoid any pricing
+// semantics change - videoOptionsPayload()'s own native_audio computation
+// (config.native_audio && videoState.sound) is unaffected by this repoint.
 function currentVideoConfig() {
   const local = VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
   const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
@@ -2516,6 +2525,7 @@ function currentVideoConfig() {
   return Object.assign({}, local, {
     start_image: !!fetched.start_frame,
     end_image: !!fetched.end_frame,
+    sound: !!fetched.sound_toggle,
   });
 }
 

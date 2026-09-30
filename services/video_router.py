@@ -1257,6 +1257,26 @@ def _build_video_visual_prompt(prompt: str, payload: dict, opts: dict, video_tem
     return "\n\n".join(part for part in parts if part).strip()
 
 
+# Phase 1 Batch 4 (see /root/.claude/plans/splendid-moseying-starlight.md,
+# roadmap step 4). services.model_capabilities' ModelCapability.sound_toggle
+# is populated by register_video_models() as a direct, complete mirror of
+# this same VIDEO_MODEL_CONFIG[model_id]["sound"] value for every video
+# model - unlike native_audio (a narrower, Kling-cost-tier-only signal only
+# ever set for Kling models), sound_toggle is a ready, behavior-identical
+# single source of truth for "does this model support the sound toggle at
+# all". This function reads it instead of VIDEO_MODEL_CONFIG directly, so
+# the two backend call sites that independently gated on
+# VIDEO_MODEL_CONFIG[model_id].get("sound") - _build_video_payload below and
+# _call_runway's own redundant check - agree by construction rather than by
+# manual diligence. Only the sound_toggle axis is repointed here; the
+# separate native_audio field (used solely by _kling_cost_variant to select
+# a Kling pricing tier) is left untouched, per the batch's "no pricing
+# semantics change" constraint.
+def _video_capability_supports_sound(model_id: str) -> bool:
+    cap = model_capabilities.get_capability(model_id)
+    return bool(cap and cap.sound_toggle)
+
+
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
     video_template = opts.get("video_template") if isinstance(opts.get("video_template"), dict) else {}
@@ -1291,7 +1311,7 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         _clean_url_list(opts.get("characterReferences"))[:4],
         _clean_url_list(opts.get("objectReferences"))[:4],
     )
-    sound = bool(opts.get("sound")) if config.get("sound") else False
+    sound = bool(opts.get("sound")) if _video_capability_supports_sound(model_id) else False
 
     def _gated_flag(key: str) -> bool:
         return bool(opts.get(key)) if config.get(key) else False
@@ -4541,13 +4561,17 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
         if ratio:
             runway_body["ratio"] = ratio
         config = VIDEO_MODEL_CONFIG.get(model_id, {})
-        if config.get("sound"):
+        if _video_capability_supports_sound(model_id):
             # Field name follows this codebase's existing convention for the
             # same underlying models (direct Seedance/Grok both use
             # generate_audio) - Runway's own top-level field name for this
             # is not independently confirmed against live docs, but an
             # unrecognized JSON field is inert rather than harmful, so this
             # is a safe best-effort forward rather than a guaranteed no-op.
+            # Phase 1 Batch 4: this used to re-read VIDEO_MODEL_CONFIG's own
+            # "sound" key directly, a second independent decision point from
+            # _build_video_payload's gate above - now both read the same
+            # sound_toggle-backed helper.
             runway_body["generate_audio"] = bool(body.get("sound"))
         end_image = body.get("end_image") or ""
         if is_video_to_video:
