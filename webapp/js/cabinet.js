@@ -2555,6 +2555,27 @@ function videoModelSupportsEdit(modelId) {
   return !!(local && Array.isArray(local.modes) && local.modes.includes('video_edit'));
 }
 
+// Phase 1 Batch 7 (see /root/.claude/plans/splendid-moseying-starlight.md,
+// roadmap step 7): the Motion Control counterpart to videoModelSupportsEdit()
+// above, same modes-based pattern - checked via modes.includes('motion_control'),
+// preferring the fetched capability registry's modes array over the local
+// VIDEO_MODEL_CONFIG mirror's own modes array (fail-open fallback only when
+// no fetched data has loaded yet). Unlike video_edit, no boolean-vs-modes
+// mismatch exists for motion_control today (every model with
+// motion_control:true also has 'motion_control' in its modes array, and
+// vice versa - verified against the current VIDEO_MODEL_CONFIG), but the
+// modes-based check is used for the same reason: it's the single source
+// both this function and the fetched registry actually agree on, so a
+// future drift between the boolean and modes (as already happened for
+// video_edit/kling_motion_3_0) can't silently break this filter too.
+function videoModelSupportsMotionControl(modelId) {
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const fetched = fetchedModels ? fetchedModels[modelId] : null;
+  if (fetched) return Array.isArray(fetched.modes) && fetched.modes.includes('motion_control');
+  const local = VIDEO_MODEL_CONFIG[modelId];
+  return !!(local && Array.isArray(local.modes) && local.modes.includes('motion_control'));
+}
+
 // =====================================================
 // JAVASCRIPT-БЛОК: currentVideoProvider
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -2607,7 +2628,6 @@ function restoreVideoModelSettings(modelId) {
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
 function normalizeVideoStateForModel() {
-  const previousConfig = currentVideoConfig() || {};
   // Phase 1 Batch 6 fix (roadmap step 6): this force-switch used to check
   // video_effects (a Kling-effects-catalog flag, true only for
   // kling_effects) for BOTH Edit and Motion Control sections - since no
@@ -2619,13 +2639,17 @@ function normalizeVideoStateForModel() {
   // videoModelSupportsEdit(videoState.modelId) - the exact same function
   // the picker filter itself calls - instead of reading a config field
   // directly, so the two can never independently drift on what "supports
-  // Video Edit" means. Motion Control's force-switch is left exactly as it
-  // was (still keyed off video_effects) since Motion Control's own picker
-  // filtering is roadmap step 7, not this batch - changing its
-  // force-switch now would let it diverge from a picker list that doesn't
-  // yet reflect that change.
+  // Video Edit" means.
+  //
+  // Phase 1 Batch 7 (roadmap step 7): Motion Control's force-switch now
+  // gets the same treatment, calling videoModelSupportsMotionControl() -
+  // the exact same function currentComposerModelList()'s Motion Control
+  // filter calls - instead of the unrelated video_effects flag.
+  // kling_o3_omni remains the fixed fallback for both sections (an
+  // unconditional exemption from the capability check, not re-verified),
+  // matching Edit mode's own accepted behavior.
   const editSectionBlocksModel = videoState.section === 'edit' && !videoModelSupportsEdit(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
-  const motionSectionBlocksModel = videoState.section === 'motion' && !previousConfig.video_effects && videoState.modelId !== 'kling_o3_omni';
+  const motionSectionBlocksModel = videoState.section === 'motion' && !videoModelSupportsMotionControl(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
   if (editSectionBlocksModel || motionSectionBlocksModel) {
     videoState.modelId = 'kling_o3_omni';
   }
@@ -2937,10 +2961,10 @@ function currentComposerModelList() {
   if (isImageMode()) return filterSylvexTestEntries(IMAGE_MODEL_LIST);
   if (isVideoMode()) {
     const videoModels = filterSylvexTestEntries(VIDEO_MODELS);
-    // Video Edit mode: only show models that actually support it - Motion
-    // Control mode's own picker filtering is a separate, later roadmap
-    // step (7), not this batch, so it still shows the full list.
+    // Video Edit mode: only show models that actually support it.
     if (videoState.section === 'edit') return videoModels.filter((item) => videoModelSupportsEdit(item.id));
+    // Phase 1 Batch 7 (roadmap step 7): same filtering for Motion Control mode.
+    if (videoState.section === 'motion') return videoModels.filter((item) => videoModelSupportsMotionControl(item.id));
     return videoModels;
   }
   if (isMusicMode()) return filterSylvexTestEntries(MUSIC_MODEL_LIST);
