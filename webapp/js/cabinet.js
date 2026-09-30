@@ -23498,13 +23498,88 @@ async function waitGeneration(jobId, options) {
     return { model_mode:'manual' };
   }
 
+  // Phase 1 Batch 8 correction (see
+  // /root/.claude/plans/splendid-moseying-starlight.md, roadmap step 8):
+  // whether a video model is structurally usable inside Grid at all -
+  // prefers the fetched capability registry (avatar/modes, a direct
+  // mirror of Python's VIDEO_MODEL_CONFIG[model_id], see
+  // services/model_capabilities.py register_video_models()) over the
+  // local VIDEO_MODEL_CONFIG mirror, same fail-open pattern as
+  // videoModelSupportsEdit()/videoModelSupportsMotionControl() - the
+  // local data is used only as the additive fallback when no fetched
+  // data has loaded yet, never blended with a fetched result. Both
+  // gridModelsForType('video') (the picker filter) and
+  // gridDefaultModel('video') (the new-node default) call this one
+  // function, so they can never independently drift on which video
+  // models Grid can actually drive.
+  //
+  // Excluded:
+  // - avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar)
+  //   require an avatar_id tied to a Character reference - Grid Mode has
+  //   no Character-reference picker at all (see gridGenerationPayload's
+  //   video branch, which never sets avatar_id/heygen_*), so leaving
+  //   them selectable would run every generation against whatever avatar
+  //   HEYGEN_AVATAR_ID happens to default to server-side, never the one
+  //   the user actually intended. Excluded until Grid gets a Character
+  //   port.
+  // - models whose modes include 'video_effects' (kling_effects) require
+  //   an effect_scene, which only the Kling Effects catalog
+  //   (startVideoTemplateGeneration) ever supplies -
+  //   gridNodeSettingsHtml's video branch has no effect_scene control at
+  //   all, so every Grid generation with this model selected would fail
+  //   server-side with "effect_scene is missing" (_build_video_payload).
+  //
+  // Motion Control models (kling_motion_3_0, kling_motion_2_6,
+  // kling_o3_omni) are deliberately NOT excluded: motion_control needs
+  // both a subject image and a motion/reference video, and Grid's video
+  // node now has ports, payload propagation and validation for both (see
+  // gridGenerationPayload's inputs.video/inputs.image resolution and
+  // validateGridNodeInputs' motion_control check, added alongside this
+  // correction) - nothing about either required input is catalog-only or
+  // missing a Grid control anymore, so these models are structurally
+  // usable here.
+  function gridVideoModelSupported(modelId) {
+    const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+    const fetched = fetchedModels ? fetchedModels[modelId] : null;
+    if (fetched) return !fetched.avatar && !(Array.isArray(fetched.modes) && fetched.modes.includes('video_effects'));
+    // No fetched entry AND no local VIDEO_MODEL_CONFIG entry means this id
+    // is unknown to both capability sources - it must not be treated as
+    // supported just because an empty {} fallback object has no avatar/
+    // video_effects flags to trip. Only a genuinely known, unflagged model
+    // counts as supported.
+    const local = VIDEO_MODEL_CONFIG[modelId];
+    if (!local) return false;
+    return !local.avatar && !(Array.isArray(local.modes) && local.modes.includes('video_effects'));
+  }
+
+  // Phase 1 Batch 8 final correction: the shared fallback resolver for
+  // Grid's video model default, used by gridDefaultModel('video'). The
+  // previous version ended in an unconditional `|| 'seedance_2_fast'`,
+  // which broke the registry-driven guarantee gridVideoModelSupported()
+  // exists to provide - if a fetched capability update ever marked
+  // seedance_2_fast itself as Grid-incompatible, the picker
+  // (gridModelsForType) would hide it while this resolver kept handing it
+  // out anyway. The fallback chain is now built entirely from
+  // gridModelsForType('video')'s own filtered set, so it can never return
+  // a model the picker itself excludes:
+  // 1. keep the current model if the picker still lists it;
+  // 2. else prefer seedance_2_fast, but only if the picker still lists it
+  //    too - the traditional default, not an unconditional escape hatch;
+  // 3. else fall back to whatever the picker's own first entry is.
+  function gridDefaultVideoModel(currentModelId) {
+    const candidates = gridModelsForType('video');
+    if (currentModelId && candidates.some((item) => item.id === currentModelId)) return currentModelId;
+    if (candidates.some((item) => item.id === 'seedance_2_fast')) return 'seedance_2_fast';
+    return candidates.length ? candidates[0].id : '';
+  }
+
   function gridDefaultModel(type) {
     if (type === 'image') return imageState.modelId || IMAGE_MODEL_LIST[0]?.id || 'seedream_5_0_lite';
-    // Fall back past an avatar:true model too - Grid has no Character port
-    // to feed it an avatar_id (see gridModelsForType's video filter), so a
-    // freshly-created node must never default to one even if that's what
-    // the main composer currently has selected.
-    if (type === 'video') return (videoState.modelId && !(VIDEO_MODEL_CONFIG[videoState.modelId] || {}).avatar ? videoState.modelId : '') || 'seedance_2_fast';
+    // A freshly-created node must never default to a video model Grid
+    // can't actually drive (see gridDefaultVideoModel above) even if
+    // that's what the main composer currently has selected - it would be
+    // a default value gridModelsForType's own dropdown no longer offers.
+    if (type === 'video') return gridDefaultVideoModel(videoState.modelId);
     if (type === 'music') return musicState.modelId || MUSIC_MODEL_LIST[0]?.id || 'suno_chirp_5';
     if (type === 'voice') return voiceState.modelId || VOICE_MODEL_LIST[0]?.id || 'elevenlabs_eleven_v3';
     if (type === 'text') return textState.modelId || 'gpt-5.5';
@@ -23663,14 +23738,12 @@ async function waitGeneration(jobId, options) {
 
   function gridModelsForType(type) {
     if (type === 'image') return filterSylvexTestEntries(IMAGE_MODEL_LIST);
-    // avatar:true models (HeyGen Avatar IV/V/III, Cinematic Avatar) require
-    // an avatar_id tied to a Character reference - Grid Mode has no
-    // Character-reference picker at all (see gridGenerationPayload's video
-    // branch, which never sets avatar_id/heygen_*), so leaving them
-    // selectable here would run every generation against whatever avatar
-    // HEYGEN_AVATAR_ID happens to default to server-side, never the one the
-    // user actually intended. Excluded until Grid gets a Character port.
-    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => !(VIDEO_MODEL_CONFIG[item.id] || {}).avatar);
+    // Phase 1 Batch 8 (see /root/.claude/plans/splendid-moseying-starlight.md,
+    // roadmap step 8): which video models Grid can actually drive - see
+    // gridVideoModelSupported() above gridDefaultModel for the full
+    // rationale (avatar/video_effects exclusion, registry-first decision
+    // source, why Motion Control models stay included).
+    if (type === 'video') return filterSylvexTestEntries(VIDEO_MODELS).filter((item) => gridVideoModelSupported(item.id));
     if (type === 'music') return filterSylvexTestEntries(MUSIC_MODEL_LIST);
     if (type === 'voice') return filterSylvexTestEntries(VOICE_MODEL_LIST);
     if (type === 'text') return filterSylvexTestEntries(TEXT_MODEL_LIST);
@@ -24041,14 +24114,35 @@ async function waitGeneration(jobId, options) {
   }
 
   function validateGridNodeInputs(node,inputs) {
+    // A connected upstream image/video (inputs.image/inputs.video,
+    // resolved by resolveGridNodeInputs from an edge into this node's
+    // 'image'/'video' port) is just as valid a source as a locally
+    // attached file - previously only attachments were checked here, so a
+    // node fed purely by a connection would be wrongly flagged as missing
+    // an input even though gridGenerationPayload (below) now actually
+    // uses it. hasImageSource/hasVideoSource fold both cases together.
     const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video');
+    const hasImageSource=hasImage||!!inputs.image?.value,hasVideoSource=hasVideo||!!inputs.video?.value;
     if(node.type==='text'&&!inputs.effective_prompt?.value)missing.push('Инструкция для текста');
     if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
     if(node.type==='video'){
       const mode=node.settings?.generation_mode||'text_to_video';
       if(!inputs.effective_prompt?.value)missing.push('Промпт видео');
-      if(mode==='image_to_video'&&!inputs.image?.value&&!hasImage)missing.push('Исходное изображение');
-      if(mode==='video_edit'&&!hasVideo)missing.push('Исходное видео');
+      if(mode==='image_to_video'&&!hasImageSource)missing.push('Исходное изображение');
+      // video_edit needs a source video only. motion_control needs BOTH a
+      // video (the motion/reference source) AND an image (the subject) -
+      // the Kling provider path's own requires_image gate
+      // (services/video_router.py) includes motion_control alongside
+      // image_to_video, so a motion_control request with no image fails
+      // server-side even though it has a video; catching that here avoids
+      // a request that Grid validation lets through only to fail at the
+      // provider. Previously neither of motion_control's two requirements
+      // was checked here at all.
+      if(mode==='video_edit'&&!hasVideoSource)missing.push('Исходное видео');
+      if(mode==='motion_control'){
+        if(!hasVideoSource)missing.push('Исходное видео');
+        if(!hasImageSource)missing.push('Исходное изображение');
+      }
     }
     if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
     if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
@@ -24096,8 +24190,15 @@ async function waitGeneration(jobId, options) {
     if(mode==='image'){const connected=inputs.image?.value,connectedUrl=connected&&(connected.url||connected.preview_url);const refs=[...(connectedUrl?[connectedUrl]:[]),...attachedImages];imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:refs,referenceImages:refs})}
     if(mode==='video'){
       const image=inputs.image?.value,sourceUrl=(image&&(image.url||image.preview_url))||attachedImages[0]||'';
+      // A connected upstream video (inputs.video, for video_edit/
+      // motion_control) takes precedence over a locally attached video
+      // file, mirroring how the image port above already prefers a
+      // connection over an attachment. Previously this branch never read
+      // inputs.video at all, so a connected video was silently dropped
+      // and only a local attachment ever reached the request.
+      const connectedVideo=inputs.video?.value,sourceVideoUrl=(connectedVideo&&(connectedVideo.url||connectedVideo.preview_url))||attachedVideos[0]||'';
       const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG.seedance_2_fast||{};
-      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:attachedImages[1]||'',image_url:sourceUrl,video_url:attachedVideos[0]||'',video_references:attachedVideos,reference_images:attachedImages,referenceImageUrls:attachedImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
+      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:attachedImages[1]||'',image_url:sourceUrl,input_video:sourceVideoUrl,video_url:sourceVideoUrl,video_references:attachedVideos,reference_images:attachedImages,referenceImageUrls:attachedImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
       provider=config.provider||provider;
     }
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
