@@ -2648,8 +2648,23 @@ function normalizeVideoStateForModel() {
   // kling_o3_omni remains the fixed fallback for both sections (an
   // unconditional exemption from the capability check, not re-verified),
   // matching Edit mode's own accepted behavior.
-  const editSectionBlocksModel = videoState.section === 'edit' && !videoModelSupportsEdit(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
-  const motionSectionBlocksModel = videoState.section === 'motion' && !videoModelSupportsMotionControl(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
+  //
+  // Phase 1 Batch 7 correction: this section-based picker gate must never
+  // run for a catalog-driven dispatch (videoState.videoTemplate is only
+  // ever set by startVideoTemplateGeneration(), for the Motion Catalog's
+  // reference-video templates and the separate Kling Effects catalog).
+  // Those flows pick their own fixed model directly (kling_motion_3_0 /
+  // kling_effects) and are never a user-facing picker - re-verifying their
+  // model against this section's capability list is not just redundant,
+  // it actively breaks them: kling_motion_3_0 has no 'video_edit' mode and
+  // kling_effects has no 'motion_control' mode, so without this guard both
+  // catalogs would get silently snapped to kling_o3_omni on every
+  // dispatch (videoOptionsPayload() calls this function again right
+  // before building the request), which is exactly the "do not fall back
+  // to kling_o3_omni" behavior this correction exists to prevent.
+  const isCatalogDispatch = !!videoState.videoTemplate;
+  const editSectionBlocksModel = !isCatalogDispatch && videoState.section === 'edit' && !videoModelSupportsEdit(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
+  const motionSectionBlocksModel = !isCatalogDispatch && videoState.section === 'motion' && !videoModelSupportsMotionControl(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
   if (editSectionBlocksModel || motionSectionBlocksModel) {
     videoState.modelId = 'kling_o3_omni';
   }
@@ -18384,14 +18399,19 @@ function maybeShowVideoTemplateIntro(force) {
 
   // =====================================================
   // JAVASCRIPT-БЛОК: templatePreferredModel
-  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // Resolves the generation model for the Motion Catalog (the reference-
+  // video-driven video templates catalog - not the Kling Effects catalog,
+  // which always uses the separate fixed 'kling_effects' model at its own
+  // call site). Phase 1 Batch 7 correction (see
+  // /root/.claude/plans/splendid-moseying-starlight.md): the Motion Catalog
+  // is a dedicated fixed-model workflow, not a picker - it must always
+  // dispatch kling_motion_3_0 and never fall back to kling_o3_omni,
+  // regardless of what preferred_model/models the backend template payload
+  // carries (old code here ignored a correct preferred_model and always
+  // resolved to kling_o3_omni - the exact bug this corrects).
   // =====================================================
   function templatePreferredModel(template) {
-    const models = Array.isArray(template && template.models) ? template.models : [];
-    const preferred = String((template && template.preferred_model) || '').trim();
-    if (preferred === 'kling_o3_omni') return preferred;
-    const found = models.find((model) => String(model || '').trim() === 'kling_o3_omni');
-    return found || 'kling_o3_omni';
+    return 'kling_motion_3_0';
   }
 
   // =====================================================
