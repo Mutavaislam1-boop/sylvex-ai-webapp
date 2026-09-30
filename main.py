@@ -17032,6 +17032,38 @@ def validate_image_feature_request(payload: dict) -> Optional[dict]:
 
 
 # =====================================================
+# PYTHON-БЛОК: validate_video_feature_request
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
+def validate_video_feature_request(payload: dict) -> Optional[dict]:
+    # Phase 1 Batch 5 (see /root/.claude/plans/splendid-moseying-starlight.md,
+    # roadmap step 5): mirrors validate_image_feature_request's contract
+    # exactly (Optional[dict], None on success, {"ok": False, ...} on
+    # failure) so it plugs into the same "if feature_error: return
+    # JSONResponse(feature_error, status_code=400)" idiom at this request's
+    # own call site. Unlike the image version, this only ever rejects a
+    # visual reference IMAGE the model can't accept - characterId/
+    # characterName/objectId/objectName (text-only conditioning) are never
+    # checked here and always reach _build_video_payload, since every video
+    # model supports text conditioning today (see
+    # services.model_capabilities._video_character_capability). model_id is
+    # resolved the same way estimate_video_generation_cost() already does
+    # (video_options.model, then top-level payload.model) so this validates
+    # against the exact model the rest of the video request path will use.
+    opts = payload.get("video_options") or payload.get("options") or {}
+    model = (opts.get("model") or payload.get("model") or "").strip()
+    support = model_capabilities_service.video_character_object_visual_reference_supported(model)
+    has_character_visual_reference = bool(opts.get("characterReferences"))
+    has_object_visual_reference = bool(opts.get("objectReferences"))
+    if has_character_visual_reference and not support["character"]:
+        return {"ok": False, "type": "video", "error": "Selected model does not support character reference images", "model": model}
+    if has_object_visual_reference and not support["object"]:
+        return {"ok": False, "type": "video", "error": "Selected model does not support object reference images", "model": model}
+    return None
+
+
+# =====================================================
 # PYTHON-БЛОК: image_dimensions
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -20483,6 +20515,10 @@ async def public_prostudio_generate(request: Request):
                 }, status_code=402)
 
     if mode == "video":
+        feature_error = validate_video_feature_request(payload)
+        if feature_error:
+            return JSONResponse(feature_error, status_code=400)
+
         telegram_id = int(payload.get("telegram_id") or 0)
         cost_estimate = calculate_generation_price(payload)
         payload["price_snapshot"] = cost_estimate.get("price_snapshot") or payload.get("price_snapshot") or {}
