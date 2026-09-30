@@ -7413,7 +7413,12 @@ function closeRemoveObjectMaskEditor(e) {
   const modal = document.getElementById('removeObjectEditorModal');
   if (modal) modal.classList.remove('show');
 }
-function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character')return openVisualCreateModal(e,'character');toast('Слот для нового референса подготовлен')}
+// openVisualCreateModal already supports 'object' just as well as
+// 'character' (see its use from the main composer's Object picker at
+// cabinet.js:11184) - Photo Tools' own "Create" button only checked for
+// 'character', so picking Object in a Photo Tool's library silently fell
+// through to a placeholder toast instead of the real creation modal.
+function createPhotoToolReference(e,kind){if(e){e.preventDefault();e.stopPropagation()}if(kind==='character'||kind==='object')return openVisualCreateModal(e,kind);toast('Слот для нового референса подготовлен')}
 function selectPhotoToolReference(e,url){if(e){e.preventDefault();e.stopPropagation()}const config=PHOTO_TOOL_CONFIG[activePhotoTool],state=photoToolStateFor(activePhotoTool);if(!config||!state||!url)return;const slot=config.library==='character'?1:Math.max(0,config.max-1);state.files[slot]={name:'Референс из каталога',mime:'image/*',url};renderPhotoToolModal()}
 
 function renderPhotoToolCatalog() {
