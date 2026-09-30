@@ -69,6 +69,7 @@ from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
 import services.sylvex_test_provider as sylvex_test_provider
 from services.price_engine import apply_snapshot_to_estimate
+from services import edit_workspace as edit_workspace_service
 from services import assistant_store
 from services.assistant_intents import route_intent, intent_by_id as assistant_intent_by_id
 from services.assistant_openai import stream_assistant_reply, mint_realtime_session
@@ -13464,6 +13465,13 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
     if not source_bytes:
         return image_error_response("topaz", ENHANCE_PHOTO_TOOL_KEY, TOPAZ_ENHANCE_MODEL, TOPAZ_ENHANCE_ENDPOINT, "Не удалось загрузить исходное изображение.")
 
+    edit_upscale = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else None
+    if edit_upscale:
+        try:
+            source_bytes, _ = edit_workspace_service.normalize_source(source_bytes)
+        except (ValueError, OSError):
+            return {"ok": False, "type": "image", "error": "Не удалось прочитать исходное изображение."}
+
     if source_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         content_type, ext = "image/png", "png"
     elif source_bytes.startswith(b"\xff\xd8\xff"):
@@ -13475,7 +13483,6 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
 
     source_width, source_height = _detect_image_dimensions(source_bytes)
     output_width, output_height = enhance_photo_output_dimensions(source_width, source_height)
-    edit_upscale = opts.get("editWorkspaceUpscale") if isinstance(opts.get("editWorkspaceUpscale"), dict) else None
     if edit_upscale:
         try:
             requested_width = max(1, min(24000, int(edit_upscale.get("width") or output_width)))
@@ -13484,7 +13491,10 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
             if pixels > EDIT_UPSCALE_OUTPUT_MAX_PIXELS:
                 scale = math.sqrt(EDIT_UPSCALE_OUTPUT_MAX_PIXELS / pixels)
                 requested_width, requested_height = int(requested_width * scale), int(requested_height * scale)
-            output_width, output_height = requested_width, requested_height
+            expected_width = max(1, round(source_width * requested_height / max(1, source_height)))
+            if abs(requested_width - expected_width) > 1:
+                return {"ok": False, "type": "image", "error": "Upscale сохраняет пропорции исходного изображения."}
+            output_width, output_height = expected_width, requested_height
         except (TypeError, ValueError):
             pass
 
@@ -13504,11 +13514,12 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
             data={"model": TOPAZ_ENHANCE_MODEL, "outputHeight": str(output_height), **({
                 "sharpen": str(max(0, min(1, float(edit_upscale.get("sharpness", 20)) / 100))),
                 "denoise": str(max(0, min(1, float(edit_upscale.get("denoise", 20)) / 100))),
-                "subjectDetection": {"all": "all", "face": "foreground", "none": "all"}.get(str(edit_upscale.get("subject") or "All").lower(), "all"),
+                "subjectDetection": {"all": "all", "foreground": "foreground", "background": "background", "face": "foreground", "none": "all"}.get(str(edit_upscale.get("subject") or "All").lower(), "all"),
                 "faceEnhancement": str(bool(edit_upscale.get("faceEnhancement"))).lower(),
-                "faceEnhancementStrength": str(max(0.01, min(1, float(edit_upscale.get("strength", 80)) / 100))),
+                "faceEnhancementStrength": str(max(0, min(1, float(edit_upscale.get("strength", 80)) / 100))),
                 "faceEnhancementCreativity": str(max(0, min(1, float(edit_upscale.get("creativity", 0)) / 100))),
-                "strength": str(max(0.01, min(1, float(edit_upscale.get("strength", 80)) / 100))),
+                "strength": str(max(0.01, min(1, float(edit_upscale.get("modelStrength", 80)) / 100))),
+                "fixCompression": str(max(0, min(1, float(edit_upscale.get("fixCompression", 0)) / 100))),
             } if edit_upscale else {})},
             files={"image": (f"source.{ext}", source_bytes, content_type)},
             timeout=int(os.getenv("TOPAZ_ENHANCE_TIMEOUT", "60")),
@@ -13586,7 +13597,7 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
     cost_info = enhance_photo_cost_info()
     if edit_upscale:
         output_mp = (output_width * output_height) / 1_000_000
-        provider_credits = 1 if output_mp <= 24 else 2 if output_mp <= 50 else 3 if output_mp <= 64 else 5
+        provider_credits = 1 if output_mp <= 24 else 2 if output_mp <= 40 else 3 if output_mp <= 64 else 5
         provider_cost = TOPAZ_CREDIT_COST_USD * provider_credits
         credits = max(1, int(math.ceil(round(provider_cost * ENHANCE_PHOTO_MARKUP * 100, 6))))
         cost_info = {"credits": credits, "cost_credits": credits, "cost_usd": round(provider_cost * ENHANCE_PHOTO_MARKUP, 4), "provider_cost_usd": round(provider_cost, 4), "generation_cost": f"{credits} ⚡"}
@@ -15449,7 +15460,10 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     Only the workspace's own source and settings are read here.
     """
     opts = payload.get("image_options") or {}
-    mode = str(opts.get("editWorkspaceMode") or "edit").strip().lower()
+    try:
+        mode = edit_workspace_service.validate_options(opts)
+    except ValueError as exc:
+        return {"ok": False, "type": "image", "error": str(exc)}
     source_url = str(opts.get("editWorkspaceSourceUrl") or "").strip()
     if not source_url:
         return {"ok": False, "type": "image", "error": "Загрузите исходное изображение."}
@@ -15466,15 +15480,34 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     if not source_raw:
         return image_error_response("edit", "edit_workspace", "", "", "Could not read workspace source image")
     try:
-        source_png, source_size = normalize_gpt_image_source(source_raw)
+        source_png, source_size = edit_workspace_service.normalize_source(source_raw)
     except Exception as exc:
         return image_error_response("edit", "edit_workspace", "", "", "Could not prepare workspace source image", data={"body_preview": str(exc)[:500]})
+
+    if mode == "resize":
+        size = edit_workspace_service.dimensions(opts.get("editWorkspaceResize") or {})
+        resized = edit_workspace_service.resize_image(source_png, size)
+        try:
+            image_url = storage_put_bytes(resized, generated_key("images", f"edit_{uuid4().hex}.png"), "image/png")
+        except Exception as exc:
+            prostudio_error("EDIT_WORKSPACE_RESIZE_PERSIST_FAILED", exc)
+            image_url = ""
+        if not image_url:
+            return {"ok": False, "type": "image", "error": "Не удалось сохранить изображение."}
+        return {**_build_image_result_without_thumbnails([image_url]), "provider": "local",
+                "model": "edit_workspace", "tool": "edit_workspace", "photo_tool": "edit_workspace",
+                "edit_mode": mode, "source_image_url": source_url, "reference_images": [source_url],
+                "canvas_width": size[0], "canvas_height": size[1], "cost_credits": 0, "cost_usd": 0,
+                "generation_cost": "0 ⚡"}
 
     provider = "openai"
     model = "gpt-image-2.5-sunburst"
     endpoint = f"{OPENAI_API_BASE}/images/edits"
     provider_response = None
     response_data = {}
+    mask_raw = b""
+    expansion = None
+    output_dimensions = source_size
     if mode in {"camera", "lighting"}:
         if not FAL_API_KEY:
             return image_error_response("fal", "edit_workspace", "", "https://queue.fal.run", "FAL_KEY is not configured")
@@ -15491,6 +15524,8 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
                 "vertical_angle": max(-30, min(90, int(float(camera.get("vertical") or 0)))),
                 "zoom": max(0, min(10, float(camera.get("zoom") if camera.get("zoom") is not None else 5))),
                 "additional_prompt": "Preserve the same subject identity, clothing, scene objects, environment and overall style.",
+                "output_format": "png",
+                "num_images": 1,
             }
         else:
             model = "fal-ai/iclight-v2"
@@ -15502,8 +15537,8 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
             if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                 color = "#ffffff"
             layers = light.get("layers") if isinstance(light.get("layers"), list) else []
-            active_index = max(0, min(len(layers) - 1, int(light.get("active") or 0))) if layers else 0
-            direction_layer = layers[active_index] if layers and isinstance(layers[active_index], dict) else light
+            enabled_layers = [layer for layer in layers if isinstance(layer, dict) and layer.get("enabled") is not False and edit_workspace_service.number(layer.get("brightness"), 0, 2, 1) > 0]
+            direction_layer = max(enabled_layers, key=lambda layer: edit_workspace_service.number(layer.get("brightness"), 0, 2, 1)) if enabled_layers else light
             direction_h = max(-100, min(100, int(float(direction_layer.get("horizontal") or 0))))
             direction_v = max(-100, min(100, int(float(direction_layer.get("vertical") or 0))))
             if abs(direction_h) >= abs(direction_v):
@@ -15514,7 +15549,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
             for layer in layers[:8]:
                 if not isinstance(layer, dict):
                     continue
-                if layer.get("enabled") is False:
+                if layer.get("enabled") is False or edit_workspace_service.number(layer.get("brightness"), 0, 2, 1) == 0:
                     continue
                 layer_h = max(-100, min(100, int(float(layer.get("horizontal") or 0))))
                 layer_v = max(-100, min(100, int(float(layer.get("vertical") or 0))))
@@ -15528,6 +15563,9 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
                 "image_url": image_data_uri,
                 "prompt": f"Relight using {len(layer_descriptions) or 1} light source(s): {layers_prompt}. Preserve the subject, identity, objects, environment and composition.",
                 "initial_latent": latent,
+                "image_size": {"width": source_size[0], "height": source_size[1]},
+                "output_format": "png",
+                "num_images": 1,
             }
         headers = {"Authorization": f"Key {FAL_API_KEY}", "Content-Type": "application/json"}
         try:
@@ -15575,9 +15613,32 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     else:
         if not OPENAI_API_KEY:
             return {"ok": False, "type": "image", "error": "Сервис генерации временно недоступен."}
-        prompt = str(payload.get("prompt") or "Edit the image faithfully while preserving the subject's identity and original composition.")
-        files = [("image", ("source.png", source_png, "image/png"))]
-        request_data = {"model": model, "prompt": prompt, "size": "auto", "quality": "high", "n": "1"}
+        prompt = edit_workspace_service.instruction({**opts, "editWorkspaceMode": mode})
+        edit_source = source_png
+        api_mask = b""
+        try:
+            if mode == "retouch":
+                mask_raw = _read_image_bytes_for_generation(str(opts.get("editWorkspaceMaskUrl") or ""))
+                if not mask_raw:
+                    raise ValueError("Не удалось прочитать выделенную область.")
+                from PIL import Image
+                import io
+                with Image.open(io.BytesIO(mask_raw)) as mask_image:
+                    if mask_image.convert("RGBA").getchannel("A").getbbox() is None:
+                        raise ValueError("Выделите область кистью.")
+                api_mask = build_gpt_image_removal_mask(source_png, mask_raw)
+            elif mode == "expand":
+                edit_source, api_mask, output_dimensions, expansion = edit_workspace_service.prepare_expansion(
+                    source_png, opts.get("editWorkspaceExpand") or {})
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "type": "image", "error": str(exc)}
+        files = [("image", ("source.png", edit_source, "image/png"))]
+        if api_mask:
+            files.append(("mask", ("mask.png", api_mask, "image/png")))
+        request_data = {"model": model, "prompt": prompt, "size": edit_workspace_service.output_size(output_dimensions),
+                        "quality": "high", "n": "1", "output_format": "png"}
+        if mode == "background" and opts.get("editWorkspaceBackgroundMode") == "transparent":
+            request_data["background"] = "transparent"
         try:
             provider_response = requests.post(endpoint, headers=openai_auth_headers(), data=request_data, files=files, timeout=int(os.getenv("OPENAI_IMAGE_EDIT_TIMEOUT", "300")))
             response_data = safe_provider_json(provider_response, "openai", endpoint)
@@ -15590,7 +15651,15 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     if not provider_urls:
         return image_error_response(provider, "edit_workspace", model, endpoint, "Provider returned no image", provider_response, response_data)
     try:
-        image_url = _persist_remote_media_url(provider_urls[0], "images", provider=provider)
+        if mode in {"retouch", "expand"}:
+            generated = _read_image_bytes_for_generation(provider_urls[0])
+            if not generated:
+                raise ValueError("Could not read edited image")
+            final_png = (composite_replace_object_inside_mask(source_png, generated, mask_raw) if mode == "retouch"
+                         else edit_workspace_service.composite_expansion(source_png, generated, output_dimensions, expansion))
+            image_url = storage_put_bytes(final_png, generated_key("images", f"edit_{uuid4().hex}.png"), "image/png")
+        else:
+            image_url = _persist_remote_media_url(provider_urls[0], "images", provider=provider)
     except Exception as exc:
         prostudio_error("EDIT_WORKSPACE_RESULT_PERSIST_FAILED", exc, provider=provider, mode=mode)
         return image_error_response(provider, "edit_workspace", model, endpoint, "Could not persist edit result")
@@ -15601,7 +15670,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         "provider": provider, "model": "edit_workspace", "provider_model": model,
         "tool": "edit_workspace", "photo_tool": "edit_workspace", "edit_mode": mode,
         "source_image_url": source_url, "reference_images": [source_url],
-        "canvas_width": source_size[0], "canvas_height": source_size[1],
+        "canvas_width": output_dimensions[0], "canvas_height": output_dimensions[1],
         "cost_credits": int(price.get("credits") or 0), "cost_usd": price.get("cost_usd") or 0,
         "generation_cost": price.get("generation_cost") or "",
     }
@@ -16966,6 +17035,12 @@ def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
 # =====================================================
 def validate_image_feature_request(payload: dict) -> Optional[dict]:
     opts = payload.get("image_options") or {}
+    if is_edit_workspace_request(payload):
+        try:
+            edit_workspace_service.validate_options(opts)
+        except ValueError as exc:
+            return {"ok": False, "type": "image", "error": str(exc)}
+        return None
     model = opts.get("modelId") or opts.get("model") or payload.get("model") or ""
     features = image_model_features(model)
     has_character = bool(opts.get("characterId") or opts.get("characterReferences"))
@@ -18768,7 +18843,7 @@ def estimate_generation_cost(payload: dict) -> dict:
 def calculate_generation_price(payload: dict) -> dict:
     """Single entry point for all new estimates, reservations and settlements."""
     estimate = estimate_generation_cost(payload)
-    if is_edit_workspace_request(payload):
+    if is_edit_workspace_request(payload) and str(payload.get("mode") or payload.get("category") or "image").lower() == "image":
         opts = payload.get("image_options") or {}
         operation = str(opts.get("editWorkspaceMode") or "edit").lower()
         if operation == "upscale":
@@ -18777,10 +18852,12 @@ def calculate_generation_price(payload: dict) -> dict:
                 output_mp = max(0.01, min(100.0, int(settings.get("width") or 2048) * int(settings.get("height") or 2048) / 1_000_000))
             except (TypeError, ValueError):
                 output_mp = 4.0
-            provider_credits = 1 if output_mp <= 24 else 2 if output_mp <= 50 else 3 if output_mp <= 64 else 5
+            provider_credits = 1 if output_mp <= 24 else 2 if output_mp <= 40 else 3 if output_mp <= 64 else 5
             provider_cost = TOPAZ_CREDIT_COST_USD * provider_credits
             credits = max(1, int(math.ceil(round(provider_cost * ENHANCE_PHOTO_MARKUP * 100, 6))))
             estimate = {"credits": credits, "cost_usd": round(provider_cost * ENHANCE_PHOTO_MARKUP, 4), "provider_cost_usd": round(provider_cost, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "model_label": "Topaz High Fidelity V2", "output_megapixels": round(output_mp, 3)}
+        elif operation == "resize":
+            estimate = {"credits": 0, "cost_credits": 0, "cost_usd": 0, "generation_cost": "0 ⚡", "pricing_available": True, "model_label": "Resize"}
         elif operation == "camera":
             provider_cost = 0.035
             model_label = "Qwen Image Edit 2511 Multiple Angles"
@@ -20338,6 +20415,10 @@ async def public_prostudio_generate(request: Request):
             "message": "Pro Studio доступна после активации подписки.",
             "shop_url": SHOP_WEBAPP_URL,
         }, status_code=403)
+    if mode == "image" and is_edit_workspace_request(payload):
+        feature_error = validate_image_feature_request(payload)
+        if feature_error:
+            return JSONResponse(feature_error, status_code=400)
     cost_estimate = calculate_generation_price(payload)
     payload["price_snapshot"] = cost_estimate.get("price_snapshot") or {}
     if not cost_estimate.get("pricing_available", mode in {"image", "video"}):
@@ -20347,7 +20428,7 @@ async def public_prostudio_generate(request: Request):
             "message": "Для выбранной модели ещё нет подтверждённой цены. Запуск остановлен.",
         }, status_code=422)
     required_credits = int(cost_estimate.get("credits") or 0)
-    if required_credits <= 0:
+    if required_credits <= 0 and not edit_workspace_service.is_free_resize(payload):
         return JSONResponse({"ok": False, "error": "pricing_not_configured", "message": "Не удалось определить стоимость генерации."}, status_code=422)
     try:
         active_job = get_active_prostudio_job(telegram_id) if telegram_id else {}
@@ -20824,7 +20905,11 @@ async def run_prostudio_provider_request(
                 job_id, payload, mode, selected_model, selected_provider, text_modes
             )
 
-    result = await provider_call_with_retry(job_id, provider, dispatch_attempt)
+    if mode == "image" and edit_workspace_service.is_free_resize(payload):
+        # Pixel resizing is local work; it needs neither an AI lease nor retry.
+        result = await dispatch_prostudio_provider_request(job_id, payload, mode, selected_model, selected_provider, text_modes)
+    else:
+        result = await provider_call_with_retry(job_id, provider, dispatch_attempt)
     if not isinstance(result, dict) or not result.get("ok"):
         return result, "failed"
 
@@ -21045,7 +21130,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         provider_for_slot = resolve_prostudio_provider_for_slot(
             payload, mode, selected_model, selected_provider
         )
-        circuit = await asyncio.to_thread(
+        local_edit = mode == "image" and edit_workspace_service.is_free_resize(payload)
+        circuit = {"allowed": True} if local_edit else await asyncio.to_thread(
             circuit_before_request,
             DATABASE_URL,
             provider_for_slot,
@@ -21088,11 +21174,10 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 await asyncio.to_thread(defer_prostudio_job_for_provider, job_id)
                 return
         finally:
-            await asyncio.shield(
-                asyncio.to_thread(
-                    circuit_release_probe, DATABASE_URL, provider_for_slot, job_id
+            if not local_edit:
+                await asyncio.shield(
+                    asyncio.to_thread(circuit_release_probe, DATABASE_URL, provider_for_slot, job_id)
                 )
-            )
 
         prostudio_debug(
             "JOB_PROVIDER_RESULT",
