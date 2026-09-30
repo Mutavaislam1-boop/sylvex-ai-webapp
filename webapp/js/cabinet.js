@@ -262,6 +262,12 @@ let imageState = {
     referenceImageUrls: [],
     uploadedImageUrls: [],
     referenceSourceByUrl: {},
+    // In-flight local-photo uploads (see processAttachFile's 'image' branch).
+    // Each entry is {name, size, mime, previewUrl} for a file that was
+    // selected but has not yet been confirmed stored server-side - never a
+    // generation-ready reference. Only a successfully uploaded server URL
+    // ever gets pushed into referenceImageUrls/uploadedImageUrls above.
+    uploading: [],
     attachment: null,
     seed: null,
     // Only meaningful for seedream_5_0_pro (see IMAGE_MODEL_LIST's
@@ -2356,6 +2362,7 @@ const VIDEO_MODELS = [
   { id:'kling_1_6', label:'Kling 1.6', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_1_5', label:'Kling 1.5', desc:'Kling AI video model', icon:'kling' },
   { id:'kling_1_0', label:'Kling 1.0', desc:'Kling AI video model', icon:'kling' },
+  { id:'kling_lip_sync', label:'Kling Lip Sync', desc:'Kling AI lip sync video model', icon:'kling' },
 
   { id:'seedance_1_5_pro', label:'Seedance 1.5 Pro', desc:'ByteDance Seedance video', icon:'seedance' },
   { id:'seedance_2_fast', label:'Seedance 2.0 Fast', desc:'ByteDance Seedance fast video', icon:'seedance', badge:'FAST', badgeClass:'yellow' },
@@ -2434,6 +2441,15 @@ Object.assign(VIDEO_MODEL_CONFIG, {
   kling_1_6: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, multi_image:false, multi_element_editing:false, video_extension:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_1_5: { provider:'kling', modes:['image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_extension:false, start_image:true, end_image:true, video_upload:false, video_edit:false },
   kling_1_0: { provider:'kling', modes:['text_to_video','image_to_video'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:KLING_VIDEO_STANDARD_RESOLUTIONS, sound:false, video_extension:false, start_image:true, end_image:false, video_upload:false, video_edit:false },
+  // Phase 1 roadmap step 9 (see /root/.claude/plans/splendid-moseying-starlight.md):
+  // kling_lip_sync was already fully implemented server-side
+  // (services/video_router.py - dispatch, polling, pricing) but absent
+  // from this picker list and config mirror, so no user could ever select
+  // it. Mirrors services/video_router.py VIDEO_MODEL_CONFIG["kling_lip_sync"]
+  // exactly - resolutions is the literal ["720p"] (not
+  // KLING_VIDEO_STANDARD_RESOLUTIONS), matching the backend's own
+  // single-resolution declaration for this model.
+  kling_lip_sync: { provider:'kling', modes:['lip_sync'], durations:KLING_VIDEO_SHORT_DURATIONS, ratios:KLING_VIDEO_BASE_RATIOS, resolutions:['720p'], sound:true, lip_sync:true, video_input:true, video_upload:true, video_edit:true },
 });
 
 const VIDEO_MOTION_PRESETS = [
@@ -6297,6 +6313,23 @@ function renderVideoReferencesPreview() {
 function renderVideoEditPreview() {
   const button = document.getElementById('videoEditUploadButton');
   if (!button) return;
+  // Phase 1 roadmap step 9: this button is normally only visible while
+  // videoState.section === 'edit' (gated purely by the .video-edit-only
+  // CSS class, see webapp/css/cabinet.css - display:none by default,
+  // display:flex only under [data-video-section="edit"]). A lip_sync-only
+  // model (kling_lip_sync, modes:['lip_sync']) never enters the 'edit'
+  // section - it fails videoModelSupportsEdit()'s modes.includes
+  // ('video_edit') check - so it would otherwise have no way at all to
+  // attach its required source video. The click handler itself
+  // (handleSelectionButtonClick -> openSelectionButton('video_edit') ->
+  // openVideoEditInputUpload -> openNativeFilePicker('video')) has no
+  // section gating of its own, so forcing this button visible here is
+  // sufficient - no new upload plumbing is needed. An inline style
+  // reliably overrides the CSS class (inline styles beat any non-!important
+  // external stylesheet rule) without touching the CSS file or affecting
+  // the button's normal edit-section visibility.
+  const lipSyncActive = !!(currentVideoConfig() || {}).lip_sync;
+  button.style.display = lipSyncActive ? 'flex' : '';
   const uploading = videoState.editUploading || null;
   const url = uploading && uploading.previewUrl ? uploading.previewUrl : currentVideoEditInputUrl();
   let preview = button.querySelector(':scope > .studio-video-edit-preview');
@@ -12426,6 +12459,7 @@ function imageModelButton(model) {
       referenceImages: (referenceImages || []).slice(),
     }, imageVisualReferenceOptions());
     delete payload.referenceSourceByUrl;
+    delete payload.uploading;
     return payload;
   }
 
@@ -16030,8 +16064,9 @@ function uploadPhotoButtonHtml() {
 
     const uploadImages = currentUploadImages();
     const uploadingReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES ? (videoState.referenceUploading || null) : null;
+    const uploadingImages = getUploadTarget() === UPLOAD_TARGETS.IMAGE_UPLOAD ? (imageState.uploading || []) : [];
     const hasVideoReference = getUploadTarget() === UPLOAD_TARGETS.VIDEO_REFERENCES && Boolean(currentVideoReferenceUrl());
-    const hasUploads = uploadImages.length > 0 || hasVideoReference || !!uploadingReference;
+    const hasUploads = uploadImages.length > 0 || hasVideoReference || !!uploadingReference || uploadingImages.length > 0;
 
     grid.classList.toggle('empty', !hasUploads);
 
@@ -16050,6 +16085,13 @@ function uploadPhotoButtonHtml() {
         + '<span class="upload-thumb-check">✓</span>'
         + '<span class="upload-photo-remove" onclick="SYLVEX.removeUploadedPhoto(event,' + index + ')">×</span>'
         + '</button>';
+    });
+    uploadingImages.forEach((entry) => {
+      const safePreview = S.escapeHtml((entry && entry.previewUrl) || '');
+      items.unshift('<button class="upload-photo-thumb upload-media-uploading selected" type="button" aria-label="Фото загружается" disabled>'
+        + (safePreview ? '<img src="' + safePreview + '" alt="uploading photo" />' : '<span class="upload-photo-add-icon" aria-hidden="true">...</span>')
+        + '<span class="uploading-ring" aria-hidden="true"></span>'
+        + '</button>');
     });
     if (uploadingReference) {
       const safePreview = S.escapeHtml(uploadingReference.previewUrl || '');
@@ -16102,6 +16144,9 @@ function uploadPhotoButtonHtml() {
     }
     const target = getUploadTarget();
     applyUploadToTarget(url, target, 'history');
+    if (target === UPLOAD_TARGETS.IMAGE_UPLOAD) {
+      console.info('PHOTO_REFERENCE_SELECTED', { source: 'history', reference_count: imageState.referenceImageUrls.length });
+    }
     renderUploadedPhotoGrid();
     renderUploadPreviewForTarget(target);
     toast('Фото выбрано');
@@ -17847,25 +17892,59 @@ function closeUploadPanel(e) {
     }
     if (pendingKind === 'image') {
       const target = selectedTarget || getUploadTarget();
+      // The backend's /upload-media only ever accepts jpg/jpeg/png/webp
+      // (services/safe_io.py validated_upload_type) - .heic/.heif are not
+      // decodable there (no HEIC codec installed) and would 400. The file
+      // picker's accept attribute (openNativeFilePicker) still lists
+      // .heic/.heif so iOS shows a photo the user just took even before
+      // any in-app conversion, so this is a client-visible, specific
+      // rejection instead of a silent/confusing round trip to the server.
+      const extension = String(f.name || '').split('.').pop().toLowerCase();
+      const looksHeic = /^image\/hei[cf]$/i.test(String(f.type || '')) || extension === 'heic' || extension === 'heif';
+      if (looksHeic) {
+        toast('Формат HEIC не поддерживается. Сохраните фото как JPG или PNG и попробуйте снова');
+        return;
+      }
+      // Show an immediate local preview while the real upload runs, but
+      // never let that preview stand in for a confirmed server reference:
+      // it lives only in imageState.uploading, a separate array from
+      // referenceImageUrls/uploadedImageUrls, and Generate is blocked
+      // (updateSendButton/sendChat) while any entry is still uploading.
+      let previewUrl = '';
+      if (window.URL && URL.createObjectURL) {
+        try { previewUrl = URL.createObjectURL(f); } catch { previewUrl = ''; }
+      }
+      const uploadEntry = { name: f.name, size: f.size || 0, mime: f.type || 'image/jpeg', previewUrl };
+      imageState.uploading = (imageState.uploading || []).concat([uploadEntry]);
+      renderUploadedPhotoGrid();
+      renderUploadPreviewForTarget(target);
+      updateSendButton();
+      console.info('PHOTO_UPLOAD_STARTED', { kind: 'image', mime: uploadEntry.mime, bytes: uploadEntry.size });
       try {
-        const url = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || ''));
-          reader.onerror = () => reject(new Error('Не удалось прочитать фото'));
-          const extension = String(f.name || '').split('.').pop().toLowerCase();
-          const mimeByExtension = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', webp:'image/webp', heic:'image/heic', heif:'image/heif' };
-          const readable = /^image\/(jpeg|png|webp|heic|heif)$/.test(String(f.type || '').toLowerCase())
-            ? f : new Blob([f], { type: mimeByExtension[extension] || 'application/octet-stream' });
-          reader.readAsDataURL(readable);
-        });
-        if (!url.startsWith('data:')) throw new Error('Не удалось прочитать фото');
-        if ((imageReadRevisionByTarget[target] || 0) !== readRevision) return;
+        const url = await uploadProStudioMediaFile(f, 'image');
+        imageState.uploading = (imageState.uploading || []).filter((item) => item !== uploadEntry);
+        if (previewUrl) { try { URL.revokeObjectURL(previewUrl); } catch {} }
+        if ((imageReadRevisionByTarget[target] || 0) !== readRevision) { renderUploadedPhotoGrid(); updateSendButton(); return; }
         applyUploadToTarget(url, target, 'upload');
+        console.info('PHOTO_UPLOAD_COMPLETED', { kind: 'image', bytes: uploadEntry.size });
+        console.info('PHOTO_REFERENCE_SELECTED', { source: 'upload', reference_count: imageState.referenceImageUrls.length });
         renderUploadedPhotoGrid();
         renderUploadPreviewForTarget(target);
+        updateSendButton();
         toast('Фото добавлено');
       } catch (err) {
-        toast((err && err.message) || 'Не удалось добавить фото');
+        imageState.uploading = (imageState.uploading || []).filter((item) => item !== uploadEntry);
+        if (previewUrl) { try { URL.revokeObjectURL(previewUrl); } catch {} }
+        console.info('PHOTO_UPLOAD_FAILED', { kind: 'image', reason: (err && err.message) || 'unknown' });
+        renderUploadedPhotoGrid();
+        renderUploadPreviewForTarget(target);
+        updateSendButton();
+        const uploadErrorMessages = {
+          invalid_image: 'Не удалось распознать фото. Проверьте, что это не HEIC и не повреждённый файл',
+          file_too_large: 'Файл слишком большой (макс. 50 MB)',
+          empty_file: 'Файл пустой, попробуйте другое фото',
+        };
+        toast(uploadErrorMessages[(err && err.message) || ''] || (err && err.message) || 'Не удалось загрузить фото');
       }
       return;
     }
@@ -19375,6 +19454,10 @@ async function buildGenerationRequest(state) {
       has_blob: /blob:/i.test(serializedReferences) || (typeof Blob !== 'undefined' && safeAttachment instanceof Blob),
       has_base64: /(?:base64,|[A-Za-z0-9+/]{128,}={0,2})/.test(serializedReferences),
     });
+    console.info('USER_IMAGE_REFERENCE_COUNT', {
+      client_request_id: payload.client_request_id,
+      count: imageOptions.referenceImageUrls.length,
+    });
     if (/data:/i.test(serializedReferences) || /blob:/i.test(serializedReferences) || /(?:base64,|[A-Za-z0-9+/]{128,}={0,2})/.test(serializedReferences)) {
       throw new Error('Не удалось подготовить изображения для безопасной отправки');
     }
@@ -20130,6 +20213,11 @@ async function waitGeneration(jobId, options) {
     pendingCatalogImageGeneration = null;
     const visibleInputValue = (ta.value || '').trim();
     const v = String(catalogGeneration ? (catalogGeneration.prompt || '') : visibleInputValue).trim();
+    if (isImageMode() && imageState.uploading && imageState.uploading.length) {
+      toast('Фото ещё загружается');
+      clearActiveProStudioJob();
+      return;
+    }
     if (studioMode === 'text' && textState.attachment && textState.attachment.uploading) {
       toast('Файл ещё загружается');
       clearActiveProStudioJob();
@@ -22351,6 +22439,7 @@ async function waitGeneration(jobId, options) {
     const activeAttachment = currentModeAttachment();
     const activeAudioUploads = (isMusicMode() || isVoiceMode()) ? (currentAudioState().uploads || []) : [];
     const textUploading = studioMode === 'text' && !!(textState.attachment && textState.attachment.uploading);
+    const imageUploading = isImageMode() && !!(imageState.uploading && imageState.uploading.length);
     const has = (ta.value || '').trim().length > 0
       || !!activeAttachment
       || !!(activeReferences && activeReferences.length)
@@ -22369,12 +22458,12 @@ async function waitGeneration(jobId, options) {
       : has;
     if (mic && !send.classList.contains('studio-generate')) mic.hidden = has;
     if (send.classList.contains('studio-generate')) {
-      send.disabled = !canGenerate || textUploading;
+      send.disabled = !canGenerate || textUploading || imageUploading;
       send.hidden = false;
       send.setAttribute('aria-label', studioMode === 'text' ? 'Отправить сообщение' : 'Сгенерировать');
       send.title = studioMode === 'text' ? 'Отправить' : 'Сгенерировать';
     } else {
-      send.hidden = !has || textUploading;
+      send.hidden = !has || textUploading || imageUploading;
     }
   }
 
