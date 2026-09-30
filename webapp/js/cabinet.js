@@ -24069,14 +24069,25 @@ async function waitGeneration(jobId, options) {
   }
 
   function validateGridNodeInputs(node,inputs) {
-    const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video');
+    // A connected upstream video (inputs.video, resolved by
+    // resolveGridNodeInputs from an edge into this node's 'video' port) is
+    // just as valid a video source as a locally attached file - previously
+    // only the attachment was checked here, so a video_edit/motion_control
+    // node fed purely by a connection would be wrongly flagged as missing
+    // its video even though gridGenerationPayload (below) now actually
+    // uses it.
+    const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video')||!!inputs.video?.value;
     if(node.type==='text'&&!inputs.effective_prompt?.value)missing.push('Инструкция для текста');
     if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
     if(node.type==='video'){
       const mode=node.settings?.generation_mode||'text_to_video';
       if(!inputs.effective_prompt?.value)missing.push('Промпт видео');
       if(mode==='image_to_video'&&!inputs.image?.value&&!hasImage)missing.push('Исходное изображение');
-      if(mode==='video_edit'&&!hasVideo)missing.push('Исходное видео');
+      // motion_control needs the same source video as video_edit - it was
+      // previously not validated at all, so a node with neither an
+      // attachment nor a connection would silently dispatch with an empty
+      // video source instead of being caught here.
+      if((mode==='video_edit'||mode==='motion_control')&&!hasVideo)missing.push('Исходное видео');
     }
     if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
     if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
@@ -24124,8 +24135,15 @@ async function waitGeneration(jobId, options) {
     if(mode==='image'){const connected=inputs.image?.value,connectedUrl=connected&&(connected.url||connected.preview_url);const refs=[...(connectedUrl?[connectedUrl]:[]),...attachedImages];imageOptions=Object.assign({},settings,{model,modelId:model,referenceImageUrls:refs,referenceImages:refs})}
     if(mode==='video'){
       const image=inputs.image?.value,sourceUrl=(image&&(image.url||image.preview_url))||attachedImages[0]||'';
+      // A connected upstream video (inputs.video, for video_edit/
+      // motion_control) takes precedence over a locally attached video
+      // file, mirroring how the image port above already prefers a
+      // connection over an attachment. Previously this branch never read
+      // inputs.video at all, so a connected video was silently dropped
+      // and only a local attachment ever reached the request.
+      const connectedVideo=inputs.video?.value,sourceVideoUrl=(connectedVideo&&(connectedVideo.url||connectedVideo.preview_url))||attachedVideos[0]||'';
       const config=VIDEO_MODEL_CONFIG[model]||VIDEO_MODEL_CONFIG.seedance_2_fast||{};
-      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:attachedImages[1]||'',image_url:sourceUrl,video_url:attachedVideos[0]||'',video_references:attachedVideos,reference_images:attachedImages,referenceImageUrls:attachedImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
+      videoOptions=Object.assign({},settings,{model,generation_mode:settings.generation_mode||'text_to_video',mode:settings.generation_mode||'text_to_video',start_image:sourceUrl,end_image:attachedImages[1]||'',image_url:sourceUrl,input_video:sourceVideoUrl,video_url:sourceVideoUrl,video_references:attachedVideos,reference_images:attachedImages,referenceImageUrls:attachedImages,native_audio:!!(config.native_audio&&settings.sound),advanced:{native_audio:!!(config.native_audio&&settings.sound)}});
       provider=config.provider||provider;
     }
     if(mode==='music')musicOptions=Object.assign({},settings,{model,lyrics:inputs.lyrics?.value||'',duration_seconds:settings.duration==='auto'?null:Number(settings.duration)});
