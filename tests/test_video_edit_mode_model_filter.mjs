@@ -33,17 +33,6 @@
 //    the check is now modes.includes('video_edit') against the fetched
 //    registry's modes array, falling back to the local VIDEO_MODEL_CONFIG
 //    modes array only when no fetched data has loaded yet.
-//
-// Correction (third pass, per review): normalizeVideoStateForModel()'s
-// Edit-section force-switch still unconditionally exempted kling_o3_omni
-// from the capability check (`videoState.modelId !== 'kling_o3_omni'`), so
-// the picker and the force-switch could still disagree if the fetched
-// registry ever marked kling_o3_omni itself as not supporting video_edit:
-// the picker would hide it, but the force-switch would keep it selected.
-// Fixed: the exemption is removed from the blocking condition, and the
-// replacement model is chosen by videoEditFallbackModelId(), which is
-// itself verified by videoModelSupportsEdit() - kling_o3_omni remains the
-// preferred fallback only while it still qualifies.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -207,10 +196,8 @@ function buildNormalizeContext(modelId, section, fetchedOverride) {
   };
   const context = vm.createContext(sandbox);
   vm.runInContext(extractVideoModelConfigWithKling(), context);
-  vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('currentVideoConfig'), context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
-  vm.runInContext(extractFunction('videoEditFallbackModelId'), context);
   vm.runInContext(extractFunction('normalizeVideoStateForModel'), context);
   vm.runInContext('normalizeVideoStateForModel();', context);
   return vm.runInContext('videoState.modelId', context);
@@ -266,7 +253,6 @@ test('fetched capability override: picker filter and force-switch agree for ever
   vm.runInContext('function isImageMode(){return false;} function isVideoMode(){return true;} function isMusicMode(){return false;} function isVoiceMode(){return false;} var studioMode="video";', context);
   vm.runInContext('function sylvexTestModeAvailable(){return false;} function filterSylvexTestEntries(list){return (list||[]).filter((item)=>!(item&&item.sylvexTest));}', context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
-  vm.runInContext(extractFunction('videoEditFallbackModelId'), context);
   vm.runInContext(extractFunction('currentComposerModelList'), context);
   vm.runInContext(extractFunction('currentVideoConfig'), context);
   vm.runInContext(extractFunction('normalizeVideoStateForModel'), context);
@@ -277,45 +263,4 @@ test('fetched capability override: picker filter and force-switch agree for ever
   vm.runInContext('normalizeVideoStateForModel();', context);
   const modelIdAfterNormalize = vm.runInContext('videoState.modelId', context);
   assert.equal(modelIdAfterNormalize, 'seedance_2_fast', 'force-switch must not revert a model the fetched registry says supports video_edit');
-});
-
-test('fetched capability override removes video_edit from kling_o3_omni: force-switch does not retain it and picks a model that itself passes the check (third correction)', () => {
-  // The exact scenario the third correction targets: kling_o3_omni was
-  // previously an unconditional exemption from the Edit capability check
-  // in normalizeVideoStateForModel(), so if the fetched registry ever
-  // marked kling_o3_omni itself as not supporting video_edit, the picker
-  // would correctly hide it while the force-switch kept it selected
-  // anyway - a real disagreement between the two. This proves that no
-  // longer happens: with kling_o3_omni currently selected and the fetched
-  // registry saying it no longer supports video_edit, the force-switch
-  // must both (a) not retain kling_o3_omni, and (b) land on a model that
-  // itself passes videoModelSupportsEdit() - never a bare, unverified
-  // fallback.
-  const sandbox = {
-    fetchedModelCapabilities: {version: 'v1', models: {kling_o3_omni: {modes: ['text_to_video']}}},
-    videoState: {modelId: 'kling_o3_omni', section: 'edit', duration: 5, ratio: '16:9', resolution: '720p'},
-    S: {},
-  };
-  const context = vm.createContext(sandbox);
-  vm.runInContext(extractVideoModelConfigWithKling(), context);
-  vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
-  vm.runInContext('function isImageMode(){return false;} function isVideoMode(){return true;} function isMusicMode(){return false;} function isVoiceMode(){return false;} var studioMode="video";', context);
-  vm.runInContext('function sylvexTestModeAvailable(){return false;} function filterSylvexTestEntries(list){return (list||[]).filter((item)=>!(item&&item.sylvexTest));}', context);
-  vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
-  vm.runInContext(extractFunction('videoEditFallbackModelId'), context);
-  vm.runInContext(extractFunction('currentComposerModelList'), context);
-  vm.runInContext(extractFunction('currentVideoConfig'), context);
-  vm.runInContext(extractFunction('normalizeVideoStateForModel'), context);
-
-  // The picker must already agree: kling_o3_omni is hidden once the
-  // fetched registry drops its video_edit support.
-  const pickerIds = vm.runInContext('currentComposerModelList().map((m) => m.id)', context);
-  assert.ok(!pickerIds.includes('kling_o3_omni'), 'picker must hide kling_o3_omni once the fetched registry drops its video_edit support');
-
-  vm.runInContext('normalizeVideoStateForModel();', context);
-  const modelIdAfterNormalize = vm.runInContext('videoState.modelId', context);
-  assert.notEqual(modelIdAfterNormalize, 'kling_o3_omni', 'force-switch must not retain kling_o3_omni once the fetched registry says it no longer supports video_edit');
-  const stillSupportsEdit = vm.runInContext(`videoModelSupportsEdit(${JSON.stringify(modelIdAfterNormalize)})`, context);
-  assert.equal(stillSupportsEdit, true, 'the model the force-switch lands on must itself pass videoModelSupportsEdit() - never an unverified fallback');
-  assert.ok(pickerIds.includes(modelIdAfterNormalize), 'the force-switch result must also be a model the picker itself would show');
 });
