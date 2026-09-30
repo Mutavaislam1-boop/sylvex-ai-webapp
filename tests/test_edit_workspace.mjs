@@ -80,6 +80,57 @@ test('zoom anchors the object under the pointer and Fit returns it to center',()
  assert.equal(h.state.viewport.x,-40);assert.equal(h.state.viewport.y,-40);
  h.context.fitEditWorkspace();assert.equal(h.state.zoom,100);assert.equal(h.state.viewport.x,0);assert.equal(h.state.camera.zoom,5);
 });
+test('Fit uses the unobscured area without moving an asymmetric expanded source off center',()=>{
+ const h=harness(),area={width:800,height:500,x:-200,y:-20};
+ const fit=h.context.editWorkspaceFitView(area,{width:1200,height:800},{left:400,right:0,top:0,bottom:200});
+ assert.equal(fit.zoom,50);assert.equal(fit.viewport.x,-100);assert.equal(fit.viewport.y,-70);
+ assert.equal(fit.viewport.x+(0-400)*.5/2,area.x);
+ assert.equal(fit.viewport.y+(200-0)*.5/2,area.y);
+});
+function navigationHarness(){
+ const h=harness(),listeners={},classes=new Set(),captured=new Set();let paints=0;
+ const root={_editView:()=>paints++,querySelector:()=>null};
+ h.context.document.getElementById=id=>id==='editWorkspace'?root:null;
+ h.context.document.addEventListener=(type,fn)=>listeners['document:'+type]=fn;
+ h.context.document.removeEventListener=type=>delete listeners['document:'+type];
+ h.context.window={addEventListener:(type,fn)=>listeners['window:'+type]=fn,removeEventListener:type=>delete listeners['window:'+type]};
+ const stage={tabIndex:-1,setAttribute(){},focus(){},classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)},
+  setPointerCapture:id=>captured.add(id),hasPointerCapture:id=>captured.has(id),releasePointerCapture:id=>captured.delete(id),
+  getBoundingClientRect:()=>({left:0,top:0,width:1400,height:900}),addEventListener:(type,fn)=>listeners[type]=fn};
+ const cleanup=h.context.initEditWorkspaceNavigation(stage);
+ const event=(overrides={})=>({pointerId:1,button:0,clientX:300,clientY:200,deltaX:0,deltaY:0,deltaMode:0,target:{closest:()=>null},preventDefault(){},...overrides});
+ return {...h,stage,listeners,classes,captured,event,cleanup,paints:()=>paints};
+}
+test('drag pans the world without bounds and releases pointer capture',()=>{
+ const h=navigationHarness();h.stage.onpointerdown(h.event());h.stage.onpointermove(h.event({clientX:5300,clientY:-2800}));
+ assert.equal(h.state.viewport.x,5000);assert.equal(h.state.viewport.y,-3000);assert.ok(h.paints()>0);
+ h.stage.onpointerup(h.event());assert.equal(h.captured.size,0);assert.ok(!h.classes.has('is-panning'));
+ h.stage.onpointermove(h.event({clientX:0}));assert.equal(h.state.viewport.x,5000);
+});
+test('trackpad scroll pans, modifier scroll zooms at cursor, and tool switches preserve view',()=>{
+ const h=navigationHarness();h.listeners.wheel(h.event({deltaX:70,deltaY:110}));
+ assert.equal(h.state.viewport.x,-70);assert.equal(h.state.viewport.y,-110);assert.equal(h.state.zoom,100);
+ const anchor={x:-400,y:-250},world={x:anchor.x+70,y:anchor.y+110};
+ h.listeners.wheel(h.event({ctrlKey:true,deltaY:-100}));
+ assert.ok(Math.abs((anchor.x-h.state.viewport.x)/(h.state.zoom/100)-world.x)<1e-9);
+ assert.ok(Math.abs((anchor.y-h.state.viewport.y)/(h.state.zoom/100)-world.y)<1e-9);
+ const view=JSON.stringify({zoom:h.state.zoom,viewport:h.state.viewport});
+ for(const mode of ['camera','lighting','retouch','expand'])h.context.setEditWorkspaceMode(null,mode);
+ assert.equal(JSON.stringify({zoom:h.state.zoom,viewport:h.state.viewport}),view);
+});
+test('retouch background and Space pan while the mask keeps normal strokes; listeners are cleaned up',()=>{
+ const h=navigationHarness();h.state.mode='retouch';
+ const mask={closest:selector=>selector==='#editWorkspaceMask'?{}:null};
+ h.stage.onpointerdown(h.event({target:mask}));assert.equal(h.captured.size,0);
+ h.listeners['document:keydown'](h.event({code:'Space'}));
+ h.stage.onpointerdown(h.event({target:mask}));assert.equal(h.captured.size,1);
+ h.stage.onpointercancel(h.event());h.listeners['document:keyup'](h.event({code:'Space'}));
+ h.stage.onpointerdown(h.event());assert.equal(h.captured.size,1);
+ h.stage.onpointerup(h.event());h.state.busy=true;
+ const view=JSON.stringify(h.state.viewport);h.listeners.wheel(h.event({deltaY:80}));h.stage.onkeydown(h.event({key:'+'}));
+ assert.equal(JSON.stringify(h.state.viewport),view);assert.equal(h.state.zoom,100);
+ h.cleanup();assert.ok(!h.listeners['document:keydown']);assert.ok(!h.listeners['document:keyup']);assert.ok(!h.listeners['window:blur']);
+});
 test('camera settings survive tool changes and cannot be modified during generation',()=>{
  const h=harness();h.context.updateEditCamera({horizontal:122,vertical:11,zoom:2.5});h.context.setEditWorkspaceMode(null,'retouch');h.context.setEditWorkspaceMode(null,'camera');
  assert.equal(h.state.camera.horizontal,122);h.state.busy=true;h.context.updateEditCamera({horizontal:90});assert.equal(h.state.camera.horizontal,122);
