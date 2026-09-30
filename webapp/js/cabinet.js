@@ -14987,6 +14987,26 @@ function renderGeneratedTelegramButton(url, kind) {
     const url = String(raw || '').trim();
     if (!url) return;
 
+    // Text mode's attach-by-URL counterpart to attach()'s file-picker
+    // routing above - same textState.attachment shape and the same
+    // capability-gated model/tool auto-switch processAttachFile already
+    // applies for an uploaded file, so a pasted URL behaves identically.
+    if (studioMode === 'text' && (kind === 'image' || kind === 'video')) {
+      textState.attachment = { kind, url, name: '', mime: kind === 'video' ? 'video/mp4' : 'image/png', size: 0 };
+      pendingAttachment = textState.attachment;
+      if (kind === 'video') {
+        selectGeminiForTextMedia();
+        if (!textState.tool || textState.tool === 'text') textState.tool = 'video_prompt';
+      } else {
+        selectVisionModelForTextImage();
+        if (textState.tool === 'text') textState.tool = 'image_prompt';
+      }
+      renderTextControls();
+      updateSendButton();
+      toast('Ссылка добавлена');
+      return;
+    }
+
     if (isVideoMode()) {
       if (kind === 'video') {
         if (getUploadTarget() === UPLOAD_TARGETS.VIDEO_EDIT_INPUT) {
@@ -15957,14 +15977,18 @@ function restoreImageStateFromGenerationMetadata(meta) {
   // Falls back to a fixed default, never to the live imageState value - this
   // restore's whole purpose is to reproduce the ORIGINAL generation's
   // settings; falling back to whatever the composer currently happens to
-  // hold would silently mix in an unrelated generation's model/size/count
-  // whenever older metadata is missing one of these fields.
+  // hold would silently mix in an unrelated generation's model/size/count/
+  // style/character/objects whenever older metadata is missing one of
+  // these fields. (Two prior fixes on this same file mistakenly left the
+  // style/character/objects lines with `|| imageState.X` still in the
+  // middle of the chain - it still wins over the final default whenever
+  // the live value happens to be non-empty, since it's checked first.)
   imageState.modelId = meta.model || settings.modelId || 'seedream_5_0_lite';
   imageState.size = meta.size || meta.ratio || settings.size || settings.ratio || '';
   imageState.count = Number(meta.count || settings.count || 1);
-  imageState.style = meta.style || settings.style || imageState.style || 'auto';
-  imageState.character = meta.character || settings.character || imageState.character || 'auto';
-  imageState.objects = meta.objectName || meta.objects || settings.objects || imageState.objects || '';
+  imageState.style = meta.style || settings.style || 'auto';
+  imageState.character = meta.character || settings.character || 'auto';
+  imageState.objects = meta.objectName || meta.objects || settings.objects || '';
   imageState.characterId = meta.characterId || settings.characterId || null;
   imageState.characterName = meta.characterName || settings.characterName || '';
   imageState.characterReferences = Array.isArray(meta.characterReferences) ? meta.characterReferences.slice() : (Array.isArray(settings.characterReferences) ? settings.characterReferences.slice() : []);
@@ -16766,6 +16790,7 @@ function closeUploadPanel(e) {
     else if (kind === 'voice_video') { inp.accept = 'video/*'; pendingAttachAccept = 'voice_media'; }
     else if (kind === 'voice_document') { inp.accept = '.txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'voice_document'; }
     else if (kind === 'voice_media') { inp.accept = 'audio/*,video/*'; pendingAttachAccept = 'voice_media'; }
+    else if (kind === 'text_image') { inp.accept = 'image/*,.heic,.heif'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_audio') { inp.accept = '.wav,.mp3,.aiff,.aif,.aac,.ogg,.oga,.flac,audio/wav,audio/mpeg,audio/aiff,audio/aac,audio/ogg,audio/flac'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_video') { inp.accept = '.mp4,.mpeg,.mpg,.mov,.avi,.flv,.webm,.wmv,.3gp,video/mp4,video/mpeg,video/quicktime,video/x-msvideo,video/x-flv,video/webm,video/x-ms-wmv,video/3gpp'; pendingAttachAccept = 'text_media'; }
     else if (kind === 'text_document') { inp.accept = '.txt,.md,.json,.csv,.pdf,.doc,.docx,text/plain,application/pdf,application/json,text/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; pendingAttachAccept = 'text_document'; }
@@ -16827,6 +16852,22 @@ function closeUploadPanel(e) {
     if (target && target.preventDefault) {
       e = target;
       target = '';
+    }
+    // Text mode's "attach + describe/create a prompt from it" flow
+    // (M-060) - the plusSheet's Photo/Video/Audio/File buttons had no
+    // Text-mode routing at all here, so they fell through to the
+    // image-generation reference-upload default below, which is the wrong
+    // destination in Text mode. Routes into the same text_image/text_video/
+    // text_audio/text_document pickers openNativeFilePicker already
+    // supports, so processAttachFile's existing studioMode==='text' branch
+    // (textState.attachment, capability-gated tool/model auto-switch) picks
+    // it up unchanged.
+    if (studioMode === 'text') {
+      if (kind === 'video') { openNativeFilePicker('text_video'); return; }
+      if (kind === 'audio') { openNativeFilePicker('text_audio'); return; }
+      if (kind === 'file') { openNativeFilePicker('text_document'); return; }
+      openNativeFilePicker('text_image');
+      return;
     }
     if (isMusicMode()) {
       openNativeFilePicker('music_audio');
