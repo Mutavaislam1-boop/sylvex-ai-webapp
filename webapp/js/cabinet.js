@@ -17892,19 +17892,11 @@ function closeUploadPanel(e) {
     }
     if (pendingKind === 'image') {
       const target = selectedTarget || getUploadTarget();
-      // The backend's /upload-media only ever accepts jpg/jpeg/png/webp
-      // (services/safe_io.py validated_upload_type) - .heic/.heif are not
-      // decodable there (no HEIC codec installed) and would 400. The file
-      // picker's accept attribute (openNativeFilePicker) still lists
-      // .heic/.heif so iOS shows a photo the user just took even before
-      // any in-app conversion, so this is a client-visible, specific
-      // rejection instead of a silent/confusing round trip to the server.
-      const extension = String(f.name || '').split('.').pop().toLowerCase();
-      const looksHeic = /^image\/hei[cf]$/i.test(String(f.type || '')) || extension === 'heic' || extension === 'heif';
-      if (looksHeic) {
-        toast('Формат HEIC не поддерживается. Сохраните фото как JPG или PNG и попробуйте снова');
-        return;
-      }
+      // The backend now decodes .heic/.heif itself (pillow-heif) and
+      // re-encodes to JPEG before storage - see
+      // public_prostudio_upload_media in main.py - so a HEIC/HEIF photo
+      // (the default iPhone camera format the file picker's accept
+      // attribute already lists) is uploaded exactly like any other image.
       // Show an immediate local preview while the real upload runs, but
       // never let that preview stand in for a confirmed server reference:
       // it lives only in imageState.uploading, a separate array from
@@ -17940,9 +17932,10 @@ function closeUploadPanel(e) {
         renderUploadPreviewForTarget(target);
         updateSendButton();
         const uploadErrorMessages = {
-          invalid_image: 'Не удалось распознать фото. Проверьте, что это не HEIC и не повреждённый файл',
+          invalid_image: 'Не удалось распознать фото. Возможно, файл повреждён',
           file_too_large: 'Файл слишком большой (макс. 50 MB)',
           empty_file: 'Файл пустой, попробуйте другое фото',
+          'Could not read this HEIC photo': 'Не удалось прочитать это HEIC-фото. Попробуйте другое фото',
         };
         toast(uploadErrorMessages[(err && err.message) || ''] || (err && err.message) || 'Не удалось загрузить фото');
       }

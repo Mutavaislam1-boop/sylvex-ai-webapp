@@ -7,12 +7,16 @@ test_web_auth_config_endpoint.py for the same pattern), so no TestClient/
 app lifecycle or database is needed - this endpoint never touches the DB.
 
 Confirmed root causes for the reported "upload-media returned HTTP 400"
-production symptom, both covered below:
+production symptom:
 
 1. The frontend file picker's accept attribute (openNativeFilePicker in
    cabinet.js) lists .heic/.heif, but this endpoint's allowed_exts for
-   images has only ever been {.jpg, .jpeg, .png, .webp} - an iPhone user
-   picking a HEIC photo gets an immediate 400 "Unsupported media format".
+   images had only ever been {.jpg, .jpeg, .png, .webp} - an iPhone user
+   picking a HEIC photo got an immediate 400 "Unsupported media format".
+   Fixed by decoding HEIC/HEIF (via pillow-heif) and re-encoding as JPEG
+   before storage - every downstream consumer (preview <img>, AI
+   providers, validated_upload_type's own dimension check) then sees a
+   plain, already-supported image like any other upload.
 2. services.safe_io.validated_upload_type rejects an image wider*taller
    than 40,000,000 pixels with SecurityError("invalid_image", 400) - a
    plausible real trip for a modern phone's high-resolution camera output.
@@ -21,6 +25,14 @@ production symptom, both covered below:
    all, making a report like "we saw upload-media return 400" completely
    undiagnosable from backend logs alone. UPLOAD_MEDIA_REJECTED closes
    that gap without changing the response the client receives.
+
+test_route_is_registered_as_a_post_endpoint below guards against a real
+regression this file's own diagnostic-logging change briefly introduced:
+the helper functions added ahead of the route ended up between
+`@app.post(...)` and the actual `async def public_prostudio_upload_media`,
+so the decorator silently registered the wrong function as the handler.
+Every other test here calls the route function directly and would not
+have caught that - only inspecting main.app.routes does.
 """
 import asyncio
 import io
@@ -64,6 +76,15 @@ def _oversized_jpeg_bytes():
     return buffer.getvalue()
 
 
+def _tiny_heic_bytes():
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64), color=(200, 100, 50)).save(buffer, format="HEIF", quality=90)
+    return buffer.getvalue()
+
+
 @pytest.fixture(autouse=True)
 def _local_storage(monkeypatch, tmp_path):
     import services.storage as storage
@@ -71,6 +92,16 @@ def _local_storage(monkeypatch, tmp_path):
     monkeypatch.setattr(storage, "R2_BUCKET", "")
     monkeypatch.setattr(storage, "DATABASE_URL", "")
     monkeypatch.setattr(storage, "LOCAL_GENERATED_DIR", tmp_path / "generated")
+
+
+def test_route_is_registered_as_a_post_endpoint():
+    matched = [r for r in main.app.routes if getattr(r, "path", None) == "/api/public/prostudio/upload-media"]
+    assert matched, "upload-media route is not registered on the FastAPI app at all"
+    assert matched[0].endpoint is main.public_prostudio_upload_media, (
+        "the @app.post(...) decorator is bound to the wrong function - "
+        "check nothing sits between it and 'async def public_prostudio_upload_media'"
+    )
+    assert "POST" in matched[0].methods
 
 
 def test_valid_jpeg_upload_succeeds_and_returns_a_usable_url():
@@ -82,8 +113,28 @@ def test_valid_jpeg_upload_succeeds_and_returns_a_usable_url():
     assert not result["url"].startswith("data:")
 
 
-def test_heic_extension_is_rejected_with_400_and_logs_the_specific_reason(capsys):
-    upload = FakeUploadFile("IMG_0001.HEIC", "image/heic", b"not-a-real-decoder-input")
+@pytest.mark.skipif(not main.HEIC_UPLOAD_SUPPORTED, reason="pillow-heif not installed in this environment")
+def test_heic_upload_is_decoded_and_stored_as_a_real_jpeg():
+    upload = FakeUploadFile("IMG_0001.HEIC", "image/heic", _tiny_heic_bytes())
+    result = asyncio.run(main.public_prostudio_upload_media(file=upload, kind="image"))
+    assert result["ok"] is True
+    assert result["kind"] == "image"
+    assert result["content_type"] == "image/jpeg"
+    assert result["url"].lower().endswith(".jpg")
+
+
+@pytest.mark.skipif(not main.HEIC_UPLOAD_SUPPORTED, reason="pillow-heif not installed in this environment")
+def test_corrupt_heic_is_rejected_with_400_and_logged(capsys):
+    upload = FakeUploadFile("IMG_0002.heic", "image/heic", b"not-a-real-heic-file")
+    response = asyncio.run(main.public_prostudio_upload_media(file=upload, kind="image"))
+    assert response.status_code == 400
+    log_output = capsys.readouterr().out
+    assert "UPLOAD_MEDIA_REJECTED" in log_output
+    assert "heic_decode_failed" in log_output
+
+
+def test_other_unsupported_extension_is_rejected_with_400_and_logs_the_specific_reason(capsys):
+    upload = FakeUploadFile("clip.gif", "image/gif", b"GIF89a")
     response = asyncio.run(main.public_prostudio_upload_media(file=upload, kind="image"))
     assert response.status_code == 400
     body = response.body.decode()
@@ -116,7 +167,7 @@ def test_empty_file_is_rejected_with_400_and_logged():
 def test_rejection_never_swaps_in_a_generic_bad_request_message(capsys):
     # Phase 2's explicit constraint: never replace the real error with a
     # generic "Bad Request" - the specific reason must survive to the log.
-    upload = FakeUploadFile("IMG_0001.HEIC", "image/heic", b"x")
+    upload = FakeUploadFile("clip.gif", "image/gif", b"x")
     asyncio.run(main.public_prostudio_upload_media(file=upload, kind="image"))
     log_output = capsys.readouterr().out
     assert "reason" in log_output and "unsupported_extension" in log_output
