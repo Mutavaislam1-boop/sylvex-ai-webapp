@@ -9476,3 +9476,29 @@ html.web-embed .studio-layout-switch{display:none!important}
 .edit-workspace-action-row>button:not(.edit-workspace-generate),.edit-workspace-action-row select,.edit-workspace-model-label,.edit-workspace-canvas-actions button,.edit-workspace-change-image,.edit-workspace-close{border-color:var(--edit-border);border-radius:var(--edit-radius-small);background:var(--edit-surface-raised);color:var(--edit-text)}
 .edit-workspace-close{border-radius:var(--edit-radius-medium)}
 .edit-workspace-action textarea::placeholder,.edit-workspace-action-row output,.edit-workspace-range output{color:var(--edit-muted)}
+
+/* Edit workspace: image-sized selection canvas and room for each tool. */
+body.edit-workspace-open{overflow:hidden}
+.edit-workspace-stage{box-sizing:border-box;inset:20px 20px 220px;padding:24px;overflow:auto}
+.edit-workspace[data-mode="camera"] .edit-workspace-stage,.edit-workspace[data-mode="lighting"] .edit-workspace-stage,.edit-workspace[data-mode="upscale"] .edit-workspace-stage,.edit-workspace[data-mode="translate"] .edit-workspace-stage{right:430px;bottom:145px}
+.edit-workspace-frame{position:relative;flex:none;box-shadow:0 14px 48px #0006;background-color:#c7c7c7;background-image:linear-gradient(45deg,#eee 25%,transparent 25%),linear-gradient(-45deg,#eee 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eee 75%),linear-gradient(-45deg,transparent 75%,#eee 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}
+.edit-workspace-frame .edit-workspace-image{position:absolute;max-width:none;max-height:none;transform:none;box-shadow:none;object-fit:fill;user-select:none;-webkit-user-drag:none}
+#editWorkspaceMask{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair;opacity:.55}
+.edit-workspace-action{width:min(880px,calc(100vw - 80px))}
+.edit-workspace-action-row label input[type="checkbox"]{width:17px;height:17px;accent-color:var(--edit-primary)}
+.edit-workspace[data-mode="expand"] .edit-workspace-stage{bottom:275px}
+.edit-workspace[data-mode="expand"] .edit-workspace-action-row label input{width:64px}
+.edit-workspace-status{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:90vw;color:var(--edit-muted,#aaa);font-size:11px;text-align:center;pointer-events:none}
+.edit-workspace-canvas-actions{top:18px;bottom:auto;right:70px;transform:none;max-width:calc(100% - 100px);flex-wrap:wrap}
+.edit-workspace[data-busy="true"] button,.edit-workspace[data-busy="true"] input{cursor:wait}
+.edit-workspace.is-dragging::after{content:'Drop image to open';position:absolute;inset:12px;z-index:10;display:grid;place-items:center;border:2px dashed #9890ff;border-radius:18px;background:#151327dd;color:#fff;font-size:24px;pointer-events:none}
+.edit-workspace-language-list button[hidden]{display:none}
+.edit-workspace :focus-visible{outline:2px solid #aaa0ff;outline-offset:3px}
+@media(min-width:1000px) and (max-width:1320px){.edit-workspace[data-mode="camera"] .edit-workspace-stage,.edit-workspace[data-mode="lighting"] .edit-workspace-stage,.edit-workspace[data-mode="upscale"] .edit-workspace-stage,.edit-workspace[data-mode="translate"] .edit-workspace-stage{right:370px}}
+/* Compact tool dock, matching the DaVinci reference; names remain accessible. */
+.edit-workspace-dock{border-radius:999px;background:#242426eb;backdrop-filter:blur(18px);height:55px}
+.edit-workspace-tab{border-radius:999px;min-width:42px}
+.edit-workspace-tab:not(.active) span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.edit-workspace-tab.active{padding-inline:17px}
+.edit-workspace-action{border-radius:24px;background:#242426e8;backdrop-filter:blur(18px)}
+.edit-workspace-action-row button:disabled{opacity:.4;cursor:default}
