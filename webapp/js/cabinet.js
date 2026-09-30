@@ -6768,7 +6768,7 @@ function openPhotoCatalogTool(e, id) { closePhotoCatalog(e); openPhotoToolModal(
 function createEditWorkspaceState() {
   return {mode:'edit',sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
     width:0,height:0,showBefore:false,history:[],maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
-    light:{layers:[{horizontal:0,vertical:0,brightness:1,color:'#ffffff',enabled:true}],active:0},
+    light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:128,right:128,top:128,bottom:128},
     backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
@@ -6797,11 +6797,11 @@ function editCameraHorizontalAt(point) {
   const wx=(.341*x-.4226*y)/det,wz=(.159*x+.9063*y)/det;
   return (Math.atan2(wx,wz)*180/Math.PI+360)%360;
 }
-function editCameraVerticalAt(point,horizontal,previous=0) {
+function editCameraVerticalAt(point,horizontal,previous=0,minimum=-30,maximum=90) {
   // Closest point on the half-orbit; proximity to the last angle resolves
   // the edge-on view without jumping to the other side of the orbit.
   let best=previous,distance=Infinity;
-  for(let value=-30;value<=90;value+=.25){
+  for(let value=minimum;value<=maximum;value+=.25){
     const p=editCameraProject(horizontal,value,100),score=(p.x-point.x)**2+(p.y-point.y)**2+Math.abs(value-previous)*.002;
     if(score<distance){distance=score;best=value;}
   }
@@ -6911,6 +6911,155 @@ function updateEditCamera(patch,animate=false) {
 function initEditCameraOrbit() {
   const root=document.getElementById('editWorkspace'),host=root?.querySelector('#editCameraOrbit');if(!host)return;
   root._cameraOrbit=new EditCameraOrbit(host,editWorkspaceState.camera,editWorkspaceState.sourcePreview||editWorkspaceState.sourceUrl,patch=>updateEditCamera(patch),editWorkspaceLocked);
+}
+function editLightValues(value) {
+  const limits={horizontal:[0,360,45],vertical:[-90,90,30],brightness:[0,2,1]};
+  const light=Object.fromEntries(Object.entries(limits).map(([key,[min,max,fallback]])=>{
+    const number=Number(value?.[key] ?? fallback);
+    return [key,Math.round(Math.max(min,Math.min(max,Number.isFinite(number)?number:fallback))*10)/10];
+  }));
+  return {...light,color:/^#[0-9a-f]{6}$/i.test(value?.color)?value.color.toLowerCase():'#ffffff',enabled:value?.enabled!==false};
+}
+function editLightDescription(lighting) {
+  const sources=lighting.layers.map((raw,index)=>({light:editLightValues(raw),index})).filter(({light})=>light.enabled&&light.brightness>0);
+  return `Relight using ${sources.length} light source(s): `+sources.map(({light:l,index})=>`source ${index+1}: color ${l.color}, azimuth ${l.horizontal} degrees, elevation ${l.vertical} degrees, brightness ${l.brightness}/2`).join('; ')+'. Azimuth 0 front, 90 image-right, 180 back, 270 image-left; positive elevation above, negative below. Preserve the subject and scene; change only illumination and shadows.';
+}
+class EditLightOrbit {
+  constructor(host,lighting,image,onChange,onSelect,disabled) {
+    this.host=host;this.onChange=onChange;this.onSelect=onSelect;this.disabled=disabled;this.frame=0;this.drag=null;
+    this.current=editLightValues(lighting.layers[lighting.active]);
+    const safe=v=>S.escapeHtml(String(v));
+    host.innerHTML=`<svg viewBox="0 0 340 280" class="edit-light-svg" aria-label="Положение источников света вокруг фото">
+      <defs><clipPath id="edit-light-photo-clip"><rect x="149" y="126" width="42" height="50" rx="3"/></clipPath></defs>
+      <path data-light-orbit="grid" class="edit-light-grid"/>
+      <path data-light-orbit="horizontal" class="edit-light-ring horizontal" data-light-drag="horizontal"/>
+      <path data-light-orbit="vertical" class="edit-light-ring vertical" data-light-drag="vertical"/>
+      <g data-light-beams></g>
+      <g class="edit-light-subject"><rect x="146" y="123" width="48" height="56" rx="4"/><image x="149" y="126" width="42" height="50" preserveAspectRatio="xMidYMid slice" clip-path="url(#edit-light-photo-clip)" href="${safe(image||'')}"/><text x="170" y="156" text-anchor="middle" ${image?'visibility="hidden"':''}>＋</text></g>
+      <g data-light-lamps></g>
+      <g data-light-handle="horizontal" data-light-drag="horizontal" class="edit-light-handle horizontal" tabindex="0" role="slider" aria-label="Горизонтальный угол света" aria-valuemin="0" aria-valuemax="360"><circle class="hit" r="16"/><circle class="dot" r="6"/></g>
+      <g data-light-handle="vertical" data-light-drag="vertical" class="edit-light-handle vertical" tabindex="0" role="slider" aria-label="Вертикальный угол света" aria-valuemin="-90" aria-valuemax="90"><circle class="hit" r="16"/><circle class="dot" r="6"/></g>
+      <text class="edit-camera-axis" x="17" y="24">СВЕТ <tspan data-light-number></tspan></text><text class="edit-camera-axis" x="323" y="24" text-anchor="end">360°</text>
+      <text class="edit-camera-label" x="170" y="269" text-anchor="middle" data-light-readout></text>
+    </svg><div class="edit-light-legend"><span><i></i>Горизонталь</span><span><i></i>Высота</span><span>Луч → фото</span></div>`;
+    this.svg=host.querySelector('svg');
+    // A projected floor grid shares the orbit's world coordinates.
+    const project=(x,z)=>({x:170+.9063*x+.4226*z,y:166-.159*x+.341*z});
+    const grid=[];
+    for(let n=-180;n<=180;n+=20){grid.push(editCameraPath([project(n,-180),project(n,180)]),editCameraPath([project(-180,n),project(180,n)]));}
+    this.svg.querySelector('[data-light-orbit="grid"]').setAttribute('d',grid.join(' '));
+    this.svg.querySelector('[data-light-orbit="horizontal"]').setAttribute('d',editCameraPath(Array.from({length:73},(_,i)=>editCameraProject(i*5,0,140)))+' Z');
+    this.layers=lighting.layers.map(editLightValues);this.active=lighting.active;
+    this.svg.querySelector('[data-light-beams]').innerHTML=this.layers.map((_,i)=>`<path data-light-beam="${i}" class="edit-light-beam"/>`).join('');
+    this.svg.querySelector('[data-light-lamps]').innerHTML=this.layers.map((_,i)=>`<g data-light-source="${i}" class="edit-light-lamp" tabindex="0" role="button" aria-label="Выбрать свет ${i+1}"><circle class="hit" r="19"/><circle class="halo" r="22"/><path class="lamp-top" d="M-11-5L0-10L11-5L0 0Z"/><path class="lamp-left" d="M-11-5L0 0V11L-11 5Z"/><path class="lamp-right" d="M0 0L11-5V5L0 11Z"/><text x="16" y="-10">${i+1}</text></g>`).join('');
+    this.paint(this.current);
+    this.svg.onpointerdown=e=>{
+      if(this.disabled()||e.button!==0)return;
+      const source=e.target.closest('[data-light-source]');
+      if(source){e.preventDefault();this.onSelect(Number(source.dataset.lightSource));return;}
+      const target=e.target.closest('[data-light-drag]');if(!target)return;
+      e.preventDefault();this.cancelAnimation();this.drag={key:target.dataset.lightDrag,id:e.pointerId};
+      this.svg.setPointerCapture(e.pointerId);target.closest('[tabindex]')?.focus({preventScroll:true});this.move(e);
+    };
+    this.svg.onpointermove=e=>{if(this.drag?.id===e.pointerId){e.preventDefault();this.move(e);}};
+    this.svg.onpointerup=this.svg.onpointercancel=this.svg.onlostpointercapture=e=>{if(this.drag?.id===e.pointerId)this.drag=null;};
+    this.svg.onkeydown=e=>{
+      if(this.disabled())return;
+      if(e.target.dataset.lightSource!==undefined&&['Enter',' '].includes(e.key)){e.preventDefault();this.onSelect(Number(e.target.dataset.lightSource));return;}
+      const key=e.target.dataset.lightDrag;if(!key)return;
+      const delta=['ArrowUp','ArrowRight'].includes(e.key)?1:['ArrowDown','ArrowLeft'].includes(e.key)?-1:0;
+      if(!delta&&!['Home','End'].includes(e.key))return;e.preventDefault();e.stopPropagation();
+      const min=key==='vertical'?-90:0,max=key==='vertical'?90:360;
+      this.onChange({[key]:e.key==='Home'?min:e.key==='End'?max:this.current[key]+delta*(e.shiftKey?10:1)});
+    };
+  }
+  move(event) {
+    if(this.disabled()||!this.drag)return;
+    const matrix=this.svg.getScreenCTM();if(!matrix)return;
+    const point=this.svg.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
+    const p=point.matrixTransform(matrix.inverse()),key=this.drag.key;
+    this.onChange({[key]:key==='horizontal'?editCameraHorizontalAt(p):editCameraVerticalAt(p,this.current.horizontal,this.current.vertical,-90,90)});
+  }
+  paint(light) {
+    this.current={...light};
+    const arc=editCameraPath(Array.from({length:73},(_,i)=>editCameraProject(light.horizontal,-90+i*2.5,100)));
+    this.svg.querySelector('[data-light-orbit="vertical"]').setAttribute('d',arc);
+    this.layers.forEach((stored,index)=>{
+      const l=index===this.active?light:stored,position=editCameraProject(l.horizontal,l.vertical,118);
+      const dx=170-position.x,dy=151-position.y,length=Math.hypot(dx,dy)||1,px=-dy/length*19,py=dx/length*19;
+      const beam=this.svg.querySelector(`[data-light-beam="${index}"]`),lamp=this.svg.querySelector(`[data-light-source="${index}"]`);
+      const on=l.enabled&&l.brightness>0;
+      beam.setAttribute('d',editCameraPath([position,{x:170+px,y:151+py},{x:170-px,y:151-py}])+' Z');
+      beam.setAttribute('fill',l.color);beam.setAttribute('opacity',on?(.06+l.brightness*.12):0);
+      lamp.setAttribute('transform',`translate(${position.x} ${position.y})`);lamp.style.setProperty('--light-color',l.color);
+      lamp.classList.toggle('active',index===this.active);lamp.classList.toggle('off',!on);
+      lamp.setAttribute('aria-pressed',String(index===this.active));lamp.setAttribute('aria-label',`Выбрать свет ${index+1}${on?'':', выключен'}`);
+      lamp.querySelector('.halo').setAttribute('opacity',on?.05+l.brightness*.1:0);
+    });
+    for(const key of ['horizontal','vertical']){
+      const p=editCameraProject(light.horizontal,key==='vertical'?light.vertical:0,key==='vertical'?100:140),handle=this.svg.querySelector(`[data-light-handle="${key}"]`);
+      handle.setAttribute('transform',`translate(${p.x} ${p.y})`);handle.setAttribute('aria-valuenow',Number(light[key].toFixed(1)));handle.setAttribute('aria-valuetext',Number(light[key].toFixed(1))+' градусов');
+      handle.setAttribute('aria-disabled',String(this.disabled()));
+    }
+    this.svg.querySelector('[data-light-number]').textContent=this.active+1;
+    this.svg.querySelector('[data-light-readout]').textContent=`${Number(light.horizontal.toFixed(1))}° / ${Number(light.vertical.toFixed(1))}° · ${light.enabled?Math.round(light.brightness*100)+'%':'выключен'}`;
+  }
+  update(lighting,animate=false) {
+    this.cancelAnimation();this.layers=lighting.layers.map(editLightValues);this.active=lighting.active;
+    const target=this.layers[this.active],start={...this.current};
+    if(!animate||typeof requestAnimationFrame==='undefined'||window.matchMedia('(prefers-reduced-motion: reduce)').matches){this.paint(target);return;}
+    const delta=((target.horizontal-start.horizontal+540)%360)-180;let begun;
+    const tick=time=>{
+      if(!this.host.isConnected)return;if(begun===undefined)begun=time;
+      const t=Math.min(1,(time-begun)/220),ease=1-(1-t)**3;
+      this.paint({...target,horizontal:((start.horizontal+delta*ease)%360+360)%360,vertical:start.vertical+(target.vertical-start.vertical)*ease});
+      if(t<1)this.frame=requestAnimationFrame(tick);else{this.frame=0;this.paint(target);}
+    };this.frame=requestAnimationFrame(tick);
+  }
+  cancelAnimation(){if(this.frame){cancelAnimationFrame(this.frame);this.frame=0;}}
+  destroy(){this.cancelAnimation();this.drag=null;}
+}
+function updateEditLight(patch,animate=false) {
+  if(editWorkspaceLocked())return;
+  const lighting=editWorkspaceState.light,light=editLightValues({...lighting.layers[lighting.active],...patch});
+  lighting.layers[lighting.active]=light;
+  const root=document.getElementById('editWorkspace');if(!root)return;
+  for(const key of ['horizontal','vertical','brightness']){
+    const input=root.querySelector(`[data-light-input="${key}"]`),output=root.querySelector(`[data-range-output="light-${key}"]`);
+    if(input)input.value=light[key];if(output)output.textContent=key==='brightness'?Math.round(light.brightness*100)+'%':light[key]+'°';
+  }
+  const hex=root.querySelector('[data-light-hex]'),color=root.querySelector('[data-light-color]');
+  if(hex){hex.value=light.color.toUpperCase();hex.setCustomValidity('');}if(color)color.value=light.color;
+  const chip=root.querySelector(`[data-light-chip="${lighting.active}"]`);
+  chip?.querySelector('i')?.style.setProperty('--light-color',light.color);chip?.classList.toggle('off',!light.enabled||light.brightness===0);
+  root.querySelectorAll('[data-light-preset]').forEach(button=>{
+    const active=Math.abs(light.horizontal%360-Number(button.dataset.horizontal))<.05&&Math.abs(light.vertical-Number(button.dataset.vertical))<.05;
+    button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+  });
+  root._lightOrbit?.update(lighting,animate);updateEditWorkspaceReady();
+}
+function setEditLightPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation();}updateEditLight({horizontal:h,vertical:v},true);}
+function initEditLightOrbit() {
+  const root=document.getElementById('editWorkspace'),host=root?.querySelector('#editLightOrbit');if(!host)return;
+  root._lightOrbit=new EditLightOrbit(host,editWorkspaceState.light,editWorkspaceState.sourcePreview||editWorkspaceState.sourceUrl,patch=>updateEditLight(patch),index=>selectEditWorkspaceLight(null,index),editWorkspaceLocked);
+}
+function editLightingPanel(generate) {
+  const lighting=editWorkspaceState.light,light=editLightValues(lighting.layers[lighting.active]);
+  const range=(label,key,min,max)=>`<label class="edit-workspace-range"><span>${label}</span><input data-light-input="${key}" aria-label="${label}" type="range" min="${min}" max="${max}" step="0.1" value="${light[key]}" oninput="SYLVEX.updateEditWorkspaceRange(event,'light','${key}')"><output data-range-output="light-${key}">${key==='brightness'?Math.round(light[key]*100)+'%':light[key]+'°'}</output></label>`;
+  const chips=lighting.layers.map((raw,index)=>{const l=editLightValues(raw);return `<button type="button" data-light-chip="${index}" class="edit-workspace-light-chip ${lighting.active===index?'active':''} ${l.enabled&&l.brightness>0?'':'off'}" aria-pressed="${lighting.active===index}" onclick="SYLVEX.selectEditWorkspaceLight(event,${index})"><i style="--light-color:${l.color}"></i>Свет ${index+1}</button>`;}).join('');
+  const presets=[['Спереди',0,0],['Сверху',0,90],['Слева',270,0],['Сзади',180,0],['Снизу',0,-90],['Справа',90,0]].map(([label,h,v])=>{
+    const active=light.horizontal%360===h&&light.vertical===v;
+    return `<button type="button" data-light-preset data-horizontal="${h}" data-vertical="${v}" class="${active?'active':''}" aria-pressed="${active}" onclick="SYLVEX.setEditLightPreset(event,${h},${v})">${label}</button>`;
+  }).join('');
+  return `<div class="edit-light-title"><h3>Положение света</h3><span>Свет ${lighting.active+1} из ${lighting.layers.length}</span></div>
+    <div id="editLightOrbit" class="edit-light-orbit"></div>
+    <p class="edit-camera-help">Двигайте точки на орбитах. Цвет и яркость меняют луч выбранного источника.</p>
+    <div class="edit-light-source-row"><div class="edit-workspace-light-head">${chips}</div><button type="button" class="edit-workspace-add-light" aria-label="Добавить источник света" title="Добавить источник света" ${lighting.layers.length>=8?'disabled':''} onclick="SYLVEX.addEditWorkspaceLight(event)">＋</button></div>
+    <div class="edit-light-actions"><button type="button" aria-pressed="${light.enabled}" onclick="SYLVEX.toggleEditWorkspaceLight(event)">${light.enabled?'◉ Включён':'○ Выключен'}</button><button type="button" ${lighting.layers.length<=1?'disabled':''} onclick="SYLVEX.removeEditWorkspaceLight(event)">Удалить свет</button></div>
+    <div class="edit-workspace-presets">${presets}</div>
+    ${range('Горизонталь','horizontal',0,360)}${range('Высота','vertical',-90,90)}${range('Яркость','brightness',0,2)}
+    <div class="edit-light-color-row"><label>Цвет <input data-light-color type="color" aria-label="Цвет света" value="${light.color}" oninput="SYLVEX.updateEditLightColor(event)"></label><input data-light-hex aria-label="HEX цвета света" maxlength="7" pattern="#[0-9a-fA-F]{6}" value="${light.color.toUpperCase()}" onchange="SYLVEX.updateEditLightHex(event)"></div>
+    ${generate}`;
 }
 function editWorkspaceSetViewZoom(value,point) {
   const state=editWorkspaceState,old=state.zoom,next=Math.max(10,Math.min(400,value));
@@ -7095,7 +7244,7 @@ function openEditWorkspace(e) {
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
-  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._cameraOrbit?.destroy();root.remove();}
+  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root.remove();}
   document.body.classList.remove('edit-workspace-open');
   // Keep this editing session when the user closes and reopens the workspace.
 }
@@ -7103,7 +7252,8 @@ function renderEditWorkspace() {
   const root=document.getElementById('editWorkspace'); if(!root)return;
   if(root._editObserver)root._editObserver.disconnect();
   root._cameraOrbit?.destroy();
-  const state=editWorkspaceState, mode=state.mode, light=state.light.layers[state.light.active]||state.light, safe=(v)=>S.escapeHtml(String(v??''));
+  root._lightOrbit?.destroy();
+  const state=editWorkspaceState, mode=state.mode, safe=(v)=>S.escapeHtml(String(v??''));
   const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
   const image=state.showBefore?state.beforeUrl:(state.resultUrl||state.sourcePreview);
   root.dataset.mode=mode;root.dataset.busy=String(editWorkspaceLocked());
@@ -7115,7 +7265,7 @@ function renderEditWorkspace() {
   if(mode==='camera'){
     panel='<div class="edit-camera-panel-title"><h3>Положение камеры</h3><span>Qwen Multiple Angles</span></div><div id="editCameraOrbit" class="edit-workspace-orbit"></div><p class="edit-camera-help">Перетащите точки на орбитах или настройте ползунки. Камера всегда смотрит на фото.</p><div class="edit-workspace-presets">'+[['Спереди',0,0],['Сверху',0,90],['Слева',270,0],['Сзади',180,0],['Снизу',0,-30],['Справа',90,0]].map(([n,h,v])=>'<button type="button" data-camera-preset data-horizontal="'+h+'" data-vertical="'+v+'" aria-pressed="'+(state.camera.horizontal%360===h&&state.camera.vertical===v)+'" class="'+(state.camera.horizontal%360===h&&state.camera.vertical===v?'active':'')+'" onclick="SYLVEX.setEditCameraPreset(event,'+h+','+v+')">'+n+'</button>').join('')+'</div>'+range('Горизонталь','horizontal',0,360,.1,state.camera.horizontal)+range('Высота','vertical',-30,90,.1,state.camera.vertical)+range('Приближение','zoom',0,10,.1,state.camera.zoom,'camera',' / 10')+'<div class="edit-camera-limits"><span>−30° снизу · 90° сверху</span><span>0 далеко · 10 близко</span></div>'+generate;
   } else if(mode==='lighting'){
-    panel='<div class="edit-workspace-light-head">'+state.light.layers.map((item,index)=>'<button type="button" class="edit-workspace-light-chip '+(state.light.active===index?'active':'')+'" onclick="SYLVEX.selectEditWorkspaceLight(event,'+index+')"><i style="--light-color:'+safe(item.color)+'"></i>Light '+(index+1)+'</button>').join('')+'<button type="button" class="edit-workspace-add-light" onclick="SYLVEX.addEditWorkspaceLight(event)">＋</button></div><div class="edit-workspace-light-tools"><button title="Показать/скрыть" class="'+(light.enabled===false?'muted':'')+'" onclick="SYLVEX.toggleEditWorkspaceLight(event)">◉</button><button title="Удалить" onclick="SYLVEX.removeEditWorkspaceLight(event)">⌫</button></div><div class="edit-workspace-control-card">'+range('Horizontal','horizontal',-100,100,1,light.horizontal,'light')+range('Vertical','vertical',-100,100,1,light.vertical,'light')+range('Brightness','brightness',0,2,.1,light.brightness,'light','')+'<label class="edit-workspace-hex">Color <span><i style="--swatch:'+safe(light.color)+'"></i><input aria-label="HEX color" value="'+safe(light.color).toUpperCase()+'" onchange="SYLVEX.updateEditLightHex(event)"></span><input type="color" value="'+safe(light.color)+'" oninput="SYLVEX.updateEditLightColor(event)"></label></div>'+generate;
+    panel=editLightingPanel(generate);
   } else if(mode==='upscale'){
     const u=state.upscale;panel='<select class="edit-workspace-model" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'model\')"><option>Topaz</option></select><div class="edit-workspace-segment">'+[1,2,4].map(v=>'<button class="'+(u.scale===v?'active':'')+'" onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'x</button>').join('')+'</div><b class="edit-workspace-section-title">Resolution</b><div class="edit-workspace-dimensions"><label>W <input type="number" value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input type="number" value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div><details class="edit-workspace-settings" open><summary>Settings</summary>'+range('Sharpness','sharpness',0,100,1,u.sharpness,'upscale','')+range('Denoise','denoise',0,100,1,u.denoise,'upscale','')+'<label class="edit-workspace-select-row">Subject Detection<select onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')"><option '+(u.subject==='All'?'selected':'')+'>All</option><option '+(u.subject==='Foreground'?'selected':'')+'>Foreground</option><option '+(u.subject==='Background'?'selected':'')+'>Background</option></select></label><label class="edit-workspace-switch-row">Face Enhancement<input type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label>'+range('Face strength','strength',0,100,1,u.strength,'upscale','')+range('Face creativity','creativity',0,100,1,u.creativity,'upscale','')+range('Model strength','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Fix compression','fixCompression',0,100,1,u.fixCompression,'upscale','')+'</details>'+generate;
   } else if(mode==='translate'){
@@ -7130,19 +7280,19 @@ function renderEditWorkspace() {
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
   root.innerHTML='<main class="edit-workspace-main"><div class="edit-workspace-grid"></div><section class="edit-workspace-stage">'+view+'</section>'+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
-  initEditWorkspaceStage();initEditCameraOrbit();updateEditWorkspaceReady();
+  initEditWorkspaceStage();initEditCameraOrbit();initEditLightOrbit();updateEditWorkspaceReady();
 
 }
 function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;renderEditWorkspace()}
 function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
-function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}const target=group==='light'?(editWorkspaceState.light.layers[editWorkspaceState.light.active]||editWorkspaceState.light):editWorkspaceState[group];target[key]=Number(input.value);updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=(group==='camera'&&key!=='zoom'?input.value+'°':key==='brightness'?Number(input.value).toFixed(1):input.value+(key==='zoom'?'':group==='light'?'°':''))}
-function updateEditLightColor(e){if(editWorkspaceLocked())return;if(e&&e.currentTarget){const current=editWorkspaceState.light.layers[editWorkspaceState.light.active];if(current){current.color=e.currentTarget.value;const swatch=document.querySelector('.edit-workspace-hex i');if(swatch)swatch.style.setProperty('--swatch',current.color);const hex=document.querySelector('.edit-workspace-hex input[aria-label="HEX color"]');if(hex)hex.value=current.color.toUpperCase()}}}
+function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}if(group==='light'){updateEditLight({[key]:Number(input.value)});return;}editWorkspaceState[group][key]=Number(input.value);updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=input.value;}
+function updateEditLightColor(e){if(e?.currentTarget)updateEditLight({color:e.currentTarget.value});}
 function updateEditWorkspacePrompt(e){if(editWorkspaceLocked())return;if(e&&e.currentTarget)editWorkspaceState.prompt=e.currentTarget.value;updateEditWorkspaceReady()}
-function addEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const state=editWorkspaceState.light,current=state.layers[state.active]||state;if(state.layers.length>=8)return editWorkspaceToast('Максимум 8 источников света.');state.layers.push(Object.assign({},current));state.active=state.layers.length-1;renderEditWorkspace()}
+function addEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const state=editWorkspaceState.light,current=state.layers[state.active];if(state.layers.length>=8)return editWorkspaceToast('Максимум 8 источников света.');state.layers.push(editLightValues({...current,horizontal:(current.horizontal+90)%360,brightness:1,enabled:true}));state.active=state.layers.length-1;renderEditWorkspace()}
 function selectEditWorkspaceLight(e,index){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}if(index<0||index>=editWorkspaceState.light.layers.length)return;editWorkspaceState.light.active=index;renderEditWorkspace()}
 function toggleEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const l=editWorkspaceState.light.layers[editWorkspaceState.light.active];if(l)l.enabled=l.enabled===false;renderEditWorkspace()}
 function removeEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState.light;if(s.layers.length<=1)return;s.layers.splice(s.active,1);s.active=Math.min(s.active,s.layers.length-1);renderEditWorkspace()}
-function updateEditLightHex(e){if(editWorkspaceLocked())return;const value=String(e&&e.currentTarget&&e.currentTarget.value||'').trim();if(!/^#[0-9a-f]{6}$/i.test(value))return;const l=editWorkspaceState.light.layers[editWorkspaceState.light.active];if(l)l.color=value;renderEditWorkspace()}
+function updateEditLightHex(e){if(editWorkspaceLocked())return;const input=e?.currentTarget,value=String(input?.value||'').trim();if(!/^#[0-9a-f]{6}$/i.test(value)){editWorkspaceToast('Введите цвет в формате #RRGGBB.');if(input)input.value=editWorkspaceState.light.layers[editWorkspaceState.light.active].color.toUpperCase();return;}updateEditLight({color:value});}
 function clampEditUpscaleDimensions(width,height){width=Math.max(1,Math.min(24000,width));height=Math.max(1,Math.min(24000,height));const pixels=width*height;if(pixels>100000000){const factor=Math.sqrt(100000000/pixels);width=Math.floor(width*factor);height=Math.floor(height*factor)}return{width,height}}
 function updateEditWorkspaceField(e,group,key){
   if(editWorkspaceLocked())return;const input=e&&e.currentTarget,s=editWorkspaceState,target=s[group];if(!input||!target)return;
@@ -7170,7 +7320,7 @@ async function downloadEditWorkspaceResult(e){
   catch(error){editWorkspaceToast('Не удалось скачать изображение. Попробуйте снова.');}
 }
 async function onEditWorkspaceFile(e){const input=e&&e.target,file=input&&input.files&&input.files[0];if(!file)return;input.value='';await loadEditWorkspaceImage(file)}
-function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(state.prompt.trim()?': '+state.prompt.trim():'')}
+function editWorkspaceInstruction(state){if(state.mode==='camera')return editCameraDescription(state.camera)+' Preserve the subject and scene.';if(state.mode==='lighting')return editLightDescription(state.light);return 'Edit · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===state.mode)||['','Edit'])[1]+(state.prompt.trim()?': '+state.prompt.trim():'')}
 async function generateEditWorkspace(e){
   if(e){e.preventDefault();e.stopPropagation()}
   const state=editWorkspaceState;if(editWorkspaceLocked())return;const reason=editWorkspaceValidation();if(reason)return editWorkspaceToast(reason);
@@ -24165,6 +24315,7 @@ async function waitGeneration(jobId, options) {
   });
 
   S.clearPhotoToolMask = clearPhotoToolMask;
+  S.setEditLightPreset=setEditLightPreset;
   S.openEditWorkspace=openEditWorkspace; S.closeEditWorkspace=closeEditWorkspace; S.setEditWorkspaceMode=setEditWorkspaceMode;
   S.setEditCameraPreset=setEditCameraPreset; S.updateEditWorkspaceRange=updateEditWorkspaceRange; S.updateEditLightColor=updateEditLightColor; S.updateEditLightHex=updateEditLightHex; S.selectEditWorkspaceLight=selectEditWorkspaceLight; S.toggleEditWorkspaceLight=toggleEditWorkspaceLight; S.removeEditWorkspaceLight=removeEditWorkspaceLight; S.updateEditWorkspaceField=updateEditWorkspaceField; S.setEditUpscaleScale=setEditUpscaleScale; S.filterEditLanguages=filterEditLanguages; S.selectEditLanguage=selectEditLanguage; S.setEditBrushMode=setEditBrushMode; S.updateEditBrushSize=updateEditBrushSize; S.setEditBackgroundMode=setEditBackgroundMode; S.resetEditResize=resetEditResize; S.downloadEditWorkspaceResult=downloadEditWorkspaceResult; S.cycleEditWorkspaceZoom=cycleEditWorkspaceZoom; S.adjustEditWorkspaceZoom=adjustEditWorkspaceZoom; S.fitEditWorkspace=fitEditWorkspace;
   S.updateEditWorkspacePrompt=updateEditWorkspacePrompt; S.addEditWorkspaceLight=addEditWorkspaceLight; S.onEditWorkspaceFile=onEditWorkspaceFile;

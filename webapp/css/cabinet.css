@@ -9552,3 +9552,42 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-panel-camera .edit-workspace-presets button.active{background:#657bb529;border-color:#879fee77}
 .edit-workspace[data-busy="true"] .edit-camera-svg{pointer-events:none;opacity:.6}
 @media(min-width:1000px) and (max-height:760px){.edit-workspace-panel-camera{gap:8px;padding:13px}.edit-camera-svg{height:180px}.edit-camera-help{font-size:10px}.edit-workspace-panel-camera .edit-workspace-range{min-height:27px}}
+
+/* Relighting: each source keeps its own direction, color and intensity. */
+.edit-workspace-panel-lighting{gap:10px;padding:16px;max-height:calc(100dvh - 150px)}
+.edit-workspace-panel-lighting>*{flex-shrink:0}
+.edit-workspace[data-mode="lighting"] .edit-workspace-stage{bottom:100px;top:65px}
+.edit-light-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.edit-light-title h3{font-size:16px;font-weight:600;margin:0}
+.edit-light-title span{font-size:10px;color:var(--edit-muted)}
+.edit-light-orbit{border-radius:18px;background:#090b0e;overflow:hidden;padding-bottom:12px}
+.edit-light-svg{display:block;width:100%;height:225px;touch-action:none;user-select:none}
+.edit-light-grid{fill:none;stroke:#718098;stroke-opacity:.10;stroke-width:.6;pointer-events:none}
+.edit-light-ring{fill:none;stroke-width:1.8;cursor:grab;pointer-events:stroke}
+.edit-light-ring.horizontal{stroke:#678cff}.edit-light-ring.vertical{stroke:#b461ff}
+.edit-light-beam{pointer-events:none;transition:fill .15s,opacity .15s}
+.edit-light-subject{pointer-events:none}.edit-light-subject rect{fill:#161b26;stroke:#65749a;stroke-width:1.4}.edit-light-subject text{fill:#9aa9ce;font-size:20px}
+.edit-light-handle{cursor:grab;outline:none}.edit-light-handle .hit,.edit-light-lamp .hit{fill:transparent;stroke:none}
+.edit-light-handle .dot{stroke:#12151d;stroke-width:1.5}.edit-light-handle.horizontal .dot{fill:#a6bdff}.edit-light-handle.vertical .dot{fill:#d197ff}
+.edit-light-handle:focus-visible .dot,.edit-light-handle:hover .dot{stroke:white;stroke-width:2}
+.edit-light-lamp{cursor:pointer;outline:none;color:var(--light-color)}.edit-light-lamp .halo{fill:currentColor;pointer-events:none}
+.edit-light-lamp path{fill:currentColor;stroke:#111a;stroke-width:.6}.edit-light-lamp .lamp-left{filter:brightness(.65)}.edit-light-lamp .lamp-right{filter:brightness(.85)}
+.edit-light-lamp text{fill:#a3afc9;font-size:9px;pointer-events:none}.edit-light-lamp.off{opacity:.35}.edit-light-lamp.active text{fill:white}
+.edit-light-lamp.active .lamp-top,.edit-light-lamp:focus-visible path,.edit-light-lamp:hover path{stroke:#edf1ff;stroke-width:1}
+.edit-light-legend{display:flex;justify-content:center;gap:18px;font-size:9px;color:#8d97ae}.edit-light-legend span{display:flex;gap:5px;align-items:center}
+.edit-light-legend i{width:5px;height:5px;border-radius:50%;background:#a6bdff}.edit-light-legend span:nth-child(2) i{background:#d197ff}
+.edit-light-source-row{display:flex;gap:7px;min-width:0}.edit-light-source-row .edit-workspace-light-head{flex:1;min-width:0;padding:2px}
+.edit-workspace-panel-lighting .edit-workspace-light-chip{font-size:11px;min-height:31px}.edit-workspace-light-chip.off i{opacity:.3}.edit-workspace-light-chip.off{color:var(--edit-muted)}
+.edit-light-actions{display:flex;justify-content:space-between;gap:12px}.edit-light-actions button{padding:4px 7px;font:inherit;font-size:11px;color:var(--edit-muted);border:0;background:transparent;cursor:pointer}
+.edit-light-actions button[aria-pressed="true"]{color:#d5c0ff}.edit-light-actions button:disabled,.edit-workspace-add-light:disabled{opacity:.35;cursor:default}
+.edit-workspace-panel-lighting .edit-workspace-presets{gap:5px}.edit-workspace-panel-lighting .edit-workspace-presets button{min-height:28px;font-size:10px;padding:4px}
+.edit-workspace-panel-lighting .edit-workspace-presets button.active{border-color:#aa83ec88;background:#845dc429}
+.edit-workspace-panel-lighting .edit-workspace-range{display:grid;grid-template-columns:80px minmax(0,1fr) 52px;gap:8px!important;align-items:center;min-height:27px;font-size:11px}
+.edit-workspace-panel-lighting .edit-workspace-range input[type=range]{grid-column:auto;width:100%;min-width:0;margin:0;accent-color:#a689ed}
+.edit-workspace-panel-lighting .edit-workspace-range output{text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
+.edit-light-color-row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px}
+.edit-light-color-row label{display:flex;align-items:center;gap:15px}.edit-light-color-row input[type="color"]{width:30px;height:26px;border:0;padding:0;background:none;cursor:pointer}
+.edit-light-color-row input[data-light-hex]{width:86px;background:var(--edit-surface-raised);color:var(--edit-text);border:1px solid var(--edit-border);border-radius:7px;padding:6px;font:inherit;text-align:center}
+.edit-workspace[data-busy="true"] .edit-light-svg{pointer-events:none;opacity:.6}
+@media(min-width:1000px) and (max-height:800px){.edit-workspace-panel-lighting{gap:7px;padding:12px}.edit-light-svg{height:180px}.edit-workspace-panel-lighting .edit-camera-help{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.edit-light-beam{transition:none}}

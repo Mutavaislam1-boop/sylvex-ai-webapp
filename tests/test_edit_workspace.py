@@ -259,3 +259,59 @@ def test_camera_exact_angles_reach_provider_prompt_and_saved_result(monkeypatch,
     assert result['edit_camera'] == camera
     assert result['camera_prompt'] == data['additional_prompt']
     assert len(data['image_urls']) == 1 and 'UNRELATED' not in str(data)
+
+
+def test_lighting_exact_sources_reach_provider_and_saved_result(monkeypatch, provider):
+    calls = []
+    monkeypatch.setattr(main, 'FAL_API_KEY', 'fake')
+    monkeypatch.setattr(main.requests, 'post', lambda url, **kw: calls.append(kw['json']) or Response({
+        'status_url': 'https://queue.fal.run/status', 'response_url': 'https://queue.fal.run/result'}))
+    monkeypatch.setattr(main.requests, 'get', lambda url, **kw: Response(
+        {'status': 'COMPLETED'} if url.endswith('status') else {'images': [{'url': 'https://cdn.example.com/generated.png'}]}))
+    lighting = {'coordinateSystem': 'spherical-degrees', 'active': 2, 'layers': [
+        {'horizontal': 217.4, 'vertical': -38.2, 'brightness': 1.7, 'color': '#6633cc', 'enabled': True},
+        {'horizontal': 45, 'vertical': 20, 'brightness': .6, 'color': '#aabbcc', 'enabled': True},
+        {'horizontal': 90, 'vertical': 0, 'brightness': 2, 'color': '#ff0000', 'enabled': False},
+        {'horizontal': 270, 'vertical': 0, 'brightness': 0, 'color': '#00ff00', 'enabled': True},
+    ]}
+    result = asyncio.run(main.generate_edit_workspace_image(payload('lighting', editWorkspaceLight=lighting)))
+    assert result['ok']
+    data = calls[0]
+    assert '2 light source(s)' in data['prompt']
+    assert 'azimuth 217.4 degrees (back-left)' in data['prompt']
+    assert 'elevation -38.2 degrees' in data['prompt'] and 'brightness 1.7/2' in data['prompt']
+    assert '#aabbcc' in data['prompt'] and '#6633cc' in data['prompt']
+    assert '#ff0000' not in data['prompt'] and '#00ff00' not in data['prompt']
+    assert data['initial_latent'] == 'Bottom'
+    assert result['edit_lighting']['layers'] == lighting['layers']
+    assert result['lighting_prompt'] == data['prompt']
+    assert data['image_size'] == {'width': 64, 'height': 48}
+    assert data['image_url'].startswith('data:image/png;base64,') and 'UNRELATED' not in str(data)
+
+
+@pytest.mark.parametrize(('horizontal', 'vertical', 'expected'), [
+    (0, 0, 'None'), (360, 0, 'None'), (90, 0, 'Right'), (270, 0, 'Left'),
+    (180, 0, 'None'), (180, 90, 'Top'), (45, -90, 'Bottom'), (270, 80, 'Top'),
+])
+def test_lighting_orbit_direction_maps_to_supported_provider_hint(horizontal, vertical, expected):
+    lighting = edit.lighting_parameters({'coordinateSystem': 'spherical-degrees', 'layers': [
+        {'horizontal': horizontal, 'vertical': vertical}]})
+    assert edit.lighting_initial_latent(lighting) == expected
+
+
+@pytest.mark.parametrize('settings', [
+    {'coordinateSystem': []}, {'coordinateSystem': 'unknown'},
+    *[{'coordinateSystem': 'spherical-degrees', 'layers': [layer]} for layer in [
+        {'horizontal': -1}, {'horizontal': 361}, {'vertical': -91}, {'vertical': 91},
+        {'horizontal': float('nan')}, {'brightness': float('inf')}, {'color': '#bad'}, {'brightness': 0},
+    ]],
+])
+def test_invalid_light_settings_rejected_before_provider(provider, settings):
+    result = asyncio.run(main.generate_edit_workspace_image(payload('lighting', editWorkspaceLight=settings)))
+    assert not result['ok'] and not provider[0]
+
+
+def test_lighting_legacy_controls_remain_supported():
+    lighting = edit.lighting_parameters({'horizontal': -100, 'vertical': 100, 'brightness': None})
+    assert lighting['layers'][0] == {'horizontal': 270, 'vertical': 90, 'brightness': 1, 'color': '#ffffff', 'enabled': True}
+    assert edit.lighting_initial_latent(lighting) == 'Top'
