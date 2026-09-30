@@ -2494,8 +2494,29 @@ function currentAudioState() {
 // JAVASCRIPT-БЛОК: currentVideoConfig
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
+// Phase 1 Batch 3 (see /root/.claude/plans/splendid-moseying-starlight.md
+// roadmap step 3). VIDEO_MODEL_CONFIG above is the local JS-side mirror of
+// the same data services/video_router.py's own VIDEO_MODEL_CONFIG declares
+// - two independently hand-maintained copies that can (and, per the
+// original audit, do) drift. start_image/end_image here are repointed to
+// prefer the fetched capability registry's start_frame/end_frame (the
+// Python side, sourced from that same Python VIDEO_MODEL_CONFIG - so this
+// also collapses the JS-vs-Python mirror gap, not just presentation).
+// normalizeVideoStateForModel()'s stale-state clearing and the End Frame
+// button's visibility (renderVideoStartPreview/renderVideoEndPreview) both
+// already read through this function, so repointing here alone fixes both.
+// Fails open (keeps the local value) when no fetched data has loaded yet,
+// same additive philosophy as every other Phase 1 repoint. Sound is
+// deliberately NOT touched here - that's a separate, later roadmap step.
 function currentVideoConfig() {
-  return VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
+  const local = VIDEO_MODEL_CONFIG[videoState.modelId] || VIDEO_MODEL_CONFIG.seedance_2_fast;
+  const fetchedModels = fetchedModelCapabilities && fetchedModelCapabilities.models;
+  const fetched = fetchedModels ? fetchedModels[videoState.modelId] : null;
+  if (!fetched) return local;
+  return Object.assign({}, local, {
+    start_image: !!fetched.start_frame,
+    end_image: !!fetched.end_frame,
+  });
 }
 
 // =====================================================
