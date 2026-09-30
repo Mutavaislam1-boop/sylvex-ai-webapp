@@ -221,18 +221,81 @@ def image_character_object_seed(model_id: str) -> dict:
 # Video registration
 # ---------------------------------------------------------------------------
 
-# First-pass values only: no existing structure declares per-model visual
-# character/object reference behavior for video (that fact does not exist
-# anywhere in the codebase yet - see the plan's Schema section). These are
-# the models this effort has concrete evidence for so far; every other video
-# model defaults to VisualReferenceMode.UNSUPPORTED pending the dedicated
-# per-provider audit the plan schedules for Batch 2 (roadmap step 2). This
-# is safe for Batch 1: nothing reads/enforces this field for video yet.
-_VIDEO_PROVIDER_NATIVE_ASSET_MODELS = {
-    "heygen_v3_video_agent", "heygen_avatar_iv", "heygen_avatar_v",
-    "heygen_avatar_iii", "heygen_image_video", "heygen_cinematic_avatar",
-    "kling_o3_omni",
+# Batch 2 (see /root/.claude/plans/splendid-moseying-starlight.md, roadmap
+# step 2) replaced Batch 1's placeholder guess above with real ground truth,
+# established by reading every _call_<provider> function in
+# services/video_router.py that consumes _build_video_payload()'s
+# "reference_images" field (the merged list built from source uploads +
+# characterReferences[:4] + objectReferences[:4] - see _build_video_payload,
+# services/video_router.py ~line 1259).
+
+# REAL_MULTI_IMAGE: the provider function reads reference_images and forwards
+# every URL in it as a separate content item/file to the provider's own API.
+#   - _seedance_body (video_router.py ~line 1863-1910): loops
+#     reference_images, appends one content item per URL.
+#   - _call_heygen (~line 3530-3532) + _heygen_files_from_payload
+#     (~line 3345-3348): loops reference_images/referenceImageUrls, builds
+#     one asset per URL (capped at 20 total by that helper).
+#   - _call_heygen_direct_video's cinematic_avatar branch (~line 3694-3701):
+#     same _heygen_files_from_payload helper as above.
+#   - _call_gemini_video (~line 4798-4803): builds one content part per URL
+#     in ([start_image] + reference_images), explicitly sets
+#     task="reference_to_video" when more than one image is present.
+_VIDEO_REAL_MULTI_IMAGE_MODELS = {
+    "seedance_2_fast", "seedance_2_0", "seedance_1_5_pro",
+    "heygen_v3_video_agent", "heygen_cinematic_avatar",
+    "gemini_omni_flash",
 }
+
+# DEGRADED_SINGLE_IMAGE: every Kling sub-mode (_call_kling, ~line 4006-4020)
+# resolves reference_images down to a single URL via _first_url() (~line
+# 3854-3866, returns only the first item) before placing it into whichever
+# single image field that model tier/mode uses (kling_body["image"] for
+# legacy models ~line 4222-4225; {"type":"first_frame"/"refer_image"} for
+# omni/default paths ~line 4250-4268; motion-control's {"type":"image"}
+# ~line 4236-4238; kling_effects' effect_input["image"] ~line 4199-4203).
+# Every additional attached reference beyond the first is silently dropped -
+# this is "only first ref honored, rest dropped" per VisualReferenceMode's
+# own definition, not a persistent provider asset-id concept (no Kling
+# field here is an asset id - each carries a raw image URL), so this is
+# classified DEGRADED_SINGLE_IMAGE rather than PROVIDER_NATIVE_ASSET.
+#
+# kling_lip_sync is a Kling model but is deliberately EXCLUDED from this set:
+# its is_lip_sync branch (~line 4145-4172) builds kling_body purely from
+# audio/video fields and never places input_image_url anywhere - it falls
+# through to the UNSUPPORTED default below.
+_VIDEO_DEGRADED_SINGLE_IMAGE_MODELS = {
+    "kling_3_0_turbo", "kling_3_0", "kling_motion_3_0", "kling_effects",
+    "kling_o3_omni", "kling_o3_edit", "kling_o1", "kling_2_6",
+    "kling_motion_2_6", "kling_2_5_turbo", "kling_2_1", "kling_2_1_master",
+    "kling_2_0_master", "kling_1_6", "kling_1_5", "kling_1_0",
+}
+
+# Everything else defaults to UNSUPPORTED below - reference_images is never
+# read by that model's provider function at all, so an attached
+# Character/Object reference image is silently dropped. Confirmed by direct
+# reading of each function for: heygen_avatar_iv/v/iii and
+# heygen_image_video (these use a separate, user-supplied avatar_id option
+# unrelated to reference_images - not the same mechanism as the
+# Character/Object picker at all, so this capability axis is honestly
+# UNSUPPORTED for them even though they have their own unrelated "avatar"
+# concept elsewhere); _call_luma; _call_runway (all 14 runway_* models,
+# INCLUDING runway_seedance2*/runway_gemini_omni_flash despite their names
+# suggesting otherwise - they go through Runway's own endpoint, not the
+# native seedance_*/gemini_omni_flash paths that really are
+# REAL_MULTI_IMAGE above); _call_minimax; _call_pixverse; _call_sora;
+# _call_veo; _call_grok; _call_wan's wan_2_7/wan_2_7_edit branches.
+#
+# wan_2_6 (_call_wan, ~line 4977-4979) is a documented edge case: its
+# reference_images[0] fallback only executes when has_media is already True
+# (start_image, end_image, or input_video present) - has_media itself never
+# considers reference_images (~line 4920). In the realistic "attach only a
+# Character/Object reference" flow (nothing else present) this model drops
+# the image exactly like the other UNSUPPORTED entries, so it is classified
+# UNSUPPORTED here too rather than claiming support that doesn't hold for
+# the actual gated user flow. (The narrow code path where it would partially
+# work is a separate _call_wan bug, not something this capability-
+# declaration batch fixes.)
 
 # Kling's dead "voice_control" pricing tier: no VIDEO_MODEL_CONFIG entry ever
 # sets voice_control=True and nothing routes to it. Kept, not deleted, not
@@ -244,9 +307,16 @@ _UNREACHABLE_PRICING_TIERS = {
 
 
 def _video_character_capability(model_id: str) -> CharacterCapability:
-    if model_id in _VIDEO_PROVIDER_NATIVE_ASSET_MODELS:
-        visual_mode = VisualReferenceMode.PROVIDER_NATIVE_ASSET
-        limits = ReferenceLimits(max_count=1, visual_mode=visual_mode)
+    if model_id in _VIDEO_REAL_MULTI_IMAGE_MODELS:
+        # 4, not a provider-published maximum: this is the effective cap
+        # already enforced upstream by _build_video_payload's
+        # characterReferences[:4]/objectReferences[:4] slicing - picking one
+        # character or one object can never contribute more than 4 images
+        # to the merged list regardless of what the provider itself could
+        # accept beyond that.
+        limits = ReferenceLimits(max_count=4, visual_mode=VisualReferenceMode.REAL_MULTI_IMAGE)
+    elif model_id in _VIDEO_DEGRADED_SINGLE_IMAGE_MODELS:
+        limits = ReferenceLimits(max_count=1, visual_mode=VisualReferenceMode.DEGRADED_SINGLE_IMAGE)
     else:
         limits = ReferenceLimits(visual_mode=VisualReferenceMode.UNSUPPORTED)
     # Confirmed via services/character_prompts.py + video_router.py's
