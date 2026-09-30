@@ -402,3 +402,23 @@ def video_character_object_visual_reference_supported(model_id: str) -> dict:
         "character": cap.character.visual_reference.visual_mode != VisualReferenceMode.UNSUPPORTED,
         "object": cap.object.visual_reference.visual_mode != VisualReferenceMode.UNSUPPORTED,
     }
+
+
+def video_frame_support(model_id: str) -> dict:
+    """Phase 1 Batch 5 fix (user-requested correction, same roadmap step 5):
+    the single shared registry-backed source for whether a video model
+    supports a start/end frame image, reading ModelCapability.start_frame/
+    end_frame directly - the exact same registry fields the frontend's
+    currentVideoConfig() repoint and _kling_capability_supports_end_frame()
+    already read (both Batch 3) - instead of a caller re-deriving the
+    answer from VIDEO_MODEL_CONFIG on its own. Both
+    main.validate_video_feature_request() and
+    services.video_router._build_video_payload() call this one function, so
+    the request-time rejection and the payload-level defense-in-depth
+    gating can never independently drift from each other or from the
+    registry. Fails closed (both False) for an unknown model id or a
+    non-video model, matching this module's other *_supported() helpers."""
+    cap = get_capability(model_id)
+    if not cap or cap.category != MediaCategory.VIDEO:
+        return {"start_frame": False, "end_frame": False}
+    return {"start_frame": bool(cap.start_frame), "end_frame": bool(cap.end_frame)}

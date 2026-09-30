@@ -17042,24 +17042,46 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
     # exactly (Optional[dict], None on success, {"ok": False, ...} on
     # failure) so it plugs into the same "if feature_error: return
     # JSONResponse(feature_error, status_code=400)" idiom at this request's
-    # own call site. Unlike the image version, this only ever rejects a
-    # visual reference IMAGE the model can't accept - characterId/
-    # characterName/objectId/objectName (text-only conditioning) are never
-    # checked here and always reach _build_video_payload, since every video
-    # model supports text conditioning today (see
+    # own call site. This only ever rejects a visual reference IMAGE (a
+    # character/object reference, or a start/end frame) the model can't
+    # accept - characterId/characterName/objectId/objectName (text-only
+    # conditioning) are never checked here and always reach
+    # _build_video_payload, since every video model supports text
+    # conditioning today (see
     # services.model_capabilities._video_character_capability). model_id is
     # resolved the same way estimate_video_generation_cost() already does
     # (video_options.model, then top-level payload.model) so this validates
     # against the exact model the rest of the video request path will use.
+    #
+    # Batch 5 fix (user-requested correction): start_image/end_image are
+    # validated here too, not left to _build_video_payload's silent
+    # stripping alone - a request naming a frame image the model can't
+    # accept is rejected with the same HTTP 400 shape as an unsupported
+    # character/object reference, before pricing runs. start_image is read
+    # from both video_options and the top-level payload, matching exactly
+    # what _build_video_payload itself accepts (opts.get("start_image") or
+    # payload.get("start_image")); end_image has no such top-level fallback
+    # in _build_video_payload, so none is checked here either. Both this
+    # function and _build_video_payload's own gating read
+    # model_capabilities.video_frame_support() - the same shared helper the
+    # frontend and _kling_capability_supports_end_frame() already read from
+    # - so the two can never independently drift.
     opts = payload.get("video_options") or payload.get("options") or {}
     model = (opts.get("model") or payload.get("model") or "").strip()
-    support = model_capabilities_service.video_character_object_visual_reference_supported(model)
+    reference_support = model_capabilities_service.video_character_object_visual_reference_supported(model)
     has_character_visual_reference = bool(opts.get("characterReferences"))
     has_object_visual_reference = bool(opts.get("objectReferences"))
-    if has_character_visual_reference and not support["character"]:
+    if has_character_visual_reference and not reference_support["character"]:
         return {"ok": False, "type": "video", "error": "Selected model does not support character reference images", "model": model}
-    if has_object_visual_reference and not support["object"]:
+    if has_object_visual_reference and not reference_support["object"]:
         return {"ok": False, "type": "video", "error": "Selected model does not support object reference images", "model": model}
+    frame_support = model_capabilities_service.video_frame_support(model)
+    has_start_image = bool(opts.get("start_image") or payload.get("start_image"))
+    has_end_image = bool(opts.get("end_image"))
+    if has_start_image and not frame_support["start_frame"]:
+        return {"ok": False, "type": "video", "error": "Selected model does not support a start frame image", "model": model}
+    if has_end_image and not frame_support["end_frame"]:
+        return {"ok": False, "type": "video", "error": "Selected model does not support an end frame image", "model": model}
     return None
 
 

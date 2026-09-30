@@ -1298,6 +1298,22 @@ def _video_capability_supports_object_visual_reference(model_id: str) -> bool:
     return bool(model_capabilities.video_character_object_visual_reference_supported(model_id)["object"])
 
 
+# Phase 1 Batch 5 fix (user-requested correction): start_image/end_image
+# gating originally read VIDEO_MODEL_CONFIG[model_id] directly here (the
+# same data, but not the same single source of truth the frontend's
+# currentVideoConfig() repoint and _kling_capability_supports_end_frame()
+# already read from). Both now go through
+# model_capabilities.video_frame_support(), the same shared function
+# main.py's validate_video_feature_request() calls, so the request-time
+# rejection and this payload-level gate can never drift from each other.
+def _video_capability_supports_start_frame(model_id: str) -> bool:
+    return bool(model_capabilities.video_frame_support(model_id)["start_frame"])
+
+
+def _video_capability_supports_end_frame(model_id: str) -> bool:
+    return bool(model_capabilities.video_frame_support(model_id)["end_frame"])
+
+
 def _build_video_payload(model_id: str, prompt: str, payload: dict):
     opts = payload.get("video_options") or payload.get("options") or {}
     video_template = opts.get("video_template") if isinstance(opts.get("video_template"), dict) else {}
@@ -1368,16 +1384,14 @@ def _build_video_payload(model_id: str, prompt: str, payload: dict):
         "generation_mode": mode,
         "section": opts.get("section") or "generate",
         "sound": sound,
-        # Phase 1 Batch 5: gated the same way the boolean flags below
-        # already are via _gated_flag() - config already carries correct
-        # per-model start_image/end_image booleans (Batch 1's
-        # register_video_models() mirrors these into the registry's
-        # start_frame/end_frame, used by _kling_capability_supports_end_frame
-        # and the frontend's currentVideoConfig() repoint) - reused directly
-        # rather than through a new registry-reading helper since there is
-        # only this one call site, unlike sound's two independent sites.
-        "start_image": (opts.get("start_image") or payload.get("start_image") or "") if config.get("start_image") else "",
-        "end_image": (opts.get("end_image") or "") if config.get("end_image") else "",
+        # Phase 1 Batch 5 fix: gated via the shared
+        # model_capabilities.video_frame_support() registry helper (see the
+        # two wrappers above) rather than reading VIDEO_MODEL_CONFIG's own
+        # start_image/end_image keys directly - the same single source of
+        # truth main.validate_video_feature_request() checks before this
+        # function is ever reached, so the two can't independently drift.
+        "start_image": (opts.get("start_image") or payload.get("start_image") or "") if _video_capability_supports_start_frame(model_id) else "",
+        "end_image": (opts.get("end_image") or "") if _video_capability_supports_end_frame(model_id) else "",
         "reference_images": reference_images,
         "input_video": opts.get("input_video") or "",
         "video_url": opts.get("video_url") or "",
