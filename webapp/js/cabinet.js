@@ -2555,6 +2555,26 @@ function videoModelSupportsEdit(modelId) {
   return !!(local && Array.isArray(local.modes) && local.modes.includes('video_edit'));
 }
 
+// Phase 1 Batch 6 fix (third correction): the model normalizeVideoStateForModel()
+// switches to when the selected model doesn't support Video Edit mode must
+// itself pass videoModelSupportsEdit() - kling_o3_omni is no longer an
+// unconditional exemption from that check (previously
+// `videoState.modelId !== 'kling_o3_omni'` let it bypass the capability
+// check entirely, so if the fetched registry ever marked kling_o3_omni
+// itself as not supporting video_edit, the picker would correctly hide it
+// while the force-switch kept selecting it anyway). kling_o3_omni remains
+// the preferred fallback while it still qualifies; otherwise the first
+// Video-Edit-capable entry in VIDEO_MODELS is used. The final
+// 'kling_o3_omni' literal is an unreachable-in-practice last resort for
+// the degenerate case where no video model supports video_edit at all
+// (data-error territory - at that point nothing would pass the check
+// anyway, so it isn't a capability-check bypass).
+function videoEditFallbackModelId() {
+  if (videoModelSupportsEdit('kling_o3_omni')) return 'kling_o3_omni';
+  const fallback = VIDEO_MODELS.find((item) => videoModelSupportsEdit(item.id));
+  return (fallback && fallback.id) || 'kling_o3_omni';
+}
+
 // =====================================================
 // JAVASCRIPT-БЛОК: currentVideoProvider
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -2624,9 +2644,20 @@ function normalizeVideoStateForModel() {
   // filtering is roadmap step 7, not this batch - changing its
   // force-switch now would let it diverge from a picker list that doesn't
   // yet reflect that change.
-  const editSectionBlocksModel = videoState.section === 'edit' && !videoModelSupportsEdit(videoState.modelId) && videoState.modelId !== 'kling_o3_omni';
+  //
+  // Third correction: kling_o3_omni is no longer unconditionally exempt
+  // from the Edit capability check (the old `modelId !== 'kling_o3_omni'`
+  // clause let it bypass videoModelSupportsEdit() entirely, so if the
+  // fetched registry ever marked kling_o3_omni itself as Edit-incompatible,
+  // the picker would hide it while this force-switch kept it selected).
+  // The replacement model is chosen by videoEditFallbackModelId(), which
+  // is itself verified by videoModelSupportsEdit() - kling_o3_omni stays
+  // the preferred choice only while it still qualifies.
+  const editSectionBlocksModel = videoState.section === 'edit' && !videoModelSupportsEdit(videoState.modelId);
   const motionSectionBlocksModel = videoState.section === 'motion' && !previousConfig.video_effects && videoState.modelId !== 'kling_o3_omni';
-  if (editSectionBlocksModel || motionSectionBlocksModel) {
+  if (editSectionBlocksModel) {
+    videoState.modelId = videoEditFallbackModelId();
+  } else if (motionSectionBlocksModel) {
     videoState.modelId = 'kling_o3_omni';
   }
   const config = currentVideoConfig();
