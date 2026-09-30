@@ -24069,25 +24069,35 @@ async function waitGeneration(jobId, options) {
   }
 
   function validateGridNodeInputs(node,inputs) {
-    // A connected upstream video (inputs.video, resolved by
-    // resolveGridNodeInputs from an edge into this node's 'video' port) is
-    // just as valid a video source as a locally attached file - previously
-    // only the attachment was checked here, so a video_edit/motion_control
+    // A connected upstream image/video (inputs.image/inputs.video,
+    // resolved by resolveGridNodeInputs from an edge into this node's
+    // 'image'/'video' port) is just as valid a source as a locally
+    // attached file - previously only attachments were checked here, so a
     // node fed purely by a connection would be wrongly flagged as missing
-    // its video even though gridGenerationPayload (below) now actually
-    // uses it.
-    const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video')||!!inputs.video?.value;
+    // an input even though gridGenerationPayload (below) now actually
+    // uses it. hasImageSource/hasVideoSource fold both cases together.
+    const missing=[],attachments=Array.isArray(node.attachments)?node.attachments:[],hasImage=attachments.some(item=>item.kind==='image'),hasVideo=attachments.some(item=>item.kind==='video');
+    const hasImageSource=hasImage||!!inputs.image?.value,hasVideoSource=hasVideo||!!inputs.video?.value;
     if(node.type==='text'&&!inputs.effective_prompt?.value)missing.push('Инструкция для текста');
     if(node.type==='image'&&!inputs.effective_prompt?.value)missing.push('Промпт изображения');
     if(node.type==='video'){
       const mode=node.settings?.generation_mode||'text_to_video';
       if(!inputs.effective_prompt?.value)missing.push('Промпт видео');
-      if(mode==='image_to_video'&&!inputs.image?.value&&!hasImage)missing.push('Исходное изображение');
-      // motion_control needs the same source video as video_edit - it was
-      // previously not validated at all, so a node with neither an
-      // attachment nor a connection would silently dispatch with an empty
-      // video source instead of being caught here.
-      if((mode==='video_edit'||mode==='motion_control')&&!hasVideo)missing.push('Исходное видео');
+      if(mode==='image_to_video'&&!hasImageSource)missing.push('Исходное изображение');
+      // video_edit needs a source video only. motion_control needs BOTH a
+      // video (the motion/reference source) AND an image (the subject) -
+      // the Kling provider path's own requires_image gate
+      // (services/video_router.py) includes motion_control alongside
+      // image_to_video, so a motion_control request with no image fails
+      // server-side even though it has a video; catching that here avoids
+      // a request that Grid validation lets through only to fail at the
+      // provider. Previously neither of motion_control's two requirements
+      // was checked here at all.
+      if(mode==='video_edit'&&!hasVideoSource)missing.push('Исходное видео');
+      if(mode==='motion_control'){
+        if(!hasVideoSource)missing.push('Исходное видео');
+        if(!hasImageSource)missing.push('Исходное изображение');
+      }
     }
     if(node.type==='voice'&&!inputs.effective_prompt?.value)missing.push('Текст озвучки');
     if(node.type==='music'&&!inputs.effective_prompt?.value&&!inputs.lyrics?.value)missing.push('Описание музыки или текст песни');
