@@ -74,23 +74,7 @@ def validate_options(opts):
         number(camera.get('vertical'), -30, 90, 0)
         number(camera.get('zoom'), 0, 10, 5)
     if mode == 'lighting':
-        light = settings('editWorkspaceLight')
-        layers = light.get('layers', [light])
-        if not isinstance(layers, list) or not 1 <= len(layers) <= 8:
-            raise ValueError('Допустимо от одного до восьми источников света.')
-        enabled = []
-        for layer in layers:
-            if not isinstance(layer, dict):
-                raise ValueError('Некорректный источник света.')
-            number(layer.get('horizontal'), -100, 100, 0)
-            number(layer.get('vertical'), -100, 100, 0)
-            brightness = number(layer.get('brightness'), 0, 2, 1)
-            if not re.fullmatch(r'#[0-9a-fA-F]{6}', str(layer.get('color') or '#ffffff')):
-                raise ValueError('Введите цвет в формате #RRGGBB.')
-            if layer.get('enabled') is not False and brightness > 0:
-                enabled.append(layer)
-        if not enabled:
-            raise ValueError('Включите хотя бы один источник света с яркостью выше нуля.')
+        lighting_parameters(settings('editWorkspaceLight'))
     if mode == 'upscale':
         upscale = settings('editWorkspaceUpscale')
         dimensions(upscale, 24000, 100_000_000)
@@ -112,6 +96,65 @@ def camera_prompt(camera):
     return (f"Camera azimuth {camera['horizontal']:g} degrees (0 front, 90 right, 180 back, 270 left); "
             f"elevation {camera['vertical']:g} degrees; zoom {camera['zoom']:g}/10 (0 far, 10 close). "
             "Preserve the same subject identity, clothing, scene objects, environment and overall style.")
+
+
+def lighting_parameters(settings):
+    """Normalize old screen-position controls and new orbit angles to degrees."""
+    coordinates = settings.get('coordinateSystem', 'legacy')
+    if coordinates not in ('legacy', 'spherical-degrees'):
+        raise ValueError('Неизвестная система координат света.')
+    spherical = coordinates == 'spherical-degrees'
+    layers = settings.get('layers', [settings])
+    if not isinstance(layers, list) or not 1 <= len(layers) <= 8:
+        raise ValueError('Допустимо от одного до восьми источников света.')
+    normalized = []
+    for layer in layers:
+        if not isinstance(layer, dict):
+            raise ValueError('Некорректный источник света.')
+        horizontal = number(layer.get('horizontal'), 0 if spherical else -100, 360 if spherical else 100, 0)
+        vertical = number(layer.get('vertical'), -90 if spherical else -100, 90 if spherical else 100, 0)
+        color = str(layer.get('color') or '#ffffff')
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}', color):
+            raise ValueError('Введите цвет в формате #RRGGBB.')
+        normalized.append({
+            'horizontal': horizontal if spherical else round((horizontal * .9) % 360, 6),
+            'vertical': vertical if spherical else round(vertical * .9, 6),
+            'brightness': number(layer.get('brightness'), 0, 2, 1),
+            'color': color.lower(), 'enabled': layer.get('enabled') is not False,
+        })
+    if not any(layer['enabled'] and layer['brightness'] > 0 for layer in normalized):
+        raise ValueError('Включите хотя бы один источник света с яркостью выше нуля.')
+    return {'coordinateSystem': 'spherical-degrees', 'layers': normalized}
+
+
+def lighting_prompt(lighting):
+    descriptions = []
+    directions = ('front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left')
+    for index, layer in enumerate(lighting['layers']):
+        if not layer['enabled'] or layer['brightness'] == 0:
+            continue
+        direction = directions[int((layer['horizontal'] + 22.5) // 45) % 8]
+        descriptions.append(
+            f"source {index + 1}: color {layer['color']}, azimuth {layer['horizontal']:g} degrees ({direction}), "
+            f"elevation {layer['vertical']:g} degrees, brightness {layer['brightness']:g}/2")
+    return (f"Relight using {len(descriptions)} light source(s): " + '; '.join(descriptions) + '. '
+            "Azimuth is 0 front (camera side), 90 image-right, 180 behind the subject, 270 image-left; "
+            "positive elevation is above, negative below. Brightness 1/2 is normal intensity, 2/2 is double. "
+            "Combine all listed sources with their relative intensities and colors; back lights create rim lighting. "
+            "Preserve the subject identity, pose, objects, background, camera viewpoint and composition. Change only illumination and shadows.")
+
+
+def lighting_initial_latent(lighting):
+    """IC-Light only supports a coarse directional hint; full angles stay in the prompt."""
+    enabled = [layer for layer in lighting['layers'] if layer['enabled'] and layer['brightness'] > 0]
+    dominant = max(enabled, key=lambda layer: layer['brightness'])
+    h, v = math.radians(dominant['horizontal']), math.radians(dominant['vertical'])
+    x, y = math.sin(h) * math.cos(v), math.sin(v)
+    if max(abs(x), abs(y)) < .15:
+        return 'None'
+    if abs(x) >= abs(y):
+        return 'Right' if x > 0 else 'Left'
+    return 'Top' if y > 0 else 'Bottom'
 
 
 def png(image):

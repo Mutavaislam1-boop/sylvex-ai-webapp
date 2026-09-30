@@ -15531,39 +15531,11 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         else:
             model = "fal-ai/iclight-v2"
             endpoint = f"https://queue.fal.run/{model}"
-            horizontal = max(-100, min(100, int(float(light.get("horizontal") or 0))))
-            vertical = max(-100, min(100, int(float(light.get("vertical") or 0))))
-            brightness = max(0, min(2, float(light.get("brightness") if light.get("brightness") is not None else 1)))
-            color = str(light.get("color") or "#ffffff")
-            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
-                color = "#ffffff"
-            layers = light.get("layers") if isinstance(light.get("layers"), list) else []
-            enabled_layers = [layer for layer in layers if isinstance(layer, dict) and layer.get("enabled") is not False and edit_workspace_service.number(layer.get("brightness"), 0, 2, 1) > 0]
-            direction_layer = max(enabled_layers, key=lambda layer: edit_workspace_service.number(layer.get("brightness"), 0, 2, 1)) if enabled_layers else light
-            direction_h = max(-100, min(100, int(float(direction_layer.get("horizontal") or 0))))
-            direction_v = max(-100, min(100, int(float(direction_layer.get("vertical") or 0))))
-            if abs(direction_h) >= abs(direction_v):
-                latent = "Right" if direction_h > 15 else "Left" if direction_h < -15 else "None"
-            else:
-                latent = "Top" if direction_v > 15 else "Bottom" if direction_v < -15 else "None"
-            layer_descriptions = []
-            for layer in layers[:8]:
-                if not isinstance(layer, dict):
-                    continue
-                if layer.get("enabled") is False or edit_workspace_service.number(layer.get("brightness"), 0, 2, 1) == 0:
-                    continue
-                layer_h = max(-100, min(100, int(float(layer.get("horizontal") or 0))))
-                layer_v = max(-100, min(100, int(float(layer.get("vertical") or 0))))
-                layer_b = max(0, min(2, float(layer.get("brightness") if layer.get("brightness") is not None else 1)))
-                layer_color = str(layer.get("color") or "#ffffff")
-                if not re.fullmatch(r"#[0-9a-fA-F]{6}", layer_color):
-                    layer_color = "#ffffff"
-                layer_descriptions.append(f"source {len(layer_descriptions) + 1}: {layer_color}, horizontal {layer_h}, vertical {layer_v}, brightness {layer_b:.1f}")
-            layers_prompt = "; ".join(layer_descriptions) or f"one light: {color}, horizontal {horizontal}, vertical {vertical}, brightness {brightness:.1f}"
+            light = edit_workspace_service.lighting_parameters(light)
             request_body = {
                 "image_url": image_data_uri,
-                "prompt": f"Relight using {len(layer_descriptions) or 1} light source(s): {layers_prompt}. Preserve the subject, identity, objects, environment and composition.",
-                "initial_latent": latent,
+                "prompt": edit_workspace_service.lighting_prompt(light),
+                "initial_latent": edit_workspace_service.lighting_initial_latent(light),
                 "image_size": {"width": source_size[0], "height": source_size[1]},
                 "output_format": "png",
                 "num_images": 1,
@@ -15678,6 +15650,9 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     if mode == "camera":
         extra["edit_camera"] = camera
         extra["camera_prompt"] = request_body["additional_prompt"]
+    elif mode == "lighting":
+        extra["edit_lighting"] = light
+        extra["lighting_prompt"] = request_body["prompt"]
     job_id = str(payload.get("job_id") or "")
     if job_id:
         result = {**_build_image_result_without_thumbnails([image_url]), **extra}
