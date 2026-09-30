@@ -9477,16 +9477,14 @@ html.web-embed .studio-layout-switch{display:none!important}
 .edit-workspace-close{border-radius:var(--edit-radius-medium)}
 .edit-workspace-action textarea::placeholder,.edit-workspace-action-row output,.edit-workspace-range output{color:var(--edit-muted)}
 
-/* Edit workspace: image-sized selection canvas and room for each tool. */
+/* Edit workspace: image-sized selection canvas beneath floating tools. */
 body.edit-workspace-open{overflow:hidden}
-.edit-workspace-stage{box-sizing:border-box;inset:20px 20px 220px;padding:24px;overflow:auto}
-.edit-workspace[data-mode="camera"] .edit-workspace-stage,.edit-workspace[data-mode="lighting"] .edit-workspace-stage,.edit-workspace[data-mode="upscale"] .edit-workspace-stage,.edit-workspace[data-mode="translate"] .edit-workspace-stage{right:430px;bottom:145px}
+.edit-workspace-stage{box-sizing:border-box;inset:0;padding:0;overflow:hidden}
 .edit-workspace-frame{position:relative;flex:none;box-shadow:0 14px 48px #0006;background-color:#c7c7c7;background-image:linear-gradient(45deg,#eee 25%,transparent 25%),linear-gradient(-45deg,#eee 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eee 75%),linear-gradient(-45deg,transparent 75%,#eee 75%);background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}
 .edit-workspace-frame .edit-workspace-image{position:absolute;max-width:none;max-height:none;transform:none;box-shadow:none;object-fit:fill;user-select:none;-webkit-user-drag:none}
 #editWorkspaceMask{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair;opacity:.55}
 .edit-workspace-action{width:min(880px,calc(100vw - 80px))}
 .edit-workspace-action-row label input[type="checkbox"]{width:17px;height:17px;accent-color:var(--edit-primary)}
-.edit-workspace[data-mode="expand"] .edit-workspace-stage{bottom:275px}
 .edit-workspace[data-mode="expand"] .edit-workspace-action-row label input{width:64px}
 .edit-workspace-status{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);max-width:90vw;color:var(--edit-muted,#aaa);font-size:11px;text-align:center;pointer-events:none}
 .edit-workspace-canvas-actions{top:18px;bottom:auto;right:70px;transform:none;max-width:calc(100% - 100px);flex-wrap:wrap}
@@ -9494,7 +9492,6 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace.is-dragging::after{content:'Drop image to open';position:absolute;inset:12px;z-index:10;display:grid;place-items:center;border:2px dashed #9890ff;border-radius:18px;background:#151327dd;color:#fff;font-size:24px;pointer-events:none}
 .edit-workspace-language-list button[hidden]{display:none}
 .edit-workspace :focus-visible{outline:2px solid #aaa0ff;outline-offset:3px}
-@media(min-width:1000px) and (max-width:1320px){.edit-workspace[data-mode="camera"] .edit-workspace-stage,.edit-workspace[data-mode="lighting"] .edit-workspace-stage,.edit-workspace[data-mode="upscale"] .edit-workspace-stage,.edit-workspace[data-mode="translate"] .edit-workspace-stage{right:370px}}
 /* Compact tool dock, matching the DaVinci reference; names remain accessible. */
 .edit-workspace-dock{border-radius:999px;background:#242426eb;backdrop-filter:blur(18px);height:55px}
 .edit-workspace-tab{border-radius:999px;min-width:42px}
@@ -9503,18 +9500,20 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-action{border-radius:24px;background:#242426e8;backdrop-filter:blur(18px)}
 .edit-workspace-action-row button:disabled{opacity:.4;cursor:default}
 
-/* The photo is a movable object on the editor grid. Camera distance is separate. */
+/* One infinite world fills the viewport, including the area behind every tool. */
 .edit-workspace-stage{overflow:hidden;touch-action:none;cursor:grab;outline:none}
 .edit-workspace-stage.is-panning,.edit-workspace-stage.is-panning *{cursor:grabbing!important}
-.edit-workspace-frame{will-change:transform;transform-origin:center;user-select:none}
+.edit-workspace-world{position:absolute;left:0;top:0;width:0;height:0;overflow:visible;transform-origin:0 0;will-change:transform}
+.edit-workspace-frame{position:absolute;user-select:none}
+.edit-workspace-world>.edit-workspace-upload{position:absolute;left:0;top:0;transform:translate(-50%,-50%)}
+.edit-workspace-grid{background-image:radial-gradient(circle at 1px 1px,#45454d 1px,transparent 1.1px)}
 .edit-workspace-stage.can-pan #editWorkspaceMask{cursor:grab}
-.edit-workspace[data-mode="retouch"] .edit-workspace-stage:not(.can-pan){cursor:default}
-.edit-workspace[data-mode="camera"] .edit-workspace-stage{bottom:100px;top:65px}
+.edit-workspace-panel,.edit-workspace-action,.edit-workspace-dock{background:rgba(22,22,26,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .edit-camera-panel-title{display:flex;flex-direction:column;gap:4px}
 .edit-camera-panel-title h3{margin:0;font-size:16px;font-weight:600}
 .edit-camera-panel-title span{font-size:10px;color:var(--edit-muted)}
 .edit-workspace-panel-camera{gap:12px;padding:18px}
-.edit-workspace-panel-camera .edit-workspace-orbit{display:block;height:auto;min-height:0;padding:0 3px 10px;border-radius:16px;background:radial-gradient(ellipse at 50% 55%,#23252d,#141519 75%)}
+.edit-workspace-panel-camera .edit-workspace-orbit{display:block;height:auto;min-height:0;padding:0 3px 10px;border-radius:16px;background:rgba(9,11,14,.32)}
 .edit-camera-svg{display:block;width:100%;height:220px;overflow:visible;touch-action:none;user-select:none}
 .edit-camera-floor{fill:#ffffff02;stroke:#ffffff08;stroke-width:1}
 .edit-camera-guide{fill:none;stroke:#8b8c9c44;stroke-width:1;stroke-dasharray:3 5;pointer-events:none}
@@ -9556,11 +9555,10 @@ body.edit-workspace-open{overflow:hidden}
 /* Relighting: each source keeps its own direction, color and intensity. */
 .edit-workspace-panel-lighting{gap:10px;padding:16px;max-height:calc(100dvh - 150px)}
 .edit-workspace-panel-lighting>*{flex-shrink:0}
-.edit-workspace[data-mode="lighting"] .edit-workspace-stage{bottom:100px;top:65px}
 .edit-light-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .edit-light-title h3{font-size:16px;font-weight:600;margin:0}
 .edit-light-title span{font-size:10px;color:var(--edit-muted)}
-.edit-light-orbit{border-radius:18px;background:#090b0e;overflow:hidden;padding-bottom:12px}
+.edit-light-orbit{border-radius:18px;background:rgba(9,11,14,.32);overflow:hidden;padding-bottom:12px}
 .edit-light-svg{display:block;width:100%;height:225px;touch-action:none;user-select:none}
 .edit-light-grid{fill:none;stroke:#718098;stroke-opacity:.10;stroke-width:.6;pointer-events:none}
 .edit-light-ring{fill:none;stroke-width:1.8;cursor:grab;pointer-events:stroke}
