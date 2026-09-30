@@ -8442,6 +8442,38 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
 # ЗАГРУЗКА ФАЙЛОВ: public_prostudio_upload_media
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
 # =====================================================
+def _probe_image_dimensions(content):
+    # Best-effort only, for the UPLOAD_MEDIA_REJECTED diagnostic below - never
+    # raises and never gates acceptance (that stays validated_upload_type's
+    # job). A corrupt/undecodable upload simply logs width/height as None.
+    try:
+        from PIL import Image
+        import io
+        with Image.open(io.BytesIO(content)) as img:
+            return img.width, img.height
+    except Exception:
+        return None, None
+
+
+def _log_upload_media_rejected(reason, media_kind, suffix, mime, size_bytes, status, width=None, height=None):
+    # Deliberately excludes filename/URLs/auth - safe to leave in production
+    # logs. This is the only place upload-media rejections were observable
+    # from (the shared SecurityError handler that a couple of these branches
+    # raise through just returns bare JSON with no server-side log line at
+    # all), so a 400 here was previously undiagnosable without frontend
+    # network-tab access.
+    print("UPLOAD_MEDIA_REJECTED:", {
+        "reason": reason,
+        "kind": media_kind,
+        "mime": mime,
+        "bytes": size_bytes,
+        "suffix": suffix,
+        "width": width,
+        "height": height,
+        "status": status,
+    })
+
+
 async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str = "image"):
     media_kind = (kind or "").strip().lower()
     filename = pathlib.Path(file.filename or "").name
@@ -8461,13 +8493,25 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     max_bytes = 200 * 1024 * 1024 if is_video else 50 * 1024 * 1024
 
     if suffix not in allowed_exts:
+        _log_upload_media_rejected("unsupported_extension", media_kind, suffix, content_type, 0, 400)
         return JSONResponse({"ok": False, "error": "Unsupported media format"}, status_code=400)
 
-    content = await read_upload(file, max_bytes)
+    try:
+        content = await read_upload(file, max_bytes)
+    except SecurityError as exc:
+        _log_upload_media_rejected(exc.code, media_kind, suffix, content_type, max_bytes, exc.status)
+        raise
     if not content:
+        _log_upload_media_rejected("empty_file", media_kind, suffix, content_type, 0, 400)
         return JSONResponse({"ok": False, "error": "Empty file"}, status_code=400)
-    content_type = validated_upload_type(content, suffix)
+    try:
+        content_type = validated_upload_type(content, suffix)
+    except SecurityError as exc:
+        width, height = (_probe_image_dimensions(content) if suffix in {".jpg", ".jpeg", ".png", ".webp"} else (None, None))
+        _log_upload_media_rejected(exc.code, media_kind, suffix, content_type, len(content), exc.status, width, height)
+        raise
     if len(content) > max_bytes:
+        _log_upload_media_rejected("file_too_large", media_kind, suffix, content_type, len(content), 400)
         return JSONResponse({"ok": False, "error": "File is too large"}, status_code=400)
 
     stored_name = f"{uuid4().hex}{suffix}"
