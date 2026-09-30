@@ -56,7 +56,12 @@ function videoModelConfigWithKlingSource() {
 }
 
 function makeContext() {
-  const context = vm.createContext({console});
+  // fetchedModelCapabilities: Phase 1 Batch 3 repointed currentVideoConfig()
+  // to prefer the fetched capability registry's start_frame/end_frame when
+  // present (see tests/test_video_end_frame_capability_repoint.mjs) - null
+  // here means "nothing fetched yet", so it falls back to the local
+  // VIDEO_MODEL_CONFIG values this file already exercises, unchanged.
+  const context = vm.createContext({console, fetchedModelCapabilities: null});
   vm.runInContext(videoModelConfigWithKlingSource(), context);
   vm.runInContext('var videoState = {};', context);
   vm.runInContext(extract('currentVideoConfig'), context);
@@ -133,7 +138,7 @@ test('normalizeVideoStateForModel keeps startImage but clears endImage when only
 });
 
 test('renderVideoStartPreview and renderVideoEndPreview hide the card when unsupported', () => {
-  const context = vm.createContext({console});
+  const context = vm.createContext({console, fetchedModelCapabilities: null});
   vm.runInContext(videoModelConfigWithKlingSource(), context);
   vm.runInContext('var videoState = {};', context);
   vm.runInContext(extract('currentVideoConfig'), context);
