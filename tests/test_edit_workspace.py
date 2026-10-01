@@ -128,8 +128,8 @@ def test_bad_settings_fail_in_route_validation_and_adapter(provider, mode, setti
     assert not provider[0]
 
 
-@pytest.mark.parametrize(('mode', 'brightness'), [('camera', 1.5), ('lighting', 1.5), ('lighting', None)])
-def test_fal_contract_uses_enabled_lights_and_numeric_camera(monkeypatch, provider, mode, brightness):
+@pytest.mark.parametrize('brightness', [1.5, None])
+def test_fal_contract_uses_enabled_lights(monkeypatch, provider, brightness):
     calls = []
     monkeypatch.setattr(main, 'FAL_API_KEY', 'fake')
     def post(url, **kw):
@@ -137,17 +137,15 @@ def test_fal_contract_uses_enabled_lights_and_numeric_camera(monkeypatch, provid
         return Response({'status_url': 'https://queue.fal.run/status', 'response_url': 'https://queue.fal.run/result'})
     monkeypatch.setattr(main.requests, 'post', post)
     monkeypatch.setattr(main.requests, 'get', lambda url, **kw: Response({'status': 'COMPLETED'} if url.endswith('status') else {'images': [{'url': 'https://cdn.example.com/generated.png'}]}))
-    request = payload(mode, editWorkspaceCamera={'horizontal': 270, 'vertical': -30, 'zoom': 0}, editWorkspaceLight={'active': 0, 'layers': [
+    request = payload('lighting', editWorkspaceCamera={'horizontal': 270, 'vertical': -30, 'zoom': 0}, editWorkspaceLight={'active': 0, 'layers': [
         {'enabled': False, 'horizontal': -90, 'color': '#ff0000'},
         {'enabled': True, 'horizontal': 70, 'vertical': 0, 'brightness': brightness, 'color': '#00ff00'}]})
     assert asyncio.run(main.generate_edit_workspace_image(request))['ok']
     data = calls[0][1]['json']
     assert data['output_format'] == 'png'
-    if mode == 'camera':
-        assert (data['horizontal_angle'], data['vertical_angle'], data['zoom']) == (270, -30, 0)
-    else:
-        assert data['initial_latent'] == 'Right'
-        assert '#00ff00' in data['prompt'] and '#ff0000' not in data['prompt']
+    assert calls[0][0] == 'https://queue.fal.run/fal-ai/iclight-v2'
+    assert data['initial_latent'] == 'Right'
+    assert '#00ff00' in data['prompt'] and '#ff0000' not in data['prompt']
 
 
 def test_topaz_workspace_passes_controls_and_preserves_ratio(monkeypatch, provider):
@@ -237,28 +235,94 @@ def test_resize_worker_does_not_acquire_ai_provider_slot(monkeypatch, provider):
     {'horizontal': 360, 'vertical': -30, 'zoom': 0},
     {'horizontal': 0, 'vertical': 90, 'zoom': 10},
 ])
-def test_camera_exact_angles_reach_provider_prompt_and_saved_result(monkeypatch, provider, camera):
+def test_camera_uses_official_qwen_with_exact_angles_and_saved_result(monkeypatch, provider, camera, capsys):
     calls = []
-    monkeypatch.setattr(main, 'FAL_API_KEY', 'fake')
+    monkeypatch.setenv('QWEN_API_KEY', 'test-qwen-camera-key')
+    monkeypatch.setenv('DASHSCOPE_API_KEY', 'unrelated-key')
+    monkeypatch.setattr(main, 'FAL_API_KEY', '')
     def post(url, **kw):
+        assert url == 'https://maas.qwencloudapi.com/api/v1/services/aigc/multimodal-generation/generation'
+        assert kw['headers']['Authorization'] == 'Bearer test-qwen-camera-key'
+        assert kw['headers']['Content-Type'] == 'application/json'
         calls.append(kw['json'])
-        return Response({'status_url': 'https://queue.fal.run/status', 'response_url': 'https://queue.fal.run/result'})
-    def get(url, **kw):
-        if url.endswith('/status'):
-            return Response({'status': 'COMPLETED'})
-        return Response({'images': [{'url': 'https://cdn.example.com/generated.png'}]})
+        return Response({'output': {'choices': [{'message': {'role': 'assistant', 'content': [
+            {'image': 'https://cdn.example.com/generated.png'}]}}]}})
     monkeypatch.setattr(main.requests, 'post', post)
-    monkeypatch.setattr(main.requests, 'get', get)
+    monkeypatch.setattr(main.requests, 'get', lambda *a, **kw: pytest.fail('Qwen camera must not poll Fal'))
     result = asyncio.run(main.generate_edit_workspace_image(payload('camera', editWorkspaceCamera=camera)))
     assert result['ok']
+    assert len(calls) == 1
+    assert result['provider'] == 'qwen'
+    assert result['provider_model'] == 'qwen-image-3.0-pro'
     data = calls[0]
-    assert [data['horizontal_angle'], data['vertical_angle'], data['zoom']] == [camera['horizontal'], camera['vertical'], camera['zoom']]
-    assert f"azimuth {camera['horizontal']:g} degrees" in data['additional_prompt']
-    assert f"elevation {camera['vertical']:g} degrees" in data['additional_prompt']
-    assert f"zoom {camera['zoom']:g}/10" in data['additional_prompt']
+    assert set(data) == {'model', 'input', 'parameters'}
+    assert data['model'] == 'qwen-image-3.0-pro'
+    assert data['parameters'] == {'n': 1, 'prompt_extend': False, 'watermark': False}
+    message, = data['input']['messages']
+    assert message['role'] == 'user'
+    image, instruction = message['content']
+    assert base64.b64decode(image['image'].split(',', 1)[1]) == image_bytes()
+    text = instruction['text']
+    assert f"azimuth {camera['horizontal']:g} degrees" in text
+    assert f"elevation {camera['vertical']:g} degrees" in text
+    assert f"zoom {camera['zoom']:g}/10" in text
     assert result['edit_camera'] == camera
-    assert result['camera_prompt'] == data['additional_prompt']
-    assert len(data['image_urls']) == 1 and 'UNRELATED' not in str(data)
+    assert result['camera_prompt'] == text
+    assert 'UNRELATED' not in str(data) and 'IGNORE COMPOSER' not in str(data)
+    assert 'test-qwen-camera-key' not in capsys.readouterr().out
+
+
+def test_camera_without_qwen_key_does_not_use_other_provider_keys(monkeypatch, provider):
+    for name in ('QWEN_API_KEY', 'QWEN-API-KEY'):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('DASHSCOPE_API_KEY', 'unrelated-key')
+    monkeypatch.setattr(main, 'FAL_API_KEY', 'unrelated-key')
+    result = asyncio.run(main.generate_edit_workspace_image(payload('camera')))
+    assert not result['ok']
+    assert not provider[0]
+
+
+@pytest.mark.parametrize('status', [200, 401, 429, 500])
+def test_camera_failed_or_empty_qwen_response_never_falls_back(monkeypatch, provider, status):
+    monkeypatch.setenv('QWEN_API_KEY', 'test-qwen-camera-key')
+    calls = []
+    def post(url, **kw):
+        calls.append(url)
+        response = Response({} if status == 200 else {'code': 'TestError', 'message': 'Request failed'})
+        response.status_code = status
+        return response
+    monkeypatch.setattr(main.requests, 'post', post)
+    result = asyncio.run(main.generate_edit_workspace_image(payload('camera')))
+    assert not result['ok']
+    assert calls == ['https://maas.qwencloudapi.com/api/v1/services/aigc/multimodal-generation/generation']
+
+
+@pytest.mark.parametrize(('mode', 'expected'), [('camera', 'QWEN'), ('lighting', 'FAL')])
+def test_camera_worker_uses_qwen_slot_even_for_legacy_fal_jobs(mode, expected):
+    assert main.resolve_prostudio_provider_for_slot(
+        payload(mode), 'image', 'qwen_image_edit_2511_multiple_angles', 'fal') == expected
+
+
+@pytest.mark.parametrize(('provider_name', 'model'), [
+    ('fal', 'qwen_image_edit_2511_multiple_angles'), ('qwen', 'qwen-image-3.0-pro'),
+])
+def test_camera_route_stores_official_qwen_in_job_and_price_snapshot(monkeypatch, provider_name, model):
+    request_payload = payload('camera')
+    request_payload.update(telegram_id=10, provider=provider_name, model=model)
+    class Request:
+        async def json(self):
+            return request_payload
+    recorded = []
+    monkeypatch.setattr(main, 'get_user_state', lambda uid: {'balance': 100, 'subscription_status': 'active'})
+    monkeypatch.setattr(main, 'get_active_prostudio_job', lambda uid: {})
+    monkeypatch.setattr(main, 'create_prostudio_generation_job', lambda p: recorded.append(p) or 'camera-test')
+    monkeypatch.setattr(main, 'log_user_event', lambda *a, **kw: None)
+    result = asyncio.run(main.public_prostudio_generate(Request()))
+    assert result['status'] == 'queued'
+    job, = recorded
+    assert job['provider'] == job['price_snapshot']['parameters']['provider'] == 'qwen'
+    assert job['model'] == job['price_snapshot']['parameters']['model'] == 'qwen-image-3.0-pro'
+    assert job['price_snapshot']['final_credits'] > 0
 
 
 def test_lighting_exact_sources_reach_provider_and_saved_result(monkeypatch, provider):
