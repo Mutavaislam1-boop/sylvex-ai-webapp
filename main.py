@@ -8357,7 +8357,13 @@ async def public_prostudio_create_character(request: Request):
         images = await _generate_openai_character_images(name, gender, description, photos)
         heygen = await asyncio.to_thread(_create_heygen_character, name, images[0], images[1:4])
         identity_prompt = _character_identity_prompt(name, gender, description)
-        stable_id = heygen["photo_avatar_id"] or heygen["avatar_group_id"]
+        # SYLVEX owns the Character's identity - per the Character System V2
+        # product contract, a provider-specific ID (HeyGen's photo_avatar_id/
+        # avatar_group_id here) must never be the canonical identity, since
+        # losing or rotating that provider mapping would otherwise destroy
+        # the Character itself. heygen's ids are kept as a mapping alongside
+        # this stable SYLVEX-generated id, not instead of it.
+        stable_id = uuid4().hex
         resource = {
             "id": f"custom_character_{stable_id}",
             "resource_type": "character",
@@ -8367,6 +8373,7 @@ async def public_prostudio_create_character(request: Request):
             "prompt": "",
             "previewUrl": images[0],
             "avatarUrl": images[0],
+            "primaryReferenceUrl": images[0],
             "referenceImages": images[1:4],
             "sourceImages": images[1:4],
             "originalSourceImages": photos,
