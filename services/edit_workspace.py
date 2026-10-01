@@ -113,10 +113,38 @@ Preserve identity, appearance, proportions, materials, colors, scene continuity,
 The result must represent a physically plausible photograph of the exact same frozen scene taken from the requested new camera position."""
 
 
+CAMERA_COORDINATE_PROMPT = """Use the source image camera position as the absolute reference viewpoint.
+Azimuth 0° = the exact original camera viewpoint.
+Azimuth 90° = camera moved to the right side of the frozen scene.
+Azimuth 180° = camera moved to the exact opposite side of the frozen scene, producing the exact rear viewpoint.
+Azimuth 270° = camera moved to the left side of the frozen scene.
+Azimuth 360° = the exact original camera viewpoint again.
+Elevation 0° = the original camera height. Positive elevation moves only the camera upward; negative elevation moves only the camera downward.
+These angles describe the camera position around the unchanged world, never the rotation of the scene or its contents."""
+
+
+def camera_semantic_viewpoint(horizontal):
+    """Give the image model an unambiguous human-readable azimuth meaning."""
+    normalized = float(horizontal) % 360
+    if math.isclose(normalized, 0, abs_tol=1e-9):
+        return 'exact original camera viewpoint'
+    labels = (
+        'exact original camera viewpoint', 'front-right three-quarter view',
+        'exact right-side view', 'rear-right three-quarter view',
+        'exact rear view', 'rear-left three-quarter view',
+        'exact left-side view', 'front-left three-quarter view',
+    )
+    # Use the nearest named 45-degree viewpoint for values between controls.
+    return labels[int(math.floor(normalized / 45 + 0.5)) % 8]
+
+
 def camera_prompt(camera):
+    semantic = camera_semantic_viewpoint(camera['horizontal'])
     return (f"{CAMERA_SCENE_PROMPT}\n\n"
+            f"{CAMERA_COORDINATE_PROMPT}\n\n"
             f"Camera position: azimuth {camera['horizontal']:g}°, "
-            f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.")
+            f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.\n"
+            f"Semantic viewpoint: {semantic}.")
 
 
 def lighting_parameters(settings):

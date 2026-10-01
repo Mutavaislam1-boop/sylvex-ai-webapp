@@ -258,7 +258,7 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     assert data['quality'] == 'high' and data['n'] == '1' and data['output_format'] == 'png'
     assert data['size'] == edit.output_size((64, 48))
     text = data['prompt']
-    scene_prompt, position = text.rsplit('\n\n', 1)
+    scene_prompt, coordinate_prompt, position = text.rsplit('\n\n', 2)
     assert scene_prompt.startswith('Reconstruct the input image as the exact same frozen three-dimensional scene')
     assert 'ONLY THE CAMERA MAY MOVE. The entire scene must remain fixed in world space.' in scene_prompt
     assert "head orientation, facial direction, and gaze vector in world space" in scene_prompt
@@ -266,12 +266,35 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     assert 'preserving the same world-space geometry and lighting configuration' in scene_prompt
     assert scene_prompt.endswith('photograph of the exact same frozen scene taken from the requested new camera position.')
     assert 'Camera position:' not in scene_prompt
-    assert position == (f"Camera position: azimuth {camera['horizontal']:g}°, "
-                        f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.")
+    assert coordinate_prompt == edit.CAMERA_COORDINATE_PROMPT
+    assert 'Azimuth 0° = the exact original camera viewpoint.' in coordinate_prompt
+    assert 'Azimuth 180° = camera moved to the exact opposite side of the frozen scene, producing the exact rear viewpoint.' in coordinate_prompt
+    assert 'These angles describe the camera position around the unchanged world, never the rotation of the scene or its contents.' in coordinate_prompt
+    position = (f"Camera position: azimuth {camera['horizontal']:g}°, "
+                f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.\n"
+                f"Semantic viewpoint: {edit.camera_semantic_viewpoint(camera['horizontal'])}.")
+    assert text.endswith(position)
     assert result['edit_camera'] == camera
     assert result['camera_prompt'] == text
     assert 'UNRELATED' not in str(data) and 'IGNORE COMPOSER' not in str(data) and 'Make it blue' not in text
     assert 'test-openai-camera-key' not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(('horizontal', 'semantic'), [
+    (0, 'exact original camera viewpoint'),
+    (360, 'exact original camera viewpoint'),
+    (45, 'front-right three-quarter view'),
+    (90, 'exact right-side view'),
+    (135, 'rear-right three-quarter view'),
+    (150, 'rear-right three-quarter view'),
+    (180, 'exact rear view'),
+    (220, 'rear-left three-quarter view'),
+    (225, 'rear-left three-quarter view'),
+    (270, 'exact left-side view'),
+    (315, 'front-left three-quarter view'),
+])
+def test_camera_semantic_viewpoint_maps_absolute_azimuth(horizontal, semantic):
+    assert edit.camera_semantic_viewpoint(horizontal) == semantic
 
 
 @pytest.mark.parametrize('mode', ['camera', 'lighting'])
