@@ -129,22 +129,17 @@ def test_bad_settings_fail_in_route_validation_and_adapter(provider, mode, setti
 
 
 @pytest.mark.parametrize('brightness', [1.5, None])
-def test_fal_contract_uses_enabled_lights(monkeypatch, provider, brightness):
-    calls = []
-    monkeypatch.setattr(main, 'FAL_API_KEY', 'fake')
-    def post(url, **kw):
-        calls.append((url, kw))
-        return Response({'status_url': 'https://queue.fal.run/status', 'response_url': 'https://queue.fal.run/result'})
-    monkeypatch.setattr(main.requests, 'post', post)
-    monkeypatch.setattr(main.requests, 'get', lambda url, **kw: Response({'status': 'COMPLETED'} if url.endswith('status') else {'images': [{'url': 'https://cdn.example.com/generated.png'}]}))
+def test_sunburst_lighting_uses_enabled_legacy_lights(provider, brightness):
     request = payload('lighting', editWorkspaceCamera={'horizontal': 270, 'vertical': -30, 'zoom': 0}, editWorkspaceLight={'active': 0, 'layers': [
         {'enabled': False, 'horizontal': -90, 'color': '#ff0000'},
         {'enabled': True, 'horizontal': 70, 'vertical': 0, 'brightness': brightness, 'color': '#00ff00'}]})
     assert asyncio.run(main.generate_edit_workspace_image(request))['ok']
-    data = calls[0][1]['json']
+    (url, call), = provider[0]
+    data = call['data']
     assert data['output_format'] == 'png'
-    assert calls[0][0] == 'https://queue.fal.run/fal-ai/iclight-v2'
-    assert data['initial_latent'] == 'Right'
+    assert url == f'{main.OPENAI_API_BASE}/images/edits'
+    assert 'azimuth 63 degrees' in data['prompt']
+    assert f"brightness {brightness if brightness is not None else 1:g}/2" in data['prompt']
     assert '#00ff00' in data['prompt'] and '#ff0000' not in data['prompt']
 
 
@@ -279,18 +274,20 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     assert 'test-openai-camera-key' not in capsys.readouterr().out
 
 
-def test_camera_without_openai_key_does_not_use_other_provider_keys(monkeypatch, provider):
+@pytest.mark.parametrize('mode', ['camera', 'lighting'])
+def test_camera_and_lighting_without_openai_key_do_not_use_other_provider_keys(monkeypatch, provider, mode):
     monkeypatch.setattr(main, 'OPENAI_API_KEY', '')
     monkeypatch.setenv('QWEN_API_KEY', 'unrelated-key')
     monkeypatch.setenv('DASHSCOPE_API_KEY', 'unrelated-key')
     monkeypatch.setattr(main, 'FAL_API_KEY', 'unrelated-key')
-    result = asyncio.run(main.generate_edit_workspace_image(payload('camera')))
+    result = asyncio.run(main.generate_edit_workspace_image(payload(mode)))
     assert not result['ok']
     assert not provider[0]
 
 
 @pytest.mark.parametrize('status', [200, 401, 429, 500])
-def test_camera_failed_or_empty_sunburst_response_never_falls_back(monkeypatch, provider, status):
+@pytest.mark.parametrize('mode', ['camera', 'lighting'])
+def test_camera_and_lighting_failed_or_empty_sunburst_response_never_falls_back(monkeypatch, provider, status, mode):
     calls = []
     def post(url, **kw):
         calls.append(url)
@@ -298,27 +295,30 @@ def test_camera_failed_or_empty_sunburst_response_never_falls_back(monkeypatch, 
         response.status_code = status
         return response
     monkeypatch.setattr(main.requests, 'post', post)
-    result = asyncio.run(main.generate_edit_workspace_image(payload('camera')))
+    result = asyncio.run(main.generate_edit_workspace_image(payload(mode)))
     assert not result['ok']
     assert calls == [f'{main.OPENAI_API_BASE}/images/edits']
 
 
 @pytest.mark.parametrize(('provider_name', 'model'), [
     ('fal', 'qwen_image_edit_2511_multiple_angles'), ('qwen', 'qwen-image-3.0-pro'),
+    ('fal', 'iclight_v2'),
     ('openai', 'gpt_image_2_5_sunburst'),
 ])
-@pytest.mark.parametrize(('mode', 'expected'), [('camera', 'OPENAI'), ('lighting', 'FAL')])
-def test_camera_worker_uses_openai_slot_even_for_legacy_jobs(mode, expected, provider_name, model):
+@pytest.mark.parametrize('mode', ['camera', 'lighting'])
+def test_camera_and_lighting_worker_uses_openai_slot_even_for_legacy_jobs(mode, provider_name, model):
     assert main.resolve_prostudio_provider_for_slot(
-        payload(mode), 'image', model, provider_name) == expected
+        payload(mode), 'image', model, provider_name) == 'OPENAI'
 
 
 @pytest.mark.parametrize(('provider_name', 'model'), [
     ('fal', 'qwen_image_edit_2511_multiple_angles'), ('qwen', 'qwen-image-3.0-pro'),
+    ('fal', 'iclight_v2'),
     ('openai', 'gpt_image_2_5_sunburst'),
 ])
-def test_camera_route_stores_sunburst_in_job_and_price_snapshot(monkeypatch, provider_name, model):
-    request_payload = payload('camera')
+@pytest.mark.parametrize('mode', ['camera', 'lighting'])
+def test_camera_and_lighting_route_stores_sunburst_in_job_and_price_snapshot(monkeypatch, provider_name, model, mode):
+    request_payload = payload(mode)
     request_payload.update(telegram_id=10, provider=provider_name, model=model)
     class Request:
         async def json(self):
@@ -336,13 +336,10 @@ def test_camera_route_stores_sunburst_in_job_and_price_snapshot(monkeypatch, pro
     assert job['price_snapshot']['final_credits'] == main.calculate_generation_price(payload('edit'))['credits'] > 0
 
 
-def test_lighting_exact_sources_reach_provider_and_saved_result(monkeypatch, provider):
-    calls = []
-    monkeypatch.setattr(main, 'FAL_API_KEY', 'fake')
-    monkeypatch.setattr(main.requests, 'post', lambda url, **kw: calls.append(kw['json']) or Response({
-        'status_url': 'https://queue.fal.run/status', 'response_url': 'https://queue.fal.run/result'}))
-    monkeypatch.setattr(main.requests, 'get', lambda url, **kw: Response(
-        {'status': 'COMPLETED'} if url.endswith('status') else {'images': [{'url': 'https://cdn.example.com/generated.png'}]}))
+def test_lighting_exact_sources_reach_sunburst_and_saved_result(monkeypatch, provider, capsys):
+    monkeypatch.setattr(main, 'OPENAI_API_KEY', 'test-openai-lighting-key')
+    monkeypatch.setattr(main, 'FAL_API_KEY', '')
+    monkeypatch.setattr(main.requests, 'get', lambda *a, **kw: pytest.fail('Sunburst lighting must not poll another provider'))
     lighting = {'coordinateSystem': 'spherical-degrees', 'active': 2, 'layers': [
         {'horizontal': 217.4, 'vertical': -38.2, 'brightness': 1.7, 'color': '#6633cc', 'enabled': True},
         {'horizontal': 45, 'vertical': 20, 'brightness': .6, 'color': '#aabbcc', 'enabled': True},
@@ -351,27 +348,39 @@ def test_lighting_exact_sources_reach_provider_and_saved_result(monkeypatch, pro
     ]}
     result = asyncio.run(main.generate_edit_workspace_image(payload('lighting', editWorkspaceLight=lighting)))
     assert result['ok']
-    data = calls[0]
+    assert result['provider'] == 'openai' and result['provider_model'] == 'gpt-image-2.5-sunburst'
+    (url, call), = provider[0]
+    assert url == f'{main.OPENAI_API_BASE}/images/edits'
+    assert call['headers']['Authorization'] == 'Bearer test-openai-lighting-key'
+    assert 'Content-Type' not in call['headers'] and 'json' not in call
+    assert call['files'] == [('image', ('source.png', image_bytes(), 'image/png'))]
+    data = call['data']
+    assert set(data) == {'model', 'prompt', 'size', 'quality', 'n', 'output_format'}
+    assert data['model'] == 'gpt-image-2.5-sunburst'
+    assert data['quality'] == 'high' and data['n'] == '1' and data['output_format'] == 'png'
     assert '2 light source(s)' in data['prompt']
     assert 'azimuth 217.4 degrees (back-left)' in data['prompt']
     assert 'elevation -38.2 degrees' in data['prompt'] and 'brightness 1.7/2' in data['prompt']
     assert '#aabbcc' in data['prompt'] and '#6633cc' in data['prompt']
     assert '#ff0000' not in data['prompt'] and '#00ff00' not in data['prompt']
-    assert data['initial_latent'] == 'Bottom'
+    assert 'Change only illumination and shadows.' in data['prompt']
     assert result['edit_lighting']['layers'] == lighting['layers']
     assert result['lighting_prompt'] == data['prompt']
-    assert data['image_size'] == {'width': 64, 'height': 48}
-    assert data['image_url'].startswith('data:image/png;base64,') and 'UNRELATED' not in str(data)
+    assert data['size'] == edit.output_size((64, 48))
+    assert 'UNRELATED' not in str(call) and 'IGNORE COMPOSER' not in str(data) and 'Make it blue' not in data['prompt']
+    assert 'test-openai-lighting-key' not in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(('horizontal', 'vertical', 'expected'), [
-    (0, 0, 'None'), (360, 0, 'None'), (90, 0, 'Right'), (270, 0, 'Left'),
-    (180, 0, 'None'), (180, 90, 'Top'), (45, -90, 'Bottom'), (270, 80, 'Top'),
+@pytest.mark.parametrize(('horizontal', 'vertical'), [
+    (0, 0), (360, 0), (90, 0), (270, 0),
+    (180, 0), (180, 90), (45, -90), (270, 80),
 ])
-def test_lighting_orbit_direction_maps_to_supported_provider_hint(horizontal, vertical, expected):
-    lighting = edit.lighting_parameters({'coordinateSystem': 'spherical-degrees', 'layers': [
-        {'horizontal': horizontal, 'vertical': vertical}]})
-    assert edit.lighting_initial_latent(lighting) == expected
+def test_lighting_orbit_angles_reach_sunburst_without_coarse_hints(provider, horizontal, vertical):
+    result = asyncio.run(main.generate_edit_workspace_image(payload('lighting', editWorkspaceLight={
+        'coordinateSystem': 'spherical-degrees', 'layers': [{'horizontal': horizontal, 'vertical': vertical}]})))
+    assert result['ok']
+    prompt = provider[0][0][1]['data']['prompt']
+    assert f'azimuth {horizontal} degrees' in prompt and f'elevation {vertical} degrees' in prompt
 
 
 @pytest.mark.parametrize('settings', [
@@ -389,4 +398,4 @@ def test_invalid_light_settings_rejected_before_provider(provider, settings):
 def test_lighting_legacy_controls_remain_supported():
     lighting = edit.lighting_parameters({'horizontal': -100, 'vertical': 100, 'brightness': None})
     assert lighting['layers'][0] == {'horizontal': 270, 'vertical': 90, 'brightness': 1, 'color': '#ffffff', 'enabled': True}
-    assert edit.lighting_initial_latent(lighting) == 'Top'
+    assert 'azimuth 270 degrees (left), elevation 90 degrees' in edit.lighting_prompt(lighting)

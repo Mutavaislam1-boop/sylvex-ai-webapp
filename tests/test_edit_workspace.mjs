@@ -174,7 +174,7 @@ test('disabled and zero-brightness lights are excluded from the prompt; exact se
  const [prompt,,,,options]=h.requests[0],lighting=options.imageOptions.editWorkspaceLight;
  assert.match(prompt,/1 light source/);assert.match(prompt,/217.4 degrees/);assert.match(prompt,/-38.2 degrees/);assert.match(prompt,/brightness 1.7\/2/);
  assert.ok(!prompt.includes('#ff0000')&&!prompt.includes('#00ff00'));assert.equal(lighting.coordinateSystem,'spherical-degrees');
- assert.equal(lighting.layers[0].horizontal,217.4);assert.equal(lighting.layers[0].brightness,1.7);assert.equal(options.model,'iclight_v2');
+ assert.equal(lighting.layers[0].horizontal,217.4);assert.equal(lighting.layers[0].brightness,1.7);assert.equal(options.provider,'openai');assert.equal(options.model,'gpt_image_2_5_sunburst');
  h.context.selectEditWorkspaceLight(null,0);h.context.updateEditLight({brightness:.2});assert.equal(lighting.layers[0].brightness,1.7,'request retains an immutable settings snapshot');
 });
 test('removing a light preserves remaining settings, and adding after an off source creates an enabled light',()=>{

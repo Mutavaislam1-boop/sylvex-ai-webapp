@@ -7185,6 +7185,7 @@ function editLightingPanel(generate) {
     return `<button type="button" data-light-preset data-horizontal="${h}" data-vertical="${v}" class="${active?'active':''}" aria-pressed="${active}" onclick="SYLVEX.setEditLightPreset(event,${h},${v})">${label}</button>`;
   }).join('');
   return `<div class="edit-light-title"><h3>Положение света</h3><span>Свет ${lighting.active+1} из ${lighting.layers.length}</span></div>
+    <div class="edit-workspace-model-label">GPT Image 2.5 Sunburst</div>
     <div id="editLightOrbit" class="edit-light-orbit"></div>
     <p class="edit-camera-help">Двигайте точки на орбитах. Цвет и яркость меняют луч выбранного источника.</p>
     <div class="edit-light-source-row"><div class="edit-workspace-light-head">${chips}</div><button type="button" class="edit-workspace-add-light" aria-label="Добавить источник света" title="Добавить источник света" ${lighting.layers.length>=8?'disabled':''} onclick="SYLVEX.addEditWorkspaceLight(event)">＋</button></div>
@@ -7508,7 +7509,7 @@ async function generateEditWorkspace(e){
   const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:state.prompt,editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
   try{
     prompt=editWorkspaceInstruction(state);
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='lighting'?'fal':mode==='upscale'?'topaz':'openai',model:mode==='lighting'?'iclight_v2':mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions});
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='upscale'?'topaz':'openai',model:mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response,urls=generatedUrlsFromResponse(providerResult,'image');
     const resultUrl=(urls&&urls[0])||providerResult.image_url||providerResult.result_url||'';
