@@ -7508,7 +7508,7 @@ async function generateEditWorkspace(e){
   const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:state.prompt,editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
   try{
     prompt=editWorkspaceInstruction(state);
-    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='camera'||mode==='lighting'?'fal':mode==='upscale'?'topaz':'openai',model:mode==='camera'?'qwen_image_edit_2511_multiple_angles':mode==='lighting'?'iclight_v2':mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions});
+    const pending=callGenerate(prompt,null,refs,null,{isolateRequest:true,provider:mode==='camera'?'qwen':mode==='lighting'?'fal':mode==='upscale'?'topaz':'openai',model:mode==='camera'?'qwen-image-3.0-pro':mode==='lighting'?'iclight_v2':mode==='upscale'?'topaz_enhance_photo':'gpt_image_2_5_sunburst',imageOptions});
     historyIndex=activeGenerationPlaceholderIndex();
     const response=await pending,providerResult=response.result||response,urls=generatedUrlsFromResponse(providerResult,'image');
     const resultUrl=(urls&&urls[0])||providerResult.image_url||providerResult.result_url||'';

@@ -590,6 +590,10 @@ OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1").rstr
 FASHN_API_KEY = os.getenv("FASHN_API_KEY")
 FASHN_API_BASE = os.getenv("FASHN_API_BASE", "https://api.fashn.ai/v1").rstrip("/")
 FAL_API_KEY = os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY") or ""
+# Official QwenCloud image editing API; camera edits never fall back to Fal.
+# https://docs.qwencloud.com/api-reference/image-generation/qwen-image-editing
+EDIT_CAMERA_QWEN_MODEL = "qwen-image-3.0-pro"
+EDIT_CAMERA_QWEN_ENDPOINT = "https://maas.qwencloudapi.com/api/v1/services/aigc/multimodal-generation/generation"
 # SYLVEX Assistant AI Mode model - deliberately its own env var (not reused
 # from any Pro Studio model id) so it can be moved to a newer OpenAI model
 # without touching Pro Studio's own text-generation config. gpt-5.6 is the
@@ -15535,7 +15539,7 @@ async def generate_remove_object_image(payload: dict) -> dict:
 async def generate_edit_workspace_image(payload: dict) -> dict:
     """Isolated full-screen Edit workspace provider adapter.
 
-    Camera and lighting edits use Fal's numeric/structured model contracts;
+    Camera edits use QwenCloud directly; lighting uses Fal's structured contract;
     the remaining image edit modes use the configured OpenAI image edit API.
     Only the workspace's own source and settings are read here.
     """
@@ -15588,38 +15592,58 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     mask_raw = b""
     expansion = None
     output_dimensions = source_size
-    if mode in {"camera", "lighting"}:
+    if mode == "camera":
+        provider = "qwen"
+        model = EDIT_CAMERA_QWEN_MODEL
+        endpoint = EDIT_CAMERA_QWEN_ENDPOINT
+        api_key = env_value("QWEN_API_KEY", "QWEN-API-KEY")
+        if not api_key:
+            return image_error_response(provider, "edit_workspace", model, endpoint, "QWEN_API_KEY is not configured")
+        if len(source_png) > 10 * 1024 * 1024:
+            return image_error_response(provider, "edit_workspace", model, endpoint, "Для Qwen уменьшите исходное изображение до 10 МБ.")
+        camera = edit_workspace_service.camera_parameters(opts.get("editWorkspaceCamera") or {})
+        camera_instruction = edit_workspace_service.camera_prompt(camera)
+        # The official API accepts an image and editing text, not Fal's
+        # horizontal_angle/vertical_angle/zoom fields. Keep exact values in
+        # the instruction and history; prompt rewriting could alter them.
+        request_body = {
+            "model": model,
+            "input": {"messages": [{"role": "user", "content": [
+                {"image": "data:image/png;base64," + base64.b64encode(source_png).decode("ascii")},
+                {"text": camera_instruction},
+            ]}]},
+            "parameters": {"n": 1, "prompt_extend": False, "watermark": False},
+        }
+        prostudio_debug("QWEN_CAMERA_REQUEST", endpoint=endpoint, provider_model=model, camera=camera)
+        try:
+            provider_response = requests.post(endpoint, headers={
+                "Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+            }, json=request_body, timeout=300)
+        except requests.RequestException as exc:
+            prostudio_debug("QWEN_CAMERA_REQUEST_FAILED", endpoint=endpoint, provider_model=model, error_type=type(exc).__name__)
+            return image_error_response(provider, "edit_workspace", model, endpoint, "Qwen camera request failed")
+        prostudio_debug("QWEN_CAMERA_RESPONSE", endpoint=endpoint, provider_model=model, status_code=provider_response.status_code)
+        response_data = safe_provider_json(provider_response, provider, endpoint)
+        if provider_response.status_code >= 400 or response_data.get("ok") is False:
+            return image_error_response(provider, "edit_workspace", model, endpoint, "Qwen camera request failed", provider_response, response_data)
+        provider_urls = normalize_image_response(response_data)[:1]
+    elif mode == "lighting":
         if not FAL_API_KEY:
             return image_error_response("fal", "edit_workspace", "", "https://queue.fal.run", "FAL_KEY is not configured")
         provider = "fal"
-        camera = opts.get("editWorkspaceCamera") if isinstance(opts.get("editWorkspaceCamera"), dict) else {}
         light = opts.get("editWorkspaceLight") if isinstance(opts.get("editWorkspaceLight"), dict) else {}
         image_data_uri = "data:image/png;base64," + base64.b64encode(source_png).decode("ascii")
-        if mode == "camera":
-            model = "fal-ai/qwen-image-edit-2511-multiple-angles"
-            endpoint = f"https://queue.fal.run/{model}"
-            camera = edit_workspace_service.camera_parameters(camera)
-            request_body = {
-                "image_urls": [image_data_uri],
-                "horizontal_angle": camera["horizontal"],
-                "vertical_angle": camera["vertical"],
-                "zoom": camera["zoom"],
-                "additional_prompt": edit_workspace_service.camera_prompt(camera),
-                "output_format": "png",
-                "num_images": 1,
-            }
-        else:
-            model = "fal-ai/iclight-v2"
-            endpoint = f"https://queue.fal.run/{model}"
-            light = edit_workspace_service.lighting_parameters(light)
-            request_body = {
-                "image_url": image_data_uri,
-                "prompt": edit_workspace_service.lighting_prompt(light),
-                "initial_latent": edit_workspace_service.lighting_initial_latent(light),
-                "image_size": {"width": source_size[0], "height": source_size[1]},
-                "output_format": "png",
-                "num_images": 1,
-            }
+        model = "fal-ai/iclight-v2"
+        endpoint = f"https://queue.fal.run/{model}"
+        light = edit_workspace_service.lighting_parameters(light)
+        request_body = {
+            "image_url": image_data_uri,
+            "prompt": edit_workspace_service.lighting_prompt(light),
+            "initial_latent": edit_workspace_service.lighting_initial_latent(light),
+            "image_size": {"width": source_size[0], "height": source_size[1]},
+            "output_format": "png",
+            "num_images": 1,
+        }
         headers = {"Authorization": f"Key {FAL_API_KEY}", "Content-Type": "application/json"}
         try:
             provider_response = requests.post(endpoint, headers=headers, json=request_body, timeout=120)
@@ -15729,7 +15753,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
     }
     if mode == "camera":
         extra["edit_camera"] = camera
-        extra["camera_prompt"] = request_body["additional_prompt"]
+        extra["camera_prompt"] = camera_instruction
     elif mode == "lighting":
         extra["edit_lighting"] = light
         extra["lighting_prompt"] = request_body["prompt"]
@@ -18973,7 +18997,7 @@ def calculate_generation_price(payload: dict) -> dict:
             estimate = {"credits": 0, "cost_credits": 0, "cost_usd": 0, "generation_cost": "0 ⚡", "pricing_available": True, "model_label": "Resize"}
         elif operation == "camera":
             provider_cost = 0.035
-            model_label = "Qwen Image Edit 2511 Multiple Angles"
+            model_label = "Qwen Image 3.0 Pro"
         elif operation == "lighting":
             provider_cost = 0.10
             model_label = "IC-Light v2"
@@ -20482,6 +20506,11 @@ async def public_prostudio_generate(request: Request):
     selected_model = (payload.get("model") or "").strip()
     selected_provider = (payload.get("provider") or "sylvex-router").strip().lower()
     image_options = payload.get("image_options") or {}
+    if mode == "image" and is_edit_workspace_request(payload) and str(image_options.get("editWorkspaceMode") or "").lower() == "camera":
+        # Cached clients may still submit the former Fal camera model.
+        # Store the actual route in new jobs as well as enforcing it at dispatch.
+        selected_provider = payload["provider"] = "qwen"
+        selected_model = payload["model"] = EDIT_CAMERA_QWEN_MODEL
     video_options = payload.get("video_options") or {}
     voice_options = payload.get("voice_options") or {}
     reference_images = (
@@ -20823,7 +20852,9 @@ def resolve_prostudio_provider_for_slot(payload: dict, mode: str, selected_model
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit").lower()
         if edit_mode == "upscale":
             return "TOPAZ"
-        return "FAL" if edit_mode in {"camera", "lighting"} else "OPENAI"
+        if edit_mode == "camera":
+            return "QWEN"
+        return "FAL" if edit_mode == "lighting" else "OPENAI"
     candidate = selected_provider
     if mode == "image":
         if is_seedream_request(payload):
@@ -20873,7 +20904,7 @@ async def dispatch_prostudio_provider_request(
     result = None
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit")
-        edit_provider = "topaz" if edit_mode == "upscale" else "fal" if edit_mode in {"camera", "lighting"} else "openai"
+        edit_provider = "topaz" if edit_mode == "upscale" else "qwen" if edit_mode == "camera" else "fal" if edit_mode == "lighting" else "openai"
         prostudio_debug("JOB_PROVIDER_DISPATCH", job_id=job_id, mode=mode, provider=edit_provider, model=selected_model, route="generate_edit_workspace_image", edit_mode=edit_mode)
         result = await run_provider_coroutine_off_loop(lambda: generate_edit_workspace_image(payload))
     elif mode == "image" and is_watermark_removal_request(payload):

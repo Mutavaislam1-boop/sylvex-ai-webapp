@@ -93,9 +93,13 @@ def camera_parameters(settings):
 
 
 def camera_prompt(camera):
-    return (f"Camera azimuth {camera['horizontal']:g} degrees (0 front, 90 right, 180 back, 270 left); "
-            f"elevation {camera['vertical']:g} degrees; zoom {camera['zoom']:g}/10 (0 far, 10 close). "
-            "Preserve the same subject identity, clothing, scene objects, environment and overall style.")
+    return ("Re-render the input photograph from a new camera viewpoint around the same subject. "
+            "Treat the input viewpoint as the front, at eye level. Keep the subject stationary and move the camera. "
+            f"Camera azimuth {camera['horizontal']:g} degrees (0 front, 90 right, 180 back, 270 left, 360 front); "
+            f"elevation {camera['vertical']:g} degrees (-30 looking up, 0 eye level, 90 looking down); "
+            f"zoom {camera['zoom']:g}/10 (0 far wide shot, 5 medium shot, 10 close-up). "
+            "Preserve the same subject identity, clothing, scene objects, environment, lighting and overall style. "
+            "Keep the input aspect ratio. Output a single edited photograph, without angle labels, arrows, grids or a collage.")
 
 
 def lighting_parameters(settings):
