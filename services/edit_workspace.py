@@ -165,19 +165,6 @@ def lighting_prompt(lighting):
             "Preserve the subject identity, pose, objects, background, camera viewpoint and composition. Change only illumination and shadows.")
 
 
-def lighting_initial_latent(lighting):
-    """IC-Light only supports a coarse directional hint; full angles stay in the prompt."""
-    enabled = [layer for layer in lighting['layers'] if layer['enabled'] and layer['brightness'] > 0]
-    dominant = max(enabled, key=lambda layer: layer['brightness'])
-    h, v = math.radians(dominant['horizontal']), math.radians(dominant['vertical'])
-    x, y = math.sin(h) * math.cos(v), math.sin(v)
-    if max(abs(x), abs(y)) < .15:
-        return 'None'
-    if abs(x) >= abs(y):
-        return 'Right' if x > 0 else 'Left'
-    return 'Top' if y > 0 else 'Bottom'
-
-
 def png(image):
     output = io.BytesIO()
     image.save(output, format='PNG')
