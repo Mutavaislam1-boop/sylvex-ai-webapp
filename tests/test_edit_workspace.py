@@ -231,6 +231,7 @@ def test_resize_worker_does_not_acquire_ai_provider_slot(monkeypatch, provider):
 
 
 @pytest.mark.parametrize('camera', [
+    {'horizontal': 180, 'vertical': 25, 'zoom': 10},
     {'horizontal': 217.4, 'vertical': 38.2, 'zoom': 6.7},
     {'horizontal': 360, 'vertical': -30, 'zoom': 0},
     {'horizontal': 0, 'vertical': 90, 'zoom': 10},
@@ -263,9 +264,16 @@ def test_camera_uses_official_qwen_with_exact_angles_and_saved_result(monkeypatc
     image, instruction = message['content']
     assert base64.b64decode(image['image'].split(',', 1)[1]) == image_bytes()
     text = instruction['text']
-    assert f"azimuth {camera['horizontal']:g} degrees" in text
-    assert f"elevation {camera['vertical']:g} degrees" in text
-    assert f"zoom {camera['zoom']:g}/10" in text
+    scene_prompt, position = text.rsplit('\n\n', 1)
+    assert scene_prompt.startswith('Reconstruct the input image as the exact same frozen three-dimensional scene')
+    assert 'ONLY THE CAMERA MAY MOVE. The entire scene must remain fixed in world space.' in scene_prompt
+    assert "head orientation, facial direction, and gaze vector in world space" in scene_prompt
+    assert 'Never duplicate, replace, relocate, redesign, or independently rotate an element' in scene_prompt
+    assert 'preserving the same world-space geometry and lighting configuration' in scene_prompt
+    assert scene_prompt.endswith('photograph of the exact same frozen scene taken from the requested new camera position.')
+    assert 'Camera position:' not in scene_prompt
+    assert position == (f"Camera position: azimuth {camera['horizontal']:g}°, "
+                        f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.")
     assert result['edit_camera'] == camera
     assert result['camera_prompt'] == text
     assert 'UNRELATED' not in str(data) and 'IGNORE COMPOSER' not in str(data)

@@ -92,14 +92,31 @@ def camera_parameters(settings):
         ('horizontal', 0, 360, 0), ('vertical', -30, 90, 0), ('zoom', 0, 10, 5))}
 
 
+CAMERA_SCENE_PROMPT = """Reconstruct the input image as the exact same frozen three-dimensional scene viewed from the requested new camera position.
+
+ONLY THE CAMERA MAY MOVE. The entire scene must remain fixed in world space. Do not rotate, mirror, flip, translate, reposition, re-pose, reorient, or restage any subject, object, living being, structure, or scene element.
+
+Preserve the exact world-space position, orientation, scale, pose, geometry, spacing, and spatial relationship of every visible and inferred scene element.
+
+Preserve every subject's exact body orientation, limb positions, posture, head orientation, facial direction, and gaze vector in world space. A change in camera viewpoint must never cause a subject to turn toward the camera, look in another direction, straighten the head, or change pose.
+
+Treat all scene elements as fixed three-dimensional objects. Render each element from the physically correct side that becomes visible from the requested camera position. Surfaces that were hidden in the source view must be reconstructed as the unseen parts of the same unchanged object or subject, consistent with its geometry, material, identity, orientation, and surrounding scene. Never duplicate, replace, relocate, redesign, or independently rotate an element to imitate a new viewpoint.
+
+Reconstruct the newly visible parts of the environment according to the fixed spatial layout of the original scene. The new background and foreground must represent what would physically exist from the new camera position, not a mirrored or reused version of the original view.
+
+Recalculate perspective, parallax, occlusion, visible surfaces, depth ordering, apparent screen-space direction, relative scale, reflections, highlights, and shadows according to the new camera position while preserving the same world-space geometry and lighting configuration.
+
+Do not simulate a viewpoint change by mirroring the image, flipping the composition, rotating individual subjects, or turning scene elements toward the new camera.
+
+Preserve identity, appearance, proportions, materials, colors, scene continuity, lighting setup, and original aspect ratio.
+
+The result must represent a physically plausible photograph of the exact same frozen scene taken from the requested new camera position."""
+
+
 def camera_prompt(camera):
-    return ("Re-render the input photograph from a new camera viewpoint around the same subject. "
-            "Treat the input viewpoint as the front, at eye level. Keep the subject stationary and move the camera. "
-            f"Camera azimuth {camera['horizontal']:g} degrees (0 front, 90 right, 180 back, 270 left, 360 front); "
-            f"elevation {camera['vertical']:g} degrees (-30 looking up, 0 eye level, 90 looking down); "
-            f"zoom {camera['zoom']:g}/10 (0 far wide shot, 5 medium shot, 10 close-up). "
-            "Preserve the same subject identity, clothing, scene objects, environment, lighting and overall style. "
-            "Keep the input aspect ratio. Output a single edited photograph, without angle labels, arrows, grids or a collage.")
+    return (f"{CAMERA_SCENE_PROMPT}\n\n"
+            f"Camera position: azimuth {camera['horizontal']:g}°, "
+            f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.")
 
 
 def lighting_parameters(settings):
