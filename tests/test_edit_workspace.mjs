@@ -71,7 +71,7 @@ test('camera request, prompt and state agree; canvas pan and scale never affect 
  const h=harness();h.state.mode='camera';h.context.updateEditCamera({horizontal:217.4,vertical:38.2,zoom:6.7});
  h.state.viewport={x:300,y:-120};h.context.editWorkspaceSetViewZoom(175);await h.context.generateEditWorkspace();
  const [prompt,,, , options]=h.requests[0];
- assert.equal(options.provider,'qwen');assert.equal(options.model,'qwen-image-3.0-pro');
+ assert.equal(options.provider,'openai');assert.equal(options.model,'gpt_image_2_5_sunburst');
  assert.match(prompt,/217.4 degrees/);assert.match(prompt,/38.2 degrees/);assert.match(prompt,/6.7\/10/);
  assert.equal(options.imageOptions.editWorkspaceCamera.horizontal,217.4);assert.equal(options.imageOptions.editWorkspaceCamera.vertical,38.2);assert.equal(options.imageOptions.editWorkspaceCamera.zoom,6.7);
  assert.equal(options.imageOptions.viewport,undefined);assert.equal(options.imageOptions.zoom,undefined);assert.equal(options.isolateRequest,true);
