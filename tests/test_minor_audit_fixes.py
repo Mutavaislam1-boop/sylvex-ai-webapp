@@ -77,6 +77,27 @@ def test_luma_dream_machine_has_its_own_distinct_default_model(monkeypatch):
         importlib.reload(video_router)
 
 
+def test_payg_qwen_image_models_use_maas_endpoint(monkeypatch):
+    """Every selectable PAYG Qwen image variant must use the QwenCloud API."""
+    monkeypatch.delenv("QWEN_IMAGE_ENDPOINT", raising=False)
+    monkeypatch.delenv("QWEN-IMAGE-ENDPOINT", raising=False)
+    import importlib
+    import main
+
+    reloaded = importlib.reload(main)
+    try:
+        qwen_models = {
+            model_id: config
+            for model_id, config in reloaded.IMAGE_PROVIDER_MODEL_MAP.items()
+            if config.get("provider") == "qwen"
+        }
+        assert set(qwen_models) == {"qwen_image", "qwen_image_2", "qwen_image_2_pro"}
+        expected = "https://maas.qwencloudapi.com/api/v1/services/aigc/multimodal-generation/generation"
+        assert all(config.get("endpoint") == expected for config in qwen_models.values())
+    finally:
+        importlib.reload(main)
+
+
 class _FakeResponse:
     def __init__(self, status_code, payload):
         self.status_code = status_code

@@ -71,6 +71,7 @@ test('camera request, prompt and state agree; canvas pan and scale never affect 
  const h=harness();h.state.mode='camera';h.context.updateEditCamera({horizontal:217.4,vertical:38.2,zoom:6.7});
  h.state.viewport={x:300,y:-120};h.context.editWorkspaceSetViewZoom(175);await h.context.generateEditWorkspace();
  const [prompt,,, , options]=h.requests[0];
+ assert.equal(options.provider,'openai');assert.equal(options.model,'gpt_image_2_5_sunburst');
  assert.match(prompt,/217.4 degrees/);assert.match(prompt,/38.2 degrees/);assert.match(prompt,/6.7\/10/);
  assert.equal(options.imageOptions.editWorkspaceCamera.horizontal,217.4);assert.equal(options.imageOptions.editWorkspaceCamera.vertical,38.2);assert.equal(options.imageOptions.editWorkspaceCamera.zoom,6.7);
  assert.equal(options.imageOptions.viewport,undefined);assert.equal(options.imageOptions.zoom,undefined);assert.equal(options.isolateRequest,true);
@@ -173,7 +174,7 @@ test('disabled and zero-brightness lights are excluded from the prompt; exact se
  const [prompt,,,,options]=h.requests[0],lighting=options.imageOptions.editWorkspaceLight;
  assert.match(prompt,/1 light source/);assert.match(prompt,/217.4 degrees/);assert.match(prompt,/-38.2 degrees/);assert.match(prompt,/brightness 1.7\/2/);
  assert.ok(!prompt.includes('#ff0000')&&!prompt.includes('#00ff00'));assert.equal(lighting.coordinateSystem,'spherical-degrees');
- assert.equal(lighting.layers[0].horizontal,217.4);assert.equal(lighting.layers[0].brightness,1.7);assert.equal(options.model,'iclight_v2');
+ assert.equal(lighting.layers[0].horizontal,217.4);assert.equal(lighting.layers[0].brightness,1.7);assert.equal(options.provider,'openai');assert.equal(options.model,'gpt_image_2_5_sunburst');
  h.context.selectEditWorkspaceLight(null,0);h.context.updateEditLight({brightness:.2});assert.equal(lighting.layers[0].brightness,1.7,'request retains an immutable settings snapshot');
 });
 test('removing a light preserves remaining settings, and adding after an off source creates an enabled light',()=>{

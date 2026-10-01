@@ -92,10 +92,31 @@ def camera_parameters(settings):
         ('horizontal', 0, 360, 0), ('vertical', -30, 90, 0), ('zoom', 0, 10, 5))}
 
 
+CAMERA_SCENE_PROMPT = """Reconstruct the input image as the exact same frozen three-dimensional scene viewed from the requested new camera position.
+
+ONLY THE CAMERA MAY MOVE. The entire scene must remain fixed in world space. Do not rotate, mirror, flip, translate, reposition, re-pose, reorient, or restage any subject, object, living being, structure, or scene element.
+
+Preserve the exact world-space position, orientation, scale, pose, geometry, spacing, and spatial relationship of every visible and inferred scene element.
+
+Preserve every subject's exact body orientation, limb positions, posture, head orientation, facial direction, and gaze vector in world space. A change in camera viewpoint must never cause a subject to turn toward the camera, look in another direction, straighten the head, or change pose.
+
+Treat all scene elements as fixed three-dimensional objects. Render each element from the physically correct side that becomes visible from the requested camera position. Surfaces that were hidden in the source view must be reconstructed as the unseen parts of the same unchanged object or subject, consistent with its geometry, material, identity, orientation, and surrounding scene. Never duplicate, replace, relocate, redesign, or independently rotate an element to imitate a new viewpoint.
+
+Reconstruct the newly visible parts of the environment according to the fixed spatial layout of the original scene. The new background and foreground must represent what would physically exist from the new camera position, not a mirrored or reused version of the original view.
+
+Recalculate perspective, parallax, occlusion, visible surfaces, depth ordering, apparent screen-space direction, relative scale, reflections, highlights, and shadows according to the new camera position while preserving the same world-space geometry and lighting configuration.
+
+Do not simulate a viewpoint change by mirroring the image, flipping the composition, rotating individual subjects, or turning scene elements toward the new camera.
+
+Preserve identity, appearance, proportions, materials, colors, scene continuity, lighting setup, and original aspect ratio.
+
+The result must represent a physically plausible photograph of the exact same frozen scene taken from the requested new camera position."""
+
+
 def camera_prompt(camera):
-    return (f"Camera azimuth {camera['horizontal']:g} degrees (0 front, 90 right, 180 back, 270 left); "
-            f"elevation {camera['vertical']:g} degrees; zoom {camera['zoom']:g}/10 (0 far, 10 close). "
-            "Preserve the same subject identity, clothing, scene objects, environment and overall style.")
+    return (f"{CAMERA_SCENE_PROMPT}\n\n"
+            f"Camera position: azimuth {camera['horizontal']:g}°, "
+            f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.")
 
 
 def lighting_parameters(settings):
@@ -142,19 +163,6 @@ def lighting_prompt(lighting):
             "positive elevation is above, negative below. Brightness 1/2 is normal intensity, 2/2 is double. "
             "Combine all listed sources with their relative intensities and colors; back lights create rim lighting. "
             "Preserve the subject identity, pose, objects, background, camera viewpoint and composition. Change only illumination and shadows.")
-
-
-def lighting_initial_latent(lighting):
-    """IC-Light only supports a coarse directional hint; full angles stay in the prompt."""
-    enabled = [layer for layer in lighting['layers'] if layer['enabled'] and layer['brightness'] > 0]
-    dominant = max(enabled, key=lambda layer: layer['brightness'])
-    h, v = math.radians(dominant['horizontal']), math.radians(dominant['vertical'])
-    x, y = math.sin(h) * math.cos(v), math.sin(v)
-    if max(abs(x), abs(y)) < .15:
-        return 'None'
-    if abs(x) >= abs(y):
-        return 'Right' if x > 0 else 'Left'
-    return 'Top' if y > 0 else 'Bottom'
 
 
 def png(image):
