@@ -10711,21 +10711,29 @@ function renderVisualCreateModal() {
   const nameLabel = isCharacter ? 'Имя *' : 'Название *';
   const namePlaceholder = isCharacter ? 'Введите имя персонажа' : 'Введите название объекта';
   const hint = isCharacter
-    ? 'Загрузите до 3 фотографий одного человека с разных ракурсов.'
-    : 'Загрузите до 3 фотографий объекта с разных ракурсов.';
+    ? 'Загрузите одну фотографию человека - AI создаст полный набор референсов персонажа.'
+    : 'Загрузите до 3 фотографий объекта с разных ракурсов.<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.';
   const name = visualCreateDraft.name || '';
   const gender = visualCreateDraft.gender || '';
   const description = visualCreateDraft.description || '';
   const canSave = visualCreateCanSave();
   const busy = !!visualCreateDraft.saving;
   const statusText = visualCreateDraft.statusText || '';
+  const photoSlotIndexes = isCharacter ? [0] : [0, 1, 2];
+  const objectDescriptionHtml = !isCharacter
+    ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>'
+    : '';
+  const characterDescriptionHtml = isCharacter
+    ? '<label class="visual-field"><span>Описание (необязательно)</span><textarea id="visualCreateDescription" placeholder="Например: телосложение, одежда, причёска" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>'
+    : '';
   modal.innerHTML = '<div class="visual-create-card ' + (busy ? 'is-busy' : '') + '">'
     + '<div class="visual-create-head"><button class="visual-create-back" type="button" onclick="SYLVEX.closeVisualCreateModal(event)" ' + (busy ? 'disabled' : '') + ' aria-label="Назад">‹</button><h3>' + title + '</h3></div>'
     + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" ' + (busy ? 'disabled' : '') + ' /></label>'
     + (isCharacter ? '<label class="visual-field"><span>Пол *</span><select id="visualCreateGender" onchange="SYLVEX.updateVisualCreateDraft(event,\'gender\')" ' + (busy ? 'disabled' : '') + '><option value="">Выберите пол</option><option value="male" ' + (gender === 'male' ? 'selected' : '') + '>Мужской</option><option value="female" ' + (gender === 'female' ? 'selected' : '') + '>Женский</option></select></label>' : '')
-    + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>' : '')
-    + '<div class="visual-photo-grid">' + [0, 1, 2].map(visualCreatePhotoSlot).join('') + '</div>'
-    + '<p class="visual-create-hint">' + hint + '<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.</p>'
+    + objectDescriptionHtml
+    + '<div class="visual-photo-grid">' + photoSlotIndexes.map(visualCreatePhotoSlot).join('') + '</div>'
+    + characterDescriptionHtml
+    + '<p class="visual-create-hint">' + hint + '</p>'
     + '<button class="visual-create-save" type="button" ' + (canSave && !busy ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (busy ? 'Создаём...' : (isCharacter ? 'Создать персонажа' : 'Создать объект')) + '</button>'
     + '<input id="visualCreateFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />'
     + (busy ? '<div class="visual-create-loading-overlay" role="status" aria-live="polite">'
@@ -10823,14 +10831,17 @@ function pickVisualCreatePhoto(e, index) {
   if (visualCreateDraft && visualCreateDraft.saving) return;
   const input = document.getElementById('visualCreateFileInput');
   if (!input) return;
+  // Character creation has exactly one photo slot (the single source
+  // photo); Object creation keeps its existing up-to-3 slots unchanged.
+  const cap = visualCreateDraft.kind === 'character' ? 1 : 3;
   input.multiple = true;
   input.onchange = () => {
     const files = Array.from(input.files || []);
     input.value = '';
     if (!files.length) return;
     if (visualCreateDraft.photos[index]) visualCreateDraft.photos[index] = '';
-    const available = Math.max(0, 3 - (visualCreateDraft.photos || []).filter(Boolean).length + (visualCreateDraft.photos[index] ? 1 : 0));
-    if (files.length > available) toast('Можно выбрать не больше 3 фотографий');
+    const available = Math.max(0, cap - (visualCreateDraft.photos || []).filter(Boolean).length + (visualCreateDraft.photos[index] ? 1 : 0));
+    if (files.length > available) toast(cap === 1 ? 'Можно загрузить только одну фотографию' : 'Можно выбрать не больше ' + cap + ' фотографий');
     const selected = files.slice(0, available);
     const valid = selected.filter((file) => {
       if (!/^image\/(png|jpeg|webp)$/i.test(file.type || '')) {
@@ -10851,9 +10862,9 @@ function pickVisualCreatePhoto(e, index) {
     }))).then((urls) => {
       let targetIndex = index;
       urls.filter(Boolean).forEach((url) => {
-        while (targetIndex < 3 && visualCreateDraft.photos[targetIndex]) targetIndex += 1;
-        if (targetIndex >= 3) targetIndex = visualCreateDraft.photos.findIndex((value) => !value);
-        if (targetIndex >= 0 && targetIndex < 3) visualCreateDraft.photos[targetIndex] = url;
+        while (targetIndex < cap && visualCreateDraft.photos[targetIndex]) targetIndex += 1;
+        if (targetIndex >= cap) targetIndex = visualCreateDraft.photos.findIndex((value) => !value);
+        if (targetIndex >= 0 && targetIndex < cap) visualCreateDraft.photos[targetIndex] = url;
       });
       renderVisualCreateModal();
     });
@@ -10955,7 +10966,9 @@ async function createHeygenCharacterResource(name, photos, gender, description) 
       name,
       gender,
       description,
-      photos: (photos || []).slice(0, 3),
+      // Character creation uses exactly one source photo - AI builds the
+      // full reference set from it, the user never uploads it directly.
+      photos: (photos || []).slice(0, 1),
     }),
   });
   const data = await res.json().catch(() => ({}));
