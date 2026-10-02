@@ -19246,6 +19246,16 @@ function maybeShowVideoTemplateIntro(force) {
         videoState.generationMode = 'motion_control';
         videoState.mode = 'motion_control';
         videoUploadTarget = 'character';
+        // Motion Control's product contract is subject image/Character +
+        // motion-reference video - there is no Object concept in it (see
+        // Master A-Z Phase 9). A stale Object picked earlier in Generate
+        // mode must not silently ride along into a Motion Control
+        // dispatch, where it could fill the same single-image subject
+        // slot Kling's motion-control branch uses for Character.
+        videoState.objectVisual = null;
+        if (videoState.referenceVisual && videoState.referenceVisual.kind === 'object') {
+          videoState.referenceVisual = null;
+        }
       } else {
         videoUploadTarget = 'reference';
       }
