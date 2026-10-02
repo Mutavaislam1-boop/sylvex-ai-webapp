@@ -8,6 +8,12 @@
 // slots) and confirms Object creation (3 photo slots, no gender) is
 // untouched.
 //
+// Also covers the conversion of Character creation into an async SYLVEX
+// job: createCharacterCreationJob() only ever returns a job_id (never a
+// resource), waitCharacterCreationJob() polls the same job endpoint
+// every other Pro Studio generation job uses, and the pending-job
+// persistence helpers let an unfinished job survive a page reload.
+//
 // Exercises the cabinet.js helpers directly via node:vm extraction (same
 // pattern as test_character_reference_library_frontend.mjs).
 import {test} from 'node:test';
@@ -88,32 +94,30 @@ test('visualCreateCanSave: Object creation is unaffected (name + photo, no gende
   assert.equal(vm.runInContext('visualCreateCanSave()', context), true);
 });
 
-// ---- createCharacterResource: the request always caps photos at 1 and
-// never mentions HeyGen (SYLVEX-only Character pipeline) ----
+// ---- createCharacterCreationJob: the request always caps photos at 1,
+// never mentions HeyGen, and only ever returns a job_id (the endpoint is
+// now async - it never returns the finished resource directly) ----
 
-function makeNetworkContext() {
+function makeNetworkContext(responseBody, ok = true) {
   const calls = {body: null, url: null};
   const sandbox = {
     getTelegramId: () => 42,
     translateGenerationError: (err, fallback) => fallback,
-    normalizeVisualItem: (x) => x,
     fetch: async (url, options) => {
       calls.url = url;
       calls.body = JSON.parse(options.body);
-      return {
-        ok: true,
-        json: async () => ({ok: true, resource: {id: 'custom_character_abc'}}),
-      };
+      return { ok, json: async () => responseBody };
     },
   };
   const context = vm.createContext(sandbox);
-  vm.runInContext(extractFunction('createCharacterResource'), context);
+  vm.runInContext(extractFunction('createCharacterCreationJob'), context);
   return {context, calls};
 }
 
-test('createCharacterResource: sends at most one photo even if more were somehow collected', async () => {
-  const {context, calls} = makeNetworkContext();
-  await vm.runInContext(`createCharacterResource('Islam', ['https://cdn.sylvex.ai/a.jpg', 'https://cdn.sylvex.ai/b.jpg'], 'male', 'tall')`, context);
+test('createCharacterCreationJob: sends at most one photo even if more were somehow collected, and returns only a job_id', async () => {
+  const {context, calls} = makeNetworkContext({ok: true, job_id: 'job-abc', status: 'processing'});
+  const jobId = await vm.runInContext(`createCharacterCreationJob('Islam', ['https://cdn.sylvex.ai/a.jpg', 'https://cdn.sylvex.ai/b.jpg'], 'male', 'tall')`, context);
+  assert.equal(jobId, 'job-abc');
   assert.deepEqual(calls.body.photos, ['https://cdn.sylvex.ai/a.jpg']);
   assert.equal(calls.body.name, 'Islam');
   assert.equal(calls.body.gender, 'male');
@@ -127,20 +131,174 @@ test('createCharacterResource: sends at most one photo even if more were somehow
   assert.equal(Object.keys(calls.body).some((key) => key.toLowerCase().includes('heygen')), false);
 });
 
-test('createCharacterResource: a failure never blames HeyGen in the fallback error message', async () => {
-  const sandbox = {
-    getTelegramId: () => 42,
-    translateGenerationError: (err, fallback) => fallback,
-    normalizeVisualItem: (x) => x,
-    fetch: async () => ({ok: false, json: async () => ({ok: false, error: 'boom'})}),
-  };
-  const context = vm.createContext(sandbox);
-  vm.runInContext(extractFunction('createCharacterResource'), context);
+test('createCharacterCreationJob: a response with no job_id is treated as a failure, never blaming HeyGen', async () => {
+  const {context} = makeNetworkContext({ok: false, error: 'boom'}, false);
   await assert.rejects(
-    vm.runInContext(`createCharacterResource('Islam', ['https://cdn.sylvex.ai/a.jpg'], 'male', '')`, context),
+    vm.runInContext(`createCharacterCreationJob('Islam', ['https://cdn.sylvex.ai/a.jpg'], 'male', '')`, context),
     (err) => {
       assert.equal(/heygen/i.test(err.message), false);
       return true;
     },
   );
+});
+
+// ---- waitCharacterCreationJob: polls GET /api/public/prostudio/job/{id},
+// the same endpoint every other Pro Studio generation job uses ----
+
+function makePollingContext(statuses) {
+  const calls = {urls: []};
+  let index = 0;
+  const sandbox = {
+    wait: () => Promise.resolve(),
+    translateGenerationError: (err, fallback) => fallback,
+    fetch: async (url) => {
+      calls.urls.push(url);
+      const job = statuses[Math.min(index, statuses.length - 1)];
+      index += 1;
+      return { ok: true, json: async () => job };
+    },
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('waitCharacterCreationJob'), context);
+  return {context, calls};
+}
+
+test('waitCharacterCreationJob: polls until completed and returns the result with job_id filled in', async () => {
+  const {context, calls} = makePollingContext([
+    {ok: true, status: 'processing', job_id: 'job-1'},
+    {ok: true, status: 'processing', job_id: 'job-1'},
+    {ok: true, status: 'completed', job_id: 'job-1', result: {ok: true, character_id: 'custom_character_abc', resource: {id: 'custom_character_abc'}}},
+  ]);
+  const result = await vm.runInContext(`waitCharacterCreationJob('job-1')`, context);
+  assert.equal(result.character_id, 'custom_character_abc');
+  assert.equal(result.job_id, 'job-1');
+  assert.equal(calls.urls[0], '/api/public/prostudio/job/job-1');
+});
+
+test('waitCharacterCreationJob: throws a translated error on a failed job', async () => {
+  const {context} = makePollingContext([
+    {ok: true, status: 'failed', error: {error: 'OpenAI quota exceeded'}},
+  ]);
+  await assert.rejects(
+    vm.runInContext(`waitCharacterCreationJob('job-2')`, context),
+    (err) => {
+      assert.equal(err.terminalStatus, 'failed');
+      return true;
+    },
+  );
+});
+
+// ---- Pending-job persistence: survives a page reload ----
+
+function makeStorageContext() {
+  const store = new Map();
+  const sandbox = {
+    getTelegramId: () => 42,
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => { store.set(key, String(value)); },
+      removeItem: (key) => { store.delete(key); },
+    },
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('characterCreationJobStorageKey'), context);
+  vm.runInContext(extractFunction('persistPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('readPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
+  return {context, store};
+}
+
+test('persistPendingCharacterCreationJob / readPendingCharacterCreationJob: round-trip the job info', () => {
+  const {context} = makeStorageContext();
+  assert.equal(vm.runInContext('readPendingCharacterCreationJob()', context), null);
+  vm.runInContext(`persistPendingCharacterCreationJob('job-9', 'Islam', 'male', 'tall')`, context);
+  const pending = vm.runInContext('readPendingCharacterCreationJob()', context);
+  assert.equal(pending.jobId, 'job-9');
+  assert.equal(pending.name, 'Islam');
+  assert.equal(pending.gender, 'male');
+  assert.equal(pending.description, 'tall');
+});
+
+test('clearPendingCharacterCreationJob: only clears a matching jobId, never someone else\'s in-flight job', () => {
+  const {context} = makeStorageContext();
+  vm.runInContext(`persistPendingCharacterCreationJob('job-9', 'Islam', 'male', '')`, context);
+  vm.runInContext(`clearPendingCharacterCreationJob('job-other')`, context);
+  assert.ok(vm.runInContext('readPendingCharacterCreationJob()', context), 'a mismatched jobId must not clear the pending marker');
+  vm.runInContext(`clearPendingCharacterCreationJob('job-9')`, context);
+  assert.equal(vm.runInContext('readPendingCharacterCreationJob()', context), null);
+});
+
+// ---- restorePendingCharacterCreationJob: resumes an unfinished job on
+// page load and inserts the Character even though the modal is closed ----
+
+function makeRestoreContext(pending, jobOutcome) {
+  const store = new Map();
+  if (pending) store.set('sylvex-prostudio-character-job-42', JSON.stringify(pending));
+  const calls = {toasts: [], saved: null, applied: null, cleared: false};
+  const sandbox = {
+    getTelegramId: () => 42,
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => { store.set(key, String(value)); },
+      removeItem: (key) => { store.delete(key); calls.cleared = true; },
+    },
+    toast: (msg) => calls.toasts.push(msg),
+    translateGenerationError: (err, fallback) => fallback,
+    normalizeVisualItem: (x) => x,
+    visualPreviewUrl: (resource) => (resource && resource.previewUrl) || '',
+    fetch: async () => ({ ok: true, json: async () => jobOutcome }),
+    wait: () => Promise.resolve(),
+    saveVisualItemToBackend: async (kind, item) => { calls.saved = {kind, item}; return item; },
+    serverVisualItems: { characters: [], objects: [] },
+    loadCustomVisualItems: () => [],
+    saveCustomVisualItems: () => {},
+    isVideoMode: () => false,
+    applyVisualReferenceToVideo: () => {},
+    applyCharacterReferenceSelection: (item) => { calls.applied = item; },
+    renderImageReferenceSections: () => {},
+    renderImageControls: () => {},
+    renderImageStylePanel: () => {},
+    renderVideoReferencesPreview: () => {},
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('characterCreationJobStorageKey'), context);
+  vm.runInContext(extractFunction('persistPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('readPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('waitCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('restorePendingCharacterCreationJob'), context);
+  return {context, calls};
+}
+
+test('restorePendingCharacterCreationJob: does nothing when no job was pending', async () => {
+  const {context, calls} = makeRestoreContext(null, {});
+  await vm.runInContext('restorePendingCharacterCreationJob()', context);
+  assert.equal(calls.saved, null);
+  assert.equal(calls.toasts.length, 0);
+});
+
+test('restorePendingCharacterCreationJob: on completion, inserts the Character and clears the pending marker', async () => {
+  const pending = {jobId: 'job-9', name: 'Islam', gender: 'male', description: '', startedAt: Date.now()};
+  const jobOutcome = {
+    ok: true, status: 'completed', job_id: 'job-9',
+    result: {ok: true, character_id: 'custom_character_abc', resource: {id: 'custom_character_abc', previewUrl: 'https://cdn.sylvex.ai/p.png'}},
+  };
+  const {context, calls} = makeRestoreContext(pending, jobOutcome);
+  await vm.runInContext('restorePendingCharacterCreationJob()', context);
+  assert.ok(calls.saved, 'the restored Character must still be saved via saveVisualItemToBackend');
+  assert.equal(calls.saved.kind, 'character');
+  assert.equal(calls.saved.item.id, 'custom_character_abc');
+  assert.ok(calls.applied, 'applyCharacterReferenceSelection must run for the restored Character');
+  assert.ok(calls.toasts.length > 0);
+  assert.equal(calls.cleared, true, 'the pending marker must be cleared once the job resolves');
+});
+
+test('restorePendingCharacterCreationJob: on failure, toasts the backend error and still clears the pending marker', async () => {
+  const pending = {jobId: 'job-9', name: 'Islam', gender: 'male', description: '', startedAt: Date.now()};
+  const jobOutcome = {ok: true, status: 'failed', job_id: 'job-9', error: {error: 'OpenAI billing limit reached'}};
+  const {context, calls} = makeRestoreContext(pending, jobOutcome);
+  await vm.runInContext('restorePendingCharacterCreationJob()', context);
+  assert.equal(calls.saved, null);
+  assert.ok(calls.toasts.length > 0);
+  assert.equal(calls.cleared, true);
 });
