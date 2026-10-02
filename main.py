@@ -8275,152 +8275,55 @@ async def public_prostudio_runway_avatar(request: Request):
     return {"ok": True, "resource": resource, "avatar": payload}
 
 
-def _character_gender_text(gender: str) -> str:
-    return "male" if gender == "male" else ("female" if gender == "female" else "a person")
-
-
 def _character_identity_prompt(name: str, gender: str, description: str) -> str:
-    gender_text = _character_gender_text(gender)
-    desc = f" {description.strip()}" if description and description.strip() else ""
-    return f'The character is {gender_text}, named "{name}".{desc}'.strip()
+    return ""
 
 
-def _character_primary_prompt(name: str, gender: str, description: str, has_photo: bool, processing_mode: str) -> str:
-    identity = _character_identity_prompt(name, gender, description)
-    if not has_photo:
-        # Character Creation V2, Scenario B (text-only): there is no source
-        # photo, so this shot both invents and locks the character's visual
-        # identity - every later shot (front/side/back) is generated against
-        # this exact image, never against a fresh interpretation of the text.
-        return (
-            "Create a professional primary identity reference photo establishing a brand-new, consistent character. "
-            f"{identity} "
-            "Use chest-up or waist-up framing, clear sharp focus on the face, eyes clearly visible with a defined eye "
-            "color, looking directly toward the camera, natural professional-camera lighting and angle, and a clean, "
-            "restrained professional background (such as a simple interior, office, or minimal outdoor setting) that "
-            "stays secondary to the person. This exact face, skin tone, age, gender, eye color, hairstyle and clothing "
-            "must be treated as this character's fixed identity for every future reference image. "
-            "No text, watermark, extra people, or collage."
-        )
-    if processing_mode == "preserve":
-        # Preserve: minimal intervention - only light technical correction,
-        # never restaging.
-        return (
-            "Use the uploaded photo as the primary identity reference for this character, with minimal intervention. "
-            f"{identity} "
-            "Only make light technical corrections: improve resolution and sharpness, correct exposure and white "
-            "balance. Do not change the pose, composition, background, clothing, hairstyle, facial appearance, body, "
-            "or identity. Keep the result as close as possible to the original uploaded photo. "
-            "No text, watermark, extra people, or collage."
-        )
-    # AI Polish (default): may fully reconstruct the presentation (pose,
-    # framing, lighting, background) into a professional portrait, but must
-    # preserve the actual person - never beautify them into someone else.
-    return (
-        "Create a professional primary identity reference photo of the exact same person shown in the uploaded photo. "
-        f"{identity} "
-        "Reconstruct the photo into a natural, professional-camera portrait: chest-up or waist-up framing, clear sharp "
-        "focus on the face, eyes clearly visible with their real eye color, looking directly toward the camera "
-        "whenever natural, good even lighting, and a clean, restrained professional background (such as a simple "
-        "interior, office, or minimal outdoor/urban setting) that stays secondary to the person. You may correct pose, "
-        "framing, lighting and background, and make minor improvements to tidiness and skin appearance, but you must "
-        "preserve the person's real identity exactly: facial structure, skin tone, age, gender, eye color, hairstyle, "
-        "and clothing. Do not change who this person is and do not beautify them into a different-looking person. "
-        "No text, watermark, extra people, or collage."
-    )
-
-
-def _character_body_prompt(view: str, name: str, gender: str, description: str, has_photo: bool) -> str:
-    identity = _character_identity_prompt(name, gender, description)
-    view_text = {
-        "front": "front-facing view, facing directly toward the camera",
-        "side": "strict side (profile) view",
-        "back": "back view, facing directly away from the camera",
-    }[view]
-    body_hint = (
-        "If the provided reference already shows the full body and outfit, keep those exact proportions and clothing "
-        "unchanged. Otherwise, infer the parts of the body and outfit not yet visible (such as legs, trousers and "
-        "shoes) in a way that looks natural for this character, and then treat that completed outfit as fixed for "
-        "every other view."
-        if has_photo else
-        "Keep the exact same body proportions and outfit established in the identity reference."
-    )
-    return (
-        f"Create a standardized full-body identity reference of the exact same character: {view_text}. "
-        f"{identity} "
-        "Use the provided reference image(s) to keep the exact same face, skin tone, age, gender, eye color, "
-        "hairstyle, body proportions and clothing as the character's established identity - this must be the same "
-        f"person and the same outfit as in the other reference views, not a new person. {body_hint} "
-        "Full body visible from head to feet, standing straight, neutral standing posture, arms naturally lowered, "
-        "no dramatic pose, no artistic camera angle, consistent camera distance and character scale, plain neutral "
-        "gray studio background, consistent even lighting. This is a technical identity reference, not a lifestyle "
-        "photograph. No text, watermark, extra people, or collage."
-    )
-
-
-async def _openai_character_shot(prompt: str, reference_urls: list, quality: str = "high") -> str:
-    payload = {
-        "mode": "image",
-        "category": "image",
-        "provider": "openai",
-        "model": "gpt_image_2",
-        "prompt": prompt,
-        "image_options": {
-            "modelId": "gpt_image_2",
-            "size": "1024x1024",
-            "quality": quality,
-            "count": 1,
-            "referenceImageUrls": [url for url in reference_urls if url][:5],
-        },
-    }
-    result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
-    if not result.get("ok"):
-        diagnostic = (
-            result.get("raw_error")
-            or result.get("details")
-            or result.get("body_preview")
-            or result.get("error")
-            or "OpenAI character image generation failed"
-        )
-        raise RuntimeError(
-            f"OpenAI character image generation failed"
-            f" (status={result.get('status_code') or 'unknown'}, model={result.get('provider_model') or 'gpt-image-2'}): "
-            f"{str(diagnostic)[:1200]}"
-        )
-    urls = materialize_image_urls(_json_list(result.get("images")) or [result.get("image_url")])
-    if not urls:
-        raise RuntimeError("OpenAI returned no character image")
-    return urls[0]
-
-
-async def _generate_openai_character_images(
-    name: str, gender: str, description: str, photos: list, processing_mode: str = "ai_polish"
-) -> list:
-    # Character Creation V2 "Create with AI": builds the standard 4-reference
-    # set (Primary, Front, Side, Back) either from an uploaded photo
-    # (Scenario A) or purely from the text description (Scenario B, photos
-    # empty - the primary shot itself establishes the identity). Front/Side/
-    # Back are each generated against the primary (and, when available, the
-    # previous body shot) so identity and outfit stay locked across the set
-    # instead of four independently-reinterpreted generations.
-    processing_mode = processing_mode if processing_mode in ("preserve", "ai_polish") else "ai_polish"
-    has_photo = bool(photos)
-    source_photo = photos[0] if has_photo else ""
-
-    primary_prompt = _character_primary_prompt(name, gender, description, has_photo, processing_mode)
-    primary_url = await _openai_character_shot(primary_prompt, [source_photo] if has_photo else [])
-
-    front_refs = [primary_url, source_photo] if has_photo else [primary_url]
-    front_url = await _openai_character_shot(
-        _character_body_prompt("front", name, gender, description, has_photo), front_refs
-    )
-    side_url = await _openai_character_shot(
-        _character_body_prompt("side", name, gender, description, has_photo), [primary_url, front_url]
-    )
-    back_url = await _openai_character_shot(
-        _character_body_prompt("back", name, gender, description, has_photo), [primary_url, front_url, side_url]
-    )
-    return [primary_url, front_url, side_url, back_url]
+async def _generate_openai_character_images(name: str, gender: str, description: str, photos: list) -> list:
+    shots = [
+        "Create the primary square avatar: centered head-and-shoulders studio portrait, neutral expression, clean neutral background.",
+        "Create reference 1: front-facing full-body neutral standing pose, complete default outfit visible, clean studio background.",
+        "Create reference 2: three-quarter full-body view of the exact same person and exact same outfit, clean studio background.",
+        "Create reference 3: side-profile and upper-body identity reference of the exact same person and exact same outfit, clean studio background.",
+    ]
+    results = []
+    for shot in shots:
+        payload = {
+            "mode": "image",
+            "category": "image",
+            "provider": "openai",
+            "model": "gpt_image_2",
+            "prompt": (
+                f"{shot}\n\nUse the uploaded photos as the only source for the person. "
+                "No text, watermark, extra people, or collage."
+            ),
+            "image_options": {
+                "modelId": "gpt_image_2",
+                "size": "1024x1024",
+                "quality": "high",
+                "count": 1,
+                "referenceImageUrls": photos[:3],
+            },
+        }
+        result = await run_provider_coroutine_off_loop(lambda: image_generation(payload))
+        if not result.get("ok"):
+            diagnostic = (
+                result.get("raw_error")
+                or result.get("details")
+                or result.get("body_preview")
+                or result.get("error")
+                or "OpenAI character image generation failed"
+            )
+            raise RuntimeError(
+                f"OpenAI character image generation failed"
+                f" (status={result.get('status_code') or 'unknown'}, model={result.get('provider_model') or 'gpt-image-2'}): "
+                f"{str(diagnostic)[:1200]}"
+            )
+        urls = materialize_image_urls(_json_list(result.get("images")) or [result.get("image_url")])
+        if not urls:
+            raise RuntimeError("OpenAI returned no character image")
+        results.append(urls[0])
+    return results
 
 
 def _find_provider_id(data, keys: tuple[str, ...]) -> str:
@@ -8512,33 +8415,17 @@ async def public_prostudio_create_character(request: Request):
     name = str(data.get("name") or "").strip()
     gender = str(data.get("gender") or "").strip()
     description = str(data.get("description") or "").strip()
-    # Character Creation V2 "Create with AI": the source photo is optional
-    # (Scenario A vs Scenario B - text-only) and capped at 1, not 3 - the
-    # standard 4-reference set (Primary/Front/Side/Back) is always
-    # synthesized from a single identity source, never from multiple raw
-    # uploads merged together.
-    photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:1]
-    processing_mode = str(data.get("processing_mode") or data.get("processingMode") or "ai_polish").strip().lower()
-    if processing_mode not in ("preserve", "ai_polish"):
-        processing_mode = "ai_polish"
+    photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:3]
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     if len(name) < 2:
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
-    if not photos and not description:
-        return JSONResponse({"ok": False, "error": "photo_or_description_required"}, status_code=400)
+    if not photos:
+        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
     try:
-        images = await _generate_openai_character_images(name, gender, description, photos, processing_mode)
-        # HeyGen's video-avatar registration is a separate, optional
-        # capability (used by Video mode's lookalike/animation features) -
-        # it must never block creating the Character itself. A missing API
-        # key or a provider-side failure just means this Character has no
-        # HeyGen mapping yet; the standard reference set is still saved.
-        try:
-            heygen = await asyncio.to_thread(_create_heygen_character, name, images[0], images[1:4])
-        except Exception as heygen_exc:
-            prostudio_error("CHARACTER_HEYGEN_REGISTRATION_FAILED", heygen_exc, telegram_id=telegram_id, name=name)
-            heygen = {"response": None, "photo_avatar_id": "", "avatar_group_id": ""}
+        images = await _generate_openai_character_images(name, gender, description, photos)
+        heygen = await asyncio.to_thread(_create_heygen_character, name, images[0], images[1:4])
+        identity_prompt = _character_identity_prompt(name, gender, description)
         # SYLVEX owns the Character's identity - per the Character System V2
         # product contract, a provider-specific ID (HeyGen's photo_avatar_id/
         # avatar_group_id here) must never be the canonical identity, since
@@ -8549,12 +8436,11 @@ async def public_prostudio_create_character(request: Request):
         # The expandable Character reference library (Character System V2):
         # each entry has its own stable id and a role label, so the
         # composer's manual reference-selection UI can show "Primary Face /
-        # Full Body Front / Full Body Side / Full Body Back" checkboxes
-        # instead of an unlabeled, fixed-size array. referenceImages/
-        # previewUrl/avatarUrl below stay as the flat, backward-compatible
-        # view every existing consumer already reads - this list is purely
-        # additive.
-        reference_roles = ["Primary Face", "Full Body Front", "Full Body Side", "Full Body Back"]
+        # Full Body / Three-Quarter / Profile" checkboxes instead of an
+        # unlabeled, fixed-size array. referenceImages/previewUrl/avatarUrl
+        # below stay as the flat, backward-compatible view every existing
+        # consumer already reads - this list is purely additive.
+        reference_roles = ["Primary Face", "Full Body", "Three-Quarter", "Profile"]
         reference_library = [
             {"id": uuid4().hex, "url": url, "role": reference_roles[index] if index < len(reference_roles) else "Additional", "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             for index, url in enumerate(images[:4])
