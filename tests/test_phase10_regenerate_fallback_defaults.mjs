@@ -43,6 +43,7 @@ function baseSandbox() {
     renderUploadedPhotoGrid: () => {},
     updateImageUploadButtonPreview: () => {},
     renderVideoControls: () => {},
+    renderVideoReferencesPreview: () => {},
     renderMusicControls: () => {},
     renderVoiceControls: () => {},
     setCurrentVideoReferenceImages: () => {},
