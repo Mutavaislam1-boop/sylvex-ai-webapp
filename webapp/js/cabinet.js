@@ -11269,25 +11269,6 @@ function closeVideoAddMenu() {
   if (button) button.classList.remove('is-add-menu-open');
 }
 
-function toggleVideoAddMenu(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  const menu = document.getElementById('videoAddMenu');
-  const button = document.getElementById('videoReferencesUploadButton');
-  if (!menu) return;
-  const nextOpen = !!menu.hidden;
-  menu.hidden = !nextOpen;
-  if (button) button.classList.toggle('is-add-menu-open', nextOpen);
-  S.haptic && S.haptic.impact && S.haptic.impact('light');
-}
-
-function chooseVideoAddMedia(e) {
-  closeVideoAddMenu();
-  openVideoReferencesUpload(e);
-}
-
 function chooseVideoAddCharacter(e) {
   closeVideoAddMenu();
   if (!getVideoModelCapabilities(videoState.modelId).character.selectable) {
@@ -24870,7 +24851,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, toggleVideoAddMenu, closeVideoAddMenu, chooseVideoAddMedia, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
@@ -24974,9 +24955,7 @@ async function waitGeneration(jobId, options) {
   window.openVideoReferencesUpload = openVideoReferencesUpload;
   window.openVideoEditInputUpload = openVideoEditInputUpload;
   window.openVideoVisualPicker = openVideoVisualPicker;
-  window.toggleVideoAddMenu = toggleVideoAddMenu;
   window.closeVideoAddMenu = closeVideoAddMenu;
-  window.chooseVideoAddMedia = chooseVideoAddMedia;
   window.chooseVideoAddCharacter = chooseVideoAddCharacter;
   window.chooseVideoAddObject = chooseVideoAddObject;
   window.openNativeFilePicker = openNativeFilePicker;
@@ -25048,9 +25027,7 @@ async function waitGeneration(jobId, options) {
   S.openVideoEndUpload = openVideoEndUpload;
   S.openVideoReferencesUpload = openVideoReferencesUpload;
   S.openVideoEditInputUpload = openVideoEditInputUpload;
-  S.toggleVideoAddMenu = toggleVideoAddMenu;
   S.closeVideoAddMenu = closeVideoAddMenu;
-  S.chooseVideoAddMedia = chooseVideoAddMedia;
   S.chooseVideoAddCharacter = chooseVideoAddCharacter;
   S.chooseVideoAddObject = chooseVideoAddObject;
   S.clearCurrentUploadTarget = clearCurrentUploadTarget;
