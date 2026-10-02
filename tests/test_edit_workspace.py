@@ -157,6 +157,71 @@ def test_topaz_workspace_passes_controls_and_preserves_ratio(monkeypatch, provid
     assert sent[0]['data']['faceEnhancementStrength'] == '0'
     assert sent[0]['data']['strength'] == '0.25'
     assert sent[0]['data']['fixCompression'] == '0.3'
+    assert sent[0]['headers'] == {'X-API-KEY': 'test-topaz-key'}
+    assert sent[0]['data']['sharpen'] == '0.33'
+    assert sent[0]['data']['denoise'] == '0.44'
+    assert sent[0]['data']['faceEnhancementCreativity'] == '0.18'
+    assert (result['canvas_width'], result['canvas_height']) == (128, 96)
+    assert result['upscale_settings']['strength'] == 0
+    assert 'prompt' not in sent[0]['data']
+    assert set(sent[0]['files']) == {'image'}
+
+
+def test_upscale_face_toggle_omits_face_controls(monkeypatch, provider):
+    from test_enhance_photo_tool import _apply_success_mocks, _FakeResponse
+    _apply_success_mocks(monkeypatch)
+    sent = []
+    monkeypatch.setattr(main.requests, 'post', lambda url, **kw: sent.append((url, kw)) or _FakeResponse(200, {'process_id': 'test'}))
+    request = payload('upscale', editWorkspaceUpscale={'width': 64, 'height': 48, 'faceEnhancement': False})
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok']
+    assert sent[0][0] == main.TOPAZ_ENHANCE_ENDPOINT
+    assert sent[0][1]['data']['faceEnhancement'] == 'false'
+    assert 'faceEnhancementStrength' not in sent[0][1]['data']
+    assert 'faceEnhancementCreativity' not in sent[0][1]['data']
+
+
+@pytest.mark.parametrize('settings', [
+    {'width': 0}, {'width': 128.5}, {'width': True}, {'height': float('nan')},
+    {'width': 24001}, {'width': 10001, 'height': 10000}, {'width': 127},
+    {'faceEnhancement': 'false'}, {'subject': 'Face'}, {'modelStrength': 0}, {'denoise': 101},
+])
+def test_invalid_upscale_never_submits_paid_provider_request(monkeypatch, provider, settings):
+    from test_enhance_photo_tool import _apply_success_mocks
+    _apply_success_mocks(monkeypatch)
+    monkeypatch.setattr(main.requests, 'post', lambda *a, **k: pytest.fail('Invalid Upscale reached Topaz'))
+    result = asyncio.run(main.generate_edit_workspace_image(payload('upscale', editWorkspaceUpscale={'width': 128, 'height': 96, **settings})))
+    assert result['ok'] is False
+
+
+@pytest.mark.parametrize(('size', 'target'), [((3000, 2000), (6000, 4000)), ((4000, 2500), (8000, 5000)),
+    ((4000, 2500), (8002, 5001)), ((8000, 1000), (24000, 3000)), ((3, 2), (5, 3))])
+def test_upscale_result_cost_matches_estimate_at_tier_and_rounding_boundaries(monkeypatch, provider, size, target):
+    from test_enhance_photo_tool import _apply_success_mocks
+    _apply_success_mocks(monkeypatch)
+    # Avoid allocating giant test images; dimensions are independent of transport.
+    monkeypatch.setattr(main, '_detect_image_dimensions', lambda _: size)
+    request = payload('upscale', editWorkspaceUpscale={'width': target[0], 'height': target[1]})
+    estimate = main.calculate_generation_price(request)
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok']
+    assert result['cost_credits'] == estimate['credits']
+    assert result['cost_usd'] == estimate['cost_usd']
+    assert (result['canvas_width'], result['canvas_height']) == target
+
+
+def test_enhance_quick_tool_ignores_workspace_settings(monkeypatch, provider):
+    from test_enhance_photo_tool import _apply_success_mocks, _FakeResponse
+    _apply_success_mocks(monkeypatch)
+    sent = []
+    monkeypatch.setattr(main.requests, 'post', lambda url, **kw: sent.append(kw) or _FakeResponse(200, {'process_id': 'test'}))
+    request = {'image_options': {'tool': 'enhance_photo', 'enhancePhotoSourceUrl': uri(image_bytes()),
+        'editWorkspaceUpscale': {'width': 1, 'height': 1, 'denoise': 100}, 'editWorkspaceMode': 'upscale'}}
+    result = asyncio.run(main.generate_enhance_photo_image(request))
+    assert result['ok']
+    assert sent[0]['data'] == {'model': 'High Fidelity V2', 'outputHeight': '96'}
+    assert result['cost_credits'] == 15
+    assert result['tool'] == 'enhance_photo'
 
 
 def test_upscale_rotates_exif_source_before_preserving_aspect_ratio(monkeypatch, provider):

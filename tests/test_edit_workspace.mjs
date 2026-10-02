@@ -8,7 +8,7 @@ function harness(){
   const requests=[],messages=[],revoked=[];let rejectUpload=false;
   const context=vm.createContext({console,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
     Image:class{naturalWidth=1200;naturalHeight=800;set src(value){queueMicrotask(()=>this.onload());}},
-    document:{getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
+    document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
     uploadProStudioMediaFile:async ()=>{if(rejectUpload)throw new Error('upload failed');return 'https://cdn.example/new.png';},
     activeGenerationPlaceholderIndex:()=>-1,generatedUrlsFromResponse:r=>r.images,generatedThumbsFromResponse:()=>[],addGeneratedImages(){},imageGenerationMetadata:()=>({}),loadConversations(){},chatMessages:[],resolveFailureMessage:e=>({error:e.message}),translateGenerationError:e=>e.message,clearActiveProStudioJob(){},renderChat(){},rememberCurrentChatSpace(){},
@@ -29,6 +29,62 @@ test('retouch sends mask; next generation uses result, and undo restores previou
 test('failed generation preserves the editable source and previous result',async()=>{const h=harness();h.state.resultUrl='https://cdn.example/previous.png';h.context.callGenerate=async()=>{throw new Error('provider failed');};await h.context.generateEditWorkspace();assert.equal(h.state.resultUrl,'https://cdn.example/previous.png');assert.equal(h.state.history.length,0);assert.equal(h.state.busy,false);});
 test('busy workspace cannot switch modes, alter settings or start another request',async()=>{const h=harness();h.state.busy=true;h.context.setEditWorkspaceMode(null,'camera');h.context.setEditCameraPreset(null,90,10);await h.context.generateEditWorkspace();assert.equal(h.state.mode,'edit');assert.equal(h.state.camera.horizontal,0);assert.equal(h.requests.length,0);});
 test('resize keeps ratio unless unlocked; expansion accepts zero margin',()=>{const h=harness();h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'600'}},'resize','width');assert.equal(h.state.resize.height,400);h.state.resize.locked=false;h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'300'}},'resize','width');assert.equal(h.state.resize.height,400);h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'0'}},'expand','left');assert.equal(h.state.expand.left,0);});
+test('Upscale preserves panoramic ratios at edge limits and shows the actual scale',()=>{
+ const h=harness();h.state.mode='upscale';h.context.setEditWorkspaceDimensions(8000,1000);h.context.setEditUpscaleScale(null,4);
+ assert.equal(h.state.upscale.width,24000);assert.equal(h.state.upscale.height,3000);assert.equal(h.state.upscale.scale,3);
+ assert.equal(h.context.editWorkspaceValidation(),'');
+ const panel=h.context.editUpscalePanel('',()=> '');assert.match(panel,/24000 × 3000 px · 3×/);assert.doesNotMatch(panel,/aria-pressed="true"/);
+ h.context.setEditWorkspaceDimensions(1000,8000);h.context.setEditUpscaleScale(null,4);
+ assert.equal(h.state.upscale.width,3000);assert.equal(h.state.upscale.height,24000);
+});
+test('Upscale caps pixel area without stretching and normalizes either dimension to Topaz rounding',()=>{
+ const h=harness();h.state.mode='upscale';
+ for(const [w,height] of [[5000,5000],[4031,3023],[12001,317],[317,12001],[3,2]]){
+  h.context.setEditWorkspaceDimensions(w,height);h.context.setEditUpscaleScale(null,4);
+  const u=h.state.upscale;assert.ok(u.width*u.height<=100000000);assert.ok(Math.max(u.width,u.height)<=24000);
+  assert.equal(u.width,Math.max(1,Math.round(w*u.height/height)));assert.equal(h.context.editWorkspaceValidation(),'');
+ }
+ h.context.setEditWorkspaceDimensions(1200,800);
+ h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'1501'}},'upscale','width');
+ assert.equal(h.state.upscale.height,1001);assert.equal(h.state.upscale.width,1502);
+ h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'333'}},'upscale','height');
+ assert.equal(h.state.upscale.height,333);assert.equal(h.state.upscale.width,500);assert.equal(h.context.editWorkspaceValidation(),'');
+ h.state.upscale.width=499;assert.match(h.context.editWorkspaceValidation(),/пропорции/);
+});
+test('Upscale rejects corrupt numeric controls and preserves face settings while disabled',()=>{
+ const h=harness();h.context.setEditWorkspaceDimensions(1200,800);
+ h.context.updateEditWorkspaceRange({currentTarget:{value:'0'}},'upscale','strength');
+ h.context.updateEditWorkspaceRange({currentTarget:{value:'101'}},'upscale','denoise');
+ assert.equal(h.state.upscale.strength,0);assert.equal(h.state.upscale.denoise,100);
+ h.context.updateEditWorkspaceRange({currentTarget:{value:'NaN'}},'upscale','denoise');assert.equal(h.state.upscale.denoise,100);
+ h.context.updateEditWorkspaceField({currentTarget:{type:'checkbox',checked:false}},'upscale','faceEnhancement');
+ assert.match(h.context.editUpscalePanel('',()=>''),/class="edit-upscale-faces" disabled/);
+ h.context.updateEditWorkspaceRange({currentTarget:{value:'80'}},'upscale','strength');assert.equal(h.state.upscale.strength,0);
+ h.state.busy=true;const saved=JSON.stringify(h.state.upscale);h.context.setEditUpscaleScale(null,4);
+ h.context.updateEditWorkspaceField({currentTarget:{type:'number',value:'800'}},'upscale','width');assert.equal(JSON.stringify(h.state.upscale),saved);
+});
+test('Upscale sends isolated controls once, keeps camera unchanged, and preserves failed inputs',async()=>{
+ const h=harness();h.state.mode='upscale';h.context.setEditWorkspaceDimensions(1200,800);h.context.setEditUpscaleScale(null,4);
+ h.state.upscale.faceEnhancement=false;h.state.upscale.sharpness=73;h.state.viewport={x:100,y:-50};h.state.zoom=400;
+ const original=JSON.stringify(h.state.upscale);let fail;h.context.callGenerate=async(...args)=>{h.requests.push(args);return new Promise((_,reject)=>{fail=reject;});};
+ const pending=h.context.generateEditWorkspace();await h.context.generateEditWorkspace();assert.equal(h.requests.length,1);
+ const opts=h.requests[0][4];assert.equal(opts.provider,'topaz');assert.equal(opts.model,'topaz_enhance_photo');assert.equal(opts.isolateRequest,true);
+ assert.equal(opts.imageOptions.editWorkspaceUpscale.width,4800);assert.equal(opts.imageOptions.editWorkspaceUpscale.sharpness,73);assert.equal(opts.imageOptions.editWorkspaceUpscale.faceEnhancement,false);
+ assert.equal(opts.imageOptions.viewport,undefined);assert.equal(h.state.camera.zoom,5);
+ fail(new Error('Topaz unavailable'));await pending;assert.equal(JSON.stringify(h.state.upscale),original);assert.equal(h.state.busy,false);assert.equal(h.state.history.length,0);
+});
+test('Upscale quotes come from the server; stale responses cannot replace the current size quote',async()=>{
+ const h=harness(),quotes=[],node={textContent:''};h.state.mode='upscale';h.context.setEditWorkspaceDimensions(3000,2000);
+ h.context.document.querySelector=()=>node;
+ h.context.fetch=async(url,options)=>new Promise(resolve=>quotes.push({url,payload:JSON.parse(options.body),resolve}));
+ const first=h.context.refreshEditUpscaleEstimate();await h.context.refreshEditUpscaleEstimate();assert.equal(quotes.length,1);
+ h.context.setEditUpscaleScale(null,4);const second=h.context.refreshEditUpscaleEstimate();assert.equal(quotes.length,2);
+ assert.equal(quotes[1].url,'/api/public/prostudio/estimate');assert.equal(quotes[1].payload.image_options.editWorkspaceUpscale.width,12000);
+ assert.deepEqual(quotes[1].payload.image_options.referenceImageUrls,[h.state.sourceUrl]);assert.deepEqual(quotes[1].payload.image_options.referenceImages,[h.state.sourceUrl]);
+ quotes[1].resolve({ok:true,json:async()=>({ok:true,credits:75})});await second;assert.equal(node.textContent,'75 ⚡');
+ quotes[0].resolve({ok:true,json:async()=>({ok:true,credits:15})});await first;assert.equal(node.textContent,'75 ⚡');
+ h.context.setEditUpscaleScale(null,1);h.context.fetch=async()=>{throw new Error('offline');};await h.context.refreshEditUpscaleEstimate();assert.equal(node.textContent,'Уточняется при запуске');
+});
 test('failed upload preserves existing document, successful upload resets selection',async()=>{const h=harness();h.failUpload();await h.context.loadEditWorkspaceImage({name:'new.png',type:'image/png',size:10});assert.equal(h.state.sourceUrl,'https://cdn.example/source.png');assert.equal(h.state.uploading,false);assert.deepEqual(h.revoked,['blob:new']);const ok=harness();ok.state.maskStrokes=[{}];await ok.context.loadEditWorkspaceImage({name:'new.png',type:'image/png',size:10});assert.equal(ok.state.sourceUrl,'https://cdn.example/new.png');assert.equal(ok.state.maskStrokes.length,0);assert.equal(ok.state.resize.width,1200);});
 test('lights are limited to eight and all-disabled is rejected',()=>{const h=harness();h.state.mode='lighting';for(let i=0;i<12;i++)h.context.addEditWorkspaceLight();assert.equal(h.state.light.layers.length,8);h.state.light.layers.forEach(l=>l.enabled=false);assert.match(h.context.editWorkspaceValidation(),/источник/);});
 test('comparison view cannot submit a retouch without its visible mask canvas',async()=>{const h=harness();h.state.mode='retouch';h.state.maskStrokes=[{}];h.state.showBefore=true;await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/Вернитесь к результату/);});
