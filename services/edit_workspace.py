@@ -7,6 +7,8 @@ from PIL import Image, ImageOps
 
 MODES = {'edit', 'retouch', 'resize', 'background', 'expand', 'upscale', 'lighting', 'camera', 'translate'}
 MAX_CANVAS_PIXELS = 16_777_216
+UPSCALE_MAX_EDGE = 24000
+UPSCALE_MAX_PIXELS = 100_000_000
 
 
 def number(value, minimum, maximum, default=None):
@@ -76,14 +78,37 @@ def validate_options(opts):
     if mode == 'lighting':
         lighting_parameters(settings('editWorkspaceLight'))
     if mode == 'upscale':
-        upscale = settings('editWorkspaceUpscale')
-        dimensions(upscale, 24000, 100_000_000)
-        for key in ('sharpness', 'denoise', 'strength', 'creativity', 'modelStrength', 'fixCompression'):
-            if key in upscale:
-                number(upscale[key], 1 if key == 'modelStrength' else 0, 100)
-        if upscale.get('subject', 'All') not in {'All', 'Foreground', 'Background', 'Face', 'None'}:
-            raise ValueError('Выберите область улучшения.')
+        upscale_parameters(settings('editWorkspaceUpscale'))
     return mode
+
+
+def upscale_parameters(settings):
+    """Validated Edit settings; percentages remain in the UI's 0–100 units."""
+    width, height = dimensions(settings, UPSCALE_MAX_EDGE, UPSCALE_MAX_PIXELS)
+    if any(isinstance(settings.get(key), bool) or float(settings[key]) != value
+           for key, value in (('width', width), ('height', height))):
+        raise ValueError('Размеры Upscale должны быть целым числом пикселей.')
+    subject = settings.get('subject', 'All')
+    if subject not in {'All', 'Foreground', 'Background'}:
+        raise ValueError('Выберите область улучшения.')
+    face = settings.get('faceEnhancement', True)
+    if not isinstance(face, bool):
+        raise ValueError('Некорректная настройка улучшения лиц.')
+    result = {'width': width, 'height': height, 'subject': subject, 'faceEnhancement': face}
+    for key, default in (('sharpness', 20), ('denoise', 20), ('strength', 80),
+                         ('creativity', 0), ('modelStrength', 80), ('fixCompression', 0)):
+        result[key] = number(settings.get(key), 1 if key == 'modelStrength' else 0, 100, default)
+    return result
+
+
+def upscale_output_dimensions(settings, source_size):
+    """Topaz derives width from outputHeight; charge for that same pixel area."""
+    source_width, source_height = source_size
+    width, height = settings['width'], settings['height']
+    expected_width = max(1, math.floor(source_width * height / source_height + 0.5))
+    if width != expected_width:
+        raise ValueError('Upscale сохраняет пропорции исходного изображения. Задайте размер заново.')
+    return width, height
 
 
 def camera_parameters(settings):
