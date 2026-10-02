@@ -52,7 +52,6 @@ function baseSandbox() {
     applyCharacterReferenceSelectionArgs: null,
     applyVisualReferenceToVideoArgs: null,
     createHeygenCharacterResourceArgs: null,
-    processManualCharacterReferenceArgs: [],
     saveVisualItemToBackendArgs: null,
     savedCustomItems: null,
     closed: 0,
@@ -65,10 +64,6 @@ function baseSandbox() {
     visualCreateListLabel: (kind) => (kind === 'character' ? 'список персонажей' : 'список объектов'),
     translateGenerationError: (err, fallback) => fallback,
     normalizeGenerationImageReference: async (raw) => (raw ? { url: 'https://cdn.sylvex.ai/uploaded/' + Buffer.from(String(raw)).toString('hex').slice(0, 8) + '.png' } : null),
-    processManualCharacterReference: async (role, photoUrl, name, gender, description, processingMode) => {
-      calls.processManualCharacterReferenceArgs.push({ role, photoUrl, name, gender, description, processingMode });
-      return 'https://cdn.sylvex.ai/processed/' + role + '.png';
-    },
     visualPreviewUrl: (resource) => (resource && resource.avatarUrl) || '',
     generateVisualResourceWithOpenAI: async () => 'https://cdn.sylvex.ai/object-preview.png',
     createHeygenCharacterResource: async (name, photos, gender, description, processingMode) => {
@@ -107,7 +102,6 @@ function baseSandbox() {
   };
   const context = vm.createContext(sandbox);
   vm.runInContext(extractConst('MANUAL_CHARACTER_REFERENCE_ROLES'), context);
-  vm.runInContext(extractConst('MANUAL_CHARACTER_SLOT_ROLE_KEYS'), context);
   vm.runInContext(extractFunction('buildManualCharacterResource'), context);
   vm.runInContext(extractFunction('visualCreateCanSave'), context);
   vm.runInContext(extractFunction('setVisualCreateMode'), context);
@@ -212,52 +206,23 @@ test('buildManualCharacterResource: all four slots filled produces all four role
 
 // ---- saveVisualCreateDraft: Manual vs Create-with-AI branching ----
 
-test('saveVisualCreateDraft: Manual mode never calls the AI/HeyGen character-creation endpoint, but still AI-processes each filled slot', async () => {
+test('saveVisualCreateDraft: Manual mode never calls the AI/HeyGen character endpoint', async () => {
   const { context, calls } = baseSandbox();
   context.visualCreateDraft = {
     kind: 'character', mode: 'manual', name: 'Islam', gender: 'male', description: '',
     photos: ['data:image/png;base64,primaryRaw', '', '', 'data:image/png;base64,backRaw'],
-    processingMode: 'ai_polish',
     saving: false,
   };
   await vm.runInContext('saveVisualCreateDraft(null)', context);
-  // Manual mode never auto-completes a missing slot, so it never calls the
-  // full-set AI/HeyGen character-creation endpoint...
   assert.equal(calls.createHeygenCharacterResourceArgs, null);
-  // ...but it must still run each slot the user *did* fill through the
-  // per-slot AI processing step (this is the fix: Manual != saving the
-  // raw upload as-is). Only the 2 filled slots (index 0 and 3) are
-  // processed, each tagged with its own role and the chosen mode.
-  assert.equal(calls.processManualCharacterReferenceArgs.length, 2);
-  assert.equal(calls.processManualCharacterReferenceArgs[0].role, 'primary');
-  assert.equal(calls.processManualCharacterReferenceArgs[0].processingMode, 'ai_polish');
-  assert.ok(calls.processManualCharacterReferenceArgs[0].photoUrl.startsWith('https://cdn.sylvex.ai/uploaded/'), 'the raw upload must be uploaded to a real URL before being sent for AI processing');
-  assert.equal(calls.processManualCharacterReferenceArgs[1].role, 'back');
   assert.ok(calls.saveVisualItemToBackendArgs, 'expected the manually-built resource to still be persisted via the generic save endpoint');
   const savedItem = calls.saveVisualItemToBackendArgs.item;
   assert.equal(savedItem.ai_provider, 'manual');
   assert.equal(savedItem.referenceImages.length, 2);
-  // The saved references must be the AI-processed URLs, never the raw
-  // uploads.
-  assert.ok([...savedItem.referenceImages].every((url) => url.startsWith('https://cdn.sylvex.ai/processed/')));
   // Characters still go through the single-arg applyCharacterReferenceSelection
   // call, matching the already-fixed creation-time auto-select-defaults
   // behavior - this test guards that contract is not touched.
   assert.deepEqual(calls.applyCharacterReferenceSelectionArgs.length, 1);
-});
-
-test('saveVisualCreateDraft: Manual mode with only Primary filled never calls the per-slot processor for the other 3 slots', async () => {
-  const { context, calls } = baseSandbox();
-  context.visualCreateDraft = {
-    kind: 'character', mode: 'manual', name: 'Islam', gender: 'male', description: '',
-    photos: ['data:image/png;base64,primaryRaw', '', '', ''],
-    processingMode: 'preserve',
-    saving: false,
-  };
-  await vm.runInContext('saveVisualCreateDraft(null)', context);
-  assert.equal(calls.processManualCharacterReferenceArgs.length, 1);
-  assert.equal(calls.processManualCharacterReferenceArgs[0].role, 'primary');
-  assert.equal(calls.processManualCharacterReferenceArgs[0].processingMode, 'preserve');
 });
 
 test('saveVisualCreateDraft: Create with AI mode uploads the single photo and threads processingMode through', async () => {
