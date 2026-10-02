@@ -8474,13 +8474,15 @@ async def public_prostudio_create_character(request: Request):
         return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
     try:
         images = await _generate_openai_character_images(name, gender, description, photos)
-        heygen = await asyncio.to_thread(_create_heygen_character, name, images[0], images[1:4])
-        # SYLVEX owns the Character's identity - per the Character System V2
-        # product contract, a provider-specific ID (HeyGen's photo_avatar_id/
-        # avatar_group_id here) must never be the canonical identity, since
-        # losing or rotating that provider mapping would otherwise destroy
-        # the Character itself. heygen's ids are kept as a mapping alongside
-        # this stable SYLVEX-generated id, not instead of it.
+        # SYLVEX-only Character pipeline: GPT Image generates the reference
+        # set, SYLVEX stores it, and the Character is created under its own
+        # internal id - there is no provider-registration step (HeyGen or
+        # otherwise) and nothing here can make Character creation fail on
+        # an external provider's behalf. heygenPhotoAvatarId/
+        # heygenAvatarGroupId below stay empty for a Character created this
+        # way; other SYLVEX features (e.g. built-in preset Characters, or a
+        # future explicit "sync to HeyGen" action) may still populate and
+        # use those same fields - this endpoint just never writes them.
         stable_id = uuid4().hex
         # The expandable Character reference library (Character System V2):
         # each entry has its own stable id and a role label, so the
@@ -8509,11 +8511,11 @@ async def public_prostudio_create_character(request: Request):
             "referenceLibrary": reference_library,
             "sourceImages": images[1:4],
             "originalSourceImages": photos,
-            "avatar_id": heygen["photo_avatar_id"],
-            "heygenPhotoAvatarId": heygen["photo_avatar_id"],
-            "heygenAvatarGroupId": heygen["avatar_group_id"],
-            "provider": "heygen",
-            "ai_provider": "openai+heygen",
+            "avatar_id": "",
+            "heygenPhotoAvatarId": "",
+            "heygenAvatarGroupId": "",
+            "provider": "openai",
+            "ai_provider": "openai",
             "model": "gpt-image-2",
             "ai_model": "gpt-image-2",
             "type": "custom",
@@ -8521,7 +8523,7 @@ async def public_prostudio_create_character(request: Request):
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         saved = save_prostudio_resource(telegram_id, resource)
-        return {"ok": True, "resource": {**resource, **saved}, "heygen": heygen["response"]}
+        return {"ok": True, "resource": {**resource, **saved}}
     except Exception as exc:
         prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
         error_text = str(exc)
