@@ -4750,7 +4750,17 @@ function imageVisualReferenceOptions() {
     characterId: character ? character.id : null,
     characterName: character ? character.name : '',
     characterPrompt: '',
-    characterReferences: character ? visualGenerationReferences(character, 'character') : [],
+    // Character System V2: the user's own manual reference selection
+    // (imageState.characterReferences, kept in sync with
+    // characterReferenceIds by applyCharacterReferenceSelection/
+    // toggleCharacterReferenceId) is the single source of truth for which
+    // reference photos a generation actually uses. Recomputing this from
+    // the raw catalog item via visualGenerationReferences() - the old,
+    // pre-Character-System-V2 path - silently ignored that selection and
+    // sent whatever avatarUrl/referenceImages the catalog item happened to
+    // carry (up to 4), which is exactly the "model used 3 photos even
+    // though only 1 was selected" bug.
+    characterReferences: character ? (imageState.characterReferences || []).slice() : [],
 
     objectId: object ? object.id : null,
     objectName: object ? object.name : '',
