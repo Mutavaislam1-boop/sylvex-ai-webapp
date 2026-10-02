@@ -6094,6 +6094,18 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 item["prompt"] = ""
                 item["heygenPhotoAvatarId"] = metadata.get("heygenPhotoAvatarId") or metadata.get("heygen_photo_avatar_id") or metadata.get("avatar_id") or ""
                 item["heygenAvatarGroupId"] = metadata.get("heygenAvatarGroupId") or metadata.get("heygen_avatar_group_id") or ""
+                item["avatarUrl"] = metadata.get("avatarUrl") or metadata.get("avatar_url") or item["previewUrl"]
+                item["primaryReferenceUrl"] = metadata.get("primaryReferenceUrl") or item["avatarUrl"]
+                library = _json_list(metadata.get("referenceLibrary"))
+                if not library:
+                    # Characters created before the reference library existed:
+                    # synthesize one from the flat referenceImages array so
+                    # the manual-selection UI still has something to show -
+                    # ids are deterministic (resource_id + index), not random,
+                    # so they stay stable across repeated loads.
+                    library = [{"id": f"{resource_id}_ref_{index}", "url": url, "role": "Additional"}
+                               for index, url in enumerate([item["avatarUrl"]] + photos) if url]
+                item["referenceLibrary"] = library
                 result["characters"].append(item)
             elif kind == "object":
                 result["objects"].append(item)
@@ -6169,6 +6181,14 @@ def build_prostudio_metadata(payload: dict, result: dict) -> dict:
         "characterId": options.get("characterId"),
         "characterName": options.get("characterName") or "",
         "characterReferences": _json_list(options.get("characterReferences")),
+        # Which specific library entries (by id, not just url) were selected
+        # for this generation - the "selected_character_reference_ids"
+        # Character System V2 asks every generation record to keep, so
+        # "Generated with this Character" history can show exactly what
+        # was used even if the library later changes. Populated client-side
+        # by the manual reference-selection UI; a plain pass-through here,
+        # same as characterReferences above - no DB lookup needed.
+        "characterReferenceIds": _json_list(options.get("characterReferenceIds")),
         "objects": options.get("objects") or "",
         "objectId": options.get("objectId"),
         "objectName": options.get("objectName") or options.get("objects") or "",
@@ -8364,6 +8384,18 @@ async def public_prostudio_create_character(request: Request):
         # the Character itself. heygen's ids are kept as a mapping alongside
         # this stable SYLVEX-generated id, not instead of it.
         stable_id = uuid4().hex
+        # The expandable Character reference library (Character System V2):
+        # each entry has its own stable id and a role label, so the
+        # composer's manual reference-selection UI can show "Primary Face /
+        # Full Body / Three-Quarter / Profile" checkboxes instead of an
+        # unlabeled, fixed-size array. referenceImages/previewUrl/avatarUrl
+        # below stay as the flat, backward-compatible view every existing
+        # consumer already reads - this list is purely additive.
+        reference_roles = ["Primary Face", "Full Body", "Three-Quarter", "Profile"]
+        reference_library = [
+            {"id": uuid4().hex, "url": url, "role": reference_roles[index] if index < len(reference_roles) else "Additional", "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            for index, url in enumerate(images[:4])
+        ]
         resource = {
             "id": f"custom_character_{stable_id}",
             "resource_type": "character",
@@ -8375,6 +8407,7 @@ async def public_prostudio_create_character(request: Request):
             "avatarUrl": images[0],
             "primaryReferenceUrl": images[0],
             "referenceImages": images[1:4],
+            "referenceLibrary": reference_library,
             "sourceImages": images[1:4],
             "originalSourceImages": photos,
             "avatar_id": heygen["photo_avatar_id"],
@@ -8401,6 +8434,163 @@ async def public_prostudio_create_character(request: Request):
                 "provider": "openai",
             }, status_code=402)
         return JSONResponse({"ok": False, "error": error_text[:1200]}, status_code=502)
+
+
+def _load_character_resource(telegram_id: int, resource_id: str) -> Optional[dict]:
+    # Single-resource counterpart to load_prostudio_resources() (which
+    # returns every character/object/voice at once) - used by the
+    # reference-library endpoints below, which only ever need one specific
+    # Character, scoped to its owner.
+    if not DATABASE_URL or not telegram_id or not resource_id:
+        return None
+    with db_connection(DATABASE_URL) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name, description, gender, preview_url, photos_json, metadata_json, status "
+            "FROM prostudio_resources WHERE id = %s AND telegram_id = %s AND resource_type = 'character'",
+            (resource_id, telegram_id),
+        )
+        row = cursor.fetchone()
+        cursor.close()
+    if not row:
+        return None
+    name, description, gender, preview, photos_json, metadata_json, status = row
+    resource = _json_obj(metadata_json)
+    resource.update({
+        "id": resource_id,
+        "name": name or resource.get("name") or "",
+        "description": description or resource.get("description") or "",
+        "gender": gender or resource.get("gender") or "",
+        "status": status or resource.get("status") or "ready",
+        "resource_type": "character",
+    })
+    if not resource.get("referenceLibrary"):
+        photos = _json_list(photos_json)
+        avatar = resource.get("avatarUrl") or preview or ""
+        resource["referenceLibrary"] = [
+            {"id": f"{resource_id}_ref_{index}", "url": url, "role": "Additional"}
+            for index, url in enumerate(([avatar] + photos) if avatar else photos) if url
+        ]
+    return resource
+
+
+# =====================================================
+# API ENDPOINT: public_prostudio_add_character_reference
+# Expandable Character reference library (Character System V2): appends a
+# new reference image to an existing Character - either a freshly uploaded
+# photo or, per the "Add generated image to Character References" product
+# rule, a generated result the user explicitly chose to add. A generated
+# image never joins the library on its own; this endpoint only runs when
+# the frontend calls it from an explicit user action.
+# =====================================================
+@app.post("/api/public/prostudio/character/{resource_id}/references")
+async def public_prostudio_add_character_reference(resource_id: str, request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    url = str(data.get("url") or "").strip()
+    role = str(data.get("role") or "Additional").strip() or "Additional"
+    set_primary = bool(data.get("set_primary") or data.get("setPrimary"))
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not url:
+        return JSONResponse({"ok": False, "error": "reference_url_required"}, status_code=400)
+    resource = await asyncio.to_thread(_load_character_resource, telegram_id, resource_id)
+    if not resource:
+        return JSONResponse({"ok": False, "error": "character_not_found"}, status_code=404)
+    library = resource.get("referenceLibrary") or []
+    if any(entry.get("url") == url for entry in library):
+        return JSONResponse({"ok": False, "error": "reference_already_in_library"}, status_code=409)
+    new_entry = {"id": uuid4().hex, "url": url, "role": role, "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    library.append(new_entry)
+    resource["referenceLibrary"] = library
+    resource["referenceImages"] = [entry["url"] for entry in library if entry["url"] != resource.get("primaryReferenceUrl")]
+    if set_primary:
+        resource["primaryReferenceUrl"] = url
+        resource["avatarUrl"] = url
+        resource["previewUrl"] = url
+    saved = await asyncio.to_thread(save_prostudio_resource, telegram_id, resource)
+    return {"ok": True, "resource": {**resource, **saved}, "reference": new_entry}
+
+
+# =====================================================
+# API ENDPOINT: public_prostudio_set_character_primary_reference
+# Lets the user designate which library entry is the Character's Primary
+# Reference (used by default whenever the Character is selected, per the
+# "normal user must not be forced to select references every time" rule).
+# =====================================================
+@app.post("/api/public/prostudio/character/{resource_id}/primary-reference")
+async def public_prostudio_set_character_primary_reference(resource_id: str, request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    reference_id = str(data.get("reference_id") or data.get("referenceId") or "").strip()
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    resource = await asyncio.to_thread(_load_character_resource, telegram_id, resource_id)
+    if not resource:
+        return JSONResponse({"ok": False, "error": "character_not_found"}, status_code=404)
+    library = resource.get("referenceLibrary") or []
+    match = next((entry for entry in library if entry.get("id") == reference_id), None)
+    if not match:
+        return JSONResponse({"ok": False, "error": "reference_not_found"}, status_code=404)
+    resource["primaryReferenceUrl"] = match["url"]
+    resource["avatarUrl"] = match["url"]
+    resource["previewUrl"] = match["url"]
+    saved = await asyncio.to_thread(save_prostudio_resource, telegram_id, resource)
+    return {"ok": True, "resource": {**resource, **saved}}
+
+
+# =====================================================
+# API ENDPOINT: public_prostudio_character_history
+# "Generated with this Character" - every generation is private to the
+# user who ran it (telegram_id-scoped) even for a shared/built-in
+# Character, so this never exposes another user's generations and a
+# shared Character's own canonical record is never mutated by it.
+# =====================================================
+@app.get("/api/public/prostudio/character/{resource_id}/history")
+async def public_prostudio_character_history(resource_id: str, telegram_id: int = 0, limit: int = 50):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not DATABASE_URL:
+        return {"ok": True, "items": []}
+    safe_limit = max(1, min(int(limit or 50), 200))
+
+    def _fetch_rows():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, prompt, image_url, images_json, thumbnails_json, thumb_url,
+                       metadata_json, created_at
+                FROM prostudio_messages
+                WHERE telegram_id = %s AND metadata_json->>'characterId' = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s
+            """, (telegram_id, resource_id, safe_limit))
+            rows = cursor.fetchall()
+            cursor.close()
+        return rows
+
+    try:
+        rows = await asyncio.to_thread(_fetch_rows)
+    except Exception as exc:
+        print("PROSTUDIO CHARACTER HISTORY FAILED:", exc)
+        return {"ok": True, "items": []}
+
+    items = []
+    for message_id, prompt, image_url, images_json, thumbnails_json, thumb_url, metadata_json, created_at in rows:
+        images = _json_list(images_json) or ([image_url] if image_url else [])
+        thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
+        metadata = _json_obj(metadata_json)
+        items.append({
+            "id": message_id,
+            "prompt": prompt or metadata.get("prompt") or "",
+            "media_url": images[0] if images else "",
+            "media_urls": images,
+            "preview_url": thumbs[0] if thumbs else (images[0] if images else ""),
+            "character_reference_ids": _json_list(metadata.get("characterReferenceIds")),
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+        })
+    return {"ok": True, "items": items, "character_id": resource_id}
 
 
 # =====================================================

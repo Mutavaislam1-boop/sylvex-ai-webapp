@@ -258,6 +258,16 @@ let imageState = {
     objectReferences: [],
     characterName: '',
     objectName: '',
+    // Character System V2: the full expandable reference library of the
+    // currently selected Character ({id,url,role} entries, from
+    // item.referenceLibrary) and which of its ids are currently checked
+    // for this generation. characterReferences (the URL array above) is
+    // always derived from characterReferenceIds + the library - never
+    // edited directly once a Character is selected. characterReferenceLibrary
+    // is bookkeeping only (deleted from the wire payload in
+    // imageOptionsPayload, same as uploading/referenceSourceByUrl).
+    characterReferenceLibrary: [],
+    characterReferenceIds: [],
     referenceImageUrl: '',
     referenceImageUrls: [],
     uploadedImageUrls: [],
@@ -5960,6 +5970,8 @@ function localizedGreeting() {
     imageState.characterId = null;
     imageState.characterName = '';
     imageState.characterReferences = [];
+    imageState.characterReferenceLibrary = [];
+    imageState.characterReferenceIds = [];
   }
 
   // =====================================================
@@ -6090,6 +6102,7 @@ function localizedGreeting() {
         character ? [visualPreviewUrl(character)].filter(Boolean) : []
       );
     }
+    renderCharacterLibraryExpandButton(character);
 
     const objectVal = document.getElementById('imageObjectVal');
     if (objectVal) {
@@ -10894,9 +10907,7 @@ async function saveVisualCreateDraft(e) {
   if (isVideoMode()) {
     applyVisualReferenceToVideo(item, kind);
   } else if (kind === 'character') {
-    imageState.characterId = item.id;
-    imageState.characterName = item.name;
-    imageState.characterReferences = item.referenceImages.slice();
+    applyCharacterReferenceSelection(item);
   } else {
     imageState.objectId = item.id;
     imageState.objectName = item.name;
@@ -10976,6 +10987,200 @@ async function deleteVisualReference(e, kind, id) {
 }
 
 // =====================================================
+// Character System V2: expandable reference library + manual per-generation
+// selection, capped by the selected model's real capability (not "send
+// everything the library happens to hold"). Used by both Character
+// selection entry points below (pickVisualReference and the
+// just-created-this-character flow in saveVisualCreateDraft).
+// =====================================================
+
+// characterReferenceCap(): mirrors getModelCapabilities(modelId)
+// .maxReferences - the same combined per-model reference budget Seedream's
+// backend round-robin (seedream_merge_references in main.py) already
+// enforces server-side. null means "no known per-model cap" - fail open
+// (library size is the only limit), same convention as every other
+// capability read in this file.
+function characterReferenceCap(modelId) {
+  const caps = getModelCapabilities(modelId);
+  return typeof caps.maxReferences === 'number' ? caps.maxReferences : null;
+}
+
+// Characters created before the reference library existed (or loaded from
+// a cached catalog snapshot that predates it) only have the flat
+// referenceImages array - synthesize the same library shape the backend's
+// own fallback builds (load_prostudio_resources/_load_character_resource
+// in main.py), so the selection UI always has something to show.
+function characterReferenceLibraryFor(item) {
+  if (!item) return [];
+  if (Array.isArray(item.referenceLibrary) && item.referenceLibrary.length) return item.referenceLibrary.slice();
+  const primary = item.avatarUrl || item.previewUrl || '';
+  const rest = Array.isArray(item.referenceImages) ? item.referenceImages : [];
+  const urls = [primary].concat(rest).filter(Boolean);
+  return urls.map((url, index) => ({ id: item.id + '_ref_' + index, url, role: index === 0 ? 'Primary Face' : 'Additional' }));
+}
+
+// Default selection on Character selection: Primary first, then the rest
+// of the library in order, up to the current model's cap. "The normal
+// user must not be forced to select references every time" - this runs
+// automatically; the manual panel (openCharacterReferencePanel) only
+// exists for the user to override it.
+function defaultCharacterReferenceIds(library, cap) {
+  const limit = typeof cap === 'number' ? cap : library.length;
+  return library.slice(0, Math.max(0, limit)).map((entry) => entry.id);
+}
+
+function syncCharacterReferencesFromIds() {
+  const library = imageState.characterReferenceLibrary || [];
+  const ids = imageState.characterReferenceIds || [];
+  imageState.characterReferences = ids
+    .map((id) => { const entry = library.find((item) => item.id === id); return entry ? entry.url : ''; })
+    .filter(Boolean);
+}
+
+// Single entry point for "a Character was selected" - both pickVisualReference
+// and saveVisualCreateDraft's auto-select-after-create call this instead of
+// assigning characterReferences directly, so the library/cap/default-selection
+// logic can never drift between the two call sites.
+function applyCharacterReferenceSelection(item) {
+  imageState.characterId = item.id;
+  imageState.characterName = item.name;
+  const library = characterReferenceLibraryFor(item);
+  imageState.characterReferenceLibrary = library;
+  imageState.characterReferenceIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  syncCharacterReferencesFromIds();
+}
+
+// Called by the manual-selection panel's checkboxes. Enforces the model's
+// cap on check (not just on initial default selection) - "Only selected
+// references are sent" and "the maximum selectable references must come
+// from the currently selected model capability" both apply continuously,
+// not just at the moment the Character was picked.
+function toggleCharacterReferenceId(refId) {
+  const ids = imageState.characterReferenceIds || [];
+  const index = ids.indexOf(refId);
+  if (index >= 0) {
+    ids.splice(index, 1);
+  } else {
+    const cap = characterReferenceCap(imageState.modelId);
+    if (typeof cap === 'number' && ids.length >= cap) {
+      toast('Эта модель поддерживает не более ' + cap + ' референсов персонажа');
+      return;
+    }
+    ids.push(refId);
+  }
+  imageState.characterReferenceIds = ids;
+  syncCharacterReferencesFromIds();
+  renderCharacterReferencePanel();
+  renderImageReferenceSections();
+  updateSendButton();
+}
+
+function ensureCharacterReferenceModal() {
+  let modal = document.getElementById('characterReferenceModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'characterReferenceModal';
+    modal.className = 'community-modal character-reference-modal';
+    document.body.appendChild(modal);
+  }
+  return modal;
+}
+
+function renderCharacterReferencePanel() {
+  const modal = document.getElementById('characterReferenceModal');
+  if (!modal || !modal.classList.contains('show')) return;
+  const library = imageState.characterReferenceLibrary || [];
+  const selected = imageState.characterReferenceIds || [];
+  const cap = characterReferenceCap(imageState.modelId);
+  const capLabel = typeof cap === 'number' ? String(cap) : String(library.length);
+  const rows = library.map((entry) => {
+    const checked = selected.includes(entry.id);
+    const safeUrl = S.escapeHtml(entry.url);
+    const safeRole = S.escapeHtml(entry.role || 'Additional');
+    const safeId = S.escapeHtml(entry.id);
+    return '<label class="character-reference-row' + (checked ? ' is-checked' : '') + '">'
+      + '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="SYLVEX.toggleCharacterReferenceId(\'' + safeId + '\')">'
+      + '<img src="' + safeUrl + '" alt="" loading="lazy">'
+      + '<span>' + safeRole + '</span>'
+      + '</label>';
+  }).join('');
+  modal.innerHTML = '<section><header><h3>' + S.escapeHtml(imageState.characterName || 'Персонаж') + '</h3>'
+    + '<button onclick="SYLVEX.closeCharacterReferencePanel()">×</button></header>'
+    + '<div class="character-reference-list">' + (rows || '<p>Нет сохранённых референсов.</p>') + '</div>'
+    + '<footer><small>Выбрано: ' + selected.length + ' / ' + capLabel + '</small></footer></section>';
+}
+
+function openCharacterReferencePanel(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (!imageState.characterId) return;
+  const modal = ensureCharacterReferenceModal();
+  modal.classList.add('show');
+  renderCharacterReferencePanel();
+}
+
+function closeCharacterReferencePanel(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const modal = document.getElementById('characterReferenceModal');
+  if (modal) modal.classList.remove('show');
+}
+
+// "Add generated image to Character References" - explicit user action
+// only (never automatic), per the Character System V2 product rule: a
+// generated image must not silently become an identity reference. Reads
+// the button's own data attributes (set by renderGeneratedActions) rather
+// than depending on current composer state, so it works even if the user
+// has since switched Character/model/mode.
+async function addGeneratedImageToCharacterReferences(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const button = e && e.currentTarget;
+  const url = button ? String(button.dataset.imageUrl || '') : '';
+  const characterId = button ? String(button.dataset.characterId || '') : '';
+  if (!url || !characterId) return;
+  if (!window.confirm('Добавить это фото в референсы персонажа?')) return;
+  try {
+    const res = await fetch('/api/public/prostudio/character/' + encodeURIComponent(characterId) + '/references', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegram_id: getTelegramId(), url, role: 'Additional' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'add_reference_failed');
+    if (imageState.characterId === characterId) {
+      imageState.characterReferenceLibrary = characterReferenceLibraryFor(data.resource);
+    }
+    toast('Фото добавлено в референсы персонажа');
+  } catch (err) {
+    toast((err && err.message) || 'Не удалось добавить референс');
+  }
+}
+
+// Entry point into the expandable Character reference library/manual
+// selection panel. Shown only once a Character is selected and its
+// library holds more than the single default avatar reference - there is
+// nothing to expand otherwise.
+function renderCharacterLibraryExpandButton(character) {
+  const anchor = document.getElementById('imageCharacterButton');
+  if (!anchor) return;
+  let btn = document.getElementById('characterLibraryExpandButton');
+  const library = character ? (imageState.characterReferenceLibrary || []) : [];
+  if (!character || library.length <= 1) {
+    if (btn) btn.remove();
+    return;
+  }
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'characterLibraryExpandButton';
+    btn.type = 'button';
+    btn.className = 'character-library-expand-btn';
+    btn.title = 'Референсы персонажа';
+    btn.textContent = '⋯';
+    btn.addEventListener('click', openCharacterReferencePanel);
+    anchor.insertAdjacentElement('afterend', btn);
+  }
+  btn.textContent = (imageState.characterReferenceIds || []).length + '/' + library.length;
+}
+
+// =====================================================
 // JAVASCRIPT-БЛОК: pickVisualReference
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
@@ -11004,9 +11209,7 @@ function pickVisualReference(e, kind, id) {
     if (imageState.characterId === item.id) {
       clearSelectedCharacter();
     } else {
-      imageState.characterId = item.id;
-      imageState.characterName = item.name;
-      imageState.characterReferences = (item.referenceImages || []).slice();
+      applyCharacterReferenceSelection(item);
       sendVisualInteraction('character', item.id, 'select');
     }
   } else {
@@ -12461,6 +12664,7 @@ function imageModelButton(model) {
     }, imageVisualReferenceOptions());
     delete payload.referenceSourceByUrl;
     delete payload.uploading;
+    delete payload.characterReferenceLibrary;
     return payload;
   }
 
@@ -14303,6 +14507,10 @@ function renderGeneratedTelegramButton(url, kind) {
     actions += renderCompletedGenerationDownload(jobId, status, 'gen-action-btn', kind);
     if (kind === 'image') {
       actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.animateGeneratedImage(event)">' + generationActionIcon('animate') + 'Оживить фото</button>';
+      const characterId = options && options.characterId ? String(options.characterId) : '';
+      if (characterId) {
+        actions += '<button class="gen-action-btn" type="button" data-image-url="' + safeUrl + '" data-character-id="' + S.escapeHtml(characterId) + '" onclick="SYLVEX.addGeneratedImageToCharacterReferences(event)">' + generationActionIcon('avatar') + 'В референсы персонажа</button>';
+      }
     }
     if (kind === 'video') {
       actions += '<button class="gen-action-btn" type="button" data-video-url="' + safeUrl + '" onclick="SYLVEX.editGeneratedVideo(event)">' + generationActionIcon('edit') + 'Редактировать видео</button>';
@@ -14353,7 +14561,7 @@ function renderGeneratedTelegramButton(url, kind) {
       + (isLogoResult ? '<div class="gen-img-open gen-img-static">' : '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">')
       + '<img class="gen-img" src="' + safeThumb + '" alt="generated" loading="lazy" decoding="async" />'
       + (isLogoResult ? '</div>' : '</button>')
-      + renderGeneratedActions(url, 'image', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status, {suppressImageViewer:isLogoResult})
+      + renderGeneratedActions(url, 'image', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status, {suppressImageViewer:isLogoResult, characterId: generationMeta && generationMeta.characterId})
       + '</div>';
   }
 
@@ -14459,6 +14667,7 @@ function renderGeneratedTelegramButton(url, kind) {
       characterId: backendMeta.characterId || options.characterId || null,
       characterName: backendMeta.characterName || options.characterName || '',
       characterReferences: Array.isArray(backendMeta.characterReferences) ? backendMeta.characterReferences.slice() : (Array.isArray(options.characterReferences) ? options.characterReferences.slice() : []),
+      characterReferenceIds: Array.isArray(backendMeta.characterReferenceIds) ? backendMeta.characterReferenceIds.slice() : (Array.isArray(options.characterReferenceIds) ? options.characterReferenceIds.slice() : []),
       objectId: backendMeta.objectId || options.objectId || null,
       objectName: backendMeta.objectName || options.objectName || '',
       objectReferences: Array.isArray(backendMeta.objectReferences) ? backendMeta.objectReferences.slice() : (Array.isArray(options.objectReferences) ? options.objectReferences.slice() : []),
