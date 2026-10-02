@@ -16995,7 +16995,23 @@ function restoreVideoStateFromGenerationMetadata(meta) {
     ? settings.reference_images.slice()
     : (Array.isArray(settings.referenceImageUrls) ? settings.referenceImageUrls.slice() : []);
   if (refs.length) setCurrentVideoReferenceImages(refs);
+  // Master A-Z Phase 16: Start/End Frame and Character/Object were part of
+  // videoOptionsPayload()'s own settings snapshot all along (start_image/
+  // end_image/characterId/characterName/characterReferences/objectId/
+  // objectName/objectReferences - see videoOptionsPayload) but this restore
+  // never read them back, so Regenerate silently dropped them even though
+  // they were genuinely part of the original request.
+  videoState.startImage = settings.start_image || '';
+  videoState.endImage = settings.end_image || '';
+  videoState.characterVisual = settings.characterId
+    ? { id: settings.characterId, name: settings.characterName || '', kind: 'character', references: Array.isArray(settings.characterReferences) ? settings.characterReferences.slice() : [] }
+    : null;
+  videoState.objectVisual = settings.objectId
+    ? { id: settings.objectId, name: settings.objectName || '', kind: 'object', references: Array.isArray(settings.objectReferences) ? settings.objectReferences.slice() : [] }
+    : null;
+  videoState.referenceVisual = videoState.characterVisual || videoState.objectVisual || null;
   renderVideoControls();
+  renderVideoReferencesPreview();
 }
 
 // =====================================================
@@ -17029,6 +17045,18 @@ function restoreVoiceStateFromGenerationMetadata(meta) {
   if (settings.elevenlabs_voice) voiceState.elevenlabsVoice = settings.elevenlabs_voice;
   if (settings.runway_voice) voiceState.runwayVoice = settings.runway_voice;
   if (settings.target_language) voiceState.targetLanguage = settings.target_language;
+  // Master A-Z Phase 16: voiceOptionsPayload() already snapshotted which
+  // tool (text_to_speech/dialogue/sound_effect/voice_isolation/
+  // voice_dubbing/speech_to_speech) actually produced this result, plus
+  // the second dialogue voice and the speaker/duration settings tied to
+  // it - restoring only the single voice/model and silently defaulting
+  // the tool back to text_to_speech would regenerate a completely
+  // different kind of audio than the one actually requested.
+  if (settings.elevenlabs_tool) voiceState.elevenlabsTool = settings.elevenlabs_tool;
+  if (settings.runway_tool) voiceState.runwayTool = settings.runway_tool;
+  if (settings.elevenlabs_second_voice) voiceState.elevenlabsSecondVoice = settings.elevenlabs_second_voice;
+  if (settings.num_speakers || settings.numSpeakers) voiceState.numSpeakers = Number(settings.num_speakers || settings.numSpeakers);
+  if (settings.duration !== undefined && settings.duration !== null) voiceState.runwayDuration = Number(settings.duration);
   renderVoiceControls();
 }
 
