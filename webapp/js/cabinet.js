@@ -10691,13 +10691,22 @@ async function deleteUserVoice(e, resourceId, voiceId) {
 // JAVASCRIPT-БЛОК: visualCreatePhotoSlot
 // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
 // =====================================================
-function visualCreatePhotoSlot(index) {
+function visualCreatePhotoSlot(index, label, isPrimary) {
   const url = visualCreateDraft.photos[index] || '';
-  return '<button class="visual-photo-slot ' + (url ? 'has-photo' : '') + '" type="button" onclick="SYLVEX.pickVisualCreatePhoto(event,' + index + ')">'
+  return '<button class="visual-photo-slot ' + (url ? 'has-photo' : '') + (isPrimary ? ' is-primary' : '') + '" type="button" onclick="SYLVEX.pickVisualCreatePhoto(event,' + index + ')">'
+    + (label ? '<small class="visual-photo-slot-label">' + S.escapeHtml(label) + '</small>' : '')
     + (url ? '<img src="' + S.escapeHtml(url) + '" alt="" />' : '<span>＋</span><b>Добавить фото</b>')
     + (url ? '<em onclick="SYLVEX.removeVisualCreatePhoto(event,' + index + ')">×</em>' : '')
     + '</button>';
 }
+
+// Character Creation V2: the standard maximum 4-reference Character set.
+// Index order is fixed and matches the backend's own reference-library
+// role order (see main.py's CHARACTER_REFERENCE_ROLES) - Primary is the
+// identity reference, Front/Side/Back are the standardized full-body
+// sheet. Manual mode lets the user fill any subset of these 4 slots;
+// Create with AI only ever uses slot 0 as the single optional source photo.
+const CHARACTER_REFERENCE_SLOT_LABELS = ['Главное', 'Спереди', 'Сбоку', 'Со спины'];
 
 // =====================================================
 // ОТРИСОВКА ИНТЕРФЕЙСА: renderVisualCreateModal
@@ -10707,25 +10716,64 @@ function renderVisualCreateModal() {
   const modal = ensureVisualCreateModal();
   const kind = visualCreateDraft.kind;
   const isCharacter = kind === 'character';
+  const mode = isCharacter ? (visualCreateDraft.mode === 'manual' ? 'manual' : 'ai') : '';
+  const processingMode = visualCreateDraft.processingMode === 'preserve' ? 'preserve' : 'ai_polish';
   const title = isCharacter ? 'Создание персонажа' : 'Создание объекта';
   const nameLabel = isCharacter ? 'Имя *' : 'Название *';
   const namePlaceholder = isCharacter ? 'Введите имя персонажа' : 'Введите название объекта';
-  const hint = isCharacter
-    ? 'Загрузите до 3 фотографий одного человека с разных ракурсов.'
-    : 'Загрузите до 3 фотографий объекта с разных ракурсов.';
   const name = visualCreateDraft.name || '';
   const gender = visualCreateDraft.gender || '';
   const description = visualCreateDraft.description || '';
   const canSave = visualCreateCanSave();
   const busy = !!visualCreateDraft.saving;
   const statusText = visualCreateDraft.statusText || '';
+
+  let hint;
+  let photoGridHtml;
+  if (isCharacter && mode === 'manual') {
+    hint = 'Главное фото - основной референс личности. Остальные необязательны: можно загрузить только главное фото, несколько или все четыре.';
+    photoGridHtml = '<div class="visual-photo-grid character-photo-grid">'
+      + [0, 1, 2, 3].map((index) => visualCreatePhotoSlot(index, CHARACTER_REFERENCE_SLOT_LABELS[index], index === 0)).join('')
+      + '</div>';
+  } else if (isCharacter) {
+    hint = 'Фото необязательно - можно описать персонажа только текстом. SYLVEX создаст стандартный набор из 4 референсов: главный, спереди, сбоку, со спины.';
+    photoGridHtml = '<div class="visual-photo-grid character-photo-grid character-photo-grid-single">'
+      + visualCreatePhotoSlot(0, 'Фото (необязательно)', true)
+      + '</div>';
+  } else {
+    hint = 'Загрузите до 3 фотографий объекта с разных ракурсов.';
+    photoGridHtml = '<div class="visual-photo-grid">' + [0, 1, 2].map((index) => visualCreatePhotoSlot(index)).join('') + '</div>';
+  }
+
+  const modeTabsHtml = isCharacter
+    ? '<div class="visual-create-mode-tabs">'
+      + '<button type="button" class="visual-create-mode-tab ' + (mode === 'manual' ? 'active' : '') + '" ' + (busy ? 'disabled' : '') + ' onclick="SYLVEX.setVisualCreateMode(event,\'manual\')">Вручную</button>'
+      + '<button type="button" class="visual-create-mode-tab ' + (mode === 'ai' ? 'active' : '') + '" ' + (busy ? 'disabled' : '') + ' onclick="SYLVEX.setVisualCreateMode(event,\'ai\')">Создать с AI</button>'
+      + '</div>'
+    : '';
+
+  const processingModeHtml = isCharacter && mode === 'ai'
+    ? '<div class="visual-field visual-create-processing-mode">'
+      + '<span>Обработка фото</span>'
+      + '<div class="visual-create-processing-options">'
+      + '<label class="' + (processingMode === 'ai_polish' ? 'active' : '') + '"><input type="radio" name="visualCreateProcessingMode" ' + (processingMode === 'ai_polish' ? 'checked' : '') + ' onchange="SYLVEX.setVisualCreateProcessingMode(event,\'ai_polish\')" ' + (busy ? 'disabled' : '') + '><b>AI Polish</b><small>Профессиональное фото того же человека (по умолчанию)</small></label>'
+      + '<label class="' + (processingMode === 'preserve' ? 'active' : '') + '"><input type="radio" name="visualCreateProcessingMode" ' + (processingMode === 'preserve' ? 'checked' : '') + ' onchange="SYLVEX.setVisualCreateProcessingMode(event,\'preserve\')" ' + (busy ? 'disabled' : '') + '><b>Preserve</b><small>Минимальные изменения, сохранить исходное фото как можно точнее</small></label>'
+      + '</div></div>'
+    : '';
+
+  const descriptionHtml = (!isCharacter || mode === 'ai')
+    ? '<label class="visual-field"><span>' + (isCharacter ? 'Описание персонажа' : 'Описание') + '</span><textarea id="visualCreateDescription" placeholder="' + (isCharacter ? 'Например: высокий мужчина 30 лет, короткие тёмные волосы, деловой костюм' : 'Например: чёрные солнцезащитные очки') + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>'
+    : '';
+
   modal.innerHTML = '<div class="visual-create-card ' + (busy ? 'is-busy' : '') + '">'
     + '<div class="visual-create-head"><button class="visual-create-back" type="button" onclick="SYLVEX.closeVisualCreateModal(event)" ' + (busy ? 'disabled' : '') + ' aria-label="Назад">‹</button><h3>' + title + '</h3></div>'
+    + modeTabsHtml
     + '<label class="visual-field"><span>' + nameLabel + '</span><input id="visualCreateName" value="' + S.escapeHtml(name) + '" placeholder="' + namePlaceholder + '" oninput="SYLVEX.updateVisualCreateDraft(event,\'name\')" ' + (busy ? 'disabled' : '') + ' /></label>'
     + (isCharacter ? '<label class="visual-field"><span>Пол *</span><select id="visualCreateGender" onchange="SYLVEX.updateVisualCreateDraft(event,\'gender\')" ' + (busy ? 'disabled' : '') + '><option value="">Выберите пол</option><option value="male" ' + (gender === 'male' ? 'selected' : '') + '>Мужской</option><option value="female" ' + (gender === 'female' ? 'selected' : '') + '>Женский</option></select></label>' : '')
-    + (!isCharacter ? '<label class="visual-field"><span>Описание</span><textarea id="visualCreateDescription" placeholder="Например: чёрные солнцезащитные очки" oninput="SYLVEX.updateVisualCreateDraft(event,\'description\')" ' + (busy ? 'disabled' : '') + '>' + S.escapeHtml(description) + '</textarea></label>' : '')
-    + '<div class="visual-photo-grid">' + [0, 1, 2].map(visualCreatePhotoSlot).join('') + '</div>'
-    + '<p class="visual-create-hint">' + hint + '<br>Для лучшего результата используйте фото с разных ракурсов и хорошим освещением.</p>'
+    + descriptionHtml
+    + processingModeHtml
+    + photoGridHtml
+    + '<p class="visual-create-hint">' + hint + '</p>'
     + '<button class="visual-create-save" type="button" ' + (canSave && !busy ? '' : 'disabled') + ' onclick="SYLVEX.saveVisualCreateDraft(event)">' + (busy ? 'Создаём...' : (isCharacter ? 'Создать персонажа' : 'Создать объект')) + '</button>'
     + '<input id="visualCreateFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />'
     + (busy ? '<div class="visual-create-loading-overlay" role="status" aria-live="polite">'
@@ -10759,7 +10807,32 @@ function openVisualCreateModal(e, kind) {
     e.preventDefault();
     e.stopPropagation();
   }
-  visualCreateDraft = { kind, name: '', gender: '', description: '', photos: [] };
+  // Character Creation V2: Characters get two creation modes (Manual /
+  // "Create with AI" - mode/processingMode below). Objects are untouched
+  // and never read these two fields.
+  visualCreateDraft = { kind, mode: 'ai', processingMode: 'ai_polish', name: '', gender: '', description: '', photos: [] };
+  renderVisualCreateModal();
+}
+
+// =====================================================
+// ОБРАБОТЧИК ИНТЕРФЕЙСА: setVisualCreateMode
+// Switches the Create Character modal between "Manual" (the user supplies
+// up to 4 standard reference photos directly, no AI synthesis) and
+// "Create with AI" (SYLVEX synthesizes the standard 4-reference set from
+// an optional photo and/or text description). Object creation never calls
+// this - it has no mode concept.
+// =====================================================
+function setVisualCreateMode(e, mode) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (visualCreateDraft && visualCreateDraft.saving) return;
+  visualCreateDraft.mode = mode === 'manual' ? 'manual' : 'ai';
+  renderVisualCreateModal();
+}
+
+function setVisualCreateProcessingMode(e, mode) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  if (visualCreateDraft && visualCreateDraft.saving) return;
+  visualCreateDraft.processingMode = mode === 'preserve' ? 'preserve' : 'ai_polish';
   renderVisualCreateModal();
 }
 
@@ -10797,9 +10870,16 @@ function updateVisualCreateDraft(e, field) {
 // =====================================================
 function visualCreateCanSave() {
   const isCharacter = visualCreateDraft.kind === 'character';
-  return String(visualCreateDraft.name || '').trim().length >= 2
-    && (!isCharacter || !!visualCreateDraft.gender)
-    && (visualCreateDraft.photos || []).filter(Boolean).length > 0;
+  const hasName = String(visualCreateDraft.name || '').trim().length >= 2;
+  const hasGender = !isCharacter || !!visualCreateDraft.gender;
+  const hasPhoto = (visualCreateDraft.photos || []).filter(Boolean).length > 0;
+  if (isCharacter && visualCreateDraft.mode === 'ai') {
+    // Create with AI: a photo is optional - the user may rely on the
+    // text description alone (Scenario B).
+    const hasDescription = String(visualCreateDraft.description || '').trim().length > 0;
+    return hasName && hasGender && (hasPhoto || hasDescription);
+  }
+  return hasName && hasGender && hasPhoto;
 }
 
 // =====================================================
@@ -10823,14 +10903,45 @@ function pickVisualCreatePhoto(e, index) {
   if (visualCreateDraft && visualCreateDraft.saving) return;
   const input = document.getElementById('visualCreateFileInput');
   if (!input) return;
+  // Character Manual mode's 4 slots (Primary/Front/Side/Back) are each a
+  // fixed role, not a rolling 0..N list like Object's 3 slots - a picked
+  // file always replaces exactly the tapped slot, never shifts into a
+  // neighboring one. Character "Create with AI" has a single optional
+  // photo slot (cap 1); Object keeps its original 3-slot behavior
+  // untouched.
+  const isCharacter = visualCreateDraft.kind === 'character';
+  const stableSlots = isCharacter && visualCreateDraft.mode === 'manual';
+  const cap = isCharacter ? (stableSlots ? 4 : 1) : 3;
   input.multiple = true;
   input.onchange = () => {
     const files = Array.from(input.files || []);
     input.value = '';
     if (!files.length) return;
     if (visualCreateDraft.photos[index]) visualCreateDraft.photos[index] = '';
-    const available = Math.max(0, 3 - (visualCreateDraft.photos || []).filter(Boolean).length + (visualCreateDraft.photos[index] ? 1 : 0));
-    if (files.length > available) toast('Можно выбрать не больше 3 фотографий');
+    if (stableSlots) {
+      const file = files.find((candidate) => {
+        if (!/^image\/(png|jpeg|webp)$/i.test(candidate.type || '')) {
+          toast('Поддерживаются только JPG, PNG и WEBP');
+          return false;
+        }
+        if (candidate.size > 10 * 1024 * 1024) {
+          toast('Файл слишком большой');
+          return false;
+        }
+        return true;
+      });
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        visualCreateDraft.photos[index] = String(reader.result || '');
+        renderVisualCreateModal();
+      };
+      reader.onerror = () => renderVisualCreateModal();
+      reader.readAsDataURL(file);
+      return;
+    }
+    const available = Math.max(0, cap - (visualCreateDraft.photos || []).filter(Boolean).length + (visualCreateDraft.photos[index] ? 1 : 0));
+    if (files.length > available) toast('Можно выбрать не больше ' + cap + ' фотографи' + (cap === 1 ? 'и' : 'й'));
     const selected = files.slice(0, available);
     const valid = selected.filter((file) => {
       if (!/^image\/(png|jpeg|webp)$/i.test(file.type || '')) {
@@ -10851,9 +10962,9 @@ function pickVisualCreatePhoto(e, index) {
     }))).then((urls) => {
       let targetIndex = index;
       urls.filter(Boolean).forEach((url) => {
-        while (targetIndex < 3 && visualCreateDraft.photos[targetIndex]) targetIndex += 1;
-        if (targetIndex >= 3) targetIndex = visualCreateDraft.photos.findIndex((value) => !value);
-        if (targetIndex >= 0 && targetIndex < 3) visualCreateDraft.photos[targetIndex] = url;
+        while (targetIndex < cap && visualCreateDraft.photos[targetIndex]) targetIndex += 1;
+        if (targetIndex >= cap) targetIndex = visualCreateDraft.photos.findIndex((value) => !value);
+        if (targetIndex >= 0 && targetIndex < cap) visualCreateDraft.photos[targetIndex] = url;
       });
       renderVisualCreateModal();
     });
@@ -10871,7 +10982,14 @@ function removeVisualCreatePhoto(e, index) {
     e.stopPropagation();
   }
   if (visualCreateDraft && visualCreateDraft.saving) return;
-  visualCreateDraft.photos.splice(index, 1);
+  const stableSlots = visualCreateDraft.kind === 'character' && visualCreateDraft.mode === 'manual';
+  if (stableSlots) {
+    // Clear this exact slot only - splice would shift Front/Side/Back
+    // into the wrong role.
+    visualCreateDraft.photos[index] = '';
+  } else {
+    visualCreateDraft.photos.splice(index, 1);
+  }
   renderVisualCreateModal();
 }
 
@@ -10944,7 +11062,7 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   }
 }
 
-async function createHeygenCharacterResource(name, photos, gender, description) {
+async function createHeygenCharacterResource(name, photos, gender, description, processingMode) {
   const tg = getTelegramId();
   if (!tg) throw new Error('telegram_id_required');
   const res = await fetch('/api/public/prostudio/character', {
@@ -10955,14 +11073,46 @@ async function createHeygenCharacterResource(name, photos, gender, description) 
       name,
       gender,
       description,
-      photos: (photos || []).slice(0, 3),
+      photos: (photos || []).slice(0, 1),
+      processing_mode: processingMode === 'preserve' ? 'preserve' : 'ai_polish',
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok || !data.resource) {
-    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа через OpenAI и HeyGen'));
+    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа через AI'));
   }
   return normalizeVisualItem(data.resource) || data.resource;
+}
+
+// Manual Character Creation (Character Creation V2): assembles a
+// referenceLibrary straight from whichever of the 4 fixed slots
+// (Primary/Front/Side/Back) the user actually filled in - no AI call, no
+// HeyGen registration. Empty slots are simply skipped, never renumbered.
+const MANUAL_CHARACTER_REFERENCE_ROLES = ['Primary Face', 'Full Body Front', 'Full Body Side', 'Full Body Back'];
+
+function buildManualCharacterResource(name, gender, slotUrls) {
+  const now = new Date().toISOString();
+  const referenceLibrary = [];
+  (slotUrls || []).forEach((url, index) => {
+    if (!url) return;
+    referenceLibrary.push({
+      id: 'manual_ref_' + index + '_' + Date.now(),
+      url,
+      role: MANUAL_CHARACTER_REFERENCE_ROLES[index] || ('Reference ' + (index + 1)),
+      added_at: now,
+    });
+  });
+  const primaryEntry = referenceLibrary.find((entry) => entry.role === 'Primary Face') || referenceLibrary[0] || null;
+  const primaryUrl = primaryEntry ? primaryEntry.url : '';
+  return {
+    name,
+    gender: gender || '',
+    primaryReferenceUrl: primaryUrl,
+    avatarUrl: primaryUrl,
+    previewUrl: primaryUrl,
+    referenceLibrary,
+    referenceImages: referenceLibrary.map((entry) => entry.url),
+  };
 }
 
 // =====================================================
@@ -10975,11 +11125,18 @@ async function saveVisualCreateDraft(e) {
     e.stopPropagation();
   }
   const kind = visualCreateDraft.kind;
+  const isCharacter = kind === 'character';
+  const mode = isCharacter && visualCreateDraft.mode === 'manual' ? 'manual' : 'ai';
   const name = String(visualCreateDraft.name || '').trim();
-  const photos = (visualCreateDraft.photos || []).filter(Boolean).slice(0, 3);
-  if (name.length < 2) return toast(kind === 'character' ? 'Введите имя персонажа' : 'Введите название объекта');
-  if (kind === 'character' && !visualCreateDraft.gender) return toast('Выберите пол');
-  if (!photos.length) return toast('Добавьте хотя бы одну фотографию');
+  const rawPhotos = (visualCreateDraft.photos || []).filter(Boolean);
+  const description = String(visualCreateDraft.description || '').trim();
+  if (name.length < 2) return toast(isCharacter ? 'Введите имя персонажа' : 'Введите название объекта');
+  if (isCharacter && !visualCreateDraft.gender) return toast('Выберите пол');
+  if (isCharacter && mode === 'ai') {
+    if (!rawPhotos.length && !description) return toast('Добавьте фото или описание персонажа');
+  } else if (!rawPhotos.length) {
+    return toast('Добавьте хотя бы одну фотографию');
+  }
   if (visualCreateDraft.saving) return;
   const kindLabel = visualCreateKindLabel(kind);
   const listLabel = visualCreateListLabel(kind);
@@ -10990,12 +11147,32 @@ async function saveVisualCreateDraft(e) {
   await wait(900);
   let generatedPreview = '';
   let providerResource = null;
+  const objectPhotos = rawPhotos.slice(0, 3);
   try {
-    if (kind === 'character') {
-      providerResource = await createHeygenCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
-      generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
+    if (isCharacter && mode === 'manual') {
+      // Manual Character Creation: upload exactly the filled slots to real
+      // storage URLs (never persist raw data: URIs), then assemble the
+      // referenceLibrary locally - no AI generation, no HeyGen call.
+      const slots = visualCreateDraft.photos || [];
+      const slotUrls = [];
+      for (let index = 0; index < slots.length; index += 1) {
+        const raw = slots[index];
+        if (!raw) { slotUrls[index] = ''; continue; }
+        const normalized = await normalizeGenerationImageReference(raw, 'upload');
+        slotUrls[index] = normalized ? normalized.url : '';
+      }
+      providerResource = buildManualCharacterResource(name, visualCreateDraft.gender || '', slotUrls);
+      generatedPreview = providerResource.previewUrl || slotUrls.filter(Boolean)[0] || '';
+    } else if (isCharacter) {
+      let uploadedPhoto = '';
+      if (rawPhotos[0]) {
+        const normalized = await normalizeGenerationImageReference(rawPhotos[0], 'upload');
+        uploadedPhoto = normalized ? normalized.url : '';
+      }
+      providerResource = await createHeygenCharacterResource(name, uploadedPhoto ? [uploadedPhoto] : [], visualCreateDraft.gender || '', description, visualCreateDraft.processingMode || 'ai_polish');
+      generatedPreview = visualPreviewUrl(providerResource) || uploadedPhoto || '';
     } else {
-      generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      generatedPreview = await generateVisualResourceWithOpenAI(kind, name, objectPhotos, visualCreateDraft.gender || '', description);
     }
   } catch (err) {
     console.warn('[SYLVEX] visual resource generation failed', err);
@@ -11003,25 +11180,28 @@ async function saveVisualCreateDraft(e) {
     visualCreateDraft.done = false;
     visualCreateDraft.statusText = '';
     renderVisualCreateModal();
-    return toast(translateGenerationError(err, kind === 'character' ? 'Не удалось создать персонажа' : 'Не удалось создать объект'));
+    return toast(translateGenerationError(err, isCharacter ? 'Не удалось создать персонажа' : 'Не удалось создать объект'));
   }
   visualCreateDraft.statusText = kindLabel + ' ' + name + ' сохраняется';
   renderVisualCreateModal();
   await wait(900);
-  const id = (providerResource && providerResource.id) || ((kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now());
-  const references = [generatedPreview].concat(photos).filter(Boolean);
+  const id = (providerResource && providerResource.id) || ((isCharacter ? 'custom_character_' : 'custom_object_') + Date.now());
+  const sourceImages = isCharacter && mode === 'manual' ? [] : (isCharacter ? rawPhotos.slice(0, 1) : objectPhotos);
+  const references = (providerResource && Array.isArray(providerResource.referenceImages) && providerResource.referenceImages.length)
+    ? providerResource.referenceImages.slice()
+    : [generatedPreview].concat(sourceImages).filter(Boolean);
   const item = Object.assign({
     id,
     name,
     gender: visualCreateDraft.gender || '',
-    description: visualCreateDraft.description || '',
-    previewUrl: generatedPreview || photos[0],
+    description,
+    previewUrl: generatedPreview || references[0] || '',
     referenceImages: references,
-    sourceImages: photos,
-    ai_provider: kind === 'character' ? 'openai+heygen' : 'openai',
-    ai_model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
-    provider: kind === 'character' ? 'heygen' : 'openai',
-    model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
+    sourceImages,
+    ai_provider: isCharacter ? (mode === 'manual' ? 'manual' : 'openai+heygen') : 'openai',
+    ai_model: isCharacter ? (mode === 'manual' ? '' : 'gpt-image-2') : 'gpt-image-1',
+    provider: isCharacter ? (mode === 'manual' ? 'manual' : 'heygen') : 'openai',
+    model: isCharacter ? (mode === 'manual' ? '' : 'gpt-image-2') : 'gpt-image-1',
     type: 'custom',
     status: 'ready',
     created_at: new Date().toISOString(),
@@ -24827,7 +25007,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
-    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, setVisualCreateMode, setVisualCreateProcessingMode, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -24991,6 +25171,8 @@ async function waitGeneration(jobId, options) {
   window.openVisualCreateModal = openVisualCreateModal;
   window.closeVisualCreateModal = closeVisualCreateModal;
   window.updateVisualCreateDraft = updateVisualCreateDraft;
+  window.setVisualCreateMode = setVisualCreateMode;
+  window.setVisualCreateProcessingMode = setVisualCreateProcessingMode;
   window.pickVisualCreatePhoto = pickVisualCreatePhoto;
   window.removeVisualCreatePhoto = removeVisualCreatePhoto;
   window.saveVisualCreateDraft = saveVisualCreateDraft;
@@ -25032,6 +25214,8 @@ async function waitGeneration(jobId, options) {
   S.openVisualCreateModal = openVisualCreateModal;
   S.closeVisualCreateModal = closeVisualCreateModal;
   S.updateVisualCreateDraft = updateVisualCreateDraft;
+  S.setVisualCreateMode = setVisualCreateMode;
+  S.setVisualCreateProcessingMode = setVisualCreateProcessingMode;
   S.pickVisualCreatePhoto = pickVisualCreatePhoto;
   S.removeVisualCreatePhoto = removeVisualCreatePhoto;
   S.saveVisualCreateDraft = saveVisualCreateDraft;
