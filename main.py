@@ -8455,25 +8455,59 @@ def _create_heygen_character(name: str, avatar_url: str, references: list) -> di
     }
 
 
-@app.post("/api/public/prostudio/character")
-async def public_prostudio_create_character(request: Request):
-    data = await request.json()
-    telegram_id = int(data.get("telegram_id") or 0)
-    name = str(data.get("name") or "").strip()
-    gender = str(data.get("gender") or "").strip()
-    description = str(data.get("description") or "").strip()
-    # Character creation: exactly one source photo, which becomes the
-    # identity source for the AI-generated 4-reference set below - the
-    # user never uploads the final reference set directly.
-    photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:1]
-    if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
-    if len(name) < 2:
-        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
-    if not photos:
-        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+# =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: create_character_creation_job
+# Character creation gets its own job lane in prostudio_generation_jobs
+# rather than going through create_prostudio_generation_job(): it is free
+# (no credit reservation) and must never be blocked by - or block - an
+# unrelated image/video/music/voice job, so it skips that function's
+# single-active-job-per-user check entirely. The row is inserted already
+# 'processing' (never 'queued'), so the generic worker pool's
+# claim_next_prostudio_generation_job() - which only looks at 'queued'
+# rows - can never pick it up and fail it with "Unknown generation mode"
+# before _run_character_creation_job() gets to it.
+# =====================================================
+def create_character_creation_job(telegram_id: int, name: str, gender: str, description: str, photos: list) -> str:
+    if not DATABASE_URL:
+        raise SecurityError("generation_queue_unavailable", 503)
+    ensure_prostudio_table()
+    job_id = str(uuid4())
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO prostudio_generation_jobs (
+                id, telegram_id, mode, model, provider, prompt, status, request_json, heartbeat_at
+            ) VALUES (%s, %s, 'character_creation', 'gpt-image-2', 'openai', %s, 'processing', %s::jsonb, NOW())
+        """, (
+            job_id,
+            telegram_id,
+            name,
+            _safe_json_dumps({"name": name, "gender": gender, "description": description, "photos": photos}),
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    return job_id
+
+
+# =====================================================
+# ФОНОВАЯ ЗАДАЧА: _run_character_creation_job
+# Runs off the request/response cycle: fired via asyncio.create_task
+# right after create_character_creation_job() returns, so Character
+# creation keeps running even if the browser that triggered it
+# disconnects before this finishes. The generation/storage/resource-
+# building logic below is unchanged from the previous synchronous
+# endpoint - only the job bookkeeping around it (heartbeat, completed/
+# failed write) is new. The frontend learns the outcome by polling
+# GET /api/public/prostudio/job/{job_id}, the same endpoint every other
+# Pro Studio generation job already uses.
+# =====================================================
+async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, gender: str, description: str, photos: list):
     try:
         images = await _generate_openai_character_images(name, gender, description, photos)
+        await asyncio.to_thread(heartbeat_prostudio_generation_job, job_id)
         # SYLVEX-only Character pipeline: GPT Image generates the reference
         # set, SYLVEX stores it, and the Character is created under its own
         # internal id - there is no provider-registration step (HeyGen or
@@ -8522,19 +8556,69 @@ async def public_prostudio_create_character(request: Request):
             "status": "ready",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        saved = save_prostudio_resource(telegram_id, resource)
-        return {"ok": True, "resource": {**resource, **saved}}
+        saved = await asyncio.to_thread(save_prostudio_resource, telegram_id, resource)
+        final_resource = {**resource, **saved}
+        result = {
+            "ok": True,
+            "type": "character",
+            "character_id": final_resource["id"],
+            "resource": final_resource,
+            # generation_result_urls() falls back to this generic key for
+            # any mode it doesn't specifically recognise (ours included),
+            # which is what lets the poll endpoint see this job as
+            # genuinely completed rather than holding it at
+            # "provider_processing".
+            "result_url": final_resource["previewUrl"],
+        }
+        await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
     except Exception as exc:
-        prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
+        prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name, job_id=job_id)
         error_text = str(exc)
         if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
-            return JSONResponse({
+            error_payload = {
                 "ok": False,
                 "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
-                "code": "openai_billing_limit_reached",
                 "provider": "openai",
-            }, status_code=402)
-        return JSONResponse({"ok": False, "error": error_text[:1200]}, status_code=502)
+            }
+        else:
+            error_payload = {"ok": False, "error": error_text[:1200]}
+        await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None, error_payload)
+
+
+@app.post("/api/public/prostudio/character")
+async def public_prostudio_create_character(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    name = str(data.get("name") or "").strip()
+    gender = str(data.get("gender") or "").strip()
+    description = str(data.get("description") or "").strip()
+    # Character creation: exactly one source photo, which becomes the
+    # identity source for the AI-generated 4-reference set below - the
+    # user never uploads the final reference set directly.
+    photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:1]
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if len(name) < 2:
+        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
+    if not photos:
+        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+    try:
+        job_id = await asyncio.to_thread(create_character_creation_job, telegram_id, name, gender, description, photos)
+    except SecurityError:
+        raise
+    except Exception as exc:
+        prostudio_error("CHARACTER_JOB_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
+        return JSONResponse({"ok": False, "error": str(exc)[:1200]}, status_code=502)
+    # Fired but never awaited, so it keeps running after this response is
+    # sent - Character creation must continue even if the browser that
+    # made this request disconnects. Kept on app.state.background_tasks
+    # (same convention as the generation worker loop) only to prevent
+    # premature garbage collection; it is not awaited there either.
+    task = asyncio.create_task(_run_character_creation_job(job_id, telegram_id, name, gender, description, photos))
+    background_tasks = getattr(app.state, "background_tasks", None)
+    if isinstance(background_tasks, list):
+        background_tasks.append(task)
+    return JSONResponse({"ok": True, "job_id": job_id, "status": "processing"}, status_code=202)
 
 
 def _load_character_resource(telegram_id: int, resource_id: str) -> Optional[dict]:

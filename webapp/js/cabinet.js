@@ -10958,7 +10958,12 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
 // Character creation is SYLVEX-only: GPT Image generates the reference
 // set, SYLVEX stores it and creates the Character under its own id. No
 // other provider (HeyGen or otherwise) is involved in this request.
-async function createCharacterResource(name, photos, gender, description) {
+//
+// It is also asynchronous: the endpoint validates and returns 202 with a
+// job_id immediately (the actual generation keeps running server-side
+// even if this browser disconnects), so this function only ever returns
+// a job_id - callers must poll it with waitCharacterCreationJob().
+async function createCharacterCreationJob(name, photos, gender, description) {
   const tg = getTelegramId();
   if (!tg) throw new Error('telegram_id_required');
   const res = await fetch('/api/public/prostudio/character', {
@@ -10975,10 +10980,129 @@ async function createCharacterResource(name, photos, gender, description) {
     }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok || !data.resource) {
+  if (!res.ok || !data.ok || !data.job_id) {
     throw new Error(translateGenerationError(data, 'Не удалось создать персонажа'));
   }
-  return normalizeVisualItem(data.resource) || data.resource;
+  return data.job_id;
+}
+
+// Polls the same job endpoint every other Pro Studio generation job uses
+// (GET /api/public/prostudio/job/{job_id}), independent of the main chat
+// composer's activeGeneration/transitionActiveGeneration machinery -
+// Character creation runs from a modal, not the composer, and must not
+// lock it. Mirrors the lightweight waitGridGeneration() poller.
+async function waitCharacterCreationJob(jobId) {
+  let transientErrors = 0;
+  while (true) {
+    let response;
+    try {
+      response = await fetch('/api/public/prostudio/job/' + encodeURIComponent(jobId), { cache: 'no-store' });
+    } catch (error) {
+      if (++transientErrors > 80) throw error;
+      await wait(Math.min(8000, 1200 + transientErrors * 250));
+      continue;
+    }
+    const job = await response.json().catch(() => ({}));
+    if (!response.ok || !job.ok) {
+      if (++transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось создать персонажа'));
+      await wait(Math.min(8000, 1200 + transientErrors * 250));
+      continue;
+    }
+    transientErrors = 0;
+    if (job.status === 'completed') {
+      const result = job.result || {};
+      result.job_id = result.job_id || job.job_id || jobId;
+      return result;
+    }
+    if (job.status === 'failed' || job.status === 'cancelled') {
+      const error = new Error(translateGenerationError(job.error || job, 'Не удалось создать персонажа'));
+      error.terminalStatus = job.status;
+      throw error;
+    }
+    await wait(1500);
+  }
+}
+
+// Persisted pending-job marker so a Character creation job that is still
+// running when the page reloads (or the modal is reopened) can be found
+// again and resumed - Character creation keeps running server-side
+// regardless, this is only about the frontend noticing the result.
+function characterCreationJobStorageKey() {
+  return 'sylvex-prostudio-character-job-' + (getTelegramId() || 'anon');
+}
+
+function persistPendingCharacterCreationJob(jobId, name, gender, description) {
+  try {
+    localStorage.setItem(characterCreationJobStorageKey(), JSON.stringify({ jobId, name, gender, description, startedAt: Date.now() }));
+  } catch {}
+}
+
+function readPendingCharacterCreationJob() {
+  try {
+    const raw = localStorage.getItem(characterCreationJobStorageKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingCharacterCreationJob(jobId) {
+  try {
+    const pending = readPendingCharacterCreationJob();
+    if (!jobId || !pending || pending.jobId === jobId) localStorage.removeItem(characterCreationJobStorageKey());
+  } catch {}
+}
+
+// Restores an unfinished Character creation job after a page reload or
+// reopen: the job itself was never tied to this browser tab, so this
+// just resumes polling it and, on completion, inserts the Character into
+// the list exactly as saveVisualCreateDraft would have - even though the
+// Create Character modal is not open any more.
+async function restorePendingCharacterCreationJob() {
+  const pending = readPendingCharacterCreationJob();
+  if (!pending || !pending.jobId) return;
+  try {
+    const result = await waitCharacterCreationJob(pending.jobId);
+    const providerResource = normalizeVisualItem(result.resource) || result.resource || {};
+    const generatedPreview = visualPreviewUrl(providerResource) || '';
+    const id = providerResource.id || ('custom_character_' + Date.now());
+    const item = Object.assign({
+      id,
+      name: pending.name || '',
+      gender: pending.gender || '',
+      description: pending.description || '',
+      previewUrl: generatedPreview,
+      referenceImages: [generatedPreview].filter(Boolean),
+      sourceImages: [],
+      ai_provider: 'openai',
+      ai_model: 'gpt-image-2',
+      provider: 'openai',
+      model: 'gpt-image-2',
+      type: 'custom',
+      status: 'ready',
+      created_at: new Date().toISOString(),
+    }, providerResource);
+    const storageKind = 'characters';
+    const savedItem = await saveVisualItemToBackend('character', item);
+    Object.assign(item, normalizeVisualItem(savedItem || item) || {});
+    if (serverVisualItems[storageKind]) {
+      serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
+      serverVisualItems[storageKind].unshift(item);
+    }
+    const items = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== item.id);
+    items.unshift(item);
+    saveCustomVisualItems(storageKind, items);
+    applyCharacterReferenceSelection(item);
+    renderImageReferenceSections();
+    renderImageControls();
+    renderImageStylePanel();
+    renderVideoReferencesPreview();
+    toast((pending.name || 'Персонаж') + ' создан и сохранён в список персонажей');
+  } catch (err) {
+    toast(translateGenerationError(err, 'Не удалось создать персонажа'));
+  } finally {
+    clearPendingCharacterCreationJob(pending.jobId);
+  }
 }
 
 // =====================================================
@@ -11008,7 +11132,18 @@ async function saveVisualCreateDraft(e) {
   let providerResource = null;
   try {
     if (kind === 'character') {
-      providerResource = await createCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      // Character creation is an async SYLVEX job: the endpoint returns
+      // a job_id immediately, and the actual GPT Image generation keeps
+      // running server-side even if this request/browser disconnects.
+      // Persist the job_id so an unfinished job survives a page reload.
+      const jobId = await createCharacterCreationJob(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      persistPendingCharacterCreationJob(jobId, name, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      try {
+        const result = await waitCharacterCreationJob(jobId);
+        providerResource = normalizeVisualItem(result.resource) || result.resource;
+      } finally {
+        clearPendingCharacterCreationJob(jobId);
+      }
       generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
     } else {
       generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
@@ -24834,6 +24969,7 @@ async function waitGeneration(jobId, options) {
     loadConversations();
     loadProStudioSync();
     restoreActiveProStudioJob();
+    restorePendingCharacterCreationJob();
   }
 
   // Expose to global scope.

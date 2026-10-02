@@ -1,19 +1,16 @@
-"""Regression test for the SYLVEX-only Character pipeline.
+"""Regression test for the SYLVEX-only Character pipeline's identity
+invariant, now exercised through the async job worker.
 
 Historically public_prostudio_create_character built the Character's own
-`id` directly from HeyGen's photo_avatar_id/avatar_group_id (so losing or
-rotating that HeyGen mapping would have destroyed the Character's very
-identity, not just a HeyGen-specific capability), and then registered the
-generated reference set with HeyGen as a required step of Character
-creation.
-
-Both of those are gone: the canonical `id` is a fresh SYLVEX-owned uuid4,
-and HeyGen is no longer called at all when creating a Character - GPT
-Image generates the reference set, SYLVEX stores it, and that's the
-entire pipeline (GPT Image -> SYLVEX Storage -> SYLVEX Character). A
-Character created this way always has empty heygenPhotoAvatarId/
-heygenAvatarGroupId fields; nothing about HeyGen's availability,
-configuration, or response can make Character creation fail.
+`id` directly from HeyGen's photo_avatar_id/avatar_group_id, and HeyGen
+was a required step of Character creation. Both are gone: the canonical
+`id` is a fresh SYLVEX-owned uuid4, HeyGen is never called, and the whole
+pipeline now runs as a background job (_run_character_creation_job)
+rather than inline in the request handler - see
+test_character_creation_simple.py for the job-creation/202-response
+contract. This file is scoped to the one invariant that must survive
+every rewrite: the Character's id is always a fresh SYLVEX-owned uuid,
+never derived from anything provider- or request-shaped.
 """
 import asyncio
 import re
@@ -21,14 +18,6 @@ import re
 import pytest
 
 import main
-
-
-class FakeRequest:
-    def __init__(self, data):
-        self._data = data
-
-    async def json(self):
-        return self._data
 
 
 @pytest.fixture(autouse=True)
@@ -47,18 +36,24 @@ def _stub_character_pipeline(monkeypatch):
     monkeypatch.setattr(main, "_generate_openai_character_images", fake_generate_images)
     monkeypatch.setattr(main, "_create_heygen_character", fail_if_called_create_heygen_character)
     monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: resource)
+    monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: None)
 
 
-def test_character_id_is_a_fresh_sylvex_owned_uuid():
-    request = FakeRequest({
-        "telegram_id": 42,
-        "name": "Islam",
-        "gender": "male",
-        "description": "test character",
-        "photos": ["https://cdn.sylvex.ai/uploads/photo1.jpg"],
-    })
-    result = asyncio.run(main.public_prostudio_create_character(request))
-    assert result["ok"] is True
+def _run_job_and_capture_result(monkeypatch, job_id, telegram_id=42, name="Islam", gender="male", description="", photos=None):
+    updates = []
+    monkeypatch.setattr(
+        main, "update_prostudio_generation_job",
+        lambda job_id, status, result=None, error=None, conversation_id="": updates.append((status, result, error)),
+    )
+    asyncio.run(main._run_character_creation_job(job_id, telegram_id, name, gender, description, photos or ["https://cdn.sylvex.ai/a.jpg"]))
+    assert updates, "update_prostudio_generation_job was never called"
+    return updates[-1]
+
+
+def test_character_id_is_a_fresh_sylvex_owned_uuid(monkeypatch):
+    status, result, error = _run_job_and_capture_result(monkeypatch, "job-1", description="test character")
+    assert status == "completed"
+    assert error is None
     resource = result["resource"]
 
     # A fresh SYLVEX-generated identifier: custom_character_ followed by a
@@ -66,36 +61,15 @@ def test_character_id_is_a_fresh_sylvex_owned_uuid():
     assert re.fullmatch(r"custom_character_[0-9a-f]{32}", resource["id"])
 
 
-def test_character_creation_never_calls_heygen_and_leaves_heygen_fields_empty():
-    request = FakeRequest({"telegram_id": 42, "name": "Islam", "photos": ["https://cdn.sylvex.ai/a.jpg"]})
-    result = asyncio.run(main.public_prostudio_create_character(request))
-    assert result["ok"] is True
-    resource = result["resource"]
-    # _create_heygen_character is stubbed above to raise if called - ok is
-    # True here is itself proof it was never invoked. The fields it used
-    # to populate must still be present (other code reads them) but empty.
-    assert resource["heygenPhotoAvatarId"] == ""
-    assert resource["heygenAvatarGroupId"] == ""
-    assert resource["avatar_id"] == ""
-    assert resource["provider"] == "openai"
-    assert resource["ai_provider"] == "openai"
-    assert "heygen" not in result
-
-
 def test_two_characters_created_with_the_same_name_get_distinct_ids(monkeypatch):
-    # Guards against a regression where the id was accidentally derived
-    # from something request-shaped (e.g. the name) instead of a fresh
-    # random SYLVEX id.
-    request_a = FakeRequest({"telegram_id": 1, "name": "Same Name", "photos": ["https://cdn.sylvex.ai/a.jpg"]})
-    request_b = FakeRequest({"telegram_id": 1, "name": "Same Name", "photos": ["https://cdn.sylvex.ai/a.jpg"]})
-    result_a = asyncio.run(main.public_prostudio_create_character(request_a))
-    result_b = asyncio.run(main.public_prostudio_create_character(request_b))
+    status_a, result_a, _ = _run_job_and_capture_result(monkeypatch, "job-a", name="Same Name")
+    status_b, result_b, _ = _run_job_and_capture_result(monkeypatch, "job-b", name="Same Name")
+    assert status_a == status_b == "completed"
     assert result_a["resource"]["id"] != result_b["resource"]["id"]
 
 
-def test_primary_reference_url_is_set_to_the_generated_avatar():
-    request = FakeRequest({"telegram_id": 42, "name": "Islam", "photos": ["https://cdn.sylvex.ai/a.jpg"]})
-    result = asyncio.run(main.public_prostudio_create_character(request))
+def test_primary_reference_url_is_set_to_the_generated_avatar(monkeypatch):
+    status, result, _ = _run_job_and_capture_result(monkeypatch, "job-1")
     resource = result["resource"]
     assert resource["primaryReferenceUrl"] == "https://cdn.sylvex.ai/generated/avatar.png"
     assert resource["primaryReferenceUrl"] == resource["avatarUrl"]
