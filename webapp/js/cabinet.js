@@ -14342,14 +14342,16 @@ function imageModelButton(model) {
   // JAVASCRIPT-БЛОК: previewImgHtml
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
-  function previewImgHtml(url, alt, fallbackUrl) {
+  function previewImgHtml(url, alt, fallbackUrl, extraClass) {
     const safeUrl = S.escapeHtml(url || '');
     const safeAlt = S.escapeHtml(alt || 'preview');
     const safeFallbackUrl = S.escapeHtml(fallbackUrl || '');
-    if (!safeUrl) return '<span class="generation-result-fallback">IMG</span>';
-    return '<img src="' + safeUrl + '" alt="' + safeAlt + '" loading="lazy" decoding="async"'
+    const safeClass = S.escapeHtml(extraClass || '');
+    const fallbackClass = 'generation-result-fallback' + (safeClass ? ' ' + safeClass : '');
+    if (!safeUrl) return '<span class="' + fallbackClass + '">IMG</span>';
+    return '<img' + (safeClass ? ' class="' + safeClass + '"' : '') + ' src="' + safeUrl + '" alt="' + safeAlt + '" loading="lazy" decoding="async"'
       + (safeFallbackUrl ? ' data-fallback-src="' + safeFallbackUrl + '"' : '')
-      + ' onerror="if(this.dataset&&this.dataset.fallbackSrc&&this.src!==this.dataset.fallbackSrc){this.src=this.dataset.fallbackSrc;this.removeAttribute(\'data-fallback-src\');}else{this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'generation-result-fallback\',textContent:\'IMG\'}));}" />';
+      + ' onerror="if(this.dataset&&this.dataset.fallbackSrc&&this.src!==this.dataset.fallbackSrc){this.src=this.dataset.fallbackSrc;this.removeAttribute(\'data-fallback-src\');}else{this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'' + fallbackClass + '\',textContent:\'IMG\'}));}" />';
   }
 
   // =====================================================
@@ -14555,11 +14557,10 @@ function renderGeneratedTelegramButton(url, kind) {
     const url = typeof item === 'string' ? item : item.url;
     const thumb = typeof item === 'string' ? item : (item.thumb || item.url);
     const safeUrl = S.escapeHtml(url);
-    const safeThumb = S.escapeHtml(thumb || url);
     const isLogoResult = !!(generationMeta && (generationMeta.photo_tool === 'logo' || generationMeta.image_options && generationMeta.image_options.photo_tool === 'logo' || generationMeta.settings && generationMeta.settings.photo_tool === 'logo'));
     return '<div class="gen-media-card gen-image-card">'
       + (isLogoResult ? '<div class="gen-img-open gen-img-static">' : '<button class="gen-img-open" type="button" data-image-url="' + safeUrl + '" onclick="SYLVEX.openImageViewer(event)">')
-      + '<img class="gen-img" src="' + safeThumb + '" alt="generated" loading="lazy" decoding="async" />'
+      + previewImgHtml(thumb || url, 'generated', url, 'gen-img')
       + (isLogoResult ? '</div>' : '</button>')
       + renderGeneratedActions(url, 'image', completedGenerationJobId(null, generationMeta), generationMeta && generationMeta.status, {suppressImageViewer:isLogoResult, characterId: generationMeta && generationMeta.characterId})
       + '</div>';
