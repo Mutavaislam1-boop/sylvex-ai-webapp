@@ -2784,6 +2784,9 @@ CSS-БЛОК: .studio-link-icons span
 .studio-video-composer[data-video-section="edit"] .video-edit-only{
   display:flex;
 }
+.studio-video-composer[data-video-section="motion"] #imageObjectButton{
+  display:none;
+}
 .studio-video-edit-upload{
   position:relative;
   min-height:128px;
