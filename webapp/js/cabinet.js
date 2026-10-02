@@ -6102,8 +6102,6 @@ function localizedGreeting() {
         character ? [visualPreviewUrl(character)].filter(Boolean) : []
       );
     }
-    renderCharacterLibraryExpandButton(character);
-
     const objectVal = document.getElementById('imageObjectVal');
     if (objectVal) {
       objectVal.textContent = object ? object.name : 'Объект';
@@ -10407,22 +10405,98 @@ function characterProfileInfo(item) {
   };
 }
 
-function visualCharacterDetailHtml(rawItem, selected) {
+// Character System V2: the Character page's own reference-selection grid -
+// same card markup/size as the main Character list (.image-style-card /
+// .image-style-panel-grid), so selecting references feels like the same
+// list, not a separate technical popup. Toggling a card calls the existing
+// toggleCharacterReferenceId() (imageState is the single source of truth
+// for the current selection - there is no separate "pending" copy to
+// reconcile later).
+function characterDetailReferenceGridHtml(item) {
+  const library = (imageState.characterReferenceLibrary && imageState.characterReferenceLibrary.length)
+    ? imageState.characterReferenceLibrary
+    : characterReferenceLibraryFor(item);
+  if (!library.length) return '<p class="character-detail-empty">Нет сохранённых референсов.</p>';
+  const selectedIds = imageState.characterReferenceIds || [];
+  const cards = library.map((entry) => {
+    const checked = selectedIds.includes(entry.id);
+    const safeUrl = S.escapeHtml(entry.url);
+    const safeRole = S.escapeHtml(entry.role || 'Доп.');
+    const safeId = S.escapeHtml(entry.id);
+    return '<div class="image-style-card ' + (checked ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.toggleCharacterReferenceId(\'' + safeId + '\')">'
+      + '<span class="image-style-thumb"><img src="' + safeUrl + '" alt="" loading="lazy" decoding="async" /></span>'
+      + '<span class="image-style-label">' + safeRole + '</span>'
+      + '<span class="image-style-check">✓</span>'
+      + '</div>';
+  }).join('');
+  return '<div class="image-style-panel-grid character-detail-reference-grid">' + cards + '</div>';
+}
+
+// "Generated with this Character" - fetched lazily per Character and
+// cached in memory for the life of the panel (public_prostudio_character_history).
+let characterDetailHistoryCache = {};
+
+async function loadCharacterDetailHistory(characterId) {
+  if (characterDetailHistoryCache[characterId]) return;
+  characterDetailHistoryCache[characterId] = { loading: true, items: [] };
+  try {
+    const params = new URLSearchParams({ telegram_id: String(getTelegramId() || 0), limit: '50' });
+    const res = await fetch('/api/public/prostudio/character/' + encodeURIComponent(characterId) + '/history?' + params.toString(), { method: 'GET', cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    characterDetailHistoryCache[characterId] = { loading: false, items: Array.isArray(data.items) ? data.items : [] };
+  } catch {
+    characterDetailHistoryCache[characterId] = { loading: false, items: [] };
+  }
+  if (activeCharacterDetailId === characterId) renderCharacterDetail();
+}
+
+function characterDetailHistoryHtml(characterId) {
+  const cache = characterDetailHistoryCache[characterId];
+  if (!cache || cache.loading) {
+    loadCharacterDetailHistory(characterId);
+    return '<p class="character-detail-empty">Загрузка истории…</p>';
+  }
+  if (!cache.items.length) return '<p class="character-detail-empty">Пока нет генераций с этим персонажем.</p>';
+  const cards = cache.items.map((entry) => {
+    const preview = entry.preview_url || entry.media_url || '';
+    const safePreview = S.escapeHtml(preview);
+    const safePrompt = S.escapeHtml(entry.prompt || '');
+    return '<div class="image-style-card character-detail-history-card" title="' + safePrompt + '">'
+      + '<span class="image-style-thumb">' + (preview ? '<img src="' + safePreview + '" alt="" loading="lazy" decoding="async" />' : '<span class="image-style-placeholder-icon"></span>') + '</span>'
+      + '</div>';
+  }).join('');
+  return '<div class="image-style-panel-grid character-detail-history-grid">' + cards + '</div>';
+}
+
+// 'references' | 'history' - which tab of the Character page is open.
+let characterDetailView = 'references';
+
+function setCharacterDetailView(e, view) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  characterDetailView = view === 'history' ? 'history' : 'references';
+  renderCharacterDetail();
+}
+
+function visualCharacterDetailHtml(rawItem) {
   const item = normalizeVisualItem(rawItem) || {};
   const id = String(item.id || '');
   const name = item.name || item.label || id;
   const preview = visualPreviewUrl(item);
-  const refs = [item.avatarUrl || item.avatar_url || preview].concat(item.referenceImages || []).filter(Boolean).filter((url, index, arr) => arr.indexOf(url) === index).slice(0, 4);
   const stats = currentVisualStats('character', item);
   const profile = characterProfileInfo(item);
   const rating = Math.max(0, Math.min(10, Math.round((Number(stats.selects || 0) + Number(stats.likes || 0)) / 10)));
   const videoRef = item.videoReferenceUrl || item.video_reference_url || '';
   const likes = Number(stats.likes || 0) + Number((stats.heygen && (stats.heygen.likes || stats.heygen.likes_count || stats.heygen.like_count)) || 0);
+  const view = characterDetailView === 'history' ? 'history' : 'references';
+  const library = (imageState.characterReferenceLibrary && imageState.characterReferenceLibrary.length)
+    ? imageState.characterReferenceLibrary
+    : characterReferenceLibraryFor(item);
+  const selectedCount = (imageState.characterReferenceIds || []).length;
   return `
     <div class="visual-character-detail-shell">
       <div class="visual-character-detail-head">
         <button class="visual-character-back" type="button" aria-label="Назад" onclick="SYLVEX.closeCharacterDetail(event)">‹</button>
-        <h3>Персонажи</h3>
+        <h3>${S.escapeHtml(name)}</h3>
       </div>
       <div class="visual-character-detail-body">
         <div class="visual-character-media-col">
@@ -10430,9 +10504,6 @@ function visualCharacterDetailHtml(rawItem, selected) {
             ${videoRef
               ? `<video id="visualCharacterVideo" src="${S.escapeHtml(videoRef)}" poster="${S.escapeHtml(preview)}" playsinline preload="metadata"></video><button class="visual-character-play-btn" type="button" aria-label="Play" onclick="SYLVEX.playCharacterReferenceVideo(event)"></button>`
               : (preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>')}
-          </div>
-          <div class="visual-character-ref-row">
-            ${refs.map((url) => `<span><img src="${S.escapeHtml(url)}" alt="" loading="lazy" decoding="async" /></span>`).join('')}
           </div>
         </div>
         <div class="visual-character-info">
@@ -10443,17 +10514,19 @@ function visualCharacterDetailHtml(rawItem, selected) {
             <span class="visual-character-rating">${rating}/10</span>
           </div>
           <p>${S.escapeHtml(profile.description)}</p>
-          <div class="visual-character-specs">
-            <span><b>Возраст</b>${S.escapeHtml(profile.age)}</span>
-            <span><b>Рост</b>${S.escapeHtml(profile.height)}</span>
-            <span><b>Глаза</b>${S.escapeHtml(profile.eyes)}</span>
-            <span><b>Пол</b>${S.escapeHtml(profile.gender)}</span>
-          </div>
         </div>
+      </div>
+      <div class="character-detail-tabs">
+        <button class="character-detail-tab ${view === 'references' ? 'active' : ''}" type="button" onclick="SYLVEX.setCharacterDetailView(event,'references')">Референсы (${selectedCount}/${library.length})</button>
+        <button class="character-detail-tab ${view === 'history' ? 'active' : ''}" type="button" onclick="SYLVEX.setCharacterDetailView(event,'history')">История генераций</button>
+        <button class="character-detail-remove-link" type="button" onclick="SYLVEX.removeCharacterDetailSelection(event)">Убрать</button>
+      </div>
+      <div class="character-detail-tab-body">
+        ${view === 'references' ? characterDetailReferenceGridHtml(item) : characterDetailHistoryHtml(id)}
       </div>
       <div class="visual-character-actions">
         <button class="visual-character-icon-btn ${stats.favorite ? 'active' : ''}" type="button" aria-label="Избранное" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','favorite',undefined,event)">★</button>
-        <button class="visual-character-select" type="button" onclick="SYLVEX.pickVisualReference(event,'character','${S.escapeHtml(id)}')">${selected ? 'Выбрано' : 'Выбрать'}</button>
+        <button class="visual-character-select" type="button" onclick="SYLVEX.confirmCharacterDetailSelection(event)">Использовать персонажа</button>
         <button class="visual-character-icon-btn like ${stats.liked ? 'active' : ''}" type="button" aria-label="Лайк" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','like',undefined,event)">♥</button>
       </div>
     </div>
@@ -10465,23 +10538,37 @@ function renderCharacterDetail() {
   if (!detail || !activeCharacterDetailId) return;
   const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
   if (!item) return;
-  const selected = String(imageState.characterId || '') === String(item.id || '');
-  detail.innerHTML = visualCharacterDetailHtml(item, selected);
+  detail.innerHTML = visualCharacterDetailHtml(item);
 }
 
+// Character list -> click Character -> open Character page -> choose
+// required references -> confirm/use Character. Opening the page selects
+// the Character immediately (same default-reference behavior as before,
+// via applyCharacterReferenceSelection) so the reference grid and
+// composer button reflect it right away; the page itself is where the
+// user then fine-tunes which references to use, or removes the Character
+// entirely - there is no separate small control for that.
 function openCharacterDetail(e, id) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === String(id || ''));
+  if (!item) return;
   activeCharacterDetailId = String(id || '');
+  characterDetailView = 'references';
+  if (imageState.characterId !== item.id) {
+    applyCharacterReferenceSelection(item);
+    sendVisualInteraction('character', item.id, 'select');
+    renderImageReferenceSections();
+    updateSendButton();
+  }
   const panel = ensureImageStylePanel();
   const detail = document.getElementById('visualCharacterDetail');
   renderCharacterDetail();
   if (detail) detail.hidden = false;
   panel.classList.add('has-character-detail');
-  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
-  if (item) loadVisualStats('character', item).then(renderCharacterDetail);
+  loadVisualStats('character', item).then(renderCharacterDetail);
 }
 
 function closeCharacterDetail(e) {
@@ -10497,6 +10584,26 @@ function closeCharacterDetail(e) {
   }
   const panel = document.getElementById('imageStylePanel');
   if (panel) panel.classList.remove('has-character-detail');
+}
+
+// Footer "Использовать персонажа" - the selection (Character + chosen
+// references) is already committed to imageState as the user toggles
+// reference cards, so confirming is just closing the picker.
+function confirmCharacterDetailSelection(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  closeCharacterDetail(e);
+  closeImageStylePanel(e);
+  toast('Персонаж выбран');
+}
+
+function removeCharacterDetailSelection(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  clearSelectedCharacter();
+  renderImageReferenceSections();
+  updateSendButton();
+  closeCharacterDetail(e);
+  closeImageStylePanel(e);
+  toast('Персонаж удалён');
 }
 
 function playCharacterReferenceVideo(e) {
@@ -11087,20 +11194,22 @@ function syncCharacterReferencesFromIds() {
 // and saveVisualCreateDraft's auto-select-after-create call this instead of
 // assigning characterReferences directly, so the library/cap/default-selection
 // logic can never drift between the two call sites.
-function applyCharacterReferenceSelection(item) {
+function applyCharacterReferenceSelection(item, overrideIds) {
   imageState.characterId = item.id;
   imageState.characterName = item.name;
   const library = characterReferenceLibraryFor(item);
   imageState.characterReferenceLibrary = library;
-  imageState.characterReferenceIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  imageState.characterReferenceIds = Array.isArray(overrideIds) && overrideIds.length
+    ? overrideIds.filter((id) => library.some((entry) => entry.id === id))
+    : defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
   syncCharacterReferencesFromIds();
 }
 
-// Called by the manual-selection panel's checkboxes. Enforces the model's
-// cap on check (not just on initial default selection) - "Only selected
-// references are sent" and "the maximum selectable references must come
-// from the currently selected model capability" both apply continuously,
-// not just at the moment the Character was picked.
+// Called by the Character page's reference grid (characterDetailReferenceGridHtml).
+// Enforces the model's cap on check (not just on initial default selection) -
+// "Only selected references are sent" and "the maximum selectable references
+// must come from the currently selected model capability" both apply
+// continuously, not just at the moment the Character was picked.
 function toggleCharacterReferenceId(refId) {
   const ids = imageState.characterReferenceIds || [];
   const index = ids.indexOf(refId);
@@ -11116,58 +11225,9 @@ function toggleCharacterReferenceId(refId) {
   }
   imageState.characterReferenceIds = ids;
   syncCharacterReferencesFromIds();
-  renderCharacterReferencePanel();
+  if (activeCharacterDetailId) renderCharacterDetail();
   renderImageReferenceSections();
   updateSendButton();
-}
-
-function ensureCharacterReferenceModal() {
-  let modal = document.getElementById('characterReferenceModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'characterReferenceModal';
-    modal.className = 'community-modal character-reference-modal';
-    document.body.appendChild(modal);
-  }
-  return modal;
-}
-
-function renderCharacterReferencePanel() {
-  const modal = document.getElementById('characterReferenceModal');
-  if (!modal || !modal.classList.contains('show')) return;
-  const library = imageState.characterReferenceLibrary || [];
-  const selected = imageState.characterReferenceIds || [];
-  const cap = characterReferenceCap(imageState.modelId);
-  const capLabel = typeof cap === 'number' ? String(cap) : String(library.length);
-  const rows = library.map((entry) => {
-    const checked = selected.includes(entry.id);
-    const safeUrl = S.escapeHtml(entry.url);
-    const safeRole = S.escapeHtml(entry.role || 'Additional');
-    const safeId = S.escapeHtml(entry.id);
-    return '<label class="character-reference-row' + (checked ? ' is-checked' : '') + '">'
-      + '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="SYLVEX.toggleCharacterReferenceId(\'' + safeId + '\')">'
-      + '<img src="' + safeUrl + '" alt="" loading="lazy">'
-      + '<span>' + safeRole + '</span>'
-      + '</label>';
-  }).join('');
-  modal.innerHTML = '<section><header><h3>' + S.escapeHtml(imageState.characterName || 'Персонаж') + '</h3>'
-    + '<button onclick="SYLVEX.closeCharacterReferencePanel()">×</button></header>'
-    + '<div class="character-reference-list">' + (rows || '<p>Нет сохранённых референсов.</p>') + '</div>'
-    + '<footer><small>Выбрано: ' + selected.length + ' / ' + capLabel + '</small></footer></section>';
-}
-
-function openCharacterReferencePanel(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (!imageState.characterId) return;
-  const modal = ensureCharacterReferenceModal();
-  modal.classList.add('show');
-  renderCharacterReferencePanel();
-}
-
-function closeCharacterReferencePanel(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const modal = document.getElementById('characterReferenceModal');
-  if (modal) modal.classList.remove('show');
 }
 
 // "Add generated image to Character References" - explicit user action
@@ -11198,32 +11258,6 @@ async function addGeneratedImageToCharacterReferences(e) {
   } catch (err) {
     toast((err && err.message) || 'Не удалось добавить референс');
   }
-}
-
-// Entry point into the expandable Character reference library/manual
-// selection panel. Shown only once a Character is selected and its
-// library holds more than the single default avatar reference - there is
-// nothing to expand otherwise.
-function renderCharacterLibraryExpandButton(character) {
-  const anchor = document.getElementById('imageCharacterButton');
-  if (!anchor) return;
-  let btn = document.getElementById('characterLibraryExpandButton');
-  const library = character ? (imageState.characterReferenceLibrary || []) : [];
-  if (!character || library.length <= 1) {
-    if (btn) btn.remove();
-    return;
-  }
-  if (!btn) {
-    btn = document.createElement('button');
-    btn.id = 'characterLibraryExpandButton';
-    btn.type = 'button';
-    btn.className = 'character-library-expand-btn';
-    btn.title = 'Референсы персонажа';
-    btn.textContent = '⋯';
-    btn.addEventListener('click', openCharacterReferencePanel);
-    anchor.insertAdjacentElement('afterend', btn);
-  }
-  btn.textContent = (imageState.characterReferenceIds || []).length + '/' + library.length;
 }
 
 // =====================================================
@@ -12106,11 +12140,77 @@ function currentSelectedUploadImage() {
       height: 48px;
       border: 0;
       border-radius: 999px;
+      padding: 0 16px;
       background: linear-gradient(180deg, #6885ff, #3f61da);
       color: #fff;
-      font: 900 22px/1 inherit;
+      font: 800 14px/1 inherit;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       cursor: pointer;
       box-shadow: 0 8px 18px rgba(40,80,230,.34);
+    }
+
+    .character-detail-tabs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .character-detail-tab {
+      flex: 1;
+      min-width: 0;
+      height: 36px;
+      padding: 0 10px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      color: rgba(255,255,255,.72);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+
+    .character-detail-tab.active {
+      background: #fff;
+      color: #171717;
+      border-color: #fff;
+    }
+
+    .character-detail-remove-link {
+      flex: 0 0 auto;
+      height: 36px;
+      padding: 0 12px;
+      border: 1px solid rgba(255,80,90,.4);
+      border-radius: 999px;
+      background: rgba(255,80,90,.1);
+      color: #ff7a82;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .character-detail-reference-grid,
+    .character-detail-history-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      padding: 10px 0 2px;
+      max-height: none;
+      overflow: visible;
+    }
+
+    .character-detail-history-card {
+      cursor: default;
+    }
+
+    .character-detail-empty {
+      margin: 18px 4px;
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      text-align: center;
     }
 
     @media (max-width: 370px) {
@@ -12307,6 +12407,14 @@ function renderImageStylePanel() {
 
   if (isCharacter) {
     grid.classList.remove('visual-character-grid');
+    // Video mode still selects a Character directly (its text-conditioning/
+    // visual-reference capability gate is a different, already-built
+    // mechanism - see Batch 2-5). In Image mode, clicking a Character opens
+    // its own page inside this same picker instead of selecting+closing
+    // immediately, so reference selection and history live there.
+    const cardClick = isVideoMode()
+      ? (id) => `SYLVEX.pickVisualReference(event, 'character', '${S.escapeHtml(id)}')`
+      : (id) => `SYLVEX.openCharacterDetail(event, '${S.escapeHtml(id)}')`;
     grid.innerHTML = createCard + items.map((rawItem) => {
       const item = normalizeVisualItem(rawItem) || {};
       const id = String(item.id || '');
@@ -12315,7 +12423,7 @@ function renderImageStylePanel() {
       const selected = selectedId === id;
       const canDelete = isCustomVisualItem(item);
       return `
-        <div class="image-style-card ${selected ? 'selected' : ''}" role="button" tabindex="0" onclick="SYLVEX.pickVisualReference(event, 'character', '${S.escapeHtml(id)}')">
+        <div class="image-style-card ${selected ? 'selected' : ''}" role="button" tabindex="0" onclick="${cardClick(id)}">
           <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
             ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
           </span>
@@ -25045,6 +25153,11 @@ async function waitGeneration(jobId, options) {
   window.sendVisualInteraction = sendVisualInteraction;
   window.openCharacterDetail = openCharacterDetail;
   window.closeCharacterDetail = closeCharacterDetail;
+  window.setCharacterDetailView = setCharacterDetailView;
+  window.confirmCharacterDetailSelection = confirmCharacterDetailSelection;
+  window.removeCharacterDetailSelection = removeCharacterDetailSelection;
+  window.toggleCharacterReferenceId = toggleCharacterReferenceId;
+  window.addGeneratedImageToCharacterReferences = addGeneratedImageToCharacterReferences;
   window.playCharacterReferenceVideo = playCharacterReferenceVideo;
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
@@ -25081,6 +25194,11 @@ async function waitGeneration(jobId, options) {
   S.sendVisualInteraction = sendVisualInteraction;
   S.openCharacterDetail = openCharacterDetail;
   S.closeCharacterDetail = closeCharacterDetail;
+  S.setCharacterDetailView = setCharacterDetailView;
+  S.confirmCharacterDetailSelection = confirmCharacterDetailSelection;
+  S.removeCharacterDetailSelection = removeCharacterDetailSelection;
+  S.toggleCharacterReferenceId = toggleCharacterReferenceId;
+  S.addGeneratedImageToCharacterReferences = addGeneratedImageToCharacterReferences;
   S.playCharacterReferenceVideo = playCharacterReferenceVideo;
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
