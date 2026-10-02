@@ -15373,8 +15373,16 @@ def expand_remove_object_locator_region(source_bytes: bytes, mark_bytes: bytes) 
     left, top, right, bottom = bounds
     mark_width = max(1, right - left)
     mark_height = max(1, bottom - top)
-    pad_x = max(round(size[0] * 0.30), mark_width)
-    pad_y = max(round(size[1] * 0.30), mark_height)
+    # For a small locator (a short stroke or a single dot), pad generously
+    # (30% of the full image) so there's enough room to cover a whole
+    # object the mark only pointed at. Once the user's own mark is already
+    # a substantial fraction of the image (they traced the object's actual
+    # extent, not just a locator point), that same 30%-of-image floor would
+    # keep stacking on top of an already-large mark and could swallow the
+    # entire image, destroying every other object in it - so above that
+    # size the padding instead scales down with the mark's own size.
+    pad_x = round(size[0] * 0.30) if mark_width < size[0] * 0.30 else round(mark_width * 0.15)
+    pad_y = round(size[1] * 0.30) if mark_height < size[1] * 0.30 else round(mark_height * 0.15)
     expanded = (
         max(0, left - pad_x),
         max(0, top - pad_y),

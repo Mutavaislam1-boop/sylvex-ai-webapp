@@ -182,6 +182,60 @@ def test_build_gpt_image_removal_mask_inverts_alpha_and_matches_source_size():
         assert rgba.getpixel((1, 1))[3] == 255  # untouched -> opaque/preserved
 
 
+def test_expand_remove_object_locator_region_pads_a_small_dot_generously():
+    # A single dot/short stroke only locates the object - it isn't expected
+    # to trace its silhouette - so the expansion must pad generously (30%
+    # of the full image) to have a real chance of covering the whole object.
+    from PIL import Image
+
+    source = Image.new("RGBA", (100, 100), (0, 0, 0, 255))
+    source_buf = io.BytesIO()
+    source.save(source_buf, format="PNG")
+
+    dot = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+    dot.putpixel((50, 50), (255, 255, 255, 255))
+    dot_buf = io.BytesIO()
+    dot.save(dot_buf, format="PNG")
+
+    region_bytes = main.expand_remove_object_locator_region(source_buf.getvalue(), dot_buf.getvalue())
+    with Image.open(io.BytesIO(region_bytes)) as region_img:
+        bounds = region_img.convert("RGBA").getchannel("A").getbbox()
+    # 30% of 100px padding on each side of a single-pixel mark.
+    assert bounds[0] <= 50 - 29 and bounds[2] >= 50 + 29
+    # The region must still be a small fraction of the image, not the whole
+    # thing - a lone dot must never make every object in frame editable.
+    assert (bounds[2] - bounds[0]) < 100
+
+
+def test_expand_remove_object_locator_region_never_swallows_the_whole_image_for_a_large_mark():
+    # Regression for a real bug: when the user's own mark already covers a
+    # substantial share of the image (e.g. traced half of it), adding the
+    # same 30%-of-image padding on top used to balloon the expanded region
+    # until it covered the entire image - destroying every other object in
+    # it, not just the intended target. An 8x8 image with the left half
+    # marked is the exact scenario that used to fail.
+    from PIL import Image
+
+    source = Image.new("RGBA", (8, 8), (0, 0, 0, 255))
+    source_buf = io.BytesIO()
+    source.save(source_buf, format="PNG")
+
+    half_mark = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    for x in range(4):
+        for y in range(8):
+            half_mark.putpixel((x, y), (255, 255, 255, 255))
+    mark_buf = io.BytesIO()
+    half_mark.save(mark_buf, format="PNG")
+
+    region_bytes = main.expand_remove_object_locator_region(source_buf.getvalue(), mark_buf.getvalue())
+    with Image.open(io.BytesIO(region_bytes)) as region_img:
+        rgba = region_img.convert("RGBA")
+        # The far (untouched) edge of the image must remain outside the
+        # expanded region - the whole point of the fix.
+        assert rgba.getpixel((7, 0))[3] == 0
+        assert rgba.getpixel((7, 7))[3] == 0
+
+
 def test_generate_remove_object_image_requires_source_image(monkeypatch):
     monkeypatch.setattr(main, "OPENAI_API_KEY", "test-key")
     result = asyncio.run(main.generate_remove_object_image({
