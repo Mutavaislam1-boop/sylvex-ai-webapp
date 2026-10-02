@@ -10955,7 +10955,10 @@ async function generateVisualResourceWithOpenAI(kind, name, photos, gender, desc
   }
 }
 
-async function createHeygenCharacterResource(name, photos, gender, description) {
+// Character creation is SYLVEX-only: GPT Image generates the reference
+// set, SYLVEX stores it and creates the Character under its own id. No
+// other provider (HeyGen or otherwise) is involved in this request.
+async function createCharacterResource(name, photos, gender, description) {
   const tg = getTelegramId();
   if (!tg) throw new Error('telegram_id_required');
   const res = await fetch('/api/public/prostudio/character', {
@@ -10973,7 +10976,7 @@ async function createHeygenCharacterResource(name, photos, gender, description) 
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok || !data.resource) {
-    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа через OpenAI и HeyGen'));
+    throw new Error(translateGenerationError(data, 'Не удалось создать персонажа'));
   }
   return normalizeVisualItem(data.resource) || data.resource;
 }
@@ -11005,7 +11008,7 @@ async function saveVisualCreateDraft(e) {
   let providerResource = null;
   try {
     if (kind === 'character') {
-      providerResource = await createHeygenCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
+      providerResource = await createCharacterResource(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
       generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
     } else {
       generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
@@ -11031,9 +11034,9 @@ async function saveVisualCreateDraft(e) {
     previewUrl: generatedPreview || photos[0],
     referenceImages: references,
     sourceImages: photos,
-    ai_provider: kind === 'character' ? 'openai+heygen' : 'openai',
+    ai_provider: 'openai',
     ai_model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
-    provider: kind === 'character' ? 'heygen' : 'openai',
+    provider: 'openai',
     model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
     type: 'custom',
     status: 'ready',

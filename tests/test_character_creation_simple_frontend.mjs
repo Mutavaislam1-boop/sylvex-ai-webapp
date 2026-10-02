@@ -88,15 +88,17 @@ test('visualCreateCanSave: Object creation is unaffected (name + photo, no gende
   assert.equal(vm.runInContext('visualCreateCanSave()', context), true);
 });
 
-// ---- createHeygenCharacterResource: the request always caps photos at 1 ----
+// ---- createCharacterResource: the request always caps photos at 1 and
+// never mentions HeyGen (SYLVEX-only Character pipeline) ----
 
 function makeNetworkContext() {
-  const calls = {body: null};
+  const calls = {body: null, url: null};
   const sandbox = {
     getTelegramId: () => 42,
     translateGenerationError: (err, fallback) => fallback,
     normalizeVisualItem: (x) => x,
     fetch: async (url, options) => {
+      calls.url = url;
       calls.body = JSON.parse(options.body);
       return {
         ok: true,
@@ -105,13 +107,13 @@ function makeNetworkContext() {
     },
   };
   const context = vm.createContext(sandbox);
-  vm.runInContext(extractFunction('createHeygenCharacterResource'), context);
+  vm.runInContext(extractFunction('createCharacterResource'), context);
   return {context, calls};
 }
 
-test('createHeygenCharacterResource: sends at most one photo even if more were somehow collected', async () => {
+test('createCharacterResource: sends at most one photo even if more were somehow collected', async () => {
   const {context, calls} = makeNetworkContext();
-  await vm.runInContext(`createHeygenCharacterResource('Islam', ['https://cdn.sylvex.ai/a.jpg', 'https://cdn.sylvex.ai/b.jpg'], 'male', 'tall')`, context);
+  await vm.runInContext(`createCharacterResource('Islam', ['https://cdn.sylvex.ai/a.jpg', 'https://cdn.sylvex.ai/b.jpg'], 'male', 'tall')`, context);
   assert.deepEqual(calls.body.photos, ['https://cdn.sylvex.ai/a.jpg']);
   assert.equal(calls.body.name, 'Islam');
   assert.equal(calls.body.gender, 'male');
@@ -119,4 +121,26 @@ test('createHeygenCharacterResource: sends at most one photo even if more were s
   // No mode/processingMode field is ever sent - that was V2-only.
   assert.equal('mode' in calls.body, false);
   assert.equal('processing_mode' in calls.body, false);
+  // SYLVEX-only Character pipeline: the request never mentions HeyGen in
+  // any form - no heygen_* fields, no separate provider-registration call.
+  assert.equal(calls.url, '/api/public/prostudio/character');
+  assert.equal(Object.keys(calls.body).some((key) => key.toLowerCase().includes('heygen')), false);
+});
+
+test('createCharacterResource: a failure never blames HeyGen in the fallback error message', async () => {
+  const sandbox = {
+    getTelegramId: () => 42,
+    translateGenerationError: (err, fallback) => fallback,
+    normalizeVisualItem: (x) => x,
+    fetch: async () => ({ok: false, json: async () => ({ok: false, error: 'boom'})}),
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('createCharacterResource'), context);
+  await assert.rejects(
+    vm.runInContext(`createCharacterResource('Islam', ['https://cdn.sylvex.ai/a.jpg'], 'male', '')`, context),
+    (err) => {
+      assert.equal(/heygen/i.test(err.message), false);
+      return true;
+    },
+  );
 });

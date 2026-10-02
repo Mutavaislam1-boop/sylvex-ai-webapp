@@ -117,11 +117,13 @@ def stub_character_pipeline(monkeypatch):
             "https://cdn.sylvex.ai/generated/back.png",
         ]
 
-    def fake_create_heygen_character(name, avatar_url, references):
-        return {"response": {"ok": True}, "photo_avatar_id": "heygen_photo_1", "avatar_group_id": "heygen_group_1"}
+    def fail_if_called_create_heygen_character(name, avatar_url, references):
+        # Character creation must have zero dependency on HeyGen - this
+        # stub turns any accidental call into a loud test failure.
+        raise AssertionError("_create_heygen_character must never be called by Character creation")
 
     monkeypatch.setattr(main, "_generate_openai_character_images", fake_generate_images)
-    monkeypatch.setattr(main, "_create_heygen_character", fake_create_heygen_character)
+    monkeypatch.setattr(main, "_create_heygen_character", fail_if_called_create_heygen_character)
     monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: resource)
     return fake_generate_images
 
