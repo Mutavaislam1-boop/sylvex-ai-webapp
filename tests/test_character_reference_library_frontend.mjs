@@ -64,7 +64,6 @@ function makeContext(imageState, opts) {
   vm.runInContext(extractFunction('defaultCharacterReferenceIds'), context);
   vm.runInContext(extractFunction('syncCharacterReferencesFromIds'), context);
   vm.runInContext(extractFunction('applyCharacterReferenceSelection'), context);
-  vm.runInContext(extractFunction('toggleCharacterReferenceId'), context);
   vm.runInContext('function renderCharacterDetail(){}', context);
   vm.runInContext('function renderImageReferenceSections(){}', context);
   vm.runInContext('function updateSendButton(){}', context);
@@ -144,36 +143,40 @@ test('applyCharacterReferenceSelection: selecting a Character auto-fills the def
   assert.deepEqual(imageState.characterReferences, ['https://cdn.sylvex.ai/a.png']);
 });
 
-test('toggleCharacterReferenceId: adds/removes a reference id and keeps characterReferences in sync', () => {
-  const imageState = baseImageState({
-    characterReferenceLibrary: [
-      { id: 'ref1', url: 'https://cdn.sylvex.ai/a.png' },
-      { id: 'ref2', url: 'https://cdn.sylvex.ai/b.png' },
+test('applyCharacterReferenceSelection: an explicit empty overrideIds commits zero references, never falls back to "all" (Character page "Use Character" with nothing checked)', () => {
+  const imageState = baseImageState({ modelId: 'capped_model' });
+  const { context } = makeContext(imageState, { getModelCapabilities: () => ({ maxReferences: 3 }) });
+  const item = {
+    id: 'custom_character_xyz',
+    name: 'Islam',
+    referenceLibrary: [
+      { id: 'ref1', url: 'https://cdn.sylvex.ai/a.png', role: 'Primary Face' },
+      { id: 'ref2', url: 'https://cdn.sylvex.ai/b.png', role: 'Full Body' },
     ],
-    characterReferenceIds: ['ref1'],
-  });
-  const { context } = makeContext(imageState, { getModelCapabilities: () => ({ maxReferences: 2 }) });
-  vm.runInContext('toggleCharacterReferenceId("ref2")', context);
-  assert.deepEqual(imageState.characterReferenceIds, ['ref1', 'ref2']);
-  assert.deepEqual(imageState.characterReferences, ['https://cdn.sylvex.ai/a.png', 'https://cdn.sylvex.ai/b.png']);
-
-  vm.runInContext('toggleCharacterReferenceId("ref1")', context);
-  assert.deepEqual(imageState.characterReferenceIds, ['ref2']);
-  assert.deepEqual(imageState.characterReferences, ['https://cdn.sylvex.ai/b.png']);
+  };
+  vm.runInContext('applyCharacterReferenceSelection(item, [])', Object.assign(context, { item }));
+  assert.equal(imageState.characterId, 'custom_character_xyz');
+  assert.equal(imageState.characterReferenceIds.length, 0);
+  assert.equal(imageState.characterReferences.length, 0);
 });
 
-test('toggleCharacterReferenceId: refuses to add beyond the model cap (manual selection constrained by model capability)', () => {
-  const imageState = baseImageState({
-    characterReferenceLibrary: [
-      { id: 'ref1', url: 'https://cdn.sylvex.ai/a.png' },
-      { id: 'ref2', url: 'https://cdn.sylvex.ai/b.png' },
+test('applyCharacterReferenceSelection: an explicit overrideIds subset commits exactly that subset, filtered against the library', () => {
+  const imageState = baseImageState({ modelId: 'capped_model' });
+  const { context } = makeContext(imageState, { getModelCapabilities: () => ({ maxReferences: 3 }) });
+  const item = {
+    id: 'custom_character_xyz',
+    name: 'Islam',
+    referenceLibrary: [
+      { id: 'ref1', url: 'https://cdn.sylvex.ai/a.png', role: 'Primary Face' },
+      { id: 'ref2', url: 'https://cdn.sylvex.ai/b.png', role: 'Full Body' },
+      { id: 'ref3', url: 'https://cdn.sylvex.ai/c.png', role: 'Additional' },
     ],
-    characterReferenceIds: ['ref1'],
-  });
-  const { context, toasts } = makeContext(imageState, { getModelCapabilities: () => ({ maxReferences: 1 }) });
-  vm.runInContext('toggleCharacterReferenceId("ref2")', context);
-  assert.deepEqual(imageState.characterReferenceIds, ['ref1']);
-  assert.ok(toasts.some((msg) => /1 референс/.test(msg)));
+  };
+  vm.runInContext('applyCharacterReferenceSelection(item, ["ref3", "not_in_library"])', Object.assign(context, { item }));
+  assert.equal(imageState.characterReferenceIds.length, 1);
+  assert.equal(imageState.characterReferenceIds[0], 'ref3');
+  assert.equal(imageState.characterReferences.length, 1);
+  assert.equal(imageState.characterReferences[0], 'https://cdn.sylvex.ai/c.png');
 });
 
 test('addGeneratedImageToCharacterReferences: never automatic - requires explicit confirm, then POSTs to the add-reference endpoint', async () => {

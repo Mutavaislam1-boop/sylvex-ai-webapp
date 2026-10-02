@@ -4752,9 +4752,10 @@ function imageVisualReferenceOptions() {
     characterPrompt: '',
     // Character System V2: the user's own manual reference selection
     // (imageState.characterReferences, kept in sync with
-    // characterReferenceIds by applyCharacterReferenceSelection/
-    // toggleCharacterReferenceId) is the single source of truth for which
-    // reference photos a generation actually uses. Recomputing this from
+    // characterReferenceIds by applyCharacterReferenceSelection, committed
+    // only once the Character page's "Use Character" is confirmed) is the
+    // single source of truth for which reference photos a generation
+    // actually uses. Recomputing this from
     // the raw catalog item via visualGenerationReferences() - the old,
     // pre-Character-System-V2 path - silently ignored that selection and
     // sent whatever avatarUrl/referenceImages the catalog item happened to
@@ -10267,35 +10268,6 @@ function visualItemHeygenAvatarId(item) {
   return String(item.heygenVideoAvatarId || item.heygen_video_avatar_id || item.heygenPhotoAvatarId || item.heygen_photo_avatar_id || '').trim();
 }
 
-function currentVisualStats(kind, item) {
-  const id = item && item.id ? item.id : '';
-  const key = visualStatsKey(kind, id);
-  const local = localVisualStats()[key] || {};
-  return Object.assign({ likes: 0, selects: 0, liked: false, favorite: false, heygen: {} }, local, visualStatsCache[key] || {});
-}
-
-async function loadVisualStats(kind, item) {
-  if (!item || !item.id) return;
-  const key = visualStatsKey(kind, item.id);
-  if (visualStatsCache[key] && visualStatsCache[key].loaded) return;
-  const params = new URLSearchParams({
-    resource_id: item.id,
-    resource_type: kind === 'object' ? 'object' : 'character',
-    telegram_id: String(getTelegramId() || 0),
-    heygen_avatar_id: visualItemHeygenAvatarId(item),
-  });
-  try {
-    const response = await fetch('/api/public/prostudio/visual-stats?' + params.toString(), { method: 'GET', cache: 'no-store' });
-    const data = await response.json().catch(() => ({}));
-    if (data && data.stats) {
-      visualStatsCache[key] = Object.assign({}, data.stats, { loaded: true });
-      renderImageStylePanel();
-    }
-  } catch {
-    visualStatsCache[key] = Object.assign({}, currentVisualStats(kind, item), { loaded: true });
-  }
-}
-
 async function sendVisualInteraction(kind, id, action, value, e) {
   if (e) {
     e.preventDefault();
@@ -10387,53 +10359,22 @@ function visualReferencePayload(item, kind) {
   };
 }
 
-function compactStatNumber(value) {
-  const num = Number(value || 0);
-  if (num >= 1000000) return (num / 1000000).toFixed(num >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(num >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
-  return String(num);
-}
-
-function characterProfileInfo(item) {
-  const prompt = String((item && item.prompt) || '');
-  const name = (item && (item.name || item.label)) || '';
-  const lowerGender = String((item && item.gender) || '').toLowerCase();
-  const ageMatch = prompt.match(/approximately\s+(\d+)\s+years?\s+old/i) || prompt.match(/(\d+)\s+years?\s+old/i);
-  const heightMatch = prompt.match(/height\s+of\s+around\s+(\d+\s*cm)/i) || prompt.match(/around\s+(\d+\s*cm)/i);
-  const eyesMatch = prompt.match(/([a-z -]+?)\s+(?:almond-shaped\s+)?eyes/i);
-  const gender = lowerGender === 'female' ? 'Женский' : (lowerGender === 'male' ? 'Мужской' : 'Не указан');
-  const description = String((item && item.description) || '')
-    || (prompt.split('.').slice(0, 2).join('.').trim() + (prompt ? '.' : ''))
-    || 'Персонаж готов к использованию в генерации.';
-  return {
-    name,
-    description,
-    age: ageMatch ? ageMatch[1] : 'Не указан',
-    height: heightMatch ? heightMatch[1].replace(/\s+/g, ' ') : 'Не указан',
-    eyes: eyesMatch ? eyesMatch[1].replace(/\s+/g, ' ').trim() : 'Не указан',
-    gender,
-  };
-}
-
 // Character System V2: the Character page's own reference-selection grid -
 // same card markup/size as the main Character list (.image-style-card /
 // .image-style-panel-grid), so selecting references feels like the same
-// list, not a separate technical popup. Toggling a card calls the existing
-// toggleCharacterReferenceId() (imageState is the single source of truth
-// for the current selection - there is no separate "pending" copy to
-// reconcile later).
+// list, not a separate technical popup. Toggling a card calls
+// toggleCharacterDetailReferenceId(), which only ever mutates the pending
+// (not-yet-committed) selection - see characterDetailPendingIds.
 function characterDetailReferenceGridHtml(item) {
-  const library = (imageState.characterReferenceLibrary && imageState.characterReferenceLibrary.length)
-    ? imageState.characterReferenceLibrary
-    : characterReferenceLibraryFor(item);
+  const library = characterReferenceLibraryFor(item);
   if (!library.length) return '<p class="character-detail-empty">Нет сохранённых референсов.</p>';
-  const selectedIds = imageState.characterReferenceIds || [];
+  const selectedIds = characterDetailPendingIds || [];
   const cards = library.map((entry) => {
     const checked = selectedIds.includes(entry.id);
     const safeUrl = S.escapeHtml(entry.url);
     const safeRole = S.escapeHtml(entry.role || 'Доп.');
     const safeId = S.escapeHtml(entry.id);
-    return '<div class="image-style-card ' + (checked ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.toggleCharacterReferenceId(\'' + safeId + '\')">'
+    return '<div class="image-style-card ' + (checked ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.toggleCharacterDetailReferenceId(event,\'' + safeId + '\')">'
       + '<span class="image-style-thumb"><img src="' + safeUrl + '" alt="" loading="lazy" decoding="async" /></span>'
       + '<span class="image-style-label">' + safeRole + '</span>'
       + '<span class="image-style-check">✓</span>'
@@ -10444,6 +10385,9 @@ function characterDetailReferenceGridHtml(item) {
 
 // "Generated with this Character" - fetched lazily per Character and
 // cached in memory for the life of the panel (public_prostudio_character_history).
+// Built-in/preset Characters are immutable and never show the History tab
+// at all (see visualCharacterDetailHtml) - this only ever runs for a
+// user-created Character.
 let characterDetailHistoryCache = {};
 
 async function loadCharacterDetailHistory(characterId) {
@@ -10480,10 +10424,54 @@ function characterDetailHistoryHtml(characterId) {
 
 // 'references' | 'history' - which tab of the Character page is open.
 let characterDetailView = 'references';
+// The user's in-progress reference choice while the Character page is
+// open. Never written to imageState until confirmCharacterDetailSelection
+// ("Use Character") runs - starts empty every time the page opens, since
+// the user must explicitly choose which references to use; there is no
+// preselection.
+let characterDetailPendingIds = [];
 
 function setCharacterDetailView(e, view) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   characterDetailView = view === 'history' ? 'history' : 'references';
+  renderCharacterDetail();
+}
+
+// Toggles one reference in the pending (not-yet-committed) selection.
+// Enforces the model's cap exactly like the committed-state toggle did -
+// the cap is a property of the selected model, independent of whether the
+// selection has been confirmed yet.
+function toggleCharacterDetailReferenceId(e, refId) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const ids = characterDetailPendingIds.slice();
+  const index = ids.indexOf(refId);
+  if (index >= 0) {
+    ids.splice(index, 1);
+  } else {
+    const cap = characterReferenceCap(imageState.modelId);
+    if (typeof cap === 'number' && ids.length >= cap) {
+      toast('Эта модель поддерживает не более ' + cap + ' референсов персонажа');
+      return;
+    }
+    ids.push(refId);
+  }
+  characterDetailPendingIds = ids;
+  renderCharacterDetail();
+}
+
+// Select All / Deselect All - "all" is capped by the model's own limit
+// (defaultCharacterReferenceIds already encodes "every reference up to
+// the cap"), never more than a manual selection could reach anyway.
+function toggleCharacterDetailSelectAll(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
+  if (!item) return;
+  const library = characterReferenceLibraryFor(item);
+  const allIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  const isAllSelected = allIds.length > 0
+    && characterDetailPendingIds.length === allIds.length
+    && allIds.every((refId) => characterDetailPendingIds.includes(refId));
+  characterDetailPendingIds = isAllSelected ? [] : allIds.slice();
   renderCharacterDetail();
 }
 
@@ -10492,52 +10480,48 @@ function visualCharacterDetailHtml(rawItem) {
   const id = String(item.id || '');
   const name = item.name || item.label || id;
   const preview = visualPreviewUrl(item);
-  const stats = currentVisualStats('character', item);
-  const profile = characterProfileInfo(item);
-  const rating = Math.max(0, Math.min(10, Math.round((Number(stats.selects || 0) + Number(stats.likes || 0)) / 10)));
-  const videoRef = item.videoReferenceUrl || item.video_reference_url || '';
-  const likes = Number(stats.likes || 0) + Number((stats.heygen && (stats.heygen.likes || stats.heygen.likes_count || stats.heygen.like_count)) || 0);
   const view = characterDetailView === 'history' ? 'history' : 'references';
-  const library = (imageState.characterReferenceLibrary && imageState.characterReferenceLibrary.length)
-    ? imageState.characterReferenceLibrary
-    : characterReferenceLibraryFor(item);
-  const selectedCount = (imageState.characterReferenceIds || []).length;
+  const library = characterReferenceLibraryFor(item);
+  const selectedCount = (characterDetailPendingIds || []).length;
+  const allIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  const isAllSelected = allIds.length > 0
+    && selectedCount === allIds.length
+    && allIds.every((refId) => characterDetailPendingIds.includes(refId));
+  // Built-in/preset Characters are immutable (fixed references, no
+  // evolution, no user-added references) and have no generation history
+  // of their own - the History tab only applies to a user-created
+  // Character. isCustomVisualItem is the existing Character type/source
+  // signal (item.type === 'custom' or a custom_ id), read generically -
+  // not a hardcoded check for any single Character.
+  const showHistoryTab = isCustomVisualItem(item);
   return `
     <div class="visual-character-detail-shell">
       <div class="visual-character-detail-head">
         <button class="visual-character-back" type="button" aria-label="Назад" onclick="SYLVEX.closeCharacterDetail(event)">‹</button>
         <h3>${S.escapeHtml(name)}</h3>
       </div>
-      <div class="visual-character-detail-body">
-        <div class="visual-character-media-col">
-          <div class="visual-character-main-media">
-            ${videoRef
-              ? `<video id="visualCharacterVideo" src="${S.escapeHtml(videoRef)}" poster="${S.escapeHtml(preview)}" playsinline preload="metadata"></video><button class="visual-character-play-btn" type="button" aria-label="Play" onclick="SYLVEX.playCharacterReferenceVideo(event)"></button>`
-              : (preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>')}
-          </div>
-        </div>
-        <div class="visual-character-info">
-          <div class="visual-character-like-count">♥ ${S.escapeHtml(compactStatNumber(likes))}</div>
-          <div class="visual-character-title-row">
-            <h3>${S.escapeHtml(name)}</h3>
-            ${stats.favorite ? '<span class="visual-character-official">★</span>' : ''}
-            <span class="visual-character-rating">${rating}/10</span>
-          </div>
-          <p>${S.escapeHtml(profile.description)}</p>
-        </div>
+      <div class="visual-character-main-media">
+        ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>'}
       </div>
+      ${showHistoryTab ? `
       <div class="character-detail-tabs">
-        <button class="character-detail-tab ${view === 'references' ? 'active' : ''}" type="button" onclick="SYLVEX.setCharacterDetailView(event,'references')">Референсы (${selectedCount}/${library.length})</button>
+        <button class="character-detail-tab ${view === 'references' ? 'active' : ''}" type="button" onclick="SYLVEX.setCharacterDetailView(event,'references')">Референсы</button>
         <button class="character-detail-tab ${view === 'history' ? 'active' : ''}" type="button" onclick="SYLVEX.setCharacterDetailView(event,'history')">История генераций</button>
-        <button class="character-detail-remove-link" type="button" onclick="SYLVEX.removeCharacterDetailSelection(event)">Убрать</button>
-      </div>
+      </div>` : ''}
+      ${view === 'references' ? `
+      <div class="character-detail-select-all-row">
+        <label class="character-detail-select-all">
+          <input type="checkbox" ${isAllSelected ? 'checked' : ''} onchange="SYLVEX.toggleCharacterDetailSelectAll(event)">
+          <span>Выбрать все</span>
+        </label>
+        <span class="character-detail-selected-count">(${selectedCount})</span>
+      </div>` : ''}
       <div class="character-detail-tab-body">
         ${view === 'references' ? characterDetailReferenceGridHtml(item) : characterDetailHistoryHtml(id)}
       </div>
       <div class="visual-character-actions">
-        <button class="visual-character-icon-btn ${stats.favorite ? 'active' : ''}" type="button" aria-label="Избранное" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','favorite',undefined,event)">★</button>
+        <button class="character-detail-cancel" type="button" onclick="SYLVEX.cancelCharacterDetail(event)">Отмена</button>
         <button class="visual-character-select" type="button" onclick="SYLVEX.confirmCharacterDetailSelection(event)">Использовать персонажа</button>
-        <button class="visual-character-icon-btn like ${stats.liked ? 'active' : ''}" type="button" aria-label="Лайк" onclick="SYLVEX.sendVisualInteraction('character','${S.escapeHtml(id)}','like',undefined,event)">♥</button>
       </div>
     </div>
   `;
@@ -10552,12 +10536,12 @@ function renderCharacterDetail() {
 }
 
 // Character list -> click Character -> open Character page -> choose
-// required references -> confirm/use Character. Opening the page selects
-// the Character immediately (same default-reference behavior as before,
-// via applyCharacterReferenceSelection) so the reference grid and
-// composer button reflect it right away; the page itself is where the
-// user then fine-tunes which references to use, or removes the Character
-// entirely - there is no separate small control for that.
+// references -> "Use Character". Opening the page is purely staging: it
+// never touches imageState.characterId/characterReferences. The Character
+// (and whichever references the user picks) only becomes the active
+// generation selection once confirmCharacterDetailSelection runs - Back,
+// closing the page, or Cancel all just discard this staged state, leaving
+// whatever Character was already active (if any) untouched.
 function openCharacterDetail(e, id) {
   if (e) {
     e.preventDefault();
@@ -10567,18 +10551,12 @@ function openCharacterDetail(e, id) {
   if (!item) return;
   activeCharacterDetailId = String(id || '');
   characterDetailView = 'references';
-  if (imageState.characterId !== item.id) {
-    applyCharacterReferenceSelection(item);
-    sendVisualInteraction('character', item.id, 'select');
-    renderImageReferenceSections();
-    updateSendButton();
-  }
+  characterDetailPendingIds = [];
   const panel = ensureImageStylePanel();
   const detail = document.getElementById('visualCharacterDetail');
   renderCharacterDetail();
   if (detail) detail.hidden = false;
   panel.classList.add('has-character-detail');
-  loadVisualStats('character', item).then(renderCharacterDetail);
 }
 
 function closeCharacterDetail(e) {
@@ -10587,6 +10565,7 @@ function closeCharacterDetail(e) {
     e.stopPropagation();
   }
   activeCharacterDetailId = '';
+  characterDetailPendingIds = [];
   const detail = document.getElementById('visualCharacterDetail');
   if (detail) {
     detail.hidden = true;
@@ -10596,37 +10575,31 @@ function closeCharacterDetail(e) {
   if (panel) panel.classList.remove('has-character-detail');
 }
 
-// Footer "Использовать персонажа" - the selection (Character + chosen
-// references) is already committed to imageState as the user toggles
-// reference cards, so confirming is just closing the picker.
+// "Отмена" - same discard semantics as Back/close: the staged Character/
+// reference selection is dropped, and whatever Character was already
+// active before this page opened (if any) is left exactly as it was.
+function cancelCharacterDetail(e) {
+  closeCharacterDetail(e);
+}
+
+// "Использовать персонажа" - the only action that commits characterId/
+// characterName/characterReferenceIds/characterReferences. The staged ids
+// are passed as overrideIds even when empty, so an explicit zero-reference
+// selection is committed as zero: applyCharacterReferenceSelection only
+// falls back to "every reference up to the model's cap" when overrideIds
+// is omitted entirely (the video-mode/create-flow callers), never here.
 function confirmCharacterDetailSelection(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
+  if (item) {
+    applyCharacterReferenceSelection(item, characterDetailPendingIds.slice());
+    sendVisualInteraction('character', item.id, 'select');
+    renderImageReferenceSections();
+    updateSendButton();
+  }
   closeCharacterDetail(e);
   closeImageStylePanel(e);
   toast('Персонаж выбран');
-}
-
-function removeCharacterDetailSelection(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  clearSelectedCharacter();
-  renderImageReferenceSections();
-  updateSendButton();
-  closeCharacterDetail(e);
-  closeImageStylePanel(e);
-  toast('Персонаж удалён');
-}
-
-function playCharacterReferenceVideo(e) {
-  if (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  const video = document.getElementById('visualCharacterVideo');
-  if (!video) return;
-  const btn = e && e.currentTarget ? e.currentTarget : null;
-  video.play().then(() => {
-    if (btn) btn.hidden = true;
-  }).catch(() => {});
 }
 
 function deleteResourceKindLabel(kind) {
@@ -11209,35 +11182,16 @@ function applyCharacterReferenceSelection(item, overrideIds) {
   imageState.characterName = item.name;
   const library = characterReferenceLibraryFor(item);
   imageState.characterReferenceLibrary = library;
-  imageState.characterReferenceIds = Array.isArray(overrideIds) && overrideIds.length
+  // overrideIds is checked for being an array, not for being non-empty -
+  // an explicit empty selection (the Character page's "Use Character"
+  // with nothing checked) must commit as zero references, never silently
+  // fall back to "every reference". Only an omitted overrideIds (the
+  // video-mode/create-flow callers, which pass just `item`) defaults to
+  // the model-capped full set.
+  imageState.characterReferenceIds = Array.isArray(overrideIds)
     ? overrideIds.filter((id) => library.some((entry) => entry.id === id))
     : defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
   syncCharacterReferencesFromIds();
-}
-
-// Called by the Character page's reference grid (characterDetailReferenceGridHtml).
-// Enforces the model's cap on check (not just on initial default selection) -
-// "Only selected references are sent" and "the maximum selectable references
-// must come from the currently selected model capability" both apply
-// continuously, not just at the moment the Character was picked.
-function toggleCharacterReferenceId(refId) {
-  const ids = imageState.characterReferenceIds || [];
-  const index = ids.indexOf(refId);
-  if (index >= 0) {
-    ids.splice(index, 1);
-  } else {
-    const cap = characterReferenceCap(imageState.modelId);
-    if (typeof cap === 'number' && ids.length >= cap) {
-      toast('Эта модель поддерживает не более ' + cap + ' референсов персонажа');
-      return;
-    }
-    ids.push(refId);
-  }
-  imageState.characterReferenceIds = ids;
-  syncCharacterReferencesFromIds();
-  if (activeCharacterDetailId) renderCharacterDetail();
-  renderImageReferenceSections();
-  updateSendButton();
 }
 
 // "Add generated image to Character References" - explicit user action
@@ -11918,7 +11872,7 @@ function currentSelectedUploadImage() {
       min-height: 100%;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 16px;
     }
 
     .visual-character-detail-head {
@@ -11943,229 +11897,32 @@ function currentSelectedUploadImage() {
 
     .visual-character-detail-head h3 {
       margin: 0;
-      font-size: 32px;
+      font-size: 28px;
       line-height: 1;
       font-weight: 900;
-    }
-
-    .visual-character-detail-body {
-      display: grid;
-      grid-template-columns: minmax(118px, 170px) minmax(0, 1fr);
-      gap: 14px;
-      align-items: start;
-    }
-
-    .visual-character-media-col {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-width: 0;
-      width: min(100%, 170px);
     }
 
     .visual-character-main-media {
       position: relative;
       width: 100%;
-      max-width: 170px;
-      aspect-ratio: 4 / 5;
+      aspect-ratio: 16 / 9;
       border-radius: 18px;
       overflow: hidden;
       background: #2d2d2d;
       border: 2px solid rgba(255,255,255,.45);
     }
 
-    .visual-character-main-media img,
-    .visual-character-main-media video {
+    .visual-character-main-media img {
       width: 100%;
       height: 100%;
       display: block;
       object-fit: cover;
-    }
-
-    .visual-character-play-btn {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 44px;
-      height: 44px;
-      transform: translate(-50%, -50%);
-      border: 0;
-      border-radius: 50%;
-      background: rgba(255,255,255,.72);
-      cursor: pointer;
-    }
-
-    .visual-character-play-btn::before {
-      content: "";
-      position: absolute;
-      left: 18px;
-      top: 12px;
-      border-left: 15px solid rgba(30,30,30,.92);
-      border-top: 10px solid transparent;
-      border-bottom: 10px solid transparent;
-    }
-
-    .visual-character-ref-row {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .visual-character-ref-row span {
-      aspect-ratio: 3 / 4;
-      overflow: hidden;
-      background: #333;
-      display: block;
-      border-radius: 6px;
-    }
-
-    .visual-character-ref-row img {
-      width: 100%;
-      height: 100%;
-      display: block;
-      object-fit: cover;
-      object-position: center top;
-    }
-
-    .visual-character-info {
-      position: relative;
-      min-height: 250px;
-      border: 2px solid rgba(255,255,255,.34);
-      border-radius: 18px;
-      padding: 12px;
-      background: rgba(255,255,255,.025);
-    }
-
-    .visual-character-like-count {
-      position: absolute;
-      right: 12px;
-      top: -28px;
-      min-width: 54px;
-      height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      border-radius: 7px;
-      background: #ff1749;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 900;
-    }
-
-    .visual-character-title-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    .visual-character-title-row h3 {
-      margin: 0;
-      font-size: 24px;
-      line-height: 1;
-      font-weight: 900;
-    }
-
-    .visual-character-official {
-      color: #ffd45a;
-      font-size: 18px;
-    }
-
-    .visual-character-rating {
-      margin-left: auto;
-      color: rgba(255,255,255,.9);
-      font-size: 14px;
-      white-space: nowrap;
-    }
-
-    .visual-character-info p {
-      margin: 10px 0 12px;
-      color: rgba(255,255,255,.86);
-      font-size: 13px;
-      line-height: 1.35;
-    }
-
-    .visual-character-specs {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .visual-character-specs span {
-      border-radius: 10px;
-      background: rgba(255,255,255,.06);
-      padding: 8px 9px;
-      font-size: 12px;
-      color: #fff;
-    }
-
-    .visual-character-specs b {
-      display: block;
-      margin-bottom: 3px;
-      color: rgba(255,255,255,.55);
-      font-size: 9px;
-      text-transform: uppercase;
-      font-weight: 800;
-    }
-
-    .visual-character-actions {
-      margin-top: auto;
-      display: grid;
-      grid-template-columns: 50px minmax(150px, 210px) 50px;
-      justify-content: center;
-      align-items: center;
-      gap: 14px;
-      padding-top: 18px;
-    }
-
-    .visual-character-icon-btn {
-      width: 48px;
-      height: 48px;
-      border: 0;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: rgba(255,255,255,.08);
-      color: #f7c84a;
-      font: 900 24px/1 inherit;
-      cursor: pointer;
-    }
-
-    .visual-character-icon-btn.like {
-      color: #ff315f;
-    }
-
-    .visual-character-icon-btn.active {
-      background: #f7c84a;
-      color: #171717;
-    }
-
-    .visual-character-icon-btn.like.active {
-      background: #ff315f;
-      color: #fff;
-    }
-
-    .visual-character-select {
-      height: 48px;
-      border: 0;
-      border-radius: 999px;
-      padding: 0 16px;
-      background: linear-gradient(180deg, #6885ff, #3f61da);
-      color: #fff;
-      font: 800 14px/1 inherit;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      cursor: pointer;
-      box-shadow: 0 8px 18px rgba(40,80,230,.34);
     }
 
     .character-detail-tabs {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 6px;
     }
 
     .character-detail-tab {
@@ -12191,25 +11948,54 @@ function currentSelectedUploadImage() {
       border-color: #fff;
     }
 
-    .character-detail-remove-link {
-      flex: 0 0 auto;
-      height: 36px;
-      padding: 0 12px;
-      border: 1px solid rgba(255,80,90,.4);
-      border-radius: 999px;
-      background: rgba(255,80,90,.1);
-      color: #ff7a82;
+    .character-detail-select-all-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .character-detail-select-all {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: rgba(255,255,255,.82);
       font-size: 12px;
       font-weight: 700;
       cursor: pointer;
     }
 
+    .character-detail-select-all input {
+      width: 17px;
+      height: 17px;
+      accent-color: #6885ff;
+      cursor: pointer;
+    }
+
+    .character-detail-selected-count {
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .character-detail-tab-body {
+      flex: 1;
+    }
+
     .character-detail-reference-grid,
     .character-detail-history-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      padding: 10px 0 2px;
+      padding: 0 0 2px;
       max-height: none;
       overflow: visible;
+    }
+
+    .character-detail-reference-grid .image-style-thumb img,
+    .character-detail-history-grid .image-style-thumb img {
+      /* Full-body references must render whole, never cropped to a
+         limbs-only slice - the square card size stays the same, the
+         image just scales down to fit inside it. */
+      object-fit: contain;
     }
 
     .character-detail-history-card {
@@ -12221,6 +12007,42 @@ function currentSelectedUploadImage() {
       color: rgba(255,255,255,.55);
       font-size: 12px;
       text-align: center;
+    }
+
+    .visual-character-actions {
+      margin-top: auto;
+      display: flex;
+      gap: 10px;
+      padding-top: 12px;
+    }
+
+    .character-detail-cancel {
+      flex: 0 0 auto;
+      height: 48px;
+      padding: 0 20px;
+      border: 1px solid rgba(255,255,255,.22);
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      color: #fff;
+      font: 700 14px/1 inherit;
+      cursor: pointer;
+    }
+
+    .visual-character-select {
+      flex: 1;
+      min-width: 0;
+      height: 48px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 16px;
+      background: linear-gradient(180deg, #6885ff, #3f61da);
+      color: #fff;
+      font: 800 14px/1 inherit;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(40,80,230,.34);
     }
 
     @media (max-width: 370px) {
@@ -12301,17 +12123,8 @@ function currentSelectedUploadImage() {
       .visual-character-detail {
         padding: 18px 18px calc(20px + env(safe-area-inset-bottom));
       }
-      .visual-character-detail-body {
-        grid-template-columns: 1fr;
-      }
       .visual-character-detail-head h3 {
-        font-size: 30px;
-      }
-      .visual-character-ref-row {
-        gap: 10px;
-      }
-      .visual-character-actions {
-        grid-template-columns: 46px minmax(140px, 190px) 46px;
+        font-size: 24px;
       }
     }
   `;
@@ -25014,7 +24827,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
-    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail, playCharacterReferenceVideo,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -25165,10 +24978,10 @@ async function waitGeneration(jobId, options) {
   window.closeCharacterDetail = closeCharacterDetail;
   window.setCharacterDetailView = setCharacterDetailView;
   window.confirmCharacterDetailSelection = confirmCharacterDetailSelection;
-  window.removeCharacterDetailSelection = removeCharacterDetailSelection;
-  window.toggleCharacterReferenceId = toggleCharacterReferenceId;
+  window.cancelCharacterDetail = cancelCharacterDetail;
+  window.toggleCharacterDetailReferenceId = toggleCharacterDetailReferenceId;
+  window.toggleCharacterDetailSelectAll = toggleCharacterDetailSelectAll;
   window.addGeneratedImageToCharacterReferences = addGeneratedImageToCharacterReferences;
-  window.playCharacterReferenceVideo = playCharacterReferenceVideo;
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
   window.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
@@ -25206,10 +25019,10 @@ async function waitGeneration(jobId, options) {
   S.closeCharacterDetail = closeCharacterDetail;
   S.setCharacterDetailView = setCharacterDetailView;
   S.confirmCharacterDetailSelection = confirmCharacterDetailSelection;
-  S.removeCharacterDetailSelection = removeCharacterDetailSelection;
-  S.toggleCharacterReferenceId = toggleCharacterReferenceId;
+  S.cancelCharacterDetail = cancelCharacterDetail;
+  S.toggleCharacterDetailReferenceId = toggleCharacterDetailReferenceId;
+  S.toggleCharacterDetailSelectAll = toggleCharacterDetailSelectAll;
   S.addGeneratedImageToCharacterReferences = addGeneratedImageToCharacterReferences;
-  S.playCharacterReferenceVideo = playCharacterReferenceVideo;
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
   S.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
