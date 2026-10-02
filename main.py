@@ -6346,6 +6346,55 @@ async def sync_completed_generation_to_telegram(telegram_id: int, mode: str, pay
         prostudio_error("TELEGRAM_SYNC_FAILED", exc, telegram_id=telegram_id, mode=mode, job_id=result.get("job_id") or "")
         return False
 
+
+# Fixed, calm, mode-based sentences - same philosophy as the Mini App's own
+# translateGenerationError (webapp/js/cabinet.js): a user-facing failure
+# notice never forwards a raw provider error/stack trace, it always shows
+# one of a small set of curated sentences.
+_GENERATION_FAILED_TELEGRAM_TEXT = {
+    "image": "Не удалось сгенерировать изображение. Попробуйте повторить запрос в Pro Studio.",
+    "video": "Не удалось сгенерировать видео. Попробуйте повторить запрос в Pro Studio.",
+    "music": "Не удалось сгенерировать музыку. Попробуйте повторить запрос в Pro Studio.",
+    "voice": "Не удалось сгенерировать озвучку. Попробуйте повторить запрос в Pro Studio.",
+}
+
+
+# =====================================================
+# СИНХРОНИЗАЦИЯ С TELEGRAM: notify_telegram_generation_failed
+# Отправляет пользователю уведомление о неудачной генерации независимо от
+# того, открыт ли в этот момент Mini App - ровно тот же принцип, что и для
+# успешного результата (sync_completed_generation_to_telegram).
+# =====================================================
+async def notify_telegram_generation_failed(telegram_id: int, mode: str) -> bool:
+    if not telegram_id or not BOT_TOKEN:
+        return False
+    text_mode = str(mode or "").lower()
+    if text_mode in {"text", "chat", "pro", "lite"}:
+        # Text generation failures are shown inline in the chat itself and
+        # never billed - a push notification here would be redundant noise.
+        return False
+    sentence = _GENERATION_FAILED_TELEGRAM_TEXT.get(text_mode)
+    if not sentence:
+        return False
+    message = f"Генерация не удалась ❌\nSYLVEX Pro Studio\n\n{sentence}"
+
+    def send_failure_message():
+        return requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": telegram_id, "text": message},
+            timeout=60,
+        )
+
+    try:
+        response = await asyncio.to_thread(send_failure_message)
+        sent = response.status_code < 400 and bool((response.json() if response.content else {}).get("ok"))
+        prostudio_debug("TELEGRAM_FAILURE_NOTICE_SENT", telegram_id=telegram_id, mode=text_mode, sent=sent)
+        return sent
+    except Exception as exc:
+        prostudio_error("TELEGRAM_FAILURE_NOTICE_FAILED", exc, telegram_id=telegram_id, mode=text_mode)
+        return False
+
+
 # =====================================================
 # PYTHON-БЛОК: materialize_data_image_url
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -21313,7 +21362,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 "prompt_length": prompt_report.get("original_length"),
                 "optimized_length": prompt_report.get("optimized_length"),
             }
-            update_prostudio_generation_job(job_id, "failed", error=error_result)
+            if update_prostudio_generation_job(job_id, "failed", error=error_result):
+                await notify_telegram_generation_failed(int(payload.get("telegram_id") or 0), mode)
             log_prostudio_error(payload, error_result, job_id=job_id)
             return
         if prompt_report.get("optimized"):
@@ -21355,7 +21405,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             except ValueError as exc:
                 result = {"ok": False, "type": "image", "error": str(exc)}
                 if job_id:
-                    update_prostudio_generation_job(job_id, "failed", error=result)
+                    if update_prostudio_generation_job(job_id, "failed", error=result):
+                        await notify_telegram_generation_failed(int(payload.get("telegram_id") or 0), mode)
                     log_prostudio_error(payload, result, job_id=job_id)
                 return
         heartbeat_prostudio_generation_job(job_id)
@@ -21438,7 +21489,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             result = {"ok": False, "error": "Provider returned empty result", "type": mode}
         if not result.get("ok"):
             if job_id:
-                update_prostudio_generation_job(job_id, "failed", error=result)
+                if update_prostudio_generation_job(job_id, "failed", error=result):
+                    await notify_telegram_generation_failed(int(payload.get("telegram_id") or 0), mode)
                 log_prostudio_error(payload, result, job_id=job_id)
                 prostudio_debug("JOB_PROCESS_FAILED_PROVIDER_RESULT", job_id=job_id, error=(result or {}).get("error") or "")
             return
@@ -21450,7 +21502,8 @@ async def process_prostudio_generation(job_id: str, payload: dict):
                 "status": final_status,
                 "result": result,
             }
-            update_prostudio_generation_job(job_id, "failed", error=error_result)
+            if update_prostudio_generation_job(job_id, "failed", error=error_result):
+                await notify_telegram_generation_failed(int(payload.get("telegram_id") or 0), mode)
             log_prostudio_error(payload, error_result, job_id=job_id)
             prostudio_debug("JOB_PROCESS_FAILED_NOT_COMPLETED", job_id=job_id, final_status=final_status)
             return
@@ -21618,7 +21671,11 @@ async def process_prostudio_generation(job_id: str, payload: dict):
         prostudio_error("JOB_PROCESS_EXCEPTION", exc, job_id=job_id)
         error_result = {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
         if job_id:
-            update_prostudio_generation_job(job_id, "failed", error=error_result)
+            if update_prostudio_generation_job(job_id, "failed", error=error_result):
+                await notify_telegram_generation_failed(
+                    int(payload.get("telegram_id") or 0),
+                    str(payload.get("mode") or payload.get("category") or "").lower(),
+                )
             log_prostudio_error(payload, error_result, job_id=job_id)
 
 async def _wait_for_prostudio_worker_stop(stop_event: asyncio.Event, timeout: float) -> bool:
@@ -21661,7 +21718,11 @@ async def run_prostudio_generation_with_timeout(job_id: str, payload: dict):
             job_id=job_id,
             timeout_seconds=PROSTUDIO_MAX_JOB_RUNTIME_SECONDS,
         )
-        update_prostudio_generation_job(job_id, "failed", error=error)
+        if update_prostudio_generation_job(job_id, "failed", error=error):
+            await notify_telegram_generation_failed(
+                int(payload.get("telegram_id") or 0),
+                str(payload.get("mode") or payload.get("category") or "").lower(),
+            )
         log_prostudio_error(payload, error, job_id=job_id)
 
 
