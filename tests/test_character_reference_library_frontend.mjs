@@ -49,6 +49,7 @@ function makeContext(imageState, opts) {
   const toasts = [];
   const context = vm.createContext({
     imageState,
+    activeCharacterDetailId: '',
     getModelCapabilities: options.getModelCapabilities || (() => ({ maxReferences: null })),
     toast: (msg) => toasts.push(msg),
     sendVisualInteraction: () => {},
@@ -64,7 +65,7 @@ function makeContext(imageState, opts) {
   vm.runInContext(extractFunction('syncCharacterReferencesFromIds'), context);
   vm.runInContext(extractFunction('applyCharacterReferenceSelection'), context);
   vm.runInContext(extractFunction('toggleCharacterReferenceId'), context);
-  vm.runInContext('function renderCharacterReferencePanel(){}', context);
+  vm.runInContext('function renderCharacterDetail(){}', context);
   vm.runInContext('function renderImageReferenceSections(){}', context);
   vm.runInContext('function updateSendButton(){}', context);
   vm.runInContext(extractFunction('addGeneratedImageToCharacterReferences'), context);
