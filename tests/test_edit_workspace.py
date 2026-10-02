@@ -270,10 +270,9 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     assert 'Azimuth 0° = the exact original camera viewpoint.' in coordinate_prompt
     assert 'Azimuth 180° = camera moved to the exact opposite side of the frozen scene, producing the exact rear viewpoint.' in coordinate_prompt
     assert 'These angles describe the camera position around the unchanged world, never the rotation of the scene or its contents.' in coordinate_prompt
-    position = (f"Camera position: azimuth {camera['horizontal']:g}°, "
-                f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.\n"
-                f"Semantic viewpoint: {edit.camera_semantic_viewpoint(camera['horizontal'])}.")
-    assert text.endswith(position)
+    assert position == (f"Camera position: azimuth {camera['horizontal']:g}°, "
+                        f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.\n"
+                        f"Semantic viewpoint: {edit.camera_semantic_viewpoint(camera['horizontal'])}.")
     assert result['edit_camera'] == camera
     assert result['camera_prompt'] == text
     assert 'UNRELATED' not in str(data) and 'IGNORE COMPOSER' not in str(data) and 'Make it blue' not in text
@@ -286,15 +285,33 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     (45, 'front-right three-quarter view'),
     (90, 'exact right-side view'),
     (135, 'rear-right three-quarter view'),
-    (150, 'rear-right three-quarter view'),
     (180, 'exact rear view'),
-    (220, 'rear-left three-quarter view'),
     (225, 'rear-left three-quarter view'),
     (270, 'exact left-side view'),
     (315, 'front-left three-quarter view'),
 ])
 def test_camera_semantic_viewpoint_maps_absolute_azimuth(horizontal, semantic):
     assert edit.camera_semantic_viewpoint(horizontal) == semantic
+
+
+@pytest.mark.parametrize(('horizontal', 'quadrant'), [
+    (0.1, 'front-right'), (22.5, 'front-right'), (89.9, 'front-right'),
+    (90.1, 'rear-right'), (150, 'rear-right'), (157.5, 'rear-right'),
+    (170, 'rear-right'), (179.9, 'rear-right'),
+    (180.1, 'rear-left'), (202.5, 'rear-left'), (220, 'rear-left'), (269.9, 'rear-left'),
+    (270.1, 'front-left'), (337.5, 'front-left'), (359.9, 'front-left'),
+])
+def test_intermediate_camera_azimuth_is_not_rounded_to_an_exact_view(provider, horizontal, quadrant):
+    camera = {'horizontal': horizontal, 'vertical': 0, 'zoom': 5}
+    result = asyncio.run(main.generate_edit_workspace_image(payload('camera', editWorkspaceCamera=camera)))
+    assert result['ok']
+    prompt = provider[0][0][1]['data']['prompt']
+    position, semantic = prompt.rsplit('\n', 2)[-2:]
+    assert position == f'Camera position: azimuth {horizontal:g}°, elevation 0°, zoom 5/10.'
+    assert semantic.startswith(f'Semantic viewpoint: {quadrant} oblique view at {horizontal:g}° azimuth')
+    assert 'do not snap to another angle' in semantic
+    assert 'exact' not in semantic and 'three-quarter' not in semantic
+    assert result['edit_camera'] == camera and result['camera_prompt'] == prompt
 
 
 @pytest.mark.parametrize('mode', ['camera', 'lighting'])

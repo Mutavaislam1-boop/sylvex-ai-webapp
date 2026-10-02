@@ -126,16 +126,21 @@ These angles describe the camera position around the unchanged world, never the 
 def camera_semantic_viewpoint(horizontal):
     """Give the image model an unambiguous human-readable azimuth meaning."""
     normalized = float(horizontal) % 360
-    if math.isclose(normalized, 0, abs_tol=1e-9):
-        return 'exact original camera viewpoint'
-    labels = (
-        'exact original camera viewpoint', 'front-right three-quarter view',
-        'exact right-side view', 'rear-right three-quarter view',
-        'exact rear view', 'rear-left three-quarter view',
-        'exact left-side view', 'front-left three-quarter view',
-    )
-    # Use the nearest named 45-degree viewpoint for values between controls.
-    return labels[int(math.floor(normalized / 45 + 0.5)) % 8]
+    anchors = {
+        0: 'exact original camera viewpoint',
+        45: 'front-right three-quarter view',
+        90: 'exact right-side view',
+        135: 'rear-right three-quarter view',
+        180: 'exact rear view',
+        225: 'rear-left three-quarter view',
+        270: 'exact left-side view',
+        315: 'front-left three-quarter view',
+    }
+    if normalized in anchors:
+        return anchors[normalized]
+    # An approximate label must not contradict the exact angle from the controls.
+    quadrant = ('front-right', 'rear-right', 'rear-left', 'front-left')[int(normalized // 90)]
+    return f'{quadrant} oblique view at {normalized:g}° azimuth (do not snap to another angle)'
 
 
 def camera_prompt(camera):
