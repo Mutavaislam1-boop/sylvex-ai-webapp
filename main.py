@@ -8330,13 +8330,28 @@ def _character_primary_prompt(name: str, gender: str, description: str, has_phot
     )
 
 
-def _character_body_prompt(view: str, name: str, gender: str, description: str, has_photo: bool) -> str:
+def _character_body_prompt(view: str, name: str, gender: str, description: str, has_photo: bool, processing_mode: str = "ai_polish") -> str:
     identity = _character_identity_prompt(name, gender, description)
     view_text = {
         "front": "front-facing view, facing directly toward the camera",
         "side": "strict side (profile) view",
         "back": "back view, facing directly away from the camera",
     }[view]
+    if has_photo and processing_mode == "preserve":
+        # Preserve: same minimal-intervention contract as the primary shot
+        # (Manual Character Creation threads the user's chosen processing
+        # mode into every uploaded slot, not only Primary) - only light
+        # technical correction, never restaging into the standardized
+        # gray-background pose.
+        return (
+            f"Use the uploaded photo as this character's {view_text} reference, with minimal intervention. "
+            f"{identity} "
+            "Only make light technical corrections: improve resolution and sharpness, correct exposure and white "
+            "balance. Do not change the pose, composition, background, clothing, hairstyle, body proportions, or "
+            "identity - keep the result as close as possible to the original uploaded photo, while keeping the same "
+            "face, skin tone, age, gender, eye color, hairstyle, body proportions and clothing as the character's "
+            "established identity. No text, watermark, extra people, or collage."
+        )
     body_hint = (
         "If the provided reference already shows the full body and outfit, keep those exact proportions and clothing "
         "unchanged. Otherwise, infer the parts of the body and outfit not yet visible (such as legs, trousers and "
@@ -8421,6 +8436,24 @@ async def _generate_openai_character_images(
         _character_body_prompt("back", name, gender, description, has_photo), [primary_url, front_url, side_url]
     )
     return [primary_url, front_url, side_url, back_url]
+
+
+async def _process_manual_character_reference(
+    role: str, name: str, gender: str, description: str, photo_url: str, processing_mode: str = "ai_polish"
+) -> str:
+    # Manual Character Creation: the user decides which of the 4 slots
+    # exist and SYLVEX never invents the missing ones - but every slot the
+    # user *does* fill still goes through the chosen processing mode
+    # (Preserve/AI Polish) so it meets that slot's own standard, exactly
+    # like a photo supplied to Create with AI would. Each slot is
+    # processed independently, against its own uploaded photo only - no
+    # cross-slot chaining, since Manual mode's photos are the user's own
+    # and are not meant to be reinterpreted into each other.
+    if role == "primary":
+        prompt = _character_primary_prompt(name, gender, description, True, processing_mode)
+    else:
+        prompt = _character_body_prompt(role, name, gender, description, True, processing_mode)
+    return await _openai_character_shot(prompt, [photo_url])
 
 
 def _find_provider_id(data, keys: tuple[str, ...]) -> str:
@@ -8588,6 +8621,47 @@ async def public_prostudio_create_character(request: Request):
         return {"ok": True, "resource": {**resource, **saved}, "heygen": heygen["response"]}
     except Exception as exc:
         prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
+        error_text = str(exc)
+        if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
+            return JSONResponse({
+                "ok": False,
+                "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
+                "code": "openai_billing_limit_reached",
+                "provider": "openai",
+            }, status_code=402)
+        return JSONResponse({"ok": False, "error": error_text[:1200]}, status_code=502)
+
+
+@app.post("/api/public/prostudio/character/process-reference")
+async def public_prostudio_process_character_reference(request: Request):
+    # Manual Character Creation's own AI processing step: the user already
+    # decided which of the 4 slots exist (this endpoint never creates or
+    # fills a missing one) - each filled slot's own uploaded photo still
+    # has to be run through the chosen processing mode to meet that slot's
+    # standard (Preserve: light technical cleanup only; AI Polish:
+    # professional reconstruction preserving identity/clothing), exactly as
+    # Create with AI already does for its own single source photo.
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    role = str(data.get("role") or "").strip().lower()
+    photo_url = str(data.get("photo_url") or data.get("photoUrl") or "").strip()
+    name = str(data.get("name") or "").strip()
+    gender = str(data.get("gender") or "").strip()
+    description = str(data.get("description") or "").strip()
+    processing_mode = str(data.get("processing_mode") or data.get("processingMode") or "ai_polish").strip().lower()
+    if processing_mode not in ("preserve", "ai_polish"):
+        processing_mode = "ai_polish"
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if role not in ("primary", "front", "side", "back"):
+        return JSONResponse({"ok": False, "error": "invalid_role"}, status_code=400)
+    if not photo_url:
+        return JSONResponse({"ok": False, "error": "photo_url_required"}, status_code=400)
+    try:
+        processed_url = await _process_manual_character_reference(role, name, gender, description, photo_url, processing_mode)
+        return {"ok": True, "url": processed_url}
+    except Exception as exc:
+        prostudio_error("CHARACTER_MANUAL_REFERENCE_PROCESSING_FAILED", exc, telegram_id=telegram_id, role=role)
         error_text = str(exc)
         if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
             return JSONResponse({
