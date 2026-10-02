@@ -6917,6 +6917,7 @@ function createEditWorkspaceState() {
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:128,right:128,top:128,bottom:128},
     backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
+    upscaleEstimate:null,
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
 }
 // Camera coordinates use the provider's convention: 0 front, 90 right,
@@ -7284,6 +7285,11 @@ function editWorkspaceValidation() {
   if(s.mode==='translate'&&!s.translateLanguage)return 'Выберите язык перевода.';
   if(s.mode==='lighting'&&!s.light.layers.some(l=>l.enabled!==false&&l.brightness>0))return 'Включите источник света и задайте яркость.';
   if(s.mode==='resize'&&(s.resize.width*s.resize.height>16777216||Math.max(s.resize.width,s.resize.height)>8192))return 'Resize: максимум 8192 px по стороне и 16 мегапикселей.';
+  if(s.mode==='upscale'){
+    const u=s.upscale;
+    if(![u.width,u.height].every(v=>Number.isInteger(v)&&v>0&&v<=24000)||u.width*u.height>100000000)return 'Upscale: максимум 24 000 px по стороне и 100 мегапикселей.';
+    if(u.width!==Math.max(1,Math.round(s.width*u.height/s.height)))return 'Upscale сохраняет пропорции. Задайте размер заново.';
+  }
   if(s.mode==='expand'){
     const x=s.expand,w=s.width+x.left+x.right,h=s.height+x.top+x.bottom;
     if(!(x.left+x.right+x.top+x.bottom))return 'Добавьте пространство хотя бы с одной стороны.';
@@ -7302,7 +7308,8 @@ function editWorkspaceSnapshot() {
 }
 function setEditWorkspaceDimensions(width,height) {
   const s=editWorkspaceState;s.width=width;s.height=height;s.resize={width,height,locked:s.resize.locked};
-  Object.assign(s.upscale,clampEditUpscaleDimensions(width*s.upscale.scale,height*s.upscale.scale));
+  Object.assign(s.upscale,clampEditUpscaleDimensions(width*s.upscale.scale,height*s.upscale.scale,width,height));
+  s.upscale.scale=s.upscale.height/height;
 }
 function undoEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
@@ -7449,7 +7456,7 @@ function renderEditWorkspace() {
   root.dataset.mode=mode;root.dataset.busy=String(editWorkspaceLocked());
   root.setAttribute('aria-label','Edit image');root.setAttribute('aria-busy',String(editWorkspaceLocked()));
   const view=image?'<div class="edit-workspace-frame"><img class="edit-workspace-image" src="'+safe(image)+'" alt="'+(state.showBefore?'До редактирования':state.resultUrl?'Результат редактирования':'Исходное изображение')+'">'+(mode==='retouch'&&!state.showBefore?'<canvas id="editWorkspaceMask" aria-label="Выделение области кистью"></canvas>':'')+'</div>':'<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Загрузите фото или перетащите его сюда</b><small>JPEG, PNG, WebP · до 50 MB</small></button>';
-  const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Обработка…':state.uploading?'Загрузка…':mode==='resize'?'Apply · Free':'Generate')+'</button>';
+  const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Обработка…':state.uploading?'Загрузка…':mode==='resize'?'Apply · Free':mode==='upscale'?'Улучшить качество':'Generate')+'</button>';
   const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input '+(group==='camera'?'data-camera-input="'+key+'" ':'')+'aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
   let panel='';let action='';
   if(mode==='camera'){
@@ -7457,7 +7464,7 @@ function renderEditWorkspace() {
   } else if(mode==='lighting'){
     panel=editLightingPanel(generate);
   } else if(mode==='upscale'){
-    const u=state.upscale;panel='<select class="edit-workspace-model" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'model\')"><option>Topaz</option></select><div class="edit-workspace-segment">'+[1,2,4].map(v=>'<button class="'+(u.scale===v?'active':'')+'" onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'x</button>').join('')+'</div><b class="edit-workspace-section-title">Resolution</b><div class="edit-workspace-dimensions"><label>W <input type="number" value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input type="number" value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div><details class="edit-workspace-settings" open><summary>Settings</summary>'+range('Sharpness','sharpness',0,100,1,u.sharpness,'upscale','')+range('Denoise','denoise',0,100,1,u.denoise,'upscale','')+'<label class="edit-workspace-select-row">Subject Detection<select onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')"><option '+(u.subject==='All'?'selected':'')+'>All</option><option '+(u.subject==='Foreground'?'selected':'')+'>Foreground</option><option '+(u.subject==='Background'?'selected':'')+'>Background</option></select></label><label class="edit-workspace-switch-row">Face Enhancement<input type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label>'+range('Face strength','strength',0,100,1,u.strength,'upscale','')+range('Face creativity','creativity',0,100,1,u.creativity,'upscale','')+range('Model strength','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Fix compression','fixCompression',0,100,1,u.fixCompression,'upscale','')+'</details>'+generate;
+    panel=editUpscalePanel(generate,range);
   } else if(mode==='translate'){
     const languages=['German · Deutsch','Filipino · Filipino','Ukrainian · Українська','Bulgarian · Български','Indonesian · Bahasa Indonesia','Czech · Čeština','Romanian · Română','English','French · Français','Spanish · Español','Russian · Русский','Turkish · Türkçe','Arabic · العربية','Italian · Italiano','Portuguese · Português','Japanese · 日本語','Korean · 한국어','Chinese · 中文'];
     panel='<h3>Translate Image</h3><label class="edit-workspace-translate-search">Translate to <input placeholder="⌕  Search language" oninput="SYLVEX.filterEditLanguages(event)"></label><div class="edit-workspace-language-list">'+languages.map((name,index)=>'<button type="button" data-language="'+safe(name.toLowerCase())+'" class="'+(state.translateLanguage===name?'active':'')+'" onclick="SYLVEX.selectEditLanguage(event,\''+safe(name)+'\')"><span>'+name.split(' · ')[0]+'<small>'+(name.split(' · ')[1]||name)+'</small></span><b>'+(state.translateLanguage===name?'●':'○')+'</b></button>').join('')+'</div>'+generate;
@@ -7472,11 +7479,12 @@ function renderEditWorkspace() {
   root.innerHTML='<main class="edit-workspace-main">'+surface+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
   initEditWorkspaceStage();initEditCameraOrbit();initEditLightOrbit();updateEditWorkspaceReady();
+  if(mode==='upscale')void refreshEditUpscaleEstimate();
 
 }
 function setEditWorkspaceMode(e,mode){if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState;if(editWorkspaceLocked()||!EDIT_WORKSPACE_MODES.some(item=>item[0]===mode))return;s.prompts[s.mode]=s.prompt;s.prompt=s.prompts[mode]||'';s.mode=mode;s.showBefore=false;renderEditWorkspace()}
 function setEditCameraPreset(e,h,v){if(e){e.preventDefault();e.stopPropagation()}updateEditCamera({horizontal:h,vertical:v},true);}
-function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}if(group==='light'){updateEditLight({[key]:Number(input.value)});return;}editWorkspaceState[group][key]=Number(input.value);updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=input.value;}
+function updateEditWorkspaceRange(e,group,key){if(editWorkspaceLocked())return;const input=e&&e.currentTarget;if(!input)return;if(group==='camera'){updateEditCamera({[key]:Number(input.value)});return;}if(group==='light'){updateEditLight({[key]:Number(input.value)});return;}let value=Number(input.value);if(!Number.isFinite(value))return;if(group==='upscale'){if(!['sharpness','denoise','strength','creativity','modelStrength','fixCompression'].includes(key))return;if(['strength','creativity'].includes(key)&&!editWorkspaceState.upscale.faceEnhancement)return;value=Math.round(Math.max(key==='modelStrength'?1:0,Math.min(100,value)));}editWorkspaceState[group][key]=value;updateEditWorkspaceReady();const output=document.querySelector('[data-range-output="'+group+'-'+key+'"]');if(output)output.textContent=value;}
 function updateEditLightColor(e){if(e?.currentTarget)updateEditLight({color:e.currentTarget.value});}
 function updateEditWorkspacePrompt(e){if(editWorkspaceLocked())return;if(e&&e.currentTarget)editWorkspaceState.prompt=e.currentTarget.value;updateEditWorkspaceReady()}
 function addEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const state=editWorkspaceState.light,current=state.layers[state.active];if(state.layers.length>=8)return editWorkspaceToast('Максимум 8 источников света.');state.layers.push(editLightValues({...current,horizontal:(current.horizontal+90)%360,brightness:1,enabled:true}));state.active=state.layers.length-1;renderEditWorkspace()}
@@ -7484,17 +7492,55 @@ function selectEditWorkspaceLight(e,index){if(editWorkspaceLocked())return;if(e)
 function toggleEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const l=editWorkspaceState.light.layers[editWorkspaceState.light.active];if(l)l.enabled=l.enabled===false;renderEditWorkspace()}
 function removeEditWorkspaceLight(e){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}const s=editWorkspaceState.light;if(s.layers.length<=1)return;s.layers.splice(s.active,1);s.active=Math.min(s.active,s.layers.length-1);renderEditWorkspace()}
 function updateEditLightHex(e){if(editWorkspaceLocked())return;const input=e?.currentTarget,value=String(input?.value||'').trim();if(!/^#[0-9a-f]{6}$/i.test(value)){editWorkspaceToast('Введите цвет в формате #RRGGBB.');if(input)input.value=editWorkspaceState.light.layers[editWorkspaceState.light.active].color.toUpperCase();return;}updateEditLight({color:value});}
-function clampEditUpscaleDimensions(width,height){width=Math.max(1,Math.min(24000,width));height=Math.max(1,Math.min(24000,height));const pixels=width*height;if(pixels>100000000){const factor=Math.sqrt(100000000/pixels);width=Math.floor(width*factor);height=Math.floor(height*factor)}return{width,height}}
+function clampEditUpscaleDimensions(width,height,sourceWidth=width,sourceHeight=height){
+  if(![width,height,sourceWidth,sourceHeight].every(v=>Number.isFinite(v)&&v>0))return{width:0,height:0};
+  // Topaz receives outputHeight and derives width. Use this same rounding
+  // everywhere, including at the size/billing limits and for narrow panoramas.
+  const ratio=sourceWidth/sourceHeight,maxHeight=Math.min(24000,Math.floor(24000/ratio),Math.floor(Math.sqrt(100000000/ratio)));
+  height=Math.max(1,Math.min(Math.round(height),maxHeight));width=Math.max(1,Math.round(sourceWidth*height/sourceHeight));
+  while(height>1&&(width>24000||width*height>100000000)){height--;width=Math.max(1,Math.round(sourceWidth*height/sourceHeight));}
+  return{width,height};
+}
+function editUpscalePanel(generate,range){
+  const s=editWorkspaceState,u=s.upscale,ready=!!(s.width&&s.height),disabled=ready?'':' disabled';
+  const scale=ready?Number((u.height/s.height).toFixed(2)):0;
+  return '<div class="edit-camera-panel-title"><h3>Улучшение качества</h3><span>Topaz · High Fidelity V2</span></div>'+
+    '<div class="edit-upscale-options">'+
+    '<p class="edit-upscale-help">Увеличьте фото и настройте детализацию. 1× улучшает качество без увеличения.</p>'+
+    '<div class="edit-workspace-segment" aria-label="Масштаб результата">'+[1,2,4].map(v=>'<button type="button" aria-pressed="'+(ready&&u.height===s.height*v)+'" class="'+(ready&&u.height===s.height*v?'active':'')+'"'+disabled+' onclick="SYLVEX.setEditUpscaleScale(event,'+v+')">'+v+'×</button>').join('')+'</div>'+
+    '<div class="edit-upscale-summary"><span>Исходник</span><b>'+(ready?s.width+' × '+s.height+' px':'Загрузите фото')+'</b><span>Результат</span><b>'+(ready?u.width+' × '+u.height+' px · '+scale+'×':'—')+'</b></div>'+
+    '<div class="edit-workspace-dimensions"><label>W <input aria-label="Ширина результата" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'width\')"> px</label><span>×</span><label>H <input aria-label="Высота результата" type="number" min="1" max="24000" step="1"'+disabled+' value="'+u.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'height\')"> px</label></div>'+
+    '<p class="edit-upscale-help">Пропорции сохраняются · до 100 Мп и 24 000 px по стороне. При достижении лимита масштаб уменьшается.</p>'+
+    '<details class="edit-workspace-settings" open><summary>Настройки улучшения</summary><div class="edit-upscale-controls">'+
+    range('Резкость','sharpness',0,100,1,u.sharpness,'upscale','')+range('Убрать шум','denoise',0,100,1,u.denoise,'upscale','')+
+    range('Сила улучшения','modelStrength',1,100,1,u.modelStrength,'upscale','')+range('Убрать сжатие','fixCompression',0,100,1,u.fixCompression,'upscale','')+
+    '<label class="edit-workspace-select-row">Область улучшения<select aria-label="Область улучшения" onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'subject\')">'+[['All','Всё фото'],['Foreground','Передний план'],['Background','Фон']].map(([value,label])=>'<option value="'+value+'" '+(u.subject===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label>'+
+    '<label class="edit-workspace-switch-row">Улучшение лиц<input aria-label="Улучшение лиц" type="checkbox" '+(u.faceEnhancement?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'upscale\',\'faceEnhancement\')"></label>'+
+    '<fieldset class="edit-upscale-faces" '+(u.faceEnhancement?'':'disabled')+'><legend class="sr-only">Настройки лиц</legend>'+range('Детализация лиц','strength',0,100,1,u.strength,'upscale','')+range('Креативность лиц','creativity',0,100,1,u.creativity,'upscale','')+'<p class="edit-upscale-help">Низкая креативность помогает сохранить исходные черты лица.</p></fieldset></div></details>'+
+    '</div><div class="edit-upscale-summary"><span>Стоимость</span><b data-upscale-cost aria-live="polite">'+(ready?'Расчёт…':'—')+'</b></div>'+generate;
+}
+async function refreshEditUpscaleEstimate(){
+  const s=editWorkspaceState;
+  if(s.mode!=='upscale'||editWorkspaceValidation())return;
+  const {width,height}=s.upscale,key=width+'x'+height;
+  const paint=()=>{if(s.mode!=='upscale')return;const node=document.querySelector('[data-upscale-cost]');if(node)node.textContent=s.upscaleEstimate?.credits!=null?s.upscaleEstimate.credits+' ⚡':s.upscaleEstimate?.loading?'Расчёт…':'Уточняется при запуске';};
+  if(s.upscaleEstimate?.key===key){paint();return;}
+  const estimate={key,credits:null,loading:true};s.upscaleEstimate=estimate;paint();
+  try{
+    const response=await fetch('/api/public/prostudio/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'image',provider:'topaz',model:'topaz_enhance_photo',image_options:{tool:'edit_workspace',editWorkspaceMode:'upscale',editWorkspaceUpscale:{width,height},referenceImageUrls:[s.sourceUrl],referenceImages:[s.sourceUrl]}})});
+    const data=await response.json();if(response.ok&&data.ok&&Number.isFinite(data.credits)&&data.credits>0)estimate.credits=data.credits;
+  }catch(_){}finally{estimate.loading=false;if(s.upscaleEstimate===estimate)paint();}
+}
 function updateEditWorkspaceField(e,group,key){
   if(editWorkspaceLocked())return;const input=e&&e.currentTarget,s=editWorkspaceState,target=s[group];if(!input||!target)return;
   const value=input.type==='checkbox'?input.checked:input.type==='number'?Number(input.value):input.value;
   if(typeof value==='number'&&!Number.isFinite(value))return;
   target[key]=input.type==='number'?Math.round(Math.max(group==='expand'?0:1,Math.min(group==='expand'?4096:group==='upscale'?24000:8192,value))):value;
   if((group==='upscale'||group==='resize'&&s.resize.locked)&&(key==='width'||key==='height')&&s.width&&s.height){const aspect=s.width/s.height;if(key==='width')target.height=Math.max(1,Math.round(target.width/aspect));else target.width=Math.max(1,Math.round(target.height*aspect));}
-  if(group==='upscale'){Object.assign(target,clampEditUpscaleDimensions(target.width,target.height));target.scale=Number((target.width/s.width).toFixed(2));}
+  if(group==='upscale'&&(key==='width'||key==='height')){Object.assign(target,clampEditUpscaleDimensions(target.width,target.height,s.width,s.height));target.scale=target.height/s.height;}
   renderEditWorkspace();
 }
-function setEditUpscaleScale(e,scale){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;if(!s.width)return;s.upscale.scale=scale;Object.assign(s.upscale,clampEditUpscaleDimensions(s.width*scale,s.height*scale));renderEditWorkspace()}
+function setEditUpscaleScale(e,scale){if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;const s=editWorkspaceState;if(!s.width||!s.height||![1,2,4].includes(scale))return;Object.assign(s.upscale,clampEditUpscaleDimensions(s.width*scale,s.height*scale,s.width,s.height));s.upscale.scale=s.upscale.height/s.height;renderEditWorkspace()}
 function filterEditLanguages(e){const query=String(e&&e.currentTarget&&e.currentTarget.value||'').toLowerCase();document.querySelectorAll('.edit-workspace-language-list button').forEach(button=>button.hidden=!button.dataset.language.includes(query))}
 function selectEditLanguage(e,language){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.translateLanguage=language;renderEditWorkspace()}
 function setEditBrushMode(e,mode){if(editWorkspaceLocked())return;if(e){e.preventDefault();e.stopPropagation()}editWorkspaceState.brushMode=mode;renderEditWorkspace()}

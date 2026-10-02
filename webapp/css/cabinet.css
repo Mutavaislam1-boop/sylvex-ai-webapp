@@ -9558,6 +9558,21 @@ body.edit-workspace-open{overflow:hidden}
 
 /* Relighting: each source keeps its own direction, color and intensity. */
 .edit-workspace-panel-lighting{gap:10px;padding:16px;max-height:calc(100dvh - 150px)}
+.edit-workspace-panel-upscale{gap:12px;max-height:calc(100dvh - 150px);overflow:hidden}
+.edit-workspace-panel-upscale>*{flex-shrink:0}
+.edit-workspace-panel-upscale>.edit-upscale-options{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;padding-right:4px}
+.edit-upscale-options>*{flex-shrink:0}
+.edit-upscale-help{margin:0;color:var(--edit-muted);font-size:11px;line-height:1.5}
+.edit-upscale-summary{display:grid;grid-template-columns:auto 1fr;gap:7px 10px;align-items:center;font-size:11px;color:var(--edit-muted)}
+.edit-upscale-summary b{text-align:right;font-weight:500;color:var(--edit-text);font-variant-numeric:tabular-nums}
+.edit-upscale-controls{display:flex;flex-direction:column;gap:12px;padding-top:14px}
+.edit-upscale-faces{display:flex;flex-direction:column;gap:12px;border:0;border-top:1px solid var(--edit-border);margin:0;padding:12px 0 0;min-width:0}
+.edit-upscale-faces legend{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.edit-upscale-faces:disabled{opacity:.4}
+.edit-workspace-panel-upscale .edit-workspace-range{display:grid;grid-template-columns:112px minmax(0,1fr) 28px;gap:8px!important;align-items:center;min-height:27px}
+.edit-workspace-panel-upscale .edit-workspace-range span{font-size:11px}
+.edit-workspace-panel-upscale .edit-workspace-range input[type=range]{grid-column:auto;width:100%;min-width:0;margin:0;accent-color:#8ba7ff}
+.edit-workspace-panel-upscale .edit-workspace-range output{text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
 .edit-workspace-panel-lighting>*{flex-shrink:0}
 .edit-light-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .edit-light-title h3{font-size:16px;font-weight:600;margin:0}
