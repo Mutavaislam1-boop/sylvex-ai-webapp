@@ -10752,7 +10752,7 @@ function renderVisualCreateModal() {
       + '</div>'
     : '';
 
-  const processingModeHtml = isCharacter && mode === 'ai'
+  const processingModeHtml = isCharacter
     ? '<div class="visual-field visual-create-processing-mode">'
       + '<span>Обработка фото</span>'
       + '<div class="visual-create-processing-options">'
@@ -11086,9 +11086,46 @@ async function createHeygenCharacterResource(name, photos, gender, description, 
 
 // Manual Character Creation (Character Creation V2): assembles a
 // referenceLibrary straight from whichever of the 4 fixed slots
-// (Primary/Front/Side/Back) the user actually filled in - no AI call, no
-// HeyGen registration. Empty slots are simply skipped, never renumbered.
+// (Primary/Front/Side/Back) the user actually filled in - SYLVEX never
+// invents a missing slot, and there is no HeyGen registration. Each
+// *filled* slot's photo is still run through processManualCharacterReference
+// (Preserve/AI Polish, see saveVisualCreateDraft) before reaching this
+// function - slotUrls here are already-processed URLs, not raw uploads.
+// Empty slots are simply skipped, never renumbered.
 const MANUAL_CHARACTER_REFERENCE_ROLES = ['Primary Face', 'Full Body Front', 'Full Body Side', 'Full Body Back'];
+// Lowercase role keys the backend's /character/process-reference endpoint
+// expects, index-aligned with MANUAL_CHARACTER_REFERENCE_ROLES above.
+const MANUAL_CHARACTER_SLOT_ROLE_KEYS = ['primary', 'front', 'side', 'back'];
+
+// Manual Character Creation's AI processing step for a single uploaded
+// slot: brings that one photo up to its slot's own standard (Primary vs
+// the standardized Front/Side/Back look) under the chosen processing mode,
+// without generating or inferring any other slot. This is the fix for the
+// gap where Manual mode persisted the user's raw upload untouched -
+// Manual only skips auto-*completing* the missing refs, it never skips
+// processing the ones that were actually provided.
+async function processManualCharacterReference(role, photoUrl, name, gender, description, processingMode) {
+  const tg = getTelegramId();
+  if (!tg) throw new Error('telegram_id_required');
+  const res = await fetch('/api/public/prostudio/character/process-reference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      telegram_id: tg,
+      role,
+      photo_url: photoUrl,
+      name,
+      gender,
+      description,
+      processing_mode: processingMode === 'preserve' ? 'preserve' : 'ai_polish',
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || !data.url) {
+    throw new Error(translateGenerationError(data, 'Не удалось обработать фото персонажа'));
+  }
+  return data.url;
+}
 
 function buildManualCharacterResource(name, gender, slotUrls) {
   const now = new Date().toISOString();
@@ -11150,16 +11187,22 @@ async function saveVisualCreateDraft(e) {
   const objectPhotos = rawPhotos.slice(0, 3);
   try {
     if (isCharacter && mode === 'manual') {
-      // Manual Character Creation: upload exactly the filled slots to real
-      // storage URLs (never persist raw data: URIs), then assemble the
-      // referenceLibrary locally - no AI generation, no HeyGen call.
+      // Manual Character Creation: the user decides which of the 4 slots
+      // exist - SYLVEX never auto-generates a missing Front/Side/Back, no
+      // HeyGen call. But every slot that *is* filled still goes through
+      // the chosen processing mode (Preserve/AI Polish) to meet that
+      // slot's own standard, exactly like Create with AI's single source
+      // photo does - Manual mode is not "save the raw upload as-is".
       const slots = visualCreateDraft.photos || [];
+      const manualProcessingMode = visualCreateDraft.processingMode || 'ai_polish';
       const slotUrls = [];
       for (let index = 0; index < slots.length; index += 1) {
         const raw = slots[index];
         if (!raw) { slotUrls[index] = ''; continue; }
-        const normalized = await normalizeGenerationImageReference(raw, 'upload');
-        slotUrls[index] = normalized ? normalized.url : '';
+        const uploaded = await normalizeGenerationImageReference(raw, 'upload');
+        if (!uploaded || !uploaded.url) { slotUrls[index] = ''; continue; }
+        const role = MANUAL_CHARACTER_SLOT_ROLE_KEYS[index] || 'primary';
+        slotUrls[index] = await processManualCharacterReference(role, uploaded.url, name, visualCreateDraft.gender || '', description, manualProcessingMode);
       }
       providerResource = buildManualCharacterResource(name, visualCreateDraft.gender || '', slotUrls);
       generatedPreview = providerResource.previewUrl || slotUrls.filter(Boolean)[0] || '';
