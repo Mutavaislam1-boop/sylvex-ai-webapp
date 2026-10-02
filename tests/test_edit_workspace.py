@@ -157,6 +157,71 @@ def test_topaz_workspace_passes_controls_and_preserves_ratio(monkeypatch, provid
     assert sent[0]['data']['faceEnhancementStrength'] == '0'
     assert sent[0]['data']['strength'] == '0.25'
     assert sent[0]['data']['fixCompression'] == '0.3'
+    assert sent[0]['headers'] == {'X-API-KEY': 'test-topaz-key'}
+    assert sent[0]['data']['sharpen'] == '0.33'
+    assert sent[0]['data']['denoise'] == '0.44'
+    assert sent[0]['data']['faceEnhancementCreativity'] == '0.18'
+    assert (result['canvas_width'], result['canvas_height']) == (128, 96)
+    assert result['upscale_settings']['strength'] == 0
+    assert 'prompt' not in sent[0]['data']
+    assert set(sent[0]['files']) == {'image'}
+
+
+def test_upscale_face_toggle_omits_face_controls(monkeypatch, provider):
+    from test_enhance_photo_tool import _apply_success_mocks, _FakeResponse
+    _apply_success_mocks(monkeypatch)
+    sent = []
+    monkeypatch.setattr(main.requests, 'post', lambda url, **kw: sent.append((url, kw)) or _FakeResponse(200, {'process_id': 'test'}))
+    request = payload('upscale', editWorkspaceUpscale={'width': 64, 'height': 48, 'faceEnhancement': False})
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok']
+    assert sent[0][0] == main.TOPAZ_ENHANCE_ENDPOINT
+    assert sent[0][1]['data']['faceEnhancement'] == 'false'
+    assert 'faceEnhancementStrength' not in sent[0][1]['data']
+    assert 'faceEnhancementCreativity' not in sent[0][1]['data']
+
+
+@pytest.mark.parametrize('settings', [
+    {'width': 0}, {'width': 128.5}, {'width': True}, {'height': float('nan')},
+    {'width': 24001}, {'width': 10001, 'height': 10000}, {'width': 127},
+    {'faceEnhancement': 'false'}, {'subject': 'Face'}, {'modelStrength': 0}, {'denoise': 101},
+])
+def test_invalid_upscale_never_submits_paid_provider_request(monkeypatch, provider, settings):
+    from test_enhance_photo_tool import _apply_success_mocks
+    _apply_success_mocks(monkeypatch)
+    monkeypatch.setattr(main.requests, 'post', lambda *a, **k: pytest.fail('Invalid Upscale reached Topaz'))
+    result = asyncio.run(main.generate_edit_workspace_image(payload('upscale', editWorkspaceUpscale={'width': 128, 'height': 96, **settings})))
+    assert result['ok'] is False
+
+
+@pytest.mark.parametrize(('size', 'target'), [((3000, 2000), (6000, 4000)), ((4000, 2500), (8000, 5000)),
+    ((4000, 2500), (8002, 5001)), ((8000, 1000), (24000, 3000)), ((3, 2), (5, 3))])
+def test_upscale_result_cost_matches_estimate_at_tier_and_rounding_boundaries(monkeypatch, provider, size, target):
+    from test_enhance_photo_tool import _apply_success_mocks
+    _apply_success_mocks(monkeypatch)
+    # Avoid allocating giant test images; dimensions are independent of transport.
+    monkeypatch.setattr(main, '_detect_image_dimensions', lambda _: size)
+    request = payload('upscale', editWorkspaceUpscale={'width': target[0], 'height': target[1]})
+    estimate = main.calculate_generation_price(request)
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok']
+    assert result['cost_credits'] == estimate['credits']
+    assert result['cost_usd'] == estimate['cost_usd']
+    assert (result['canvas_width'], result['canvas_height']) == target
+
+
+def test_enhance_quick_tool_ignores_workspace_settings(monkeypatch, provider):
+    from test_enhance_photo_tool import _apply_success_mocks, _FakeResponse
+    _apply_success_mocks(monkeypatch)
+    sent = []
+    monkeypatch.setattr(main.requests, 'post', lambda url, **kw: sent.append(kw) or _FakeResponse(200, {'process_id': 'test'}))
+    request = {'image_options': {'tool': 'enhance_photo', 'enhancePhotoSourceUrl': uri(image_bytes()),
+        'editWorkspaceUpscale': {'width': 1, 'height': 1, 'denoise': 100}, 'editWorkspaceMode': 'upscale'}}
+    result = asyncio.run(main.generate_enhance_photo_image(request))
+    assert result['ok']
+    assert sent[0]['data'] == {'model': 'High Fidelity V2', 'outputHeight': '96'}
+    assert result['cost_credits'] == 15
+    assert result['tool'] == 'enhance_photo'
 
 
 def test_upscale_rotates_exif_source_before_preserving_aspect_ratio(monkeypatch, provider):
@@ -258,7 +323,7 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     assert data['quality'] == 'high' and data['n'] == '1' and data['output_format'] == 'png'
     assert data['size'] == edit.output_size((64, 48))
     text = data['prompt']
-    scene_prompt, position = text.rsplit('\n\n', 1)
+    scene_prompt, coordinate_prompt, position = text.rsplit('\n\n', 2)
     assert scene_prompt.startswith('Reconstruct the input image as the exact same frozen three-dimensional scene')
     assert 'ONLY THE CAMERA MAY MOVE. The entire scene must remain fixed in world space.' in scene_prompt
     assert "head orientation, facial direction, and gaze vector in world space" in scene_prompt
@@ -266,12 +331,52 @@ def test_camera_uses_sunburst_with_exact_angles_and_saved_result(monkeypatch, pr
     assert 'preserving the same world-space geometry and lighting configuration' in scene_prompt
     assert scene_prompt.endswith('photograph of the exact same frozen scene taken from the requested new camera position.')
     assert 'Camera position:' not in scene_prompt
+    assert coordinate_prompt == edit.CAMERA_COORDINATE_PROMPT
+    assert 'Azimuth 0° = the exact original camera viewpoint.' in coordinate_prompt
+    assert 'Azimuth 180° = camera moved to the exact opposite side of the frozen scene, producing the exact rear viewpoint.' in coordinate_prompt
+    assert 'These angles describe the camera position around the unchanged world, never the rotation of the scene or its contents.' in coordinate_prompt
     assert position == (f"Camera position: azimuth {camera['horizontal']:g}°, "
-                        f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.")
+                        f"elevation {camera['vertical']:g}°, zoom {camera['zoom']:g}/10.\n"
+                        f"Semantic viewpoint: {edit.camera_semantic_viewpoint(camera['horizontal'])}.")
     assert result['edit_camera'] == camera
     assert result['camera_prompt'] == text
     assert 'UNRELATED' not in str(data) and 'IGNORE COMPOSER' not in str(data) and 'Make it blue' not in text
     assert 'test-openai-camera-key' not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(('horizontal', 'semantic'), [
+    (0, 'exact original camera viewpoint'),
+    (360, 'exact original camera viewpoint'),
+    (45, 'front-right three-quarter view'),
+    (90, 'exact right-side view'),
+    (135, 'rear-right three-quarter view'),
+    (180, 'exact rear view'),
+    (225, 'rear-left three-quarter view'),
+    (270, 'exact left-side view'),
+    (315, 'front-left three-quarter view'),
+])
+def test_camera_semantic_viewpoint_maps_absolute_azimuth(horizontal, semantic):
+    assert edit.camera_semantic_viewpoint(horizontal) == semantic
+
+
+@pytest.mark.parametrize(('horizontal', 'quadrant'), [
+    (0.1, 'front-right'), (22.5, 'front-right'), (89.9, 'front-right'),
+    (90.1, 'rear-right'), (150, 'rear-right'), (157.5, 'rear-right'),
+    (170, 'rear-right'), (179.9, 'rear-right'),
+    (180.1, 'rear-left'), (202.5, 'rear-left'), (220, 'rear-left'), (269.9, 'rear-left'),
+    (270.1, 'front-left'), (337.5, 'front-left'), (359.9, 'front-left'),
+])
+def test_intermediate_camera_azimuth_is_not_rounded_to_an_exact_view(provider, horizontal, quadrant):
+    camera = {'horizontal': horizontal, 'vertical': 0, 'zoom': 5}
+    result = asyncio.run(main.generate_edit_workspace_image(payload('camera', editWorkspaceCamera=camera)))
+    assert result['ok']
+    prompt = provider[0][0][1]['data']['prompt']
+    position, semantic = prompt.rsplit('\n', 2)[-2:]
+    assert position == f'Camera position: azimuth {horizontal:g}°, elevation 0°, zoom 5/10.'
+    assert semantic.startswith(f'Semantic viewpoint: {quadrant} oblique view at {horizontal:g}° azimuth')
+    assert 'do not snap to another angle' in semantic
+    assert 'exact' not in semantic and 'three-quarter' not in semantic
+    assert result['edit_camera'] == camera and result['camera_prompt'] == prompt
 
 
 @pytest.mark.parametrize('mode', ['camera', 'lighting'])
