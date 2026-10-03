@@ -6780,7 +6780,7 @@ def image_file_tuple_from_url(url: str, fallback_name: str = "reference.png") ->
             content = local_path.read_bytes()
             filename = local_path.name or filename
         elif raw.startswith("/preset_catalog/"):
-            relative_path = urllib.parse.unquote(raw.replace("/preset_catalog/", "", 1))
+            relative_path = urllib.parse.unquote(urllib.parse.urlsplit(raw).path.replace("/preset_catalog/", "", 1))
             local_path = (PRESET_CATALOG_DIR / relative_path).resolve()
             catalog_root = PRESET_CATALOG_DIR.resolve()
             if not str(local_path).startswith(str(catalog_root) + os.sep):
