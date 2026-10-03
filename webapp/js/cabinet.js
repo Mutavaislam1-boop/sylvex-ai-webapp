@@ -1489,6 +1489,8 @@ const FALLBACK_PRESET_CHARACTERS = [
   ['character_luca', 'Luca', 'male'],
   ['character_hiro', 'Hiro', 'male'],
   ['character_sofia', 'Sofia', 'female'],
+  ['character_amina', 'Amina', 'female'],
+  ['character_yuna', 'Yuna', 'female'],
 ].map((item, index) => normalizePresetCatalogItem({
   id: item[0],
   name: item[1],
