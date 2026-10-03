@@ -18,6 +18,51 @@ function harness(){
   return {context,state:context.state,requests,messages,revoked,failUpload:()=>{rejectUpload=true;}};
 }
 test('mode-specific prompts persist independently',()=>{const h=harness();h.context.setEditWorkspaceMode(null,'translate');assert.equal(h.state.prompt,'');h.context.setEditWorkspaceMode(null,'edit');assert.equal(h.state.prompt,'Turn blue');});
+test('Generate reserves a connected slot immediately, then fills that same slot without replacing the source',async()=>{
+ const h=harness();let finish;h.context.callGenerate=async(...args)=>{h.requests.push(args);return new Promise(resolve=>{finish=resolve;});};
+ const pending=h.context.generateEditWorkspace();
+ assert.equal(h.state.chain.length,2);const [reference,slot]=h.state.chain;
+ assert.equal(reference.url,'https://cdn.example/source.png');assert.equal(slot.parentId,reference.id);assert.equal(slot.status,'pending');assert.equal(slot.url,'');
+ const position={x:slot.x,y:slot.y,width:slot.slotWidth,height:slot.slotHeight};assert.ok(slot.x>reference.x);assert.equal(h.state.sourceUrl,reference.url);
+ await h.context.generateEditWorkspace();assert.equal(h.requests.length,1);assert.equal(h.state.chain.length,2);
+ finish({images:['https://cdn.example/camera.png'],job_id:'camera-job'});await pending;
+ assert.equal(h.state.chain[1],slot);assert.equal(slot.status,'ready');assert.equal(slot.url,'https://cdn.example/camera.png');assert.equal(slot.jobId,'camera-job');
+ assert.deepEqual({x:slot.x,y:slot.y,width:slot.slotWidth,height:slot.slotHeight},position);assert.equal(reference.url,'https://cdn.example/source.png');assert.equal(h.state.activeNodeId,slot.id);
+});
+test('camera, lighting and resize append one sequence and send only the preceding successful result',async()=>{
+ const h=harness();let index=0;h.context.callGenerate=async(...args)=>{h.requests.push(args);return {images:['https://cdn.example/result-'+(++index)+'.png']};};
+ for(const mode of ['camera','lighting','resize']){h.context.setEditWorkspaceMode(null,mode);h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();}
+ assert.equal(h.state.chain.length,4);
+ for(let i=1;i<4;i++){assert.equal(h.state.chain[i].parentId,h.state.chain[i-1].id);assert.equal(h.requests[i-1][2][0],h.state.chain[i-1].url);assert.ok(h.state.chain[i].x>h.state.chain[i-1].x);}
+ assert.equal(h.state.chain[0].url,'https://cdn.example/source.png');assert.equal(h.state.chain[3].url,'https://cdn.example/result-3.png');
+ assert.equal(h.requests[0][4].model,'gpt_image_2_5_sunburst');assert.equal(h.requests[2][4].imageOptions.editWorkspaceResize.width,1200);
+ assert.ok(h.requests.every(request=>!('chain' in request[4].imageOptions)&&!('slotWidth' in request[4].imageOptions)));
+});
+test('failed attempt retains the reference and retries the same empty slot',async()=>{
+ const h=harness();h.context.callGenerate=async()=>{throw new Error('provider failed');};await h.context.generateEditWorkspace();
+ const slot=h.state.chain[1],position=slot.x;assert.equal(slot.status,'failed');assert.equal(h.state.sourceUrl,h.state.chain[0].url);assert.equal(h.state.history.length,0);
+ h.context.callGenerate=async()=>({images:['https://cdn.example/retry.png']});await h.context.generateEditWorkspace();
+ assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1],slot);assert.equal(slot.x,position);assert.equal(slot.status,'ready');
+});
+test('compact previews preserve aspect and original pixel dimensions at different canvas zoom levels',()=>{
+ const h=harness();
+ for(const [width,height,zoom] of [[6000,4000,100],[4000,6000,200],[24000,3000,50],[1200,800,800]]){
+  Object.assign(h.state,{width,height,zoom,chain:[],activeNodeId:''});
+  const reference=h.context.ensureEditWorkspaceChain(),slot=h.context.beginEditWorkspaceChainResult();
+  assert.equal(reference.width,width);assert.equal(reference.height,height);assert.ok(Math.max(slot.slotWidth,slot.slotHeight)*zoom/100<=240.00001);
+  assert.equal(h.state.width,width);assert.equal(h.state.height,height);assert.equal(h.state.zoom,zoom);
+ }
+});
+test('visible session history outlives the undo stack limit and Undo does not delete images',async()=>{
+ const h=harness();let index=0;h.context.callGenerate=async()=>({images:['https://cdn.example/'+(++index)+'.png']});
+ for(let i=0;i<22;i++){h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();}
+ assert.equal(h.state.chain.length,23);assert.equal(h.state.history.length,20);const last=h.state.chain.at(-1);
+ h.context.undoEditWorkspace();assert.equal(h.state.chain.length,23);assert.equal(last.url,'https://cdn.example/22.png');assert.equal(h.state.sourceUrl,'https://cdn.example/21.png');
+ assert.equal(h.state.activeNodeId,h.state.chain[21].id);
+ h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();
+ assert.equal(h.state.chain.length,24);assert.equal(h.state.chain.at(-1).parentId,h.state.chain[21].id);
+ assert.ok(h.state.chain.at(-1).x-h.state.chain.at(-1).slotWidth/2>last.x+last.slotWidth/2,'new result must not cover retained history after Undo');
+});
 test('retouch requires selection; erase does not require a prompt',()=>{const h=harness();h.state.mode='retouch';h.state.brushMode='erase';h.state.prompt='';assert.match(h.context.editWorkspaceValidation(),/кистью/);h.state.maskStrokes=[{points:[{x:.5,y:.5}]}];assert.equal(h.context.editWorkspaceValidation(),'');});
 test('retouch sends mask; next generation uses result, and undo restores previous source',async()=>{
  const h=harness();h.state.mode='retouch';h.state.maskStrokes=[{points:[{x:.5,y:.5}]}];await h.context.generateEditWorkspace();
@@ -85,7 +130,14 @@ test('Upscale quotes come from the server; stale responses cannot replace the cu
  quotes[0].resolve({ok:true,json:async()=>({ok:true,credits:15})});await first;assert.equal(node.textContent,'75 ⚡');
  h.context.setEditUpscaleScale(null,1);h.context.fetch=async()=>{throw new Error('offline');};await h.context.refreshEditUpscaleEstimate();assert.equal(node.textContent,'Уточняется при запуске');
 });
-test('failed upload preserves existing document, successful upload resets selection',async()=>{const h=harness();h.failUpload();await h.context.loadEditWorkspaceImage({name:'new.png',type:'image/png',size:10});assert.equal(h.state.sourceUrl,'https://cdn.example/source.png');assert.equal(h.state.uploading,false);assert.deepEqual(h.revoked,['blob:new']);const ok=harness();ok.state.maskStrokes=[{}];await ok.context.loadEditWorkspaceImage({name:'new.png',type:'image/png',size:10});assert.equal(ok.state.sourceUrl,'https://cdn.example/new.png');assert.equal(ok.state.maskStrokes.length,0);assert.equal(ok.state.resize.width,1200);});
+test('failed upload preserves existing document and chain; successful upload starts a new reference',async()=>{
+ const h=harness();await h.context.generateEditWorkspace();const savedChain=JSON.stringify(h.state.chain),savedUrl=h.state.sourceUrl;
+ h.failUpload();await h.context.loadEditWorkspaceImage({name:'new.png',type:'image/png',size:10});
+ assert.equal(h.state.sourceUrl,savedUrl);assert.equal(JSON.stringify(h.state.chain),savedChain);assert.equal(h.state.uploading,false);assert.deepEqual(h.revoked,['blob:new']);
+ const ok=harness();await ok.context.generateEditWorkspace();ok.state.maskStrokes=[{}];await ok.context.loadEditWorkspaceImage({name:'new.png',type:'image/png',size:10});
+ assert.equal(ok.state.sourceUrl,'https://cdn.example/new.png');assert.equal(ok.state.maskStrokes.length,0);assert.equal(ok.state.resize.width,1200);
+ assert.equal(ok.state.chain.length,1);assert.equal(ok.state.chain[0].url,ok.state.sourceUrl);assert.equal(ok.state.chain[0].parentId,'');assert.equal(ok.state.activeNodeId,ok.state.chain[0].id);
+});
 test('lights are limited to eight and all-disabled is rejected',()=>{const h=harness();h.state.mode='lighting';for(let i=0;i<12;i++)h.context.addEditWorkspaceLight();assert.equal(h.state.light.layers.length,8);h.state.light.layers.forEach(l=>l.enabled=false);assert.match(h.context.editWorkspaceValidation(),/источник/);});
 test('comparison view cannot submit a retouch without its visible mask canvas',async()=>{const h=harness();h.state.mode='retouch';h.state.maskStrokes=[{}];h.state.showBefore=true;await h.context.generateEditWorkspace();assert.equal(h.requests.length,0);assert.match(h.messages[0],/Вернитесь к результату/);});
 test('completed job downloads through the protected file endpoint',async()=>{const h=harness();const downloads=[];h.state.resultUrl='https://cdn.example/result.png';h.state.jobId='job-123';h.context.completedGenerationDownloadUrl=id=>'/download/'+id;h.context.downloadGeneratedFile=event=>downloads.push(event.currentTarget.dataset);await h.context.downloadEditWorkspaceResult();assert.equal(downloads[0].downloadUrl,'/download/job-123');});
@@ -150,14 +202,49 @@ function navigationHarness(){
  h.context.document.getElementById=id=>id==='editWorkspace'?root:null;
  h.context.document.addEventListener=(type,fn)=>listeners['document:'+type]=fn;
  h.context.document.removeEventListener=type=>delete listeners['document:'+type];
- h.context.window={addEventListener:(type,fn)=>listeners['window:'+type]=fn,removeEventListener:type=>delete listeners['window:'+type]};
+ h.context.window={matchMedia:()=>({matches:true}),addEventListener:(type,fn)=>listeners['window:'+type]=fn,removeEventListener:type=>delete listeners['window:'+type]};
  const stage={tabIndex:-1,setAttribute(){},focus(){},classList:{add:c=>classes.add(c),remove:c=>classes.delete(c)},
   setPointerCapture:id=>captured.add(id),hasPointerCapture:id=>captured.has(id),releasePointerCapture:id=>captured.delete(id),
-  getBoundingClientRect:()=>({left:0,top:0,width:1400,height:900}),addEventListener:(type,fn)=>listeners[type]=fn};
+  getBoundingClientRect:()=>({left:0,top:0,width:1400,height:900}),addEventListener:(type,fn)=>listeners[type]=fn,removeEventListener:type=>delete listeners[type]};
  const cleanup=h.context.initEditWorkspaceNavigation(stage);
  const event=(overrides={})=>({pointerId:1,button:0,clientX:300,clientY:200,deltaX:0,deltaY:0,deltaMode:0,target:{closest:()=>null},preventDefault(){},...overrides});
- return {...h,stage,listeners,classes,captured,event,cleanup,paints:()=>paints};
+ return {...h,root,stage,listeners,classes,captured,event,cleanup,paints:()=>paints};
 }
+test('each chain card moves independently at canvas zoom and both attached links follow it',async()=>{
+ for(const zoom of [25,100,400]){
+  const h=navigationHarness();await h.context.generateEditWorkspace();h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();
+  h.state.zoom=zoom;const nodes=h.state.chain,old=nodes.map(n=>({x:n.x,y:n.y})),view=JSON.stringify(h.state.viewport),urls=JSON.stringify(nodes.map(n=>n.url));
+  const cards=new Map(nodes.map(n=>[n.id,{dataset:{chainNode:n.id},style:{},focus(){},classList:{add(){},remove(){}}}]));
+  const paths=new Map(nodes.filter(n=>n.parentId).map(n=>[n.id,{setAttribute(k,v){this[k]=v;}}]));
+  h.root.querySelector=selector=>{const id=selector.match(/="([^"]+)"/)?.[1];return selector.includes('data-chain-node')?cards.get(id):paths.get(id);};
+  h.root._editChainLayout=()=>h.context.paintEditWorkspaceChain(h.root);
+  h.root._editChainLayout();const previousPaths=[...paths.values()].map(p=>p.d);
+  const target={closest:selector=>selector==='[data-chain-node]'?cards.get(nodes[1].id):null};
+  h.stage.onpointerdown(h.event({target}));h.stage.onpointermove(h.event({clientX:420,clientY:260}));h.stage.onpointerup(h.event());
+  assert.equal(nodes[1].x,old[1].x+120/(zoom/100));assert.equal(nodes[1].y,old[1].y+60/(zoom/100));
+  assert.equal(nodes[0].x,old[0].x);assert.equal(nodes[2].x,old[2].x);assert.equal(JSON.stringify(h.state.viewport),view);assert.equal(JSON.stringify(nodes.map(n=>n.url)),urls);
+  assert.notEqual(paths.get(nodes[1].id).d,previousPaths[0]);assert.notEqual(paths.get(nodes[2].id).d,previousPaths[1]);
+  for(const node of nodes.slice(1)){const d=paths.get(node.id).d;assert.equal(d,h.context.editWorkspaceChainPath(nodes.find(n=>n.id===node.parentId),node));}
+  h.stage.onkeydown(h.event({target,key:'ArrowDown'}));assert.equal(nodes[1].y,old[1].y+84/(zoom/100));
+  h.listeners['document:keydown'](h.event({code:'Space'}));h.stage.onpointerdown(h.event({target}));h.stage.onpointermove(h.event({clientX:310,clientY:220}));h.stage.onpointerup(h.event());
+  assert.equal(h.state.viewport.x,10);assert.equal(h.state.viewport.y,20);assert.equal(nodes[1].x,old[1].x+120/(zoom/100));
+  h.cleanup();
+ }
+});
+test('new cards append on the right after manual rearrangement and keep their actual source link',async()=>{
+ const h=harness();await h.context.generateEditWorkspace();const [source,result]=h.state.chain;
+ source.x=1800;source.y=-600;result.x=-400;result.y=300;
+ h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();const next=h.state.chain.at(-1);
+ assert.equal(next.parentId,result.id);assert.ok(next.x-next.slotWidth/2>source.x+source.slotWidth/2);assert.equal(next.y,result.y);
+ assert.equal(source.x,1800);assert.equal(source.y,-600);assert.equal(h.requests[1][2][0],result.url);
+});
+test('connection endpoints follow facing edges when a result is moved around its source',()=>{
+ const h=harness(),source={x:0,y:0,slotWidth:240,slotHeight:160};
+ for(const [x,y,startX,startY,endX,endY] of [[400,0,126,0,274,0],[-400,0,-126,0,-274,0],[0,300,0,86,0,214],[0,-300,0,-86,0,-214]]){
+  const numbers=h.context.editWorkspaceChainPath(source,{...source,x,y}).match(/-?\d+(?:\.\d+)?/g).map(Number);
+  assert.deepEqual(numbers.slice(0,2),[startX,startY]);assert.deepEqual(numbers.slice(-2),[endX,endY]);
+ }
+});
 test('drag pans the world without bounds and releases pointer capture',()=>{
  const h=navigationHarness();h.stage.onpointerdown(h.event());h.stage.onpointermove(h.event({clientX:5300,clientY:-2800}));
  assert.equal(h.state.viewport.x,5000);assert.equal(h.state.viewport.y,-3000);assert.ok(h.paints()>0);
@@ -186,7 +273,7 @@ test('retouch background and Space pan while the mask keeps normal strokes; list
  h.stage.onpointerup(h.event());h.state.busy=true;
  const view=JSON.stringify(h.state.viewport);h.listeners.wheel(h.event({deltaY:80}));h.stage.onkeydown(h.event({key:'+'}));
  assert.equal(JSON.stringify(h.state.viewport),view);assert.equal(h.state.zoom,100);
- h.cleanup();assert.ok(!h.listeners['document:keydown']);assert.ok(!h.listeners['document:keyup']);assert.ok(!h.listeners['window:blur']);
+ h.cleanup();assert.ok(!h.listeners.wheel);assert.ok(!h.listeners['document:keydown']);assert.ok(!h.listeners['document:keyup']);assert.ok(!h.listeners['window:blur']);
 });
 test('camera settings survive tool changes and cannot be modified during generation',()=>{
  const h=harness();h.context.updateEditCamera({horizontal:122,vertical:11,zoom:2.5});h.context.setEditWorkspaceMode(null,'retouch');h.context.setEditWorkspaceMode(null,'camera');
