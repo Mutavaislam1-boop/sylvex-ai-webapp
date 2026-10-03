@@ -528,8 +528,10 @@ body:has(.view[data-view="tools"].active) .nav{display:none}
 CSS-БЛОК: .view[data-view="tools"].active .studio
 Отвечает за внешний вид соответствующего элемента интерфейса: размер, расположение, цвета, состояния и адаптацию.
 ===================================================== */
-.view[data-view="tools"].active .studio{
+.view[data-view="tools"] .studio{
   --st-bg:#202020;--st-bg-2:#252525;--st-bg-3:#2c2c2c;--st-bg-4:#343434;
+  --st-color-scheme:dark;
+  --st-success:#66d9a8;--st-danger:#ff8991;--st-warning:#e9bf62;
   --st-line:rgba(255,255,255,.06);--st-line-2:rgba(255,255,255,.10);
   --st-text:#F3F3F3;--st-dim:#8D8D92;--st-mute:#6b6b75;
   --st-bubble-user:#24262B;--st-bubble-ai:transparent;
@@ -545,21 +547,16 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   background:#202020;
 }
 
-/* Pro Studio's own local theme (White/Black), independent of the app-wide
-   light/dark appearance - cycled by the single studioThemeBtn button
-   (SYLVEX.cycleStudioTheme in cabinet.js), read from [data-ps-theme] on
-   .studio. Matches the exact specificity chain of the rule above (and of
-   every other ".view[data-view=tools].active .studio*" override further
-   down this file) so it reliably wins instead of being silently shadowed.
-   "Gray" is simply the absence of [data-ps-theme] - the rule above,
-   unchanged - so existing users see no difference until they press the
-   new toggle. --border/--border-strong are pinned too, since a few
-   Pro-Studio-scoped rules (e.g. .studio-top) still read those app-wide
-   vars for their border color. */
-.view[data-view="tools"].active .studio[data-ps-theme="white"]{
+/* The website maps its shared light/dark setting to White/Black.
+   Standalone Mini App also retains its original Gray palette. Keep tokens
+   available before tools becomes active so body-mounted menus inherit them.
+   Some older Studio controls still read --border/--border-strong. */
+.view[data-view="tools"] .studio[data-ps-theme="white"]{
   --st-bg:#ffffff;--st-bg-2:#f4f4f6;--st-bg-3:#ebebef;--st-bg-4:#dfdfe4;
+  --st-color-scheme:light;
+  --st-success:#13764f;--st-danger:#ba2941;--st-warning:#805900;
   --st-line:rgba(0,0,0,.08);--st-line-2:rgba(0,0,0,.13);
-  --st-text:#14141a;--st-dim:#54545f;--st-mute:#8b8b96;
+  --st-text:#14141a;--st-dim:#54545f;--st-mute:#62626e;
   --st-bubble-user:#eef1f7;--st-bubble-ai:transparent;
   --border:rgba(0,0,0,.10);--border-strong:rgba(0,0,0,.16);
   --st-border:rgba(0,0,0,.10);--st-border-strong:rgba(0,0,0,.16);
@@ -573,15 +570,16 @@ CSS-БЛОК: .view[data-view="tools"].active .studio
   --st-depth-active:inset 0 1px 3px rgba(20,20,30,.10);
   background:#ffffff;
 }
-.view[data-view="tools"].active .studio[data-ps-theme="black"]{
+.view[data-view="tools"] .studio[data-ps-theme="black"]{
   --st-bg:#000000;--st-bg-2:#0c0c0d;--st-bg-3:#141415;--st-bg-4:#1c1c1e;
+  --st-color-scheme:dark;
   --st-line:rgba(255,255,255,.09);--st-line-2:rgba(255,255,255,.14);
-  --st-text:#f5f5f7;--st-dim:#9a9aa2;--st-mute:#6f6f78;
+  --st-text:#f5f5f7;--st-dim:#b7b7c0;--st-mute:#9999a4;
   --st-bubble-user:#161617;--st-bubble-ai:transparent;
   --border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.16);
   --st-border:rgba(255,255,255,.10);--st-border-strong:rgba(255,255,255,.16);
   --st-grid-line:rgba(255,255,255,.09);
-  --st-accent:#6d9bff;--st-accent-2:#89b0ff;--st-accent-bg:rgba(109,155,255,.18);--st-accent-text:#f3f6ff;
+  --st-accent:#6d9bff;--st-accent-2:#89b0ff;--st-accent-bg:rgba(109,155,255,.18);--st-accent-text:#081326;
   --st-invert-bg:#f5f5f7;--st-invert-text:#000000;
   --st-logo-invert:1;
   --st-shadow:rgba(0,0,0,.6);
@@ -9446,19 +9444,19 @@ html.web-embed .studio-layout-switch{display:none!important}
 @media(min-width:1000px) and (max-width:1320px){.edit-workspace-panel{width:340px;right:14px}.edit-workspace-action{width:min(720px,calc(100vw - 385px))}.edit-workspace-tab{padding:0 8px;font-size:10px}.edit-workspace-dock{max-width:calc(100vw - 36px)}}
 @media(min-width:1000px) and (max-height:760px){.edit-workspace-panel{max-height:calc(100dvh - 70px);padding:13px;gap:11px}.edit-workspace-orbit{height:120px}.edit-workspace-action{bottom:89px;padding:9px 12px}.edit-workspace-dock{bottom:12px;height:53px}.edit-workspace-tab{height:39px}.edit-workspace-close{top:12px;right:14px}}
 
-/* DaVinci editor reference: scope extracted dark-theme tokens to the desktop Edit workspace only. */
+/* Edit inherits the same palette as Pro Studio, including when mounted on body. */
 .edit-workspace{
   --edit-primary:#296ce8;
   --edit-primary-hover:#2562d3;
-  --edit-bg:#070708;
-  --edit-surface:#111112;
-  --edit-surface-raised:#0f0f10;
-  --edit-text:#fff;
-  --edit-muted:#a3a3a3;
-  --edit-subtle:#7f7f7f;
-  --edit-border:#ffffff14;
-  --edit-border-strong:#ffffff1f;
-  --edit-selected:#ffffff1a;
+  --edit-bg:var(--st-bg,#070708);
+  --edit-surface:var(--st-bg-2,#111112);
+  --edit-surface-raised:var(--st-bg-3,#0f0f10);
+  --edit-text:var(--st-text,#fff);
+  --edit-muted:var(--st-dim,#a3a3a3);
+  --edit-subtle:var(--st-mute,#7f7f7f);
+  --edit-border:var(--st-border,#ffffff14);
+  --edit-border-strong:var(--st-border-strong,#ffffff1f);
+  --edit-selected:var(--st-accent-bg,#ffffff1a);
   --edit-radius-small:8px;
   --edit-radius-medium:12px;
   --edit-radius-large:16px;
@@ -9471,7 +9469,7 @@ html.web-embed .studio-layout-switch{display:none!important}
 .edit-workspace-panel,.edit-workspace-action,.edit-workspace-dock{border-color:var(--edit-border);background-color:var(--edit-surface)}
 .edit-workspace-panel{border-radius:var(--edit-radius-xlarge)}
 .edit-workspace-control-card{border-color:var(--edit-border);border-radius:var(--edit-radius-medium);background:var(--edit-surface-raised)}
-.edit-workspace-generate{border-radius:var(--edit-radius-medium);background:var(--edit-primary);color:var(--edit-text)}
+.edit-workspace-generate{border-radius:var(--edit-radius-medium);background:var(--edit-primary);color:#fff}
 .edit-workspace-generate:hover{background:var(--edit-primary-hover)}
 .edit-workspace-range input[type=range],.edit-workspace-action-row input[type=range],.edit-workspace-switch-row input{accent-color:var(--edit-primary)}
 .edit-workspace-tab{border-radius:var(--edit-radius-small);color:var(--edit-muted)}
@@ -9512,7 +9510,7 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-world>.edit-workspace-upload{position:absolute;left:0;top:0;transform:translate(-50%,-50%)}
 .edit-workspace-grid{background-image:radial-gradient(circle at 1px 1px,#45454d 1px,transparent 1.1px)}
 .edit-workspace-stage.can-pan #editWorkspaceMask{cursor:grab}
-.edit-workspace-panel,.edit-workspace-action,.edit-workspace-dock{background:rgba(22,22,26,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.edit-workspace-panel,.edit-workspace-action,.edit-workspace-dock{background:color-mix(in srgb,var(--edit-surface) 88%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--st-depth-2);scrollbar-color:var(--edit-subtle) transparent}
 .edit-camera-panel-title{display:flex;flex-direction:column;gap:4px}
 .edit-camera-panel-title h3{margin:0;font-size:16px;font-weight:600}
 .edit-camera-panel-title span{font-size:10px;color:var(--edit-muted)}
@@ -9608,3 +9606,87 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace[data-busy="true"] .edit-light-svg{pointer-events:none;opacity:.6}
 @media(min-width:1000px) and (max-height:800px){.edit-workspace-panel-lighting{gap:7px;padding:12px}.edit-light-svg{height:180px}.edit-workspace-panel-lighting .edit-camera-help{font-size:10px}}
 @media(prefers-reduced-motion:reduce){.edit-light-beam{transition:none}}
+
+/* Shared appearance: native controls and body-mounted Edit use the same
+   resolved palette as Pro Studio. Media pixels and light swatches are content. */
+.view[data-view="tools"] .studio,.edit-workspace{color-scheme:var(--st-color-scheme,dark);color:var(--st-text)}
+.edit-workspace{--edit-violet:light-dark(#7938b2,#c69aff)}
+.edit-workspace-grid{background-image:radial-gradient(circle at 1px 1px,var(--st-grid-line) 1px,transparent 1.1px);opacity:1}
+.edit-workspace-upload{border-color:var(--edit-border-strong);background:var(--edit-surface);color:var(--edit-text)}
+.edit-workspace-upload span,.edit-workspace-upload small{color:var(--edit-muted)}
+.edit-workspace-panel{scrollbar-color:var(--edit-subtle) transparent}
+.edit-workspace-presets button,.edit-workspace-subtle,.edit-workspace-light-chip,.edit-workspace-add-light,
+.edit-workspace-light-tools button,.edit-workspace-model,.edit-workspace-select-row select,
+.edit-workspace-dimensions input,.edit-workspace-translate-search input,.edit-workspace-action-row label input,
+.edit-workspace-color input{border-color:var(--edit-border-strong);background:var(--edit-surface-raised);color:var(--edit-text)}
+.edit-workspace-presets button:hover,.edit-workspace-presets button.active,.edit-workspace-light-chip.active,
+.edit-workspace-action-row>button.active{border-color:var(--st-accent);background:var(--edit-selected);color:var(--edit-text)}
+.edit-workspace-range,.edit-workspace-action textarea,.edit-workspace-hex input[aria-label="HEX color"]{color:var(--edit-text)}
+.edit-workspace-dimensions label,.edit-workspace-action>p,.edit-workspace-action-row label{color:var(--edit-muted)}
+.edit-workspace input::placeholder,.edit-workspace textarea::placeholder{color:var(--edit-subtle);opacity:1}
+.edit-workspace-segment{background:var(--edit-bg)}
+.edit-workspace-segment button{color:var(--edit-muted)}
+.edit-workspace-segment button.active{background:var(--edit-surface-raised);color:var(--edit-text)}
+.edit-workspace-language-list,.edit-workspace-language-list button{border-color:var(--edit-border);color:var(--edit-text)}
+.edit-workspace-language-list button.active{background:var(--edit-selected)}
+.edit-workspace-language-list small,.edit-workspace-language-list button>b{color:var(--edit-muted)}
+.edit-workspace-hex i{border-color:var(--edit-border-strong)}
+.edit-workspace-orbit,.edit-workspace-panel-camera .edit-workspace-orbit,.edit-light-orbit{border-color:var(--edit-border);background:color-mix(in srgb,var(--edit-bg) 60%,transparent)}
+.edit-workspace-panel-camera .edit-workspace-range input,
+.edit-workspace-panel-upscale .edit-workspace-range input[type=range]{accent-color:var(--edit-primary)}
+.edit-workspace-panel-lighting .edit-workspace-range input[type=range]{accent-color:var(--edit-violet)}
+.edit-workspace-panel-lighting .edit-workspace-presets button.active{border-color:var(--edit-violet);background:color-mix(in srgb,var(--edit-violet) 12%,transparent)}
+.edit-camera-floor{fill:color-mix(in srgb,var(--edit-text) 2%,transparent);stroke:var(--edit-border)}
+.edit-camera-guide,.edit-camera-ring.unavailable{stroke:var(--edit-border-strong)}
+.edit-camera-sight{stroke:var(--edit-subtle)}
+.edit-camera-zoom-rail{stroke:var(--edit-muted)}
+.edit-camera-subject rect,.edit-light-subject rect{fill:var(--edit-surface-raised);stroke:var(--edit-subtle)}
+.edit-camera-subject text,.edit-light-subject text{fill:var(--edit-muted)}
+.edit-camera-handle .dot,.edit-light-handle .dot{stroke:var(--edit-bg)}
+.edit-camera-handle.horizontal .dot,.edit-light-handle.horizontal .dot{fill:var(--st-accent)}
+.edit-camera-ring.horizontal,.edit-light-ring.horizontal{stroke:var(--st-accent)}
+.edit-camera-handle.vertical .dot{fill:var(--st-success)}
+.edit-camera-ring.vertical{stroke:var(--st-success)}
+.edit-light-handle.vertical .dot{fill:var(--edit-violet)}
+.edit-light-ring.vertical{stroke:var(--edit-violet)}
+.edit-camera-handle:focus .dot,.edit-camera-handle:hover .dot,
+.edit-light-handle:focus-visible .dot,.edit-light-handle:hover .dot{stroke:var(--edit-text)}
+.edit-camera-body path{fill:var(--edit-text);stroke:var(--edit-bg)}
+.edit-camera-body>circle:not(.hit){fill:var(--edit-surface);stroke:var(--st-accent)}
+.edit-camera-body:focus path,.edit-camera-body:hover path{fill:var(--edit-text);stroke:var(--st-accent)}
+.edit-camera-axis{fill:var(--edit-subtle)}
+.edit-camera-label,.edit-light-lamp text{fill:var(--edit-muted)}
+.edit-light-lamp.active text{fill:var(--edit-text)}
+.edit-camera-legend,.edit-light-legend,.edit-camera-limits{color:var(--edit-muted)}
+.edit-camera-legend i{background:var(--edit-muted)}
+.edit-camera-legend i.horizontal,.edit-light-legend i{background:var(--st-accent)}
+.edit-camera-legend i.vertical{background:var(--st-success)}
+.edit-light-legend span:nth-child(2) i{background:var(--edit-violet)}
+.edit-light-grid{stroke:var(--edit-text);stroke-opacity:.09}
+.edit-light-lamp.active .lamp-top,.edit-light-lamp:focus-visible path,.edit-light-lamp:hover path{stroke:var(--edit-text)}
+.edit-light-actions button[aria-pressed="true"]{color:var(--edit-violet)}
+.edit-workspace.is-dragging::after{border-color:var(--st-accent);background:color-mix(in srgb,var(--edit-surface) 90%,transparent);color:var(--edit-text)}
+.edit-workspace :is(button,input,select,textarea):focus-visible{outline:2px solid var(--st-accent);outline-offset:2px}
+
+/* Grid details missing from the existing --st-* theme rules. Preserve
+   semantic statuses and connection highlighting in either appearance. */
+.studio-grid-clarification{color:var(--st-text)}
+.studio-grid-clarification:before,.studio-grid-input-summary span{color:var(--st-accent)}
+.studio-grid-input-summary span{background:var(--st-accent-bg)}
+.studio-grid-node-cost,.studio-grid-node.locked:before{color:var(--st-warning)}
+.studio-grid-drawer-new{background:var(--st-bg-3);color:var(--st-text);border-color:var(--st-border)}
+.studio-grid-project-delete{background:var(--st-bg-4);color:var(--st-text)}
+.view[data-view="tools"].active .studio-grid-node[data-status="RUNNING"]{border-color:var(--st-accent)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="COMPLETED"]{border-color:var(--st-success)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="FAILED"]{border-color:var(--st-danger)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="STALE"]{border-color:var(--st-warning)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="RUNNING"] .studio-grid-node-status{color:var(--st-accent)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="COMPLETED"] .studio-grid-node-status{color:var(--st-success)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="FAILED"] .studio-grid-node-status{color:var(--st-danger)!important}
+.view[data-view="tools"].active .studio-grid-node[data-status="STALE"] .studio-grid-node-status{color:var(--st-warning)!important}
+.view[data-view="tools"].active .studio-grid-port.connection-source{background:var(--st-accent)!important}
+.view[data-view="tools"].active .studio-grid-edges path{stroke:var(--st-dim)!important}
+.view[data-view="tools"].active .studio-grid-edges g:hover path{stroke:var(--st-danger)!important}
+.view[data-view="tools"].active .studio-grid-test-toggle.active{color:var(--st-warning)!important;border-color:var(--st-warning)!important;background:color-mix(in srgb,var(--st-warning) 12%,transparent)!important}
+.view[data-view="tools"].active .studio-grid-node-tools button.running,
+.view[data-view="tools"].active .studio-grid-header #studioGridRunWorkflow.running{color:var(--st-danger)!important;background:color-mix(in srgb,var(--st-danger) 12%,transparent)!important;border-color:var(--st-danger)!important}

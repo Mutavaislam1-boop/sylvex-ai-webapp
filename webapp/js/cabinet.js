@@ -22396,6 +22396,9 @@ async function waitGeneration(jobId, options) {
     localStorage.setItem('sylvex-theme-id', settings.id || 'dark');
   }
   function applyProfileAppearance(settings) {
+    // The website owns appearance; a Mini App profile must not reset it
+    // during startup or after account hydration.
+    if (isWebEmbed()) { restoreStudioTheme(); return; }
     const value = Object.assign({}, DEFAULT_PROFILE_APPEARANCE, settings || {});
     const theme = THEMES.find((item) => item.id === value.id) || THEMES[0];
     document.documentElement.dataset.theme = theme.mode;
@@ -22477,6 +22480,7 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function applyTheme(themeId, persist = true) {
+    if (isWebEmbed()) { restoreStudioTheme(); return; }
     // =====================================================
     // JAVASCRIPT-БЛОК: t
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -24305,10 +24309,8 @@ async function waitGeneration(jobId, options) {
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
   }
 
-  // Pro Studio's own local theme - independent of the app-wide light/dark
-  // appearance. One button cycles Gray (the original look) -> White ->
-  // Black -> Gray. Persisted the same way the rest of the app persists
-  // simple UI choices (localStorage), read back whenever Pro Studio opens.
+  // Standalone Mini App preferences only. Website embeds always follow
+  // the host's shared light/dark theme, including body-mounted Edit/menus.
   const STUDIO_THEME_KEY = 'sylvex-prostudio-theme';
   const STUDIO_THEMES = ['gray', 'white', 'black'];
 
@@ -24333,6 +24335,7 @@ async function waitGeneration(jobId, options) {
     '--st-accent', '--st-accent-2', '--st-accent-bg', '--st-accent-text',
     '--st-invert-bg', '--st-invert-text', '--st-logo-invert',
     '--st-shadow', '--st-depth-1', '--st-depth-2', '--st-depth-active',
+    '--st-color-scheme', '--st-success', '--st-danger', '--st-warning',
   ];
 
   function syncStudioThemeVarsToDocument() {
@@ -24361,17 +24364,27 @@ async function waitGeneration(jobId, options) {
     return safe;
   }
 
-  // Website -> Pro Studio theme names (see sylvex-website/css/tokens.css and
-  // js/site.js's THEME_CYCLE): Light is Pro Studio's White, Dark is its
-  // richer Black, and Gray is literally the same original neutral identity
-  // in both places.
-  const WEBSITE_THEME_TO_STUDIO = { light: 'white', dark: 'black', gray: 'gray' };
+  const WEBSITE_THEME_TO_STUDIO = { light: 'white', dark: 'black' };
 
   function studioThemeFromWebsiteEmbed() {
+    // Pro Studio now shares the website document. Query parameters are
+    // only a fallback for older iframe hosts, never an override of the site.
+    const site = window.SYLVEX_SITE;
+    if (site && typeof site.currentTheme === 'function') {
+      const theme = WEBSITE_THEME_TO_STUDIO[site.currentTheme()];
+      if (theme) return theme;
+    }
     try {
-      const websiteTheme = new URLSearchParams(window.location.search || '').get('theme');
-      return WEBSITE_THEME_TO_STUDIO[websiteTheme] || null;
-    } catch { return null; }
+      const theme = WEBSITE_THEME_TO_STUDIO[new URLSearchParams(window.location.search || '').get('theme')];
+      if (theme) return theme;
+    } catch (_) {}
+    const rootTheme = WEBSITE_THEME_TO_STUDIO[document.documentElement.getAttribute('data-theme')];
+    if (rootTheme) return rootTheme;
+    try {
+      const stored = WEBSITE_THEME_TO_STUDIO[localStorage.getItem('sx-theme')];
+      if (stored) return stored;
+    } catch (_) {}
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'black' : 'white';
   }
 
   function restoreStudioTheme() {
@@ -24380,7 +24393,7 @@ async function waitGeneration(jobId, options) {
     // the website page passed in, never a locally persisted choice, so
     // switching website accounts/devices can't leave it on a stale theme.
     if (isWebEmbed()) {
-      applyStudioTheme(studioThemeFromWebsiteEmbed() || 'gray', false);
+      applyStudioTheme(studioThemeFromWebsiteEmbed(), false);
       return;
     }
     let stored = 'gray';
@@ -24388,12 +24401,18 @@ async function waitGeneration(jobId, options) {
     applyStudioTheme(stored, false);
   }
 
-  // Live theme sync from the website (js/site.js's setTheme() posts this to
-  // every iframe on toggle) - lets an already-open Pro Studio tab follow a
-  // theme change on the website without a reload.
+  // Same-document website event: also updates variables inherited by
+  // Edit and floating menus without rebuilding them or losing user input.
+  window.addEventListener('sylvex-theme', () => {
+    if (isWebEmbed()) restoreStudioTheme();
+  });
+
+  // Backward compatibility for iframe hosts.
   window.addEventListener('message', (event) => {
     if (!isWebEmbed() || !event || !event.data || event.data.type !== 'sylvex-theme') return;
-    applyStudioTheme(WEBSITE_THEME_TO_STUDIO[event.data.theme] || 'gray', false);
+    if (window.parent === window || event.source !== window.parent) return;
+    const theme = WEBSITE_THEME_TO_STUDIO[event.data.theme];
+    if (theme) applyStudioTheme(theme, false);
   });
 
   function cycleStudioTheme(event) {
@@ -24905,6 +24924,13 @@ async function waitGeneration(jobId, options) {
   async function sendPresence(){if(document.hidden||!currentTelegramInitData())return;const active=document.querySelector('.view.active,[data-view].active');const view=active&&active.dataset&&active.dataset.view||'home';try{await fetch('/api/public/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:currentTelegramInitData(),view,platform:'telegram'})})}catch(_){}}
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
+  function restoreAppTheme() {
+    if (isWebEmbed()) { restoreStudioTheme(); return; }
+    const tg = S.tg;
+    const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
+    S.setTheme(savedTheme);
+  }
+
   function init() {
     // Single CSS hook for every Website-only/Telegram-only visual
     // difference below (hiding Telegram-specific controls, Website desktop
@@ -24912,9 +24938,7 @@ async function waitGeneration(jobId, options) {
     document.documentElement.classList.toggle('web-embed', isWebEmbed());
 
     // Restore saved theme.
-    const tg = S.tg;
-    const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
-    S.setTheme(savedTheme);
+    restoreAppTheme();
 
     const initialShareId = shareStartId();
     if (initialShareId) {
