@@ -238,7 +238,12 @@ def _natural_catalog_key(value: str):
 
 def _preset_file_url(path: pathlib.Path) -> str:
     rel = path.relative_to(PRESET_CATALOG_DIR)
-    return "/preset_catalog/" + "/".join(urllib.parse.quote(part) for part in rel.parts)
+    url = "/preset_catalog/" + "/".join(urllib.parse.quote(part) for part in rel.parts)
+    # Character photos keep stable paths, but Telegram caches images for a year.
+    # A content version makes updated portraits/references visible immediately.
+    if rel.parts[0] == "characters" and path.suffix.lower() in PRESET_IMAGE_EXTENSIONS:
+        url += "?v=" + hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    return url
 
 def _catalog_folder_label(folder: pathlib.Path) -> str:
     return re.sub(r"[_-]+", " ", folder.name).strip().title() or folder.name
