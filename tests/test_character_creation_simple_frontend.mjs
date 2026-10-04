@@ -234,7 +234,8 @@ test('clearPendingCharacterCreationJob: only clears a matching jobId, never some
 function makeRestoreContext(pending, jobOutcome) {
   const store = new Map();
   if (pending) store.set('sylvex-prostudio-character-job-42', JSON.stringify(pending));
-  const calls = {toasts: [], saved: null, applied: null, cleared: false};
+  const calls = {toasts: [], saveBackendCalls: [], applied: null, cleared: false};
+  const serverVisualItems = { characters: [], objects: [] };
   const sandbox = {
     getTelegramId: () => 42,
     localStorage: {
@@ -248,8 +249,11 @@ function makeRestoreContext(pending, jobOutcome) {
     visualPreviewUrl: (resource) => (resource && resource.previewUrl) || '',
     fetch: async () => ({ ok: true, json: async () => jobOutcome }),
     wait: () => Promise.resolve(),
-    saveVisualItemToBackend: async (kind, item) => { calls.saved = {kind, item}; return item; },
-    serverVisualItems: { characters: [], objects: [] },
+    // The Character resource is already persisted by
+    // _run_character_creation_job before the job reports 'completed' -
+    // this must never be called for the Character restore path.
+    saveVisualItemToBackend: async (kind, item) => { calls.saveBackendCalls.push({kind, item}); return item; },
+    serverVisualItems,
     loadCustomVisualItems: () => [],
     saveCustomVisualItems: () => {},
     isVideoMode: () => false,
@@ -267,28 +271,33 @@ function makeRestoreContext(pending, jobOutcome) {
   vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
   vm.runInContext(extractFunction('waitCharacterCreationJob'), context);
   vm.runInContext(extractFunction('restorePendingCharacterCreationJob'), context);
-  return {context, calls};
+  return {context, calls, serverVisualItems};
 }
 
 test('restorePendingCharacterCreationJob: does nothing when no job was pending', async () => {
   const {context, calls} = makeRestoreContext(null, {});
   await vm.runInContext('restorePendingCharacterCreationJob()', context);
-  assert.equal(calls.saved, null);
+  assert.equal(calls.saveBackendCalls.length, 0);
   assert.equal(calls.toasts.length, 0);
 });
 
-test('restorePendingCharacterCreationJob: on completion, inserts the Character and clears the pending marker', async () => {
+test('restorePendingCharacterCreationJob: on completion, inserts result.resource into serverVisualItems.characters immediately, with zero extra backend-save POSTs', async () => {
   const pending = {jobId: 'job-9', name: 'Islam', gender: 'male', description: '', startedAt: Date.now()};
   const jobOutcome = {
     ok: true, status: 'completed', job_id: 'job-9',
     result: {ok: true, character_id: 'custom_character_abc', resource: {id: 'custom_character_abc', previewUrl: 'https://cdn.sylvex.ai/p.png'}},
   };
-  const {context, calls} = makeRestoreContext(pending, jobOutcome);
+  const {context, calls, serverVisualItems} = makeRestoreContext(pending, jobOutcome);
   await vm.runInContext('restorePendingCharacterCreationJob()', context);
-  assert.ok(calls.saved, 'the restored Character must still be saved via saveVisualItemToBackend');
-  assert.equal(calls.saved.kind, 'character');
-  assert.equal(calls.saved.item.id, 'custom_character_abc');
+  // The resource was already persisted server-side by the completed job -
+  // result.resource is authoritative, so no second
+  // /api/public/prostudio/resources POST via saveVisualItemToBackend.
+  assert.equal(calls.saveBackendCalls.length, 0, 'saveVisualItemToBackend must never be called for a completed Character job');
+  assert.equal(serverVisualItems.characters.length, 1);
+  assert.equal(serverVisualItems.characters[0].id, 'custom_character_abc');
+  assert.equal(serverVisualItems.characters[0].previewUrl, 'https://cdn.sylvex.ai/p.png');
   assert.ok(calls.applied, 'applyCharacterReferenceSelection must run for the restored Character');
+  assert.equal(calls.applied.id, 'custom_character_abc');
   assert.ok(calls.toasts.length > 0);
   assert.equal(calls.cleared, true, 'the pending marker must be cleared once the job resolves');
 });
@@ -298,7 +307,7 @@ test('restorePendingCharacterCreationJob: on a genuine terminal failure, toasts 
   const jobOutcome = {ok: true, status: 'failed', job_id: 'job-9', error: {error: 'OpenAI billing limit reached'}};
   const {context, calls} = makeRestoreContext(pending, jobOutcome);
   await vm.runInContext('restorePendingCharacterCreationJob()', context);
-  assert.equal(calls.saved, null);
+  assert.equal(calls.saveBackendCalls.length, 0);
   assert.ok(calls.toasts.length > 0);
   assert.equal(calls.cleared, true);
 });
@@ -349,7 +358,8 @@ test('restorePendingCharacterCreationJob: a transient/non-terminal error (e.g. n
 
 function makeSaveDraftContext({result, error} = {}) {
   const store = new Map();
-  const calls = { removed: [], toasts: [] };
+  const calls = { removed: [], toasts: [], saveBackendCalls: [] };
+  const serverVisualItems = { characters: [], objects: [] };
   const sandbox = {
     getTelegramId: () => 42,
     localStorage: {
@@ -374,8 +384,11 @@ function makeSaveDraftContext({result, error} = {}) {
       if (error) throw error;
       return result;
     },
-    saveVisualItemToBackend: async (kind, item) => item,
-    serverVisualItems: { characters: [], objects: [] },
+    // The Character resource is already persisted by
+    // _run_character_creation_job before the job reports 'completed' -
+    // this must never be called for the Character save path.
+    saveVisualItemToBackend: async (kind, item) => { calls.saveBackendCalls.push({kind, item}); return item; },
+    serverVisualItems,
     loadCustomVisualItems: () => [],
     saveCustomVisualItems: () => {},
     isVideoMode: () => false,
@@ -395,7 +408,7 @@ function makeSaveDraftContext({result, error} = {}) {
   vm.runInContext(extractFunction('readPendingCharacterCreationJob'), context);
   vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
   vm.runInContext(extractFunction('saveVisualCreateDraft'), context);
-  return {context, calls, store};
+  return {context, calls, store, serverVisualItems};
 }
 
 test('saveVisualCreateDraft: on success, the pending marker is persisted then cleared', async () => {
@@ -405,6 +418,75 @@ test('saveVisualCreateDraft: on success, the pending marker is persisted then cl
   await vm.runInContext('saveVisualCreateDraft(null)', context);
   assert.ok(calls.removed.includes('sylvex-prostudio-character-job-42'));
   assert.equal(store.has('sylvex-prostudio-character-job-42'), false);
+});
+
+test('saveVisualCreateDraft: a completed Character job inserts result.resource into serverVisualItems.characters immediately, with zero extra backend-save POSTs', async () => {
+  const {context, calls, serverVisualItems} = makeSaveDraftContext({
+    result: {ok: true, character_id: 'custom_character_abc', resource: {id: 'custom_character_abc', previewUrl: 'https://cdn.sylvex.ai/p.png'}},
+  });
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  // The resource was already persisted server-side by the completed job -
+  // result.resource is authoritative, so no second
+  // /api/public/prostudio/resources POST via saveVisualItemToBackend.
+  assert.equal(calls.saveBackendCalls.length, 0, 'saveVisualItemToBackend must never be called for a completed Character job');
+  assert.equal(serverVisualItems.characters.length, 1);
+  assert.equal(serverVisualItems.characters[0].id, 'custom_character_abc');
+  assert.equal(serverVisualItems.characters[0].previewUrl, 'https://cdn.sylvex.ai/p.png');
+});
+
+test('saveVisualCreateDraft: Object creation still calls saveVisualItemToBackend exactly once (unchanged flow)', async () => {
+  const store = new Map();
+  const calls = { saveBackendCalls: [] };
+  const serverVisualItems = { characters: [], objects: [] };
+  const sandbox = {
+    getTelegramId: () => 42,
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => { store.set(key, String(value)); },
+      removeItem: (key) => { store.delete(key); },
+    },
+    visualCreateDraft: {
+      kind: 'object', name: 'Watch', gender: '', description: '',
+      photos: ['https://cdn.sylvex.ai/watch.jpg'], saving: false, done: false, statusText: '',
+    },
+    wait: () => Promise.resolve(),
+    toast: (msg) => msg,
+    renderVisualCreateModal: () => {},
+    visualCreateKindLabel: () => 'Объект',
+    visualCreateListLabel: () => 'объектов',
+    translateGenerationError: (err, fallback) => fallback,
+    normalizeVisualItem: (x) => x,
+    visualPreviewUrl: (resource) => (resource && resource.previewUrl) || '',
+    generateVisualResourceWithOpenAI: async () => 'https://cdn.sylvex.ai/watch-generated.png',
+    saveVisualItemToBackend: async (kind, item) => { calls.saveBackendCalls.push({kind, item}); return Object.assign({}, item, {id: 'custom_object_saved'}); },
+    serverVisualItems,
+    loadCustomVisualItems: () => [],
+    saveCustomVisualItems: () => {},
+    isVideoMode: () => false,
+    applyVisualReferenceToVideo: () => {},
+    applyCharacterReferenceSelection: () => {},
+    imageState: {},
+    renderImageReferenceSections: () => {},
+    renderImageControls: () => {},
+    renderImageStylePanel: () => {},
+    renderVideoReferencesPreview: () => {},
+    closeVisualCreateModal: () => {},
+    closeVisualPicker: () => {},
+    closeImageStylePanel: () => {},
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('characterCreationJobStorageKey'), context);
+  vm.runInContext(extractFunction('persistPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('readPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('saveVisualCreateDraft'), context);
+
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+
+  assert.equal(calls.saveBackendCalls.length, 1, 'Object creation must still POST exactly once via saveVisualItemToBackend');
+  assert.equal(calls.saveBackendCalls[0].kind, 'object');
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.equal(serverVisualItems.objects[0].id, 'custom_object_saved');
 });
 
 test('saveVisualCreateDraft: a genuine terminal job failure clears the pending marker', async () => {

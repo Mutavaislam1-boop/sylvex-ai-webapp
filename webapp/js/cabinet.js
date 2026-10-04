@@ -11390,8 +11390,11 @@ async function restorePendingCharacterCreationJob() {
       created_at: new Date().toISOString(),
     }, providerResource);
     const storageKind = 'characters';
-    const savedItem = await saveVisualItemToBackend('character', item);
-    Object.assign(item, normalizeVisualItem(savedItem || item) || {});
+    // The Character resource is already persisted server-side by
+    // _run_character_creation_job before the job reports 'completed' -
+    // result.resource (normalized into providerResource above) is the
+    // authoritative saved Character. Do not POST it again via
+    // saveVisualItemToBackend(); that call is only for Object/Voice.
     if (serverVisualItems[storageKind]) {
       serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
       serverVisualItems[storageKind].unshift(item);
@@ -11503,8 +11506,16 @@ async function saveVisualCreateDraft(e) {
     created_at: new Date().toISOString(),
   }, providerResource || {});
   const storageKind = kind === 'character' ? 'characters' : 'objects';
-  const savedItem = await saveVisualItemToBackend(kind, item);
-  Object.assign(item, normalizeVisualItem(savedItem || item) || {});
+  if (kind === 'character') {
+    // The Character resource is already persisted server-side by
+    // _run_character_creation_job before the job reports 'completed' -
+    // providerResource (normalized from result.resource above) is the
+    // authoritative saved Character. Do not POST it again via
+    // saveVisualItemToBackend(); that call stays unchanged for Object/Voice.
+  } else {
+    const savedItem = await saveVisualItemToBackend(kind, item);
+    Object.assign(item, normalizeVisualItem(savedItem || item) || {});
+  }
   if (serverVisualItems[storageKind]) {
     serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
     serverVisualItems[storageKind].unshift(item);
