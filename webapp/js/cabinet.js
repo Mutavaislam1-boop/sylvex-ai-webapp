@@ -10359,6 +10359,15 @@ function visualReferencePayload(item, kind) {
   };
 }
 
+// Stable per-card DOM id for a reference library entry, used by both the
+// grid's own markup (below) and refreshCharacterDetailSelectionUI() to
+// find the one card a toggle affects via plain getElementById - no
+// querySelector/data-attribute scan, and safe even if the id contains
+// characters that would need escaping in a CSS attribute selector.
+function charRefCardId(refId) {
+  return 'charRefCard_' + String(refId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 // Character System V2: the Character page's own reference-selection grid -
 // same card markup/size as the main Character list (.image-style-card /
 // .image-style-panel-grid), so selecting references feels like the same
@@ -10374,7 +10383,7 @@ function characterDetailReferenceGridHtml(item) {
     const safeUrl = S.escapeHtml(entry.url);
     const safeRole = S.escapeHtml(entry.role || 'Доп.');
     const safeId = S.escapeHtml(entry.id);
-    return '<div class="image-style-card ' + (checked ? 'selected' : '') + '" role="button" tabindex="0" onclick="SYLVEX.toggleCharacterDetailReferenceId(event,\'' + safeId + '\')">'
+    return '<div id="' + charRefCardId(entry.id) + '" class="image-style-card ' + (checked ? 'selected' : '') + '" data-ref-id="' + safeId + '" role="button" tabindex="0" onclick="SYLVEX.toggleCharacterDetailReferenceId(event,\'' + safeId + '\')">'
       + '<span class="image-style-thumb"><img src="' + safeUrl + '" alt="" loading="lazy" decoding="async" /></span>'
       + '<span class="image-style-label">' + safeRole + '</span>'
       + '<span class="image-style-check">✓</span>'
@@ -10437,6 +10446,41 @@ function setCharacterDetailView(e, view) {
   renderCharacterDetail();
 }
 
+// Updates only the parts of the already-open Character page that a
+// reference-selection change can affect: the selected/unselected card
+// class, the "select all" checkbox, the selected count, and the "Use
+// Character" button's visibility. Deliberately never touches
+// detail.innerHTML - rebuilding the whole page on every checkbox tap is
+// what caused the selection flicker (re-creating every <img>, resetting
+// scroll position, re-running the History tab's lazy fetch). Does not
+// refetch Character data and does not reload images.
+function refreshCharacterDetailSelectionUI() {
+  const detail = document.getElementById('visualCharacterDetail');
+  if (!detail) return;
+  const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
+  if (!item) return;
+  const library = characterReferenceLibraryFor(item);
+  const selectedIds = characterDetailPendingIds || [];
+
+  library.forEach((entry) => {
+    const card = document.getElementById(charRefCardId(entry.id));
+    if (card) card.classList.toggle('selected', selectedIds.includes(entry.id));
+  });
+
+  const countEl = document.getElementById('characterDetailSelectedCount');
+  if (countEl) countEl.textContent = '(' + selectedIds.length + ')';
+
+  const allIds = defaultCharacterReferenceIds(library, characterReferenceCap(imageState.modelId));
+  const isAllSelected = allIds.length > 0
+    && selectedIds.length === allIds.length
+    && allIds.every((refId) => selectedIds.includes(refId));
+  const selectAllCheckbox = document.getElementById('characterDetailSelectAllCheckbox');
+  if (selectAllCheckbox) selectAllCheckbox.checked = isAllSelected;
+
+  const useBtn = document.getElementById('characterDetailUseBtn');
+  if (useBtn) useBtn.hidden = selectedIds.length === 0;
+}
+
 // Toggles one reference in the pending (not-yet-committed) selection.
 // Enforces the model's cap exactly like the committed-state toggle did -
 // the cap is a property of the selected model, independent of whether the
@@ -10456,7 +10500,7 @@ function toggleCharacterDetailReferenceId(e, refId) {
     ids.push(refId);
   }
   characterDetailPendingIds = ids;
-  renderCharacterDetail();
+  refreshCharacterDetailSelectionUI();
 }
 
 // Select All / Deselect All - "all" is capped by the model's own limit
@@ -10472,7 +10516,7 @@ function toggleCharacterDetailSelectAll(e) {
     && characterDetailPendingIds.length === allIds.length
     && allIds.every((refId) => characterDetailPendingIds.includes(refId));
   characterDetailPendingIds = isAllSelected ? [] : allIds.slice();
-  renderCharacterDetail();
+  refreshCharacterDetailSelectionUI();
 }
 
 function visualCharacterDetailHtml(rawItem) {
@@ -10488,17 +10532,20 @@ function visualCharacterDetailHtml(rawItem) {
     && selectedCount === allIds.length
     && allIds.every((refId) => characterDetailPendingIds.includes(refId));
   // Built-in/preset Characters are immutable (fixed references, no
-  // evolution, no user-added references) and have no generation history
-  // of their own - the History tab only applies to a user-created
-  // Character. isCustomVisualItem is the existing Character type/source
-  // signal (item.type === 'custom' or a custom_ id), read generically -
-  // not a hardcoded check for any single Character.
-  const showHistoryTab = isCustomVisualItem(item);
+  // evolution, no user-added references, never deletable) and have no
+  // generation history of their own - the History tab and the Delete
+  // action only apply to a user-created Character. isCustomVisualItem is
+  // the existing Character type/source signal (item.type === 'custom' or
+  // a custom_ id), read generically - not a hardcoded check for any
+  // single Character.
+  const isCustom = isCustomVisualItem(item);
+  const showHistoryTab = isCustom;
   return `
     <div class="visual-character-detail-shell">
       <div class="visual-character-detail-head">
         <button class="visual-character-back" type="button" aria-label="Назад" onclick="SYLVEX.closeCharacterDetail(event)">‹</button>
         <h3>${S.escapeHtml(name)}</h3>
+        ${isCustom ? `<button class="visual-character-delete" type="button" aria-label="Удалить персонажа" onclick="SYLVEX.deleteVisualReference(event, 'character', '${S.escapeHtml(id)}')">🗑</button>` : ''}
       </div>
       <div class="visual-character-main-media">
         ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(name)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon">S</span>'}
@@ -10511,17 +10558,17 @@ function visualCharacterDetailHtml(rawItem) {
       ${view === 'references' ? `
       <div class="character-detail-select-all-row">
         <label class="character-detail-select-all">
-          <input type="checkbox" ${isAllSelected ? 'checked' : ''} onchange="SYLVEX.toggleCharacterDetailSelectAll(event)">
+          <input id="characterDetailSelectAllCheckbox" type="checkbox" ${isAllSelected ? 'checked' : ''} onchange="SYLVEX.toggleCharacterDetailSelectAll(event)">
           <span>Выбрать все</span>
         </label>
-        <span class="character-detail-selected-count">(${selectedCount})</span>
+        <span id="characterDetailSelectedCount" class="character-detail-selected-count">(${selectedCount})</span>
       </div>` : ''}
       <div class="character-detail-tab-body">
         ${view === 'references' ? characterDetailReferenceGridHtml(item) : characterDetailHistoryHtml(id)}
       </div>
       <div class="visual-character-actions">
         <button class="character-detail-cancel" type="button" onclick="SYLVEX.cancelCharacterDetail(event)">Отмена</button>
-        <button class="visual-character-select" type="button" onclick="SYLVEX.confirmCharacterDetailSelection(event)">Использовать персонажа</button>
+        <button id="characterDetailUseBtn" class="visual-character-select" type="button" ${selectedCount > 0 ? '' : 'hidden'} onclick="SYLVEX.confirmCharacterDetailSelection(event)">Использовать персонажа</button>
       </div>
     </div>
   `;
@@ -10646,16 +10693,26 @@ function confirmResourceDelete(kind, name) {
   });
 }
 
+// Returns true only once the backend confirms the resource is actually
+// gone - callers must not remove it from local/cached state until this
+// resolves true, otherwise a backend-side failure (network error, 5xx,
+// ownership mismatch) leaves the resource deleted only in the UI and it
+// silently reappears on the next reload once serverVisualItems is
+// re-fetched.
 async function deleteVisualItemFromBackend(kind, id) {
   const tg = getTelegramId();
-  if (!tg || !id) return;
+  if (!tg || !id) return false;
   try {
-    await fetch('/api/public/prostudio/resources/' + encodeURIComponent(id) + '?telegram_id=' + encodeURIComponent(tg), {
+    const res = await fetch('/api/public/prostudio/resources/' + encodeURIComponent(id) + '?telegram_id=' + encodeURIComponent(tg), {
       method: 'DELETE',
       cache: 'no-store',
     });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => ({}));
+    return !!(data && data.ok);
   } catch (err) {
     console.warn('[SYLVEX] visual resource delete failed', err);
+    return false;
   }
 }
 
@@ -11243,9 +11300,22 @@ async function deleteVisualReference(e, kind, id) {
   }
   const list = kind === 'character' ? imageCharacters() : imageObjects();
   const item = list.find((entry) => entry && entry.id === id);
+  // Built-in/preset Characters and Objects are never isCustomVisualItem,
+  // so this is also where "do not allow deletion of built-in/preset
+  // Characters" is enforced - there is no path to this function for one
+  // of them (no delete control is ever rendered for a non-custom item).
   if (!isCustomVisualItem(item)) return;
   const confirmed = await confirmResourceDelete(kind === 'object' ? 'object' : 'character', item.name || item.label || id);
   if (!confirmed) return;
+  // Confirm the backend delete BEFORE touching any local/cached state - a
+  // network failure or backend-side error must leave the Character/Object
+  // exactly as it was, not removed from the UI while still present on the
+  // server (which is what used to make it silently reappear on reload).
+  const deleted = await deleteVisualItemFromBackend(kind, id);
+  if (!deleted) {
+    toast(kind === 'character' ? 'Не удалось удалить персонажа' : 'Не удалось удалить объект');
+    return;
+  }
   const storageKind = kind === 'character' ? 'characters' : 'objects';
   const refs = (item.referenceImages || []).concat(item.previewUrl ? [item.previewUrl] : []).filter(Boolean);
   if (serverVisualItems[storageKind]) {
@@ -11265,11 +11335,13 @@ async function deleteVisualReference(e, kind, id) {
     setCurrentVideoReferenceImages(currentVideoReferenceImages().filter((url) => !refs.includes(url)));
   }
   if (isVideoMode() && videoState.referenceVisual && videoState.referenceVisual.id === id) videoState.referenceVisual = null;
+  // The deleted Character's own page may still be open (the Delete button
+  // lives inside it) - nothing left to show there.
+  if (kind === 'character' && activeCharacterDetailId === id) closeCharacterDetail();
   renderImageStylePanel();
   renderImageReferenceSections();
   renderImageControls();
   renderVideoReferencesPreview();
-  await deleteVisualItemFromBackend(kind, id);
   toast(kind === 'character' ? 'Персонаж удалён' : 'Объект удалён');
 }
 
@@ -12051,6 +12123,24 @@ function currentSelectedUploadImage() {
       font-size: 28px;
       line-height: 1;
       font-weight: 900;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .visual-character-delete {
+      flex: 0 0 auto;
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(255,80,80,.16);
+      color: #ff6b6b;
+      cursor: pointer;
     }
 
     .visual-character-main-media {

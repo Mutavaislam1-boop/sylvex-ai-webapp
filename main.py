@@ -5032,6 +5032,37 @@ def ensure_prostudio_table():
                 CREATE INDEX IF NOT EXISTS idx_prostudio_error_reports_user
                 ON prostudio_error_reports (telegram_id, created_at DESC)
             """)
+            # "Generated with this Character" history: one row per completed
+            # generation job that had a Character actively selected/committed
+            # at submission time. Deliberately a dedicated table (not just a
+            # metadata_json filter over prostudio_messages) so the record of
+            # what counts as "this Character's history" is unambiguous and
+            # never duplicated - the UNIQUE index on (character_id, job_id)
+            # lets the write use ON CONFLICT DO NOTHING, so a job that gets
+            # marked completed more than once (retry/race) still produces
+            # exactly one history row. Never stores a second copy of the
+            # media file - media_url always points at the same URL the
+            # completed generation itself already serves.
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS prostudio_character_history (
+                id TEXT PRIMARY KEY,
+                character_id TEXT NOT NULL,
+                telegram_id BIGINT NOT NULL,
+                job_id TEXT NOT NULL,
+                media_url TEXT NOT NULL,
+                prompt TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_prostudio_character_history_job
+            ON prostudio_character_history (character_id, job_id)
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_prostudio_character_history_lookup
+            ON prostudio_character_history (character_id, telegram_id, created_at DESC)
+            """)
             conn.commit()
             _PROSTUDIO_SCHEMA_READY = True
         except Exception:
@@ -7078,6 +7109,38 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
     return conversation_id
 
 # =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: record_character_generation_history
+# "Generated with this Character" - called once per completed generation
+# job that had a Character actively selected/committed (characterId present
+# in that request's image/video/music/voice options) at submission time.
+# Never called just because a Character page was opened or a Character was
+# merely browsed - selection only happens via the Character page's "Use
+# Character" (or the video-mode/create-flow equivalents), which is the only
+# code path that ever sets characterId on a generation request. Safe to
+# call more than once for the same job_id - the (character_id, job_id)
+# unique index makes the insert a no-op on a repeat.
+# =====================================================
+def record_character_generation_history(character_id: str, telegram_id: int, job_id: str, media_url: str, prompt: str = "", model: str = "") -> None:
+    character_id = str(character_id or "").strip()
+    job_id = str(job_id or "").strip()
+    media_url = str(media_url or "").strip()
+    if not DATABASE_URL or not character_id or not telegram_id or not job_id or not media_url:
+        return
+    try:
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO prostudio_character_history (
+                    id, character_id, telegram_id, job_id, media_url, prompt, model, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (character_id, job_id) DO NOTHING
+            """, (uuid4().hex, character_id, telegram_id, job_id, media_url, prompt or "", model or ""))
+            cursor.close()
+    except Exception as exc:
+        print("PROSTUDIO CHARACTER HISTORY RECORD FAILED:", exc)
+
+# =====================================================
 # PYTHON-БЛОК: payment_url
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -8335,12 +8398,19 @@ async def _generate_openai_character_images(name: str, gender: str, description:
         "Create a professional primary identity reference photo of the exact same person shown in the uploaded "
         f"photo. {identity} "
         "The uploaded photo may be an ordinary photo or selfie, not already a professional reference - reconstruct "
-        "it into a natural, professional-camera portrait: chest-up or waist-up framing, clear sharp focus on the "
-        "face, eyes clearly visible, good even lighting, and a clean, restrained background. You may correct poor "
-        "selfie framing, perspective, composition and lighting, but you must preserve the person's real identity "
-        "exactly: facial structure, skin tone, age, gender, eye color, hairstyle, and visible clothing "
-        "characteristics. Do not change who this person is and do not beautify them into a different-looking "
-        "person. No text, watermark, extra people, or collage."
+        "it into a polished professional portrait/fashion-shoot style photo, as if a professional photographer is "
+        "photographing this person during a photoshoot: the person poses toward the camera with direct engagement, "
+        "professional model-like facial posing, expressive and confident eyes, and a strong, intentional gaze - "
+        "face oriented appropriately toward the camera, not looking away. The expression should be natural but "
+        "photogenic, never a blank or dead expression, never a casual accidental-selfie look, and never "
+        "exaggerated or theatrical. Use close framing appropriate for an identity reference: chest-up or "
+        "waist-up, with the face and eyes sharply in focus and clearly visible, good even studio lighting, and a "
+        "clean, restrained background. You may correct poor selfie framing, perspective, composition and "
+        "lighting, but you must preserve the person's real identity exactly: facial structure, skin tone, age, "
+        "gender, eye color, hairstyle, and visible clothing characteristics. Do not change who this person is, do "
+        "not alter their facial identity, and do not beautify them into a different-looking or excessively "
+        "idealized person - the same person, simply posing confidently for the camera like a professional model. "
+        "No text, watermark, extra people, or collage."
     )
     primary_url = await _openai_character_shot(primary_prompt, [source_photo])
 
@@ -8744,10 +8814,9 @@ async def public_prostudio_character_history(resource_id: str, telegram_id: int 
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, prompt, image_url, images_json, thumbnails_json, thumb_url,
-                       metadata_json, created_at
-                FROM prostudio_messages
-                WHERE telegram_id = %s AND metadata_json->>'characterId' = %s
+                SELECT id, media_url, prompt, model, created_at
+                FROM prostudio_character_history
+                WHERE telegram_id = %s AND character_id = %s
                 ORDER BY created_at DESC, id DESC
                 LIMIT %s
             """, (telegram_id, resource_id, safe_limit))
@@ -8762,17 +8831,14 @@ async def public_prostudio_character_history(resource_id: str, telegram_id: int 
         return {"ok": True, "items": []}
 
     items = []
-    for message_id, prompt, image_url, images_json, thumbnails_json, thumb_url, metadata_json, created_at in rows:
-        images = _json_list(images_json) or ([image_url] if image_url else [])
-        thumbs = _json_list(thumbnails_json) or ([thumb_url] if thumb_url else [])
-        metadata = _json_obj(metadata_json)
+    for entry_id, media_url, prompt, model, created_at in rows:
         items.append({
-            "id": message_id,
-            "prompt": prompt or metadata.get("prompt") or "",
-            "media_url": images[0] if images else "",
-            "media_urls": images,
-            "preview_url": thumbs[0] if thumbs else (images[0] if images else ""),
-            "character_reference_ids": _json_list(metadata.get("characterReferenceIds")),
+            "id": entry_id,
+            "prompt": prompt or "",
+            "model": model or "",
+            "media_url": media_url or "",
+            "media_urls": [media_url] if media_url else [],
+            "preview_url": media_url or "",
             "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
         })
     return {"ok": True, "items": items, "character_id": resource_id}
@@ -21768,6 +21834,24 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             )
             result["conversation_id"] = await asyncio.to_thread(save_prostudio_message, payload, result)
             prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
+            # "Generated with this Character" - only when a Character was
+            # actively selected/committed on THIS request (metadata.characterId
+            # comes straight from this request's own image/video/music/voice
+            # options, never from some separately-tracked "currently selected"
+            # state), covering every surface that reaches this single
+            # completion path: the Pro Studio result, the Telegram delivery
+            # below, a plain Image-mode result, and a job the client only
+            # discovers via polling after a disconnect.
+            if metadata and metadata.get("characterId"):
+                await asyncio.to_thread(
+                    record_character_generation_history,
+                    str(metadata.get("characterId")),
+                    telegram_id,
+                    job_id,
+                    metadata.get("result_url") or "",
+                    metadata.get("prompt") or "",
+                    metadata.get("model") or "",
+                )
             update_prostudio_generation_job(
                 job_id, "completed", result=result, conversation_id=result["conversation_id"]
             )

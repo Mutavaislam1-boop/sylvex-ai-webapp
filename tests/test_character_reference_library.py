@@ -179,8 +179,7 @@ def test_set_primary_reference_rejects_unknown_reference_id(monkeypatch, charact
 
 def test_character_history_is_scoped_to_the_requesting_user(monkeypatch):
     rows = [
-        (1, "a prompt", "https://cdn.sylvex.ai/img1.png", ["https://cdn.sylvex.ai/img1.png"], [], "",
-         {"characterId": "custom_character_abc123", "characterReferenceIds": ["ref_primary", "ref_body"]}, "2026-01-01T00:00:00"),
+        ("hist1", "https://cdn.sylvex.ai/img1.png", "a prompt", "gpt-image-2", "2026-01-01T00:00:00"),
     ]
     cursor = FakeCursor(fetchall_result=rows)
     _patch_db(monkeypatch, cursor)
@@ -191,11 +190,13 @@ def test_character_history_is_scoped_to_the_requesting_user(monkeypatch):
     assert len(result["items"]) == 1
     item = result["items"][0]
     assert item["media_url"] == "https://cdn.sylvex.ai/img1.png"
-    assert item["character_reference_ids"] == ["ref_primary", "ref_body"]
+    assert item["prompt"] == "a prompt"
+    assert item["model"] == "gpt-image-2"
     # The query itself must filter by telegram_id - inspect the bound
     # params actually sent, not just trust the fake's canned rows.
     executed_sql, executed_params = cursor.executed[0]
     assert "telegram_id = %s" in executed_sql
+    assert "prostudio_character_history" in executed_sql
     assert executed_params[0] == 42
     assert executed_params[1] == "custom_character_abc123"
 
