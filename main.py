@@ -5740,6 +5740,30 @@ def heartbeat_prostudio_generation_job(job_id: str):
         prostudio_error("JOB_HEARTBEAT_FAILED", exc, job_id=job_id)
 
 
+# =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: get_prostudio_generation_job_status
+# Single-column status read, used by _run_character_creation_job to check
+# whether its own job has already been pushed to a terminal state (e.g. by
+# stale-job recovery, or an explicit cancel) before it commits a Character
+# resource - a job that is genuinely failed/cancelled must never gain a
+# Character afterwards, even though the GPT Image calls it started keep
+# running to completion regardless (nothing cancels that asyncio task).
+# =====================================================
+def get_prostudio_generation_job_status(job_id: str) -> Optional[str]:
+    if not DATABASE_URL or not job_id:
+        return None
+    try:
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM prostudio_generation_jobs WHERE id = %s", (job_id,))
+            row = cursor.fetchone()
+            cursor.close()
+        return str(row[0]) if row and row[0] is not None else None
+    except Exception as exc:
+        prostudio_error("JOB_STATUS_CHECK_FAILED", exc, job_id=job_id)
+        return None
+
+
 def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
     """Return a capacity-waiting job to the queue without consuming an attempt."""
     if not DATABASE_URL or not job_id:
@@ -8421,7 +8445,7 @@ async def _openai_character_shot(prompt: str, reference_urls: list, quality: str
     return urls[0]
 
 
-async def _generate_openai_character_images(name: str, gender: str, description: str, photos: list) -> list:
+async def _generate_openai_character_images(job_id: str, name: str, gender: str, description: str, photos: list) -> list:
     # Character creation: the user supplies exactly one ordinary source
     # photo (which may be a plain selfie, not already a studio reference),
     # and AI automatically builds the standard 4-reference set from it -
@@ -8429,6 +8453,11 @@ async def _generate_openai_character_images(name: str, gender: str, description:
     # generated against the Main identity shot (and the previously
     # generated body shot) so identity and clothing stay locked across the
     # set, instead of four independently reinterpreted generations.
+    #
+    # Each stage is individually timed and logged (CHARACTER_*_START/DONE,
+    # with job_id + elapsed_seconds) so a slow/stale-looking job can be
+    # diagnosed as "provider generation is genuinely still running" versus
+    # a SYLVEX-side save/UI delay after generation already finished.
     identity = _character_identity_prompt(name, gender, description)
     source_photo = photos[0] if photos else ""
 
@@ -8450,7 +8479,10 @@ async def _generate_openai_character_images(name: str, gender: str, description:
         "idealized person - the same person, simply posing confidently for the camera like a professional model. "
         "No text, watermark, extra people, or collage."
     )
+    primary_started = time.monotonic()
+    prostudio_debug("CHARACTER_PRIMARY_START", job_id=job_id)
     primary_url = await _openai_character_shot(primary_prompt, [source_photo])
+    prostudio_debug("CHARACTER_PRIMARY_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - primary_started, 3))
 
     # Body-reference prompt: a deliberately neutral, non-sexual technical
     # identity reference. Production evidence showed gpt-image-2 rejecting
@@ -8491,18 +8523,29 @@ async def _generate_openai_character_images(name: str, gender: str, description:
     # every body reference is generated from the already-normalized,
     # already-safety-reviewed generated Character images, never from the
     # original user upload again.
+    front_started = time.monotonic()
+    prostudio_debug("CHARACTER_FRONT_START", job_id=job_id)
     front_url = await _openai_character_shot(
         body_prompt("Front: Full-body front view, standing straight and facing directly toward the camera."),
         [primary_url],
     )
+    prostudio_debug("CHARACTER_FRONT_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - front_started, 3))
+
+    side_started = time.monotonic()
+    prostudio_debug("CHARACTER_SIDE_START", job_id=job_id)
     side_url = await _openai_character_shot(
         body_prompt("Side: Strict full-body side/profile view."),
         [primary_url, front_url],
     )
+    prostudio_debug("CHARACTER_SIDE_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - side_started, 3))
+
+    back_started = time.monotonic()
+    prostudio_debug("CHARACTER_BACK_START", job_id=job_id)
     back_url = await _openai_character_shot(
         body_prompt("Back: Strict full-body back view, facing directly away from the camera."),
         [primary_url, front_url, side_url],
     )
+    prostudio_debug("CHARACTER_BACK_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - back_started, 3))
     return [primary_url, front_url, side_url, back_url]
 
 
@@ -8626,6 +8669,32 @@ def create_character_creation_job(telegram_id: int, name: str, gender: str, desc
 
 
 # =====================================================
+# ФОНОВАЯ ЗАДАЧА: _character_creation_heartbeat_loop
+# Keeps a character_creation job's heartbeat fresh for the job's *entire*
+# lifetime - including all four sequential GPT Image calls - so a healthy,
+# still-running Character job can never be recovered as stale by
+# requeue_stale_prostudio_jobs() (which only looks at heartbeat_at).
+# Previously the only heartbeat write happened once, *after*
+# _generate_openai_character_images() had already finished, so a Character
+# creation taking longer than PROSTUDIO_STALE_PROCESSING_MINUTES (5 min by
+# default) could be wrongly marked 'failed' mid-generation, while the
+# background task kept running to completion regardless (nothing cancels
+# it) - producing a "ghost" Character that materializes later even though
+# the job itself stayed 'failed'.
+# =====================================================
+CHARACTER_CREATION_HEARTBEAT_SECONDS = 25.0  # within the requested 20-30s cadence
+
+
+async def _character_creation_heartbeat_loop(job_id: str, finished_event: asyncio.Event):
+    while not finished_event.is_set():
+        try:
+            await asyncio.wait_for(finished_event.wait(), timeout=CHARACTER_CREATION_HEARTBEAT_SECONDS)
+            return
+        except asyncio.TimeoutError:
+            await asyncio.to_thread(heartbeat_prostudio_generation_job, job_id)
+
+
+# =====================================================
 # ФОНОВАЯ ЗАДАЧА: _run_character_creation_job
 # Runs off the request/response cycle: fired via asyncio.create_task
 # right after create_character_creation_job() returns, so Character
@@ -8638,9 +8707,29 @@ def create_character_creation_job(telegram_id: int, name: str, gender: str, desc
 # Pro Studio generation job already uses.
 # =====================================================
 async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, gender: str, description: str, photos: list):
+    job_started = time.monotonic()
+    finished_event = asyncio.Event()
+    heartbeat_task = asyncio.create_task(
+        _character_creation_heartbeat_loop(job_id, finished_event),
+        name=f"character-creation-heartbeat-{job_id}",
+    )
     try:
-        images = await _generate_openai_character_images(name, gender, description, photos)
-        await asyncio.to_thread(heartbeat_prostudio_generation_job, job_id)
+        images = await _generate_openai_character_images(job_id, name, gender, description, photos)
+        # A job that has already gone truly terminal (failed/cancelled) by
+        # the time generation finishes - e.g. an explicit cancel, or (in
+        # theory, now that the heartbeat above runs continuously) a stale
+        # recovery that still slipped in - must never gain a Character
+        # resource afterwards. This is what prevents a "ghost Character"
+        # from appearing later, after the UI already received a real
+        # terminal failure for this job.
+        current_status = await asyncio.to_thread(get_prostudio_generation_job_status, job_id)
+        if current_status in {"failed", "cancelled", "canceled"}:
+            prostudio_debug(
+                "CHARACTER_RESOURCE_SAVE_SKIPPED_TERMINAL_JOB",
+                job_id=job_id,
+                status=current_status,
+            )
+            return
         # SYLVEX-only Character pipeline: GPT Image generates the reference
         # set, SYLVEX stores it, and the Character is created under its own
         # internal id - there is no provider-registration step (HeyGen or
@@ -8689,7 +8778,10 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
             "status": "ready",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
+        save_started = time.monotonic()
+        prostudio_debug("CHARACTER_RESOURCE_SAVE_START", job_id=job_id)
         saved = await asyncio.to_thread(save_prostudio_resource, telegram_id, resource)
+        prostudio_debug("CHARACTER_RESOURCE_SAVE_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - save_started, 3))
         final_resource = {**resource, **saved}
         result = {
             "ok": True,
@@ -8704,6 +8796,7 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
             "result_url": final_resource["previewUrl"],
         }
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
+        prostudio_debug("CHARACTER_JOB_COMPLETED", job_id=job_id, elapsed_seconds=round(time.monotonic() - job_started, 3))
     except Exception as exc:
         # The full diagnostic (including any provider safety-violation
         # payload fragment _openai_character_shot folded into the
@@ -8732,6 +8825,9 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
         else:
             error_payload = {"ok": False, "error": error_text[:1200]}
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None, error_payload)
+    finally:
+        finished_event.set()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
 
 
 @app.post("/api/public/prostudio/character")

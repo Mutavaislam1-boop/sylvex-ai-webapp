@@ -11405,10 +11405,16 @@ async function restorePendingCharacterCreationJob() {
     renderImageStylePanel();
     renderVideoReferencesPreview();
     toast((pending.name || 'Персонаж') + ' создан и сохранён в список персонажей');
-  } catch (err) {
-    toast(translateGenerationError(err, 'Не удалось создать персонажа'));
-  } finally {
     clearPendingCharacterCreationJob(pending.jobId);
+  } catch (err) {
+    // Only a genuine terminal outcome (failed/cancelled) retires the
+    // pending marker - a transient polling/network error leaves it in
+    // place so the next reload/init can try restoring this same job
+    // again instead of silently losing track of a still-running one.
+    if (err && (err.terminalStatus === 'failed' || err.terminalStatus === 'cancelled')) {
+      clearPendingCharacterCreationJob(pending.jobId);
+    }
+    toast(translateGenerationError(err, 'Не удалось создать персонажа'));
   }
 }
 
@@ -11448,8 +11454,20 @@ async function saveVisualCreateDraft(e) {
       try {
         const result = await waitCharacterCreationJob(jobId);
         providerResource = normalizeVisualItem(result.resource) || result.resource;
-      } finally {
         clearPendingCharacterCreationJob(jobId);
+      } catch (jobErr) {
+        // Only a genuine terminal outcome (the backend job itself ended as
+        // failed/cancelled - which, with the continuous job heartbeat fix,
+        // now means the background Character task has actually stopped
+        // and will never later create a resource) retires the pending
+        // marker. A transient polling/network error leaves it in place,
+        // so a page reload can still find and resume the still-running
+        // job via restorePendingCharacterCreationJob() instead of losing
+        // track of it.
+        if (jobErr && (jobErr.terminalStatus === 'failed' || jobErr.terminalStatus === 'cancelled')) {
+          clearPendingCharacterCreationJob(jobId);
+        }
+        throw jobErr;
       }
       generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
     } else {

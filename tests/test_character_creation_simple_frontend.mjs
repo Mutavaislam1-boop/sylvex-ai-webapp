@@ -293,7 +293,7 @@ test('restorePendingCharacterCreationJob: on completion, inserts the Character a
   assert.equal(calls.cleared, true, 'the pending marker must be cleared once the job resolves');
 });
 
-test('restorePendingCharacterCreationJob: on failure, toasts the backend error and still clears the pending marker', async () => {
+test('restorePendingCharacterCreationJob: on a genuine terminal failure, toasts the backend error and still clears the pending marker', async () => {
   const pending = {jobId: 'job-9', name: 'Islam', gender: 'male', description: '', startedAt: Date.now()};
   const jobOutcome = {ok: true, status: 'failed', job_id: 'job-9', error: {error: 'OpenAI billing limit reached'}};
   const {context, calls} = makeRestoreContext(pending, jobOutcome);
@@ -301,4 +301,126 @@ test('restorePendingCharacterCreationJob: on failure, toasts the backend error a
   assert.equal(calls.saved, null);
   assert.ok(calls.toasts.length > 0);
   assert.equal(calls.cleared, true);
+});
+
+test('restorePendingCharacterCreationJob: a transient/non-terminal error (e.g. network exhaustion) must NOT clear the pending marker', async () => {
+  // Fix: with the backend heartbeat fix, a 'failed' job status now
+  // genuinely means the background Character task stopped and will
+  // never later create a resource - so clearing the marker on that
+  // outcome is safe. But waitCharacterCreationJob() can also throw a
+  // plain network/polling error with no terminalStatus at all (the job
+  // itself may still be running server-side) - that case must leave the
+  // marker in place so the next reload/init can try restoring it again,
+  // instead of silently losing track of a still-running job.
+  const pending = {jobId: 'job-9', name: 'Islam', gender: 'male', description: '', startedAt: Date.now()};
+  const store = new Map();
+  store.set('sylvex-prostudio-character-job-42', JSON.stringify(pending));
+  const calls = {toasts: [], removed: []};
+  const sandbox = {
+    getTelegramId: () => 42,
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => { store.set(key, String(value)); },
+      removeItem: (key) => { calls.removed.push(key); store.delete(key); },
+    },
+    toast: (msg) => calls.toasts.push(msg),
+    translateGenerationError: (err, fallback) => fallback,
+    normalizeVisualItem: (x) => x,
+    visualPreviewUrl: () => '',
+    waitCharacterCreationJob: async () => { throw new Error('network unreachable'); },
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('characterCreationJobStorageKey'), context);
+  vm.runInContext(extractFunction('persistPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('readPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('restorePendingCharacterCreationJob'), context);
+
+  await vm.runInContext('restorePendingCharacterCreationJob()', context);
+
+  assert.ok(calls.toasts.length > 0, 'the user is still told something went wrong');
+  assert.equal(calls.removed.length, 0, 'the pending marker must survive a non-terminal error');
+  assert.ok(store.has('sylvex-prostudio-character-job-42'));
+});
+
+// ---- saveVisualCreateDraft: same pending-marker rule applies to the
+// Create Character modal's own save path, not just the reload-recovery
+// path ----
+
+function makeSaveDraftContext({result, error} = {}) {
+  const store = new Map();
+  const calls = { removed: [], toasts: [] };
+  const sandbox = {
+    getTelegramId: () => 42,
+    localStorage: {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => { store.set(key, String(value)); },
+      removeItem: (key) => { calls.removed.push(key); store.delete(key); },
+    },
+    visualCreateDraft: {
+      kind: 'character', name: 'Islam', gender: 'male', description: '',
+      photos: ['https://cdn.sylvex.ai/a.jpg'], saving: false, done: false, statusText: '',
+    },
+    wait: () => Promise.resolve(),
+    toast: (msg) => { calls.toasts.push(msg); return msg; },
+    renderVisualCreateModal: () => {},
+    visualCreateKindLabel: () => 'Персонаж',
+    visualCreateListLabel: () => 'персонажей',
+    translateGenerationError: (err, fallback) => fallback,
+    normalizeVisualItem: (x) => x,
+    visualPreviewUrl: (resource) => (resource && resource.previewUrl) || '',
+    createCharacterCreationJob: async () => 'job-save-1',
+    waitCharacterCreationJob: async () => {
+      if (error) throw error;
+      return result;
+    },
+    saveVisualItemToBackend: async (kind, item) => item,
+    serverVisualItems: { characters: [], objects: [] },
+    loadCustomVisualItems: () => [],
+    saveCustomVisualItems: () => {},
+    isVideoMode: () => false,
+    applyVisualReferenceToVideo: () => {},
+    applyCharacterReferenceSelection: () => {},
+    renderImageReferenceSections: () => {},
+    renderImageControls: () => {},
+    renderImageStylePanel: () => {},
+    renderVideoReferencesPreview: () => {},
+    closeVisualCreateModal: () => {},
+    closeVisualPicker: () => {},
+    closeImageStylePanel: () => {},
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('characterCreationJobStorageKey'), context);
+  vm.runInContext(extractFunction('persistPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('readPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('clearPendingCharacterCreationJob'), context);
+  vm.runInContext(extractFunction('saveVisualCreateDraft'), context);
+  return {context, calls, store};
+}
+
+test('saveVisualCreateDraft: on success, the pending marker is persisted then cleared', async () => {
+  const {context, calls, store} = makeSaveDraftContext({
+    result: {ok: true, character_id: 'custom_character_abc', resource: {id: 'custom_character_abc', previewUrl: 'https://cdn.sylvex.ai/p.png'}},
+  });
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.ok(calls.removed.includes('sylvex-prostudio-character-job-42'));
+  assert.equal(store.has('sylvex-prostudio-character-job-42'), false);
+});
+
+test('saveVisualCreateDraft: a genuine terminal job failure clears the pending marker', async () => {
+  const terminalError = new Error('safety rejection');
+  terminalError.terminalStatus = 'failed';
+  const {context, calls, store} = makeSaveDraftContext({error: terminalError});
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.ok(calls.removed.includes('sylvex-prostudio-character-job-42'));
+  assert.equal(store.has('sylvex-prostudio-character-job-42'), false);
+  assert.ok(calls.toasts.length > 0);
+});
+
+test('saveVisualCreateDraft: a transient/non-terminal error leaves the pending marker in place for reload recovery', async () => {
+  const {context, calls, store} = makeSaveDraftContext({error: new Error('network unreachable')});
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.equal(calls.removed.length, 0, 'the pending marker must survive a non-terminal error');
+  assert.ok(store.has('sylvex-prostudio-character-job-42'));
+  assert.ok(calls.toasts.length > 0, 'the user is still told something went wrong');
 });

@@ -22,7 +22,7 @@ import main
 
 @pytest.fixture(autouse=True)
 def _stub_character_pipeline(monkeypatch):
-    async def fake_generate_images(name, gender, description, photos):
+    async def fake_generate_images(job_id, name, gender, description, photos):
         return [
             "https://cdn.sylvex.ai/generated/avatar.png",
             "https://cdn.sylvex.ai/generated/ref1.png",
