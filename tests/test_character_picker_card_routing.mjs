@@ -70,6 +70,11 @@ function makeContext({ videoMode, characters, objects }) {
   vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
   vm.runInContext(extractFunction('characterPendingCardDomId'), context);
   vm.runInContext(extractFunction('characterCreationPendingCardHtml'), context);
+  vm.runInContext(extractFunction('objectCardPendingStatus'), context);
+  vm.runInContext(extractFunction('objectCreationStageLabel'), context);
+  vm.runInContext(extractFunction('objectJobIdFromCardId'), context);
+  vm.runInContext(extractFunction('objectPendingCardDomId'), context);
+  vm.runInContext(extractFunction('objectCreationPendingCardHtml'), context);
   vm.runInContext(extractFunction('renderImageStylePanel'), context);
   return { context, grid };
 }
