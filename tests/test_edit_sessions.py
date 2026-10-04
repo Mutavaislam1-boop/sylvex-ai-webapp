@@ -93,3 +93,26 @@ def test_unauthenticated_history_is_not_available(monkeypatch):
     with pytest.raises(HTTPException) as error:
         asyncio.run(main.public_edit_sessions(SimpleNamespace(state=SimpleNamespace())))
     assert error.value.status_code == 401
+
+
+def test_website_can_preflight_authenticated_edit_history_save():
+    # Import a fresh app with its real website CORS configuration. ASGITransport
+    # does not start workers or open the database, and no network is involved.
+    import subprocess
+    import sys
+    code = '''
+import os, asyncio
+os.environ['WEBSITE_ORIGINS'] = 'https://sylvex.ai'
+import httpx, main
+async def check():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url='https://api.sylvex.ai') as client:
+        response = await client.options('/api/public/prostudio/edit-sessions/edit-example', headers={
+            'Origin': 'https://sylvex.ai', 'Access-Control-Request-Method': 'PUT',
+            'Access-Control-Request-Headers': 'Content-Type'})
+        assert response.status_code == 200, response.text
+        assert response.headers['access-control-allow-origin'] == 'https://sylvex.ai'
+        assert response.headers['access-control-allow-credentials'] == 'true'
+asyncio.run(check())
+'''
+    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
