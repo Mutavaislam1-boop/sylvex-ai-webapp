@@ -504,3 +504,75 @@ def test_lighting_legacy_controls_remain_supported():
     lighting = edit.lighting_parameters({'horizontal': -100, 'vertical': 100, 'brightness': None})
     assert lighting['layers'][0] == {'horizontal': 270, 'vertical': 90, 'brightness': 1, 'color': '#ffffff', 'enabled': True}
     assert 'azimuth 270 degrees (left), elevation 90 degrees' in edit.lighting_prompt(lighting)
+
+
+@pytest.mark.parametrize('mode,settings', [
+    ('camera', {'editWorkspaceCamera': {'horizontal': 180, 'vertical': 25, 'zoom': 5}}),
+    ('lighting', {'editWorkspaceLight': {'layers': [{'horizontal': 45, 'vertical': 30}]}}),
+    ('edit', {}), ('translate', {'editWorkspaceTranslateLanguage': 'English'}),
+    ('expand', {'editWorkspaceExpand': {'left': 16, 'right': 16, 'top': 0, 'bottom': 0}}),
+])
+def test_transparent_source_requests_true_alpha_without_changing_model(provider, mode, settings):
+    request = payload(mode, **settings)
+    request['image_options']['editWorkspaceSourceUrl'] = uri(image_bytes(color=(80, 40, 120, 0)))
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok']
+    data = provider[0][0][1]['data']
+    assert data['background'] == 'transparent' and data['output_format'] == 'png'
+    assert data['model'] == 'gpt-image-2.5-sunburst'
+    assert 'true alpha transparency' in data['prompt']
+
+
+def test_explicit_background_replacement_can_add_a_background(provider):
+    request = payload('background', editWorkspaceBackgroundMode='replace')
+    request['image_options']['editWorkspaceSourceUrl'] = uri(image_bytes(color=(80, 40, 120, 0)))
+    assert asyncio.run(main.generate_edit_workspace_image(request))['ok']
+    assert 'background' not in provider[0][0][1]['data']
+
+
+def test_upscale_and_resize_preserve_transparent_and_partial_alpha():
+    source = Image.new('RGBA', (8, 8), (30, 60, 90, 0))
+    source.putpixel((3, 3), (30, 60, 90, 128))
+    source.putpixel((4, 4), (30, 60, 90, 255))
+    raw = edit.png(source)
+    assert edit.has_transparency(raw)
+    assert not edit.has_transparency(image_bytes())
+    for output in [edit.preserve_upscale_alpha(raw, image_bytes((16, 16))), edit.resize_image(raw, (16, 16))]:
+        image = Image.open(io.BytesIO(output))
+        assert image.mode == 'RGBA' and image.size == (16, 16)
+        assert image.getpixel((0, 0))[3] == 0
+        assert 0 < image.getpixel((6, 6))[3] < 255
+
+
+def test_edit_upscale_restores_alpha_when_provider_returns_opaque_pixels(monkeypatch):
+    from test_enhance_photo_tool import _apply_success_mocks, TOPAZ_RESULT_URL
+    _apply_success_mocks(monkeypatch)
+    raw_source = image_bytes((8, 8), (80, 40, 120, 0))
+    original_read = main._read_image_bytes_for_generation
+    monkeypatch.setattr(main, '_read_image_bytes_for_generation',
+                        lambda url: image_bytes((16, 16)) if url == TOPAZ_RESULT_URL else original_read(url))
+    stored = []
+    def put(raw, key, content_type):
+        stored.append((raw, content_type))
+        return 'https://cdn.example.com/' + key
+    monkeypatch.setattr(main, 'storage_put_bytes', put)
+    monkeypatch.setattr(main, 'attach_image_thumbnails', lambda result: result)
+    request = payload('upscale', editWorkspaceUpscale={'width': 16, 'height': 16})
+    request['image_options']['editWorkspaceSourceUrl'] = uri(raw_source)
+    result = asyncio.run(main.generate_edit_workspace_image(request))
+    assert result['ok'] and result['provider'] == 'topaz'
+    assert stored[0][1] == 'image/png'
+    image = Image.open(io.BytesIO(stored[0][0]))
+    assert image.size == (16, 16) and image.getchannel('A').getextrema() == (0, 0)
+
+
+def test_png_upload_keeps_original_transparency(monkeypatch):
+    from starlette.datastructures import UploadFile, Headers
+    raw = image_bytes(color=(80, 40, 120, 0));stored = []
+    def put(content, key, mime):
+        stored.append(content)
+        return 'https://cdn.example.com/' + key
+    monkeypatch.setattr(main, 'storage_put_bytes', put)
+    upload = UploadFile(io.BytesIO(raw), filename='isolated.png', headers=Headers({'content-type': 'image/png'}))
+    result = asyncio.run(main.public_prostudio_upload_media(upload, 'image'))
+    assert result['ok'] and stored == [raw]

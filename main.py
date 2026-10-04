@@ -35,6 +35,7 @@ from services.audio_router import audio_generation, elevenlabs_clone_voice_from_
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
+from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
@@ -89,7 +90,7 @@ if _website_origins:
         CORSMiddleware,
         allow_origins=_website_origins,
         allow_credentials=True,
-        allow_methods=['GET', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
+        allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allow_headers=['*'],
     )
 
@@ -4814,6 +4815,13 @@ def ensure_prostudio_table():
             # Release the schema lock on rollback as well as commit; a failed
             # migration must not leave a session lock on a pooled connection.
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", (742193601,))
+            cursor.execute("""CREATE TABLE IF NOT EXISTS prostudio_edit_sessions (
+                telegram_id BIGINT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+                preview_url TEXT NOT NULL DEFAULT '', result_count INTEGER NOT NULL DEFAULT 0,
+                state_json JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (telegram_id, id))""")
+            cursor.execute("""CREATE INDEX IF NOT EXISTS idx_edit_sessions_owner_updated
+                ON prostudio_edit_sessions (telegram_id, updated_at DESC)""")
             cursor.execute("""
         CREATE TABLE IF NOT EXISTS prostudio_messages (
             id SERIAL PRIMARY KEY,
@@ -7231,6 +7239,46 @@ def payment_url(pack_id: str, method: str = "paypal") -> str:
 # Маршрут FastAPI: @app.get("/api/public/prostudio/conversations")
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
+def _edit_sessions_owner(request: Request):
+    owner = int(getattr(request.state, "telegram_id", 0) or 0)
+    if not owner:
+        raise HTTPException(status_code=401, detail="authentication_required")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="edit_history_unavailable")
+    return owner
+
+
+@app.get("/api/public/prostudio/edit-sessions")
+async def public_edit_sessions(request: Request, offset: int = 0):
+    owner = _edit_sessions_owner(request)
+    await asyncio.to_thread(ensure_prostudio_table)
+    items = await asyncio.to_thread(edit_sessions_service.list_sessions, lambda: db_connection(DATABASE_URL), owner, offset)
+    return {"ok": True, "sessions": items, "hasMore": len(items) == 50}
+
+
+@app.get("/api/public/prostudio/edit-sessions/{session_id}")
+async def public_edit_session(request: Request, session_id: str):
+    owner = _edit_sessions_owner(request)
+    await asyncio.to_thread(ensure_prostudio_table)
+    state = await asyncio.to_thread(edit_sessions_service.get, lambda: db_connection(DATABASE_URL), owner, session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="edit_session_not_found")
+    return {"ok": True, "state": state}
+
+
+@app.put("/api/public/prostudio/edit-sessions/{session_id}")
+async def public_save_edit_session(request: Request, session_id: str):
+    owner = _edit_sessions_owner(request)
+    data = await request.json()
+    try:
+        edit_sessions_service.validate_session(session_id, data.get("state") if isinstance(data, dict) else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    await asyncio.to_thread(ensure_prostudio_table)
+    await asyncio.to_thread(edit_sessions_service.save, lambda: db_connection(DATABASE_URL), owner, session_id, data["state"])
+    return {"ok": True}
+
+
 @app.get("/api/public/prostudio/conversations")
 # =====================================================
 # PYTHON-БЛОК: public_prostudio_conversations
@@ -14782,7 +14830,16 @@ async def generate_enhance_photo_image(payload: dict) -> dict:
     # Topaz's download URL is temporary - persist it to durable SYLVEX
     # storage right now, synchronously, rather than relying on the generic
     # background persistence pass, which could run after the URL expires.
-    persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
+    if edit_upscale and edit_workspace_service.has_transparency(source_bytes):
+        try:
+            result_bytes = _read_image_bytes_for_generation(result_url)
+            final_png = edit_workspace_service.preserve_upscale_alpha(source_bytes, result_bytes)
+            persisted_url = storage_put_bytes(final_png, generated_key("images", f"edit_{uuid4().hex}.png"), "image/png")
+        except Exception as exc:
+            prostudio_error("EDIT_UPSCALE_ALPHA_PERSIST_FAILED", exc)
+            return {"ok": False, "error": "Не удалось сохранить прозрачное изображение."}
+    else:
+        persisted_url = _persist_remote_media_url(result_url, "images", provider="topaz")
 
     if not storage_key_from_url(persisted_url):
         print("ENHANCE PHOTO STORAGE PERSIST FAILED:", persisted_url)
@@ -16718,6 +16775,12 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         prompt = lighting_instruction = edit_workspace_service.lighting_prompt(light)
     else:
         prompt = edit_workspace_service.instruction({**opts, "editWorkspaceMode": mode})
+    preserve_transparency = edit_workspace_service.has_transparency(source_png) and not (
+        mode == "background" and opts.get("editWorkspaceBackgroundMode") == "replace")
+    if preserve_transparency:
+        prompt += ("\nThe source has a transparent background. Keep the edited subject isolated on true alpha transparency. "
+                   "Preserve translucent details and fine edges. Do not add a backdrop, floor, solid color, or checkerboard. "
+                   "Any newly visible empty space must remain transparent.")
     edit_source = source_png
     api_mask = b""
     try:
@@ -16741,7 +16804,7 @@ async def generate_edit_workspace_image(payload: dict) -> dict:
         files.append(("mask", ("mask.png", api_mask, "image/png")))
     request_data = {"model": model, "prompt": prompt, "size": edit_workspace_service.output_size(output_dimensions),
                     "quality": "high", "n": "1", "output_format": "png"}
-    if mode == "background" and opts.get("editWorkspaceBackgroundMode") == "transparent":
+    if preserve_transparency or (mode == "background" and opts.get("editWorkspaceBackgroundMode") == "transparent"):
         request_data["background"] = "transparent"
     if mode == "camera":
         prostudio_debug("OPENAI_CAMERA_REQUEST", endpoint=endpoint, provider_model=model, camera=camera)
