@@ -8019,16 +8019,32 @@ async function generateQuickImageDetail(e) {
   document.querySelectorAll('#quickImageDetailFields [data-quick-image-field]').forEach((field) => { if (String(field.value || '').trim()) customValues[field.dataset.quickImageField] = String(field.value).trim(); });
   Object.assign(customValues, state.extraUploads || {});
   if (state.source === 'quick') switchView('tools');
-  updateComposerMode('image'); imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
+  updateComposerMode('image');
+  // Catalog-driven generation (References/Styles/Popular/Objects) always
+  // runs on GPT Image 2: the uploaded photo is the main source/content,
+  // the selected catalog image is the visual/style/reference guide -
+  // syncImageModelOptionDefaults() (called inside renderImageControls()
+  // below, keyed off this modelId) corrects size/quality for it the same
+  // way the manual model picker does.
+  imageState.modelId = 'gpt_image_2';
+  imageState.uploadedImageUrls = [state.uploadedUrl]; imageState.referenceImageUrls = [state.uploadedUrl]; imageState.referenceImageUrl = state.uploadedUrl;
   imageState.referenceSourceByUrl = Object.assign({}, imageState.referenceSourceByUrl || {}, { [state.uploadedUrl]: 'upload' });
   let prompt = extra;
   if (item.kind === 'styles') {
     imageState.style = item.styleId || item.id || 'auto';
     const userImageReferences = [state.uploadedUrl].concat(Object.values(state.extraUploads || {})).filter(Boolean);
-    imageState.referenceImageUrls = userImageReferences;
+    // Built-in Pro Studio styles (item.styleId set) already apply through
+    // the existing imageState.style mechanism - leave that path untouched.
+    // Catalog-folder styles (no styleId) have no such mechanism, so the
+    // style's own template image and prompt (if any) are sent to GPT
+    // Image 2 as an explicit visual/style reference instead, the same way
+    // the References/Popular/Objects branches already do below.
+    const isBuiltInStyle = !!item.styleId;
+    imageState.referenceImageUrls = isBuiltInStyle ? userImageReferences : [item.url].concat(userImageReferences);
     imageState.uploadedImageUrls = userImageReferences.slice();
     userImageReferences.forEach((url) => { imageState.referenceSourceByUrl[url] = 'upload'; });
-    prompt = extra;
+    if (!isBuiltInStyle) imageState.referenceSourceByUrl[item.url] = 'history';
+    prompt = [item.prompt || '', extra].filter(Boolean).join('\n\n');
     const customization = Object.entries(customValues).filter(([key]) => !state.extraUploads || !state.extraUploads[key]).map(([key,value]) => key + ': ' + value).join('\n');
     if (customization) prompt += '\n\nUSER CUSTOMIZATION (use these values exactly):\n' + customization;
   } else if (item.kind === 'objects') {
