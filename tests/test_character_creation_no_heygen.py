@@ -30,7 +30,7 @@ import main
 
 @pytest.fixture
 def stub_image_generation(monkeypatch):
-    async def fake_generate_images(name, gender, description, photos):
+    async def fake_generate_images(job_id, name, gender, description, photos):
         return [
             "https://cdn.sylvex.ai/generated/primary.png",
             "https://cdn.sylvex.ai/generated/front.png",

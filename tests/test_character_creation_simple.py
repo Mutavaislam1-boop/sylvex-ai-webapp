@@ -57,7 +57,7 @@ def test_generate_character_images_chains_primary_through_body_shots(monkeypatch
     monkeypatch.setattr(main, "_openai_character_shot", fake_shot)
 
     photos = ["https://cdn.sylvex.ai/uploads/source.jpg"]
-    result = asyncio.run(main._generate_openai_character_images("Islam", "male", "tall, athletic", photos))
+    result = asyncio.run(main._generate_openai_character_images("job-chain", "Islam", "male", "tall, athletic", photos))
 
     assert result == [
         "https://cdn.sylvex.ai/shot_1.png",
@@ -121,7 +121,7 @@ def test_generate_character_images_works_with_no_optional_text(monkeypatch):
         return "https://cdn.sylvex.ai/shot.png"
 
     monkeypatch.setattr(main, "_openai_character_shot", fake_shot)
-    result = asyncio.run(main._generate_openai_character_images("Nova", "female", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    result = asyncio.run(main._generate_openai_character_images("job-nova", "Nova", "female", "", ["https://cdn.sylvex.ai/a.jpg"]))
     assert len(result) == 4
     # No description text - the identity sentence still names the
     # character, just without extra guidance appended.
@@ -140,7 +140,7 @@ def test_primary_prompt_asks_for_a_confident_professional_model_pose(monkeypatch
         return "https://cdn.sylvex.ai/shot.png"
 
     monkeypatch.setattr(main, "_openai_character_shot", fake_shot)
-    asyncio.run(main._generate_openai_character_images("Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._generate_openai_character_images("job-pose", "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
     primary_prompt = calls[0]
 
     for phrase in (
@@ -237,7 +237,7 @@ def test_create_character_creation_job_inserts_an_already_processing_row(monkeyp
 
 @pytest.fixture
 def stub_character_pipeline(monkeypatch):
-    async def fake_generate_images(name, gender, description, photos):
+    async def fake_generate_images(job_id, name, gender, description, photos):
         return [
             "https://cdn.sylvex.ai/generated/primary.png",
             "https://cdn.sylvex.ai/generated/front.png",
@@ -302,7 +302,7 @@ def test_run_character_creation_job_keeps_source_photo_only_as_metadata(stub_cha
 
 
 def test_run_character_creation_job_marks_failed_on_generation_error(monkeypatch):
-    async def failing_generate(name, gender, description, photos):
+    async def failing_generate(job_id, name, gender, description, photos):
         raise RuntimeError("OpenAI character image generation failed (status=500): boom")
 
     monkeypatch.setattr(main, "_generate_openai_character_images", failing_generate)
@@ -319,7 +319,7 @@ def test_run_character_creation_job_marks_failed_on_generation_error(monkeypatch
 
 
 def test_run_character_creation_job_translates_billing_limit_errors(monkeypatch):
-    async def failing_generate(name, gender, description, photos):
+    async def failing_generate(job_id, name, gender, description, photos):
         raise RuntimeError("OpenAI billing hard limit has been reached")
 
     monkeypatch.setattr(main, "_generate_openai_character_images", failing_generate)
@@ -339,7 +339,7 @@ def test_run_character_creation_job_translates_safety_violation_errors_into_a_cl
     # the user-facing error must be a clean, generic message - never the
     # raw provider diagnostic/status/payload fragment that
     # _openai_character_shot folds into the exception.
-    async def failing_generate(name, gender, description, photos):
+    async def failing_generate(job_id, name, gender, description, photos):
         raise RuntimeError(
             "OpenAI character image generation failed (status=400, model=gpt-image-2): "
             "safety_violations=[sexual]"
@@ -360,6 +360,137 @@ def test_run_character_creation_job_translates_safety_violation_errors_into_a_cl
     assert "status=400" not in error["error"]
     assert "sexual" not in error["error"].lower()
     assert len(error["error"]) > 0
+
+
+# ---- Continuous heartbeat + terminal-job guard (stale status / delayed
+# "ghost Character" appearance fix) ----
+
+def test_run_character_creation_job_heartbeats_continuously_during_generation(monkeypatch):
+    # Production bug: the only heartbeat write happened once, *after*
+    # _generate_openai_character_images() had already finished - so a
+    # Character creation taking longer than the stale-recovery threshold
+    # could be wrongly marked 'failed' by requeue_stale_prostudio_jobs()
+    # while all four GPT Image calls were still genuinely running. The fix
+    # is a background heartbeat loop that ticks for the job's whole
+    # lifetime. Shrink the tick interval so this test proves multiple
+    # ticks happen during a still-running generation, without a real
+    # 20-30s sleep.
+    monkeypatch.setattr(main, "CHARACTER_CREATION_HEARTBEAT_SECONDS", 0.01)
+    heartbeats = []
+    monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: heartbeats.append(job_id))
+    monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: resource)
+    monkeypatch.setattr(main, "get_prostudio_generation_job_status", lambda job_id: "processing")
+    updates = _capture_job_updates(monkeypatch)
+
+    async def slow_generate(job_id, name, gender, description, photos):
+        await asyncio.sleep(0.08)
+        return [
+            "https://cdn.sylvex.ai/generated/primary.png",
+            "https://cdn.sylvex.ai/generated/front.png",
+            "https://cdn.sylvex.ai/generated/side.png",
+            "https://cdn.sylvex.ai/generated/back.png",
+        ]
+
+    monkeypatch.setattr(main, "_generate_openai_character_images", slow_generate)
+
+    asyncio.run(main._run_character_creation_job("job-heartbeat", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+
+    # Several ticks happened *while generation was still running* - not
+    # just one heartbeat fired after it already finished.
+    assert len(heartbeats) >= 2
+    assert all(job_id == "job-heartbeat" for job_id in heartbeats)
+    assert updates[0][1] == "completed"
+
+
+def test_run_character_creation_job_skips_resource_save_when_job_already_terminal(monkeypatch):
+    # If the job has already gone genuinely terminal (failed/cancelled) by
+    # the time all four GPT Image calls finish, the Character resource
+    # must never be created. This is what prevents a "ghost Character"
+    # from materializing later - via the ordinary catalog refresh - after
+    # the UI already received a real terminal failure for this job.
+    save_calls = []
+    monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: save_calls.append(resource) or resource)
+    monkeypatch.setattr(main, "get_prostudio_generation_job_status", lambda job_id: "failed")
+    monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: None)
+
+    async def fake_generate(job_id, name, gender, description, photos):
+        return [
+            "https://cdn.sylvex.ai/generated/primary.png",
+            "https://cdn.sylvex.ai/generated/front.png",
+            "https://cdn.sylvex.ai/generated/side.png",
+            "https://cdn.sylvex.ai/generated/back.png",
+        ]
+
+    monkeypatch.setattr(main, "_generate_openai_character_images", fake_generate)
+    updates = _capture_job_updates(monkeypatch)
+
+    asyncio.run(main._run_character_creation_job("job-terminal", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+
+    assert save_calls == []
+    # The already-terminal job row is left exactly as it was - this
+    # function never re-affirms or overwrites it.
+    assert updates == []
+
+
+def test_run_character_creation_job_cancelled_status_also_blocks_resource_save(monkeypatch):
+    save_calls = []
+    monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: save_calls.append(resource) or resource)
+    monkeypatch.setattr(main, "get_prostudio_generation_job_status", lambda job_id: "cancelled")
+    monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: None)
+
+    async def fake_generate(job_id, name, gender, description, photos):
+        return [
+            "https://cdn.sylvex.ai/generated/primary.png",
+            "https://cdn.sylvex.ai/generated/front.png",
+            "https://cdn.sylvex.ai/generated/side.png",
+            "https://cdn.sylvex.ai/generated/back.png",
+        ]
+
+    monkeypatch.setattr(main, "_generate_openai_character_images", fake_generate)
+    updates = _capture_job_updates(monkeypatch)
+
+    asyncio.run(main._run_character_creation_job("job-cancelled", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+
+    assert save_calls == []
+    assert updates == []
+
+
+def test_run_character_creation_job_full_regression_long_running_completes_exactly_once(monkeypatch):
+    # The exact production scenario: a Character job runs longer than the
+    # stale-recovery threshold; stale recovery runs during it (checked via
+    # get_prostudio_generation_job_status staying 'processing' - i.e. the
+    # continuous heartbeat kept it from ever being marked failed); all 4
+    # references finish; the Character resource is created exactly once;
+    # the job becomes 'completed'; and the result handed back is the full
+    # resource the frontend needs to show the Character immediately - no
+    # second, later-appearing Character and no 'failed' status anywhere.
+    monkeypatch.setattr(main, "CHARACTER_CREATION_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(main, "get_prostudio_generation_job_status", lambda job_id: "processing")
+    save_calls = []
+    monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: save_calls.append(resource) or resource)
+    monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: None)
+    updates = _capture_job_updates(monkeypatch)
+
+    async def slow_generate(job_id, name, gender, description, photos):
+        await asyncio.sleep(0.05)
+        return [
+            "https://cdn.sylvex.ai/generated/primary.png",
+            "https://cdn.sylvex.ai/generated/front.png",
+            "https://cdn.sylvex.ai/generated/side.png",
+            "https://cdn.sylvex.ai/generated/back.png",
+        ]
+
+    monkeypatch.setattr(main, "_generate_openai_character_images", slow_generate)
+
+    asyncio.run(main._run_character_creation_job("job-long", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+
+    assert len(save_calls) == 1
+    assert len(updates) == 1
+    job_id, status, result, error = updates[0]
+    assert status == "completed"
+    assert error is None
+    assert result["ok"] is True
+    assert result["resource"]["id"] == save_calls[0]["id"]
 
 
 # ---- public_prostudio_create_character(): validation + 202 response ----
