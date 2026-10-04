@@ -1489,6 +1489,8 @@ const FALLBACK_PRESET_CHARACTERS = [
   ['character_luca', 'Luca', 'male'],
   ['character_hiro', 'Hiro', 'male'],
   ['character_sofia', 'Sofia', 'female'],
+  ['character_amina', 'Amina', 'female'],
+  ['character_yuna', 'Yuna', 'female'],
 ].map((item, index) => normalizePresetCatalogItem({
   id: item[0],
   name: item[1],
@@ -6922,12 +6924,152 @@ function openPhotoCatalogTool(e, id) { closePhotoCatalog(e); openPhotoToolModal(
 
 function createEditWorkspaceState() {
   return {mode:'edit',sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
-    width:0,height:0,showBefore:false,history:[],maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
+    width:0,height:0,showBefore:false,history:[],chain:[],activeNodeId:'',nodeSequence:0,maskStrokes:[],maskRedo:[],camera:{horizontal:0,vertical:0,zoom:5},
     light:{coordinateSystem:'spherical-degrees',layers:[{horizontal:45,vertical:30,brightness:1,color:'#ffffff',enabled:true}],active:0},
     brushSize:24,brushMode:'replace',resize:{width:1024,height:1024,locked:true},expand:{left:128,right:128,top:128,bottom:128},
     backgroundMode:'replace',translateLanguage:'',zoom:100,viewport:{x:0,y:0},viewNeedsFit:true,
     upscaleEstimate:null,
     upscale:{model:'Topaz',scale:2,width:2048,height:2048,sharpness:20,denoise:20,subject:'All',faceEnhancement:true,strength:80,creativity:0,modelStrength:80,fixCompression:0}};
+}
+// Chain geometry is presentation-only. Source pixels, masks and provider
+// parameters continue to use their original dimensions and URLs.
+function editWorkspacePreviewSize(width,height,zoom=100) {
+  const scale=240/Math.max(width||1,height||1)/(zoom/100);
+  return {slotWidth:Math.max(80/(zoom/100),(width||1)*scale),slotHeight:Math.max(80/(zoom/100),(height||1)*scale)};
+}
+function ensureEditWorkspaceChain() {
+  const s=editWorkspaceState;
+  let active=s.chain.find(node=>node.id===s.activeNodeId);
+  if(active||!s.sourceUrl)return active;
+  active={id:'edit-node-'+(++s.nodeSequence),parentId:'',status:'ready',mode:'source',url:s.sourceUrl,preview:s.sourcePreview||s.sourceUrl,jobId:s.jobId,width:s.width,height:s.height,x:0,y:0,...editWorkspacePreviewSize(s.width,s.height)};
+  s.chain.push(active);s.activeNodeId=active.id;return active;
+}
+function beginEditWorkspaceChainResult() {
+  const s=editWorkspaceState,parent=ensureEditWorkspaceChain(),last=s.chain.at(-1);
+  let width=s.width,height=s.height;
+  if(s.mode==='resize'||s.mode==='upscale')({width,height}=s[s.mode]);
+  if(s.mode==='expand'){width+=s.expand.left+s.expand.right;height+=s.expand.top+s.expand.bottom;}
+  // A failed attempt has no result; retry in its existing connected slot.
+  if(last?.status==='failed'&&last.parentId===parent.id){
+    Object.assign(last,{status:'pending',mode:s.mode});return last;
+  }
+  const size=editWorkspacePreviewSize(width,height,s.zoom),scale=s.zoom/100;
+  const root=document.getElementById('editWorkspace');
+  root?._editStopChainMotion?.();
+  if(root)root._editChainMotion={id:parent.id,from:{x:parent.x,y:parent.y},start:null};
+  parent.x+=28/scale;
+  // Append to the right of all retained cards, including cards moved by hand
+  // and descendants kept after Undo. The link always refers to the actual input.
+  const right=Math.max(...s.chain.map(node=>node.x+node.slotWidth/2));
+  const node={id:'edit-node-'+(++s.nodeSequence),parentId:parent.id,status:'pending',mode:s.mode,url:'',preview:'',jobId:'',width:0,height:0,
+    x:right+72/scale+size.slotWidth/2,y:parent.y,...size};
+  s.chain.push(node);
+  if(root)root._editAdvance=true;
+  return node;
+}
+function editWorkspaceChainPath(parent,child) {
+  // Pick the facing edges so links remain attached even after a card is
+  // dragged above, below or to the other side of its source.
+  const port=(node,towards)=>{
+    const dx=towards.x-node.x,dy=towards.y-node.y;
+    const horizontal=Math.abs(dx)*node.slotHeight>=Math.abs(dy)*node.slotWidth;
+    const direction=(horizontal?dx:dy)<0?-1:1;
+    return {x:node.x+(horizontal?direction*(node.slotWidth/2+6):0),y:node.y+(horizontal?0:direction*(node.slotHeight/2+6)),dx:horizontal?direction:0,dy:horizontal?0:direction};
+  };
+  const a=port(parent,child),b=port(child,parent),bend=Math.max(24,Math.min(160,Math.hypot(b.x-a.x,b.y-a.y)*.45));
+  return `M ${a.x} ${a.y} C ${a.x+a.dx*bend} ${a.y+a.dy*bend}, ${b.x+b.dx*bend} ${b.y+b.dy*bend}, ${b.x} ${b.y}`;
+}
+function paintEditWorkspaceChain(root,time) {
+  const s=editWorkspaceState,motion=root._editChainMotion;
+  let progress=1;
+  if(motion){
+    if(time!==undefined&&motion.start===null)motion.start=time;
+    if(time!==undefined)motion.time=time;
+    progress=motion.start===null?0:Math.min(1,(motion.time-motion.start)/550);
+    if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)progress=1;
+  }
+  const positions=new Map(s.chain.map(node=>{
+    const position=motion?.id===node.id?{...node,x:motion.from.x+(node.x-motion.from.x)*(1-(1-progress)**3),y:motion.from.y+(node.y-motion.from.y)*(1-(1-progress)**3)}:node;
+    const card=root.querySelector('[data-chain-node="'+node.id+'"]');
+    if(card){card.style.transform=`translate(${position.x-node.slotWidth/2}px,${position.y-node.slotHeight/2}px)`;card._editPosition={x:position.x,y:position.y};}
+    return [node.id,position];
+  }));
+  s.chain.forEach(node=>{
+    const parent=positions.get(node.parentId),path=root.querySelector('[data-chain-link="'+node.id+'"]');
+    if(parent&&path)path.setAttribute('d',editWorkspaceChainPath(parent,positions.get(node.id)));
+  });
+  if(motion&&progress<1&&!root._editChainFrame){
+    root._editChainFrame=requestAnimationFrame(now=>{root._editChainFrame=0;if(root.isConnected)paintEditWorkspaceChain(root,now);});
+  }else if(progress===1)root._editChainMotion=null;
+}
+function stopEditWorkspaceChainMotion(root) {
+  if(root._editChainFrame){cancelAnimationFrame(root._editChainFrame);root._editChainFrame=0;}
+  const motion=root._editChainMotion;
+  if(motion){
+    const node=editWorkspaceState.chain.find(item=>item.id===motion.id),card=root.querySelector('[data-chain-node="'+motion.id+'"]');
+    if(node&&card?._editPosition)Object.assign(node,card._editPosition);
+  }
+  root._editChainMotion=null;
+}
+function editWorkspaceChainLabel(node,index) {
+  return index===0?'Исходный референс':index+' · '+(EDIT_WORKSPACE_MODES.find(item=>item[0]===node.mode)?.[1]||'Результат');
+}
+function syncEditWorkspaceChain(root) {
+  const s=editWorkspaceState,world=root.querySelector('.edit-workspace-world');
+  ensureEditWorkspaceChain();
+  if(!s.chain.length){
+    if(!world.querySelector('.edit-workspace-upload'))world.innerHTML='<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Загрузите фото или перетащите его сюда</b><small>JPEG, PNG, WebP · до 50 MB</small></button>';
+    return;
+  }
+  world.querySelector('.edit-workspace-upload')?.remove();
+  world.querySelectorAll('[data-chain-node]').forEach(el=>{if(!s.chain.some(node=>node.id===el.dataset.chainNode))el.remove();});
+  let lines=world.querySelector('.edit-chain-lines');
+  if(!lines){
+    lines=document.createElementNS('http://www.w3.org/2000/svg','svg');lines.setAttribute('class','edit-chain-lines');lines.setAttribute('aria-hidden','true');
+    lines.innerHTML='<defs><marker id="edit-chain-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1 L7 4 L1 7"/></marker></defs>';
+    world.prepend(lines);
+  }
+  lines.querySelectorAll('[data-chain-link]').forEach(el=>{if(!s.chain.some(node=>node.id===el.dataset.chainLink))el.remove();});
+  const active=s.chain.find(node=>node.id===s.activeNodeId),focusedId=s.showBefore?active?.parentId:s.activeNodeId;
+  s.chain.forEach((node,index)=>{
+    let card=world.querySelector('[data-chain-node="'+node.id+'"]');
+    if(!card){
+      card=document.createElement('article');card.className='edit-chain-node';card.dataset.chainNode=node.id;
+      card.innerHTML='<div class="edit-workspace-frame"><div class="edit-chain-wait" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="edit-chain-caption"></div>';
+      if(node.status==='pending'){
+        card.classList.add('is-entering');
+        card.addEventListener('animationend',event=>{if(event.animationName==='edit-chain-enter')card.classList.remove('is-entering');});
+      }
+      world.appendChild(card);
+    }
+    card.dataset.status=node.status;card.dataset.active=String(node.id===focusedId);card.setAttribute('aria-busy',String(node.status==='pending'));
+    card.style.width=node.slotWidth+'px';card.style.height=node.slotHeight+'px';
+    card.tabIndex=0;card.setAttribute('aria-description','Перетащите изображение или используйте стрелки для перемещения. Пробел и перетаскивание перемещают весь холст.');
+    const label=editWorkspaceChainLabel(node,index);card.setAttribute('aria-label',label+(node.status==='pending'?' — генерация':node.status==='failed'?' — не удалось создать изображение':''));card.querySelector('.edit-chain-caption').textContent=label;
+    const frame=card.querySelector('.edit-workspace-frame');
+    let img=frame.querySelector('.edit-workspace-image');
+    if(node.status==='ready'&&!img){
+      img=document.createElement('img');img.className='edit-workspace-image';img.alt=label;img.draggable=false;card.dataset.media='loading';frame.appendChild(img);img.src=node.preview||node.url;
+    }
+    let failure=frame.querySelector('.edit-chain-failure');
+    if(node.status==='failed'&&!failure){failure=document.createElement('div');failure.className='edit-chain-failure';failure.innerHTML='<b>Не удалось создать изображение</b><span>Повторите запуск в панели инструмента.</span>';frame.appendChild(failure);}
+    if(node.status!=='failed')failure?.remove();
+    let mask=frame.querySelector('canvas');
+    const needsMask=node.id===s.activeNodeId&&s.mode==='retouch'&&!s.showBefore;
+    if(needsMask&&!mask){mask=document.createElement('canvas');mask.id='editWorkspaceMask';mask.setAttribute('aria-label','Выделение области кистью');frame.appendChild(mask);}
+    if(!needsMask)mask?.remove();
+    if(node.parentId){
+      const parent=s.chain.find(item=>item.id===node.parentId);if(!parent)return;
+      let path=lines.querySelector('[data-chain-link="'+node.id+'"]');
+      if(!path){
+        path=document.createElementNS('http://www.w3.org/2000/svg','path');path.dataset.chainLink=node.id;path.setAttribute('class','edit-chain-line');lines.appendChild(path);
+      }
+      path.dataset.chainSource=node.parentId;
+    }
+  });
+  root._editChainLayout=()=>paintEditWorkspaceChain(root);
+  root._editStopChainMotion=()=>stopEditWorkspaceChainMotion(root);
+  paintEditWorkspaceChain(root);
 }
 // Camera coordinates use the provider's convention: 0 front, 90 right,
 // 180 back, 270 left. Canvas navigation never changes these values.
@@ -7238,19 +7380,30 @@ function fitEditWorkspace(e) {
 }
 function initEditWorkspaceNavigation(stage) {
   const state=editWorkspaceState;let drag=null,space=false;
-  stage.tabIndex=0;stage.setAttribute('aria-label','Бесконечный холст: перетаскивание и прокрутка перемещают холст, Ctrl или ⌘ с прокруткой меняют масштаб, 0 вписывает фото');
+  stage.tabIndex=0;stage.setAttribute('aria-label','Бесконечный холст: перетаскивайте изображения отдельно, пустое место или Пробел с перетаскиванием перемещают весь холст, Ctrl или ⌘ с прокруткой меняют масштаб, 0 вписывает фото');
   stage.onpointerdown=e=>{
-    if(editWorkspaceLocked()||e.button>1||e.target.closest('button'))return;
+    if(e.button>1||e.target.closest('button'))return;
+    const card=!space&&e.button===0?e.target.closest('[data-chain-node]'):null;
+    const node=card&&state.chain.find(item=>item.id===card.dataset.chainNode);
+    if(editWorkspaceLocked()&&!node)return;
     if(state.mode==='retouch'&&!space&&e.button===0&&!state.showBefore&&e.target.closest('#editWorkspaceMask'))return;
-    e.preventDefault();stage.focus({preventScroll:true});stage.setPointerCapture(e.pointerId);
-    drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...state.viewport}};stage.classList.add('is-panning');
+    const root=document.getElementById('editWorkspace');root?._editStopChainMotion?.();root?.querySelector('.edit-workspace-world')?.classList.remove('is-advancing');
+    e.preventDefault();(card||stage).focus({preventScroll:true});stage.setPointerCapture(e.pointerId);
+    drag={id:e.pointerId,x:e.clientX,y:e.clientY,pan:{...state.viewport},node,position:node?{x:node.x,y:node.y}:null,scale:state.zoom/100,card};
+    stage.classList.add(node?'is-moving-node':'is-panning');card?.classList.add('is-moving');
   };
-  stage.onpointermove=e=>{if(drag?.id!==e.pointerId)return;e.preventDefault();state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};document.getElementById('editWorkspace')?._editView?.();};
-  const end=e=>{if(drag?.id===e.pointerId){drag=null;stage.classList.remove('is-panning');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);}};
+  stage.onpointermove=e=>{
+    if(drag?.id!==e.pointerId)return;e.preventDefault();
+    const root=document.getElementById('editWorkspace');
+    if(drag.node){
+      drag.node.x=drag.position.x+(e.clientX-drag.x)/drag.scale;drag.node.y=drag.position.y+(e.clientY-drag.y)/drag.scale;root?._editChainLayout?.();
+    }else{state.viewport={x:drag.pan.x+e.clientX-drag.x,y:drag.pan.y+e.clientY-drag.y};root?._editView?.();}
+  };
+  const end=e=>{if(drag?.id===e.pointerId){drag.card?.classList.remove('is-moving');drag=null;stage.classList.remove('is-panning');stage.classList.remove('is-moving-node');if(stage.hasPointerCapture(e.pointerId))stage.releasePointerCapture(e.pointerId);}};
   stage.onpointerup=stage.onpointercancel=stage.onlostpointercapture=end;
   stage.onauxclick=e=>{if(e.button===1)e.preventDefault();};
-  stage.addEventListener('wheel',e=>{
-    if(editWorkspaceLocked())return;e.preventDefault();const rect=stage.getBoundingClientRect();
+  const wheel=e=>{
+    if(editWorkspaceLocked())return;e.preventDefault();if(drag)return;const rect=stage.getBoundingClientRect();
     const unit=e.deltaMode===1?16:e.deltaMode===2?rect.height:1;
     if(e.ctrlKey||e.metaKey){
       editWorkspaceSetViewZoom(state.zoom*Math.exp(-Math.max(-150,Math.min(150,e.deltaY*unit))*.003),{x:e.clientX-rect.left-rect.width/2,y:e.clientY-rect.top-rect.height/2});
@@ -7259,17 +7412,24 @@ function initEditWorkspaceNavigation(stage) {
       if(!e.shiftKey||e.deltaX)state.viewport.y-=e.deltaY*unit;
       document.getElementById('editWorkspace')?._editView?.();
     }
-  },{passive:false});
+  };
+  stage.addEventListener('wheel',wheel,{passive:false});
   stage.onkeydown=e=>{
-    if(editWorkspaceLocked()||e.target.closest('button,input,textarea,select'))return;
+    if(e.target.closest('button,input,textarea,select'))return;
+    const card=e.target.closest('[data-chain-node]'),node=card&&state.chain.find(item=>item.id===card.dataset.chainNode);
+    const direction={ArrowLeft:[-24,0],ArrowRight:[24,0],ArrowUp:[0,-24],ArrowDown:[0,24]}[e.key];
+    if(node&&direction&&!space){
+      e.preventDefault();const root=document.getElementById('editWorkspace');root?._editStopChainMotion?.();
+      node.x+=direction[0]/(state.zoom/100);node.y+=direction[1]/(state.zoom/100);root?._editChainLayout?.();return;
+    }
+    if(editWorkspaceLocked())return;
     if(e.code==='Space'){e.preventDefault();space=true;stage.classList.add('can-pan');}
     if(e.key==='0'){e.preventDefault();fitEditWorkspace();}
     if(['+','=','-'].includes(e.key)){e.preventDefault();editWorkspaceSetViewZoom(state.zoom*(e.key==='-'?.8:1.25));}
-    const direction={ArrowLeft:[-24,0],ArrowRight:[24,0],ArrowUp:[0,-24],ArrowDown:[0,24]}[e.key];
     if(direction){e.preventDefault();state.viewport.x+=direction[0];state.viewport.y+=direction[1];document.getElementById('editWorkspace')?._editView?.();}
   };
   stage.onkeyup=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
-  stage.onblur=()=>{space=false;stage.classList.remove('can-pan');};
+  stage.onblur=()=>{space=false;stage.classList.remove('can-pan');if(drag)end({pointerId:drag.id});};
   const spaceDown=e=>{
     if(e.code!=='Space'||editWorkspaceLocked()||e.target.closest?.('button,input,textarea,select,[contenteditable="true"]'))return;
     e.preventDefault();space=true;stage.classList.add('can-pan');
@@ -7277,7 +7437,7 @@ function initEditWorkspaceNavigation(stage) {
   const spaceUp=e=>{if(e.code==='Space'){space=false;stage.classList.remove('can-pan');}};
   document.addEventListener('keydown',spaceDown);document.addEventListener('keyup',spaceUp);
   window.addEventListener('blur',stage.onblur);
-  return ()=>{document.removeEventListener('keydown',spaceDown);document.removeEventListener('keyup',spaceUp);window.removeEventListener('blur',stage.onblur);};
+  return ()=>{if(drag)end({pointerId:drag.id});stage.classList.remove('can-pan');stage.removeEventListener?.('wheel',wheel);document.removeEventListener('keydown',spaceDown);document.removeEventListener('keyup',spaceUp);window.removeEventListener('blur',stage.onblur);};
 }
 
 function editWorkspaceLocked() { return editWorkspaceState.busy || editWorkspaceState.uploading; }
@@ -7310,10 +7470,10 @@ function updateEditWorkspaceReady() {
   const reason=editWorkspaceValidation(),root=document.getElementById('editWorkspace');if(!root)return;
   root.querySelectorAll('.edit-workspace-generate').forEach(button=>{button.disabled=!!reason||editWorkspaceLocked();button.title=reason;});
   root.querySelectorAll('[data-mask-action]').forEach(button=>{button.disabled=editWorkspaceLocked()||!(button.dataset.maskAction==='redo'?editWorkspaceState.maskRedo:editWorkspaceState.maskStrokes).length;});
-  const hint=root.querySelector('.edit-workspace-status');if(hint)hint.textContent=editWorkspaceState.busy?'Обработка изображения…':reason||'Тяните холст · Ctrl / ⌘ + прокрутка — масштаб · 0 — вписать фото'+(editWorkspaceState.mode==='retouch'?' · Пробел + перетаскивание — поверх фото':'');
+  const hint=root.querySelector('.edit-workspace-status');if(hint)hint.textContent=editWorkspaceState.busy?'Обработка изображения…':reason||'Тяните фото — переместить · Пробел + перетаскивание — холст · Ctrl / ⌘ + прокрутка — масштаб'+(editWorkspaceState.mode==='retouch'?' · Для перемещения фото тяните подпись':'');
 }
 function editWorkspaceSnapshot() {
-  const s=editWorkspaceState;return {sourceUrl:s.sourceUrl,sourcePreview:s.sourcePreview,sourceName:s.sourceName,resultUrl:s.resultUrl,jobId:s.jobId,beforeUrl:s.beforeUrl,width:s.width,height:s.height};
+  const s=editWorkspaceState;return {sourceUrl:s.sourceUrl,sourcePreview:s.sourcePreview,sourceName:s.sourceName,resultUrl:s.resultUrl,jobId:s.jobId,beforeUrl:s.beforeUrl,width:s.width,height:s.height,activeNodeId:s.activeNodeId};
 }
 function setEditWorkspaceDimensions(width,height) {
   const s=editWorkspaceState;s.width=width;s.height=height;s.resize={width,height,locked:s.resize.locked};
@@ -7352,8 +7512,15 @@ function drawEditWorkspaceMask() {
 }
 function initEditWorkspaceStage() {
   const root=document.getElementById('editWorkspace');if(!root)return;
-  const s=editWorkspaceState,stage=root.querySelector('.edit-workspace-stage'),world=root.querySelector('.edit-workspace-world'),grid=root.querySelector('.edit-workspace-grid'),frame=root.querySelector('.edit-workspace-frame'),img=root.querySelector('.edit-workspace-image');
-  // The image stays in world coordinates. Only this view transform moves it and the grid.
+  const s=editWorkspaceState,stage=root.querySelector('.edit-workspace-stage'),world=root.querySelector('.edit-workspace-world'),grid=root.querySelector('.edit-workspace-grid');
+  const active=s.chain.find(node=>node.id===s.activeNodeId);
+  const focused=s.showBefore?s.chain.find(node=>node.id===active?.parentId)||active:active;
+  const activeImage=active&&world.querySelector('[data-chain-node="'+active.id+'"] .edit-workspace-image');
+  if(activeImage?.naturalWidth&&(!s.width||!s.height)){
+    active.width=activeImage.naturalWidth;active.height=activeImage.naturalHeight;
+    setEditWorkspaceDimensions(active.width,active.height);renderEditWorkspace();return;
+  }
+  // Preserve the existing infinite-world pan/zoom transform.
   const view=()=>{
     const scale=s.zoom/100,x=stage.clientWidth/2+s.viewport.x,y=stage.clientHeight/2+s.viewport.y;
     world.style.transform=`translate(${x}px,${y}px) scale(${scale})`;
@@ -7361,7 +7528,23 @@ function initEditWorkspaceStage() {
     grid.style.backgroundSize=`${spacing}px ${spacing}px`;
     grid.style.backgroundPosition=`${x%spacing}px ${y%spacing}px`;
   };
-  root._editView=view;root._editFit=null;
+  const area=()=>{
+    const rect=stage.getBoundingClientRect();let left=rect.left+32,right=rect.right-32,top=rect.top+76,bottom=rect.bottom-100;
+    const panel=root.querySelector('.edit-workspace-panel'),action=root.querySelector('.edit-workspace-action');
+    if(panel)right=Math.min(right,panel.getBoundingClientRect().left-24);
+    if(action)bottom=Math.min(bottom,action.getBoundingClientRect().top-24);
+    return {width:Math.max(80,right-left),height:Math.max(80,bottom-top),x:(left+right)/2-rect.left-rect.width/2,y:(top+bottom)/2-rect.top-rect.height/2};
+  };
+  const expansion=node=>node.id===s.activeNodeId&&s.mode==='expand'&&!s.showBefore?s.expand:{left:0,right:0,top:0,bottom:0};
+  const size=node=>{
+    const width=node.width||node.slotWidth,height=node.height||node.slotHeight,scale=Math.min(node.slotWidth/width,node.slotHeight/height);
+    return {width:width*scale,height:height*scale,scale};
+  };
+  root._editView=view;root._editFit=focused?()=>{
+    const visual=size(focused),edges=expansion(focused);
+    const fit=editWorkspaceFitView(area(),visual,Object.fromEntries(Object.entries(edges).map(([key,value])=>[key,value*visual.scale])));
+    fit.viewport.x-=focused.x*fit.zoom/100;fit.viewport.y-=focused.y*fit.zoom/100;return fit;
+  }:null;
   root._editNavigationCleanup=initEditWorkspaceNavigation(stage);
   root.ondragover=e=>{e.preventDefault();if(!editWorkspaceLocked())root.classList.add('is-dragging');};
   root.ondragleave=e=>{if(!root.contains(e.relatedTarget))root.classList.remove('is-dragging');};
@@ -7374,34 +7557,54 @@ function initEditWorkspaceStage() {
       if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
     }
   };
-  if(!img||!frame){
-    view();
-    if(typeof ResizeObserver!=='undefined'){root._editObserver=new ResizeObserver(view);root._editObserver.observe(stage);}
-    return;
-  }
-  const expansion=()=>s.mode==='expand'&&!s.showBefore?s.expand:{left:0,right:0,top:0,bottom:0};
-  root._editFit=()=>{
-    const rect=stage.getBoundingClientRect();let left=rect.left+32,right=rect.right-32,top=rect.top+76,bottom=rect.bottom-100;
-    const panel=root.querySelector('.edit-workspace-panel'),action=root.querySelector('.edit-workspace-action');
-    if(panel)right=Math.min(right,panel.getBoundingClientRect().left-24);
-    if(action)bottom=Math.min(bottom,action.getBoundingClientRect().top-24);
-    return editWorkspaceFitView({width:Math.max(80,right-left),height:Math.max(80,bottom-top),x:(left+right)/2-rect.left-rect.width/2,y:(top+bottom)/2-rect.top-rect.height/2},{width:img.naturalWidth||s.width,height:img.naturalHeight||s.height},expansion());
-  };
   const layout=()=>{
-    if(!root.isConnected||!img.naturalWidth)return;
-    if(!s.width||!s.height){setEditWorkspaceDimensions(img.naturalWidth,img.naturalHeight);renderEditWorkspace();return;}
-    const edges=expansion(),width=img.naturalWidth+edges.left+edges.right,height=img.naturalHeight+edges.top+edges.bottom;
-    frame.style.width=width+'px';frame.style.height=height+'px';
-    frame.style.left=(-img.naturalWidth/2-edges.left)+'px';frame.style.top=(-img.naturalHeight/2-edges.top)+'px';
-    img.style.left=edges.left+'px';img.style.top=edges.top+'px';img.style.width=img.naturalWidth+'px';img.style.height=img.naturalHeight+'px';
-    if(s.viewNeedsFit){s.viewNeedsFit=false;const fit=root._editFit();s.viewport=fit.viewport;editWorkspaceSetViewZoom(fit.zoom);}
+    if(!root.isConnected)return;
+    s.chain.forEach(node=>{
+      const card=world.querySelector('[data-chain-node="'+node.id+'"]');if(!card)return;
+      const frame=card.querySelector('.edit-workspace-frame'),img=frame.querySelector('.edit-workspace-image');
+      const visual=size(node),edges=expansion(node),width=visual.width+(edges.left+edges.right)*visual.scale,height=visual.height+(edges.top+edges.bottom)*visual.scale;
+      frame.style.width=width+'px';frame.style.height=height+'px';
+      frame.style.left=((node.slotWidth-visual.width)/2-edges.left*visual.scale)+'px';frame.style.top=((node.slotHeight-visual.height)/2-edges.top*visual.scale)+'px';
+      if(img){img.style.left=edges.left*visual.scale+'px';img.style.top=edges.top*visual.scale+'px';img.style.width=visual.width+'px';img.style.height=visual.height+'px';}
+    });
+    if(s.viewNeedsFit&&focused?.width){s.viewNeedsFit=false;const fit=root._editFit();s.viewport=fit.viewport;editWorkspaceSetViewZoom(fit.zoom);}
+    if(root._editAdvance){
+      // Reveal a new slot only when needed, without resetting the user's zoom.
+      const node=s.chain.at(-1),available=area(),scale=s.zoom/100;
+      const left=node.x*scale+s.viewport.x-node.slotWidth*scale/2,right=left+node.slotWidth*scale;
+      const top=node.y*scale+s.viewport.y-node.slotHeight*scale/2,bottom=top+node.slotHeight*scale;
+      s.viewport.x+=Math.max(0,available.x-available.width/2-left)-Math.max(0,right-available.x-available.width/2);
+      s.viewport.y+=Math.max(0,available.y-available.height/2-top)-Math.max(0,bottom-available.y-available.height/2);
+      world.classList.add('is-advancing');void world.offsetWidth;root._editAdvance=false;
+      clearTimeout(root._editAdvanceTimer);root._editAdvanceTimer=setTimeout(()=>world.classList.remove('is-advancing'),650);
+    }
     view();
     const canvas=root.querySelector('#editWorkspaceMask');
-    if(canvas){const ratio=Math.min(1,2048/img.naturalWidth,2048/img.naturalHeight);canvas.width=Math.max(1,Math.round(img.naturalWidth*ratio));canvas.height=Math.max(1,Math.round(img.naturalHeight*ratio));drawEditWorkspaceMask();}
+    if(canvas&&s.width){const ratio=Math.min(1,2048/s.width,2048/s.height);canvas.width=Math.max(1,Math.round(s.width*ratio));canvas.height=Math.max(1,Math.round(s.height*ratio));drawEditWorkspaceMask();}
     updateEditWorkspaceReady();
   };
-  img.onload=layout;if(img.complete)layout();
-  if(root._editObserver)root._editObserver.disconnect();
+  s.chain.forEach(node=>{
+    const card=world.querySelector('[data-chain-node="'+node.id+'"]'),img=card?.querySelector('.edit-workspace-image');if(!img)return;
+    const loaded=()=>{
+      if(!root.isConnected||!img.naturalWidth)return;
+      node.width=img.naturalWidth;node.height=img.naturalHeight;
+      card.querySelector('.edit-chain-media-error')?.remove();
+      // Force the initial transparent state before revealing cached images too.
+      void img.offsetWidth;card.dataset.media='ready';
+      if(node.id===s.activeNodeId&&(!s.width||!s.height)){setEditWorkspaceDimensions(node.width,node.height);renderEditWorkspace();return;}
+      layout();
+    };
+    img.onload=loaded;
+    img.onerror=()=>{
+      if(!root.isConnected)return;card.dataset.media='error';
+      if(card.querySelector('.edit-chain-media-error'))return;
+      const message=document.createElement('button');message.type='button';message.className='edit-chain-media-error';message.textContent='Изображение готово. Повторить загрузку превью';
+      message.onclick=()=>{message.remove();card.dataset.media='loading';img.src=node.preview||node.url;};card.querySelector('.edit-workspace-frame').appendChild(message);
+    };
+    if(img.complete&&img.naturalWidth)loaded();
+    else if(img.complete&&!img.naturalWidth)img.onerror();
+  });
+  layout();
   if(typeof ResizeObserver!=='undefined'){root._editObserver=new ResizeObserver(layout);root._editObserver.observe(stage);}
   const canvas=root.querySelector('#editWorkspaceMask');if(!canvas)return;
   let stroke=null;
@@ -7424,10 +7627,11 @@ async function loadEditWorkspaceImage(file) {
     const url=await uploadProStudioMediaFile(file,'image');
     if(s.uploadVersion!==version){URL.revokeObjectURL(preview);return;}
     // Keep the old document intact until the new upload succeeds.
-    const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl])]);
+    const previews=new Set([s.sourcePreview,s.beforeUrl,...s.history.flatMap(item=>[item.sourcePreview,item.beforeUrl]),...s.chain.map(node=>node.preview)]);
     previews.forEach(url=>{if(url.startsWith('blob:'))URL.revokeObjectURL(url);});
-    s.history=[];Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
+    s.history=[];s.chain=[];s.activeNodeId='';Object.assign(s,{sourceUrl:url,sourcePreview:preview,sourceName:file.name,resultUrl:'',jobId:'',beforeUrl:'',showBefore:false,maskStrokes:[],maskRedo:[],zoom:100,viewport:{x:0,y:0},viewNeedsFit:true});
     setEditWorkspaceDimensions(probe.naturalWidth,probe.naturalHeight);
+    ensureEditWorkspaceChain();
   } catch(error){URL.revokeObjectURL(preview);editWorkspaceToast(error.message||'Не удалось загрузить изображение.');}
   finally{if(s.uploadVersion===version){s.uploading=false;renderEditWorkspace();}}
 }
@@ -7449,7 +7653,7 @@ function openEditWorkspace(e) {
 }
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
-  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._editNavigationCleanup?.();root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root.remove();}
+  const root=document.getElementById('editWorkspace');if(root){root._editObserver?.disconnect();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root.remove();}
   document.body.classList.remove('edit-workspace-open');
   // Keep this editing session when the user closes and reopens the workspace.
 }
@@ -7461,10 +7665,8 @@ function renderEditWorkspace() {
   root._lightOrbit?.destroy();
   const state=editWorkspaceState, mode=state.mode, safe=(v)=>S.escapeHtml(String(v??''));
   const tabs=EDIT_WORKSPACE_MODES.map(([id,label])=>'<button type="button" class="edit-workspace-tab '+(mode===id?'active':'')+'" title="'+label+'" onclick="SYLVEX.setEditWorkspaceMode(event,\''+id+'\')"><i>'+({edit:'✣',retouch:'◉',resize:'▣',background:'▧',expand:'⤢',upscale:'⌕',lighting:'☼',camera:'⦿',translate:'文'}[id])+'</i><span>'+label+'</span></button>').join('');
-  const image=state.showBefore?state.beforeUrl:(state.resultUrl||state.sourcePreview);
   root.dataset.mode=mode;root.dataset.busy=String(editWorkspaceLocked());
   root.setAttribute('aria-label','Edit image');root.setAttribute('aria-busy',String(editWorkspaceLocked()));
-  const view=image?'<div class="edit-workspace-frame"><img class="edit-workspace-image" src="'+safe(image)+'" alt="'+(state.showBefore?'До редактирования':state.resultUrl?'Результат редактирования':'Исходное изображение')+'">'+(mode==='retouch'&&!state.showBefore?'<canvas id="editWorkspaceMask" aria-label="Выделение области кистью"></canvas>':'')+'</div>':'<button class="edit-workspace-upload" type="button" onclick="document.getElementById(\'editWorkspaceFile\').click()"><span>＋</span><b>Загрузите фото или перетащите его сюда</b><small>JPEG, PNG, WebP · до 50 MB</small></button>';
   const generate='<button type="button" class="edit-workspace-generate" '+(editWorkspaceValidation()||editWorkspaceLocked()?'disabled':'')+' onclick="SYLVEX.generateEditWorkspace(event)">'+(state.busy?'Обработка…':state.uploading?'Загрузка…':mode==='resize'?'Apply · Free':mode==='upscale'?'Улучшить качество':'Generate')+'</button>';
   const range=(label,key,min,max,step,value,group='camera',unit='°')=>'<label class="edit-workspace-range"><span>'+label+'</span><input '+(group==='camera'?'data-camera-input="'+key+'" ':'')+'aria-label="'+label+'" type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'" oninput="SYLVEX.updateEditWorkspaceRange(event,\''+group+'\',\''+key+'\')"><output data-range-output="'+group+'-'+key+'">'+value+unit+'</output></label>';
   let panel='';let action='';
@@ -7484,8 +7686,16 @@ function renderEditWorkspace() {
   if(mode==='resize')action='<p>Set exact output dimensions · Free</p><div class="edit-workspace-action-row"><label>W <input aria-label="Resize width" type="number" min="1" max="8192" value="'+state.resize.width+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'width\')"> px</label><label>H <input aria-label="Resize height" type="number" min="1" max="8192" value="'+state.resize.height+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'height\')"> px</label><label>Keep ratio <input type="checkbox" '+(state.resize.locked?'checked':'')+' onchange="SYLVEX.updateEditWorkspaceField(event,\'resize\',\'locked\')"></label><button onclick="SYLVEX.resetEditResize(event)">Reset</button>'+generate+'</div>';
   if(mode==='expand')action='<p>Expand canvas · '+(state.width+state.expand.left+state.expand.right)+' × '+(state.height+state.expand.top+state.expand.bottom)+' px</p><textarea maxlength="8000" placeholder="Describe the extended scene (optional)" oninput="SYLVEX.updateEditWorkspacePrompt(event)">'+safe(state.prompt)+'</textarea><div class="edit-workspace-action-row">'+['left','right','top','bottom'].map(key=>'<label>'+key+' <input aria-label="Expand '+key+'" type="number" min="0" max="4096" value="'+state.expand[key]+'" onchange="SYLVEX.updateEditWorkspaceField(event,\'expand\',\''+key+'\')"> px</label>').join('')+generate+'</div>';
   const imageTools=(state.history.length?'<button onclick="SYLVEX.undoEditWorkspace(event)" title="Undo last edit">↶ Undo</button>':'')+(state.beforeUrl?'<button onclick="SYLVEX.compareEditWorkspace(event)" aria-pressed="'+state.showBefore+'">'+(state.showBefore?'Show result':'Before / after')+'</button>':'')+(state.resultUrl?'<button onclick="SYLVEX.useEditWorkspaceResult(event)">Use in Studio</button>':'')+'<button type="button" class="edit-workspace-change-image" onclick="document.getElementById(\'editWorkspaceFile\').click()">＋ Image</button>';
-  const surface='<section class="edit-workspace-stage"><div class="edit-workspace-grid"></div><div class="edit-workspace-world">'+view+'</div></section>';
-  root.innerHTML='<main class="edit-workspace-main">'+surface+(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  const surface='<section class="edit-workspace-stage"><div class="edit-workspace-grid"></div><div class="edit-workspace-world"></div></section>';
+  const controls=(panel?'<aside class="edit-workspace-panel edit-workspace-panel-'+mode+'">'+panel+'</aside>':'')+(action?'<section class="edit-workspace-action edit-workspace-action-'+mode+'">'+action+'</section>':'')+'<div class="edit-workspace-status" role="status" aria-live="polite"></div><nav class="edit-workspace-dock">'+tabs+'</nav><div class="edit-workspace-canvas-actions">'+imageTools+'<button title="Уменьшить масштаб холста" aria-label="Уменьшить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,-25)">−</button><button title="Вписать фото в холст (0)" onclick="SYLVEX.fitEditWorkspace(event)"><span data-view-zoom>'+Math.round(state.zoom)+'%</span> · Fit</button><button title="Увеличить масштаб холста" aria-label="Увеличить масштаб холста" onclick="SYLVEX.adjustEditWorkspaceZoom(event,25)">＋</button><button title="Download" '+(!state.resultUrl?'disabled':'')+' onclick="SYLVEX.downloadEditWorkspaceResult(event)">⇩</button></div><button class="edit-workspace-close" aria-label="Close" onclick="SYLVEX.closeEditWorkspace(event)">×</button><input id="editWorkspaceFile" type="file" accept="image/jpeg,image/png,image/webp" hidden onchange="SYLVEX.onEditWorkspaceFile(event)">';
+  const main=root.querySelector('.edit-workspace-main');
+  if(main){
+    // Keep the stage, its images and the pending card mounted throughout a job.
+    Array.from(main.children).filter(el=>!el.classList.contains('edit-workspace-stage')).forEach(el=>el.remove());
+    const template=document.createElement('template');template.innerHTML=controls;main.appendChild(template.content);
+  }else root.innerHTML='<main class="edit-workspace-main">'+surface+controls+'</main>';
+  syncEditWorkspaceChain(root);
+  root.querySelectorAll('.edit-workspace-stage button').forEach(el=>el.disabled=editWorkspaceLocked());
   if(editWorkspaceLocked())root.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);
   initEditWorkspaceStage();initEditCameraOrbit();initEditLightOrbit();updateEditWorkspaceReady();
   if(mode==='upscale')void refreshEditUpscaleEstimate();
@@ -7570,8 +7780,9 @@ function editWorkspaceInstruction(state){if(state.mode==='camera')return editCam
 async function generateEditWorkspace(e){
   if(e){e.preventDefault();e.stopPropagation()}
   const state=editWorkspaceState;if(editWorkspaceLocked())return;const reason=editWorkspaceValidation();if(reason)return editWorkspaceToast(reason);
+  ensureEditWorkspaceChain();
   const before=editWorkspaceSnapshot();state.showBefore=false;const maskCanvas=document.getElementById('editWorkspaceMask'),maskUrl=state.mode==='retouch'&&maskCanvas?maskCanvas.toDataURL('image/png'):'';
-  state.busy=true;renderEditWorkspace();document.body.classList.add('ai-generating');
+  state.busy=true;const chainResult=beginEditWorkspaceChainResult();renderEditWorkspace();document.body.classList.add('ai-generating');
   let historyIndex=-1,prompt='';
   const mode=state.mode,refs=[state.sourceUrl],camera=Object.assign({},state.camera),light=Object.assign({},state.light,{layers:state.light.layers.map(item=>Object.assign({},item))});
   const imageOptions={tool:'edit_workspace',editWorkspaceMode:mode,editWorkspacePrompt:state.prompt,editWorkspaceSourceUrl:state.sourceUrl,editWorkspaceCamera:camera,editWorkspaceLight:light,editWorkspaceUpscale:Object.assign({},state.upscale),editWorkspaceResize:Object.assign({},state.resize),editWorkspaceExpand:Object.assign({},state.expand),editWorkspaceMaskUrl:maskUrl,editWorkspaceBrush:{mode:state.brushMode,size:state.brushSize},editWorkspaceBackgroundMode:state.backgroundMode,editWorkspaceTranslateLanguage:state.translateLanguage,photo_tool:'edit_workspace',referenceImageUrls:refs,referenceImages:refs,catalog_prompt_hidden:true,catalog_display_prompt:'',catalog_reference_hidden:false};
@@ -7584,6 +7795,7 @@ async function generateEditWorkspace(e){
     if(!resultUrl)throw new Error('Генерация не вернула изображение.');
     state.history.push(before);if(state.history.length>20)state.history.shift();
     state.jobId=response.job_id||providerResult.job_id||providerResult.generation_id||'';state.beforeUrl=before.sourcePreview||before.sourceUrl;state.resultUrl=resultUrl;state.sourceUrl=resultUrl;state.sourcePreview=resultUrl;state.maskStrokes=[];state.maskRedo=[];
+    Object.assign(chainResult,{status:'ready',url:resultUrl,preview:resultUrl,jobId:state.jobId});state.activeNodeId=chainResult.id;
     state.width=0;state.height=0;
     const thumbs=generatedThumbsFromResponse(providerResult);
     addGeneratedImages([state.resultUrl],thumbs);
@@ -7592,6 +7804,7 @@ async function generateEditWorkspace(e){
     else chatMessages.push({role:'ai',imageResultMini:true,metadata:imageGenerationMetadata(prompt,refs,providerResult,imageOptions)});
     loadConversations();
   }catch(error){
+    if(chainResult.status==='pending')chainResult.status='failed';
     if(historyIndex<0)historyIndex=activeGenerationPlaceholderIndex();
     if(historyIndex>=0)chatMessages[historyIndex]=resolveFailureMessage(error,{mode:'image',prompt});
     editWorkspaceToast(translateGenerationError(error,'Не удалось отредактировать изображение.'));
@@ -22486,6 +22699,9 @@ async function waitGeneration(jobId, options) {
     localStorage.setItem('sylvex-theme-id', settings.id || 'dark');
   }
   function applyProfileAppearance(settings) {
+    // The website owns appearance; a Mini App profile must not reset it
+    // during startup or after account hydration.
+    if (isWebEmbed()) { restoreStudioTheme(); return; }
     const value = Object.assign({}, DEFAULT_PROFILE_APPEARANCE, settings || {});
     const theme = THEMES.find((item) => item.id === value.id) || THEMES[0];
     document.documentElement.dataset.theme = theme.mode;
@@ -22567,6 +22783,7 @@ async function waitGeneration(jobId, options) {
   // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
   // =====================================================
   function applyTheme(themeId, persist = true) {
+    if (isWebEmbed()) { restoreStudioTheme(); return; }
     // =====================================================
     // JAVASCRIPT-БЛОК: t
     // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
@@ -24395,10 +24612,8 @@ async function waitGeneration(jobId, options) {
     if(studioGridPendingConnection)updateStudioGridConnectionHighlights();
   }
 
-  // Pro Studio's own local theme - independent of the app-wide light/dark
-  // appearance. One button cycles Gray (the original look) -> White ->
-  // Black -> Gray. Persisted the same way the rest of the app persists
-  // simple UI choices (localStorage), read back whenever Pro Studio opens.
+  // Standalone Mini App preferences only. Website embeds always follow
+  // the host's shared light/dark theme, including body-mounted Edit/menus.
   const STUDIO_THEME_KEY = 'sylvex-prostudio-theme';
   const STUDIO_THEMES = ['gray', 'white', 'black'];
 
@@ -24423,6 +24638,7 @@ async function waitGeneration(jobId, options) {
     '--st-accent', '--st-accent-2', '--st-accent-bg', '--st-accent-text',
     '--st-invert-bg', '--st-invert-text', '--st-logo-invert',
     '--st-shadow', '--st-depth-1', '--st-depth-2', '--st-depth-active',
+    '--st-color-scheme', '--st-success', '--st-danger', '--st-warning',
   ];
 
   function syncStudioThemeVarsToDocument() {
@@ -24451,17 +24667,27 @@ async function waitGeneration(jobId, options) {
     return safe;
   }
 
-  // Website -> Pro Studio theme names (see sylvex-website/css/tokens.css and
-  // js/site.js's THEME_CYCLE): Light is Pro Studio's White, Dark is its
-  // richer Black, and Gray is literally the same original neutral identity
-  // in both places.
-  const WEBSITE_THEME_TO_STUDIO = { light: 'white', dark: 'black', gray: 'gray' };
+  const WEBSITE_THEME_TO_STUDIO = { light: 'white', dark: 'black' };
 
   function studioThemeFromWebsiteEmbed() {
+    // Pro Studio now shares the website document. Query parameters are
+    // only a fallback for older iframe hosts, never an override of the site.
+    const site = window.SYLVEX_SITE;
+    if (site && typeof site.currentTheme === 'function') {
+      const theme = WEBSITE_THEME_TO_STUDIO[site.currentTheme()];
+      if (theme) return theme;
+    }
     try {
-      const websiteTheme = new URLSearchParams(window.location.search || '').get('theme');
-      return WEBSITE_THEME_TO_STUDIO[websiteTheme] || null;
-    } catch { return null; }
+      const theme = WEBSITE_THEME_TO_STUDIO[new URLSearchParams(window.location.search || '').get('theme')];
+      if (theme) return theme;
+    } catch (_) {}
+    const rootTheme = WEBSITE_THEME_TO_STUDIO[document.documentElement.getAttribute('data-theme')];
+    if (rootTheme) return rootTheme;
+    try {
+      const stored = WEBSITE_THEME_TO_STUDIO[localStorage.getItem('sx-theme')];
+      if (stored) return stored;
+    } catch (_) {}
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'black' : 'white';
   }
 
   function restoreStudioTheme() {
@@ -24470,7 +24696,7 @@ async function waitGeneration(jobId, options) {
     // the website page passed in, never a locally persisted choice, so
     // switching website accounts/devices can't leave it on a stale theme.
     if (isWebEmbed()) {
-      applyStudioTheme(studioThemeFromWebsiteEmbed() || 'gray', false);
+      applyStudioTheme(studioThemeFromWebsiteEmbed(), false);
       return;
     }
     let stored = 'gray';
@@ -24478,12 +24704,18 @@ async function waitGeneration(jobId, options) {
     applyStudioTheme(stored, false);
   }
 
-  // Live theme sync from the website (js/site.js's setTheme() posts this to
-  // every iframe on toggle) - lets an already-open Pro Studio tab follow a
-  // theme change on the website without a reload.
+  // Same-document website event: also updates variables inherited by
+  // Edit and floating menus without rebuilding them or losing user input.
+  window.addEventListener('sylvex-theme', () => {
+    if (isWebEmbed()) restoreStudioTheme();
+  });
+
+  // Backward compatibility for iframe hosts.
   window.addEventListener('message', (event) => {
     if (!isWebEmbed() || !event || !event.data || event.data.type !== 'sylvex-theme') return;
-    applyStudioTheme(WEBSITE_THEME_TO_STUDIO[event.data.theme] || 'gray', false);
+    if (window.parent === window || event.source !== window.parent) return;
+    const theme = WEBSITE_THEME_TO_STUDIO[event.data.theme];
+    if (theme) applyStudioTheme(theme, false);
   });
 
   function cycleStudioTheme(event) {
@@ -24995,6 +25227,13 @@ async function waitGeneration(jobId, options) {
   async function sendPresence(){if(document.hidden||!currentTelegramInitData())return;const active=document.querySelector('.view.active,[data-view].active');const view=active&&active.dataset&&active.dataset.view||'home';try{await fetch('/api/public/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:currentTelegramInitData(),view,platform:'telegram'})})}catch(_){}}
   function initPresence(){sendPresence();clearInterval(presenceTimer);presenceTimer=setInterval(sendPresence,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)sendPresence()})}
 
+  function restoreAppTheme() {
+    if (isWebEmbed()) { restoreStudioTheme(); return; }
+    const tg = S.tg;
+    const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
+    S.setTheme(savedTheme);
+  }
+
   function init() {
     // Single CSS hook for every Website-only/Telegram-only visual
     // difference below (hiding Telegram-specific controls, Website desktop
@@ -25002,9 +25241,7 @@ async function waitGeneration(jobId, options) {
     document.documentElement.classList.toggle('web-embed', isWebEmbed());
 
     // Restore saved theme.
-    const tg = S.tg;
-    const savedTheme = localStorage.getItem('sylvex-theme') || (tg && tg.colorScheme === 'light' ? 'light' : 'dark');
-    S.setTheme(savedTheme);
+    restoreAppTheme();
 
     const initialShareId = shareStartId();
     if (initialShareId) {
