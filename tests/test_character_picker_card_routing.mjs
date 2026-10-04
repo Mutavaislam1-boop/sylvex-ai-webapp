@@ -67,6 +67,8 @@ function makeContext({ videoMode, characters, objects }) {
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('characterCardPendingStatus'), context);
   vm.runInContext(extractFunction('characterCreationStageLabel'), context);
+  vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
+  vm.runInContext(extractFunction('characterPendingCardDomId'), context);
   vm.runInContext(extractFunction('characterCreationPendingCardHtml'), context);
   vm.runInContext(extractFunction('renderImageStylePanel'), context);
   return { context, grid };

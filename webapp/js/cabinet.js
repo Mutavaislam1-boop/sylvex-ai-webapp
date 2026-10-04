@@ -11439,6 +11439,15 @@ function characterJobIdFromCardId(id) {
   return String(id || '').replace(/^pending_character_/, '');
 }
 
+// Stable DOM id for a pending/failed Character card's root element, so a
+// polling progress tick can patch just this one card's markup in place
+// instead of going through renderImageStylePanel() (which rebuilds the
+// whole grid's innerHTML and reloads every <img> in it - the flicker
+// regression this id exists to avoid).
+function characterPendingCardDomId(jobId) {
+  return 'characterPendingCard_' + jobId;
+}
+
 // Inserts (or updates in place, so the card never jumps position) a
 // pending/failed Character card, keyed by job_id - the same Character
 // card markup/dimensions renderImageStylePanel() already uses, just in a
@@ -11495,21 +11504,77 @@ function replaceCharacterCreationCardWithResource(jobId, resource) {
   return normalized;
 }
 
+// Called on every polling tick while a Character creation job is still
+// "processing" (see pollCharacterCreationJob's onProgress). Must NEVER call
+// renderImageStylePanel() - that rebuilds the whole grid's innerHTML and
+// reloads every <img> in it every ~1.5s, which is exactly the flicker this
+// function exists to avoid. Instead: skip entirely when the snapshot is
+// unchanged, and otherwise patch only this one card's own DOM node in
+// place (see patchCharacterPendingCardDom). A full render stays reserved
+// for structural events (insertion/completion/failure/restore), which call
+// renderImageStylePanel() themselves at their own call sites.
 function updateCharacterCreationPendingCardProgress(jobId, progress) {
   const id = pendingCharacterCardId(jobId);
   const list = serverVisualItems.characters || [];
   const idx = list.findIndex((entry) => entry && entry.id === id);
   if (idx < 0 || !progress) return;
   const current = list[idx];
-  const primaryUrl = progress.primary_url || current.previewUrl || '';
-  list[idx] = Object.assign({}, current, {
-    stage: progress.stage || current.stage || '',
-    completedReferences: progress.completed_references != null ? progress.completed_references : current.completedReferences,
-    totalReferences: progress.total_references || current.totalReferences || 4,
-    previewUrl: primaryUrl,
-    referenceImages: primaryUrl ? [primaryUrl] : current.referenceImages,
+  const nextStage = progress.stage || current.stage || '';
+  const nextCompleted = progress.completed_references != null ? progress.completed_references : current.completedReferences;
+  const nextTotal = progress.total_references || current.totalReferences || 4;
+  const nextPreviewUrl = progress.primary_url || current.previewUrl || '';
+  const unchanged = nextStage === (current.stage || '')
+    && nextCompleted === current.completedReferences
+    && nextTotal === (current.totalReferences || 4)
+    && nextPreviewUrl === (current.previewUrl || '');
+  if (unchanged) return; // identical snapshot - no state mutation, no DOM touch
+  const previewChanged = nextPreviewUrl !== (current.previewUrl || '') && !!nextPreviewUrl;
+  const updated = Object.assign({}, current, {
+    stage: nextStage,
+    completedReferences: nextCompleted,
+    totalReferences: nextTotal,
+    previewUrl: nextPreviewUrl,
+    referenceImages: nextPreviewUrl ? [nextPreviewUrl] : current.referenceImages,
   });
-  if (activeImageStylePanelKind === 'character') renderImageStylePanel();
+  list[idx] = updated;
+  patchCharacterPendingCardDom(jobId, updated, previewChanged);
+}
+
+// Updates only this one card's own DOM node (stage label text, and the
+// generated Primary preview the first time primary_url shows up) without
+// touching the grid, any other Character card, or scroll position. A
+// missing node (panel not currently open on the Character grid, or this
+// card isn't the one currently rendered) is a silent no-op - the state was
+// already updated above, so the next structural render (open/restore/
+// completion) will show it correctly.
+function patchCharacterPendingCardDom(jobId, item, previewChanged) {
+  let card;
+  try {
+    card = document.getElementById(characterPendingCardDomId(jobId));
+  } catch {
+    card = null;
+  }
+  if (!card) return;
+  const statusEl = card.querySelector('.character-pending-status');
+  if (statusEl) {
+    const label = characterCreationStageLabel(item);
+    if (statusEl.textContent !== label) statusEl.textContent = label;
+  }
+  if (previewChanged && item.previewUrl) {
+    const thumb = card.querySelector('.image-style-thumb');
+    if (thumb) {
+      thumb.classList.remove('is-placeholder');
+      let img = thumb.querySelector('img');
+      if (!img) {
+        img = document.createElement('img');
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.alt = card.getAttribute('aria-label') || '';
+        thumb.insertBefore(img, thumb.firstChild);
+      }
+      if (img.src !== item.previewUrl) img.src = item.previewUrl;
+    }
+  }
 }
 
 // job_id -> in-flight poll promise, so a card is never polled twice at
@@ -13052,9 +13117,10 @@ function characterCreationStageLabel(item) {
 // 'creating' (progress label + spinner, not clickable/selectable) and
 // 'failed' (name + "Failed" + Retry/Delete, never silently removed).
 function characterCreationPendingCardHtml(item, id, label, preview, status) {
+  const domId = characterPendingCardDomId((item && item.job_id) || characterJobIdFromCardId(id));
   if (status === 'failed') {
     return `
-      <div class="image-style-card is-character-pending is-character-failed" role="group" aria-label="${S.escapeHtml(label)} - создание не удалось">
+      <div id="${S.escapeHtml(domId)}" class="image-style-card is-character-pending is-character-failed" role="group" aria-label="${S.escapeHtml(label)} - создание не удалось">
         <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
           ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
         </span>
@@ -13069,7 +13135,7 @@ function characterCreationPendingCardHtml(item, id, label, preview, status) {
   }
   const stageLabel = characterCreationStageLabel(item);
   return `
-    <div class="image-style-card is-character-pending is-character-creating" role="button" tabindex="0" aria-label="${S.escapeHtml(label)} - создаётся" onclick="SYLVEX.handlePendingCharacterCardClick(event)">
+    <div id="${S.escapeHtml(domId)}" class="image-style-card is-character-pending is-character-creating" role="button" tabindex="0" aria-label="${S.escapeHtml(label)} - создаётся" onclick="SYLVEX.handlePendingCharacterCardClick(event)">
       <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
         ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
         <span class="character-pending-spinner" aria-hidden="true"></span>

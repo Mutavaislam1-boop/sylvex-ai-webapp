@@ -319,6 +319,8 @@ function makeCardHtmlContext() {
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('characterCardPendingStatus'), context);
   vm.runInContext(extractFunction('characterCreationStageLabel'), context);
+  vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
+  vm.runInContext(extractFunction('characterPendingCardDomId'), context);
   vm.runInContext(extractFunction('characterCreationPendingCardHtml'), context);
   return context;
 }
@@ -377,9 +379,12 @@ function makeCardLifecycleContext() {
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('pendingCharacterCardId'), context);
   vm.runInContext(extractFunction('characterJobIdFromCardId'), context);
+  vm.runInContext(extractFunction('characterPendingCardDomId'), context);
+  vm.runInContext(extractFunction('characterCreationStageLabel'), context);
   vm.runInContext(extractFunction('upsertCharacterCreationPendingCard'), context);
   vm.runInContext(extractFunction('removeCharacterCreationCard'), context);
   vm.runInContext(extractFunction('replaceCharacterCreationCardWithResource'), context);
+  vm.runInContext(extractFunction('patchCharacterPendingCardDom'), context);
   vm.runInContext(extractFunction('updateCharacterCreationPendingCardProgress'), context);
   return {context, serverVisualItems, localCache};
 }
@@ -496,9 +501,9 @@ function makePollCardContext(jobOutcomes) {
     'pollCharacterCreationJob', 'waitCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
-    'pendingCharacterCardId', 'characterJobIdFromCardId',
+    'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
     'upsertCharacterCreationPendingCard', 'removeCharacterCreationCard',
-    'replaceCharacterCreationCardWithResource', 'updateCharacterCreationPendingCardProgress',
+    'replaceCharacterCreationCardWithResource', 'patchCharacterPendingCardDom', 'updateCharacterCreationPendingCardProgress',
     'startCharacterCreationCardPoll', 'completeCharacterCreationJobCard', 'failCharacterCreationJobCard',
   ].forEach((name) => vm.runInContext(extractFunction(name), context));
   return {context, serverVisualItems, calls};
@@ -515,10 +520,14 @@ test('startCharacterCreationCardPoll: on completion, replaces the pending card w
   assert.equal(serverVisualItems.characters.length, 1);
   assert.equal(serverVisualItems.characters[0].id, 'custom_character_abc');
   assert.ok(calls.toasts.length > 0);
+  // Completion is a structural event - it is allowed (and expected) to run
+  // one full renderImageStylePanel(), unlike the per-tick progress updates
+  // that led up to it.
+  assert.equal(calls.rendered, 1);
 });
 
 test('startCharacterCreationCardPoll: on a genuine terminal failure, the card stays visible as failed - never silently removed', async () => {
-  const {context, serverVisualItems} = makePollCardContext([
+  const {context, serverVisualItems, calls} = makePollCardContext([
     {ok: true, status: 'failed', error: {error: 'OpenAI quota exceeded'}},
   ]);
   vm.runInContext(`upsertCharacterCreationPendingCard({jobId: 'job-1', name: 'Islam', gender: 'male', previewUrl: '', status: 'creating'})`, context);
@@ -526,6 +535,119 @@ test('startCharacterCreationCardPoll: on a genuine terminal failure, the card st
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(serverVisualItems.characters.length, 1);
   assert.equal(serverVisualItems.characters[0].status, 'failed');
+  // Transitioning to failed is also a structural event - one full render.
+  assert.equal(calls.rendered, 1);
+});
+
+// ---- Flicker regression: a polling progress tick must patch only its own
+// card's DOM node, never rebuild the whole grid via renderImageStylePanel()
+// (the root cause of the ~1.5s Character grid flicker) ----
+
+function makeFakeThumb(initialSrc) {
+  const classes = new Set(initialSrc ? [] : ['is-placeholder']);
+  let img = initialSrc ? { tagName: 'IMG', src: initialSrc } : null;
+  return {
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    },
+    querySelector: (sel) => (sel === 'img' ? img : null),
+    get firstChild() { return img; },
+    insertBefore(node) { img = node; return node; },
+  };
+}
+
+function makeFakePendingCard(jobId, label) {
+  const statusEl = { textContent: '' };
+  const thumb = makeFakeThumb('');
+  return {
+    id: `characterPendingCard_${jobId}`,
+    statusEl,
+    thumb,
+    getAttribute: (name) => (name === 'aria-label' ? label : undefined),
+    querySelector(sel) {
+      if (sel === '.character-pending-status') return statusEl;
+      if (sel === '.image-style-thumb') return thumb;
+      return null;
+    },
+  };
+}
+
+function makeFlickerRegressionContext() {
+  const serverVisualItems = { characters: [] };
+  const calls = { renders: 0, getElementById: 0 };
+  const cardA = makeFakePendingCard('job-A', 'Islam - создаётся');
+  const cardB = makeFakePendingCard('job-B', 'Nova - создаётся');
+  const elements = { [cardA.id]: cardA, [cardB.id]: cardB };
+  const documentStub = {
+    getElementById: (id) => { calls.getElementById += 1; return elements[id] || null; },
+    createElement: (tag) => ({ tagName: String(tag).toUpperCase(), src: '' }),
+  };
+  const sandbox = {
+    serverVisualItems,
+    normalizeVisualItem: (x) => x,
+    loadCustomVisualItems: () => [],
+    saveCustomVisualItems: () => {},
+    activeImageStylePanelKind: 'character',
+    renderImageStylePanel: () => { calls.renders += 1; },
+    document: documentStub,
+  };
+  const context = vm.createContext(sandbox);
+  [
+    'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
+    'upsertCharacterCreationPendingCard', 'patchCharacterPendingCardDom', 'updateCharacterCreationPendingCardProgress',
+  ].forEach((name) => vm.runInContext(extractFunction(name), context));
+  return {context, serverVisualItems, calls, cardA, cardB};
+}
+
+test('updateCharacterCreationPendingCardProgress: never calls renderImageStylePanel on a progress tick - patches only the matching card', () => {
+  const {context, calls, cardA, cardB} = makeFlickerRegressionContext();
+  vm.runInContext(`upsertCharacterCreationPendingCard({jobId: 'job-A', name: 'Islam', gender: 'male', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`upsertCharacterCreationPendingCard({jobId: 'job-B', name: 'Nova', gender: 'female', previewUrl: '', status: 'creating'})`, context);
+
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'front', completed_references: 1})`, context);
+  assert.equal(calls.renders, 0, 'a progress tick must never call renderImageStylePanel - that is the flicker bug');
+  assert.equal(cardA.statusEl.textContent, '1/4');
+  assert.equal(cardB.statusEl.textContent, '', 'a different job\'s card DOM must never be touched by this one\'s progress');
+  assert.equal(cardA.thumb.querySelector('img'), null, 'no preview swap yet - primary_url has not arrived');
+});
+
+test('updateCharacterCreationPendingCardProgress: an identical snapshot is a complete no-op - no DOM lookup, no DOM write', () => {
+  const {context, calls, cardA} = makeFlickerRegressionContext();
+  vm.runInContext(`upsertCharacterCreationPendingCard({jobId: 'job-A', name: 'Islam', gender: 'male', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'front', completed_references: 1})`, context);
+  const lookupsAfterFirstTick = calls.getElementById;
+  const labelAfterFirstTick = cardA.statusEl.textContent;
+
+  // Several consecutive ticks reporting the exact same stage/count/preview
+  // (as repeated polling ticks commonly do) must change nothing at all.
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'front', completed_references: 1})`, context);
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'front', completed_references: 1})`, context);
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'front', completed_references: 1})`, context);
+
+  assert.equal(calls.getElementById, lookupsAfterFirstTick, 'an unchanged snapshot must not even look up the DOM node');
+  assert.equal(calls.renders, 0);
+  assert.equal(cardA.statusEl.textContent, labelAfterFirstTick);
+});
+
+test('updateCharacterCreationPendingCardProgress: the Primary Face preview is written exactly once when primary_url first appears', () => {
+  const {context, calls, cardA} = makeFlickerRegressionContext();
+  vm.runInContext(`upsertCharacterCreationPendingCard({jobId: 'job-A', name: 'Islam', gender: 'male', previewUrl: '', status: 'creating'})`, context);
+
+  // Primary finishes.
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'side', completed_references: 2, primary_url: 'https://cdn.sylvex.ai/primary.png'})`, context);
+  assert.equal(calls.renders, 0);
+  assert.equal(cardA.thumb.querySelector('img').src, 'https://cdn.sylvex.ai/primary.png');
+  assert.equal(cardA.statusEl.textContent, '2/4');
+
+  // Front and Back ticks that repeat the exact same primary_url must not
+  // touch the preview image again.
+  const imgRefAfterPrimary = cardA.thumb.querySelector('img');
+  vm.runInContext(`updateCharacterCreationPendingCardProgress('job-A', {stage: 'back', completed_references: 3, primary_url: 'https://cdn.sylvex.ai/primary.png'})`, context);
+  assert.equal(cardA.thumb.querySelector('img'), imgRefAfterPrimary, 'the <img> node is never re-created once the preview is set');
+  assert.equal(cardA.statusEl.textContent, '3/4');
+  assert.equal(calls.renders, 0, 'no structural render across the whole progress sequence, including the preview swap');
 });
 
 test('startCharacterCreationCardPoll: never polls the same job_id twice at once', async () => {
@@ -562,9 +684,9 @@ test('startCharacterCreationCardPoll: never polls the same job_id twice at once'
     'pollCharacterCreationJob', 'waitCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
-    'pendingCharacterCardId', 'characterJobIdFromCardId',
+    'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
     'upsertCharacterCreationPendingCard', 'removeCharacterCreationCard',
-    'replaceCharacterCreationCardWithResource', 'updateCharacterCreationPendingCardProgress',
+    'replaceCharacterCreationCardWithResource', 'patchCharacterPendingCardDom', 'updateCharacterCreationPendingCardProgress',
     'startCharacterCreationCardPoll', 'completeCharacterCreationJobCard', 'failCharacterCreationJobCard',
   ].forEach((name) => vm.runInContext(extractFunction(name), context));
   vm.runInContext(`startCharacterCreationCardPoll('job-dup')`, context);
