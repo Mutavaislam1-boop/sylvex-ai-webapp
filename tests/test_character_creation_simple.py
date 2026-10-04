@@ -32,7 +32,9 @@ payload logic, and does not test Object creation (unaffected by this
 change).
 """
 import asyncio
+import datetime as dt
 import json
+from contextlib import contextmanager
 
 import pytest
 
@@ -111,6 +113,35 @@ def test_generate_character_images_chains_primary_through_body_shots(monkeypatch
     assert "Front: Full-body front view, standing straight and facing directly toward the camera." in front_prompt
     assert "Side: Strict full-body side/profile view." in side_prompt
     assert "Back: Strict full-body back view, facing directly away from the camera." in back_prompt
+
+
+def test_generate_character_images_records_progress_after_each_stage(monkeypatch):
+    # Use the new existing stage logs to expose a simple job stage
+    # (primary/front/side/back/saving/completed) with completed_references
+    # and, once known, the Primary Face URL - so the pending Character
+    # card can show "1/4", "2/4", "3/4" and a progressive preview instead
+    # of a flat "Creating..." for the whole run.
+    urls = iter([
+        "https://cdn.sylvex.ai/primary.png",
+        "https://cdn.sylvex.ai/front.png",
+        "https://cdn.sylvex.ai/side.png",
+        "https://cdn.sylvex.ai/back.png",
+    ])
+
+    async def fake_shot(prompt, reference_urls, quality="high"):
+        return next(urls)
+
+    monkeypatch.setattr(main, "_openai_character_shot", fake_shot)
+    progress_updates = _capture_job_updates(monkeypatch)
+
+    asyncio.run(main._generate_openai_character_images("job-progress", "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+
+    stages = [(entry[0], entry[1], entry[2]) for entry in progress_updates]
+    assert stages == [
+        ("job-progress", "processing", {"stage": "front", "completed_references": 1, "total_references": 4, "primary_url": "https://cdn.sylvex.ai/primary.png"}),
+        ("job-progress", "processing", {"stage": "side", "completed_references": 2, "total_references": 4, "primary_url": "https://cdn.sylvex.ai/primary.png"}),
+        ("job-progress", "processing", {"stage": "back", "completed_references": 3, "total_references": 4, "primary_url": "https://cdn.sylvex.ai/primary.png"}),
+    ]
 
 
 def test_generate_character_images_works_with_no_optional_text(monkeypatch):
@@ -252,6 +283,10 @@ def stub_character_pipeline(monkeypatch):
 
 
 def _capture_job_updates(monkeypatch):
+    # Captures every update_prostudio_generation_job call, including the
+    # new mid-job progress writes (status stays 'processing' for those -
+    # see _record_character_job_progress) - not just the single terminal
+    # completed/failed call older tests assumed was the only one.
     updates = []
     monkeypatch.setattr(
         main, "update_prostudio_generation_job",
@@ -260,13 +295,18 @@ def _capture_job_updates(monkeypatch):
     return updates
 
 
+def _terminal_update(updates):
+    terminal = [entry for entry in updates if entry[1] in ("completed", "failed")]
+    assert len(terminal) == 1, f"expected exactly one terminal (completed/failed) update, got {terminal}"
+    return terminal[0]
+
+
 def test_run_character_creation_job_marks_completed_with_character_id_and_resource(stub_character_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
 
     asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
 
-    assert len(updates) == 1
-    job_id, status, result, error = updates[0]
+    job_id, status, result, error = _terminal_update(updates)
     assert job_id == "job-1"
     assert status == "completed"
     assert error is None
@@ -286,7 +326,8 @@ def test_run_character_creation_job_marks_completed_with_character_id_and_resour
 def test_run_character_creation_job_reference_library_uses_main_front_side_back_roles(stub_character_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
     asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
-    roles = [entry["role"] for entry in updates[0][2]["resource"]["referenceLibrary"]]
+    _, _, result, _ = _terminal_update(updates)
+    roles = [entry["role"] for entry in result["resource"]["referenceLibrary"]]
     assert roles == ["Primary Face", "Full Body Front", "Full Body Side", "Full Body Back"]
 
 
@@ -295,7 +336,8 @@ def test_run_character_creation_job_keeps_source_photo_only_as_metadata(stub_cha
     # reference - it is kept only as originalSourceImages metadata.
     updates = _capture_job_updates(monkeypatch)
     asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/source.jpg"]))
-    resource = updates[0][2]["resource"]
+    _, _, terminal_result, _ = _terminal_update(updates)
+    resource = terminal_result["resource"]
     assert resource["originalSourceImages"] == ["https://cdn.sylvex.ai/source.jpg"]
     assert "https://cdn.sylvex.ai/source.jpg" not in resource["referenceImages"]
     assert all(entry["url"] != "https://cdn.sylvex.ai/source.jpg" for entry in resource["referenceLibrary"])
@@ -399,7 +441,8 @@ def test_run_character_creation_job_heartbeats_continuously_during_generation(mo
     # just one heartbeat fired after it already finished.
     assert len(heartbeats) >= 2
     assert all(job_id == "job-heartbeat" for job_id in heartbeats)
-    assert updates[0][1] == "completed"
+    _, status, _, _ = _terminal_update(updates)
+    assert status == "completed"
 
 
 def test_run_character_creation_job_skips_resource_save_when_job_already_terminal(monkeypatch):
@@ -485,12 +528,19 @@ def test_run_character_creation_job_full_regression_long_running_completes_exact
     asyncio.run(main._run_character_creation_job("job-long", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
 
     assert len(save_calls) == 1
-    assert len(updates) == 1
-    job_id, status, result, error = updates[0]
+    job_id, status, result, error = _terminal_update(updates)
     assert status == "completed"
     assert error is None
     assert result["ok"] is True
     assert result["resource"]["id"] == save_calls[0]["id"]
+    # The progress writes along the way (front/side/back/saving) must
+    # never themselves flip the job to a terminal status - only this one
+    # final 'completed' write does.
+    assert all(entry[1] in ("processing", "completed") for entry in updates)
+    saving_updates = [entry for entry in updates if entry[1] == "processing" and entry[2] and entry[2].get("stage") == "saving"]
+    assert len(saving_updates) == 1
+    assert saving_updates[0][2]["completed_references"] == 4
+    assert saving_updates[0][2]["total_references"] == 4
 
 
 # ---- public_prostudio_create_character(): validation + 202 response ----
@@ -572,3 +622,150 @@ def test_create_character_job_creation_failure_surfaces_as_502(monkeypatch):
     result = asyncio.run(main.public_prostudio_create_character(request))
     assert result.status_code == 502
     assert "db exploded" in json.loads(result.body)["error"]
+
+
+# ---- public_prostudio_character_creation_jobs(): owner-scoped list used
+# by the frontend's pending-Character-card restore-on-reload flow ----
+
+class _JobsListFakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.executed = []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchall(self):
+        return self.rows
+
+    def close(self):
+        pass
+
+
+class _JobsListFakeConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+
+def _patch_jobs_list_db(monkeypatch, rows, database_url="postgres://fake"):
+    cursor = _JobsListFakeCursor(rows)
+
+    @contextmanager
+    def fake_db_connection(url):
+        yield _JobsListFakeConnection(cursor)
+
+    monkeypatch.setattr(main, "DATABASE_URL", database_url)
+    monkeypatch.setattr(main, "db_connection", fake_db_connection)
+    monkeypatch.setattr(main, "ensure_prostudio_table", lambda: None)
+    return cursor
+
+
+def test_character_creation_jobs_endpoint_requires_telegram_id():
+    result = asyncio.run(main.public_prostudio_character_creation_jobs(0))
+    assert result.status_code == 400
+    assert json.loads(result.body)["error"] == "telegram_id_required"
+
+
+def test_character_creation_jobs_endpoint_returns_empty_list_without_database(monkeypatch):
+    monkeypatch.setattr(main, "DATABASE_URL", "")
+    result = asyncio.run(main.public_prostudio_character_creation_jobs(42))
+    assert result == {"ok": True, "jobs": []}
+
+
+def test_character_creation_jobs_endpoint_scopes_query_to_the_requesting_telegram_id(monkeypatch):
+    # The only thing that can ever select a row here is WHERE
+    # telegram_id = %s - there is no path by which this can return
+    # another user's jobs.
+    cursor = _patch_jobs_list_db(monkeypatch, [])
+    asyncio.run(main.public_prostudio_character_creation_jobs(777))
+    sql, params = cursor.executed[0]
+    assert "character_creation" in sql
+    assert "telegram_id = %s" in sql
+    assert params == (777,)
+
+    cursor2 = _patch_jobs_list_db(monkeypatch, [])
+    asyncio.run(main.public_prostudio_character_creation_jobs(456))
+    _, params2 = cursor2.executed[0]
+    assert params2 == (456,)
+
+
+def test_character_creation_jobs_endpoint_shapes_a_processing_job_with_progress(monkeypatch):
+    created = dt.datetime(2026, 1, 1, 12, 0, 0)
+    updated = dt.datetime(2026, 1, 1, 12, 5, 0)
+    rows = [(
+        "job-1", "processing",
+        {"name": "Islam", "gender": "male", "description": "tall", "photos": ["https://cdn.sylvex.ai/a.jpg"]},
+        {"stage": "side", "completed_references": 2, "total_references": 4, "primary_url": "https://cdn.sylvex.ai/primary.png"},
+        None,
+        created, updated,
+    )]
+    _patch_jobs_list_db(monkeypatch, rows)
+
+    result = asyncio.run(main.public_prostudio_character_creation_jobs(42))
+
+    assert result["ok"] is True
+    assert len(result["jobs"]) == 1
+    job = result["jobs"][0]
+    assert job["job_id"] == "job-1"
+    assert job["status"] == "processing"
+    assert job["name"] == "Islam"
+    assert job["gender"] == "male"
+    assert job["description"] == "tall"
+    assert job["photos"] == ["https://cdn.sylvex.ai/a.jpg"]
+    assert job["created_at"] == created.isoformat()
+    assert job["updated_at"] == updated.isoformat()
+    assert job["result"]["stage"] == "side"
+    assert job["result"]["completed_references"] == 2
+    assert job["result"]["total_references"] == 4
+    assert job["result"]["primary_url"] == "https://cdn.sylvex.ai/primary.png"
+    assert job["error"] is None
+
+
+def test_character_creation_jobs_endpoint_includes_a_completed_job_with_its_resource(monkeypatch):
+    rows = [(
+        "job-done", "completed",
+        {"name": "Nova", "gender": "female", "description": "", "photos": ["https://cdn.sylvex.ai/b.jpg"]},
+        {"ok": True, "character_id": "custom_character_abc", "resource": {"id": "custom_character_abc"}, "result_url": "https://cdn.sylvex.ai/p.png"},
+        None,
+        dt.datetime(2026, 1, 1), dt.datetime(2026, 1, 1),
+    )]
+    _patch_jobs_list_db(monkeypatch, rows)
+
+    result = asyncio.run(main.public_prostudio_character_creation_jobs(42))
+
+    job = result["jobs"][0]
+    assert job["status"] == "completed"
+    assert job["result"]["resource"]["id"] == "custom_character_abc"
+    assert job["error"] is None
+
+
+def test_character_creation_jobs_endpoint_sanitizes_a_failed_jobs_error(monkeypatch):
+    # The same whitelist/translation the single-job GET endpoint already
+    # applies - an error record can carry raw provider/exception text
+    # (raw_error, traceback, secrets), which must never reach the client.
+    rows = [(
+        "job-2", "failed",
+        {"name": "Nova", "gender": "female", "description": "", "photos": ["https://cdn.sylvex.ai/b.jpg"]},
+        None,
+        {"ok": False, "error": "boom", "raw_error": "Traceback ... api_key=sk-secret"},
+        dt.datetime(2026, 1, 1), dt.datetime(2026, 1, 1),
+    )]
+    _patch_jobs_list_db(monkeypatch, rows)
+
+    result = asyncio.run(main.public_prostudio_character_creation_jobs(42))
+
+    job = result["jobs"][0]
+    assert job["status"] == "failed"
+    assert "raw_error" not in job["error"]
+    assert "sk-secret" not in str(job["error"])
+
+
+def test_character_creation_jobs_endpoint_list_failure_surfaces_as_500(monkeypatch):
+    monkeypatch.setattr(main, "DATABASE_URL", "postgres://fake")
+    monkeypatch.setattr(main, "ensure_prostudio_table", lambda: (_ for _ in ()).throw(RuntimeError("db exploded")))
+    result = asyncio.run(main.public_prostudio_character_creation_jobs(42))
+    assert result.status_code == 500
+    assert json.loads(result.body)["error"] == "character_jobs_list_failed"

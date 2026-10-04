@@ -11296,9 +11296,16 @@ async function createCharacterCreationJob(name, photos, gender, description) {
 // Polls the same job endpoint every other Pro Studio generation job uses
 // (GET /api/public/prostudio/job/{job_id}), independent of the main chat
 // composer's activeGeneration/transitionActiveGeneration machinery -
-// Character creation runs from a modal, not the composer, and must not
-// lock it. Mirrors the lightweight waitGridGeneration() poller.
-async function waitCharacterCreationJob(jobId) {
+// Character creation runs from a background card, not the composer, and
+// must never lock it. Mirrors the lightweight waitGridGeneration() poller.
+//
+// options.onProgress(job), when given, is called on every tick the job is
+// still 'processing' (job.result then carries the stage/completed_references/
+// primary_url snapshot _record_character_job_progress wrote server-side) -
+// this is what lets a pending Character card show "1/4"/"2/4"/a progressive
+// Primary Face preview instead of a flat "Creating..." for the whole run.
+async function pollCharacterCreationJob(jobId, options) {
+  const onProgress = (options && options.onProgress) || null;
   let transientErrors = 0;
   while (true) {
     let response;
@@ -11326,98 +11333,355 @@ async function waitCharacterCreationJob(jobId) {
       error.terminalStatus = job.status;
       throw error;
     }
+    if (onProgress) onProgress(job);
     await wait(1500);
   }
 }
 
-// Persisted pending-job marker so a Character creation job that is still
-// running when the page reloads (or the modal is reopened) can be found
-// again and resumed - Character creation keeps running server-side
-// regardless, this is only about the frontend noticing the result.
-function characterCreationJobStorageKey() {
-  return 'sylvex-prostudio-character-job-' + (getTelegramId() || 'anon');
+// Backward-compatible single-job waiter (no progress reporting) - still
+// used anywhere that only cares about the terminal outcome.
+async function waitCharacterCreationJob(jobId) {
+  return pollCharacterCreationJob(jobId, {});
 }
 
-function persistPendingCharacterCreationJob(jobId, name, gender, description) {
-  try {
-    localStorage.setItem(characterCreationJobStorageKey(), JSON.stringify({ jobId, name, gender, description, startedAt: Date.now() }));
-  } catch {}
+// =====================================================
+// Background-card Character creation (one job = one card)
+//
+// Character creation never blocks a modal waiting for completion: the
+// request is submitted, a job_id comes back, a pending Character card
+// appears in the list immediately, and the job is polled independently
+// in the background - the user is free to close the picker, navigate
+// elsewhere, generate other content, or close the app entirely.
+//
+// The backend (GET /api/public/prostudio/character-creation-jobs) is the
+// authoritative source for which jobs are pending/failed after a reload;
+// localStorage below is only ever an optional same-tab fast cache, used
+// to seed a card instantly before that network round trip resolves, and
+// to carry Retry's original inputs - never relied on for correctness.
+//
+// Important: this is a map keyed by job_id, never a single global
+// "pendingCharacterCreationJob" - the user can have several Character
+// creation jobs running at once, each with its own independent card.
+// =====================================================
+
+function characterCreationJobsStorageKey() {
+  return 'sylvex-prostudio-character-jobs-' + (getTelegramId() || 'anon');
 }
 
-function readPendingCharacterCreationJob() {
+function readPendingCharacterCreationJobs() {
   try {
-    const raw = localStorage.getItem(characterCreationJobStorageKey());
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(characterCreationJobsStorageKey());
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
-    return null;
+    return {};
   }
 }
 
-function clearPendingCharacterCreationJob(jobId) {
+function writePendingCharacterCreationJobs(map) {
   try {
-    const pending = readPendingCharacterCreationJob();
-    if (!jobId || !pending || pending.jobId === jobId) localStorage.removeItem(characterCreationJobStorageKey());
+    localStorage.setItem(characterCreationJobsStorageKey(), JSON.stringify(map || {}));
   } catch {}
 }
 
-// Restores an unfinished Character creation job after a page reload or
-// reopen: the job itself was never tied to this browser tab, so this
-// just resumes polling it and, on completion, inserts the Character into
-// the list exactly as saveVisualCreateDraft would have - even though the
-// Create Character modal is not open any more.
-async function restorePendingCharacterCreationJob() {
-  const pending = readPendingCharacterCreationJob();
-  if (!pending || !pending.jobId) return;
+function persistPendingCharacterCreationJob(jobId, name, gender, description, previewUrl) {
+  if (!jobId) return;
+  const map = readPendingCharacterCreationJobs();
+  map[jobId] = { jobId, name: name || '', gender: gender || '', description: description || '', previewUrl: previewUrl || '', startedAt: Date.now() };
+  writePendingCharacterCreationJobs(map);
+}
+
+function clearPendingCharacterCreationJob(jobId) {
+  if (!jobId) return;
+  const map = readPendingCharacterCreationJobs();
+  if (map[jobId]) {
+    delete map[jobId];
+    writePendingCharacterCreationJobs(map);
+  }
+}
+
+// A failed job's card stays visible forever on the backend (the job row
+// never disappears), so a user-initiated Delete of that card must be
+// remembered locally or it would resurrect on the very next restore.
+// This is a dismissal flag, never a source of truth for existence - if
+// it's ever lost, the worst case is a deleted failed card reappearing
+// once more, which Delete removes again.
+function dismissedCharacterJobsKey() {
+  return 'sylvex-prostudio-character-jobs-dismissed-' + (getTelegramId() || 'anon');
+}
+
+function readDismissedCharacterJobIds() {
   try {
-    const result = await waitCharacterCreationJob(pending.jobId);
-    const providerResource = normalizeVisualItem(result.resource) || result.resource || {};
-    const generatedPreview = visualPreviewUrl(providerResource) || '';
-    const id = providerResource.id || ('custom_character_' + Date.now());
-    const item = Object.assign({
-      id,
-      name: pending.name || '',
-      gender: pending.gender || '',
-      description: pending.description || '',
-      previewUrl: generatedPreview,
-      referenceImages: [generatedPreview].filter(Boolean),
-      sourceImages: [],
-      ai_provider: 'openai',
-      ai_model: 'gpt-image-2',
-      provider: 'openai',
-      model: 'gpt-image-2',
-      type: 'custom',
-      status: 'ready',
-      created_at: new Date().toISOString(),
-    }, providerResource);
-    const storageKind = 'characters';
-    // The Character resource is already persisted server-side by
-    // _run_character_creation_job before the job reports 'completed' -
-    // result.resource (normalized into providerResource above) is the
-    // authoritative saved Character. Do not POST it again via
-    // saveVisualItemToBackend(); that call is only for Object/Voice.
-    if (serverVisualItems[storageKind]) {
-      serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
-      serverVisualItems[storageKind].unshift(item);
+    const raw = localStorage.getItem(dismissedCharacterJobsKey());
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberDismissedCharacterJob(jobId) {
+  if (!jobId) return;
+  try {
+    const list = readDismissedCharacterJobIds();
+    if (!list.includes(jobId)) {
+      list.push(jobId);
+      localStorage.setItem(dismissedCharacterJobsKey(), JSON.stringify(list.slice(-100)));
     }
-    const items = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== item.id);
-    items.unshift(item);
-    saveCustomVisualItems(storageKind, items);
-    applyCharacterReferenceSelection(item);
-    renderImageReferenceSections();
-    renderImageControls();
-    renderImageStylePanel();
-    renderVideoReferencesPreview();
-    toast((pending.name || 'Персонаж') + ' создан и сохранён в список персонажей');
-    clearPendingCharacterCreationJob(pending.jobId);
+  } catch {}
+}
+
+function pendingCharacterCardId(jobId) {
+  return 'pending_character_' + jobId;
+}
+
+function characterJobIdFromCardId(id) {
+  return String(id || '').replace(/^pending_character_/, '');
+}
+
+// Inserts (or updates in place, so the card never jumps position) a
+// pending/failed Character card, keyed by job_id - the same Character
+// card markup/dimensions renderImageStylePanel() already uses, just in a
+// non-ready status.
+function upsertCharacterCreationPendingCard(job) {
+  const id = pendingCharacterCardId(job.jobId);
+  const list = serverVisualItems.characters || (serverVisualItems.characters = []);
+  const idx = list.findIndex((entry) => entry && entry.id === id);
+  const base = idx >= 0 ? list[idx] : {};
+  const item = Object.assign({}, base, {
+    id,
+    job_id: job.jobId,
+    name: job.name || base.name || '',
+    gender: job.gender || base.gender || '',
+    description: job.description || base.description || '',
+    previewUrl: job.previewUrl || base.previewUrl || '',
+    referenceImages: (job.previewUrl || base.previewUrl) ? [job.previewUrl || base.previewUrl] : [],
+    type: 'character_job',
+    status: job.status || base.status || 'creating',
+    stage: job.stage || base.stage || '',
+    completedReferences: job.completedReferences != null ? job.completedReferences : (base.completedReferences || 0),
+    totalReferences: job.totalReferences || base.totalReferences || 4,
+    errorMessage: job.errorMessage != null ? job.errorMessage : (base.errorMessage || ''),
+    created_at: job.createdAt || base.created_at || new Date().toISOString(),
+  });
+  if (idx >= 0) list[idx] = item;
+  else list.unshift(item);
+  return item;
+}
+
+function removeCharacterCreationCard(jobId) {
+  const id = pendingCharacterCardId(jobId);
+  if (serverVisualItems.characters) {
+    serverVisualItems.characters = serverVisualItems.characters.filter((entry) => entry && entry.id !== id);
+  }
+  const cached = loadCustomVisualItems('characters').filter((entry) => entry && entry.id !== id);
+  saveCustomVisualItems('characters', cached);
+}
+
+// On completion: result.resource is authoritative (already persisted
+// server-side) - the pending card is replaced in place by the real
+// Character using the existing Character id, never removed-then-
+// reinserted as an unrelated card, and never saved to the backend again.
+function replaceCharacterCreationCardWithResource(jobId, resource) {
+  const pendingId = pendingCharacterCardId(jobId);
+  const normalized = normalizeVisualItem(resource) || resource || {};
+  if (serverVisualItems.characters) {
+    serverVisualItems.characters = serverVisualItems.characters.filter((entry) => entry && entry.id !== pendingId && entry.id !== normalized.id);
+    serverVisualItems.characters.unshift(normalized);
+  }
+  const cached = loadCustomVisualItems('characters').filter((entry) => entry && entry.id !== pendingId && entry.id !== normalized.id);
+  cached.unshift(normalized);
+  saveCustomVisualItems('characters', cached);
+  return normalized;
+}
+
+function updateCharacterCreationPendingCardProgress(jobId, progress) {
+  const id = pendingCharacterCardId(jobId);
+  const list = serverVisualItems.characters || [];
+  const idx = list.findIndex((entry) => entry && entry.id === id);
+  if (idx < 0 || !progress) return;
+  const current = list[idx];
+  const primaryUrl = progress.primary_url || current.previewUrl || '';
+  list[idx] = Object.assign({}, current, {
+    stage: progress.stage || current.stage || '',
+    completedReferences: progress.completed_references != null ? progress.completed_references : current.completedReferences,
+    totalReferences: progress.total_references || current.totalReferences || 4,
+    previewUrl: primaryUrl,
+    referenceImages: primaryUrl ? [primaryUrl] : current.referenceImages,
+  });
+  if (activeImageStylePanelKind === 'character') renderImageStylePanel();
+}
+
+// job_id -> in-flight poll promise, so a card is never polled twice at
+// once (e.g. one loop started at creation time, another by a later
+// restore-on-init pass).
+const activeCharacterCreationCardPolls = {};
+
+function startCharacterCreationCardPoll(jobId) {
+  if (!jobId || activeCharacterCreationCardPolls[jobId]) return;
+  activeCharacterCreationCardPolls[jobId] = pollCharacterCreationJob(jobId, {
+    onProgress: (job) => updateCharacterCreationPendingCardProgress(jobId, job.result || {}),
+  }).then((result) => {
+    completeCharacterCreationJobCard(jobId, result);
+  }).catch((err) => {
+    failCharacterCreationJobCard(jobId, err);
+  }).finally(() => {
+    delete activeCharacterCreationCardPolls[jobId];
+  });
+}
+
+function completeCharacterCreationJobCard(jobId, result) {
+  const resource = result && result.resource;
+  if (!resource) {
+    failCharacterCreationJobCard(jobId, Object.assign(new Error('empty_resource'), { terminalStatus: 'failed' }));
+    return;
+  }
+  const item = replaceCharacterCreationCardWithResource(jobId, resource);
+  clearPendingCharacterCreationJob(jobId);
+  renderImageReferenceSections();
+  renderImageControls();
+  renderImageStylePanel();
+  renderVideoReferencesPreview();
+  toast((item.name || 'Персонаж') + ' создан и сохранён в список персонажей');
+}
+
+function failCharacterCreationJobCard(jobId, err) {
+  const isTerminal = !!(err && (err.terminalStatus === 'failed' || err.terminalStatus === 'cancelled'));
+  if (!isTerminal) return; // transient network/polling error - the card stays "creating"; a later restore (or this same tab) can keep trying
+  const id = pendingCharacterCardId(jobId);
+  const list = serverVisualItems.characters || [];
+  const idx = list.findIndex((entry) => entry && entry.id === id);
+  if (idx >= 0) {
+    list[idx] = Object.assign({}, list[idx], { status: 'failed', errorMessage: (err && err.message) || '' });
+  }
+  clearPendingCharacterCreationJob(jobId);
+  renderImageStylePanel();
+  renderImageReferenceSections();
+  toast(translateGenerationError(err, 'Не удалось создать персонажа'));
+}
+
+// "Retry" on a failed card: starts a brand-new Character creation job
+// from the same inputs the failed card already shows (name/gender/
+// description/source photo) - never reuses the dead job_id. "Delete"
+// just removes this one failed pending-job card; it can never touch a
+// real saved Character (built-in or custom), since a failed job never
+// created one.
+async function retryFailedCharacterJob(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const jobId = characterJobIdFromCardId(id);
+  if (!jobId) return;
+  const list = serverVisualItems.characters || [];
+  const card = list.find((entry) => entry && entry.id === id);
+  const name = (card && card.name) || '';
+  const gender = (card && card.gender) || '';
+  const description = (card && card.description) || '';
+  const sourceThumbnail = (card && card.previewUrl) || '';
+  if (!name || !gender || !sourceThumbnail) {
+    toast('Не удалось повторить создание - исходные данные недоступны');
+    return;
+  }
+  removeCharacterCreationCard(jobId);
+  rememberDismissedCharacterJob(jobId);
+  let newJobId;
+  try {
+    newJobId = await createCharacterCreationJob(name, [sourceThumbnail], gender, description);
   } catch (err) {
-    // Only a genuine terminal outcome (failed/cancelled) retires the
-    // pending marker - a transient polling/network error leaves it in
-    // place so the next reload/init can try restoring this same job
-    // again instead of silently losing track of a still-running one.
-    if (err && (err.terminalStatus === 'failed' || err.terminalStatus === 'cancelled')) {
-      clearPendingCharacterCreationJob(pending.jobId);
-    }
     toast(translateGenerationError(err, 'Не удалось создать персонажа'));
+    renderImageStylePanel();
+    return;
+  }
+  persistPendingCharacterCreationJob(newJobId, name, gender, description, sourceThumbnail);
+  upsertCharacterCreationPendingCard({
+    jobId: newJobId, name, gender, description, previewUrl: sourceThumbnail,
+    status: 'creating', createdAt: new Date().toISOString(),
+  });
+  renderImageStylePanel();
+  renderImageReferenceSections();
+  startCharacterCreationCardPoll(newJobId);
+  toast(name + ' создаётся заново');
+}
+
+function deleteFailedCharacterJob(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const jobId = characterJobIdFromCardId(id);
+  if (!jobId) return;
+  removeCharacterCreationCard(jobId);
+  clearPendingCharacterCreationJob(jobId);
+  rememberDismissedCharacterJob(jobId);
+  renderImageStylePanel();
+  renderImageReferenceSections();
+  toast('Запись удалена');
+}
+
+// A no-op click target for a "creating" card: it is not selectable and
+// has nothing to open yet.
+function handlePendingCharacterCardClick(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  toast('Персонаж ещё создаётся');
+}
+
+// Restores every unfinished/failed Character creation job after a page
+// reload, a reopened Mini App, or localStorage being unavailable - the
+// backend list (owned by this telegram_id only) is authoritative; the
+// local pending-job cache is only used to seed a card instantly while
+// that fetch is in flight, never as the source of truth for recovery.
+async function restorePendingCharacterCreationJobs() {
+  const tg = getTelegramId();
+  if (!tg) return;
+
+  // Fast local seed, so a job created in this same tab shows immediately
+  // even before the network round trip below resolves.
+  const localPending = readPendingCharacterCreationJobs();
+  Object.keys(localPending).forEach((jobId) => {
+    const pending = localPending[jobId];
+    upsertCharacterCreationPendingCard({
+      jobId, name: pending.name, gender: pending.gender, description: pending.description,
+      previewUrl: pending.previewUrl, status: 'creating', createdAt: new Date(pending.startedAt || Date.now()).toISOString(),
+    });
+    startCharacterCreationCardPoll(jobId);
+  });
+  if (Object.keys(localPending).length) renderImageStylePanel();
+
+  let jobs = [];
+  try {
+    const res = await fetch('/api/public/prostudio/character-creation-jobs?telegram_id=' + encodeURIComponent(tg), { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data && data.ok && Array.isArray(data.jobs)) jobs = data.jobs;
+  } catch (err) {
+    console.warn('[SYLVEX] character creation jobs restore failed', err);
+    return;
+  }
+
+  const dismissed = readDismissedCharacterJobIds();
+  let changed = false;
+  jobs.forEach((job) => {
+    const jobId = job.job_id;
+    if (!jobId || dismissed.includes(jobId)) return;
+    if (job.status === 'processing' || job.status === 'queued' || job.status === 'provider_processing') {
+      const progress = job.result || {};
+      upsertCharacterCreationPendingCard({
+        jobId, name: job.name, gender: job.gender, description: job.description,
+        previewUrl: progress.primary_url || (job.photos || [])[0] || '',
+        status: 'creating', stage: progress.stage, completedReferences: progress.completed_references,
+        totalReferences: progress.total_references, createdAt: job.created_at,
+      });
+      startCharacterCreationCardPoll(jobId);
+      changed = true;
+    } else if (job.status === 'failed' || job.status === 'cancelled') {
+      upsertCharacterCreationPendingCard({
+        jobId, name: job.name, gender: job.gender, description: job.description,
+        previewUrl: (job.photos || [])[0] || '',
+        status: 'failed', createdAt: job.created_at,
+      });
+      changed = true;
+    }
+    // 'completed' jobs need no card here - the real Character resource
+    // already lives in prostudio_resources and is loaded through the
+    // ordinary catalog/sync path.
+  });
+  if (changed) {
+    renderImageReferenceSections();
+    renderImageStylePanel();
   }
 }
 
@@ -11437,6 +11701,12 @@ async function saveVisualCreateDraft(e) {
   if (kind === 'character' && !visualCreateDraft.gender) return toast('Выберите пол');
   if (!photos.length) return toast('Добавьте хотя бы одну фотографию');
   if (visualCreateDraft.saving) return;
+
+  // Character creation is a background-card workflow, not a blocking
+  // modal wait: submit, get a job_id, close the modal, done - the modal
+  // never awaits generation (see startCharacterCreationFromDraft).
+  if (kind === 'character') return startCharacterCreationFromDraft(e, name, photos);
+
   const kindLabel = visualCreateKindLabel(kind);
   const listLabel = visualCreateListLabel(kind);
   visualCreateDraft.saving = true;
@@ -11445,51 +11715,22 @@ async function saveVisualCreateDraft(e) {
   renderVisualCreateModal();
   await wait(900);
   let generatedPreview = '';
-  let providerResource = null;
   try {
-    if (kind === 'character') {
-      // Character creation is an async SYLVEX job: the endpoint returns
-      // a job_id immediately, and the actual GPT Image generation keeps
-      // running server-side even if this request/browser disconnects.
-      // Persist the job_id so an unfinished job survives a page reload.
-      const jobId = await createCharacterCreationJob(name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
-      persistPendingCharacterCreationJob(jobId, name, visualCreateDraft.gender || '', visualCreateDraft.description || '');
-      try {
-        const result = await waitCharacterCreationJob(jobId);
-        providerResource = normalizeVisualItem(result.resource) || result.resource;
-        clearPendingCharacterCreationJob(jobId);
-      } catch (jobErr) {
-        // Only a genuine terminal outcome (the backend job itself ended as
-        // failed/cancelled - which, with the continuous job heartbeat fix,
-        // now means the background Character task has actually stopped
-        // and will never later create a resource) retires the pending
-        // marker. A transient polling/network error leaves it in place,
-        // so a page reload can still find and resume the still-running
-        // job via restorePendingCharacterCreationJob() instead of losing
-        // track of it.
-        if (jobErr && (jobErr.terminalStatus === 'failed' || jobErr.terminalStatus === 'cancelled')) {
-          clearPendingCharacterCreationJob(jobId);
-        }
-        throw jobErr;
-      }
-      generatedPreview = visualPreviewUrl(providerResource) || photos[0] || '';
-    } else {
-      generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
-    }
+    generatedPreview = await generateVisualResourceWithOpenAI(kind, name, photos, visualCreateDraft.gender || '', visualCreateDraft.description || '');
   } catch (err) {
     console.warn('[SYLVEX] visual resource generation failed', err);
     visualCreateDraft.saving = false;
     visualCreateDraft.done = false;
     visualCreateDraft.statusText = '';
     renderVisualCreateModal();
-    return toast(translateGenerationError(err, kind === 'character' ? 'Не удалось создать персонажа' : 'Не удалось создать объект'));
+    return toast(translateGenerationError(err, 'Не удалось создать объект'));
   }
   visualCreateDraft.statusText = kindLabel + ' ' + name + ' сохраняется';
   renderVisualCreateModal();
   await wait(900);
-  const id = (providerResource && providerResource.id) || ((kind === 'character' ? 'custom_character_' : 'custom_object_') + Date.now());
+  const id = 'custom_object_' + Date.now();
   const references = [generatedPreview].concat(photos).filter(Boolean);
-  const item = Object.assign({
+  const item = {
     id,
     name,
     gender: visualCreateDraft.gender || '',
@@ -11498,39 +11739,25 @@ async function saveVisualCreateDraft(e) {
     referenceImages: references,
     sourceImages: photos,
     ai_provider: 'openai',
-    ai_model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
+    ai_model: 'gpt-image-1',
     provider: 'openai',
-    model: kind === 'character' ? 'gpt-image-2' : 'gpt-image-1',
+    model: 'gpt-image-1',
     type: 'custom',
     status: 'ready',
     created_at: new Date().toISOString(),
-  }, providerResource || {});
-  const storageKind = kind === 'character' ? 'characters' : 'objects';
-  if (kind === 'character') {
-    // The Character resource is already persisted server-side by
-    // _run_character_creation_job before the job reports 'completed' -
-    // providerResource (normalized from result.resource above) is the
-    // authoritative saved Character. Do not POST it again via
-    // saveVisualItemToBackend(); that call stays unchanged for Object/Voice.
-  } else {
-    const savedItem = await saveVisualItemToBackend(kind, item);
-    Object.assign(item, normalizeVisualItem(savedItem || item) || {});
-  }
+  };
+  const storageKind = 'objects';
+  const savedItem = await saveVisualItemToBackend(kind, item);
+  Object.assign(item, normalizeVisualItem(savedItem || item) || {});
   if (serverVisualItems[storageKind]) {
     serverVisualItems[storageKind] = serverVisualItems[storageKind].filter((entry) => entry.id !== item.id);
     serverVisualItems[storageKind].unshift(item);
   }
-  // =====================================================
-  // JAVASCRIPT-БЛОК: items
-  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
-  // =====================================================
   const items = loadCustomVisualItems(storageKind).filter((entry) => entry && entry.id !== item.id);
   items.unshift(item);
   saveCustomVisualItems(storageKind, items);
   if (isVideoMode()) {
     applyVisualReferenceToVideo(item, kind);
-  } else if (kind === 'character') {
-    applyCharacterReferenceSelection(item);
   } else {
     imageState.objectId = item.id;
     imageState.objectName = item.name;
@@ -11550,6 +11777,47 @@ async function saveVisualCreateDraft(e) {
   closeVisualCreateModal(e);
   closeVisualPicker(e);
   closeImageStylePanel(e);
+}
+
+// Character creation's own save path: submit the request, receive
+// job_id, immediately close the creation modal, immediately create a
+// pending Character card (loading state) in the Character list, and let
+// the job run to completion in the background - the user is free to
+// close the picker, navigate elsewhere, generate other content, minimize
+// the Mini App, or close the website entirely. Character creation
+// continues independently on the backend regardless.
+async function startCharacterCreationFromDraft(e, name, photos) {
+  const gender = visualCreateDraft.gender || '';
+  const description = visualCreateDraft.description || '';
+  const sourceThumbnail = photos[0] || '';
+  visualCreateDraft.saving = true;
+  renderVisualCreateModal();
+  let jobId;
+  try {
+    jobId = await createCharacterCreationJob(name, photos, gender, description);
+  } catch (err) {
+    visualCreateDraft.saving = false;
+    renderVisualCreateModal();
+    return toast(translateGenerationError(err, 'Не удалось создать персонажа'));
+  }
+  persistPendingCharacterCreationJob(jobId, name, gender, description, sourceThumbnail);
+  upsertCharacterCreationPendingCard({
+    jobId, name, gender, description, previewUrl: sourceThumbnail,
+    status: 'creating', createdAt: new Date().toISOString(),
+  });
+  renderImageReferenceSections();
+  renderImageControls();
+  renderImageStylePanel();
+  renderVideoReferencesPreview();
+  toast(name + ' создаётся в фоне');
+  visualCreateDraft.saving = false;
+  visualCreateDraft.done = false;
+  visualCreateDraft.statusText = '';
+  // Only the creation modal closes here - the Character picker/list
+  // stays exactly as it was (open or closed), so the new pending card is
+  // visible immediately if it was already open.
+  closeVisualCreateModal(e);
+  startCharacterCreationCardPoll(jobId);
 }
 
 function applyVisualReferenceToVideo(item, kind) {
@@ -12355,6 +12623,71 @@ function currentSelectedUploadImage() {
       transform: scale(.94);
     }
 
+    .image-style-card.is-character-pending {
+      cursor: default;
+    }
+
+    .image-style-card.is-character-creating {
+      cursor: wait;
+    }
+
+    .character-pending-spinner {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 3px solid rgba(255,255,255,.22);
+      border-top-color: var(--st-accent, #fff);
+      animation: character-pending-spin .85s linear infinite;
+    }
+
+    @keyframes character-pending-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .character-pending-status {
+      display: block;
+      padding: 0 2px 6px;
+      color: var(--st-dim, rgba(255,255,255,.82));
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.1;
+      text-align: center;
+    }
+
+    .character-pending-status-failed {
+      color: #ff6b6b;
+    }
+
+    .character-pending-actions {
+      display: flex;
+      gap: 6px;
+      padding: 0 2px 2px;
+    }
+
+    .character-pending-retry,
+    .character-pending-delete {
+      flex: 1;
+      border: 0;
+      border-radius: 10px;
+      padding: 6px 4px;
+      font-size: 10px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .character-pending-retry {
+      background: var(--st-accent, #fff);
+      color: var(--st-accent-text, #111);
+    }
+
+    .character-pending-delete {
+      background: var(--st-bg-3, rgba(255,255,255,.08));
+      color: var(--st-dim, rgba(255,255,255,.82));
+    }
+
     .visual-character-detail {
       position: absolute;
       inset: 0;
@@ -12690,6 +13023,63 @@ function ensureImageStylePanel() {
   return panel;
 }
 
+// Simple, non-percentage job-stage label for a pending Character card -
+// "Создаём..." before Primary finishes, "1/4"/"2/4"/"3/4" as each
+// reference completes (completedReferences is written from the
+// front/side/back stage progress - see _record_character_job_progress),
+// "Завершаем..." once all 4 are done and the resource is being saved.
+// A Character still being generated, or one whose generation failed, is
+// never selectable and never opens the normal detail page (References/
+// History) as if it were ready. Every existing/preset Character (no
+// status field at all) and every genuinely 'ready' custom Character
+// return '' here and behave exactly as before.
+function characterCardPendingStatus(item) {
+  return item && (item.status === 'creating' || item.status === 'failed') ? item.status : '';
+}
+
+function characterCreationStageLabel(item) {
+  const stage = item && item.stage;
+  const completed = Number((item && item.completedReferences) || 0);
+  const total = Number((item && item.totalReferences) || 4);
+  if (stage === 'saving') return 'Завершаем...';
+  if (completed > 0) return completed + '/' + total;
+  return 'Создаём...';
+}
+
+// Same Character card markup/dimensions as a normal ready Character -
+// only the loading/failed state lives inside it, so it never looks like
+// an unrelated component. Covers both of the two non-ready states:
+// 'creating' (progress label + spinner, not clickable/selectable) and
+// 'failed' (name + "Failed" + Retry/Delete, never silently removed).
+function characterCreationPendingCardHtml(item, id, label, preview, status) {
+  if (status === 'failed') {
+    return `
+      <div class="image-style-card is-character-pending is-character-failed" role="group" aria-label="${S.escapeHtml(label)} - создание не удалось">
+        <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
+          ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
+        </span>
+        <span class="image-style-label">${S.escapeHtml(label)}</span>
+        <span class="character-pending-status character-pending-status-failed">Не удалось</span>
+        <div class="character-pending-actions">
+          <button class="character-pending-retry" type="button" onclick="SYLVEX.retryFailedCharacterJob(event, '${S.escapeHtml(id)}')">Повторить</button>
+          <button class="character-pending-delete" type="button" onclick="SYLVEX.deleteFailedCharacterJob(event, '${S.escapeHtml(id)}')">Удалить</button>
+        </div>
+      </div>
+    `;
+  }
+  const stageLabel = characterCreationStageLabel(item);
+  return `
+    <div class="image-style-card is-character-pending is-character-creating" role="button" tabindex="0" aria-label="${S.escapeHtml(label)} - создаётся" onclick="SYLVEX.handlePendingCharacterCardClick(event)">
+      <span class="image-style-thumb ${preview ? '' : 'is-placeholder'}" aria-hidden="true">
+        ${preview ? `<img src="${S.escapeHtml(preview)}" alt="${S.escapeHtml(label)}" loading="lazy" decoding="async" />` : '<span class="image-style-placeholder-icon"></span>'}
+        <span class="character-pending-spinner" aria-hidden="true"></span>
+      </span>
+      <span class="image-style-label">${S.escapeHtml(label)}</span>
+      <span class="character-pending-status">${S.escapeHtml(stageLabel)}</span>
+    </div>
+  `;
+}
+
 // =====================================================
 // ОТРИСОВКА ИНТЕРФЕЙСА: renderImageStylePanel
 // Обновляет HTML на экране: карточки, списки, previews, историю или состояние кнопок.
@@ -12763,6 +13153,13 @@ function renderImageStylePanel() {
       const id = String(item.id || '');
       const label = item.name || item.label || id;
       const preview = visualPreviewUrl(item);
+      // A Character still being generated, or one whose generation
+      // failed, is never selectable and never opens the normal detail
+      // page (References/History) as if it were ready - only a 'ready'
+      // Character (the default for every existing/preset Character)
+      // behaves like today.
+      const pendingStatus = characterCardPendingStatus(item);
+      if (pendingStatus) return characterCreationPendingCardHtml(item, id, label, preview, pendingStatus);
       const selected = selectedId === id;
       const canDelete = isCustomVisualItem(item);
       return `
@@ -25362,7 +25759,7 @@ async function waitGeneration(jobId, options) {
     loadConversations();
     loadProStudioSync();
     restoreActiveProStudioJob();
-    restorePendingCharacterCreationJob();
+    restorePendingCharacterCreationJobs();
   }
 
   // Expose to global scope.
@@ -25373,6 +25770,7 @@ async function waitGeneration(jobId, options) {
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
+    retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -25530,6 +25928,9 @@ async function waitGeneration(jobId, options) {
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
   window.deleteCharacterHistoryEntry = deleteCharacterHistoryEntry;
+  window.retryFailedCharacterJob = retryFailedCharacterJob;
+  window.deleteFailedCharacterJob = deleteFailedCharacterJob;
+  window.handlePendingCharacterCardClick = handlePendingCharacterCardClick;
   window.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
   window.openVisualPicker = openVisualPicker;
   window.openVideoVisualPicker = openVideoVisualPicker;
@@ -25572,6 +25973,9 @@ async function waitGeneration(jobId, options) {
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
   S.deleteCharacterHistoryEntry = deleteCharacterHistoryEntry;
+  S.retryFailedCharacterJob = retryFailedCharacterJob;
+  S.deleteFailedCharacterJob = deleteFailedCharacterJob;
+  S.handlePendingCharacterCardClick = handlePendingCharacterCardClick;
   S.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
   S.openVisualPicker = openVisualPicker;
   S.openVideoVisualPicker = openVideoVisualPicker;
