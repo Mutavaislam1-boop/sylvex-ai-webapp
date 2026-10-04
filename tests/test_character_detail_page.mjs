@@ -38,12 +38,19 @@ function extractFunction(name) {
 function fakeElement() {
   return {
     hidden: true,
+    checked: false,
+    textContent: '',
     innerHTML: '',
     classList: {
       list: new Set(),
       add(c) { this.list.add(c); },
       remove(c) { this.list.delete(c); },
       contains(c) { return this.list.has(c); },
+      toggle(c, force) {
+        const next = force === undefined ? !this.list.has(c) : !!force;
+        if (next) this.list.add(c); else this.list.delete(c);
+        return next;
+      },
     },
   };
 }
@@ -78,7 +85,13 @@ function makeContext(imageState, opts) {
     hideImageStyleInfo: () => {},
     ensureImageStylePanel: () => panel,
     S: { escapeHtml: (v) => String(v == null ? '' : v) },
-    document: { getElementById: (id) => dom[id] || null },
+    // Any id not pre-registered above (per-card ids, the selected-count
+    // span, the select-all checkbox, the Use Character button) is lazily
+    // created on first lookup, exactly like the real DOM would have a
+    // node for it once the panel's innerHTML is actually set - this lets
+    // refreshCharacterDetailSelectionUI()'s getElementById calls be
+    // inspected via `dom[id]` after the fact without a real HTML parser.
+    document: { getElementById: (id) => { if (!dom[id]) dom[id] = fakeElement(); return dom[id]; } },
     getTelegramId: () => 42,
     window: {},
     imageCharacters: options.imageCharacters || (() => []),
@@ -93,6 +106,8 @@ function makeContext(imageState, opts) {
   vm.runInContext(extractFunction('applyCharacterReferenceSelection'), context);
   vm.runInContext(extractFunction('clearSelectedCharacter'), context);
   vm.runInContext(extractFunction('isCustomVisualItem'), context);
+  vm.runInContext(extractFunction('charRefCardId'), context);
+  vm.runInContext(extractFunction('refreshCharacterDetailSelectionUI'), context);
   vm.runInContext(extractFunction('toggleCharacterDetailReferenceId'), context);
   vm.runInContext(extractFunction('toggleCharacterDetailSelectAll'), context);
   vm.runInContext(extractFunction('characterDetailReferenceGridHtml'), context);
@@ -259,6 +274,69 @@ test('"Use Character" with nothing selected commits zero references - never fall
   assert.equal(imageState.characterId, 'custom_character_abc');
   assert.equal(imageState.characterReferenceIds.length, 0);
   assert.equal(imageState.characterReferences.length, 0);
+});
+
+test('"Use Character" button is hidden at 0 selected, shown once 1+ is selected, hidden again at 0', () => {
+  const imageState = baseImageState();
+  const item = { id: 'custom_character_abc', name: 'Islam', referenceLibrary: library4 };
+  const { context } = makeContext(imageState, { imageCharacters: () => [item] });
+
+  vm.runInContext('openCharacterDetail(e, "custom_character_abc")', Object.assign(context, { e: fakeEvent() }));
+  let html = vm.runInContext('visualCharacterDetailHtml(item)', Object.assign(context, { item }));
+  assert.match(html, /id="characterDetailUseBtn"[^>]*\bhidden\b/, '0 selected must render the button hidden');
+
+  vm.runInContext('toggleCharacterDetailReferenceId(e, "ref_face")', Object.assign(context, { e: fakeEvent() }));
+  // The live DOM button (refreshCharacterDetailSelectionUI target), not a
+  // fresh render - this is the no-flicker path real toggling takes.
+  assert.equal(vm.runInContext('document.getElementById("characterDetailUseBtn").hidden', context), false);
+
+  vm.runInContext('toggleCharacterDetailReferenceId(e, "ref_face")', Object.assign(context, { e: fakeEvent() }));
+  assert.equal(vm.runInContext('document.getElementById("characterDetailUseBtn").hidden', context), true);
+
+  // A fresh render at 1 selected must also omit the hidden attribute.
+  vm.runInContext('toggleCharacterDetailReferenceId(e, "ref_face")', Object.assign(context, { e: fakeEvent() }));
+  html = vm.runInContext('visualCharacterDetailHtml(item)', Object.assign(context, { item }));
+  assert.doesNotMatch(html, /id="characterDetailUseBtn"[^>]*\bhidden\b/, '1+ selected must render the button visible');
+});
+
+test('toggling a reference updates only the affected card/count/button - never rebuilds the page (no flicker)', () => {
+  const imageState = baseImageState();
+  const item = { id: 'custom_character_abc', name: 'Islam', referenceLibrary: library4 };
+  const { context, dom } = makeContext(imageState, { imageCharacters: () => [item] });
+
+  vm.runInContext('openCharacterDetail(e, "custom_character_abc")', Object.assign(context, { e: fakeEvent() }));
+  // Simulate the page having already been rendered once (innerHTML set by
+  // the real browser) - a toggle must never touch this again.
+  dom.visualCharacterDetail.innerHTML = 'RENDERED_ONCE';
+
+  vm.runInContext('toggleCharacterDetailReferenceId(e, "ref_face")', Object.assign(context, { e: fakeEvent() }));
+
+  assert.equal(dom.visualCharacterDetail.innerHTML, 'RENDERED_ONCE', 'toggling must not reassign detail.innerHTML');
+  const cardId = vm.runInContext('charRefCardId("ref_face")', context);
+  assert.ok(dom[cardId].classList.contains('selected'), 'the toggled card must be marked selected');
+  assert.equal(dom.characterDetailSelectedCount.textContent, '(1)');
+  assert.equal(dom.characterDetailUseBtn.hidden, false);
+
+  vm.runInContext('toggleCharacterDetailReferenceId(e, "ref_face")', Object.assign(context, { e: fakeEvent() }));
+  assert.equal(dom.visualCharacterDetail.innerHTML, 'RENDERED_ONCE');
+  assert.ok(!dom[cardId].classList.contains('selected'), 'unchecking must clear the card selected class');
+  assert.equal(dom.characterDetailSelectedCount.textContent, '(0)');
+  assert.equal(dom.characterDetailUseBtn.hidden, true);
+});
+
+test('Delete action in the Character page only exists for a user-created Character, never a built-in/preset one', () => {
+  const imageState = baseImageState();
+  const custom = { id: 'custom_character_abc', name: 'Islam', type: 'custom', referenceLibrary: library4 };
+  const builtIn = { id: 'character_sylvex', name: 'SYLVEX', avatarUrl: 'https://cdn.sylvex.ai/sylvex.png', referenceImages: [] };
+
+  const customCtx = makeContext(baseImageState(), { imageCharacters: () => [custom] });
+  const customHtml = vm.runInContext('visualCharacterDetailHtml(item)', Object.assign(customCtx.context, { item: custom }));
+  assert.match(customHtml, /visual-character-delete/);
+  assert.match(customHtml, /SYLVEX\.deleteVisualReference\(event, 'character', 'custom_character_abc'\)/);
+
+  const builtInCtx = makeContext(baseImageState(), { imageCharacters: () => [builtIn] });
+  const builtInHtml = vm.runInContext('visualCharacterDetailHtml(item)', Object.assign(builtInCtx.context, { item: builtIn }));
+  assert.doesNotMatch(builtInHtml, /visual-character-delete/);
 });
 
 test('characterDetailReferenceGridHtml: only the pending-selected card is highlighted', () => {

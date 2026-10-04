@@ -109,6 +109,40 @@ def test_generate_character_images_works_with_no_optional_text(monkeypatch):
     assert "Nova" in calls[0]
 
 
+def test_primary_prompt_asks_for_a_confident_professional_model_pose(monkeypatch):
+    # Fix 3: the Primary/main identity shot must look like the person
+    # posing for a professional photographer - direct camera engagement,
+    # confident expressive eyes, a strong gaze - not a dead-eyed or
+    # accidental-selfie look, and the identity must stay explicitly locked.
+    calls = []
+
+    async def fake_shot(prompt, reference_urls, quality="high"):
+        calls.append(prompt)
+        return "https://cdn.sylvex.ai/shot.png"
+
+    monkeypatch.setattr(main, "_openai_character_shot", fake_shot)
+    asyncio.run(main._generate_openai_character_images("Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    primary_prompt = calls[0]
+
+    for phrase in (
+        "direct engagement",
+        "professional model-like facial posing",
+        "expressive and confident eyes",
+        "strong, intentional gaze",
+        "natural but photogenic",
+        "chest-up or waist-up",
+    ):
+        assert phrase in primary_prompt, f"missing expected pose guidance: {phrase!r}"
+
+    for phrase in ("blank or dead expression", "accidental-selfie look", "looking away"):
+        assert phrase in primary_prompt, f"missing expected negative guidance: {phrase!r}"
+
+    # Identity must still be explicitly protected - this is a pose change,
+    # never an identity change.
+    assert "preserve the person's real identity exactly" in primary_prompt
+    assert "do not" in primary_prompt.lower() and "facial identity" in primary_prompt
+
+
 def test_identity_prompt_includes_description_only_when_provided():
     with_text = main._character_identity_prompt("Islam", "male", "tall, athletic build")
     without_text = main._character_identity_prompt("Islam", "male", "")
