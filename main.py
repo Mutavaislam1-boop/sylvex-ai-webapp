@@ -6178,6 +6178,17 @@ def load_prostudio_resources(telegram_id: int) -> dict:
                 item["referenceLibrary"] = library
                 result["characters"].append(item)
             elif kind == "object":
+                # Additive-only metadata for Object Creation V2 - an Object
+                # saved before this existed simply has no objectPrompt/
+                # primaryReferenceUrl in its metadata_json, so these fall
+                # back to harmless defaults ("" / the existing previewUrl)
+                # and the item is otherwise unchanged from before.
+                item["objectPrompt"] = metadata.get("objectPrompt") or metadata.get("prompt") or ""
+                item["prompt"] = item["objectPrompt"]
+                item["primaryReferenceUrl"] = metadata.get("primaryReferenceUrl") or item["previewUrl"]
+                item["originalSourceImages"] = _json_list(metadata.get("originalSourceImages"))
+                item["provider"] = metadata.get("provider") or metadata.get("ai_provider") or ""
+                item["model"] = metadata.get("model") or metadata.get("ai_model") or ""
                 result["objects"].append(item)
             elif kind == "voice":
                 item["voice_id"] = metadata.get("voice_id") or metadata.get("voiceId") or resource_id
@@ -8963,6 +8974,322 @@ async def public_prostudio_character_creation_jobs(telegram_id: int = 0):
             "status": status,
             "name": request.get("name") or "",
             "gender": request.get("gender") or "",
+            "description": request.get("description") or "",
+            "photos": _json_list(request.get("photos")),
+            "created_at": _to_iso(created_at),
+            "updated_at": _to_iso(updated_at),
+            "result": result or None,
+            "error": error or None,
+        })
+    return {"ok": True, "jobs": jobs}
+
+
+# =====================================================
+# Object Creation V2: single reference + auto objectPrompt, background job
+# Mirrors the Character Creation V2 job architecture (own job lane in
+# prostudio_generation_jobs, heartbeat, terminal-status guard, owner-scoped
+# jobs-list endpoint) but with a much simpler pipeline: exactly one
+# normalized reference image, plus a short auxiliary textual identity
+# descriptor (objectPrompt) generated independently via a vision-capable
+# text call - never a second usable generation reference, never a
+# Front/Side/Back set. Reference-image generation and objectPrompt
+# analysis run in parallel (asyncio.gather); a failed objectPrompt analysis
+# never fails the Object creation - the reference image is the critical
+# result, and a safe fallback (Description, else name) is used instead.
+# =====================================================
+def _object_reference_prompt(name: str, description: str) -> str:
+    desc = f" Additional details from the owner: {description.strip()[:600]}" if description and description.strip() else ""
+    return (
+        "Create one clean, professional reference photo of the exact same physical object shown in the "
+        f'uploaded photo (named "{name}" by its owner).{desc} '
+        "Preserve the object's real identity exactly: its type, shape, proportions, construction, material, "
+        "colors, texture, patterns, hardware, buttons, zippers, handles and other functional parts, any "
+        "visible branding, logos or text, and every other distinctive identifying detail. This must remain "
+        "recognizably the same physical object, never a redesigned, restyled or loosely inspired version of "
+        "it. "
+        "You may remove the original background and surrounding environment, remove unrelated objects, "
+        "reconstruct hidden or occluded areas where reasonably necessary, improve framing and lighting, and "
+        "present the object clearly centered on a clean neutral studio-style background - none of that "
+        "original photographic environment is part of the object's identity. Do not unnecessarily redesign "
+        "the object itself. No text, watermark, people, hands, or collage - the object alone, clearly lit "
+        "and in sharp focus."
+    )
+
+
+def _object_prompt_instruction_text(name: str, description: str) -> str:
+    instruction = (
+        "You are generating a short internal visual identity descriptor for a saved Object reference image, "
+        "used later to help preserve this object's appearance across unrelated future AI image generations. "
+        "Look only at the physical object itself. Describe only stable visual properties: object category or "
+        "type, overall shape, proportions, material, primary and secondary colors, texture, important "
+        "structural parts, distinctive features, patterns, and any branding, logo or text that is actually "
+        "visible. Do not invent details that are not visible or reasonably identifiable from the image. "
+        "Do not mention the background, room, scene, lighting, camera angle, hands, body, or any other "
+        "surrounding object - describe the object only. "
+        "Respond with one or two concise descriptive sentences and nothing else: no preamble, no quotes, no "
+        "labels, no markdown."
+    )
+    if name and name.strip():
+        instruction += f' The object is named "{name.strip()}".'
+    if description and description.strip():
+        instruction += (
+            " The owner also provided this description, which you may incorporate only where it does not "
+            f"conflict with what is actually visible: {description.strip()[:600]}"
+        )
+    return instruction
+
+
+def _object_prompt_fallback(name: str, description: str) -> str:
+    if description and description.strip():
+        return description.strip()[:600]
+    return (name or "Object").strip()
+
+
+async def _record_object_job_progress(job_id: str, stage: str, reference_url: str = "") -> None:
+    payload = {"stage": stage}
+    if reference_url:
+        payload["reference_url"] = reference_url
+    await asyncio.to_thread(update_prostudio_generation_job, job_id, "processing", payload)
+
+
+async def _generate_object_reference_image(job_id: str, name: str, description: str, source_photo: str) -> str:
+    prompt = _object_reference_prompt(name, description)
+    started = time.monotonic()
+    prostudio_debug("OBJECT_REFERENCE_START", job_id=job_id)
+    # Reuses the same generic GPT Image orchestration Character creation
+    # uses for its own shots - this helper has no Character-specific
+    # semantics beyond its name, it is just "run one GPT Image edit/
+    # generate call against these reference URLs".
+    url = await _openai_character_shot(prompt, [source_photo])
+    prostudio_debug("OBJECT_REFERENCE_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - started, 3))
+    return url
+
+
+async def _analyze_object_prompt(job_id: str, name: str, description: str, image_url: str) -> str:
+    if not image_url:
+        raise RuntimeError("object_prompt_analysis_missing_image")
+    instruction = _object_prompt_instruction_text(name, description)
+    messages = [
+        {"role": "system", "content": "You write extremely concise visual identity descriptions of physical objects for internal reference use only."},
+        {"role": "user", "content": [
+            {"type": "text", "text": instruction},
+            {"type": "image_url", "image_url": {"url": image_url}},
+        ]},
+    ]
+    started = time.monotonic()
+    prostudio_debug("OBJECT_PROMPT_ANALYSIS_START", job_id=job_id)
+    # call_text_provider() is a plain blocking (requests.post-based)
+    # function, the same lower-level text-provider primitive the
+    # "Промпт по фото" vision tool uses - gpt-5.5 runs through the
+    # Responses API path, which already knows how to turn an image_url
+    # content part into input_image for OpenAI. asyncio.to_thread() keeps
+    # that blocking call off the event loop, same as every other blocking
+    # provider/DB call in this job.
+    result = await asyncio.to_thread(call_text_provider, "gpt-5.5", messages)
+    if not result.get("ok"):
+        raise RuntimeError(str(result.get("error") or "object_prompt_analysis_failed")[:600])
+    text = str(result.get("text") or "").strip()
+    if not text:
+        raise RuntimeError("object_prompt_analysis_empty")
+    prostudio_debug("OBJECT_PROMPT_ANALYSIS_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - started, 3))
+    return text[:600]
+
+
+def create_object_creation_job(telegram_id: int, name: str, description: str, photos: list) -> str:
+    if not DATABASE_URL:
+        raise SecurityError("generation_queue_unavailable", 503)
+    ensure_prostudio_table()
+    job_id = str(uuid4())
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO prostudio_generation_jobs (
+                id, telegram_id, mode, model, provider, prompt, status, request_json, heartbeat_at
+            ) VALUES (%s, %s, 'object_creation', 'gpt-image-2', 'openai', %s, 'processing', %s::jsonb, NOW())
+        """, (
+            job_id,
+            telegram_id,
+            name,
+            _safe_json_dumps({"name": name, "description": description, "photos": photos}),
+        ))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+    return job_id
+
+
+async def _run_object_creation_job(job_id: str, telegram_id: int, name: str, description: str, photos: list):
+    job_started = time.monotonic()
+    finished_event = asyncio.Event()
+    # The same generic heartbeat loop Character creation uses - it only
+    # ever touches the job row by job_id, nothing Character-specific.
+    heartbeat_task = asyncio.create_task(
+        _character_creation_heartbeat_loop(job_id, finished_event),
+        name=f"object-creation-heartbeat-{job_id}",
+    )
+    source_photo = photos[0] if photos else ""
+    try:
+        await _record_object_job_progress(job_id, "reference")
+        reference_result, prompt_result = await asyncio.gather(
+            _generate_object_reference_image(job_id, name, description, source_photo),
+            _analyze_object_prompt(job_id, name, description, source_photo),
+            return_exceptions=True,
+        )
+        if isinstance(reference_result, BaseException):
+            raise reference_result
+        reference_url = reference_result
+        if isinstance(prompt_result, BaseException):
+            prostudio_error("OBJECT_PROMPT_ANALYSIS_FAILED", prompt_result, job_id=job_id, telegram_id=telegram_id)
+            object_prompt = _object_prompt_fallback(name, description)
+        else:
+            object_prompt = prompt_result or _object_prompt_fallback(name, description)
+
+        # Same "never resurrect a ghost resource after a terminal failure"
+        # guard Character creation uses.
+        current_status = await asyncio.to_thread(get_prostudio_generation_job_status, job_id)
+        if current_status in {"failed", "cancelled", "canceled"}:
+            prostudio_debug("OBJECT_RESOURCE_SAVE_SKIPPED_TERMINAL_JOB", job_id=job_id, status=current_status)
+            return
+        await _record_object_job_progress(job_id, "saving", reference_url=reference_url)
+
+        stable_id = uuid4().hex
+        # referenceImages/sourceImages/photos are deliberately NOT set here -
+        # save_prostudio_resource() picks its persisted photos_json from
+        # sourceImages > source_images > photos > referenceImages (in that
+        # priority order), so leaving only referenceImages = [reference_url]
+        # is what guarantees exactly one persisted/reloaded reference, ever -
+        # the raw upload only ever lives in originalSourceImages metadata.
+        resource = {
+            "id": f"custom_object_{stable_id}",
+            "resource_type": "object",
+            "name": name,
+            "description": description,
+            "objectPrompt": object_prompt,
+            "prompt": object_prompt,
+            "previewUrl": reference_url,
+            "primaryReferenceUrl": reference_url,
+            "referenceImages": [reference_url],
+            "originalSourceImages": photos,
+            "provider": "openai",
+            "ai_provider": "openai",
+            "model": "gpt-image-2",
+            "ai_model": "gpt-image-2",
+            "type": "custom",
+            "status": "ready",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        save_started = time.monotonic()
+        prostudio_debug("OBJECT_RESOURCE_SAVE_START", job_id=job_id)
+        saved = await asyncio.to_thread(save_prostudio_resource, telegram_id, resource)
+        prostudio_debug("OBJECT_RESOURCE_SAVE_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - save_started, 3))
+        final_resource = {**resource, **saved}
+        result = {
+            "ok": True,
+            "type": "object",
+            "object_id": final_resource["id"],
+            "resource": final_resource,
+            "result_url": final_resource["previewUrl"],
+        }
+        await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
+        prostudio_debug("OBJECT_JOB_COMPLETED", job_id=job_id, elapsed_seconds=round(time.monotonic() - job_started, 3))
+    except Exception as exc:
+        prostudio_error("OBJECT_CREATE_FAILED", exc, telegram_id=telegram_id, name=name, job_id=job_id)
+        error_text = str(exc)
+        if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
+            error_payload = {
+                "ok": False,
+                "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
+                "provider": "openai",
+            }
+        elif re.search(r"safety_violations|safety system|content policy|moderation", error_text, re.I):
+            error_payload = {
+                "ok": False,
+                "error": "Не удалось сгенерировать референс объекта: запрос был отклонён системой безопасности провайдера изображений. Попробуйте другое фото или измените описание объекта.",
+                "provider": "openai",
+            }
+        else:
+            error_payload = {"ok": False, "error": error_text[:1200]}
+        await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None, error_payload)
+    finally:
+        finished_event.set()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
+
+
+@app.post("/api/public/prostudio/object")
+async def public_prostudio_create_object(request: Request):
+    data = await request.json()
+    telegram_id = int(data.get("telegram_id") or 0)
+    name = str(data.get("name") or "").strip()
+    description = str(data.get("description") or "").strip()
+    # Object creation: exactly one source photo - more than one uploaded is
+    # capped to the first, never rejected outright (same contract as
+    # Character creation's own single-photo cap).
+    photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:1]
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not name:
+        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
+    if not photos:
+        return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+    try:
+        job_id = await asyncio.to_thread(create_object_creation_job, telegram_id, name, description, photos)
+    except SecurityError:
+        raise
+    except Exception as exc:
+        prostudio_error("OBJECT_JOB_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
+        return JSONResponse({"ok": False, "error": str(exc)[:1200]}, status_code=502)
+    task = asyncio.create_task(_run_object_creation_job(job_id, telegram_id, name, description, photos))
+    background_tasks = getattr(app.state, "background_tasks", None)
+    if isinstance(background_tasks, list):
+        background_tasks.append(task)
+    return JSONResponse({"ok": True, "job_id": job_id, "status": "processing"}, status_code=202)
+
+
+@app.get("/api/public/prostudio/object-creation-jobs")
+async def public_prostudio_object_creation_jobs(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not DATABASE_URL:
+        return {"ok": True, "jobs": []}
+
+    def _sync():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, status, request_json, result_json, error_json, created_at, updated_at
+                FROM prostudio_generation_jobs
+                WHERE telegram_id = %s AND mode = 'object_creation'
+                  AND created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC
+                LIMIT 20
+            """, (telegram_id,))
+            rows = cursor.fetchall()
+            cursor.close()
+        return rows
+
+    try:
+        rows = await asyncio.to_thread(_sync)
+    except Exception as exc:
+        prostudio_error("OBJECT_JOBS_LIST_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "object_jobs_list_failed"}, status_code=500)
+
+    jobs = []
+    for row in rows:
+        job_id, status, request_json, result_json, error_json, created_at, updated_at = row
+        request = _json_obj(request_json)
+        result = _json_obj(result_json) if result_json else None
+        error = _public_error_json(_json_obj(error_json))
+        if error:
+            normalized_error = user_generation_error_text(error.get("error") or error.get("message") or error)
+            error["error"] = normalized_error
+            error["message"] = normalized_error
+        jobs.append({
+            "job_id": job_id,
+            "status": status,
+            "name": request.get("name") or "",
             "description": request.get("description") or "",
             "photos": _json_list(request.get("photos")),
             "created_at": _to_iso(created_at),

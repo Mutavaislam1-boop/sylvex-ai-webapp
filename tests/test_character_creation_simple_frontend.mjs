@@ -853,13 +853,16 @@ test('restorePendingCharacterCreationJobs: never returns another user\'s jobs - 
   assert.match(calls.fetchedUrls[0], /telegram_id=42/);
 });
 
-// ---- saveVisualCreateDraft: Character creation is now a background-card
-// workflow; Object creation's synchronous flow is unaffected ----
+// ---- saveVisualCreateDraft: both Character and Object creation are now
+// background-card workflows, each with its own independent job machinery ----
 
-function makeSaveDraftContext({createJobResult, createJobError} = {}) {
+function makeSaveDraftContext({createJobResult, createJobError, createObjectJobResult, createObjectJobError} = {}) {
   const serverVisualItems = { characters: [], objects: [] };
   const localCache = { characters: [], objects: [] };
-  const calls = { toasts: [], closedCreateModal: 0, saveBackendCalls: [], startedPolls: [] };
+  const calls = {
+    toasts: [], closedCreateModal: 0, saveBackendCalls: [],
+    startedPolls: [], startedObjectPolls: [],
+  };
   const {localStorage} = makeStorage();
   const sandbox = {
     getTelegramId: () => 42,
@@ -871,8 +874,6 @@ function makeSaveDraftContext({createJobResult, createJobError} = {}) {
     wait: () => Promise.resolve(),
     toast: (msg) => { calls.toasts.push(msg); return msg; },
     renderVisualCreateModal: () => {},
-    visualCreateKindLabel: () => 'Персонаж',
-    visualCreateListLabel: () => 'персонажей',
     translateGenerationError: (err, fallback) => fallback,
     normalizeVisualItem: (x) => x,
     visualPreviewUrl: (resource) => (resource && resource.previewUrl) || '',
@@ -880,7 +881,10 @@ function makeSaveDraftContext({createJobResult, createJobError} = {}) {
       if (createJobError) throw createJobError;
       return createJobResult || 'job-save-1';
     },
-    generateVisualResourceWithOpenAI: async () => 'https://cdn.sylvex.ai/object-generated.png',
+    createObjectCreationJob: async () => {
+      if (createObjectJobError) throw createObjectJobError;
+      return createObjectJobResult || 'job-object-save-1';
+    },
     saveVisualItemToBackend: async (kind, item) => { calls.saveBackendCalls.push({kind, item}); return Object.assign({}, item, {id: 'custom_object_saved'}); },
     serverVisualItems,
     loadCustomVisualItems: (kind) => localCache[kind].slice(),
@@ -897,6 +901,7 @@ function makeSaveDraftContext({createJobResult, createJobError} = {}) {
     closeVisualPicker: () => {},
     closeImageStylePanel: () => {},
     startCharacterCreationCardPoll: (jobId) => calls.startedPolls.push(jobId),
+    startObjectCreationCardPoll: (jobId) => calls.startedObjectPolls.push(jobId),
   };
   const context = vm.createContext(sandbox);
   [
@@ -904,7 +909,11 @@ function makeSaveDraftContext({createJobResult, createJobError} = {}) {
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
     'pendingCharacterCardId', 'characterJobIdFromCardId',
     'upsertCharacterCreationPendingCard',
-    'startCharacterCreationFromDraft', 'saveVisualCreateDraft',
+    'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
+    'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
+    'pendingObjectCardId', 'objectJobIdFromCardId',
+    'upsertObjectCreationPendingCard',
+    'startCharacterCreationFromDraft', 'startObjectCreationFromDraft', 'saveVisualCreateDraft',
   ].forEach((name) => vm.runInContext(extractFunction(name), context));
   return {context, serverVisualItems, calls, localCache};
 }
@@ -947,14 +956,559 @@ test('saveVisualCreateDraft (character): starting a second Character creation wh
   assert.deepEqual(serverVisualItems.characters.map((c) => c.job_id).sort(), ['job-first', 'job-second']);
 });
 
-test('saveVisualCreateDraft (object): unaffected - still calls saveVisualItemToBackend exactly once and never touches the Character job machinery', async () => {
-  const {context, serverVisualItems, calls} = makeSaveDraftContext();
-  vm.runInContext(`visualCreateDraft.kind = 'object'; visualCreateDraft.name = 'Watch'; visualCreateDraft.gender = '';`, context);
+// ---- saveVisualCreateDraft (object): Object Creation V2 - the same
+// background-card workflow as Character, but its own entirely separate
+// job/card machinery (never touches serverVisualItems.characters, never
+// calls createCharacterCreationJob/startCharacterCreationCardPoll) ----
+
+function objectDraft(overrides) {
+  return Object.assign({
+    kind: 'object', name: 'Watch', gender: '', description: 'steel case',
+    photos: ['https://cdn.sylvex.ai/watch.jpg'], saving: false, done: false, statusText: '',
+  }, overrides || {});
+}
+
+test('saveVisualCreateDraft (object): closes the creation modal immediately after receiving job_id - never waits for generation', async () => {
+  const {context, calls} = makeSaveDraftContext({createObjectJobResult: 'job-object-1'});
+  vm.runInContext(`visualCreateDraft = ${JSON.stringify(objectDraft())}`, context);
   await vm.runInContext('saveVisualCreateDraft(null)', context);
-  assert.equal(calls.saveBackendCalls.length, 1);
-  assert.equal(calls.saveBackendCalls[0].kind, 'object');
-  assert.equal(serverVisualItems.objects.length, 1);
-  assert.equal(serverVisualItems.objects[0].id, 'custom_object_saved');
-  assert.equal(serverVisualItems.characters.length, 0);
   assert.equal(calls.closedCreateModal, 1);
+  // No backend /resources save is ever attempted directly by this path -
+  // the job itself persists the resource server-side on completion.
+  assert.equal(calls.saveBackendCalls.length, 0);
+});
+
+test('saveVisualCreateDraft (object): a pending Object card appears immediately, keyed by the new job_id, and polling starts', async () => {
+  const {context, serverVisualItems, calls} = makeSaveDraftContext({createObjectJobResult: 'job-object-1'});
+  vm.runInContext(`visualCreateDraft = ${JSON.stringify(objectDraft())}`, context);
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.equal(serverVisualItems.objects.length, 1);
+  const card = serverVisualItems.objects[0];
+  assert.equal(card.id, 'pending_object_job-object-1');
+  assert.equal(card.name, 'Watch');
+  assert.equal(card.description, 'steel case');
+  assert.equal(card.status, 'creating');
+  assert.deepEqual(calls.startedObjectPolls, ['job-object-1']);
+  // Never touches Character's own machinery.
+  assert.equal(serverVisualItems.characters.length, 0);
+  assert.deepEqual(calls.startedPolls, []);
+});
+
+test('saveVisualCreateDraft (object): a job-creation failure shows an error and never inserts a card', async () => {
+  const {context, serverVisualItems, calls} = makeSaveDraftContext({createObjectJobError: new Error('telegram_id_required')});
+  vm.runInContext(`visualCreateDraft = ${JSON.stringify(objectDraft())}`, context);
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.equal(serverVisualItems.objects.length, 0);
+  assert.equal(calls.closedCreateModal, 0);
+  assert.ok(calls.toasts.length > 0);
+});
+
+test('saveVisualCreateDraft (object): starting a second Object creation while the first is still pending keeps both cards independent', async () => {
+  const {context, serverVisualItems} = makeSaveDraftContext({createObjectJobResult: 'job-object-first'});
+  vm.runInContext(`visualCreateDraft = ${JSON.stringify(objectDraft())}`, context);
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  vm.runInContext(`createObjectCreationJob = async () => 'job-object-second'`, context);
+  vm.runInContext(`visualCreateDraft = ${JSON.stringify(objectDraft({name: 'Lamp'}))}`, context);
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.equal(serverVisualItems.objects.length, 2);
+  assert.deepEqual(serverVisualItems.objects.map((c) => c.job_id).sort(), ['job-object-first', 'job-object-second']);
+});
+
+test('saveVisualCreateDraft (object): never touches Character creation\'s own job machinery', async () => {
+  const {context, serverVisualItems, calls} = makeSaveDraftContext({createObjectJobResult: 'job-object-1'});
+  vm.runInContext(`visualCreateDraft = ${JSON.stringify(objectDraft())}`, context);
+  await vm.runInContext('saveVisualCreateDraft(null)', context);
+  assert.equal(serverVisualItems.characters.length, 0);
+  assert.deepEqual(calls.startedPolls, []);
+  assert.equal(calls.saveBackendCalls.length, 0);
+});
+
+// =====================================================
+// Object Creation V2: background-card UX regression tests. Mirrors the
+// Character Creation V2 suite above structurally, but every helper below
+// is Object's own - entirely separate storage keys, job map, DOM ids and
+// card markup, never shared with Character's.
+// =====================================================
+
+test('pendingObjectCardId / objectJobIdFromCardId round-trip a job_id', () => {
+  const context = vm.createContext({});
+  vm.runInContext(extractFunction('pendingObjectCardId'), context);
+  vm.runInContext(extractFunction('objectJobIdFromCardId'), context);
+  const id = vm.runInContext(`pendingObjectCardId('job-abc')`, context);
+  assert.equal(id, 'pending_object_job-abc');
+  assert.equal(vm.runInContext(`objectJobIdFromCardId('${id}')`, context), 'job-abc');
+});
+
+test('objectCardPendingStatus: creating/failed are gated; every other Object (including no status field at all) is "ready" as before', () => {
+  const sandbox = {};
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('objectCardPendingStatus'), context);
+  assert.equal(vm.runInContext(`objectCardPendingStatus({status: 'creating'})`, context), 'creating');
+  assert.equal(vm.runInContext(`objectCardPendingStatus({status: 'failed'})`, context), 'failed');
+  assert.equal(vm.runInContext(`objectCardPendingStatus({status: 'ready'})`, context), '');
+  assert.equal(vm.runInContext(`objectCardPendingStatus({})`, context), '');
+  assert.equal(vm.runInContext(`objectCardPendingStatus(null)`, context), '');
+});
+
+function makeObjectCardHtmlContext() {
+  const sandbox = { S: { escapeHtml: (s) => String(s) } };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('objectCardPendingStatus'), context);
+  vm.runInContext(extractFunction('objectCreationStageLabel'), context);
+  vm.runInContext(extractFunction('objectJobIdFromCardId'), context);
+  vm.runInContext(extractFunction('objectPendingCardDomId'), context);
+  vm.runInContext(extractFunction('objectCreationPendingCardHtml'), context);
+  return context;
+}
+
+test('objectCreationPendingCardHtml: a "creating" card shows a loader and is not clickable into a selection', () => {
+  const context = makeObjectCardHtmlContext();
+  const html = vm.runInContext(
+    `objectCreationPendingCardHtml({stage: ''}, 'pending_object_job-1', 'Watch', '', 'creating')`,
+    context,
+  );
+  assert.match(html, /image-style-card/);
+  assert.match(html, /object-pending-spinner/);
+  assert.match(html, /Создаём/);
+  assert.doesNotMatch(html, /pickVisualReference/);
+  assert.doesNotMatch(html, /openCharacterDetail/);
+  assert.match(html, /handlePendingObjectCardClick/);
+});
+
+test('objectCreationPendingCardHtml: a "failed" card shows the name, Failed status, and Retry/Delete - never silently removed', () => {
+  const context = makeObjectCardHtmlContext();
+  const html = vm.runInContext(
+    `objectCreationPendingCardHtml({}, 'pending_object_job-2', 'Watch', '', 'failed')`,
+    context,
+  );
+  assert.match(html, /Watch/);
+  assert.match(html, /object-pending-status-failed/);
+  assert.match(html, /retryFailedObjectJob\(event, 'pending_object_job-2'\)/);
+  assert.match(html, /deleteFailedObjectJob\(event, 'pending_object_job-2'\)/);
+  assert.doesNotMatch(html, /pickVisualReference/);
+});
+
+test('objectCreationStageLabel: "Создаём..." while in flight, "Финализируем..." while saving', () => {
+  const sandbox = {};
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('objectCreationStageLabel'), context);
+  assert.equal(vm.runInContext(`objectCreationStageLabel({})`, context), 'Создаём...');
+  assert.equal(vm.runInContext(`objectCreationStageLabel({stage: 'reference'})`, context), 'Создаём...');
+  assert.equal(vm.runInContext(`objectCreationStageLabel({stage: 'saving'})`, context), 'Финализируем...');
+});
+
+// ---- Pending-card lifecycle inside serverVisualItems.objects ----
+
+function makeObjectCardLifecycleContext() {
+  const serverVisualItems = { objects: [], characters: [] };
+  const localCache = { objects: [] };
+  const sandbox = {
+    serverVisualItems,
+    normalizeVisualItem: (x) => x,
+    loadCustomVisualItems: (kind) => localCache[kind].slice(),
+    saveCustomVisualItems: (kind, items) => { localCache[kind] = items.slice(); },
+    activeImageStylePanelKind: 'object',
+    renderImageStylePanel: () => {},
+  };
+  const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('pendingObjectCardId'), context);
+  vm.runInContext(extractFunction('objectJobIdFromCardId'), context);
+  vm.runInContext(extractFunction('objectPendingCardDomId'), context);
+  vm.runInContext(extractFunction('objectCreationStageLabel'), context);
+  vm.runInContext(extractFunction('upsertObjectCreationPendingCard'), context);
+  vm.runInContext(extractFunction('removeObjectCreationCard'), context);
+  vm.runInContext(extractFunction('replaceObjectCreationCardWithResource'), context);
+  vm.runInContext(extractFunction('patchObjectPendingCardDom'), context);
+  vm.runInContext(extractFunction('updateObjectCreationPendingCardProgress'), context);
+  return {context, serverVisualItems, localCache};
+}
+
+test('upsertObjectCreationPendingCard: inserts a pending card with job_id/name/description/preview/status/created_at', () => {
+  const {context, serverVisualItems} = makeObjectCardLifecycleContext();
+  vm.runInContext(
+    `upsertObjectCreationPendingCard({jobId: 'job-1', name: 'Watch', description: 'steel', previewUrl: 'https://cdn.sylvex.ai/a.jpg', status: 'creating', createdAt: '2026-01-01T00:00:00Z'})`,
+    context,
+  );
+  assert.equal(serverVisualItems.objects.length, 1);
+  const card = serverVisualItems.objects[0];
+  assert.equal(card.id, 'pending_object_job-1');
+  assert.equal(card.job_id, 'job-1');
+  assert.equal(card.name, 'Watch');
+  assert.equal(card.description, 'steel');
+  assert.equal(card.previewUrl, 'https://cdn.sylvex.ai/a.jpg');
+  assert.equal(card.status, 'creating');
+  assert.equal(card.created_at, '2026-01-01T00:00:00Z');
+});
+
+test('upsertObjectCreationPendingCard: multiple concurrent jobs each get their own independent card', () => {
+  const {context, serverVisualItems} = makeObjectCardLifecycleContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-A', name: 'Watch', previewUrl: 'https://cdn.sylvex.ai/a.jpg', status: 'creating'})`, context);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-B', name: 'Lamp', previewUrl: 'https://cdn.sylvex.ai/b.jpg', status: 'creating'})`, context);
+  assert.equal(serverVisualItems.objects.length, 2);
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving'})`, context);
+  const cardA = serverVisualItems.objects.find((c) => c.job_id === 'job-A');
+  const cardB = serverVisualItems.objects.find((c) => c.job_id === 'job-B');
+  assert.equal(cardA.stage, 'saving');
+  assert.equal(cardB.stage, '', 'job-B must be unaffected by job-A\'s progress update');
+});
+
+test('upsertObjectCreationPendingCard: re-upserting the same job_id updates in place - never duplicates or reorders the card', () => {
+  const {context, serverVisualItems} = makeObjectCardLifecycleContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-1', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-other', name: 'Lamp', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-1', status: 'failed'})`, context);
+  assert.equal(serverVisualItems.objects.length, 2);
+  const card = serverVisualItems.objects.find((c) => c.job_id === 'job-1');
+  assert.equal(card.status, 'failed');
+  assert.equal(card.name, 'Watch', 'name carried forward from the original upsert');
+});
+
+test('replaceObjectCreationCardWithResource: swaps the pending card in place for the real Object - same position, no stray card left behind, no second save', () => {
+  const {context, serverVisualItems, localCache} = makeObjectCardLifecycleContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-other', name: 'Lamp', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-1', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(
+    `replaceObjectCreationCardWithResource('job-1', {id: 'custom_object_abc', name: 'Watch', previewUrl: 'https://cdn.sylvex.ai/p.png'})`,
+    context,
+  );
+  assert.equal(serverVisualItems.objects.length, 2);
+  assert.ok(!serverVisualItems.objects.some((c) => c.id === 'pending_object_job-1'), 'the pending representation is gone');
+  assert.ok(serverVisualItems.objects.some((c) => c.id === 'custom_object_abc'), 'replaced by the real Object id');
+  assert.ok(localCache.objects.some((c) => c.id === 'custom_object_abc'), 'local cache updated too');
+});
+
+test('removeObjectCreationCard: removes only that one job\'s card from both serverVisualItems and the local cache', () => {
+  const {context, serverVisualItems, localCache} = makeObjectCardLifecycleContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-1', name: 'Watch', previewUrl: '', status: 'failed'})`, context);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-2', name: 'Lamp', previewUrl: '', status: 'failed'})`, context);
+  localCache.objects = serverVisualItems.objects.slice();
+  vm.runInContext(`removeObjectCreationCard('job-1')`, context);
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.equal(serverVisualItems.objects[0].job_id, 'job-2');
+});
+
+// ---- Flicker regression: an Object progress tick must patch only its
+// own card's DOM node, never rebuild the whole grid via
+// renderImageStylePanel() - same fix already proven for Characters ----
+
+function makeObjectFakeThumb(initialSrc) {
+  const classes = new Set(initialSrc ? [] : ['is-placeholder']);
+  let img = initialSrc ? { tagName: 'IMG', src: initialSrc } : null;
+  return {
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    },
+    querySelector: (sel) => (sel === 'img' ? img : null),
+    get firstChild() { return img; },
+    insertBefore(node) { img = node; return node; },
+  };
+}
+
+function makeObjectFakePendingCard(jobId, label) {
+  const statusEl = { textContent: '' };
+  const thumb = makeObjectFakeThumb('');
+  return {
+    id: `objectPendingCard_${jobId}`,
+    statusEl,
+    thumb,
+    getAttribute: (name) => (name === 'aria-label' ? label : undefined),
+    querySelector(sel) {
+      if (sel === '.object-pending-status') return statusEl;
+      if (sel === '.image-style-thumb') return thumb;
+      return null;
+    },
+  };
+}
+
+function makeObjectFlickerRegressionContext() {
+  const serverVisualItems = { objects: [] };
+  const calls = { renders: 0, getElementById: 0 };
+  const cardA = makeObjectFakePendingCard('job-A', 'Watch - создаётся');
+  const cardB = makeObjectFakePendingCard('job-B', 'Lamp - создаётся');
+  const elements = { [cardA.id]: cardA, [cardB.id]: cardB };
+  const documentStub = {
+    getElementById: (id) => { calls.getElementById += 1; return elements[id] || null; },
+    createElement: (tag) => ({ tagName: String(tag).toUpperCase(), src: '' }),
+  };
+  const sandbox = {
+    serverVisualItems,
+    normalizeVisualItem: (x) => x,
+    loadCustomVisualItems: () => [],
+    saveCustomVisualItems: () => {},
+    activeImageStylePanelKind: 'object',
+    renderImageStylePanel: () => { calls.renders += 1; },
+    document: documentStub,
+  };
+  const context = vm.createContext(sandbox);
+  [
+    'pendingObjectCardId', 'objectJobIdFromCardId', 'objectPendingCardDomId', 'objectCreationStageLabel',
+    'upsertObjectCreationPendingCard', 'patchObjectPendingCardDom', 'updateObjectCreationPendingCardProgress',
+  ].forEach((name) => vm.runInContext(extractFunction(name), context));
+  return {context, serverVisualItems, calls, cardA, cardB};
+}
+
+test('updateObjectCreationPendingCardProgress: never calls renderImageStylePanel on a progress tick - patches only the matching card', () => {
+  const {context, calls, cardA, cardB} = makeObjectFlickerRegressionContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-A', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-B', name: 'Lamp', previewUrl: '', status: 'creating'})`, context);
+
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving'})`, context);
+  assert.equal(calls.renders, 0, 'a progress tick must never call renderImageStylePanel - that is the flicker bug');
+  assert.equal(cardA.statusEl.textContent, 'Финализируем...');
+  assert.equal(cardB.statusEl.textContent, '', 'a different job\'s card DOM must never be touched by this one\'s progress');
+});
+
+test('updateObjectCreationPendingCardProgress: an identical snapshot is a complete no-op - no DOM lookup, no DOM write', () => {
+  const {context, calls, cardA} = makeObjectFlickerRegressionContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-A', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving'})`, context);
+  const lookupsAfterFirstTick = calls.getElementById;
+  const labelAfterFirstTick = cardA.statusEl.textContent;
+
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving'})`, context);
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving'})`, context);
+
+  assert.equal(calls.getElementById, lookupsAfterFirstTick, 'an unchanged snapshot must not even look up the DOM node');
+  assert.equal(calls.renders, 0);
+  assert.equal(cardA.statusEl.textContent, labelAfterFirstTick);
+});
+
+test('updateObjectCreationPendingCardProgress: the reference preview is written exactly once when reference_url first appears', () => {
+  const {context, calls, cardA} = makeObjectFlickerRegressionContext();
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-A', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving', reference_url: 'https://cdn.sylvex.ai/reference.png'})`, context);
+  assert.equal(calls.renders, 0);
+  assert.equal(cardA.thumb.querySelector('img').src, 'https://cdn.sylvex.ai/reference.png');
+
+  const imgRefAfterFirst = cardA.thumb.querySelector('img');
+  vm.runInContext(`updateObjectCreationPendingCardProgress('job-A', {stage: 'saving', reference_url: 'https://cdn.sylvex.ai/reference.png'})`, context);
+  assert.equal(cardA.thumb.querySelector('img'), imgRefAfterFirst, 'the <img> node is never re-created once the preview is set');
+  assert.equal(calls.renders, 0);
+});
+
+// ---- startObjectCreationCardPoll / completeObjectCreationJobCard /
+// failObjectCreationJobCard: the polling+card integration ----
+
+function makeObjectPollCardContext(jobOutcomes) {
+  const serverVisualItems = { objects: [] };
+  const localCache = { objects: [] };
+  const calls = { toasts: [], rendered: 0 };
+  let index = 0;
+  const sandbox = {
+    serverVisualItems,
+    normalizeVisualItem: (x) => x,
+    loadCustomVisualItems: (kind) => localCache[kind].slice(),
+    saveCustomVisualItems: (kind, items) => { localCache[kind] = items.slice(); },
+    activeImageStylePanelKind: 'object',
+    renderImageStylePanel: () => { calls.rendered += 1; },
+    renderImageReferenceSections: () => {},
+    renderImageControls: () => {},
+    renderVideoReferencesPreview: () => {},
+    toast: (msg) => calls.toasts.push(msg),
+    translateGenerationError: (err, fallback) => fallback,
+    wait: () => Promise.resolve(),
+    getTelegramId: () => 42,
+    localStorage: makeStorage().localStorage,
+    activeObjectCreationCardPolls: {},
+    fetch: async () => {
+      const job = jobOutcomes[Math.min(index, jobOutcomes.length - 1)];
+      index += 1;
+      return { ok: true, json: async () => job };
+    },
+  };
+  const context = vm.createContext(sandbox);
+  [
+    'pollObjectCreationJob', 'waitObjectCreationJob',
+    'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
+    'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
+    'pendingObjectCardId', 'objectJobIdFromCardId', 'objectPendingCardDomId', 'objectCreationStageLabel',
+    'upsertObjectCreationPendingCard', 'removeObjectCreationCard',
+    'replaceObjectCreationCardWithResource', 'patchObjectPendingCardDom', 'updateObjectCreationPendingCardProgress',
+    'startObjectCreationCardPoll', 'completeObjectCreationJobCard', 'failObjectCreationJobCard',
+  ].forEach((name) => vm.runInContext(extractFunction(name), context));
+  return {context, serverVisualItems, calls};
+}
+
+test('startObjectCreationCardPoll: on completion, replaces the pending card with result.resource immediately - no second backend save', async () => {
+  const {context, serverVisualItems, calls} = makeObjectPollCardContext([
+    {ok: true, status: 'completed', result: {ok: true, object_id: 'custom_object_abc', resource: {id: 'custom_object_abc', name: 'Watch', previewUrl: 'https://cdn.sylvex.ai/p.png'}}},
+  ]);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-1', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`startObjectCreationCardPoll('job-1')`, context);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.equal(serverVisualItems.objects[0].id, 'custom_object_abc');
+  assert.ok(calls.toasts.length > 0);
+  assert.equal(calls.rendered, 1, 'completion is a structural event - exactly one full render');
+});
+
+test('startObjectCreationCardPoll: on a genuine terminal failure, the card stays visible as failed - never silently removed', async () => {
+  const {context, serverVisualItems, calls} = makeObjectPollCardContext([
+    {ok: true, status: 'failed', error: {error: 'OpenAI quota exceeded'}},
+  ]);
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-1', name: 'Watch', previewUrl: '', status: 'creating'})`, context);
+  vm.runInContext(`startObjectCreationCardPoll('job-1')`, context);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.equal(serverVisualItems.objects[0].status, 'failed');
+  assert.equal(calls.rendered, 1);
+});
+
+// ---- retryFailedObjectJob / deleteFailedObjectJob ----
+
+function makeObjectRetryDeleteContext(createJobImpl) {
+  const serverVisualItems = { objects: [] };
+  const localCache = { objects: [] };
+  const calls = { toasts: [], startedPolls: [] };
+  const {localStorage} = makeStorage();
+  const sandbox = {
+    serverVisualItems,
+    normalizeVisualItem: (x) => x,
+    loadCustomVisualItems: (kind) => localCache[kind].slice(),
+    saveCustomVisualItems: (kind, items) => { localCache[kind] = items.slice(); },
+    renderImageStylePanel: () => {},
+    renderImageReferenceSections: () => {},
+    toast: (msg) => calls.toasts.push(msg),
+    translateGenerationError: (err, fallback) => fallback,
+    getTelegramId: () => 42,
+    localStorage,
+    createObjectCreationJob: createJobImpl,
+    startObjectCreationCardPoll: (jobId) => calls.startedPolls.push(jobId),
+  };
+  const context = vm.createContext(sandbox);
+  [
+    'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
+    'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
+    'dismissedObjectJobsKey', 'readDismissedObjectJobIds', 'rememberDismissedObjectJob',
+    'pendingObjectCardId', 'objectJobIdFromCardId',
+    'upsertObjectCreationPendingCard', 'removeObjectCreationCard',
+    'retryFailedObjectJob', 'deleteFailedObjectJob', 'handlePendingObjectCardClick',
+  ].forEach((name) => vm.runInContext(extractFunction(name), context));
+  return {context, serverVisualItems, calls};
+}
+
+test('retryFailedObjectJob: starts a brand-new job from the failed card\'s own name/description/photo, replacing the old card', async () => {
+  const {context, serverVisualItems, calls} = makeObjectRetryDeleteContext(async () => 'job-new');
+  vm.runInContext(
+    `upsertObjectCreationPendingCard({jobId: 'job-old', name: 'Watch', description: 'steel', previewUrl: 'https://cdn.sylvex.ai/a.jpg', status: 'failed'})`,
+    context,
+  );
+  await vm.runInContext(`retryFailedObjectJob(null, 'pending_object_job-old')`, context);
+  assert.ok(!serverVisualItems.objects.some((c) => c.job_id === 'job-old'));
+  assert.ok(serverVisualItems.objects.some((c) => c.job_id === 'job-new' && c.status === 'creating'));
+  assert.deepEqual(calls.startedPolls, ['job-new']);
+});
+
+test('deleteFailedObjectJob: removes only this one failed pending-job card, never touching a real saved Object', async () => {
+  const {context, serverVisualItems} = makeObjectRetryDeleteContext(async () => 'job-new');
+  vm.runInContext(`upsertObjectCreationPendingCard({jobId: 'job-dead', name: 'Watch', previewUrl: '', status: 'failed'})`, context);
+  serverVisualItems.objects.unshift({id: 'custom_object_real', name: 'Lamp', status: 'ready'});
+  vm.runInContext(`deleteFailedObjectJob(null, 'pending_object_job-dead')`, context);
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.equal(serverVisualItems.objects[0].id, 'custom_object_real');
+  const dismissed = [...vm.runInContext('readDismissedObjectJobIds()', context)];
+  assert.deepEqual(dismissed, ['job-dead']);
+});
+
+// ---- restorePendingObjectCreationJobs: backend-first restore after a
+// reload - works even with no localStorage at all ----
+
+function makeObjectRestoreJobsContext(backendJobs, {noLocalStorage = false} = {}) {
+  const serverVisualItems = { objects: [] };
+  const localCache = { objects: [] };
+  const calls = { toasts: [], startedPolls: [], fetchedUrls: [] };
+  const sandbox = {
+    serverVisualItems,
+    normalizeVisualItem: (x) => x,
+    loadCustomVisualItems: (kind) => localCache[kind].slice(),
+    saveCustomVisualItems: (kind, items) => { localCache[kind] = items.slice(); },
+    activeImageStylePanelKind: 'object',
+    renderImageStylePanel: () => {},
+    renderImageReferenceSections: () => {},
+    toast: (msg) => calls.toasts.push(msg),
+    getTelegramId: () => 42,
+    fetch: async (url) => {
+      calls.fetchedUrls.push(url);
+      return { ok: true, json: async () => ({ok: true, jobs: backendJobs}) };
+    },
+    startObjectCreationCardPoll: (jobId) => calls.startedPolls.push(jobId),
+  };
+  if (noLocalStorage) {
+    sandbox.localStorage = {
+      getItem: () => { throw new Error('localStorage unavailable'); },
+      setItem: () => { throw new Error('localStorage unavailable'); },
+      removeItem: () => { throw new Error('localStorage unavailable'); },
+    };
+  } else {
+    sandbox.localStorage = makeStorage().localStorage;
+  }
+  const context = vm.createContext(sandbox);
+  [
+    'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
+    'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
+    'dismissedObjectJobsKey', 'readDismissedObjectJobIds', 'rememberDismissedObjectJob',
+    'pendingObjectCardId', 'objectJobIdFromCardId',
+    'upsertObjectCreationPendingCard', 'removeObjectCreationCard',
+    'restorePendingObjectCreationJobs',
+  ].forEach((name) => vm.runInContext(extractFunction(name), context));
+  return {context, serverVisualItems, calls};
+}
+
+test('restorePendingObjectCreationJobs: inserts a pending card and resumes polling for every still-processing backend job', async () => {
+  const {context, serverVisualItems, calls} = makeObjectRestoreJobsContext([
+    {job_id: 'job-1', status: 'processing', name: 'Watch', description: 'steel', photos: ['https://cdn.sylvex.ai/a.jpg'], result: {stage: 'saving', reference_url: 'https://cdn.sylvex.ai/reference.png'}},
+    {job_id: 'job-2', status: 'processing', name: 'Lamp', description: '', photos: ['https://cdn.sylvex.ai/b.jpg'], result: null},
+  ]);
+  await vm.runInContext('restorePendingObjectCreationJobs()', context);
+  assert.equal(serverVisualItems.objects.length, 2);
+  assert.deepEqual(calls.startedPolls.sort(), ['job-1', 'job-2']);
+  const card1 = serverVisualItems.objects.find((c) => c.job_id === 'job-1');
+  assert.equal(card1.status, 'creating');
+  assert.equal(card1.previewUrl, 'https://cdn.sylvex.ai/reference.png');
+});
+
+test('restorePendingObjectCreationJobs: a failed backend job restores as a failed card, not silently dropped', async () => {
+  const {context, serverVisualItems} = makeObjectRestoreJobsContext([
+    {job_id: 'job-dead', status: 'failed', name: 'Watch', description: '', photos: ['https://cdn.sylvex.ai/a.jpg']},
+  ]);
+  await vm.runInContext('restorePendingObjectCreationJobs()', context);
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.equal(serverVisualItems.objects[0].status, 'failed');
+});
+
+test('restorePendingObjectCreationJobs: a completed backend job gets no extra card (its real Object already loads through the normal catalog)', async () => {
+  const {context, serverVisualItems} = makeObjectRestoreJobsContext([
+    {job_id: 'job-1', status: 'completed', name: 'Watch', description: '', photos: [], result: {ok: true, resource: {id: 'custom_object_abc'}}},
+  ]);
+  await vm.runInContext('restorePendingObjectCreationJobs()', context);
+  assert.equal(serverVisualItems.objects.length, 0);
+});
+
+test('restorePendingObjectCreationJobs: a dismissed job_id never resurrects, even though the backend still reports it', async () => {
+  const {context, serverVisualItems} = makeObjectRestoreJobsContext([
+    {job_id: 'job-dead', status: 'failed', name: 'Watch', description: '', photos: []},
+  ]);
+  vm.runInContext(`rememberDismissedObjectJob('job-dead')`, context);
+  await vm.runInContext('restorePendingObjectCreationJobs()', context);
+  assert.equal(serverVisualItems.objects.length, 0);
+});
+
+test('restorePendingObjectCreationJobs: works correctly even when localStorage throws on every access - the backend is the source of truth', async () => {
+  const {context, serverVisualItems, calls} = makeObjectRestoreJobsContext([
+    {job_id: 'job-1', status: 'processing', name: 'Watch', description: '', photos: ['https://cdn.sylvex.ai/a.jpg'], result: null},
+  ], {noLocalStorage: true});
+  await vm.runInContext('restorePendingObjectCreationJobs()', context);
+  assert.equal(serverVisualItems.objects.length, 1);
+  assert.deepEqual(calls.startedPolls, ['job-1']);
+});
+
+test('restorePendingObjectCreationJobs: never returns another user\'s jobs - it only ever calls the endpoint with this telegram_id', async () => {
+  const {context, calls} = makeObjectRestoreJobsContext([]);
+  await vm.runInContext('restorePendingObjectCreationJobs()', context);
+  assert.equal(calls.fetchedUrls.length, 1);
+  assert.match(calls.fetchedUrls[0], /telegram_id=42/);
+  assert.match(calls.fetchedUrls[0], /object-creation-jobs/);
 });
