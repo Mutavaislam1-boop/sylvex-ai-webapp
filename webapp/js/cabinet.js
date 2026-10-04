@@ -10626,6 +10626,36 @@ async function loadCharacterDetailHistory(characterId) {
   if (activeCharacterDetailId === characterId) renderCharacterDetail();
 }
 
+// Deletes a single History entry: the DB row only - never the R2 media
+// file the entry merely points at, and never the Pro Studio generation/
+// job that originally produced it. Removes the card only once the
+// backend confirms the row is actually gone, and keeps
+// characterDetailHistoryCache in sync so reopening the Character page
+// (or switching tabs back) doesn't show it again from a stale cache.
+async function deleteCharacterHistoryEntry(e, characterId, historyId) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const tg = getTelegramId();
+  if (!tg || !characterId || !historyId) return;
+  try {
+    const res = await fetch(
+      '/api/public/prostudio/character/' + encodeURIComponent(characterId) + '/history/' + encodeURIComponent(historyId)
+        + '?telegram_id=' + encodeURIComponent(tg),
+      { method: 'DELETE', cache: 'no-store' },
+    );
+    if (!res.ok) throw new Error('history_delete_failed');
+    const data = await res.json().catch(() => ({}));
+    if (!(data && data.ok === true && data.deleted === true)) throw new Error('history_delete_failed');
+  } catch (err) {
+    toast('Не удалось удалить запись истории');
+    return;
+  }
+  const cache = characterDetailHistoryCache[characterId];
+  if (cache && Array.isArray(cache.items)) {
+    cache.items = cache.items.filter((entry) => entry && String(entry.id) !== String(historyId));
+  }
+  if (activeCharacterDetailId === characterId) renderCharacterDetail();
+}
+
 function characterDetailHistoryHtml(characterId) {
   const cache = characterDetailHistoryCache[characterId];
   if (!cache || cache.loading) {
@@ -10633,12 +10663,15 @@ function characterDetailHistoryHtml(characterId) {
     return '<p class="character-detail-empty">Загрузка истории…</p>';
   }
   if (!cache.items.length) return '<p class="character-detail-empty">Пока нет генераций с этим персонажем.</p>';
+  const safeCharacterId = S.escapeHtml(characterId);
   const cards = cache.items.map((entry) => {
     const preview = entry.preview_url || entry.media_url || '';
     const safePreview = S.escapeHtml(preview);
     const safePrompt = S.escapeHtml(entry.prompt || '');
+    const safeHistoryId = S.escapeHtml(String(entry.id || ''));
     return '<div class="image-style-card character-detail-history-card" title="' + safePrompt + '">'
       + '<span class="image-style-thumb">' + (preview ? '<img src="' + safePreview + '" alt="" loading="lazy" decoding="async" />' : '<span class="image-style-placeholder-icon"></span>') + '</span>'
+      + (safeHistoryId ? '<button class="visual-delete-btn" type="button" aria-label="Удалить запись истории" onclick="SYLVEX.deleteCharacterHistoryEntry(event,\'' + safeCharacterId + '\',\'' + safeHistoryId + '\')">×</button>' : '')
       + '</div>';
   }).join('');
   return '<div class="image-style-panel-grid character-detail-history-grid">' + cards + '</div>';
@@ -10922,7 +10955,11 @@ async function deleteVisualItemFromBackend(kind, id) {
     });
     if (!res.ok) return false;
     const data = await res.json().catch(() => ({}));
-    return !!(data && data.ok);
+    // The backend returns ok:true even when nothing matched (deleted:false,
+    // e.g. an ownership mismatch or an id that was already gone) - that is
+    // not a success for the caller, which is about to remove the item from
+    // local/cached state. Only a real deletion ever gets that far.
+    return !!(data && data.ok === true && data.deleted === true);
   } catch (err) {
     console.warn('[SYLVEX] visual resource delete failed', err);
     return false;
@@ -25306,7 +25343,7 @@ async function waitGeneration(jobId, options) {
     selMode, pickModel, pickModelKey, toggleModelPop, togglePlusPop, closePlusSheet,
     openImageOptionMenu, showImageModelPicker, pickImageOption, pickMusicOption, pickVoiceOption, pickTextOption, previewGeminiVoice, previewSelectedVoice, resetMusicSettings, openMusicSettingsModal, closeMusicSettingsModal, selectMusicSettingDraft, resetMusicSettingsDraft, saveMusicSettings, openMusicDurationWheel, setMusicDurationPart, saveMusicDuration, resetImageSettings, onImageSeedInput, toggleImageSeedTooltip, updateComposerMode, renderVideoControls,
     openVoiceAddon, closeVoiceAddon, openVoiceCustomOption, hideMobileKeyboard, toggleVoiceHorizontalTools, setVoiceEditorSetting, insertVoiceEmotion, insertVoicePause, addVoiceCustomOption, saveVoicePronunciation, selectVoiceAiFormat, runVoiceTextTool, applyVoiceTemplate, addVoiceSpeaker, removeVoiceSpeaker, handleVoiceSpeakerClick, replaceVoiceSpeaker, insertVoiceEffect, toggleVoiceFavorite, updateVoiceTextEstimate, toggleVoiceEditorFullscreen, swapVoiceTranslationLanguages, toggleVoiceTranslationFullscreen, copyVoiceTranslation, applyVoiceTranslation, setVoiceWorkspaceMode,
-    pickVisualReference, deleteVisualReference, deleteUserVoice, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
+    pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
@@ -25463,6 +25500,7 @@ async function waitGeneration(jobId, options) {
   window.addGeneratedImageToCharacterReferences = addGeneratedImageToCharacterReferences;
   window.deleteVisualReference = deleteVisualReference;
   window.deleteUserVoice = deleteUserVoice;
+  window.deleteCharacterHistoryEntry = deleteCharacterHistoryEntry;
   window.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
   window.openVisualPicker = openVisualPicker;
   window.openVideoVisualPicker = openVideoVisualPicker;
@@ -25504,6 +25542,7 @@ async function waitGeneration(jobId, options) {
   S.addGeneratedImageToCharacterReferences = addGeneratedImageToCharacterReferences;
   S.deleteVisualReference = deleteVisualReference;
   S.deleteUserVoice = deleteUserVoice;
+  S.deleteCharacterHistoryEntry = deleteCharacterHistoryEntry;
   S.closeResourceDeleteConfirm = closeResourceDeleteConfirm;
   S.openVisualPicker = openVisualPicker;
   S.openVideoVisualPicker = openVideoVisualPicker;
