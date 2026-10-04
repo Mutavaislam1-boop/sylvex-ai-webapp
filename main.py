@@ -8445,6 +8445,34 @@ async def _openai_character_shot(prompt: str, reference_urls: list, quality: str
     return urls[0]
 
 
+# =====================================================
+# СОХРАНЕНИЕ В БАЗУ ДАННЫХ: _record_character_job_progress
+# Writes a lightweight stage/progress snapshot into the job's own
+# result_json while it is still 'processing' - never flips the job's
+# status, and is refused harmlessly by update_prostudio_generation_job's
+# own terminal-status guard if the job has already gone failed/cancelled
+# concurrently (e.g. stale recovery). This is what lets the frontend's
+# pending Character card poll GET /api/public/prostudio/job/{job_id} and
+# progressively show "1/4", "2/4", the generated Primary Face preview,
+# etc., instead of a flat "Creating..." for the whole run.
+# =====================================================
+async def _record_character_job_progress(
+    job_id: str,
+    stage: str,
+    completed_references: int,
+    total_references: int = 4,
+    primary_url: str = "",
+) -> None:
+    payload = {
+        "stage": stage,
+        "completed_references": completed_references,
+        "total_references": total_references,
+    }
+    if primary_url:
+        payload["primary_url"] = primary_url
+    await asyncio.to_thread(update_prostudio_generation_job, job_id, "processing", payload)
+
+
 async def _generate_openai_character_images(job_id: str, name: str, gender: str, description: str, photos: list) -> list:
     # Character creation: the user supplies exactly one ordinary source
     # photo (which may be a plain selfie, not already a studio reference),
@@ -8483,6 +8511,12 @@ async def _generate_openai_character_images(job_id: str, name: str, gender: str,
     prostudio_debug("CHARACTER_PRIMARY_START", job_id=job_id)
     primary_url = await _openai_character_shot(primary_prompt, [source_photo])
     prostudio_debug("CHARACTER_PRIMARY_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - primary_started, 3))
+    # Primary is the first reference whose URL the pending Character card
+    # can show as a progressive preview (source thumbnail -> generated
+    # Primary Face) while Front/Side/Back are still generating - Primary
+    # completion is never treated as Character completion, only as the
+    # start of the Front stage.
+    await _record_character_job_progress(job_id, "front", 1, primary_url=primary_url)
 
     # Body-reference prompt: a deliberately neutral, non-sexual technical
     # identity reference. Production evidence showed gpt-image-2 rejecting
@@ -8530,6 +8564,7 @@ async def _generate_openai_character_images(job_id: str, name: str, gender: str,
         [primary_url],
     )
     prostudio_debug("CHARACTER_FRONT_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - front_started, 3))
+    await _record_character_job_progress(job_id, "side", 2, primary_url=primary_url)
 
     side_started = time.monotonic()
     prostudio_debug("CHARACTER_SIDE_START", job_id=job_id)
@@ -8538,6 +8573,7 @@ async def _generate_openai_character_images(job_id: str, name: str, gender: str,
         [primary_url, front_url],
     )
     prostudio_debug("CHARACTER_SIDE_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - side_started, 3))
+    await _record_character_job_progress(job_id, "back", 3, primary_url=primary_url)
 
     back_started = time.monotonic()
     prostudio_debug("CHARACTER_BACK_START", job_id=job_id)
@@ -8730,6 +8766,7 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
                 status=current_status,
             )
             return
+        await _record_character_job_progress(job_id, "saving", 4, primary_url=images[0] if images else "")
         # SYLVEX-only Character pipeline: GPT Image generates the reference
         # set, SYLVEX stores it, and the Character is created under its own
         # internal id - there is no provider-registration step (HeyGen or
@@ -8864,6 +8901,76 @@ async def public_prostudio_create_character(request: Request):
     if isinstance(background_tasks, list):
         background_tasks.append(task)
     return JSONResponse({"ok": True, "job_id": job_id, "status": "processing"}, status_code=202)
+
+
+# =====================================================
+# API ENDPOINT: public_prostudio_character_creation_jobs
+# Owner-scoped list of this telegram_id's character_creation jobs, so the
+# frontend's pending-Character-card UI can restore itself after a reload
+# (or the browser/Mini App being closed entirely) purely from the backend
+# - never from localStorage, which is only ever an optional fast cache.
+# Bounded to a recent window so the result stays small without needing
+# pagination. WHERE telegram_id = %s is the only thing that can ever
+# select a row here - there is no path by which this can return another
+# user's jobs.
+# Маршрут FastAPI: @app.get("/api/public/prostudio/character-creation-jobs")
+# =====================================================
+@app.get("/api/public/prostudio/character-creation-jobs")
+async def public_prostudio_character_creation_jobs(telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not DATABASE_URL:
+        return {"ok": True, "jobs": []}
+
+    def _sync():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, status, request_json, result_json, error_json, created_at, updated_at
+                FROM prostudio_generation_jobs
+                WHERE telegram_id = %s AND mode = 'character_creation'
+                  AND created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC
+                LIMIT 20
+            """, (telegram_id,))
+            rows = cursor.fetchall()
+            cursor.close()
+        return rows
+
+    try:
+        rows = await asyncio.to_thread(_sync)
+    except Exception as exc:
+        prostudio_error("CHARACTER_JOBS_LIST_FAILED", exc, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "character_jobs_list_failed"}, status_code=500)
+
+    jobs = []
+    for row in rows:
+        job_id, status, request_json, result_json, error_json, created_at, updated_at = row
+        request = _json_obj(request_json)
+        result = _json_obj(result_json) if result_json else None
+        # Same whitelist/translation the single-job GET endpoint
+        # (public_prostudio_job) already applies - an error record can
+        # carry raw provider/exception text, which must never reach the
+        # client untranslated.
+        error = _public_error_json(_json_obj(error_json))
+        if error:
+            normalized_error = user_generation_error_text(error.get("error") or error.get("message") or error)
+            error["error"] = normalized_error
+            error["message"] = normalized_error
+        jobs.append({
+            "job_id": job_id,
+            "status": status,
+            "name": request.get("name") or "",
+            "gender": request.get("gender") or "",
+            "description": request.get("description") or "",
+            "photos": _json_list(request.get("photos")),
+            "created_at": _to_iso(created_at),
+            "updated_at": _to_iso(updated_at),
+            "result": result or None,
+            "error": error or None,
+        })
+    return {"ok": True, "jobs": jobs}
 
 
 def _load_character_resource(telegram_id: int, resource_id: str) -> Optional[dict]:
