@@ -8452,31 +8452,56 @@ async def _generate_openai_character_images(name: str, gender: str, description:
     )
     primary_url = await _openai_character_shot(primary_prompt, [source_photo])
 
-    def body_prompt(view_text: str) -> str:
+    # Body-reference prompt: a deliberately neutral, non-sexual technical
+    # identity reference. Production evidence showed gpt-image-2 rejecting
+    # "Full Body Front" with safety_violations=[sexual] - this wording
+    # exists specifically to avoid those false positives (explicit fully-
+    # clothed/non-revealing/non-suggestive framing, explicit negatives for
+    # lingerie/underwear/swimwear/transparent clothing/provocative or
+    # body-focused posing) while keeping the same identity-lock intent
+    # (same person, age, gender, skin tone, hair, body proportions,
+    # consistent clothing) as before.
+    def body_prompt(view_instruction: str) -> str:
         return (
-            f"Create a standardized full-body identity reference of the exact same character: {view_text}. "
+            "Create a neutral technical full-body character identity reference. This is a non-sexual, "
+            "non-suggestive character reference sheet intended only to document the person's identity, body "
+            "proportions, clothing and viewing angle. The character must be fully clothed in ordinary "
+            "non-revealing clothing and stand naturally in a neutral pose. "
             f"{identity} "
-            "Use the provided reference image(s) to keep the exact same face, skin tone, age, gender, eye color, "
-            "hairstyle, body proportions and clothing as the character's established identity - this must be the "
-            "same person and the same outfit as in the other reference views, not a new person. If the provided "
-            "reference already shows the full body and outfit, keep those exact proportions and clothing "
-            "unchanged. Otherwise, infer the parts of the body and outfit not yet visible (such as legs, trousers "
-            "and shoes) in a way that looks natural for this character, and then treat that completed outfit as "
-            "fixed for every other view - never invent different trousers, shoes, jackets, colors or accessories "
-            "between views. Full body visible from head to feet, standing straight, neutral standing posture, arms "
-            "naturally lowered, no dramatic pose, no artistic camera angle, consistent camera distance and "
-            "character scale, plain neutral gray studio background, consistent even lighting. This is a technical "
-            "identity reference, not a lifestyle photograph. No text, watermark, extra people, or collage."
+            "Use the provided reference image(s) to keep the exact same face, skin tone, approximate age, "
+            "gender, eye color, hairstyle and body proportions as the character's established identity - this "
+            "must be the same person as in the other reference views, not a new person. If the provided "
+            "reference already shows the full body and outfit, preserve its general clothing style, colors, "
+            "recognizable garments and accessories exactly. Otherwise, infer ordinary, neutral, non-revealing "
+            "clothing for any body area not yet visible (such as legs, trousers and shoes), and then treat that "
+            "completed outfit as fixed for every other view - never invent different trousers, shoes, jackets, "
+            "colors or accessories between views, and never infer lingerie, underwear, swimwear, transparent "
+            "clothing, or any other revealing clothing for a hidden body area. "
+            f"{view_instruction} "
+            "Neutral standing posture, arms naturally relaxed at the sides, no provocative posing, no "
+            "body-emphasizing pose, no glamour or body-focused composition. No lingerie, no underwear, no "
+            "swimwear, no transparent clothing, no exposed intimate areas, no erotic or suggestive "
+            "presentation. Do not sexualize or exaggerate body proportions. Full body visible from head to "
+            "feet, consistent camera distance and character scale, plain neutral gray studio background, "
+            "consistent even lighting. This is a technical identity reference, not a lifestyle or fashion "
+            "photograph. No text, watermark, extra people, or collage."
         )
 
+    # Once Primary succeeds, the raw uploaded source photo is never resent -
+    # every body reference is generated from the already-normalized,
+    # already-safety-reviewed generated Character images, never from the
+    # original user upload again.
     front_url = await _openai_character_shot(
-        body_prompt("front-facing view, facing directly toward the camera"), [primary_url, source_photo]
+        body_prompt("Front: Full-body front view, standing straight and facing directly toward the camera."),
+        [primary_url],
     )
     side_url = await _openai_character_shot(
-        body_prompt("strict side (profile) view"), [primary_url, front_url]
+        body_prompt("Side: Strict full-body side/profile view."),
+        [primary_url, front_url],
     )
     back_url = await _openai_character_shot(
-        body_prompt("back view, facing directly away from the camera"), [primary_url, front_url, side_url]
+        body_prompt("Back: Strict full-body back view, facing directly away from the camera."),
+        [primary_url, front_url, side_url],
     )
     return [primary_url, front_url, side_url, back_url]
 
@@ -8680,12 +8705,28 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
         }
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
     except Exception as exc:
+        # The full diagnostic (including any provider safety-violation
+        # payload fragment _openai_character_shot folded into the
+        # exception message) is preserved server-side here, in
+        # prostudio_error's own log line - never trimmed, never bypassed.
+        # Provider safety is never disabled or retried around; a rejected
+        # request simply terminates this job as failed, same as any other
+        # generation failure.
         prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name, job_id=job_id)
         error_text = str(exc)
         if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
             error_payload = {
                 "ok": False,
                 "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
+                "provider": "openai",
+            }
+        elif re.search(r"safety_violations|safety system|content policy|moderation", error_text, re.I):
+            # A clean, generic message only - never the raw provider
+            # diagnostic (which can contain response-body fragments), and
+            # never a stack trace.
+            error_payload = {
+                "ok": False,
+                "error": "Не удалось сгенерировать референс персонажа: запрос был отклонён системой безопасности провайдера изображений. Попробуйте другое фото или измените описание персонажа.",
                 "provider": "openai",
             }
         else:

@@ -73,25 +73,44 @@ def test_generate_character_images_chains_primary_through_body_shots(monkeypatch
 
     # Main identity is generated from the single uploaded source photo only.
     assert primary_refs == ["https://cdn.sylvex.ai/uploads/source.jpg"]
-    # Front is generated against the just-created Main identity shot plus
-    # the original source photo, to lock identity and visible clothing.
-    assert front_refs == ["https://cdn.sylvex.ai/shot_1.png", "https://cdn.sylvex.ai/uploads/source.jpg"]
-    # Side and Back each reference Main identity plus the growing chain of
-    # body shots already produced - never independently regenerated.
+    # Fix: once Primary succeeds, the raw uploaded source photo must never
+    # be resent - Front/Side/Back are generated only from the already
+    # normalized, already-generated Character references, chained forward:
+    # Front <- Primary; Side <- Primary+Front; Back <- Primary+Front+Side.
+    assert front_refs == ["https://cdn.sylvex.ai/shot_1.png"]
+    assert "https://cdn.sylvex.ai/uploads/source.jpg" not in front_refs
     assert side_refs == ["https://cdn.sylvex.ai/shot_1.png", "https://cdn.sylvex.ai/shot_2.png"]
     assert back_refs == ["https://cdn.sylvex.ai/shot_1.png", "https://cdn.sylvex.ai/shot_2.png", "https://cdn.sylvex.ai/shot_3.png"]
 
     assert "Islam" in primary_prompt
     assert "chest-up or waist-up" in primary_prompt
-    assert "front-facing" in front_prompt
-    assert "side" in side_prompt.lower()
-    assert "back view" in back_prompt
-    # Front/Side/Back standardization: gray studio background, no dramatic
-    # posing, same clothing/proportions - these are the technical identity
-    # views, not lifestyle photographs.
+
+    # Each body prompt explicitly requests a fully clothed, neutral,
+    # non-sexual technical reference - the production fix for gpt-image-2
+    # rejecting "Full Body Front" with safety_violations=[sexual].
     for body_prompt in (front_prompt, side_prompt, back_prompt):
+        assert "non-sexual" in body_prompt
+        assert "non-suggestive" in body_prompt
+        assert "fully clothed" in body_prompt
+        assert "ordinary" in body_prompt and "non-revealing clothing" in body_prompt
+        assert "no lingerie" in body_prompt.lower()
+        assert "no underwear" in body_prompt.lower()
+        assert "no swimwear" in body_prompt.lower()
+        assert "transparent clothing" in body_prompt
+        assert "no exposed intimate areas" in body_prompt.lower()
+        assert "erotic or suggestive presentation" in body_prompt
+        assert "do not sexualize or exaggerate body proportions" in body_prompt.lower()
+        assert "no provocative posing" in body_prompt.lower()
+        assert "body-emphasizing pose" in body_prompt
+        assert "glamour" in body_prompt.lower() and "body-focused composition" in body_prompt
         assert "gray studio background" in body_prompt
         assert "never invent different trousers, shoes, jackets" in body_prompt
+        assert "never infer lingerie, underwear, swimwear, transparent" in body_prompt
+
+    # Per-view framing instructions.
+    assert "Front: Full-body front view, standing straight and facing directly toward the camera." in front_prompt
+    assert "Side: Strict full-body side/profile view." in side_prompt
+    assert "Back: Strict full-body back view, facing directly away from the camera." in back_prompt
 
 
 def test_generate_character_images_works_with_no_optional_text(monkeypatch):
@@ -311,6 +330,36 @@ def test_run_character_creation_job_translates_billing_limit_errors(monkeypatch)
     _, status, _, error = updates[0]
     assert status == "failed"
     assert "Лимит расходов OpenAI" in error["error"]
+
+
+def test_run_character_creation_job_translates_safety_violation_errors_into_a_clean_message(monkeypatch):
+    # Production evidence: gpt-image-2 rejected "Full Body Front" with
+    # status=400 safety_violations=[sexual]. The job must still terminate
+    # normally as failed (never bypass/retry around provider safety), and
+    # the user-facing error must be a clean, generic message - never the
+    # raw provider diagnostic/status/payload fragment that
+    # _openai_character_shot folds into the exception.
+    async def failing_generate(name, gender, description, photos):
+        raise RuntimeError(
+            "OpenAI character image generation failed (status=400, model=gpt-image-2): "
+            "safety_violations=[sexual]"
+        )
+
+    monkeypatch.setattr(main, "_generate_openai_character_images", failing_generate)
+    updates = _capture_job_updates(monkeypatch)
+
+    asyncio.run(main._run_character_creation_job("job-4", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+
+    assert len(updates) == 1
+    job_id, status, result, error = updates[0]
+    assert status == "failed"
+    assert result is None
+    assert error["ok"] is False
+    # Clean, generic - no raw provider diagnostic, status code, or payload.
+    assert "safety_violations" not in error["error"]
+    assert "status=400" not in error["error"]
+    assert "sexual" not in error["error"].lower()
+    assert len(error["error"]) > 0
 
 
 # ---- public_prostudio_create_character(): validation + 202 response ----
