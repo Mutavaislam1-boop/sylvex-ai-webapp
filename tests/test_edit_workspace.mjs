@@ -6,7 +6,7 @@ const source=readFileSync(new URL('../webapp/js/cabinet.js',import.meta.url),'ut
 const block=source.slice(source.indexOf('function createEditWorkspaceState'),source.indexOf('\nasync function generateQuickImageDetail',source.indexOf('function createEditWorkspaceState')));
 function harness(){
   const requests=[],messages=[],revoked=[];let rejectUpload=false;
-  const context=vm.createContext({console,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
+  const context=vm.createContext({console,setTimeout,clearTimeout,URL:{createObjectURL:()=> 'blob:new',revokeObjectURL:u=>revoked.push(u)},
     Image:class{naturalWidth=1200;naturalHeight=800;set src(value){queueMicrotask(()=>this.onload());}},
     document:{querySelector:()=>null,getElementById:id=>id==='editWorkspaceMask'?{toDataURL:()=> 'data:image/png;base64,MASK'}:null,body:{classList:{add(){},remove(){}}}},
     toast:m=>messages.push(m),updateComposerMode(){},callGenerate:async (...args)=>{requests.push(args);return {images:['https://cdn.example/result.png']};},
@@ -44,12 +44,12 @@ test('failed attempt retains the reference and retries the same empty slot',asyn
  h.context.callGenerate=async()=>({images:['https://cdn.example/retry.png']});await h.context.generateEditWorkspace();
  assert.equal(h.state.chain.length,2);assert.equal(h.state.chain[1],slot);assert.equal(slot.x,position);assert.equal(slot.status,'ready');
 });
-test('compact previews preserve aspect and original pixel dimensions at different canvas zoom levels',()=>{
+test('chain previews inherit predecessor size at every canvas zoom without changing pixel dimensions',()=>{
  const h=harness();
  for(const [width,height,zoom] of [[6000,4000,100],[4000,6000,200],[24000,3000,50],[1200,800,800]]){
   Object.assign(h.state,{width,height,zoom,chain:[],activeNodeId:''});
   const reference=h.context.ensureEditWorkspaceChain(),slot=h.context.beginEditWorkspaceChainResult();
-  assert.equal(reference.width,width);assert.equal(reference.height,height);assert.ok(Math.max(slot.slotWidth,slot.slotHeight)*zoom/100<=240.00001);
+  assert.equal(reference.width,width);assert.equal(reference.height,height);assert.equal(slot.slotWidth,reference.slotWidth);assert.equal(slot.slotHeight,reference.slotHeight);
   assert.equal(h.state.width,width);assert.equal(h.state.height,height);assert.equal(h.state.zoom,zoom);
  }
 });
@@ -207,7 +207,7 @@ function navigationHarness(){
   setPointerCapture:id=>captured.add(id),hasPointerCapture:id=>captured.has(id),releasePointerCapture:id=>captured.delete(id),
   getBoundingClientRect:()=>({left:0,top:0,width:1400,height:900}),addEventListener:(type,fn)=>listeners[type]=fn,removeEventListener:type=>delete listeners[type]};
  const cleanup=h.context.initEditWorkspaceNavigation(stage);
- const event=(overrides={})=>({pointerId:1,button:0,clientX:300,clientY:200,deltaX:0,deltaY:0,deltaMode:0,target:{closest:()=>null},preventDefault(){},...overrides});
+ const event=(overrides={})=>({pointerId:1,button:0,clientX:300,clientY:200,deltaX:0,deltaY:0,deltaMode:0,target:{closest:()=>null},preventDefault(){},stopPropagation(){},...overrides});
  return {...h,root,stage,listeners,classes,captured,event,cleanup,paints:()=>paints};
 }
 test('each chain card moves independently at canvas zoom and both attached links follow it',async()=>{
@@ -326,4 +326,66 @@ test('removing a light preserves remaining settings, and adding after an off sou
  assert.equal(h.state.light.layers.length,1);assert.equal(h.state.light.layers[0].horizontal,241);assert.equal(h.state.light.active,0);
  h.context.removeEditWorkspaceLight();assert.equal(h.state.light.layers.length,1);
  h.context.toggleEditWorkspaceLight();h.context.addEditWorkspaceLight();assert.equal(h.state.light.layers[1].enabled,true);assert.equal(h.state.light.layers[1].brightness,1);
+});
+
+test('touch pinch zooms from blank canvas around the midpoint and releases capture',()=>{
+ const h=navigationHarness(),e=changes=>h.event({pointerType:'touch',...changes});
+ h.listeners.pointerdown(e({pointerId:1,clientX:600,clientY:450}));
+ h.stage.onpointerdown(e({pointerId:1,clientX:600,clientY:450}));
+ h.listeners.pointerdown(e({pointerId:2,clientX:800,clientY:450}));
+ h.listeners.pointermove(e({pointerId:2,clientX:1000,clientY:450}));
+ assert.equal(h.state.zoom,200);assert.equal(h.state.viewport.x,100);assert.equal(h.state.viewport.y,0);
+ h.listeners.pointerup(e({pointerId:1}));h.listeners.pointerup(e({pointerId:2}));assert.equal(h.captured.size,0);
+ h.cleanup();assert.equal(Object.keys(h.listeners).length,0);
+});
+test('Safari trackpad gestures zoom, prevent page gestures and leave camera coordinates unchanged',()=>{
+ const h=navigationHarness();let prevented=0;const event={clientX:700,clientY:450,preventDefault(){prevented++;}};
+ h.listeners.gesturestart(event);h.listeners.gesturechange({...event,scale:1.8});h.listeners.gestureend(event);
+ assert.equal(h.state.zoom,180);assert.equal(h.state.camera.zoom,5);assert.equal(prevented,3);h.cleanup();
+});
+test('standard size resets displayed cards and zoom without changing pixels, connections or positions',async()=>{
+ const h=harness();await h.context.generateEditWorkspace();h.state.zoom=300;h.state.chain[0].slotWidth=480;h.state.chain[0].slotHeight=320;
+ const positions=JSON.stringify(h.state.chain.map(n=>[n.id,n.parentId,n.x,n.y,n.url,n.width,n.height]));
+ h.context.resetEditWorkspaceSize();assert.equal(h.state.zoom,100);assert.ok(h.state.chain.every(n=>Math.max(n.slotWidth,n.slotHeight)===240));
+ assert.equal(JSON.stringify(h.state.chain.map(n=>[n.id,n.parentId,n.x,n.y,n.url,n.width,n.height])),positions);
+});
+function sessionHarness(){
+ const h=harness(),local=new Map(),cloud=new Map();let owner='111',offline=false;
+ h.context.getTelegramId=()=>owner;h.context.localStorage={getItem:k=>local.get(k)||null,setItem:(k,v)=>local.set(k,v)};
+ h.context.fetch=async(url,options={})=>{
+  if(offline)throw new Error('offline');
+  const id=url.split('/').at(-1),key=owner+':'+id;
+  if(options.method==='PUT'){cloud.set(key,JSON.parse(options.body).state);return {ok:true};}
+  if(url.includes('?offset='))return {ok:true,json:async()=>({sessions:[],hasMore:false})};
+  return {ok:cloud.has(key),json:async()=>({state:cloud.get(key)})};
+ };
+ return {...h,local,cloud,setOwner:v=>owner=v,setOffline:v=>offline=v};
+}
+test('new workspace keeps complete prior chain and restoring preserves links, geometry and tool settings',async()=>{
+ const h=sessionHarness();await h.context.loadEditSessionHistory();await h.context.generateEditWorkspace();
+ const id=h.state.sessionId;h.state.chain[0].x=-870;h.state.chain[1].y=163;h.state.zoom=225;h.state.viewport={x:130,y:-40};h.state.camera.horizontal=225;h.state.light.layers[0].color='#ff8800';h.state.resize.width=777;
+ const snapshot=h.context.editSessionSnapshot();await h.context.saveEditWorkspaceSession();h.context.newEditWorkspace();
+ assert.notEqual(h.state.sessionId,id);assert.equal(h.state.chain.length,0);
+ await h.context.openEditSession(id);
+ for(const key of ['chain','zoom','viewport','camera','light','resize'])assert.equal(JSON.stringify(h.state[key]),JSON.stringify(snapshot[key]));
+ assert.ok(h.cloud.has('111:'+id));
+});
+test('history restores locally offline, replaces blob previews, and isolates a different account',async()=>{
+ const h=sessionHarness();await h.context.loadEditSessionHistory();h.context.ensureEditWorkspaceChain();h.state.sourcePreview='blob:source';h.state.chain[0].preview='blob:source';h.setOffline(true);
+ await h.context.saveEditWorkspaceSession();const id=h.state.sessionId;
+ assert.doesNotMatch(h.local.get('sylvex-edit-sessions-v1:111'),/blob:/);
+ h.context.newEditWorkspace();await h.context.openEditSession(id);assert.equal(h.state.sourcePreview,'https://cdn.example/source.png');
+ h.setOwner('222');await h.context.loadEditSessionHistory();assert.equal(h.state.chain.length,0);assert.notEqual(h.state.sessionId,id);
+});
+test('reopening an interrupted job polls the saved job and fills the original slot without charging again',async()=>{
+ const h=harness();h.context.ensureEditWorkspaceChain();const slot=h.context.beginEditWorkspaceChainResult();slot.jobId='existing-job';let polls=0;
+ h.context.waitGeneration=async id=>{assert.equal(id,'existing-job');polls++;return {images:['https://cdn.example/recovered.png']};};
+ await h.context.recoverEditSessionJob();assert.equal(polls,1);assert.equal(h.requests.length,0);assert.equal(h.state.chain.length,2);assert.equal(slot.status,'ready');assert.equal(h.state.activeNodeId,slot.id);
+});
+test('unknown job status keeps the job recoverable; confirmed failure allows retry in the same slot',async()=>{
+ const h=harness();h.context.ensureEditWorkspaceChain();const slot=h.context.beginEditWorkspaceChainResult();slot.jobId='existing-job';
+ h.context.waitGeneration=async()=>{throw Object.assign(new Error('offline'),{terminalStatus:'unconfirmed'});};
+ await h.context.recoverEditSessionJob();assert.equal(slot.status,'pending');assert.equal(slot.jobId,'existing-job');
+ h.context.waitGeneration=async()=>{throw Object.assign(new Error('failed'),{terminalStatus:'failed'});};
+ await h.context.recoverEditSessionJob();assert.equal(slot.status,'failed');const retry=h.context.beginEditWorkspaceChainResult();assert.equal(retry,slot);assert.equal(retry.jobId,'');
 });

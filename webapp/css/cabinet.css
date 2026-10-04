@@ -9610,11 +9610,11 @@ body.edit-workspace-open{overflow:hidden}
 /* Session history stays in the existing infinite world. New results arrive
    inside their reserved cards; animations never represent numerical progress. */
 .edit-chain-node{position:absolute;left:0;top:0;overflow:visible;cursor:grab;outline:none;touch-action:none}
-.edit-chain-node:focus-visible .edit-workspace-frame{outline:2px solid var(--st-accent);outline-offset:4px}
+.edit-chain-node:focus-visible .edit-workspace-frame{outline:2px solid var(--st-accent,#6d9bff);outline-offset:4px}
 .edit-chain-node.is-moving{z-index:2}
 .edit-workspace-stage.is-moving-node,.edit-workspace-stage.is-moving-node *{cursor:grabbing!important}
 .edit-chain-node .edit-workspace-frame{inset:0;width:100%;height:100%;border-radius:10px;box-shadow:0 4px 18px var(--st-shadow);outline:1px solid var(--edit-border-strong);overflow:hidden}
-.edit-chain-node[data-active="true"] .edit-workspace-frame{outline:2px solid var(--st-accent)}
+.edit-chain-node[data-active="true"] .edit-workspace-frame{outline:2px solid var(--st-accent,#6d9bff)}
 .edit-chain-node.is-entering .edit-workspace-frame{animation:edit-chain-enter .55s ease both}
 .edit-chain-node .edit-workspace-image{opacity:0;transition:opacity .65s ease;z-index:1}
 .edit-chain-node[data-media="ready"] .edit-workspace-image{opacity:1}
@@ -9626,8 +9626,8 @@ body.edit-workspace-open{overflow:hidden}
 #edit-chain-arrow path{fill:none;stroke:var(--edit-subtle);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .edit-workspace-world.is-advancing{transition:transform .55s cubic-bezier(.2,.7,.2,1)}
 .edit-chain-wait{position:absolute;inset:0;overflow:hidden;background:var(--edit-surface);opacity:1;transition:opacity .6s ease;pointer-events:none;border-radius:inherit}
-.edit-chain-wait i{position:absolute;width:85%;height:110%;left:-20%;top:-25%;border-radius:50%;background:radial-gradient(ellipse,color-mix(in srgb,var(--st-accent) 25%,transparent),transparent 70%);filter:blur(14px);animation:edit-chain-float 7s ease-in-out infinite alternate}
-.edit-chain-wait i:nth-child(2){left:35%;top:30%;background:radial-gradient(ellipse,color-mix(in srgb,var(--st-success) 18%,transparent),transparent 70%);animation-duration:9s;animation-delay:-3s}
+.edit-chain-wait i{position:absolute;width:85%;height:110%;left:-20%;top:-25%;border-radius:50%;background:radial-gradient(ellipse,color-mix(in srgb,var(--st-accent,#6d9bff) 25%,transparent),transparent 70%);filter:blur(14px);animation:edit-chain-float 7s ease-in-out infinite alternate}
+.edit-chain-wait i:nth-child(2){left:35%;top:30%;background:radial-gradient(ellipse,color-mix(in srgb,var(--st-success,#66d9a8) 18%,transparent),transparent 70%);animation-duration:9s;animation-delay:-3s}
 .edit-chain-wait i:nth-child(3){left:25%;top:-20%;background:radial-gradient(ellipse,color-mix(in srgb,var(--edit-text) 9%,transparent),transparent 70%);animation-duration:11s;animation-delay:-5s}
 .edit-chain-node[data-media="ready"] .edit-chain-wait,.edit-chain-node[data-media="error"] .edit-chain-wait,.edit-chain-node[data-status="failed"] .edit-chain-wait{opacity:0;visibility:hidden;transition:opacity .6s ease,visibility 0s .6s}
 .edit-chain-node[data-media="ready"] .edit-chain-wait i,.edit-chain-node[data-status="failed"] .edit-chain-wait i,.edit-chain-node[data-media="error"] .edit-chain-wait i{animation:none}
@@ -9643,7 +9643,7 @@ body.edit-workspace-open{overflow:hidden}
    resolved palette as Pro Studio. Media pixels and light swatches are content. */
 .view[data-view="tools"] .studio,.edit-workspace{color-scheme:var(--st-color-scheme,dark);color:var(--st-text)}
 .edit-workspace{--edit-violet:light-dark(#7938b2,#c69aff)}
-.edit-workspace-grid{background-image:radial-gradient(circle at 1px 1px,var(--st-grid-line) 1px,transparent 1.1px);opacity:1}
+.edit-workspace-grid{background-image:radial-gradient(circle at 1px 1px,var(--st-grid-line,rgba(128,128,128,.22)) 1px,transparent 1.1px);opacity:1}
 .edit-workspace-upload{border-color:var(--edit-border-strong);background:var(--edit-surface);color:var(--edit-text)}
 .edit-workspace-upload span,.edit-workspace-upload small{color:var(--edit-muted)}
 .edit-workspace-panel{scrollbar-color:var(--edit-subtle) transparent}
@@ -9652,7 +9652,7 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-dimensions input,.edit-workspace-translate-search input,.edit-workspace-action-row label input,
 .edit-workspace-color input{border-color:var(--edit-border-strong);background:var(--edit-surface-raised);color:var(--edit-text)}
 .edit-workspace-presets button:hover,.edit-workspace-presets button.active,.edit-workspace-light-chip.active,
-.edit-workspace-action-row>button.active{border-color:var(--st-accent);background:var(--edit-selected);color:var(--edit-text)}
+.edit-workspace-action-row>button.active{border-color:var(--st-accent,#6d9bff);background:var(--edit-selected);color:var(--edit-text)}
 .edit-workspace-range,.edit-workspace-action textarea,.edit-workspace-hex input[aria-label="HEX color"]{color:var(--edit-text)}
 .edit-workspace-dimensions label,.edit-workspace-action>p,.edit-workspace-action-row label{color:var(--edit-muted)}
 .edit-workspace input::placeholder,.edit-workspace textarea::placeholder{color:var(--edit-subtle);opacity:1}
@@ -9675,30 +9675,30 @@ body.edit-workspace-open{overflow:hidden}
 .edit-camera-subject rect,.edit-light-subject rect{fill:var(--edit-surface-raised);stroke:var(--edit-subtle)}
 .edit-camera-subject text,.edit-light-subject text{fill:var(--edit-muted)}
 .edit-camera-handle .dot,.edit-light-handle .dot{stroke:var(--edit-bg)}
-.edit-camera-handle.horizontal .dot,.edit-light-handle.horizontal .dot{fill:var(--st-accent)}
-.edit-camera-ring.horizontal,.edit-light-ring.horizontal{stroke:var(--st-accent)}
-.edit-camera-handle.vertical .dot{fill:var(--st-success)}
-.edit-camera-ring.vertical{stroke:var(--st-success)}
+.edit-camera-handle.horizontal .dot,.edit-light-handle.horizontal .dot{fill:var(--st-accent,#6d9bff)}
+.edit-camera-ring.horizontal,.edit-light-ring.horizontal{stroke:var(--st-accent,#6d9bff)}
+.edit-camera-handle.vertical .dot{fill:var(--st-success,#66d9a8)}
+.edit-camera-ring.vertical{stroke:var(--st-success,#66d9a8)}
 .edit-light-handle.vertical .dot{fill:var(--edit-violet)}
 .edit-light-ring.vertical{stroke:var(--edit-violet)}
 .edit-camera-handle:focus .dot,.edit-camera-handle:hover .dot,
 .edit-light-handle:focus-visible .dot,.edit-light-handle:hover .dot{stroke:var(--edit-text)}
 .edit-camera-body path{fill:var(--edit-text);stroke:var(--edit-bg)}
-.edit-camera-body>circle:not(.hit){fill:var(--edit-surface);stroke:var(--st-accent)}
-.edit-camera-body:focus path,.edit-camera-body:hover path{fill:var(--edit-text);stroke:var(--st-accent)}
+.edit-camera-body>circle:not(.hit){fill:var(--edit-surface);stroke:var(--st-accent,#6d9bff)}
+.edit-camera-body:focus path,.edit-camera-body:hover path{fill:var(--edit-text);stroke:var(--st-accent,#6d9bff)}
 .edit-camera-axis{fill:var(--edit-subtle)}
 .edit-camera-label,.edit-light-lamp text{fill:var(--edit-muted)}
 .edit-light-lamp.active text{fill:var(--edit-text)}
 .edit-camera-legend,.edit-light-legend,.edit-camera-limits{color:var(--edit-muted)}
 .edit-camera-legend i{background:var(--edit-muted)}
-.edit-camera-legend i.horizontal,.edit-light-legend i{background:var(--st-accent)}
-.edit-camera-legend i.vertical{background:var(--st-success)}
+.edit-camera-legend i.horizontal,.edit-light-legend i{background:var(--st-accent,#6d9bff)}
+.edit-camera-legend i.vertical{background:var(--st-success,#66d9a8)}
 .edit-light-legend span:nth-child(2) i{background:var(--edit-violet)}
 .edit-light-grid{stroke:var(--edit-text);stroke-opacity:.09}
 .edit-light-lamp.active .lamp-top,.edit-light-lamp:focus-visible path,.edit-light-lamp:hover path{stroke:var(--edit-text)}
 .edit-light-actions button[aria-pressed="true"]{color:var(--edit-violet)}
-.edit-workspace.is-dragging::after{border-color:var(--st-accent);background:color-mix(in srgb,var(--edit-surface) 90%,transparent);color:var(--edit-text)}
-.edit-workspace :is(button,input,select,textarea):focus-visible{outline:2px solid var(--st-accent);outline-offset:2px}
+.edit-workspace.is-dragging::after{border-color:var(--st-accent,#6d9bff);background:color-mix(in srgb,var(--edit-surface) 90%,transparent);color:var(--edit-text)}
+.edit-workspace :is(button,input,select,textarea):focus-visible{outline:2px solid var(--st-accent,#6d9bff);outline-offset:2px}
 
 /* Grid details missing from the existing --st-* theme rules. Preserve
    semantic statuses and connection highlighting in either appearance. */
@@ -9722,3 +9722,29 @@ body.edit-workspace-open{overflow:hidden}
 .view[data-view="tools"].active .studio-grid-test-toggle.active{color:var(--st-warning)!important;border-color:var(--st-warning)!important;background:color-mix(in srgb,var(--st-warning) 12%,transparent)!important}
 .view[data-view="tools"].active .studio-grid-node-tools button.running,
 .view[data-view="tools"].active .studio-grid-header #studioGridRunWorkflow.running{color:var(--st-danger)!important;background:color-mix(in srgb,var(--st-danger) 12%,transparent)!important;border-color:var(--st-danger)!important}
+
+/* Edit sessions share the site theme and float over the same infinite canvas. */
+.edit-workspace-sidebar{position:absolute;z-index:4;left:16px;top:16px;bottom:88px;width:224px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px;padding:16px;border:1px solid var(--edit-border);border-radius:20px;background:color-mix(in srgb,var(--edit-surface) 90%,transparent);color:var(--edit-text);backdrop-filter:blur(12px);box-shadow:var(--st-depth-2)}
+.edit-workspace-sidebar header{display:flex;align-items:center;justify-content:space-between;font-size:18px}
+.edit-workspace-sidebar button,.edit-sidebar-toggle{font:inherit;color:var(--edit-text);border:1px solid var(--edit-border);background:var(--edit-surface-raised);border-radius:10px;cursor:pointer}
+.edit-workspace-sidebar header button{width:30px;height:30px;font-size:22px}
+.edit-workspace-sidebar nav{display:grid;gap:4px;padding-bottom:14px;border-bottom:1px solid var(--edit-border)}
+.edit-workspace-sidebar nav button{text-align:left;padding:10px;border-color:transparent;background:transparent}
+.edit-workspace-sidebar nav button[aria-current],.edit-workspace-sidebar button:hover,.edit-session-item.active{background:var(--edit-selected);border-color:var(--edit-border-strong)}
+.edit-workspace-sidebar .edit-session-new{padding:11px 8px;font-size:12px;font-weight:600}
+.edit-workspace-sidebar h3{font-size:12px;font-weight:500;margin:0;color:var(--edit-muted)}
+#editSessionList{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:8px}
+.edit-workspace-sidebar .edit-session-item{display:flex;align-items:center;gap:9px;padding:7px;text-align:left;flex:none}
+.edit-session-item img{width:40px;height:44px;object-fit:contain;border-radius:5px;background:transparent}
+.edit-session-item span{display:grid;gap:5px;min-width:0}.edit-session-item b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:500}.edit-session-item small{font-size:10px;color:var(--edit-muted)}
+.edit-session-empty,#editSessionSync{font-size:11px;line-height:1.5;color:var(--edit-muted)}
+.edit-session-more{padding:9px;font-size:11px!important}
+.edit-sidebar-toggle{position:absolute;z-index:4;top:18px;left:18px;width:40px;height:38px;font-size:20px}
+.edit-workspace[data-sidebar="true"] .edit-sidebar-toggle,.edit-workspace[data-sidebar="false"] .edit-workspace-sidebar{display:none}
+.edit-workspace[data-sidebar="true"] .edit-workspace-canvas-actions{max-width:calc(100% - 335px)}
+.edit-workspace[data-sidebar="true"] .edit-workspace-action{left:calc(50% + 120px);width:min(880px,calc(100vw - 310px))}
+.edit-workspace[data-sidebar="true"] .edit-workspace-status{left:calc(50% + 120px);max-width:calc(100vw - 310px)}
+/* Let real image alpha reveal the canvas grid; never flatten it onto a card. */
+.edit-chain-node[data-status="ready"] .edit-workspace-frame{background:transparent;box-shadow:none}
+
+.edit-workspace-panel-camera>*{flex-shrink:0}
