@@ -8883,6 +8883,44 @@ async def public_prostudio_character_history(resource_id: str, telegram_id: int 
 
 
 # =====================================================
+# API ENDPOINT: public_prostudio_delete_character_history_entry
+# Deletes a single "Generated with this Character" History row - only the
+# row itself. Never touches the generated media file in R2 (media_url is
+# simply a reference, not something this table owns) and never touches the
+# Pro Studio generation/job that originally produced it - prostudio_messages/
+# prostudio_generation_jobs are untouched. Scoped by history_entry_id +
+# character_id + telegram_id together, so a DELETE naming another user's
+# telegram_id (or a history_id that belongs to a different Character/user)
+# simply matches zero rows rather than deleting anything.
+# =====================================================
+@app.delete("/api/public/prostudio/character/{resource_id}/history/{history_id}")
+async def public_prostudio_delete_character_history_entry(resource_id: str, history_id: str, telegram_id: int = 0):
+    if not telegram_id:
+        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+    if not DATABASE_URL:
+        return {"ok": True, "deleted": False}
+
+    def _sync():
+        ensure_prostudio_table()
+        with db_connection(DATABASE_URL) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM prostudio_character_history WHERE id = %s AND character_id = %s AND telegram_id = %s",
+                (history_id, resource_id, telegram_id),
+            )
+            deleted = cursor.rowcount > 0
+            cursor.close()
+        return deleted
+
+    try:
+        deleted = await asyncio.to_thread(_sync)
+        return {"ok": True, "deleted": deleted, "id": history_id}
+    except Exception as exc:
+        prostudio_error("CHARACTER_HISTORY_DELETE_FAILED", exc, resource_id=resource_id, history_id=history_id, telegram_id=telegram_id)
+        return JSONResponse({"ok": False, "error": "history_delete_failed"}, status_code=500)
+
+
+# =====================================================
 # API ENDPOINT: public_prostudio_delete_resource
 # Удаляет только пользовательский ресурс персонажа/объекта из каталога Mini App.
 # =====================================================
@@ -21888,24 +21926,23 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             prostudio_debug("JOB_MESSAGE_SAVE_DONE", job_id=job_id, conversation_id=result["conversation_id"])
             # "Generated with this Character" - only when a Character was
             # actively selected/committed on THIS request (metadata.characterId
-            # comes straight from this request's own image/video/music/voice
-            # options, never from some separately-tracked "currently selected"
-            # state), covering every surface that reaches this single
-            # completion path: the Pro Studio result, the Telegram delivery
-            # below, a plain Image-mode result, and a job the client only
-            # discovers via polling after a disconnect. Every generated
-            # media URL from this completed result is recorded, not just
-            # the first - a 4-image job must produce 4 History rows.
+            # comes straight from this request's own image options, never
+            # from some separately-tracked "currently selected" state),
+            # covering every surface that reaches this single completion
+            # path: the Pro Studio result, the Telegram delivery below, a
+            # plain Image-mode result, and a job the client only discovers
+            # via polling after a disconnect. Character History is images
+            # only - a video/music/voice job is never recorded here, even
+            # if it happened to carry a characterId. Every generated image
+            # URL from this completed result is recorded, not just the
+            # first - a 4-image job must produce 4 History rows.
             # record_character_generation_history itself verifies the
             # Character is a custom one actually owned by this user before
             # writing anything.
-            if metadata and metadata.get("characterId"):
-                character_media_urls = (
-                    metadata.get("result_images") if mode == "image"
-                    else metadata.get("videos") if mode == "video"
-                    else metadata.get("audios") if mode in ("music", "voice")
-                    else None
-                ) or ([metadata.get("result_url")] if metadata.get("result_url") else [])
+            if mode == "image" and metadata and metadata.get("characterId"):
+                character_media_urls = metadata.get("result_images") or (
+                    [metadata.get("result_url")] if metadata.get("result_url") else []
+                )
                 await asyncio.to_thread(
                     record_character_generation_history,
                     str(metadata.get("characterId")),

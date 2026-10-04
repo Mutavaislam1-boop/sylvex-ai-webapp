@@ -105,6 +105,48 @@ function makeContext(opts) {
   return { context, toasts, dom, store, fetchCalls };
 }
 
+// ===== deleteVisualItemFromBackend() itself: success requires BOTH
+// ok:true AND deleted:true from the backend. =====
+
+test('deleteVisualItemFromBackend: returns true only when the backend returns ok:true AND deleted:true', async () => {
+  const { context } = makeContext({
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true, deleted: true }) }),
+  });
+  const result = await vm.runInContext(`deleteVisualItemFromBackend('character', 'custom_character_abc')`, context);
+  assert.equal(result, true);
+});
+
+test('deleteVisualItemFromBackend: returns false when the backend returns ok:true but deleted:false', async () => {
+  const { context } = makeContext({
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true, deleted: false }) }),
+  });
+  const result = await vm.runInContext(`deleteVisualItemFromBackend('character', 'custom_character_abc')`, context);
+  assert.equal(result, false);
+});
+
+test('deleteVisualItemFromBackend: returns false when the HTTP response itself is not ok, even if the body claims success', async () => {
+  const { context } = makeContext({
+    fetch: async () => ({ ok: false, json: async () => ({ ok: true, deleted: true }) }),
+  });
+  const result = await vm.runInContext(`deleteVisualItemFromBackend('character', 'custom_character_abc')`, context);
+  assert.equal(result, false);
+});
+
+test('deleteVisualReference: ok:true but deleted:false must not remove the Character locally', async () => {
+  const character = { id: 'custom_character_abc', name: 'Islam', type: 'custom', previewUrl: 'https://cdn.sylvex.ai/a.png', referenceImages: [] };
+  const serverVisualItems = { characters: [character] };
+  const { context, toasts } = makeContext({
+    serverVisualItems,
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true, deleted: false }) }),
+  });
+
+  await vm.runInContext(`deleteVisualReference(e, 'character', 'custom_character_abc')`, Object.assign(context, { e: fakeEvent() }));
+
+  assert.deepEqual(serverVisualItems.characters, [character], 'deleted:false must be treated the same as a failed delete');
+  assert.ok(!toasts.some((msg) => /удал[её]н/.test(msg)));
+  assert.ok(toasts.some((msg) => /не удалось/i.test(msg)));
+});
+
 test('deleteVisualReference: a custom Character is removed from serverVisualItems and localStorage once the backend confirms the delete', async () => {
   const character = { id: 'custom_character_abc', name: 'Islam', type: 'custom', previewUrl: 'https://cdn.sylvex.ai/a.png', referenceImages: [] };
   const serverVisualItems = { characters: [character] };

@@ -42,7 +42,7 @@ class FakeCursor:
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
-        if "DELETE FROM prostudio_resources" in sql:
+        if "DELETE FROM prostudio_resources" in sql or "DELETE FROM prostudio_character_history WHERE id" in sql:
             self.rowcount = 1
 
     def fetchone(self):
@@ -418,3 +418,142 @@ async def test_replaying_the_same_completed_job_does_not_duplicate_history_rows(
     # a real UNIQUE index would keep this at exactly 2 rows total, never 4.
     assert len(second_pass_inserts) == 2
     assert {p[4] for p in first_pass_inserts} == {p[4] for p in second_pass_inserts} == set(images)
+
+
+# ===== Fix 2: Character History is image-only - a video/music/voice job
+# must never write a row, even if it carries a characterId. =====
+
+@pytest.mark.asyncio
+async def test_completed_video_job_with_a_character_id_writes_no_history(app, monkeypatch):
+    async def fake_video_provider(*a, **k):
+        return (
+            {
+                "ok": True,
+                "type": "video",
+                "status": "completed",
+                "video_url": "https://cdn.sylvex.ai/clip.mp4",
+                "videos": ["https://cdn.sylvex.ai/clip.mp4"],
+                "provider": "kling",
+                "model": "kling_2_6",
+            },
+            "completed",
+        )
+    monkeypatch.setattr(app, "run_prostudio_provider_request", fake_video_provider)
+    calls = _track_history_calls(monkeypatch, app)
+    payload = {
+        "telegram_id": 42,
+        "mode": "video",
+        "prompt": "A hero walking",
+        "model": "kling_2_6",
+        "provider": "kling",
+        "price_snapshot": {"final_credits": 20},
+        "video_options": {"characterId": "custom_character_abc123", "characterName": "Islam"},
+    }
+    await app.process_prostudio_generation("job-video-1", payload)
+
+    assert calls == [], "a video job must never write Character History, even with a characterId"
+
+
+@pytest.mark.asyncio
+async def test_completed_voice_job_with_a_character_id_writes_no_history(app, monkeypatch):
+    async def fake_voice_provider(*a, **k):
+        return (
+            {
+                "ok": True,
+                "type": "voice",
+                "status": "completed",
+                "audio_url": "https://cdn.sylvex.ai/line.mp3",
+                "audios": ["https://cdn.sylvex.ai/line.mp3"],
+                "provider": "elevenlabs",
+                "model": "eleven_v3",
+            },
+            "completed",
+        )
+    monkeypatch.setattr(app, "run_prostudio_provider_request", fake_voice_provider)
+    calls = _track_history_calls(monkeypatch, app)
+    payload = {
+        "telegram_id": 42,
+        "mode": "voice",
+        "prompt": "Hello there",
+        "model": "eleven_v3",
+        "provider": "elevenlabs",
+        "price_snapshot": {"final_credits": 10},
+        "voice_options": {"characterId": "custom_character_abc123"},
+    }
+    await app.process_prostudio_generation("job-voice-1", payload)
+
+    assert calls == []
+
+
+# ===== Fix 3: deleting a single History entry, scoped to
+# history_entry_id + character_id + telegram_id, and never touching the
+# original media or the Pro Studio generation/job. =====
+
+def test_delete_character_history_entry_succeeds_when_owned_by_this_user(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+
+    result = asyncio.run(main.public_prostudio_delete_character_history_entry(
+        "custom_character_abc123", "hist-1", telegram_id=42,
+    ))
+
+    assert result == {"ok": True, "deleted": True, "id": "hist-1"}
+    sql, params = cursor.executed[0]
+    assert "DELETE FROM prostudio_character_history" in sql
+    assert "id = %s" in sql and "character_id = %s" in sql and "telegram_id = %s" in sql
+    assert params == ("hist-1", "custom_character_abc123", 42)
+
+
+def test_delete_character_history_entry_requires_telegram_id(monkeypatch):
+    result = asyncio.run(main.public_prostudio_delete_character_history_entry(
+        "custom_character_abc123", "hist-1", telegram_id=0,
+    ))
+    assert result.status_code == 400
+
+
+def test_delete_character_history_entry_never_deletes_another_users_row(monkeypatch):
+    # The fake's rowcount never flips to >0 unless the DELETE actually
+    # matched - simulating "this history_id belongs to a different user"
+    # by having the DELETE match nothing (as the real WHERE telegram_id
+    # clause would for a mismatched owner).
+    class NoMatchCursor(FakeCursor):
+        def execute(self, sql, params=None):
+            self.executed.append((sql, params))
+
+    cursor = NoMatchCursor()
+    _patch_db(monkeypatch, cursor)
+
+    result = asyncio.run(main.public_prostudio_delete_character_history_entry(
+        "custom_character_abc123", "hist-1", telegram_id=999,
+    ))
+
+    assert result == {"ok": True, "deleted": False, "id": "hist-1"}
+    # The attempted delete was still scoped by the caller's own
+    # telegram_id (999), never silently widened to match anyone's row.
+    sql, params = cursor.executed[0]
+    assert params == ("hist-1", "custom_character_abc123", 999)
+
+
+def test_delete_character_history_entry_only_deletes_the_history_row(monkeypatch):
+    # No cascading: the function must never touch prostudio_resources,
+    # prostudio_messages, or prostudio_generation_jobs (the R2 media and
+    # the generation itself) - only prostudio_character_history.
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+
+    asyncio.run(main.public_prostudio_delete_character_history_entry(
+        "custom_character_abc123", "hist-1", telegram_id=42,
+    ))
+
+    assert len(cursor.executed) == 1
+    sql, _ = cursor.executed[0]
+    for forbidden_table in ("prostudio_resources", "prostudio_messages", "prostudio_generation_jobs"):
+        assert forbidden_table not in sql
+
+
+def test_delete_character_history_entry_noop_without_database(monkeypatch):
+    monkeypatch.setattr(main, "DATABASE_URL", "")
+    result = asyncio.run(main.public_prostudio_delete_character_history_entry(
+        "custom_character_abc123", "hist-1", telegram_id=42,
+    ))
+    assert result == {"ok": True, "deleted": False}
