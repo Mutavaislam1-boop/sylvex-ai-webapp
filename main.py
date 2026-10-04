@@ -5037,17 +5037,21 @@ def ensure_prostudio_table():
                 CREATE INDEX IF NOT EXISTS idx_prostudio_error_reports_user
                 ON prostudio_error_reports (telegram_id, created_at DESC)
             """)
-            # "Generated with this Character" history: one row per completed
-            # generation job that had a Character actively selected/committed
-            # at submission time. Deliberately a dedicated table (not just a
-            # metadata_json filter over prostudio_messages) so the record of
-            # what counts as "this Character's history" is unambiguous and
-            # never duplicated - the UNIQUE index on (character_id, job_id)
-            # lets the write use ON CONFLICT DO NOTHING, so a job that gets
-            # marked completed more than once (retry/race) still produces
-            # exactly one history row. Never stores a second copy of the
-            # media file - media_url always points at the same URL the
-            # completed generation itself already serves.
+            # "Generated with this Character" history: one row per generated
+            # media URL from a completed generation job that had a Character
+            # actively selected/committed at submission time - a job that
+            # returns several images (e.g. count=4) must produce several
+            # rows, one per image, not one row for the whole job.
+            # Deliberately a dedicated table (not just a metadata_json filter
+            # over prostudio_messages) so the record of what counts as "this
+            # Character's history" is unambiguous and never duplicated - the
+            # UNIQUE index on (character_id, job_id, media_url) lets each
+            # per-image insert use ON CONFLICT DO NOTHING, so a job that
+            # gets marked completed more than once (retry/race) still
+            # produces exactly one row per distinct image, never a
+            # duplicate. Never stores a second copy of the media file -
+            # media_url always points at the same URL the completed
+            # generation itself already serves.
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS prostudio_character_history (
                 id TEXT PRIMARY KEY,
@@ -5060,9 +5064,15 @@ def ensure_prostudio_table():
                 created_at TIMESTAMP DEFAULT NOW()
             )
             """)
+            # The original index only covered (character_id, job_id), which
+            # made every image after the first in a multi-image job collide
+            # as a duplicate and get silently dropped. Replace it with one
+            # that also includes media_url, so each distinct image of the
+            # same job gets its own row.
+            cursor.execute("DROP INDEX IF EXISTS idx_prostudio_character_history_job")
             cursor.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_prostudio_character_history_job
-            ON prostudio_character_history (character_id, job_id)
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_prostudio_character_history_job_media
+            ON prostudio_character_history (character_id, job_id, media_url)
             """)
             cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_prostudio_character_history_lookup
@@ -7121,26 +7131,49 @@ def save_prostudio_message(payload: dict, result: dict) -> str:
 # Never called just because a Character page was opened or a Character was
 # merely browsed - selection only happens via the Character page's "Use
 # Character" (or the video-mode/create-flow equivalents), which is the only
-# code path that ever sets characterId on a generation request. Safe to
-# call more than once for the same job_id - the (character_id, job_id)
-# unique index makes the insert a no-op on a repeat.
+# code path that ever sets characterId on a generation request. Writes one
+# row per URL in media_urls (a job returning several images produces
+# several rows), and is safe to call more than once for the same job - the
+# (character_id, job_id, media_url) unique index makes each insert a no-op
+# on a repeat. Only ever writes for a user-created/custom Character that
+# this telegram_id actually owns: a built-in/preset SYLVEX Character has no
+# row in prostudio_resources at all (it is static catalog data, never
+# per-user), so _load_character_resource (the same scoped lookup the
+# reference-library endpoints use) returning nothing is both the ownership
+# check and the custom-vs-built-in check - no Character id is hardcoded.
 # =====================================================
-def record_character_generation_history(character_id: str, telegram_id: int, job_id: str, media_url: str, prompt: str = "", model: str = "") -> None:
+def record_character_generation_history(character_id: str, telegram_id: int, job_id: str, media_urls, prompt: str = "", model: str = "") -> None:
     character_id = str(character_id or "").strip()
     job_id = str(job_id or "").strip()
-    media_url = str(media_url or "").strip()
-    if not DATABASE_URL or not character_id or not telegram_id or not job_id or not media_url:
+    raw_urls = media_urls if isinstance(media_urls, (list, tuple)) else [media_urls]
+    seen = set()
+    urls = []
+    for url in raw_urls:
+        clean = str(url or "").strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            urls.append(clean)
+    if not DATABASE_URL or not character_id or not telegram_id or not job_id or not urls:
+        return
+    if not character_id.startswith("custom_"):
+        return
+    try:
+        if not _load_character_resource(telegram_id, character_id):
+            return
+    except Exception as exc:
+        print("PROSTUDIO CHARACTER HISTORY OWNERSHIP CHECK FAILED:", exc)
         return
     try:
         ensure_prostudio_table()
         with db_connection(DATABASE_URL) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO prostudio_character_history (
-                    id, character_id, telegram_id, job_id, media_url, prompt, model, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (character_id, job_id) DO NOTHING
-            """, (uuid4().hex, character_id, telegram_id, job_id, media_url, prompt or "", model or ""))
+            for url in urls:
+                cursor.execute("""
+                    INSERT INTO prostudio_character_history (
+                        id, character_id, telegram_id, job_id, media_url, prompt, model, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (character_id, job_id, media_url) DO NOTHING
+                """, (uuid4().hex, character_id, telegram_id, job_id, url, prompt or "", model or ""))
             cursor.close()
     except Exception as exc:
         print("PROSTUDIO CHARACTER HISTORY RECORD FAILED:", exc)
@@ -8871,6 +8904,20 @@ async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 
                 (resource_id, telegram_id),
             )
             deleted = cursor.rowcount > 0
+            # Only a Character accumulates prostudio_character_history rows
+            # (Objects/voices never do - see record_character_generation_history),
+            # so this cleanup only ever runs for a custom_character_ id, and
+            # only once the resource itself was actually deleted. Scoped to
+            # this same telegram_id, so one user deleting their Character
+            # can never touch another user's history rows for a
+            # differently-owned Character that happens to reuse the id
+            # (ids are globally unique uuid4 hex already, but the WHERE
+            # clause makes the ownership boundary explicit regardless).
+            if deleted and resource_id.startswith("custom_character_"):
+                cursor.execute(
+                    "DELETE FROM prostudio_character_history WHERE character_id = %s AND telegram_id = %s",
+                    (resource_id, telegram_id),
+                )
             cursor.close()
         if deleted:
             log_user_event(telegram_id, "miniapp", "resource", "resource_deleted", {"id": resource_id})
@@ -21846,14 +21893,25 @@ async def process_prostudio_generation(job_id: str, payload: dict):
             # state), covering every surface that reaches this single
             # completion path: the Pro Studio result, the Telegram delivery
             # below, a plain Image-mode result, and a job the client only
-            # discovers via polling after a disconnect.
+            # discovers via polling after a disconnect. Every generated
+            # media URL from this completed result is recorded, not just
+            # the first - a 4-image job must produce 4 History rows.
+            # record_character_generation_history itself verifies the
+            # Character is a custom one actually owned by this user before
+            # writing anything.
             if metadata and metadata.get("characterId"):
+                character_media_urls = (
+                    metadata.get("result_images") if mode == "image"
+                    else metadata.get("videos") if mode == "video"
+                    else metadata.get("audios") if mode in ("music", "voice")
+                    else None
+                ) or ([metadata.get("result_url")] if metadata.get("result_url") else [])
                 await asyncio.to_thread(
                     record_character_generation_history,
                     str(metadata.get("characterId")),
                     telegram_id,
                     job_id,
-                    metadata.get("result_url") or "",
+                    character_media_urls,
                     metadata.get("prompt") or "",
                     metadata.get("model") or "",
                 )
