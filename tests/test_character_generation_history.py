@@ -4,11 +4,23 @@ Covers the Character System fix: every successfully completed generation
 job that had a Character actively selected/committed at submission time
 (metadata.characterId, populated straight from that request's own
 image/video/music/voice options - never a separately tracked "currently
-selected" state) must produce exactly one prostudio_character_history row,
-regardless of which surface the client observes the completion through
-(Pro Studio result, Telegram delivery, a plain Image-mode result, or a job
-discovered later via polling after a disconnect) - they all funnel through
-the single process_prostudio_generation completion path.
+selected" state) must produce one prostudio_character_history row PER
+generated media URL, regardless of which surface the client observes the
+completion through (Pro Studio result, Telegram delivery, a plain
+Image-mode result, or a job discovered later via polling after a
+disconnect) - they all funnel through the single
+process_prostudio_generation completion path.
+
+Also covers the three corrective fixes on top of that:
+  - a job returning several images must produce several History rows, not
+    one, and replaying the same completed job must not duplicate them
+    (UNIQUE(character_id, job_id, media_url), not UNIQUE(character_id,
+    job_id));
+  - deleting a custom Character deletes its own History rows, scoped to
+    the same owner, never another user's;
+  - only a user-created/custom Character (one the user actually owns, per
+    the existing _load_character_resource ownership lookup) ever
+    accumulates History - a built-in/preset SYLVEX Character never does.
 
 Uses the same FakeCursor/FakeConnection technique as
 test_character_reference_library.py and the same process_prostudio_generation
@@ -23,14 +35,18 @@ import main
 
 
 class FakeCursor:
-    def __init__(self):
+    def __init__(self, fetchone_result=None):
         self.executed = []
+        self.fetchone_result = fetchone_result
+        self.rowcount = 0
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
+        if "DELETE FROM prostudio_resources" in sql:
+            self.rowcount = 1
 
     def fetchone(self):
-        return None
+        return self.fetchone_result
 
     def fetchall(self):
         return []
@@ -57,43 +73,97 @@ def _patch_db(monkeypatch, cursor, database_url="postgres://fake"):
     monkeypatch.setattr(main, "ensure_prostudio_table", lambda: None)
 
 
-def test_record_character_generation_history_inserts_with_conflict_guard(monkeypatch):
+def _own_this_character(monkeypatch, owned=True):
+    # record_character_generation_history's ownership/custom-vs-built-in
+    # gate is _load_character_resource returning something truthy - stub
+    # it directly rather than wiring a second fake DB layer for it.
+    monkeypatch.setattr(
+        main, "_load_character_resource",
+        lambda telegram_id, character_id: ({"id": character_id} if owned else None),
+    )
+
+
+# ===== Fix 1: one row per generated image, deduped per (character_id,
+# job_id, media_url) =====
+
+def test_record_character_generation_history_inserts_one_row_per_image(monkeypatch):
     cursor = FakeCursor()
     _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch)
 
     main.record_character_generation_history(
         "custom_character_abc123", 42, "job-1",
-        "https://cdn.sylvex.ai/result.png", "a cat", "gpt-image-2",
+        [
+            "https://cdn.sylvex.ai/result_1.png",
+            "https://cdn.sylvex.ai/result_2.png",
+            "https://cdn.sylvex.ai/result_3.png",
+            "https://cdn.sylvex.ai/result_4.png",
+        ],
+        "a cat", "gpt-image-2",
+    )
+
+    assert len(cursor.executed) == 4
+    inserted_urls = []
+    for sql, params in cursor.executed:
+        assert "prostudio_character_history" in sql
+        assert "ON CONFLICT (character_id, job_id, media_url) DO NOTHING" in sql
+        # id, character_id, telegram_id, job_id, media_url, prompt, model
+        assert params[1] == "custom_character_abc123"
+        assert params[2] == 42
+        assert params[3] == "job-1"
+        assert params[5] == "a cat"
+        assert params[6] == "gpt-image-2"
+        inserted_urls.append(params[4])
+    assert inserted_urls == [
+        "https://cdn.sylvex.ai/result_1.png",
+        "https://cdn.sylvex.ai/result_2.png",
+        "https://cdn.sylvex.ai/result_3.png",
+        "https://cdn.sylvex.ai/result_4.png",
+    ]
+
+
+def test_record_character_generation_history_accepts_a_single_url_too(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch)
+
+    main.record_character_generation_history(
+        "custom_character_abc123", 42, "job-1", "https://cdn.sylvex.ai/result.png",
     )
 
     assert len(cursor.executed) == 1
-    sql, params = cursor.executed[0]
-    assert "prostudio_character_history" in sql
-    assert "ON CONFLICT (character_id, job_id) DO NOTHING" in sql
-    # id, character_id, telegram_id, job_id, media_url, prompt, model
-    assert params[1] == "custom_character_abc123"
-    assert params[2] == 42
-    assert params[3] == "job-1"
-    assert params[4] == "https://cdn.sylvex.ai/result.png"
-    assert params[5] == "a cat"
-    assert params[6] == "gpt-image-2"
+    assert cursor.executed[0][1][4] == "https://cdn.sylvex.ai/result.png"
 
 
-@pytest.mark.parametrize("missing", ["character_id", "telegram_id", "job_id", "media_url"])
+def test_record_character_generation_history_dedups_a_repeated_url_within_one_call(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch)
+
+    main.record_character_generation_history(
+        "custom_character_abc123", 42, "job-1",
+        ["https://cdn.sylvex.ai/a.png", "https://cdn.sylvex.ai/a.png"],
+    )
+
+    assert len(cursor.executed) == 1
+
+
+@pytest.mark.parametrize("missing", ["character_id", "telegram_id", "job_id", "media_urls"])
 def test_record_character_generation_history_skips_without_required_fields(monkeypatch, missing):
     cursor = FakeCursor()
     _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch)
 
     args = {
         "character_id": "custom_character_abc123",
         "telegram_id": 42,
         "job_id": "job-1",
-        "media_url": "https://cdn.sylvex.ai/result.png",
+        "media_urls": ["https://cdn.sylvex.ai/result.png"],
     }
-    args[missing] = "" if missing != "telegram_id" else 0
+    args[missing] = "" if missing not in ("telegram_id", "media_urls") else (0 if missing == "telegram_id" else [])
 
     main.record_character_generation_history(
-        args["character_id"], args["telegram_id"], args["job_id"], args["media_url"],
+        args["character_id"], args["telegram_id"], args["job_id"], args["media_urls"],
     )
 
     assert cursor.executed == []
@@ -101,14 +171,118 @@ def test_record_character_generation_history_skips_without_required_fields(monke
 
 def test_record_character_generation_history_noop_without_database(monkeypatch):
     monkeypatch.setattr(main, "DATABASE_URL", "")
+    _own_this_character(monkeypatch)
     # Must not raise and must not touch the DB layer at all.
     main.record_character_generation_history(
-        "custom_character_abc123", 42, "job-1", "https://cdn.sylvex.ai/result.png",
+        "custom_character_abc123", 42, "job-1", ["https://cdn.sylvex.ai/result.png"],
     )
 
 
-# ===== Integration: the single job-completion pipeline writes history
-# exactly when a Character was selected on that request. =====
+# ===== Fix 3: only a custom Character actually owned by this user ever
+# accumulates History rows - never a built-in/preset one, never one not
+# owned by this telegram_id. No single Character id is hardcoded: the
+# gate is purely isCustomVisualItem-equivalent (id prefix) plus the
+# existing ownership lookup. =====
+
+def test_record_character_generation_history_skips_a_built_in_preset_character(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch, owned=True)  # even if the lookup somehow returned something
+
+    main.record_character_generation_history(
+        "character_sylvex", 42, "job-1", ["https://cdn.sylvex.ai/result.png"],
+    )
+
+    assert cursor.executed == [], "a non-custom_ character id must never reach the DB layer"
+
+
+def test_record_character_generation_history_skips_when_the_character_is_not_owned_by_this_user(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch, owned=False)
+
+    main.record_character_generation_history(
+        "custom_character_abc123", 999, "job-1", ["https://cdn.sylvex.ai/result.png"],
+    )
+
+    assert cursor.executed == []
+
+
+def test_record_character_generation_history_writes_once_ownership_confirmed(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    _own_this_character(monkeypatch, owned=True)
+
+    main.record_character_generation_history(
+        "custom_character_abc123", 42, "job-1", ["https://cdn.sylvex.ai/result.png"],
+    )
+
+    assert len(cursor.executed) == 1
+
+
+# ===== Fix 2: deleting a custom Character deletes its own History rows,
+# scoped to the same owner, never another user's data. =====
+
+def test_deleting_a_custom_character_also_deletes_its_character_history_rows(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
+
+    result = asyncio.run(main.public_prostudio_delete_resource("custom_character_abc123", telegram_id=42))
+
+    assert result["deleted"] is True
+    sqls = [sql for sql, _ in cursor.executed]
+    assert any("DELETE FROM prostudio_resources" in sql for sql in sqls)
+    history_calls = [(sql, params) for sql, params in cursor.executed if "DELETE FROM prostudio_character_history" in sql]
+    assert len(history_calls) == 1
+    history_sql, history_params = history_calls[0]
+    assert "telegram_id = %s" in history_sql
+    assert history_params == ("custom_character_abc123", 42)
+
+
+def test_deleting_a_custom_character_never_touches_another_users_history_rows(monkeypatch):
+    # The cleanup DELETE is scoped by telegram_id in its own WHERE clause -
+    # assert that scoping directly rather than trusting a fake's behavior.
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
+
+    asyncio.run(main.public_prostudio_delete_resource("custom_character_abc123", telegram_id=42))
+
+    history_calls = [params for sql, params in cursor.executed if "DELETE FROM prostudio_character_history" in sql]
+    assert history_calls == [("custom_character_abc123", 42)]
+    assert all(params[1] == 42 for params in history_calls), "cleanup must always carry the deleting user's own telegram_id"
+
+
+def test_deleting_an_object_never_touches_character_history(monkeypatch):
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
+
+    asyncio.run(main.public_prostudio_delete_resource("custom_object_xyz", telegram_id=42))
+
+    assert not any("prostudio_character_history" in sql for sql, _ in cursor.executed)
+
+
+def test_character_history_cleanup_is_skipped_when_the_resource_was_not_actually_deleted(monkeypatch):
+    class NoRowsCursor(FakeCursor):
+        def execute(self, sql, params=None):
+            self.executed.append((sql, params))
+            # Simulate "nothing matched" - rowcount stays 0.
+
+    cursor = NoRowsCursor()
+    _patch_db(monkeypatch, cursor)
+    monkeypatch.setattr(main, "log_user_event", lambda *a, **k: None)
+
+    result = asyncio.run(main.public_prostudio_delete_resource("custom_character_abc123", telegram_id=42))
+
+    assert result["deleted"] is False
+    assert not any("prostudio_character_history" in sql for sql, _ in cursor.executed)
+
+
+# ===== Integration: the single job-completion pipeline passes every
+# generated image URL, and only ever fires for a request that actually
+# had a Character selected. =====
 
 @pytest.fixture
 def app(monkeypatch):
@@ -131,22 +305,24 @@ def app(monkeypatch):
     async def fake_telegram(*a, **k):
         return True
     monkeypatch.setattr(main, "sync_completed_generation_to_telegram", fake_telegram)
+    return main
 
+
+def _stub_provider_result(monkeypatch, app, images):
     async def fake_provider_request(*a, **k):
         return (
             {
                 "ok": True,
                 "type": "image",
                 "status": "completed",
-                "image_url": "https://cdn.sylvex.ai/generated.png",
-                "images": ["https://cdn.sylvex.ai/generated.png"],
+                "image_url": images[0],
+                "images": images,
                 "provider": "openai",
                 "model": "gpt-image-2",
             },
             "completed",
         )
-    monkeypatch.setattr(main, "run_prostudio_provider_request", fake_provider_request)
-    return main
+    monkeypatch.setattr(app, "run_prostudio_provider_request", fake_provider_request)
 
 
 def _track_history_calls(monkeypatch, app):
@@ -159,7 +335,14 @@ def _track_history_calls(monkeypatch, app):
 
 
 @pytest.mark.asyncio
-async def test_completed_job_with_selected_character_writes_history(app, monkeypatch):
+async def test_completed_job_with_multiple_images_passes_every_image_url(app, monkeypatch):
+    images = [
+        "https://cdn.sylvex.ai/result_1.png",
+        "https://cdn.sylvex.ai/result_2.png",
+        "https://cdn.sylvex.ai/result_3.png",
+        "https://cdn.sylvex.ai/result_4.png",
+    ]
+    _stub_provider_result(monkeypatch, app, images)
     calls = _track_history_calls(monkeypatch, app)
     payload = {
         "telegram_id": 42,
@@ -168,22 +351,23 @@ async def test_completed_job_with_selected_character_writes_history(app, monkeyp
         "model": "gpt-image-2",
         "provider": "openai",
         "price_snapshot": {"final_credits": 5},
-        "image_options": {"characterId": "custom_character_abc123", "characterName": "Islam"},
+        "image_options": {"characterId": "custom_character_abc123", "characterName": "Islam", "count": 4},
     }
     await app.process_prostudio_generation("job-char-1", payload)
 
     assert len(calls) == 1
-    character_id, telegram_id, job_id, media_url, prompt, model = calls[0]
+    character_id, telegram_id, job_id, media_urls, prompt, model = calls[0]
     assert character_id == "custom_character_abc123"
     assert telegram_id == 42
     assert job_id == "job-char-1"
-    assert media_url == "https://cdn.sylvex.ai/generated.png"
+    assert list(media_urls) == images
     assert prompt == "A hero portrait"
     assert model == "gpt-image-2"
 
 
 @pytest.mark.asyncio
 async def test_completed_job_without_selected_character_writes_no_history(app, monkeypatch):
+    _stub_provider_result(monkeypatch, app, ["https://cdn.sylvex.ai/generated.png"])
     calls = _track_history_calls(monkeypatch, app)
     payload = {
         "telegram_id": 42,
@@ -197,3 +381,40 @@ async def test_completed_job_without_selected_character_writes_no_history(app, m
     await app.process_prostudio_generation("job-no-char-1", payload)
 
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_replaying_the_same_completed_job_does_not_duplicate_history_rows(app, monkeypatch):
+    # End-to-end version of the idempotency requirement: run the real
+    # record_character_generation_history (not mocked) against a fake DB
+    # cursor twice for "the same job", and confirm the second pass's
+    # inserts are still issued with the per-image ON CONFLICT guard that
+    # makes them no-ops - never a second distinct insert statement set
+    # that could land as duplicates against a real UNIQUE index.
+    images = ["https://cdn.sylvex.ai/result_1.png", "https://cdn.sylvex.ai/result_2.png"]
+    _stub_provider_result(monkeypatch, app, images)
+    _own_this_character(monkeypatch, owned=True)
+    cursor = FakeCursor()
+    _patch_db(monkeypatch, cursor)
+    payload = {
+        "telegram_id": 42,
+        "mode": "image",
+        "prompt": "A hero portrait",
+        "model": "gpt-image-2",
+        "provider": "openai",
+        "price_snapshot": {"final_credits": 5},
+        "image_options": {"characterId": "custom_character_abc123", "count": 2},
+    }
+
+    await app.process_prostudio_generation("job-repeat-1", dict(payload))
+    first_pass_inserts = [p for sql, p in cursor.executed if "INSERT INTO prostudio_character_history" in sql]
+    assert len(first_pass_inserts) == 2
+
+    cursor.executed = []
+    await app.process_prostudio_generation("job-repeat-1", dict(payload))
+    second_pass_inserts = [p for sql, p in cursor.executed if "INSERT INTO prostudio_character_history" in sql]
+    # Same job, same images -> the same two (character_id, job_id, media_url)
+    # conflict keys are sent again, each guarded by ON CONFLICT DO NOTHING -
+    # a real UNIQUE index would keep this at exactly 2 rows total, never 4.
+    assert len(second_pass_inserts) == 2
+    assert {p[4] for p in first_pass_inserts} == {p[4] for p in second_pass_inserts} == set(images)
