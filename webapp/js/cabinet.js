@@ -378,6 +378,10 @@ let activePhotoTool = '';
 // close so the tool's own forced 'image' mode never bleeds into the next
 // time the user opens Pro Studio normally. null while no tool is open.
 let photoToolReturnMode = null;
+// True when the currently open specific Photo Tool was reached by tapping
+// a card in the Tools List (not a direct deep link) - closing it should
+// then go back one level to that list instead of leaving the modal.
+let photoToolCameFromList = false;
 let photoToolDemosPromise = null;
 
 let videoState = {
@@ -6804,8 +6808,13 @@ async function openPhotoCatalog(e) {
     e.preventDefault();
     e.stopPropagation();
   }
+  // Opening from Home (no Pro Studio view active yet) must land the user
+  // inside the Image section underneath, so closing the catalog later
+  // reveals that section - never the Home screen it was opened from.
+  if (!document.querySelector('.view[data-view="tools"].active')) switchView('tools');
   updateComposerMode('image');
   const modal = ensurePhotoCatalogModal();
+  document.body.appendChild(modal); // keep on top of any modal stacked under it
   modal.classList.add('show');
   const grid = document.getElementById('photoCatalogGrid');
   if (grid) grid.innerHTML = '<div class="photo-catalog-empty">Загружаем каталог…</div>';
@@ -6862,9 +6871,14 @@ function selectPhotoCatalogItem(e, id, source) {
   const item = ((quickImageCatalogCache && quickImageCatalogCache[quickImageCatalogSection]) || []).find((entry) => entry.id === id);
   if (!item) return;
   quickImageDetailState = { item, source:source === 'quick' ? 'quick' : 'prostudio', uploadedUrl:'', previewUrl:'', uploading:false, extraUploads:{} };
-  closePhotoCatalog();
+  // The catalog modal is intentionally left open underneath (not closed) -
+  // closing this detail view later simply reveals it again, one level
+  // back, instead of dropping all the way out to Pro Studio/Home.
   const modal = ensureQuickImageDetailModal();
-  document.getElementById('quickImageDetailTitle').textContent = item.title;
+  document.body.appendChild(modal); // keep this detail view on top of the catalog
+  const titleEl = document.getElementById('quickImageDetailTitle');
+  titleEl.textContent = item.title;
+  titleEl.hidden = item.kind === 'references';
   document.getElementById('quickImageDetailKind').textContent = item.kind === 'styles' ? 'Стиль' : (item.kind === 'objects' ? 'Объект' : 'Референс');
   document.getElementById('quickImageDetailImage').src = item.url;
   document.getElementById('quickImageDetailDescription').textContent = item.description || (item.kind === 'styles' ? 'Загрузите своё фото — стиль применится автоматически.' : 'Загрузите своё фото и при необходимости уточните результат.');
@@ -6920,7 +6934,20 @@ async function onQuickImageDetailFile(e) {
   finally { quickImageDetailState.uploading = false; }
 }
 
-function openPhotoCatalogTool(e, id) { closePhotoCatalog(e); openPhotoToolModal(null, id); }
+// Leaves the catalog modal open underneath (see selectPhotoCatalogItem) so
+// closing the opened tool returns to the catalog's Tools tab, not past it.
+function openPhotoCatalogTool(e, id) { if (e) { e.preventDefault(); e.stopPropagation(); } openPhotoToolModal(null, id); }
+
+// Desktop prev/next arrows for the Logo/Tattoo/Hair&Beard preset
+// carousels - the track itself already scrolls natively via touch swipe,
+// trackpad and mouse wheel (plain CSS overflow-x:auto).
+function scrollPresetCarousel(e, btn, dir) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const wrap = btn && btn.closest ? btn.closest('.preset-carousel') : null;
+  const track = wrap && wrap.querySelector ? wrap.querySelector('.preset-carousel-track') : null;
+  if (!track) return;
+  track.scrollBy({ left: dir * Math.round((track.clientWidth || 240) * 0.8), behavior: 'smooth' });
+}
 
 function createEditWorkspaceState() {
   return {sessionId:'edit-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),sidebarOpen:true,mode:'edit',sourceUrl:'',sourcePreview:'',sourceName:'',resultUrl:'',jobId:'',beforeUrl:'',prompt:'',prompts:{},busy:false,uploading:false,uploadVersion:0,
@@ -8670,9 +8697,10 @@ function logoSvgDownloadUrl(jobId) {
   return '/api/public/prostudio/download/'+encodeURIComponent(jobId)+'?'+params.toString();
 }
 function logoCatalogHtml() {
-  return '<section class="logo-reference-catalog"><header><b>Визуальный референс</b><small>Выберите направление оформления</small></header><div class="logo-reference-grid">'
+  return '<section class="logo-reference-catalog"><header><b>Визуальный референс</b><small>Выберите направление оформления</small></header>'
+    + '<div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="logo-reference-grid preset-carousel-track">'
     + LOGO_REFERENCES.map((item)=>'<button type="button" class="logo-reference-card '+(logoState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(logoState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectLogoReference(event,\''+item.id+'\')"><img src="'+item.asset+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy"><span>'+S.escapeHtml(item.name)+'</span></button>').join('')
-    + '</div></section>';
+    + '</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div></section>';
 }
 function logoResultPreviewHtml(config) {
   const result=logoState.result;
@@ -8846,7 +8874,7 @@ function hairBeardCatalogHtml() {
   const tabs = Object.entries(HAIR_BEARD_CATEGORY_LABELS).map(([id,label]) => '<button type="button" class="hair-beard-tab '+(hairBeardState.category===id?'active':'')+'" aria-pressed="'+(hairBeardState.category===id)+'" onclick="SYLVEX.selectHairBeardCategory(event,\''+id+'\')">'+label+'</button>').join('');
   const presets = HAIR_BEARD_PRESETS.filter(item=>item.category===hairBeardState.category).concat(hairBeardState.customPresets.filter(item=>item.category===hairBeardState.category));
   const cards = presets.map(item=>'<button type="button" class="hair-beard-card '+(hairBeardState.selectedPresetId===item.id?'selected':'')+(item.custom?' custom':'')+'" aria-pressed="'+(hairBeardState.selectedPresetId===item.id)+'" data-preset-id="'+S.escapeHtml(item.id)+'" onclick="SYLVEX.selectHairBeardPreset(event,\''+S.escapeHtml(item.id)+'\')"><span class="hair-beard-card-image"><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.label||HAIR_BEARD_PRESET_LABELS[item.id]||item.name)+' reference" loading="lazy" decoding="async"></span><span class="hair-beard-card-name">'+S.escapeHtml(item.label||HAIR_BEARD_PRESET_LABELS[item.id]||item.name)+'</span><span class="hair-beard-card-check" aria-hidden="true">✓</span></button>').join('');
-  return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="hair-beard-grid">'+cards+'</div>'+hairBeardColorsHtml()+'</section>';
+  return '<section class="hair-beard-catalog" aria-label="Hairstyle and facial hair references"><nav class="hair-beard-tabs" aria-label="Preset category">'+tabs+'</nav><div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="hair-beard-grid preset-carousel-track">'+cards+'</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div>'+hairBeardColorsHtml()+'</section>';
 }
 
 function tattooReferenceById(id) {
@@ -8875,7 +8903,7 @@ function updateTattooPrompt(e) {
 function tattooCatalogHtml() {
   const references = TATTOO_REFERENCES.concat(tattooState.customReferences);
   const cards = references.map(item => '<button type="button" class="tattoo-reference-card '+(tattooState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(tattooState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectTattooReference(event,\''+S.escapeHtml(item.id)+'\')"><span><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy" decoding="async"></span><b>'+S.escapeHtml(item.name)+'</b></button>').join('');
-  return '<section class="tattoo-catalog" aria-label="Каталог референсов тату"><header><b>Референсы тату</b><small>Выберите рисунок</small></header><div class="tattoo-reference-grid">'+cards+'</div></section>';
+  return '<section class="tattoo-catalog" aria-label="Каталог референсов тату"><header><b>Референсы тату</b><small>Выберите рисунок</small></header><div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="tattoo-reference-grid preset-carousel-track">'+cards+'</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div></section>';
 }
 
 function renderPhotoToolModal() {
@@ -9296,14 +9324,29 @@ function openPhotoToolModal(e, kind) {
     e.preventDefault();
     e.stopPropagation();
   }
+  // Opening from Home (no Pro Studio view active yet) must land the user
+  // inside the Image section underneath, so closing this modal later
+  // reveals that section - never the Home screen it was opened from.
+  if (!document.querySelector('.view[data-view="tools"].active')) switchView('tools');
   // Only remember the mode on the FIRST open of this modal session - if the
   // user switches between tools inside an already-open modal (e.g. catalog
   // fallback -> a specific tool), the return point stays whatever screen
   // they were on before the modal ever appeared.
   if (photoToolReturnMode === null) photoToolReturnMode = studioMode;
   updateComposerMode('image');
-  activePhotoTool = PHOTO_TOOL_CONFIG[kind] ? kind : '';
+  const existingModal = document.getElementById('photoToolModal');
+  const isRealTool = !!PHOTO_TOOL_CONFIG[kind];
+  // A real tool opened while the Tools List was already showing (as
+  // opposed to a direct deep link from Home/catalog) must close back to
+  // that list one level at a time, instead of leaving the whole modal.
+  if (isRealTool && existingModal && existingModal.classList.contains('show') && !activePhotoTool) {
+    photoToolCameFromList = true;
+  } else if (!existingModal || !existingModal.classList.contains('show')) {
+    photoToolCameFromList = false;
+  }
+  activePhotoTool = isRealTool ? kind : '';
   const modal = ensurePhotoToolModal();
+  document.body.appendChild(modal); // keep on top of any modal stacked under it
   modal.classList.add('show');
   renderPhotoToolModal();
   loadPhotoToolDemos().then(() => {
@@ -9361,6 +9404,15 @@ function closePhotoToolModal(e) {
     if (activePhotoTool === 'watermark_removal') {
       const state = photoToolState.watermark_removal;
       if (state) { state.files = []; state.maskUrl = ''; state.generating = false; }
+    }
+    if (photoToolCameFromList && activePhotoTool) {
+      // One level back only: this tool was opened from the Tools List, so
+      // closing it returns to that list instead of leaving the whole
+      // modal (and with it, the Image section behind it).
+      photoToolCameFromList = false;
+      activePhotoTool = '';
+      renderPhotoToolModal();
+      return;
     }
     modal.classList.remove('show');
     // Navigation-bug fix: opening a Quick Tool force-switches Pro Studio
@@ -26433,7 +26485,7 @@ async function waitGeneration(jobId, options) {
     pickVisualReference, deleteVisualReference, deleteUserVoice, deleteCharacterHistoryEntry, closeResourceDeleteConfirm, openVisualPicker, openVideoVisualPicker, closeVisualPicker, openVisualCreateModal, closeVisualCreateModal, updateVisualCreateDraft, pickVisualCreatePhoto, removeVisualCreatePhoto, saveVisualCreateDraft, sendVisualInteraction, openCharacterDetail, closeCharacterDetail,
     retryFailedCharacterJob, deleteFailedCharacterJob, handlePendingCharacterCardClick,
     retryFailedObjectJob, deleteFailedObjectJob, handlePendingObjectCardClick,
-    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
+    attach, handleSelectionButtonClick, openPhotoToolModal, closePhotoToolModal, openPhotoCatalog, closePhotoCatalog, selectPhotoCatalogSection, selectPhotoCatalogItem, syncPhotoCatalogCardRatio, closeQuickImageDetail, openQuickImageDetailFile, onQuickImageDetailFile, generateQuickImageDetail, openPhotoCatalogTool, scrollPresetCarousel, updatePhotoToolComparison, toggleHairBeardSmartCrop, createPhotoToolReference, selectPhotoToolReference, selectLogoReference, updateLogoPrompt, selectHairBeardCategory, selectHairBeardPreset, updateHairBeardReferencePrompt, generateHairBeardReference, selectTattooReference, updateTattooPrompt, generateTattooReference, updateHairBeardColor, updateHairBeardHexColor, applyHairBeardColorToAll, resetHairBeardColor, openPhotoToolFilePicker, onPhotoToolFiles, removePhotoToolFile, generatePhotoTool, openImageUpload, openVideoStartUpload, openVideoEndUpload, openVideoReferencesUpload, openVideoEditInputUpload, closeVideoAddMenu, openNativeFilePicker, onAttachFile, clearAttachment, openVoiceMediaPicker, confirmVoiceUpload, openVoicePanelSection, openVoiceCreate, closeVoiceCreate, closeVoicePanel, openVoiceList, closeVoiceList, openVoiceUpload, toggleVoiceUploadDropdown, selectVoiceUploadOption, openVoiceCloneFilePicker, openVoiceCloneAvatarPicker, setVoiceCloneField, toggleVoiceCloneDropdown, selectVoiceCloneOption, setVoiceCloneSetting, clearVoiceUploads, toggleVoiceCloneRecording, playVoiceCloneRecording, clearVoiceCloneRecording, sendVoiceCloneRecording, insertVoiceSpeaker, addMediaLink, openUploadPanel, closeUploadPanel, openUploadImagePreview, closeUploadImagePreview, selectGeneratedImage, selectUploadedPhoto, removeUploadedPhoto, clearCurrentUploadTarget, clearVideoReference, confirmUploadedPhotos, removeComposerImageDraft, genAction, toggleHistory, autoGrow, toggleMic,
     sendChat, buildGenerationRequest, copyMsg, toggleTextListen, regenMsg, retryTextGeneration, reportGenerationError, newChat,
     openConv, deleteConv, expandHistorySection, openPaywall, closePaywall, openShopFromPaywall, openShopForGeneration, resumePendingGeneration, updateSendButton,
     openBuy, closeBuy, payWith, contactAdmin, switchShopTab, openSpendingStats,
