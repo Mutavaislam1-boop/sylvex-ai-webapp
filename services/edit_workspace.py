@@ -237,6 +237,21 @@ def normalize_source(raw):
         return png(oriented), oriented.size
 
 
+def has_transparency(raw):
+    """Inspect actual alpha, including palette PNG/WebP; extension is not evidence."""
+    with Image.open(io.BytesIO(raw)) as image:
+        return image.convert('RGBA').getchannel('A').getextrema()[0] < 255
+
+
+def preserve_upscale_alpha(source_raw, result_raw):
+    """Upscale changes detail and resolution, never the subject's silhouette."""
+    with Image.open(io.BytesIO(source_raw)) as source, Image.open(io.BytesIO(result_raw)) as result:
+        output = result.convert('RGBA')
+        alpha = source.convert('RGBA').getchannel('A').resize(output.size, Image.Resampling.LANCZOS)
+        output.putalpha(alpha)
+        return png(output)
+
+
 def prepare_expansion(source_png, settings):
     """Transparent new canvas, with the original pixels protected by an alpha mask."""
     with Image.open(io.BytesIO(source_png)) as source:
