@@ -77,6 +77,11 @@ function makeContext(imageState, opts) {
     characterDetailView: 'references',
     characterDetailPendingIds: [],
     characterDetailHistoryCache: {},
+    // null means this picker session is a normal (non-redirected) pick -
+    // see confirmCharacterDetailSelection's Replace Character redirect
+    // branch, which these tests never exercise.
+    visualPickerRedirectTarget: null,
+    photoToolState: {},
     getModelCapabilities: options.getModelCapabilities || (() => ({ maxReferences: null })),
     toast: (msg) => toasts.push(msg),
     sendVisualInteraction: () => {},

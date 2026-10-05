@@ -4148,21 +4148,43 @@ CSS-БЛОК: .view[data-view="tools"].active .studio::after
   animation:none !important;
 }
 
-body.ai-generating .view[data-view="tools"].active .studio::before,
-.view[data-view="tools"].active .studio.is-generating::before,
-.view[data-view="tools"].active .studio.generating::before,
-.view[data-view="tools"].active .studio:has(.typing)::before{
+/* Grid Mode keeps its original generation-triggered pulse unchanged -
+   only the normal (classic) Pro Studio workspace below has it removed. */
+body.ai-generating .view[data-view="tools"].active .studio.grid-mode::before,
+.view[data-view="tools"].active .studio.grid-mode.is-generating::before,
+.view[data-view="tools"].active .studio.grid-mode.generating::before,
+.view[data-view="tools"].active .studio.grid-mode:has(.typing)::before{
   opacity:.52 !important;
   animation:aiParticlesMove 10s linear infinite, aiParticlesGlow 2.2s ease-in-out infinite !important;
   filter:brightness(1.25) !important;
 }
 
-body.ai-generating .view[data-view="tools"].active .studio::after,
-.view[data-view="tools"].active .studio.is-generating::after,
-.view[data-view="tools"].active .studio.generating::after,
-.view[data-view="tools"].active .studio:has(.typing)::after{
+body.ai-generating .view[data-view="tools"].active .studio.grid-mode::after,
+.view[data-view="tools"].active .studio.grid-mode.is-generating::after,
+.view[data-view="tools"].active .studio.grid-mode.generating::after,
+.view[data-view="tools"].active .studio.grid-mode:has(.typing)::after{
   opacity:.22 !important;
   animation:aiNetworkDrift 14s linear infinite !important;
+}
+
+/* Normal (classic) Pro Studio workspace: the dotted background stays
+   visually static during generation - no pulse/flicker. Grid Mode above
+   and the separate Edit workspace are untouched by this. */
+body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode)::before,
+.view[data-view="tools"].active .studio:not(.grid-mode).is-generating::before,
+.view[data-view="tools"].active .studio:not(.grid-mode).generating::before,
+.view[data-view="tools"].active .studio:not(.grid-mode):has(.typing)::before{
+  opacity:.16 !important;
+  animation:none !important;
+  filter:brightness(.72) !important;
+}
+
+body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode)::after,
+.view[data-view="tools"].active .studio:not(.grid-mode).is-generating::after,
+.view[data-view="tools"].active .studio:not(.grid-mode).generating::after,
+.view[data-view="tools"].active .studio:not(.grid-mode):has(.typing)::after{
+  opacity:.06 !important;
+  animation:none !important;
 }
 /* ===== Restore compact transparent image model picker after router changes ===== */
 @media(max-width:560px){
@@ -4929,13 +4951,15 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area
   animation:none !important;
 }
 
-/* При генерации только фон двигается, блоки не трогаем */
+/* The dotted chat-area background used to drift via safeStudioDotsMove
+   while generating - removed so it stays visually static, matching the
+   rest of the normal (classic) Pro Studio workspace above. */
 body.ai-generating .view[data-view="tools"].active .chat-area,
 .view[data-view="tools"].active .chat-area:has(.typing){
   background-image:
-    radial-gradient(circle,rgba(255,255,255,.85) 0 .65px,transparent 1.25px),
-    radial-gradient(circle,rgba(255,255,255,.45) 0 .55px,transparent 1.15px) !important;
-  animation:safeStudioDotsMove 8s linear infinite !important;
+    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
+    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
+  animation:none !important;
 }
 
 @keyframes safeStudioDotsMove{
@@ -5050,12 +5074,23 @@ CSS-БЛОК: .view[data-view="tools"].active .chat-area
   background-image:none !important;
 }
 
-body.ai-generating .view[data-view="tools"].active .studio,
-.view[data-view="tools"].active .studio:has(.typing){
+/* Grid Mode keeps its original generation-triggered dot animation here
+   unchanged; the normal (classic) workspace below no longer moves/
+   brightens its dotted background when generation starts. */
+body.ai-generating .view[data-view="tools"].active .studio.grid-mode,
+.view[data-view="tools"].active .studio.grid-mode:has(.typing){
   background-image:
     radial-gradient(circle,rgba(255,255,255,.85) 0 .7px,transparent 1.35px),
     radial-gradient(circle,rgba(255,255,255,.45) 0 .6px,transparent 1.25px) !important;
   animation:safeStudioDotsMove 8s linear infinite !important;
+}
+
+body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode),
+.view[data-view="tools"].active .studio:not(.grid-mode):has(.typing){
+  background-image:
+    radial-gradient(circle,rgba(255,255,255,.45) 0 .65px,transparent 1.25px),
+    radial-gradient(circle,rgba(255,255,255,.25) 0 .55px,transparent 1.15px) !important;
+  animation:none !important;
 }
 
 /* ===== Upload large center panel ===== */
@@ -6379,8 +6414,12 @@ CSS-БЛОК: .dot-i
   background-size:26px 26px, 26px 26px !important;
   background-position:0 0, 13px 13px !important;
 }
-body.ai-generating .view[data-view="tools"].active .studio,
-.view[data-view="tools"].active .studio:has(.typing){
+/* Grid Mode keeps the original brightness pulse on its own dotted
+   backdrop unchanged. The normal (classic) workspace just below no
+   longer pulses/flickers when generation starts - same dots, no filter
+   animation, so the background stays visually static. */
+body.ai-generating .view[data-view="tools"].active .studio.grid-mode,
+.view[data-view="tools"].active .studio.grid-mode:has(.typing){
   background-image:
     radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px),
     radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px) !important;
@@ -6391,6 +6430,16 @@ body.ai-generating .view[data-view="tools"].active .studio,
 @keyframes studioGridPulse{
   0%,100%{filter:brightness(1)}
   50%{filter:brightness(1.16)}
+}
+body.ai-generating .view[data-view="tools"].active .studio:not(.grid-mode),
+.view[data-view="tools"].active .studio:not(.grid-mode):has(.typing){
+  background-image:
+    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px),
+    radial-gradient(circle, var(--st-grid-line) 1px, transparent 1.3px) !important;
+  background-size:26px 26px, 26px 26px !important;
+  background-position:0 0, 13px 13px !important;
+  animation:none !important;
+  filter:none !important;
 }
 .view[data-view="tools"].active .chat-area{
   background-image:none !important;
@@ -7160,18 +7209,38 @@ CSS-БЛОК: .generation-info-actions button
 .logo-reference-catalog>header{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}.logo-reference-catalog>header b{font-size:13px;color:var(--text)}.logo-reference-catalog>header small{font-size:10px;color:var(--text-mute)}
 /* Generic one-row horizontal carousel used by Logo/Tattoo/Hair&Beard
    preset lists: the scrollable track is the existing preset grid element
-   itself (swipe/trackpad/wheel scroll it natively); these add compact
-   desktop-only prev/next arrow controls around it. */
-.preset-carousel{position:relative;display:flex;align-items:center;gap:6px}
-.preset-carousel-track{flex:1 1 auto;min-width:0}
-.preset-carousel-arrow{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--st-border,var(--border));background:var(--st-bg-2,var(--surface));color:var(--st-text,var(--text));display:grid;place-items:center;font-size:16px;line-height:1;cursor:pointer;padding:0}
-.preset-carousel-arrow:active{transform:scale(.92)}
+   itself (swipe/trackpad/wheel scroll it natively), running edge-to-edge
+   in its container. The prev/next arrows are absolutely positioned on
+   top of it (never flex siblings that would shrink the track), so they
+   never claim their own opaque strip of layout - cards scroll freely
+   underneath them and are only ever clipped at the track's own edge
+   (its native overflow-x:auto), not by any arrow-side mask/gradient. */
+.preset-carousel{position:relative}
+.preset-carousel-track{width:100%}
+.preset-carousel-arrow{position:absolute;top:0;bottom:0;z-index:2;width:30px;display:grid;place-items:center;border:0;background:none;padding:0;margin:0;cursor:pointer;color:var(--st-text,var(--text));font-size:22px;line-height:1;text-shadow:0 1px 3px rgba(0,0,0,.65),0 0 6px rgba(0,0,0,.4)}
+.preset-carousel-arrow.prev{left:0}
+.preset-carousel-arrow.next{right:0}
+.preset-carousel-arrow:active{transform:scale(.85)}
 @media(max-width:900px){.preset-carousel-arrow{display:none}}
 .logo-reference-grid{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 2px 10px}
 .logo-reference-grid::-webkit-scrollbar{display:none}
 .logo-reference-card{position:relative;flex:0 0 92px;scroll-snap-align:start;padding:5px;border:1px solid var(--border);border-radius:12px;background:#fff;color:#242529;text-align:left;cursor:pointer;overflow:hidden}
 .logo-reference-card.selected{border:2px solid var(--text);padding:4px;box-shadow:0 0 0 2px color-mix(in srgb,var(--text) 12%,transparent)}
 .logo-reference-card img{display:block;width:100%;aspect-ratio:1/1;object-fit:contain;border-radius:7px;background:#fff}.logo-reference-card span{display:block;overflow:hidden;margin:5px 1px 1px;font-size:9px;line-height:1.3;text-overflow:ellipsis;white-space:nowrap}
+/* Replace Object's row of the user's existing Pro Studio Objects, placed
+   right under the Before/After preview - same carousel/card look as the
+   Logo reference row above, reusing imageObjects() data only. */
+.replace-object-objects-row{min-width:0;margin:10px 0 0}
+.replace-object-objects-row>header{margin-bottom:8px}.replace-object-objects-row>header b{font-size:12px;color:var(--text)}
+.replace-object-objects-grid{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 2px 10px}
+.replace-object-objects-grid::-webkit-scrollbar{display:none}
+.replace-object-object-card{position:relative;flex:0 0 76px;scroll-snap-align:start;display:flex;flex-direction:column;align-items:center;gap:5px;padding:5px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);text-align:center;cursor:pointer;overflow:hidden}
+.replace-object-object-card.selected{border:2px solid var(--text);padding:4px;box-shadow:0 0 0 2px color-mix(in srgb,var(--text) 12%,transparent)}
+.replace-object-object-thumb{display:block;width:100%;aspect-ratio:1/1;border-radius:7px;background:var(--bg-1);overflow:hidden}
+.replace-object-object-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.replace-object-object-thumb.is-placeholder{display:grid;place-items:center}
+.replace-object-object-plus{font-size:22px;font-weight:300;color:var(--text-mute)}
+.replace-object-object-card span:last-child{display:block;overflow:hidden;font-size:9px;line-height:1.3;text-overflow:ellipsis;white-space:nowrap}
 .photo-tool-demo-column-result{min-width:0;width:100%}
 .logo-result-preview{box-sizing:border-box;position:relative;display:grid;place-items:center;width:100%;height:clamp(220px,34vw,340px);min-height:0;padding:18px;border:1px solid var(--border);border-radius:16px;background:#fff;overflow:hidden}.logo-result-preview img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}.logo-result-placeholder{padding:16px;color:#65666b;font-size:14px;line-height:1.4;text-align:center}.logo-result-links{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:9px}.logo-result-links a,.generation-result-reference{display:flex;align-items:center;gap:6px;margin-top:5px}.generation-result-reference img{width:26px;height:26px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff}.generation-result-reference small{overflow:hidden;color:var(--text-mute);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
 .generation-info-svg-download{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font:inherit;font-size:11px;font-weight:700;text-decoration:none;cursor:pointer}.logo-result-links small{font-size:10px;color:var(--text-mute)}
@@ -7333,13 +7402,16 @@ CSS-БЛОК: .generation-info-actions button
 .replace-object-result-compare .photo-tool-before,.replace-object-result-compare .photo-tool-after{object-fit:contain;object-position:center;background:var(--bg-1)}
 .replace-object-layout{grid-template-columns:minmax(0,1fr)}
 /* Desktop/tablet only: the single-column tools (Tattoo, Replace Object)
-   let their Before/After block stretch to the full ~900px dialog width at
-   up to 52-60vh tall, which reads as an oversized empty slab on desktop.
-   Cap it to a compact, centered size there; mobile (<=680px) is already
-   naturally narrow and is left untouched. */
+   let their Before/After block stretch to the full ~900px dialog width,
+   which reads as an oversized slab on desktop compared to every other
+   Photo Tool's two-column layout, whose own demo column is naturally
+   ~400px wide (884px inner dialog width, two equal grid columns, minus
+   the demo column's own padding). Cap it to that same ~400px so Tattoo/
+   Replace Object read as the same size as the rest; mobile (<=680px) is
+   already naturally narrow and is left untouched. */
 @media(min-width:681px){
-  .tattoo-result-compare{max-width:460px;max-height:min(46vh,420px)}
-  .replace-object-result-compare{max-width:460px;max-height:min(50vh,420px)}
+  .tattoo-result-compare{max-width:400px;max-height:min(40vh,360px)}
+  .replace-object-result-compare{max-width:400px;max-height:min(44vh,360px)}
 }
 @media(max-width:600px){.photo-tool-modal.replace-object-mask-editor-modal{padding:8px}.photo-tool-dialog.replace-object-mask-editor-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);padding:11px;border-radius:18px}.replace-object-mask-editor-dialog .photo-tool-head{margin-bottom:10px}.replace-object-mask-editor-dialog .photo-tool-head h3{font-size:19px}.replace-object-mask-editor-dialog .photo-tool-head p{font-size:11px}.replace-object-mask-toolbar{flex-wrap:wrap;gap:6px;margin-top:9px}.replace-object-brush-size{flex:1 0 100%;min-width:0}.replace-object-mask-toolbar button{flex:1 1 auto;min-height:40px;padding:0 8px;font-size:11px}}
 .photo-catalog-dialog{width:min(1180px,calc(100vw - 24px));background:color-mix(in srgb, var(--st-bg-2, #121218) 55%, transparent);backdrop-filter:blur(18px)}
@@ -9425,6 +9497,14 @@ html.web-embed .studio-layout-switch{display:none!important}
 .hair-beard-smart-crop.active{background:var(--st-invert-bg,#f1f3f5);border-color:var(--st-invert-bg,#f1f3f5);color:var(--st-invert-text,#111216)}
 
 @media(max-width:680px){.hair-beard-catalog{padding:9px;margin-bottom:10px}.hair-beard-tabs{gap:6px;padding-bottom:9px}.hair-beard-tab{min-height:34px;padding:0 11px;font-size:11px}.hair-beard-grid{gap:7px}.hair-beard-card{flex:0 0 84px;padding:4px;border-radius:11px}.hair-beard-card-name{font-size:10px;min-height:28px}.hair-beard-card-check{right:7px;top:7px}.hair-beard-layout{grid-template-columns:1fr}}
+
+/* Pre-generation reference preview (shown the instant a Hair&Beard
+   preset / Tattoo reference is selected, before Generate runs) - reuses
+   .photo-tool-demo's own box sizing, just swaps in a plain contained
+   image instead of the demo video/placeholder. */
+.hair-beard-reference-preview img,
+.tattoo-reference-preview img{width:100%;height:100%;display:block;object-fit:contain;background:var(--bg-1)}
+@media(min-width:681px){.tattoo-reference-preview{max-width:400px;margin:0 auto}}
 
 /* Isolated hairstyle, facial-hair, color and custom-reference controls. */
 .hair-beard-colors{margin-top:13px;padding-top:12px;border-top:1px solid var(--st-border,rgba(255,255,255,.1))}

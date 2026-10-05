@@ -332,7 +332,11 @@ const photoToolState = Object.fromEntries(Object.keys(PHOTO_TOOL_CONFIG).map((ke
 // Logo owns an isolated prompt/reference/output state. The selected visual
 // reference never reads from or writes to Pro Studio Character/Object/Style.
 const logoState = { selectedReferenceId:null, prompt:'', generating:false, result:null };
-const replaceObjectState = { comparison:null };
+// selectedObjectId tracks a pick from the user's existing Pro Studio
+// Objects row (reuses imageObjects() data - never a second Object system);
+// it only feeds the tool's own "Предмет для замены" upload slot and never
+// writes into imageState.
+const replaceObjectState = { comparison:null, selectedObjectId:null };
 const editWorkspaceState = createEditWorkspaceState();
 // Try-On owns a completely separate, dedicated state shape - never the
 // generic {files: []} array every other Photo Tool uses - so the person
@@ -356,6 +360,14 @@ photoToolState.replace_character = {
   characterId: null,
   characterReferenceUrls: [],
 };
+// Set only while Replace Character's "choose a Character" action has the
+// normal Pro Studio Character picker/detail page open on its behalf -
+// confirmCharacterDetailSelection then commits the pick into
+// photoToolState.replace_character above instead of imageState (see
+// chooseCharacterReplaceIdentitySource below). null everywhere else, so
+// every other caller of that picker keeps writing to imageState exactly
+// as before.
+let visualPickerRedirectTarget = null;
 
 // Preset choices belong only to Hairstyle & Beard; photoToolState keeps the source photo intact across tabs.
 const hairBeardState = { category: 'men', selectedPresetId: null, colors: { hair: null, beard: null, mustache: null, eyebrows: null }, sharedColor: null, sharedColorSourcePart: null, comparison: null, smartCrop: true, customPresets: [], referencePrompt: '', generatingReference: false };
@@ -382,6 +394,11 @@ let photoToolReturnMode = null;
 // a card in the Tools List (not a direct deep link) - closing it should
 // then go back one level to that list instead of leaving the modal.
 let photoToolCameFromList = false;
+// The Tools List's own scroll position at the moment a tool was opened
+// from it - restored when closing back to the list (see photoToolCameFromList
+// above) so scrolling far down, opening a tool and closing it lands back
+// exactly where the user left off, never at the top.
+let photoToolListScrollTop = 0;
 let photoToolDemosPromise = null;
 
 let videoState = {
@@ -6703,7 +6720,7 @@ function ensurePhotoToolModal() {
   modal.id = 'photoToolModal';
   modal.className = 'photo-tool-modal';
   modal.onclick = closePhotoToolModal;
-  modal.innerHTML = '<section class="photo-tool-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
+  modal.innerHTML = '<section class="photo-tool-dialog" id="photoToolDialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">'
     + '<div id="photoToolModalBody"></div>'
     + '</section>';
   document.body.appendChild(modal);
@@ -8108,24 +8125,41 @@ function photoToolDemoHtml(config) {
 
 function hairBeardComparisonHtml(config) {
   const comparison = hairBeardState.comparison;
-  if (!comparison || !comparison.before || !comparison.after) return photoToolDemoHtml(config);
-  return '<div class="photo-tool-demo photo-tool-compare hair-beard-result-compare '+(hairBeardState.smartCrop?'smart-crop-active':'')+'" style="--compare-position:50%;--face-x:50%;--face-y:42%">'
-    + photoToolMediaHtml(comparison.after,'photo-tool-after')
-    + photoToolMediaHtml(comparison.before,'photo-tool-before')
-    + '<span class="hair-beard-face-focus" aria-hidden="true"></span>'
-    + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить исходное фото и результат" oninput="SYLVEX.updatePhotoToolComparison(event)">'
-    + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>'
-    + '<button type="button" class="hair-beard-smart-crop '+(hairBeardState.smartCrop?'active':'')+'" aria-pressed="'+hairBeardState.smartCrop+'" onclick="SYLVEX.toggleHairBeardSmartCrop(event)">Smart Crop · лицо</button>';
+  if (comparison && comparison.before && comparison.after) {
+    return '<div class="photo-tool-demo photo-tool-compare hair-beard-result-compare '+(hairBeardState.smartCrop?'smart-crop-active':'')+'" style="--compare-position:50%;--face-x:50%;--face-y:42%">'
+      + photoToolMediaHtml(comparison.after,'photo-tool-after')
+      + photoToolMediaHtml(comparison.before,'photo-tool-before')
+      + '<span class="hair-beard-face-focus" aria-hidden="true"></span>'
+      + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить исходное фото и результат" oninput="SYLVEX.updatePhotoToolComparison(event)">'
+      + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>'
+      + '<button type="button" class="hair-beard-smart-crop '+(hairBeardState.smartCrop?'active':'')+'" aria-pressed="'+hairBeardState.smartCrop+'" onclick="SYLVEX.toggleHairBeardSmartCrop(event)">Smart Crop · лицо</button>';
+  }
+  // Pre-generation preview: show the selected preset's own reference
+  // photo immediately, instead of the generic demo placeholder, so the
+  // user sees what they picked before Generate runs.
+  const preset = hairBeardState.selectedPresetId ? hairBeardPresetById(hairBeardState.selectedPresetId) : null;
+  if (preset && preset.referenceAsset) {
+    return '<div class="photo-tool-demo hair-beard-reference-preview"><img src="'+S.escapeHtml(preset.referenceAsset)+'" alt="'+S.escapeHtml(preset.label||HAIR_BEARD_PRESET_LABELS[preset.id]||preset.name)+'"></div>';
+  }
+  return photoToolDemoHtml(config);
 }
 
 function tattooComparisonHtml(config) {
   const comparison = tattooState.comparison;
-  if (!comparison || !comparison.before || !comparison.after) return photoToolDemoHtml(config);
-  return '<div class="photo-tool-demo photo-tool-compare tattoo-result-compare" style="--compare-position:50%">'
-    + photoToolMediaHtml(comparison.after,'photo-tool-after')
-    + photoToolMediaHtml(comparison.before,'photo-tool-before')
-    + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить фото до и после татуировки" oninput="SYLVEX.updatePhotoToolComparison(event)">'
-    + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+  if (comparison && comparison.before && comparison.after) {
+    return '<div class="photo-tool-demo photo-tool-compare tattoo-result-compare" style="--compare-position:50%">'
+      + photoToolMediaHtml(comparison.after,'photo-tool-after')
+      + photoToolMediaHtml(comparison.before,'photo-tool-before')
+      + '<span class="photo-tool-compare-line"></span><input type="range" min="0" max="100" value="50" aria-label="Сравнить фото до и после татуировки" oninput="SYLVEX.updatePhotoToolComparison(event)">'
+      + '<b class="photo-tool-compare-label before">До</b><b class="photo-tool-compare-label after">После</b></div>';
+  }
+  // Pre-generation preview: show the selected tattoo reference itself
+  // immediately, instead of the generic demo placeholder.
+  const reference = tattooState.selectedReferenceId ? tattooReferenceById(tattooState.selectedReferenceId) : null;
+  if (reference && reference.referenceAsset) {
+    return '<div class="photo-tool-demo tattoo-reference-preview"><img src="'+S.escapeHtml(reference.referenceAsset)+'" alt="'+S.escapeHtml(reference.name)+'"></div>';
+  }
+  return photoToolDemoHtml(config);
 }
 
 function replaceObjectComparisonHtml(config) {
@@ -8145,6 +8179,49 @@ function syncReplaceObjectComparisonAspectRatio(source) {
     if (host && image.naturalWidth && image.naturalHeight) host.style.aspectRatio = image.naturalWidth + ' / ' + image.naturalHeight;
   };
   image.src = source;
+}
+
+// Horizontal row of the user's existing Pro Studio Objects (imageObjects() -
+// the same data/creation flow the main composer's Object picker uses, never
+// a second Object system), placed right under the Before/After preview.
+// Create Object is always first, then every existing Object - same
+// edge-to-edge carousel/transparent-arrow styling as the Logo/Tattoo/
+// Hair&Beard reference rows.
+function replaceObjectObjectsRowHtml() {
+  const items = imageObjects();
+  const selectedId = replaceObjectState.selectedObjectId;
+  return '<section class="replace-object-objects-row"><header><b>Существующие объекты</b></header>'
+    + '<div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="replace-object-objects-grid preset-carousel-track">'
+    + '<button type="button" class="replace-object-object-card is-create" onclick="SYLVEX.createPhotoToolReference(event,\'object\')"><span class="replace-object-object-thumb is-placeholder"><span class="replace-object-object-plus">＋</span></span><span>Создать объект</span></button>'
+    + items.map((rawItem) => {
+      const item = normalizeVisualItem(rawItem) || {};
+      const id = String(item.id || '');
+      const label = item.name || item.label || id;
+      const preview = visualPreviewUrl(item);
+      const selected = selectedId === id;
+      return '<button type="button" class="replace-object-object-card ' + (selected ? 'selected' : '') + '" aria-pressed="' + selected + '" data-object-id="' + S.escapeHtml(id) + '" onclick="SYLVEX.selectReplaceObjectObject(event,\'' + S.escapeHtml(id) + '\')">'
+        + '<span class="replace-object-object-thumb ' + (preview ? '' : 'is-placeholder') + '">' + (preview ? '<img src="' + S.escapeHtml(preview) + '" alt="' + S.escapeHtml(label) + '" loading="lazy">' : '') + '</span>'
+        + '<span>' + S.escapeHtml(label) + '</span></button>';
+    }).join('')
+    + '</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div></section>';
+}
+
+function selectReplaceObjectObject(e, id) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const state = photoToolStateFor('replace_object');
+  if (!state || state.generating) return;
+  const nextId = replaceObjectState.selectedObjectId === id ? null : id;
+  replaceObjectState.selectedObjectId = nextId;
+  updatePresetCardSelection('.replace-object-object-card', 'data-object-id', nextId);
+  let file = null;
+  if (nextId) {
+    const item = normalizeVisualItem(imageObjects().find((entry) => entry && entry.id === nextId));
+    const preview = item ? visualPreviewUrl(item) : '';
+    if (preview) file = { name: (item.name || item.label || 'Объект'), mime: 'image/*', url: preview };
+  }
+  state.files[1] = file;
+  updatePhotoToolUploadSlot(1, file);
+  updatePhotoToolGenerateButtonState();
 }
 
 function syncTattooComparisonAspectRatio(source) {
@@ -8699,27 +8776,38 @@ function logoSvgDownloadUrl(jobId) {
 function logoCatalogHtml() {
   return '<section class="logo-reference-catalog"><header><b>Визуальный референс</b><small>Выберите направление оформления</small></header>'
     + '<div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="logo-reference-grid preset-carousel-track">'
-    + LOGO_REFERENCES.map((item)=>'<button type="button" class="logo-reference-card '+(logoState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(logoState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectLogoReference(event,\''+item.id+'\')"><img src="'+item.asset+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy"><span>'+S.escapeHtml(item.name)+'</span></button>').join('')
+    + LOGO_REFERENCES.map((item)=>'<button type="button" class="logo-reference-card '+(logoState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(logoState.selectedReferenceId===item.id)+'" data-ref-id="'+S.escapeHtml(item.id)+'" onclick="SYLVEX.selectLogoReference(event,\''+item.id+'\')"><img src="'+item.asset+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy"><span>'+S.escapeHtml(item.name)+'</span></button>').join('')
     + '</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div></section>';
 }
 function logoResultPreviewHtml(config) {
   const result=logoState.result;
-  if (!result || !result.pngUrl) {
+  if (result && result.pngUrl) {
+    const reference=logoReferenceById(result.referenceId);
     return '<div class="photo-tool-demo-column-result">'
-      + '<div class="logo-result-preview"><span class="logo-result-placeholder">Тут появится ваш результат</span></div>'
+      + '<div class="logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"></div>'
+      + '<div class="logo-result-links"><button type="button" class="generation-info-svg-download" data-download-url="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>'
+      + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div></div>';
+  }
+  // Pre-generation preview: show the selected reference itself so the
+  // user sees what they picked immediately, instead of an empty
+  // placeholder until Generate finishes.
+  const reference = logoState.selectedReferenceId ? logoReferenceById(logoState.selectedReferenceId) : null;
+  if (reference) {
+    return '<div class="photo-tool-demo-column-result">'
+      + '<div class="logo-result-preview"><img src="'+S.escapeHtml(reference.asset)+'" alt="'+S.escapeHtml(reference.name)+'"></div>'
       + '</div>';
   }
-  const reference=logoReferenceById(result.referenceId);
   return '<div class="photo-tool-demo-column-result">'
-    + '<div class="logo-result-preview"><img src="'+S.escapeHtml(result.pngUrl)+'" alt="Сгенерированный логотип"></div>'
-    + '<div class="logo-result-links"><button type="button" class="generation-info-svg-download" data-download-url="'+S.escapeHtml(logoSvgDownloadUrl(result.jobId))+'" data-file-name="sylvex-logo.svg" onclick="SYLVEX.downloadGeneratedFile(event)">Скачать SVG</button>'
-    + (reference?'<small>Референс: '+S.escapeHtml(reference.name)+'</small>':'<small>Создано по текстовому описанию</small>')+'</div></div>';
+    + '<div class="logo-result-preview"><span class="logo-result-placeholder">Тут появится ваш результат</span></div>'
+    + '</div>';
 }
 function selectLogoReference(e,id) {
   if(e){e.preventDefault();e.stopPropagation()}
   if(!logoReferenceById(id)||logoState.generating)return;
-  logoState.selectedReferenceId=id;
-  renderPhotoToolModal();
+  logoState.selectedReferenceId = logoState.selectedReferenceId === id ? null : id;
+  updatePresetCardSelection('.logo-reference-card', 'data-ref-id', logoState.selectedReferenceId);
+  refreshPhotoToolDemoColumn();
+  updatePhotoToolGenerateButtonState();
 }
 function updateLogoPrompt(e) {
   const field=e&&e.currentTarget?e.currentTarget:document.getElementById('photoToolExtraPrompt');
@@ -8750,9 +8838,11 @@ function selectHairBeardPreset(e, id) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const preset = hairBeardPresetById(id);
   if (hairBeardState.generatingReference || !preset || preset.category !== hairBeardState.category) return;
-  hairBeardState.selectedPresetId = preset.id;
+  hairBeardState.selectedPresetId = hairBeardState.selectedPresetId === preset.id ? null : preset.id;
   hairBeardState.comparison = null;
-  renderPhotoToolModal();
+  updatePresetCardSelection('.hair-beard-card', 'data-preset-id', hairBeardState.selectedPresetId);
+  refreshPhotoToolDemoColumn();
+  updatePhotoToolGenerateButtonState();
 }
 
 function updateHairBeardReferencePrompt(e) {
@@ -8885,8 +8975,11 @@ function selectTattooReference(e, id) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const reference = tattooReferenceById(id);
   if (!reference || tattooState.generatingReference || photoToolState.tattoo.generating) return;
-  tattooState.selectedReferenceId = reference.id;
-  renderPhotoToolModal();
+  tattooState.selectedReferenceId = tattooState.selectedReferenceId === reference.id ? null : reference.id;
+  tattooState.comparison = null;
+  updatePresetCardSelection('.tattoo-reference-card', 'data-ref-id', tattooState.selectedReferenceId);
+  refreshPhotoToolDemoColumn();
+  updatePhotoToolGenerateButtonState();
 }
 
 function updateTattooPrompt(e) {
@@ -8902,8 +8995,114 @@ function updateTattooPrompt(e) {
 
 function tattooCatalogHtml() {
   const references = TATTOO_REFERENCES.concat(tattooState.customReferences);
-  const cards = references.map(item => '<button type="button" class="tattoo-reference-card '+(tattooState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(tattooState.selectedReferenceId===item.id)+'" onclick="SYLVEX.selectTattooReference(event,\''+S.escapeHtml(item.id)+'\')"><span><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy" decoding="async"></span><b>'+S.escapeHtml(item.name)+'</b></button>').join('');
+  const cards = references.map(item => '<button type="button" class="tattoo-reference-card '+(tattooState.selectedReferenceId===item.id?'selected':'')+'" aria-pressed="'+(tattooState.selectedReferenceId===item.id)+'" data-ref-id="'+S.escapeHtml(item.id)+'" onclick="SYLVEX.selectTattooReference(event,\''+S.escapeHtml(item.id)+'\')"><span><img src="'+S.escapeHtml(item.referenceAsset)+'" alt="'+S.escapeHtml(item.name)+'" loading="lazy" decoding="async"></span><b>'+S.escapeHtml(item.name)+'</b></button>').join('');
   return '<section class="tattoo-catalog" aria-label="Каталог референсов тату"><header><b>Референсы тату</b><small>Выберите рисунок</small></header><div class="preset-carousel"><button type="button" class="preset-carousel-arrow prev" aria-label="Назад" onclick="SYLVEX.scrollPresetCarousel(event,this,-1)">‹</button><div class="tattoo-reference-grid preset-carousel-track">'+cards+'</div><button type="button" class="preset-carousel-arrow next" aria-label="Вперёд" onclick="SYLVEX.scrollPresetCarousel(event,this,1)">›</button></div></section>';
+}
+
+// Whether the Generate button should be enabled for the currently active
+// simple Photo Tool (the ones rendered by renderPhotoToolModal - try_on
+// and replace_character have their own dedicated ready checks). Factored
+// out of renderPhotoToolModal so updatePhotoToolGenerateButtonState() can
+// recompute it after a targeted selection update, without rebuilding the
+// whole modal.
+function photoToolReadyState(config, state) {
+  const isRemoveObject = activePhotoTool === 'remove_object';
+  const isWatermarkRemoval = activePhotoTool === 'watermark_removal';
+  const isReplaceObject = activePhotoTool === 'replace_object';
+  const hasHairPhoto = Boolean(state.files[0]);
+  const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
+  const hasTattooPhoto = Boolean(state.files[0]);
+  const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
+  const hasLogoText = Boolean(String(logoState.prompt || '').trim());
+  return isReplaceObject
+    ? Boolean(state.files[0] && state.files[1] && state.markedPhotoStrokes && state.markedPhotoStrokes.length && state.markedPhotoUrl)
+    : isRemoveObject
+    ? (state.files.filter(Boolean).length >= config.min
+        && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
+    : isWatermarkRemoval
+    ? Boolean(state.files[0] && state.maskUrl)
+    : (activePhotoTool === 'tattoo'
+        ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId)) : hasTattooText)
+        : activePhotoTool === 'hair_beard'
+        ? (hasHairPhoto ? (hasHairText || Boolean(hairBeardState.selectedPresetId)) : hasHairText)
+        : activePhotoTool === 'logo'
+        ? hasLogoText
+        : state.files.filter(Boolean).length >= config.min);
+}
+
+function photoToolGenerateButtonLabel(state) {
+  if (state.generating) return '<span class="photo-tool-spinner"></span>Обработка…';
+  const hasHairPhoto = Boolean(state.files[0]);
+  const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
+  const hasTattooPhoto = Boolean(state.files[0]);
+  const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
+  if ((activePhotoTool === 'hair_beard' && !hasHairPhoto && hasHairText) || (activePhotoTool === 'tattoo' && !hasTattooPhoto && hasTattooText)) return 'Создать референс';
+  if (activePhotoTool === 'logo') return 'Создать логотип';
+  return 'Сгенерировать';
+}
+
+// Updates the existing Generate button in place (disabled state + label)
+// without rebuilding the modal - selecting/deselecting a reference can
+// change readiness (e.g. Tattoo/Hair&Beard become ready once a preset is
+// picked) and must reflect that without the full-list rerender that causes
+// flicker/scroll-jumping.
+function updatePhotoToolGenerateButtonState() {
+  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
+  const state = photoToolStateFor(activePhotoTool);
+  const button = document.querySelector('#photoToolModalBody .photo-tool-generate');
+  if (!config || !state || !button) return;
+  button.disabled = !photoToolReadyState(config, state) || state.generating;
+  button.innerHTML = photoToolGenerateButtonLabel(state);
+}
+
+// The demo/preview column's inner HTML, factored out of renderPhotoToolModal
+// so refreshPhotoToolDemoColumn() can rebuild just that one column (never
+// the reference list beside/above it) after a selection change.
+function photoToolDemoColumnInnerHtml(config) {
+  return (activePhotoTool==='logo' ? logoResultPreviewHtml(config) : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : activePhotoTool==='replace_object' ? replaceObjectComparisonHtml(config) : photoToolDemoHtml(config))
+    + (activePhotoTool==='replace_object' ? replaceObjectObjectsRowHtml() : '')
+    + ((activePhotoTool==='logo') ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : activePhotoTool==='replace_object'&&replaceObjectState.comparison ? 'Перетяните полоску, чтобы сравнить фото до и после замены.' : S.escapeHtml(config.description)) + '</p>');
+}
+
+// Rebuilds only the demo/preview column (#photoToolDemoColumn) - used by
+// reference/preset selection handlers so picking a Logo/Tattoo/Hair&Beard
+// reference immediately previews it without touching the reference list's
+// own DOM (no flicker, no scroll reset - see updatePresetCardSelection).
+function refreshPhotoToolDemoColumn() {
+  const host = document.getElementById('photoToolDemoColumn');
+  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
+  if (!host || !config) return;
+  host.innerHTML = photoToolDemoColumnInnerHtml(config);
+  if (activePhotoTool==='tattoo' && tattooState.comparison) syncTattooComparisonAspectRatio(tattooState.comparison.before);
+  if (activePhotoTool==='replace_object' && replaceObjectState.comparison) syncReplaceObjectComparisonAspectRatio(replaceObjectState.comparison.before);
+}
+
+// Toggles the 'selected' card in a reference/preset list purely via DOM
+// (never innerHTML on the list itself) - this is what keeps the carousel's
+// scroll position untouched and avoids re-creating every <img> (the cause
+// of the selection flicker). nextId === null/undefined clears every card.
+function updatePresetCardSelection(cardSelector, attr, nextId) {
+  document.querySelectorAll(cardSelector).forEach((card) => {
+    const isSelected = nextId != null && card.getAttribute(attr) === nextId;
+    card.classList.toggle('selected', isSelected);
+    card.setAttribute('aria-pressed', String(isSelected));
+  });
+}
+
+// Updates one upload slot (by its data-slot-index) in place, mirroring the
+// exact markup renderPhotoToolModal() builds for it - used by Replace
+// Object's Objects row so picking an existing Object fills the
+// "Предмет для замены" slot without a full modal rerender (same
+// no-flicker/no-scroll-jump rule as every other reference/preset list).
+function updatePhotoToolUploadSlot(index, file) {
+  const slot = document.querySelector('.photo-tool-upload-grid [data-slot-index="' + index + '"]');
+  const config = PHOTO_TOOL_CONFIG[activePhotoTool];
+  if (!slot || !config) return;
+  const label = config.labels[index] || '';
+  slot.classList.toggle('has-file', !!file);
+  slot.innerHTML = (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
+    + '<b>' + S.escapeHtml(label) + '</b>'
+    + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>');
 }
 
 function renderPhotoToolModal() {
@@ -8927,35 +9126,15 @@ function renderPhotoToolModal() {
   }
   const slots = config.labels.map((label, index) => {
     const file = state.files[index];
-    return '<button class="photo-tool-upload-slot ' + (file ? 'has-file' : '') + '" type="button" onclick="SYLVEX.openPhotoToolFilePicker(event,\'' + activePhotoTool + '\',' + index + ')">'
+    return '<button class="photo-tool-upload-slot ' + (file ? 'has-file' : '') + '" type="button" data-slot-index="' + index + '" onclick="SYLVEX.openPhotoToolFilePicker(event,\'' + activePhotoTool + '\',' + index + ')">'
       + (file ? '<img src="' + S.escapeHtml(file.url) + '" alt="" />' : '<span class="photo-tool-upload-plus">＋</span>')
       + '<b>' + S.escapeHtml(label) + '</b>'
       + (file ? '<small>' + S.escapeHtml(file.name || 'Фото выбрано') + '</small><i role="button" aria-label="Удалить" onclick="SYLVEX.removePhotoToolFile(event,\'' + activePhotoTool + '\',' + index + ')">×</i>' : '<small>Нажмите для загрузки</small>')
       + '</button>';
   }).join('');
   const isRemoveObject = activePhotoTool === 'remove_object';
-  const isWatermarkRemoval = activePhotoTool === 'watermark_removal';
-  const isReplaceObject = activePhotoTool === 'replace_object';
-  const hasHairPhoto = Boolean(state.files[0]);
-  const hasHairText = Boolean(String(hairBeardState.referencePrompt || '').trim());
-  const hasTattooPhoto = Boolean(state.files[0]);
-  const hasTattooText = Boolean(String(tattooState.prompt || '').trim());
   const isAnimatePhoto = activePhotoTool === 'animate_photo';
-  const hasLogoText = Boolean(String(logoState.prompt || '').trim());
-  const ready = isReplaceObject
-    ? Boolean(state.files[0] && state.files[1] && state.markedPhotoStrokes && state.markedPhotoStrokes.length && state.markedPhotoUrl)
-    : isRemoveObject
-    ? (state.files.filter(Boolean).length >= config.min
-        && (!!state.maskUrl || !!(document.getElementById('photoToolExtraPrompt') && document.getElementById('photoToolExtraPrompt').value.trim())))
-    : isWatermarkRemoval
-    ? Boolean(state.files[0] && state.maskUrl)
-    : (activePhotoTool === 'tattoo'
-        ? (hasTattooPhoto ? (hasTattooText || Boolean(tattooState.selectedReferenceId)) : hasTattooText)
-        : activePhotoTool === 'hair_beard'
-        ? (hasHairPhoto ? (hasHairText || Boolean(hairBeardState.selectedPresetId)) : hasHairText)
-        : activePhotoTool === 'logo'
-        ? hasLogoText
-        : state.files.filter(Boolean).length >= config.min);
+  const ready = photoToolReadyState(config, state);
   const promptPlaceholder = isAnimatePhoto ? 'Опишите желаемое движение (необязательно, до 250 символов)' : 'Дополнительные пожелания (необязательно)';
   const promptMaxLength = isAnimatePhoto ? ' maxlength="250"' : '';
   const promptOninput = isRemoveObject
@@ -8966,7 +9145,7 @@ function renderPhotoToolModal() {
     + (activePhotoTool==='tattoo' ? tattooCatalogHtml() : '')
     + (activePhotoTool==='hair_beard' ? hairBeardCatalogHtml() : '')
     + '<div class="photo-tool-layout '+(activePhotoTool==='hair_beard'?'hair-beard-layout':'')+(activePhotoTool==='tattoo'?' tattoo-layout':'')+(activePhotoTool==='replace_object'?' replace-object-layout':'')+(activePhotoTool==='logo'?' logo-layout':'')+'">'
-    + '<div class="photo-tool-demo-column">' + (activePhotoTool==='logo' ? logoResultPreviewHtml(config) : activePhotoTool==='hair_beard' ? hairBeardComparisonHtml(config) : activePhotoTool==='tattoo' ? tattooComparisonHtml(config) : activePhotoTool==='replace_object' ? replaceObjectComparisonHtml(config) : photoToolDemoHtml(config)) + ((activePhotoTool==='logo') ? '' : '<p>' + (activePhotoTool==='hair_beard'&&hairBeardState.comparison ? 'Перетяните полоску, чтобы сравнить исходный портрет и результат.' : activePhotoTool==='tattoo'&&tattooState.comparison ? 'Перетяните полоску, чтобы сравнить исходное фото и результат.' : activePhotoTool==='replace_object'&&replaceObjectState.comparison ? 'Перетяните полоску, чтобы сравнить фото до и после замены.' : S.escapeHtml(config.description)) + '</p>') + '</div>'
+    + '<div class="photo-tool-demo-column" id="photoToolDemoColumn">' + photoToolDemoColumnInnerHtml(config) + '</div>'
     + '<div class="photo-tool-work-column">'+(activePhotoTool==='hair_beard'||activePhotoTool==='tattoo'?'':photoToolLibraryHtml(config))+photoToolMaskHtml(config,state)
     + '<div class="photo-tool-upload-grid count-' + config.max + '">' + slots + '</div>'
     + '<input id="photoToolFileInput" type="file" accept="image/*" ' + (config.max > 1 ? 'multiple ' : '') + 'hidden onchange="SYLVEX.onPhotoToolFiles(event)" />'
@@ -8974,7 +9153,7 @@ function renderPhotoToolModal() {
     + (activePhotoTool==='logo' ? logoCatalogHtml() : '')
     + (isAnimatePhoto ? '<small class="photo-tool-char-counter" id="photoToolPromptCounter">0/250</small>' : '')
     + '<button class="photo-tool-generate" type="button" ' + (!ready || state.generating ? 'disabled ' : '') + 'onclick="SYLVEX.generatePhotoTool(event)">'
-    + (state.generating ? '<span class="photo-tool-spinner\"></span>Обработка…' : ((activePhotoTool==='hair_beard'&&!hasHairPhoto&&hasHairText)||(activePhotoTool==='tattoo'&&!hasTattooPhoto&&hasTattooText)?'Создать референс':activePhotoTool==='logo'?'Создать логотип':'Сгенерировать'))
+    + photoToolGenerateButtonLabel(state)
     + '</button>'
     + '</div></div>';
   if(config.mask&&state.files[0]&&activePhotoTool!=='remove_object'&&activePhotoTool!=='replace_object')window.requestAnimationFrame(initPhotoToolMask);
@@ -9341,6 +9520,11 @@ function openPhotoToolModal(e, kind) {
   // that list one level at a time, instead of leaving the whole modal.
   if (isRealTool && existingModal && existingModal.classList.contains('show') && !activePhotoTool) {
     photoToolCameFromList = true;
+    // Remember exactly how far the list was scrolled, before its content
+    // is replaced by the tool below - restored on the way back in
+    // closePhotoToolModal().
+    const dialog = existingModal.querySelector('.photo-tool-dialog');
+    if (dialog) photoToolListScrollTop = dialog.scrollTop;
   } else if (!existingModal || !existingModal.classList.contains('show')) {
     photoToolCameFromList = false;
   }
@@ -9399,6 +9583,7 @@ function closePhotoToolModal(e) {
       const state = photoToolState.replace_object;
     if (state) { state.files = []; state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; state.generating = false; }
       replaceObjectState.comparison = null;
+      replaceObjectState.selectedObjectId = null;
       closeReplaceObjectMaskEditor();
     }
     if (activePhotoTool === 'watermark_removal') {
@@ -9412,6 +9597,10 @@ function closePhotoToolModal(e) {
       photoToolCameFromList = false;
       activePhotoTool = '';
       renderPhotoToolModal();
+      // Restore exactly how far the list was scrolled before the tool
+      // replaced it, instead of resetting to the top.
+      const dialog = modal.querySelector('.photo-tool-dialog');
+      if (dialog) dialog.scrollTop = photoToolListScrollTop;
       return;
     }
     modal.classList.remove('show');
@@ -9476,6 +9665,7 @@ async function onPhotoToolFiles(e) {
       if (activePhotoTool === 'replace_object') {
         replaceObjectState.comparison = null;
         if (start + offset === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
+        if (start + offset === 1) replaceObjectState.selectedObjectId = null;
       }
       if (start + offset < config.max) state.files[start + offset] = file;
     });
@@ -9502,6 +9692,7 @@ function removePhotoToolFile(e, kind, index) {
   if (kind === 'replace_object') {
     replaceObjectState.comparison = null;
     if (index === 0) { state.markedPhotoStrokes=[]; state.markedPhotoUrl=''; }
+    if (index === 1) replaceObjectState.selectedObjectId = null;
   }
   if (kind === 'watermark_removal') state.maskUrl = '';
   activePhotoTool = kind;
@@ -10372,7 +10563,15 @@ function chooseCharacterReplaceSource(e, source) {
 
 function chooseCharacterReplaceIdentitySource(e, source) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (source === 'character') return openCharacterReplacePicker(e, 'identity_character');
+  // Character selection reuses the exact same Pro Studio Character picker
+  // (card grid -> open the Character's own page -> pick references ->
+  // "Use Character") that Image mode uses, instead of a second, bespoke
+  // grid - see confirmCharacterDetailSelection()'s redirect branch for the
+  // commit side. History/Upload keep their own simpler pickers, unchanged.
+  if (source === 'character') {
+    visualPickerRedirectTarget = 'replace_character';
+    return openVisualPicker(null, 'character');
+  }
   if (source === 'history') return openCharacterReplacePicker(e, 'identity_history');
   if (source === 'upload') {
     const input = document.getElementById('characterReplaceIdentityFileInput');
@@ -11149,6 +11348,30 @@ function cancelCharacterDetail(e) {
 function confirmCharacterDetailSelection(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
   const item = imageCharacters().map(normalizeVisualItem).find((entry) => entry && entry.id === activeCharacterDetailId);
+  // Replace Character borrowed this exact picker/detail page - commit into
+  // its own isolated state instead of the normal imageState path below,
+  // same shape pickCharacterReplaceIdentityCharacter() used to write by
+  // hand, capped at 3 reference URLs like that one always was.
+  if (visualPickerRedirectTarget === 'replace_character') {
+    const target = photoToolState.replace_character;
+    if (item && target) {
+      const library = characterReferenceLibraryFor(item);
+      const urls = characterDetailPendingIds
+        .map((id) => { const entry = library.find((ref) => ref.id === id); return entry ? entry.url : ''; })
+        .filter(Boolean);
+      target.identitySource = 'character';
+      target.characterId = item.id;
+      target.identityImage = visualPreviewUrl(item);
+      target.identityLabel = item.name || '';
+      target.characterReferenceUrls = urls.slice(0, 3);
+    }
+    visualPickerRedirectTarget = null;
+    closeCharacterDetail(e);
+    closeImageStylePanel(e);
+    renderPhotoToolModal();
+    toast('Персонаж выбран');
+    return;
+  }
   if (item) {
     applyCharacterReferenceSelection(item, characterDetailPendingIds.slice());
     sendVisualInteraction('character', item.id, 'select');
@@ -13955,6 +14178,9 @@ function closeImageStylePanel(e) {
 
   hideImageStyleInfo();
   closeCharacterDetail();
+  // Closing without confirming (Cancel/×/backdrop) must not leave a stray
+  // redirect armed for the next, unrelated time this picker opens.
+  visualPickerRedirectTarget = null;
 
   const panel = document.getElementById('imageStylePanel');
   if (panel) panel.classList.remove('show');
