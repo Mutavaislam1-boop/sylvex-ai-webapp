@@ -10,7 +10,7 @@ import re
 import time
 from collections import OrderedDict
 from http.cookies import SimpleCookie
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 from starlette.responses import JSONResponse
 
 actor_id = contextvars.ContextVar('sylvex_actor_id', default=0)
@@ -117,6 +117,36 @@ def signing_key():
  key=os.getenv('MEDIA_SIGNING_SECRET','').strip() or next(iter(bot_tokens()),'')
  if not key: raise SecurityError('media_signing_not_configured',503)
  return hmac.new(key.encode(),b'SYLVEX media v1',hashlib.sha256).digest()
+
+def website_origins():
+ # Same env var main.py's CORSMiddleware reads (kept read independently here
+ # rather than imported, since this module must not depend on main.py).
+ return [o.strip().rstrip('/') for o in os.getenv('WEBSITE_ORIGINS','').split(',') if o.strip()]
+
+def origin_allowed(headers):
+ """CSRF guard for the cookie-authenticated website-session surface: the
+ sylvex_web_session cookie is necessarily SameSite=None (the Pro Studio
+ iframe embed is cross-origin), so without this, any page the victim's
+ browser loads could ride that cookie into a state-changing request. Requires
+ the request's Origin (or, failing that, Referer) to be one of
+ WEBSITE_ORIGINS - a real browser fetch()/form POST always sends one of
+ these for a cross-origin request, and the legitimate website always sends
+ Origin on same-origin POSTs too.
+ No-op (returns True) when WEBSITE_ORIGINS is unset, matching
+ CORSMiddleware's own fail-closed default in main.py: without it the
+ cross-origin website flow can't even read its own responses, so there is
+ no legitimate cookie-authenticated cross-origin traffic yet to protect."""
+ allowed=website_origins()
+ if not allowed: return True
+ origin=headers.get(b'origin',b'').decode().strip().rstrip('/')
+ if origin: return origin in allowed
+ referer=headers.get(b'referer',b'').decode().strip()
+ if referer:
+  parsed=urlsplit(referer)
+  if parsed.scheme and parsed.netloc: return f'{parsed.scheme}://{parsed.netloc}' in allowed
+ # Neither header present on a state-changing request - never the shape of
+ # a real browser fetch()/form submission; reject rather than guess.
+ return False
 
 # ---------------------------------------------------------------------------
 # Web session (SYLVEX website sign-in via the Telegram Login Widget).
@@ -342,6 +372,14 @@ class SecurityMiddleware:
   if not protected:return await self.app(scope,receive,send)
   is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method=='POST' and path in PUBLIC_POSTS)
   is_webhook=path in WEBHOOKS
+  # CSRF guard: every /api/web/* route authenticates off the sylvex_web_session
+  # cookie (SameSite=None, required for the cross-origin Pro Studio iframe
+  # embed - see WEB_SESSION_COOKIE above), whether or not it's in PUBLIC_POSTS,
+  # so this must run before the is_public bypass below, not after it.
+  # Non-mutating requests are left alone: reading state cross-origin without
+  # credentials visible to the attacker page isn't the CSRF threat model.
+  if method in {'POST','PUT','PATCH','DELETE'} and path.startswith('/api/web/') and not origin_allowed(headers):
+   return await JSONResponse({'ok':False,'error':'origin_not_allowed'},status_code=403)(scope,receive,send)
   if path.startswith('/api/public/payments/dev/') and (os.getenv('APP_ENV','development')=='production' or os.getenv('ENABLE_DEV_PAYMENTS','0')!='1'):
    return await JSONResponse({'ok':False,'error':'not_found'},status_code=404)(scope,receive,send)
   ip=(scope.get('client') or ('unknown',))[0]
@@ -436,6 +474,10 @@ class SecurityMiddleware:
        cookie_header=headers.get(b'cookie',b'').decode()
        web_account_id=web_session_account_id_from_cookie_header(cookie_header)
        if web_account_id:
+        # Same CSRF guard as the /api/web/* check above, for the
+        # website-embedded Pro Studio path (e.g. a PayPal order creation
+        # reached with no Telegram initData at all, only this cookie).
+        if method in {'POST','PUT','PATCH','DELETE'} and not origin_allowed(headers):raise SecurityError('origin_not_allowed',403)
         uid=await asyncio.to_thread(resolve_web_session_uid,web_account_id)
       if not uid:raise SecurityError('invalid_init_data')
       user={'id':uid}
