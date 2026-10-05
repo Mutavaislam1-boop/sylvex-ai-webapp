@@ -16,6 +16,18 @@ def validate_runtime():
  if missing:raise RuntimeError('Missing required production configuration: '+', '.join(missing))
  if os.getenv('ENABLE_DEV_PAYMENTS','0')=='1' or os.getenv('PROSTUDIO_MOCK_GENERATION','0').lower() in {'1','true','yes','on'}:
   raise RuntimeError('Developer payments and mock generation must be disabled in production')
+ if not os.getenv('WEBSITE_ORIGINS','').strip():
+  # The /api/web/* account/session routes and the website-session cookie
+  # fallback (see services/security.py) are always reachable regardless of
+  # whether CORS is configured - CORS only stops an attacker's JS from
+  # reading the response, never from sending the state-changing request in
+  # the first place. WEBSITE_ORIGINS is the only source of trusted origins
+  # services.security.origin_allowed() has to check a request's Origin/
+  # Referer against; leaving it unset would mean either silently disabling
+  # that CSRF guard (never acceptable) or, as implemented, the guard
+  # failing closed and rejecting every one of those routes outright. Refuse
+  # to start rather than deploy either outcome unnoticed.
+  raise RuntimeError('WEBSITE_ORIGINS must be set in production: it is the trusted-origin allowlist the CSRF guard on /api/web/* and the website-session cookie fallback checks against (see services/security.py origin_allowed) - without it the guard fails closed and those routes stop working.')
  from urllib.parse import urlsplit
  for name in ('WEBAPP_URL','R2_ENDPOINT'):
   parsed=urlsplit(os.getenv(name,''))

@@ -37,6 +37,7 @@ from services.password_auth import (
     hash_password, verify_password, new_token, is_valid_email, normalize_email, password_strength_error,
 )
 from services.account_email import send_verification_email, send_password_reset_email, send_merge_code_email
+from services import oauth_verify
 
 VERIFICATION_TOKEN_TTL = "24 hours"
 RESET_TOKEN_TTL = "1 hour"
@@ -603,7 +604,40 @@ def reset_password_with_token(database_url, token, new_password):
         conn.close()
 
 
-def change_password(database_url, account_id, current_password, new_password):
+def _require_fresh_oauth_reauth(cur, account_id, google_id_token, apple_id_token):
+    """Proof of identity for an account with no password to check against
+    (every Google/Apple signup - oauth_login_or_register() always inserts
+    account_emails.password_hash = NULL for them): a LIVE Google/Apple ID
+    token, verified here and now via each provider's own JWKS (never a
+    cached session claim - the whole point is a fresh re-authentication),
+    whose subject is one already linked to this exact account_id in
+    account_oauth. Without this, holding the session cookie alone - which a
+    CSRF-forged request, a leaked/stolen cookie, or any other session
+    hijack already gives an attacker - was sufficient to permanently set a
+    first password on someone else's account."""
+    if google_id_token:
+        try:
+            claims = oauth_verify.verify_google_id_token(google_id_token)
+        except oauth_verify.OAuthVerifyError:
+            raise AccountError("reauth_failed", 401)
+        provider, subject = "google", claims["subject"]
+    elif apple_id_token:
+        try:
+            claims = oauth_verify.verify_apple_id_token(apple_id_token)
+        except oauth_verify.OAuthVerifyError:
+            raise AccountError("reauth_failed", 401)
+        provider, subject = "apple", claims["subject"]
+    else:
+        raise AccountError("reauth_required", 401)
+    cur.execute(
+        "SELECT 1 FROM account_oauth WHERE account_id = %s AND provider = %s AND subject = %s",
+        (account_id, provider, subject),
+    )
+    if not cur.fetchone():
+        raise AccountError("reauth_failed", 401)
+
+
+def change_password(database_url, account_id, current_password, new_password, google_id_token=None, apple_id_token=None):
     pw_error = password_strength_error(new_password)
     if pw_error:
         raise AccountError(pw_error)
@@ -614,8 +648,14 @@ def change_password(database_url, account_id, current_password, new_password):
         row = cur.fetchone()
         if not row:
             raise AccountError("no_email_on_file", 404)
-        if row[0] and not verify_password(current_password or "", row[0]):
-            raise AccountError("incorrect_current_password", 401)
+        if row[0]:
+            if not verify_password(current_password or "", row[0]):
+                raise AccountError("incorrect_current_password", 401)
+        else:
+            # Setting a first password (no password exists yet to verify
+            # against) - require fresh Google/Apple re-authentication
+            # instead of accepting the session cookie alone as proof.
+            _require_fresh_oauth_reauth(cur, account_id, google_id_token, apple_id_token)
         cur.execute("UPDATE account_emails SET password_hash = %s WHERE account_id = %s", (hash_password(new_password), account_id))
         conn.commit()
     except AccountError:

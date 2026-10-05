@@ -12,6 +12,7 @@ from collections import OrderedDict
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qsl, urlencode, urlsplit
 from starlette.responses import JSONResponse
+from services.runtime_checks import is_production
 
 actor_id = contextvars.ContextVar('sylvex_actor_id', default=0)
 actor_init_data = contextvars.ContextVar('sylvex_init_data', default='')
@@ -132,12 +133,22 @@ def origin_allowed(headers):
  WEBSITE_ORIGINS - a real browser fetch()/form POST always sends one of
  these for a cross-origin request, and the legitimate website always sends
  Origin on same-origin POSTs too.
- No-op (returns True) when WEBSITE_ORIGINS is unset, matching
- CORSMiddleware's own fail-closed default in main.py: without it the
- cross-origin website flow can't even read its own responses, so there is
- no legitimate cookie-authenticated cross-origin traffic yet to protect."""
+ WEBSITE_ORIGINS unset is NOT treated as "nothing to protect": CORS being
+ unconfigured only stops an attacker's JS from reading the response, it
+ never stops the browser from sending the request or the server from
+ executing it - a pure CSRF attack (state-changing, fire-and-forget) never
+ needed to read the response anyway. So this fails CLOSED (rejects) in
+ production when WEBSITE_ORIGINS is unset, rather than silently going
+ permissive. runtime_checks.validate_runtime() already refuses to even
+ start the app in that state (see its own WEBSITE_ORIGINS check) - this is
+ a second, independent backstop for any caller that reaches
+ SecurityMiddleware without going through normal startup (a test, or a
+ future entry point). Outside production (local dev, the test suite, which
+ never sets WEBSITE_ORIGINS - see tests/conftest.py's APP_ENV='test') an
+ unset WEBSITE_ORIGINS still no-ops, since there the real website origin
+ is unknowable to configure in the first place."""
  allowed=website_origins()
- if not allowed: return True
+ if not allowed: return not is_production()
  origin=headers.get(b'origin',b'').decode().strip().rstrip('/')
  if origin: return origin in allowed
  referer=headers.get(b'referer',b'').decode().strip()
