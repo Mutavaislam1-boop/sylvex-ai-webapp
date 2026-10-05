@@ -13489,6 +13489,7 @@ async def web_account_password_change(request: Request):
         await asyncio.to_thread(
             account_identity_service.change_password,
             DATABASE_URL, account_id, payload.get("current_password"), payload.get("new_password"),
+            payload.get("google_id_token"), payload.get("apple_id_token"),
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
