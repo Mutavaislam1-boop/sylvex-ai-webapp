@@ -113,11 +113,27 @@ test('scrollPresetCarousel is a no-op when the button has no enclosing carousel 
 });
 
 test('CSS: preset carousel tracks scroll horizontally and hide the native scrollbar', () => {
-  assert.match(css, /\.preset-carousel\{[^}]*display:flex/);
-  assert.match(css, /\.preset-carousel-arrow\{[^}]*border-radius:50%/);
+  assert.match(css, /\.preset-carousel\{position:relative\}/);
+  assert.match(css, /\.preset-carousel-track\{width:100%\}/);
   assert.match(css, /@media\(max-width:900px\)\{\.preset-carousel-arrow\{display:none\}\}/);
   for (const trackClass of ['.logo-reference-grid', '.tattoo-reference-grid', '.hair-beard-grid']) {
     const rule = new RegExp(trackClass.replace('.', '\\.') + '\\{[^}]*overflow-x:auto');
     assert.match(css, rule, `${trackClass} should scroll horizontally`);
   }
+});
+
+test('CSS: preset carousel arrows are transparent overlays, not opaque buttons beside the track', () => {
+  const arrowRule = /\.preset-carousel-arrow\{([^}]*)\}/.exec(css);
+  assert.ok(arrowRule, 'preset-carousel-arrow rule not found');
+  const body = arrowRule[1];
+  assert.match(body, /position:absolute/);
+  assert.match(body, /background:none/);
+  assert.doesNotMatch(body, /border-radius:50%/);
+  assert.doesNotMatch(body, /border:1px solid/);
+  assert.match(css, /\.preset-carousel-arrow\.prev\{left:0\}/);
+  assert.match(css, /\.preset-carousel-arrow\.next\{right:0\}/);
+  // No gradient/opaque fade mask hiding references near the arrows.
+  const carouselSection = css.slice(css.indexOf('.preset-carousel{'), css.indexOf('.logo-reference-grid{display:flex'));
+  assert.doesNotMatch(carouselSection, /gradient/);
+  assert.doesNotMatch(carouselSection, /mask-image/);
 });
