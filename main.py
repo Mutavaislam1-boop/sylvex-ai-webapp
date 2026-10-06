@@ -66,7 +66,7 @@ from services.security import (
 from services import account_identity as account_identity_service
 from services.account_identity import AccountError
 from services import oauth_verify
-from services.request_limits import check_request_quota, ensure_limit_table
+from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
 from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
 import services.sylvex_test_provider as sylvex_test_provider
@@ -9361,6 +9361,14 @@ async def public_prostudio_create_object(request: Request):
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
     if not photos:
         return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+    # Dedicated per-user abuse guard, checked only here - at the exact
+    # moment a new Object Creation job is submitted - never on polling/
+    # status-read/jobs-list below. See services/request_limits.py's
+    # check_object_creation_quota() for why this is its own bucket rather
+    # than reusing the shared COSTLY 'provider' quota. Raises
+    # SecurityError('object_creation_rate_limited', 429) when exceeded,
+    # caught by the global SecurityError handler below.
+    await check_object_creation_request_quota(telegram_id)
     try:
         job_id = await asyncio.to_thread(create_object_creation_job, telegram_id, name, description, photos)
     except SecurityError:

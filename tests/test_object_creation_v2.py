@@ -449,8 +449,13 @@ def test_create_object_requires_telegram_id():
     assert json.loads(result.body)["error"] == "telegram_id_required"
 
 
+async def _noop_quota_check(telegram_id):
+    pass
+
+
 def test_create_object_caps_photos_at_exactly_one_before_queuing(monkeypatch):
     received = {}
+    monkeypatch.setattr(main, "check_object_creation_request_quota", _noop_quota_check)
     monkeypatch.setattr(main, "create_object_creation_job", lambda telegram_id, name, description, photos: received.setdefault("photos", list(photos)) or "job-xyz")
 
     async def noop_worker(*a, **k):
@@ -467,6 +472,7 @@ def test_create_object_caps_photos_at_exactly_one_before_queuing(monkeypatch):
 
 def test_create_object_returns_202_with_job_id_without_waiting_for_generation(monkeypatch):
     finished = {"value": False}
+    monkeypatch.setattr(main, "check_object_creation_request_quota", _noop_quota_check)
     monkeypatch.setattr(main, "create_object_creation_job", lambda *a, **k: "job-xyz")
 
     async def slow_worker(job_id, telegram_id, name, description, photos):
@@ -493,6 +499,7 @@ def test_create_object_job_creation_failure_surfaces_as_502(monkeypatch):
     def failing_create_job(*a, **k):
         raise RuntimeError("db exploded")
 
+    monkeypatch.setattr(main, "check_object_creation_request_quota", _noop_quota_check)
     monkeypatch.setattr(main, "create_object_creation_job", failing_create_job)
     request = FakeRequest({"telegram_id": 42, "name": "Bag", "photos": ["https://cdn.sylvex.ai/a.jpg"]})
     result = asyncio.run(main.public_prostudio_create_object(request))
