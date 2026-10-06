@@ -13,7 +13,7 @@ from collections import OrderedDict
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qsl, urlencode, urlsplit
 from starlette.responses import JSONResponse
-from services.runtime_checks import is_production
+from services.runtime_checks import is_production, parse_website_origins
 
 actor_id = contextvars.ContextVar('sylvex_actor_id', default=0)
 actor_init_data = contextvars.ContextVar('sylvex_init_data', default='')
@@ -121,9 +121,13 @@ def signing_key():
  return hmac.new(key.encode(),b'SYLVEX media v1',hashlib.sha256).digest()
 
 def website_origins():
- # Same env var main.py's CORSMiddleware reads (kept read independently here
- # rather than imported, since this module must not depend on main.py).
- return [o.strip().rstrip('/') for o in os.getenv('WEBSITE_ORIGINS','').split(',') if o.strip()]
+ # CORS-2: delegates to runtime_checks.parse_website_origins() - the single
+ # shared parser main.py's CORSMiddleware registration also calls (via this
+ # same function), so CORS and this module's own origin_allowed() (CSRF
+ # guard) can never drift onto two differently-normalized trusted-origin
+ # lists. That parser also unconditionally drops any wildcard ('*') entry -
+ # see its docstring for why.
+ return parse_website_origins()
 
 def security_response_headers():
  """Content-Security-Policy + (in production) Strict-Transport-Security,

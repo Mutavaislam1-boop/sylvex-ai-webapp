@@ -6,6 +6,57 @@ import sys
 def is_production():
  return os.getenv('APP_ENV','').lower()=='production' or bool(os.getenv('RAILWAY_ENVIRONMENT_ID'))
 
+def parse_website_origins(raw=None):
+ """Single source of truth for the WEBSITE_ORIGINS trusted-origin
+ allowlist - services.security.website_origins() (which the CSRF guard's
+ origin_allowed() reads) and main.py's CORSMiddleware registration both
+ call this (the latter via services.security.website_origins()), so CORS
+ and the CSRF guard can never drift onto two differently-normalized
+ lists. Lives here rather than in services.security itself only because
+ services.security already imports is_production() from this module, and
+ this function is needed by validate_runtime() below too - putting it in
+ services.security would make this module import back from it (a cycle).
+ Normalizes whitespace and a trailing slash (an origin a browser sends in
+ an Origin header never has one, so a lingering trailing slash in config
+ would otherwise make an intended-to-match origin silently never match),
+ drops empty entries, and - independent of, and in addition to,
+ validate_runtime()'s own hard startup check below - unconditionally
+ drops any entry that is or contains a literal '*': Starlette's
+ CORSMiddleware treats a literal '*' allow_origins entry as a sentinel
+ that reflects ANY request's Origin back with credentials allowed
+ (CORS-2), and a '*' can never be a real browser-sent Origin value
+ anyway, so dropping it here can only ever narrow the allowlist, never
+ widen it - this keeps every caller of the parsed list safe even outside
+ validate_runtime()'s production-only startup gate (tests, local dev)."""
+ if raw is None:
+  raw = os.getenv('WEBSITE_ORIGINS', '')
+ origins = []
+ for entry in raw.split(','):
+  value = entry.strip().rstrip('/')
+  if not value or '*' in value or value in origins:
+   continue
+  origins.append(value)
+ return origins
+
+def website_origins_configuration_error(raw=None):
+ """Returns a human-readable reason WEBSITE_ORIGINS is unsafe to run with
+ in production, or '' if it's fine. Separate from parse_website_origins()
+ above (which silently drops a bad entry so every ordinary caller stays
+ safe) because a production deploy must refuse to START on a wildcard
+ rather than silently continuing with a narrowed - and possibly fully
+ empty, guard-disabling - allowlist: an operator who configured
+ WEBSITE_ORIGINS=* almost certainly meant to allow the real website, not
+ to accidentally disable the CSRF guard, and deserves a startup failure
+ that says so rather than a website that silently stops working."""
+ if raw is None:
+  raw = os.getenv('WEBSITE_ORIGINS', '')
+ wildcard = [entry.strip() for entry in raw.split(',') if entry.strip() and '*' in entry]
+ if wildcard:
+  return ("WEBSITE_ORIGINS must not contain a wildcard origin (" + ', '.join(wildcard) + ") - "
+          "a literal '*' makes Starlette's CORSMiddleware reflect ANY request's Origin back "
+          "with credentials allowed (CORS-2). List the exact trusted website origin(s) instead.")
+ return ''
+
 def validate_runtime():
  if sys.version_info<(3,12):raise RuntimeError('Python 3.12 or newer is required; use the project runtime.')
  if not is_production():return
@@ -28,6 +79,8 @@ def validate_runtime():
   # failing closed and rejecting every one of those routes outright. Refuse
   # to start rather than deploy either outcome unnoticed.
   raise RuntimeError('WEBSITE_ORIGINS must be set in production: it is the trusted-origin allowlist the CSRF guard on /api/web/* and the website-session cookie fallback checks against (see services/security.py origin_allowed) - without it the guard fails closed and those routes stop working.')
+ origins_error=website_origins_configuration_error()
+ if origins_error:raise RuntimeError(origins_error)
  from urllib.parse import urlsplit
  for name in ('WEBAPP_URL','R2_ENDPOINT'):
   parsed=urlsplit(os.getenv(name,''))
