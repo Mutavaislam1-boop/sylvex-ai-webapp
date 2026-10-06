@@ -190,3 +190,72 @@ def test_log_provider_response_still_reports_provider_status_and_body_preview(ca
     assert "502" in out
     assert "upstream failure" in out
     assert "t1" in out
+
+
+# ---------------------------------------------------------------------------
+# _redact_urls_in_text() / response_body: the raw-text follow-up gap.
+# response_body logged response.text verbatim - json_body's sanitization
+# never touched it, so a signed URL echoed inside the raw text (JSON or
+# plain) still leaked its media_sig/media_exp credential.
+# ---------------------------------------------------------------------------
+
+def test_redact_urls_in_text_strips_signed_url_inside_raw_json_text():
+    raw_json = (
+        '{"echoed_input_url":"' + SIGNED_MEDIA_URL + '","video_id":"vid_999"}'
+    )
+    redacted = video_router._redact_urls_in_text(raw_json)
+    assert "media_sig" not in redacted
+    assert "media_exp" not in redacted
+    assert "vid_999" in redacted
+    assert redacted.startswith('{"echoed_input_url":"https://sylvex.ai/')
+
+
+def test_redact_urls_in_text_strips_signed_url_inside_plain_text():
+    raw_text = f"Upstream rejected source: see {SIGNED_MEDIA_URL} for the failing asset. Please retry."
+    redacted = video_router._redact_urls_in_text(raw_text)
+    assert "media_sig" not in redacted
+    assert "media_exp" not in redacted
+    assert "Upstream rejected source" in redacted
+    assert "Please retry." in redacted
+
+
+def test_redact_urls_in_text_leaves_ordinary_text_untouched():
+    raw_text = "Internal error: task failed validation (code=42, retry_count=3)"
+    assert video_router._redact_urls_in_text(raw_text) == raw_text
+
+
+def test_redact_urls_in_text_ignores_non_string_and_empty_values():
+    assert video_router._redact_urls_in_text(None) is None
+    assert video_router._redact_urls_in_text("") == ""
+    assert video_router._redact_urls_in_text(42) == 42
+
+
+def test_log_provider_response_redacts_signed_url_in_raw_json_response_body(capsys):
+    # response_body is response.text, logged independently of json_body -
+    # this is the exact gap the follow-up closes.
+    raw_text = '{"url":"' + SIGNED_MEDIA_URL + '","status":"completed"}'
+    response = _FakeResponse(text=raw_text)
+    video_router._log_provider_response("heygen", "VIDEO_POLL", "https://api.heygen.com/v3/videos", {}, response, {"status": "completed"})
+    out = _printed_text(capsys)
+    assert "media_sig" not in out
+    assert "media_exp" not in out
+    assert "completed" in out
+
+
+def test_log_provider_response_redacts_signed_url_in_plain_text_response_body(capsys):
+    raw_text = f"error: could not fetch source {SIGNED_MEDIA_URL} - 404 not found"
+    response = _FakeResponse(status_code=400, text=raw_text, headers={})
+    video_router._log_provider_response("wan", "SUBMIT", "https://api.wan.example.com/v1/videos", {}, response, None)
+    out = _printed_text(capsys)
+    assert "media_sig" not in out
+    assert "media_exp" not in out
+    assert "could not fetch source" in out
+    assert "404 not found" in out
+
+
+def test_log_provider_response_raw_body_error_text_stays_readable(capsys):
+    # Ordinary, non-URL error/debug text must survive the fix unchanged.
+    response = _FakeResponse(status_code=422, text='{"error": "invalid duration: must be between 5 and 10 seconds"}')
+    video_router._log_provider_response("pixverse", "SUBMIT", "https://api.pixverse.ai/v2/videos", {}, response, {"error": "invalid duration"})
+    out = _printed_text(capsys)
+    assert "invalid duration: must be between 5 and 10 seconds" in out

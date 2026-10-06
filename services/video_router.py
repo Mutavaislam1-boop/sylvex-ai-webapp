@@ -1105,6 +1105,30 @@ def _strip_url_query(value):
 
 
 # =====================================================
+# PYTHON-БЛОК: _redact_urls_in_text
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
+_URL_TOKEN_RE = re.compile(r'https?://[^\s"\'<>\\]+')
+
+
+def _redact_urls_in_text(text):
+    """LOG-2 follow-up: _log_provider_response() logs the raw provider
+    response body (`response_body`) as-is - _sanitize_debug_payload() only
+    ever ran over the *parsed* `json_body`, so a signed SYLVEX media URL
+    (its media_exp/media_sig query string - see media_access.py's
+    sign_media_url()) echoed back inside the raw response text (JSON or
+    plain text) still reached the logs verbatim. This scans the raw text
+    for anything shaped like an http(s) URL and strips its query/fragment
+    in place via _strip_url_query, leaving every other character -
+    including the rest of a JSON structure or a plain-text error message -
+    untouched and readable."""
+    if not isinstance(text, str) or not text:
+        return text
+    return _URL_TOKEN_RE.sub(lambda match: _strip_url_query(match.group(0)), text)
+
+
+# =====================================================
 # PYTHON-БЛОК: _response_headers_dict
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
@@ -1145,7 +1169,7 @@ def _response_headers_dict(response):
 # =====================================================
 def _log_provider_response(provider: str, label: str, url: str, payload: dict, response, data=None):
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
-    body_preview = _safe_response_text(response)[:4000]
+    body_preview = _redact_urls_in_text(_safe_response_text(response))[:4000]
     print(f"{provider.upper()} {label} RESPONSE DEBUG:", {
         "request_url": _strip_url_query(url),
         "request_payload": _sanitize_debug_payload(payload),
