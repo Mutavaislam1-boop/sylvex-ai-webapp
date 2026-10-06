@@ -61,6 +61,7 @@ from services.security import (
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
     verify_web_session_token, verify_telegram_login_widget,
     web_session_account_id_from_cookie_header, resolve_web_session_uid,
+    account_session_revoked_before, revoke_web_sessions,
 )
 from services import account_identity as account_identity_service
 from services.account_identity import AccountError
@@ -12634,14 +12635,22 @@ def _set_web_session_cookie(response, account_id: int):
     )
 
 
-def _web_session_account_id(request: Request):
+async def _web_session_account_id(request: Request):
     token = request.cookies.get(WEB_SESSION_COOKIE)
     if not token:
         return None
     try:
-        return verify_web_session_token(token)
+        account_id, issued_at = verify_web_session_token(token)
     except SecurityError:
         return None
+    # COOKIE-2: a token whose signature/expiry still check out can still be
+    # a stale copy of one invalidated since by logout/password-change/
+    # account-delete (see revoke_web_sessions) - reject it the same way an
+    # expired one already is, rather than trusting the signature alone.
+    revoked_before = await asyncio.to_thread(account_session_revoked_before, account_id)
+    if revoked_before and issued_at < revoked_before:
+        return None
+    return account_id
 
 
 def _web_session_payload(account_id: int) -> dict:
@@ -12765,7 +12774,7 @@ async def web_auth_apple(request: Request):
 
 @app.get("/api/web/session/me")
 async def web_session_me(request: Request):
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return {"authenticated": False}
     return await asyncio.to_thread(_web_session_payload, account_id)
@@ -12823,7 +12832,7 @@ async def _assistant_uid(request: Request) -> int:
     every other Assistant endpoint instead reads request.state.telegram_id,
     already resolved by SecurityMiddleware from the same website session
     cookie (see module docstring above)."""
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if not account_id:
         return 0
     uid = await asyncio.to_thread(resolve_web_session_uid, account_id)
@@ -13390,7 +13399,15 @@ async def web_assistant_realtime_session(request: Request):
 
 
 @app.post("/api/web/auth/logout")
-async def web_auth_logout():
+async def web_auth_logout(request: Request):
+    # COOKIE-2: revoke the session server-side too, not just drop the
+    # cookie from this browser - a copy captured elsewhere (network
+    # capture, a synced device) would otherwise keep working for the rest
+    # of WEB_SESSION_MAX_AGE. Best-effort: an already-invalid/missing
+    # cookie just means there is nothing to revoke.
+    account_id = await _web_session_account_id(request)
+    if account_id is not None:
+        await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
     # Must match every attribute the cookie was originally set with
     # (_set_web_session_cookie: secure=True, samesite="none"). Starlette's
@@ -13457,7 +13474,7 @@ async def web_auth_verify_email(token: str = ""):
 
 @app.post("/api/web/auth/resend-verification")
 async def web_auth_resend_verification(request: Request):
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     try:
@@ -13489,7 +13506,7 @@ async def web_auth_reset_password(request: Request):
 
 @app.post("/api/web/account/password/change")
 async def web_account_password_change(request: Request):
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     payload = await request.json()
@@ -13501,7 +13518,15 @@ async def web_account_password_change(request: Request):
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    return {"ok": True}
+    # COOKIE-2: a password change must invalidate every other
+    # sylvex_web_session token already out there for this account (a
+    # stolen/leaked one, say) - then immediately reissue a fresh cookie so
+    # the browser that just proved its own identity by changing the
+    # password isn't logged out by its own action.
+    await asyncio.to_thread(revoke_web_sessions, account_id)
+    response = JSONResponse({"ok": True})
+    _set_web_session_cookie(response, account_id)
+    return response
 
 
 @app.post("/api/web/account/delete")
@@ -13510,7 +13535,7 @@ async def web_account_delete(request: Request):
     # freeing the email and any linked Google/Apple accounts to register
     # again - see account_identity.delete_account for exactly what is and
     # isn't removed. Requires the account's own password when one is set.
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     payload = await request.json()
@@ -13521,6 +13546,12 @@ async def web_account_delete(request: Request):
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    # COOKIE-2: explicit revocation on top of the row itself being gone
+    # (defense in depth - account_session_revoked_before() would already
+    # find no row and treat the account as never-revoked, but every other
+    # lookup on a deleted account_id also comes up empty, so this never
+    # grants access to anything real either way).
+    await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
     response.delete_cookie(
         WEB_SESSION_COOKIE, path="/", secure=True, samesite="none", httponly=True,
@@ -13531,7 +13562,7 @@ async def web_account_delete(request: Request):
 
 @app.post("/api/web/account/email/set")
 async def web_account_email_set(request: Request):
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     payload = await request.json()
@@ -13552,7 +13583,7 @@ async def web_account_telegram_preview(request: Request):
     # before/after balances and any subscription resolution before anything
     # changes. Ownership of the Telegram id is proven right here via the
     # real Telegram Login Widget signature, same as /api/web/auth/telegram.
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     payload = await request.json()
@@ -13574,7 +13605,7 @@ async def web_account_telegram_confirm(request: Request):
     # Step 2: the deliberate, one-time, permanent merge (spec requirements
     # #9-#11). account_id/the session cookie never change - only the
     # account's underlying business data moves onto the real telegram_id.
-    account_id = _web_session_account_id(request)
+    account_id = await _web_session_account_id(request)
     if account_id is None:
         return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
     payload = await request.json()

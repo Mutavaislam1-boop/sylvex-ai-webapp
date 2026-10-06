@@ -165,6 +165,14 @@ def ensure_account_tables(database_url):
                 "CREATE UNIQUE INDEX IF NOT EXISTS sylvex_accounts_active_telegram_id_key "
                 "ON sylvex_accounts(active_telegram_id)"
             )
+            # Server-side revocation for sylvex_web_session tokens (security
+            # audit COOKIE-2) - a token whose issued_at predates this
+            # timestamp is rejected even though its signature/expiry still
+            # check out. NULL (the default) means "never revoked" - the
+            # common case for the vast majority of accounts. See
+            # services/security.py's revoke_web_sessions()/
+            # account_session_revoked_before().
+            cur.execute("ALTER TABLE sylvex_accounts ADD COLUMN IF NOT EXISTS sessions_revoked_before TIMESTAMPTZ")
             _migrate_legacy_negative_id_accounts(cur)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS account_emails (
