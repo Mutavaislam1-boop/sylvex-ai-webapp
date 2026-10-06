@@ -61,7 +61,7 @@ from services.security import (
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
     verify_web_session_token, verify_telegram_login_widget,
     web_session_account_id_from_cookie_header, resolve_web_session_uid,
-    current_web_session_generation, revoke_web_sessions,
+    current_web_session_generation, revoke_web_sessions, website_origins,
 )
 from services import account_identity as account_identity_service
 from services.account_identity import AccountError
@@ -85,7 +85,19 @@ app.add_middleware(SecurityMiddleware, quota_check=check_request_quota)
 # check in the first place. Registered after SecurityMiddleware so it wraps
 # outside it and can answer CORS preflight (OPTIONS) requests before they
 # would otherwise hit SecurityMiddleware's Telegram-auth check.
-_website_origins = [o.strip() for o in os.getenv('WEBSITE_ORIGINS', '').split(',') if o.strip()]
+# CORS-2: uses services.security.website_origins() - the exact same parsed/
+# normalized/wildcard-filtered list services.security.origin_allowed() (the
+# CSRF guard) checks a request's Origin/Referer against - rather than a
+# second, separately-normalized parse of WEBSITE_ORIGINS, so CORS and the
+# CSRF guard can never drift onto two different trusted-origin sets. That
+# shared parser (services.runtime_checks.parse_website_origins) also never
+# hands back a literal '*' entry: allow_credentials=True below combined
+# with a '*' in allow_origins would make Starlette's CORSMiddleware reflect
+# ANY request's Origin back with credentials allowed - see
+# services.runtime_checks.website_origins_configuration_error(), which
+# additionally refuses to even start the app in production if WEBSITE_ORIGINS
+# is configured with a wildcard in the first place.
+_website_origins = website_origins()
 if _website_origins:
     app.add_middleware(
         CORSMiddleware,
