@@ -11321,7 +11321,11 @@ async def admin_references_upload_media(request: Request):
         elif content[4:8] in (b"ftyp",) or content.startswith(b"\x00\x00\x00"):
             extension, content_type = "mp4", "video/mp4"
         else:
-            extension, content_type = "bin", content_type or "application/octet-stream"
+            # Sniff failed - never trust the client-declared content_type past
+            # this point (it could be "text/html" etc., served back by the
+            # generic storage route to every end user via the public
+            # references catalog). Force a safe, inert default.
+            extension, content_type = "bin", "application/octet-stream"
     filename = f"{uuid4().hex}.{extension}"
     key = generated_key(f"references/{slot}", filename)
     url = storage_put_bytes(content, key, content_type)
@@ -11486,7 +11490,11 @@ async def admin_sylvex_test_upload_file(request: Request):
         elif content.startswith(b"ID3") or content[0:2] == b"\xff\xfb":
             extension, content_type = "mp3", "audio/mpeg"
         else:
-            extension, content_type = "bin", content_type or "application/octet-stream"
+            # Sniff failed - never trust the client-declared content_type past
+            # this point (it could be "text/html" etc., served back by the
+            # generic storage route to every end user via the public
+            # references catalog). Force a safe, inert default.
+            extension, content_type = "bin", "application/octet-stream"
     filename = f"{uuid4().hex}.{extension}"
     key = generated_key("sylvex-test", filename)
     url = storage_put_bytes(content, key, content_type)
