@@ -442,10 +442,21 @@ def _pixverse_base_url():
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
-def _pixverse_headers(api_key: str, content_type: str = "application/json"):
+def _pixverse_headers(api_key: str, content_type: str = "application/json", trace_id: str = ""):
+    # JOB-1: PixVerse's own docs document Ai-trace-id as the request's
+    # dedup key - reusing it is what makes a retry safe, and reusing it
+    # across two DIFFERENT videos is what their docs call out as the most
+    # common cause of a job stuck in "Generating" forever. This function
+    # defaulted to a fresh uuid4() on every call (including every retry of
+    # the SAME generation), which is exactly backwards: it guaranteed a
+    # retried submission looked like a brand-new video to PixVerse. The one
+    # caller that submits a generation (not uploads an image or polls
+    # status) now passes a job-identity-derived trace_id so retries of the
+    # same job reuse it; every other caller is unaffected and keeps the
+    # original fresh-uuid4() behavior.
     headers = {
         "API-KEY": api_key,
-        "Ai-trace-id": str(uuid4()),
+        "Ai-trace-id": str(trace_id) if trace_id else str(uuid4()),
     }
     if content_type:
         headers["Content-Type"] = content_type
@@ -4786,7 +4797,7 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
         })
         response = _request_json(
             endpoint,
-            _pixverse_headers(api_key),
+            _pixverse_headers(api_key, trace_id=str(payload.get("job_id") or payload.get("generation_id") or "")),
             pixverse_body,
         )
         data = _safe_provider_json_response(response, "pixverse", endpoint)
@@ -4840,9 +4851,20 @@ def _call_sora(model_id: str, prompt: str, payload: dict):
                 return _provider_error("sora", model_id, "Could not read the reference image for Sora image-to-video")
             ext = mimetypes.guess_extension(mime_type or "image/jpeg") or ".jpg"
             files = {"input_reference": (f"reference{ext}", image_bytes, mime_type or "image/jpeg")}
+        headers = {"Authorization": f"Bearer {api_key}"}
+        # JOB-1: OpenAI's API officially supports a client-supplied
+        # Idempotency-Key header on POST requests (openai-python sends one
+        # automatically and reuses it across its own internal retries) -
+        # reuse the same job-identity-derived key pattern already used for
+        # HeyGen direct video, so a transient-failure retry of this exact
+        # job replays the original response instead of submitting a second
+        # paid Sora job.
+        idempotency_key = payload.get("job_id") or payload.get("generation_id") or ""
+        if idempotency_key:
+            headers["Idempotency-Key"] = str(idempotency_key)[:255]
         response = _request_form(
             endpoint,
-            {"Authorization": f"Bearer {api_key}"},
+            headers,
             form,
             files=files,
         )
