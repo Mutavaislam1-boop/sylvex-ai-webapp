@@ -19852,19 +19852,17 @@ def call_recraft_image(frontend_model: str, provider_model: str, endpoint: str, 
     return images, {}, request_payload
 
 
-def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
-    """Download native Recraft SVG, render a PNG preview, and persist both."""
-    try:
-        import cairosvg
-        from xml.etree import ElementTree
-        import re as _re
-    except ImportError as exc:
-        raise RuntimeError("SVG preview renderer is unavailable") from exc
-    response = safe_get(svg_url, timeout=120)
-    response.raise_for_status()
-    svg_bytes = response.content
-    if not svg_bytes or len(svg_bytes) > 40 * 1024 * 1024:
-        raise ValueError("Recraft returned an invalid or oversized SVG")
+def sanitize_recraft_svg_xml(svg_bytes: bytes):
+    """UPLOAD-3: parses and sanitizes a Recraft-returned SVG document in
+    place - removes <script>/<foreignObject>/<iframe>/<object>/<embed>,
+    event-handler attributes (onload, onclick, onerror, ...), and unsafe
+    external href/src/url() references. Extracted out of
+    persist_recraft_logo_assets() so the sanitizer can be exercised
+    directly in tests without cairosvg/network/storage. Raises ValueError
+    if the document isn't an SVG. Returns the sanitized root Element."""
+    from xml.etree import ElementTree
+    import re as _re
+
     root = ElementTree.fromstring(svg_bytes)
     if str(root.tag).split("}")[-1].lower() != "svg":
         raise ValueError("Recraft did not return an SVG document")
@@ -19874,7 +19872,16 @@ def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
             if str(child.tag).split("}")[-1] in blocked_tags:
                 parent.remove(child)
         for attr, value in list(parent.attrib.items()):
+            # Strip event-handler attributes case-insensitively, regardless
+            # of namespace prefix or odd casing (OnLoad, ONCLICK, ...) - an
+            # attacker's only way to run script from an SVG we accept
+            # otherwise, since <script> is already stripped above. Checked
+            # before, and instead of, the href/src/url() checks so an
+            # "on*" attribute can never fall through either branch unhandled.
             attr_name = str(attr).split("}")[-1].lower()
+            if attr_name.startswith("on"):
+                del parent.attrib[attr]
+                continue
             value = str(value or "").strip()
             if attr_name in {"href", "src"} and value and not value.startswith(("#", "data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,")):
                 del parent.attrib[attr]
@@ -19882,6 +19889,22 @@ def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
                 parent.attrib[attr] = _re.sub(r"url\(\s*(['\"]?)(?!#|data:image/)[^)]+\)", "none", value, flags=_re.I)
         if str(parent.tag).split("}")[-1].lower() == "style" and parent.text:
             parent.text = _re.sub(r"@import[^;]+;|url\(\s*(['\"]?)(?!#|data:image/)[^)]+\)", "", parent.text, flags=_re.I)
+    return root
+
+
+def persist_recraft_logo_assets(svg_url: str) -> tuple[str, str]:
+    """Download native Recraft SVG, render a PNG preview, and persist both."""
+    try:
+        import cairosvg
+        from xml.etree import ElementTree
+    except ImportError as exc:
+        raise RuntimeError("SVG preview renderer is unavailable") from exc
+    response = safe_get(svg_url, timeout=120)
+    response.raise_for_status()
+    svg_bytes = response.content
+    if not svg_bytes or len(svg_bytes) > 40 * 1024 * 1024:
+        raise ValueError("Recraft returned an invalid or oversized SVG")
+    root = sanitize_recraft_svg_xml(svg_bytes)
     svg_bytes = ElementTree.tostring(root, encoding="utf-8")
     try:
         view_box = [float(value) for value in str(root.get("viewBox") or "").replace(",", " ").split()]
