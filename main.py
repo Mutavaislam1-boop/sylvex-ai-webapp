@@ -61,7 +61,7 @@ from services.security import (
     WEB_SESSION_COOKIE, WEB_SESSION_MAX_AGE, create_web_session_token,
     verify_web_session_token, verify_telegram_login_widget,
     web_session_account_id_from_cookie_header, resolve_web_session_uid,
-    account_session_revoked_before, revoke_web_sessions,
+    current_web_session_generation, revoke_web_sessions,
 )
 from services import account_identity as account_identity_service
 from services.account_identity import AccountError
@@ -12626,8 +12626,20 @@ async def public_telegram_sync(request: Request):
 WEB_SESSION_COOKIE_DOMAIN = os.getenv("WEB_SESSION_COOKIE_DOMAIN", "").strip() or None
 
 
-def _set_web_session_cookie(response, account_id: int):
-    token = create_web_session_token(account_id)
+async def _set_web_session_cookie(response, account_id: int, generation: int = None):
+    # generation=None (the common case: register/login/OAuth/telegram-
+    # confirm) fetches the account's current session-generation counter -
+    # almost always 0, since nothing has ever revoked this account's
+    # sessions. The one caller that already knows the freshly-bumped value
+    # (password-change, right after calling revoke_web_sessions) passes it
+    # explicitly instead, so the reissued cookie is minted from that exact
+    # value rather than a second, separately-timed read of it - see
+    # services/security.py's module comment on COOKIE-2 for why that
+    # distinction is what actually closes the race, not just a clock with
+    # finer resolution.
+    if generation is None:
+        generation = await asyncio.to_thread(current_web_session_generation, account_id)
+    token = create_web_session_token(account_id, generation)
     response.set_cookie(
         WEB_SESSION_COOKIE, token, max_age=WEB_SESSION_MAX_AGE,
         httponly=True, secure=True, samesite="none", path="/",
@@ -12640,15 +12652,18 @@ async def _web_session_account_id(request: Request):
     if not token:
         return None
     try:
-        account_id, issued_at = verify_web_session_token(token)
+        account_id, generation = verify_web_session_token(token)
     except SecurityError:
         return None
     # COOKIE-2: a token whose signature/expiry still check out can still be
     # a stale copy of one invalidated since by logout/password-change/
     # account-delete (see revoke_web_sessions) - reject it the same way an
     # expired one already is, rather than trusting the signature alone.
-    revoked_before = await asyncio.to_thread(account_session_revoked_before, account_id)
-    if revoked_before and issued_at < revoked_before:
+    # Plain integer comparison against the account's current generation -
+    # no clock involved, so there is no ambiguous-ordering window (see
+    # services/security.py's module comment on COOKIE-2).
+    current_generation = await asyncio.to_thread(current_web_session_generation, account_id)
+    if generation < current_generation:
         return None
     return account_id
 
@@ -12724,7 +12739,7 @@ async def web_auth_telegram(request: Request):
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     body = await asyncio.to_thread(_web_session_payload, account_id)
     response = JSONResponse({"ok": True, **body})
-    _set_web_session_cookie(response, account_id)
+    await _set_web_session_cookie(response, account_id)
     return response
 
 
@@ -12746,7 +12761,7 @@ async def web_auth_google(request: Request):
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     body = await asyncio.to_thread(_web_session_payload, account_id)
     response = JSONResponse({"ok": True, **body})
-    _set_web_session_cookie(response, account_id)
+    await _set_web_session_cookie(response, account_id)
     return response
 
 
@@ -12768,7 +12783,7 @@ async def web_auth_apple(request: Request):
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     body = await asyncio.to_thread(_web_session_payload, account_id)
     response = JSONResponse({"ok": True, **body})
-    _set_web_session_cookie(response, account_id)
+    await _set_web_session_cookie(response, account_id)
     return response
 
 
@@ -13436,7 +13451,7 @@ async def web_auth_register(request: Request):
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     body = await asyncio.to_thread(_web_session_payload, account_id)
     response = JSONResponse({"ok": True, **body})
-    _set_web_session_cookie(response, account_id)
+    await _set_web_session_cookie(response, account_id)
     return response
 
 
@@ -13453,7 +13468,7 @@ async def web_auth_login(request: Request):
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
     body = await asyncio.to_thread(_web_session_payload, account_id)
     response = JSONResponse({"ok": True, **body})
-    _set_web_session_cookie(response, account_id)
+    await _set_web_session_cookie(response, account_id)
     return response
 
 
@@ -13522,10 +13537,14 @@ async def web_account_password_change(request: Request):
     # sylvex_web_session token already out there for this account (a
     # stolen/leaked one, say) - then immediately reissue a fresh cookie so
     # the browser that just proved its own identity by changing the
-    # password isn't logged out by its own action.
-    await asyncio.to_thread(revoke_web_sessions, account_id)
+    # password isn't logged out by its own action. Passing the generation
+    # revoke_web_sessions() just returned (rather than letting
+    # _set_web_session_cookie re-read it a moment later) is what actually
+    # makes this race-free - see services/security.py's module comment on
+    # COOKIE-2.
+    new_generation = await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
-    _set_web_session_cookie(response, account_id)
+    await _set_web_session_cookie(response, account_id, generation=new_generation)
     return response
 
 
@@ -13546,11 +13565,13 @@ async def web_account_delete(request: Request):
         )
     except AccountError as exc:
         return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    # COOKIE-2: explicit revocation on top of the row itself being gone
-    # (defense in depth - account_session_revoked_before() would already
-    # find no row and treat the account as never-revoked, but every other
-    # lookup on a deleted account_id also comes up empty, so this never
-    # grants access to anything real either way).
+    # COOKIE-2: explicit revocation attempt on top of the row itself
+    # already being gone (defense in depth - the UPDATE here affects zero
+    # rows since delete_account() already deleted it, so this is a no-op;
+    # current_web_session_generation() would likewise find no row and
+    # treat the account as generation 0, but every other lookup on a
+    # deleted account_id also comes up empty, so this never grants access
+    # to anything real either way).
     await asyncio.to_thread(revoke_web_sessions, account_id)
     response = JSONResponse({"ok": True})
     response.delete_cookie(

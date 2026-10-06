@@ -2,18 +2,38 @@
 # sylvex_web_session and sylvex_tg_session were pure stateless HMAC tokens
 # with no server-side revocation - a copy captured elsewhere kept working
 # for its full max-age even after the legitimate user logged out, changed
-# their password, or deleted their account. This adds a per-subject
-# "revoked before" timestamp (services/security.py's
-# account_session_revoked_before()/revoke_web_sessions() for the web
-# session, tg_session_revoked_before()/revoke_tg_sessions() for the Mini
-# App's tg_session), checked against each token's own issued_at
-# (services/security.py's verify_web_session_token()/verify_tg_session_token(),
-# which now both return (subject_id, issued_at) instead of a bare id).
+# their password, or deleted their account.
+#
+# The first version of this fix compared a wall-clock issued_at embedded
+# in the token against a revocation timestamp, both truncated to whole
+# seconds (services/security.py's account_session_revoked_before()/
+# revoke_web_sessions(), checked via `issued_at < revoked_before`). An old
+# token minted earlier in the SAME second as a revocation could then
+# still pass that check, and simply switching `<` to `<=` didn't fix it,
+# since the fresh token reissued immediately after that revocation (e.g.
+# right after a password change) could just as easily be minted in that
+# very same second - making the ordering genuinely ambiguous at second
+# resolution, not just imprecise.
+#
+# This replaces that with a monotonic integer session-generation counter
+# per subject (current_web_session_generation()/revoke_web_sessions() for
+# the web session, current_tg_session_generation()/revoke_tg_sessions()
+# for the Mini App's tg_session - neither reachable from any route today,
+# see services/security.py's module docstring). verify_web_session_token()/
+# verify_tg_session_token() now both return (subject_id, generation)
+# instead of (subject_id, issued_at), and revoke_web_sessions() hands back
+# the freshly incremented value directly from its own UPDATE ... RETURNING
+# so a reissue never needs a second, separately-timed read of it. There is
+# no clock involved in the comparison at all, so there is nothing left to
+# race - proven below by literally freezing time.time() to one instant and
+# minting both the old and the reissued token at that exact instant.
 #
 # Normal Telegram Mini App automatic authentication (live initData,
 # requiring no cookie or server-side state at all) is untouched by any of
 # this - only the stateless-HMAC fallback/bridge cookies are affected, and
-# only once something actually calls the new revoke_*() functions.
+# the web ones only trigger a revocation check on an account that has
+# actually been revoked (generation 0, the default, is the fast, common
+# path for every account that never has).
 import hashlib
 import hmac as hmac_module
 import time
@@ -39,39 +59,45 @@ def _client(app):
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test')
 
 
-def _manual_web_session_token(account_id, issued_at, exp):
-    """Builds a sylvex_web_session token with an explicit issued_at/exp,
-    bypassing create_web_session_token's use of the real wall clock - lets
-    tests compare an old token's issued_at against a revocation timestamp
-    with zero timing flakiness."""
-    payload = f'{int(account_id)}.{int(issued_at)}.{int(exp)}'
+def _manual_web_session_token(account_id, generation, exp):
+    """Builds a sylvex_web_session token with an explicit generation/exp,
+    bypassing create_web_session_token's default generation=0 - lets tests
+    construct a token for a specific generation without needing a live
+    revocation store behind it."""
+    payload = f'{int(account_id)}.{int(generation)}.{int(exp)}'
     sig = hmac_module.new(web_session_secret(), payload.encode(), hashlib.sha256).hexdigest()
     return f'{payload}.{sig}'
 
 
-def _manual_tg_session_token(telegram_id, issued_at, exp):
-    payload = f'{int(telegram_id)}.{int(issued_at)}.{int(exp)}'
+def _manual_tg_session_token(telegram_id, generation, exp):
+    payload = f'{int(telegram_id)}.{int(generation)}.{int(exp)}'
     sig = hmac_module.new(tg_session_secret(), payload.encode(), hashlib.sha256).hexdigest()
     return f'{payload}.{sig}'
 
 
 # ---------------------------------------------------------------------------
-# Unit: token format now carries issued_at.
+# Unit: token format now carries a generation counter, not a timestamp.
 # ---------------------------------------------------------------------------
 
-def test_web_session_token_roundtrip_carries_issued_at(monkeypatch):
+def test_web_session_token_roundtrip_carries_generation(monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
-    before = int(time.time())
-    token = create_web_session_token(42)
-    account_id, issued_at = verify_web_session_token(token)
+    token = create_web_session_token(42, generation=7)
+    account_id, generation = verify_web_session_token(token)
     assert account_id == 42
-    assert before <= issued_at <= int(time.time()) + 1
+    assert generation == 7
+
+
+def test_web_session_token_defaults_to_generation_zero(monkeypatch):
+    monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
+    account_id, generation = verify_web_session_token(create_web_session_token(42))
+    assert (account_id, generation) == (42, 0)
 
 
 def test_web_session_token_rejects_legacy_three_field_format(monkeypatch):
-    # Before this fix, a token was "{account_id}.{exp}.{sig}" (3 fields,
-    # no issued_at). Any already-issued cookie in that shape must fail
-    # cleanly (a normal 401 that forces an ordinary re-login), never crash.
+    # Before this fix (and before the issued_at-based first version of it),
+    # a token was "{account_id}.{exp}.{sig}" (3 fields). Any already-issued
+    # cookie in either old shape must fail cleanly (a normal 401 that
+    # forces an ordinary re-login), never crash.
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     exp = int(time.time()) + 3600
     legacy_payload = f'42.{exp}'
@@ -81,43 +107,40 @@ def test_web_session_token_rejects_legacy_three_field_format(monkeypatch):
         verify_web_session_token(legacy_token)
 
 
-def test_tg_session_token_roundtrip_carries_issued_at(monkeypatch):
+def test_tg_session_token_roundtrip_carries_generation(monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
-    before = int(time.time())
-    token = create_tg_session_token(101)
-    telegram_id, issued_at = verify_tg_session_token(token)
+    token = create_tg_session_token(101, generation=3)
+    telegram_id, generation = verify_tg_session_token(token)
     assert telegram_id == 101
-    assert before <= issued_at <= int(time.time()) + 1
+    assert generation == 3
 
 
 # ---------------------------------------------------------------------------
-# Unit: the revocation store itself (web session, account_id-keyed).
+# Unit: the revocation store itself (web + tg), backed by a fake DB.
 # ---------------------------------------------------------------------------
 
 class _FakeCursor:
     def __init__(self, store):
-        self.store = store  # {account_id: datetime-like or None}
+        self.store = store  # {subject_id: int generation}
         self._last = None
 
     def execute(self, sql, params=None):
         if 'ALTER TABLE' in sql or 'CREATE TABLE' in sql or 'CREATE UNIQUE INDEX' in sql or 'CREATE INDEX' in sql or 'CREATE SEQUENCE' in sql:
             self._last = None
-        elif 'SELECT sessions_revoked_before FROM sylvex_accounts' in sql:
+        elif 'SELECT session_generation FROM sylvex_accounts' in sql:
             (account_id,) = params
-            value = self.store.get(account_id)
-            self._last = (value,) if value is not None else (None,)
-        elif 'UPDATE sylvex_accounts SET sessions_revoked_before' in sql:
+            self._last = (self.store.get(account_id, 0),)
+        elif 'UPDATE sylvex_accounts SET session_generation' in sql:
             (account_id,) = params
-            self.store[account_id] = _FakeNow()
-            self._last = None
-        elif 'SELECT revoked_before FROM sylvex_tg_session_revocations' in sql:
+            self.store[account_id] = self.store.get(account_id, 0) + 1
+            self._last = (self.store[account_id],)
+        elif 'SELECT generation FROM sylvex_tg_session_revocations' in sql:
             (telegram_id,) = params
-            value = self.store.get(telegram_id)
-            self._last = (value,) if value is not None else None
+            self._last = (self.store[telegram_id],) if telegram_id in self.store else None
         elif 'INSERT INTO sylvex_tg_session_revocations' in sql:
             (telegram_id,) = params
-            self.store[telegram_id] = _FakeNow()
-            self._last = None
+            self.store[telegram_id] = self.store.get(telegram_id, 0) + 1
+            self._last = (self.store[telegram_id],)
         else:
             self._last = None
 
@@ -126,13 +149,6 @@ class _FakeCursor:
 
     def close(self):
         pass
-
-
-class _FakeNow:
-    """Stands in for a psycopg2 TIMESTAMPTZ column value - only
-    .timestamp() is ever called on it by the code under test."""
-    def timestamp(self):
-        return time.time()
 
 
 class _FakeConnection:
@@ -164,40 +180,116 @@ def fake_db(monkeypatch):
     return store
 
 
-def test_account_session_revoked_before_defaults_to_never_revoked(fake_db):
+def test_current_web_session_generation_defaults_to_zero(fake_db):
     import services.security as security
-    security._account_revocation_cache.clear()
-    assert security.account_session_revoked_before(42) == 0
+    security._account_generation_cache.clear()
+    assert security.current_web_session_generation(42) == 0
 
 
-def test_revoke_web_sessions_then_account_session_revoked_before_reflects_it(fake_db):
+def test_revoke_web_sessions_increments_and_returns_the_new_generation(fake_db):
     import services.security as security
-    security._account_revocation_cache.clear()
-    security.revoke_web_sessions(42)
-    revoked_before = security.account_session_revoked_before(42)
-    assert revoked_before > 0
-    assert abs(revoked_before - int(time.time())) < 5
+    security._account_generation_cache.clear()
+    assert security.revoke_web_sessions(42) == 1
+    assert security.revoke_web_sessions(42) == 2
+    assert security.current_web_session_generation(42) == 2
     # A different account is never affected by someone else's revocation.
-    assert security.account_session_revoked_before(43) == 0
+    assert security.current_web_session_generation(43) == 0
 
 
-def test_revoke_tg_sessions_then_tg_session_revoked_before_reflects_it(fake_db):
+def test_revoke_tg_sessions_increments_and_returns_the_new_generation(fake_db):
     import services.security as security
-    security._tg_revocation_cache.clear()
+    security._tg_generation_cache.clear()
     security._TG_REVOCATION_TABLE_READY = True  # the fake connection has no real table to create
-    assert security.tg_session_revoked_before(101) == 0
-    security.revoke_tg_sessions(101)
-    revoked_before = security.tg_session_revoked_before(101)
-    assert revoked_before > 0
-    assert security.tg_session_revoked_before(102) == 0
+    assert security.current_tg_session_generation(101) == 0
+    assert security.revoke_tg_sessions(101) == 1
+    assert security.current_tg_session_generation(101) == 1
+    assert security.current_tg_session_generation(102) == 0
 
 
 # ---------------------------------------------------------------------------
-# Integration: _web_session_account_id (main.py) rejects a token issued
-# before the account's own revocation timestamp, and accepts one issued
-# after it - exercised through the actual /api/web/session/me route so the
-# whole chain (cookie -> verify -> revocation check) is proven, not just
-# the pieces.
+# THE race test: an old token minted in the exact same instant as a
+# revocation must be rejected, while the fresh token reissued immediately
+# after that same revocation - minted in that identical instant too - must
+# be accepted. This is precisely the case a wall-clock-based check cannot
+# resolve unambiguously (switching < to <= only flips which of the two
+# tokens survives, never both correctly at once); the generation counter
+# has no such ambiguity because neither side of the comparison is a time.
+# ---------------------------------------------------------------------------
+
+def test_old_token_minted_same_instant_as_revocation_is_rejected_while_fresh_reissue_is_accepted(fake_db, monkeypatch):
+    monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
+    import services.security as security
+    security._account_generation_cache.clear()
+    frozen_instant = 1_700_000_000.123456
+    monkeypatch.setattr(security.time, 'time', lambda: frozen_instant)
+
+    # The old (soon-to-be-revoked) token, minted at the frozen instant.
+    old_token = security.create_web_session_token(42)
+    old_account_id, old_generation = security.verify_web_session_token(old_token)
+    assert (old_account_id, old_generation) == (42, 0)
+
+    # Revocation happens at that exact same instant.
+    new_generation = security.revoke_web_sessions(42)
+    assert new_generation == 1
+
+    # The fresh cookie reissued right after, minted at that same instant.
+    fresh_token = security.create_web_session_token(42, new_generation)
+    fresh_account_id, fresh_generation = security.verify_web_session_token(fresh_token)
+    assert (fresh_account_id, fresh_generation) == (42, 1)
+
+    current = security.current_web_session_generation(42)
+    assert current == 1
+    assert old_generation < current  # the old token is correctly rejected
+    assert fresh_generation >= current  # the fresh reissue is correctly accepted
+
+
+@pytest.mark.asyncio
+async def test_password_change_http_flow_rejects_old_cookie_and_accepts_the_reissued_one_minted_the_same_instant(fake_db, monkeypatch):
+    # End-to-end through the real /api/web/account/password/change route
+    # and the real revoke_web_sessions()/current_web_session_generation(),
+    # with time.time() frozen so the old cookie and the one the route
+    # reissues are minted at the literal same instant - the scenario a
+    # timestamp-based check cannot resolve.
+    monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
+    import services.security as security
+    import main
+    security._account_generation_cache.clear()
+    frozen_instant = 1_700_000_000.654321
+    monkeypatch.setattr(security.time, 'time', lambda: frozen_instant)
+    monkeypatch.setattr(main.account_identity_service, 'change_password', lambda *a, **k: None)
+    main.app.middleware_stack = None
+    for mw in main.app.user_middleware:
+        if mw.cls is SecurityMiddleware:
+            mw.kwargs['quota_check'] = AsyncMock()
+
+    old_token = create_web_session_token(42)  # generation 0, minted at the frozen instant
+
+    async with _client(main.app) as client:
+        r = await client.post(
+            '/api/web/account/password/change',
+            json={'current_password': 'old', 'new_password': 'NewPassword123!'},
+            headers={'Cookie': f'sylvex_web_session={old_token}'},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()['ok'] is True
+        fresh_token = r.cookies.get('sylvex_web_session')
+        assert fresh_token and fresh_token != old_token
+
+        # The old cookie (generation 0, now revoked) must be rejected.
+        r = await client.get('/api/web/session/me', headers={'Cookie': f'sylvex_web_session={old_token}'})
+        assert r.json()['authenticated'] is False
+
+        # The freshly reissued cookie - minted in that same frozen instant
+        # - must still work.
+        monkeypatch.setattr(main, '_web_session_payload', lambda account_id: {'authenticated': True, 'sylvex_user_id': account_id})
+        r = await client.get('/api/web/session/me', headers={'Cookie': f'sylvex_web_session={fresh_token}'})
+        assert r.json()['authenticated'] is True
+
+
+# ---------------------------------------------------------------------------
+# Integration: _web_session_account_id (main.py) rejects a token whose
+# generation is behind the account's current one, and accepts one that
+# matches or is newer - exercised through /api/web/session/me.
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -212,10 +304,10 @@ def me_app(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_old_cookie_is_rejected_once_revoked(monkeypatch, me_app):
+async def test_old_generation_cookie_is_rejected_once_revoked(monkeypatch, me_app):
     import main
-    monkeypatch.setattr(main, 'account_session_revoked_before', lambda account_id: 2_000_000_000)
-    old_token = _manual_web_session_token(42, issued_at=1_000_000_000, exp=9_999_999_999)
+    monkeypatch.setattr(main, 'current_web_session_generation', lambda account_id: 5)
+    old_token = _manual_web_session_token(42, generation=4, exp=9_999_999_999)
     async with _client(me_app) as client:
         r = await client.get('/api/web/session/me', headers={'Cookie': f'sylvex_web_session={old_token}'})
         assert r.status_code == 200
@@ -223,13 +315,13 @@ async def test_old_cookie_is_rejected_once_revoked(monkeypatch, me_app):
 
 
 @pytest.mark.asyncio
-async def test_cookie_issued_after_revocation_still_works(monkeypatch, me_app):
+async def test_matching_generation_cookie_still_works(monkeypatch, me_app):
     import main
-    monkeypatch.setattr(main, 'account_session_revoked_before', lambda account_id: 1_000_000_000)
+    monkeypatch.setattr(main, 'current_web_session_generation', lambda account_id: 5)
     monkeypatch.setattr(main, '_web_session_payload', lambda account_id: {'authenticated': True, 'sylvex_user_id': account_id})
-    fresh_token = _manual_web_session_token(42, issued_at=2_000_000_000, exp=9_999_999_999)
+    token = _manual_web_session_token(42, generation=5, exp=9_999_999_999)
     async with _client(me_app) as client:
-        r = await client.get('/api/web/session/me', headers={'Cookie': f'sylvex_web_session={fresh_token}'})
+        r = await client.get('/api/web/session/me', headers={'Cookie': f'sylvex_web_session={token}'})
         assert r.status_code == 200
         assert r.json()['authenticated'] is True
 
@@ -237,7 +329,7 @@ async def test_cookie_issued_after_revocation_still_works(monkeypatch, me_app):
 @pytest.mark.asyncio
 async def test_unrevoked_account_is_unaffected(monkeypatch, me_app):
     import main
-    monkeypatch.setattr(main, 'account_session_revoked_before', lambda account_id: 0)
+    monkeypatch.setattr(main, 'current_web_session_generation', lambda account_id: 0)
     monkeypatch.setattr(main, '_web_session_payload', lambda account_id: {'authenticated': True, 'sylvex_user_id': account_id})
     token = create_web_session_token(42)
     async with _client(me_app) as client:
@@ -259,7 +351,7 @@ def account_routes_app(monkeypatch):
     for mw in main.app.user_middleware:
         if mw.cls is SecurityMiddleware:
             mw.kwargs['quota_check'] = AsyncMock()
-    monkeypatch.setattr(main, 'account_session_revoked_before', lambda account_id: 0)
+    monkeypatch.setattr(main, 'current_web_session_generation', lambda account_id: 0)
     return main.app
 
 
@@ -267,7 +359,7 @@ def account_routes_app(monkeypatch):
 async def test_logout_revokes_the_session(monkeypatch, account_routes_app):
     import main
     revoked = []
-    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id))
+    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id) or 1)
     token = create_web_session_token(42)
     async with _client(account_routes_app) as client:
         r = await client.post('/api/web/auth/logout', headers={'Cookie': f'sylvex_web_session={token}'})
@@ -279,7 +371,7 @@ async def test_logout_revokes_the_session(monkeypatch, account_routes_app):
 async def test_logout_without_a_session_cookie_does_not_call_revoke(monkeypatch, account_routes_app):
     import main
     revoked = []
-    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id))
+    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id) or 1)
     async with _client(account_routes_app) as client:
         r = await client.post('/api/web/auth/logout')
         assert r.status_code == 200
@@ -287,18 +379,11 @@ async def test_logout_without_a_session_cookie_does_not_call_revoke(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_password_change_revokes_old_sessions_and_reissues_a_fresh_cookie(monkeypatch, account_routes_app):
+async def test_password_change_reissues_a_cookie_at_the_returned_generation(monkeypatch, account_routes_app):
     import main
-    revoked = []
-    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id))
+    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: 9)
     monkeypatch.setattr(main.account_identity_service, 'change_password', lambda *a, **k: None)
-    # Minted far in the past (via the manual-token helper, not the real
-    # wall clock) so it's unambiguously distinct from the fresh cookie the
-    # route reissues a moment later - a real create_web_session_token()
-    # call for the old token could otherwise land in the same integer
-    # second as the reissued one and produce an identical string, making
-    # the "got a fresh cookie" assertion flaky rather than meaningful.
-    token = _manual_web_session_token(42, issued_at=1_000_000_000, exp=9_999_999_999)
+    token = _manual_web_session_token(42, generation=0, exp=9_999_999_999)
     async with _client(account_routes_app) as client:
         r = await client.post(
             '/api/web/account/password/change',
@@ -307,22 +392,19 @@ async def test_password_change_revokes_old_sessions_and_reissues_a_fresh_cookie(
         )
         assert r.status_code == 200, r.text
         assert r.json()['ok'] is True
-        # A fresh cookie for the SAME account must be reissued - the
-        # browser that just proved its identity by changing the password
-        # must not be logged out by its own action.
         new_cookie = r.cookies.get('sylvex_web_session')
         assert new_cookie and new_cookie != token
-        new_account_id, new_issued_at = verify_web_session_token(new_cookie)
-        assert new_account_id == 42
-        assert new_issued_at > 1_000_000_000
-    assert revoked == [42]
+        # Reissued directly at generation 9 (revoke_web_sessions' return
+        # value), never re-derived from a second, separate read.
+        new_account_id, new_generation = verify_web_session_token(new_cookie)
+        assert (new_account_id, new_generation) == (42, 9)
 
 
 @pytest.mark.asyncio
 async def test_account_delete_revokes_the_session(monkeypatch, account_routes_app):
     import main
     revoked = []
-    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id))
+    monkeypatch.setattr(main, 'revoke_web_sessions', lambda account_id: revoked.append(account_id) or 1)
     monkeypatch.setattr(main.account_identity_service, 'delete_account', lambda *a, **k: None)
     token = create_web_session_token(42)
     async with _client(account_routes_app) as client:
@@ -356,8 +438,8 @@ async def test_bridge_rejects_a_revoked_web_session_cookie(monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     monkeypatch.delenv('WEBSITE_ORIGINS', raising=False)
     monkeypatch.setattr('services.security.resolve_web_session_uid', lambda account_id: 777)
-    monkeypatch.setattr('services.security.account_session_revoked_before', lambda account_id: 2_000_000_000)
-    old_token = _manual_web_session_token(123, issued_at=1_000_000_000, exp=9_999_999_999)
+    monkeypatch.setattr('services.security.current_web_session_generation', lambda account_id: 5)
+    old_token = _manual_web_session_token(123, generation=4, exp=9_999_999_999)
     async with _client(_bridge_app()) as client:
         r = await client.post(
             '/api/public/payments/paypal/create-order', json={},
@@ -372,7 +454,7 @@ async def test_bridge_accepts_an_unrevoked_web_session_cookie(monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     monkeypatch.delenv('WEBSITE_ORIGINS', raising=False)
     monkeypatch.setattr('services.security.resolve_web_session_uid', lambda account_id: 777)
-    monkeypatch.setattr('services.security.account_session_revoked_before', lambda account_id: 0)
+    monkeypatch.setattr('services.security.current_web_session_generation', lambda account_id: 0)
     token = create_web_session_token(123)
     async with _client(_bridge_app()) as client:
         r = await client.post(
