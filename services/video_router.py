@@ -17,7 +17,7 @@ import mimetypes
 from uuid import uuid4
 import requests
 import httpx
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from services.error_translator import raw_error_text, translate_provider_error
 from services.character_prompts import build_character_prompt, infer_character_operation
@@ -1077,15 +1077,65 @@ def _safe_response_text(response):
 
 
 # =====================================================
+# PYTHON-БЛОК: _strip_url_query
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
+def _strip_url_query(value):
+    """LOG-2: removes the query string (and fragment) from a URL before
+    it's logged. A signed SYLVEX media URL carries its HMAC signature
+    there (media_exp/media_sig - see services/media_access.py's
+    sign_media_url()); other providers' presigned/download URLs follow
+    the same shape. The query string is exactly where a logged URL turns
+    into a working, unauthenticated credential, so it is dropped
+    unconditionally rather than attempting to recognize which query
+    params are "safe" per URL. Only strings that already look like an
+    absolute URL or an app-relative path are touched, so ordinary text
+    (a prompt that happens to contain a '?', an id, ...) is never
+    mangled."""
+    if not isinstance(value, str) or not value.startswith(("http://", "https://", "/")):
+        return value
+    try:
+        parts = urlparse(value)
+        if not parts.query and not parts.fragment:
+            return value
+        return urlunparse((parts.scheme, parts.netloc, parts.path, "", "", ""))
+    except ValueError:
+        return value
+
+
+# =====================================================
 # PYTHON-БЛОК: _response_headers_dict
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+# LOG-2: an explicit ALLOWLIST, not a blocklist - logging every response
+# header verbatim (the previous behavior) included Set-Cookie, any
+# provider echo of Authorization, and provider-specific session/secret
+# headers. Only header names confirmed to carry no credential - content
+# metadata, retry/rate-limit metadata, and request-id-style correlation
+# ids - are ever copied through; everything else, named here or not, is
+# dropped by construction.
+_SAFE_RESPONSE_HEADERS = frozenset({
+    "content-type", "content-length", "retry-after",
+    "x-request-id", "request-id", "x-requestid", "openai-request-id",
+    "x-ratelimit-limit-requests", "x-ratelimit-remaining-requests", "x-ratelimit-reset-requests",
+    "x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens", "x-ratelimit-reset-tokens",
+    "cf-ray",
+})
+
+
 def _response_headers_dict(response):
     try:
-        return dict(response.headers or {})
+        headers = response.headers or {}
+        items = headers.items()
     except Exception:
         return {}
+    safe = {}
+    for key, value in items:
+        if str(key).lower() in _SAFE_RESPONSE_HEADERS:
+            safe[key] = value
+    return safe
 
 
 # =====================================================
@@ -1097,12 +1147,12 @@ def _log_provider_response(provider: str, label: str, url: str, payload: dict, r
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
     body_preview = _safe_response_text(response)[:4000]
     print(f"{provider.upper()} {label} RESPONSE DEBUG:", {
-        "request_url": url,
+        "request_url": _strip_url_query(url),
         "request_payload": _sanitize_debug_payload(payload),
         "http_status": status,
         "response_headers": _response_headers_dict(response),
         "response_body": body_preview,
-        "json_body": data if isinstance(data, dict) else None,
+        "json_body": _sanitize_debug_payload(data) if isinstance(data, dict) else None,
     })
 
 
@@ -1116,11 +1166,13 @@ def _sanitize_debug_payload(value, limit: int = 260):
         return {key: _sanitize_debug_payload(item, limit) for key, item in value.items()}
     if isinstance(value, list):
         return [_sanitize_debug_payload(item, limit) for item in value]
-    if isinstance(value, str) and len(value) > limit:
-        prefix = value[:80]
-        if value.startswith("data:") or len(value) > 1000:
-            return f"{prefix}... [{len(value)} chars]"
-        return f"{value[:limit]}... [{len(value)} chars]"
+    if isinstance(value, str):
+        value = _strip_url_query(value)
+        if len(value) > limit:
+            prefix = value[:80]
+            if value.startswith("data:") or len(value) > 1000:
+                return f"{prefix}... [{len(value)} chars]"
+            return f"{value[:limit]}... [{len(value)} chars]"
     return value
 
 
@@ -3562,7 +3614,7 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
     try:
         endpoint = _seedance_submit_endpoint()
         headers = _seedance_headers(api_key)
-        print("SEEDANCE VIDEO SUBMIT DEBUG:", {
+        print("SEEDANCE VIDEO SUBMIT DEBUG:", _sanitize_debug_payload({
             "endpoint": endpoint,
             "model": model_id,
             "provider_model": body.get("model"),
@@ -3573,7 +3625,7 @@ def _call_seedance(model_id: str, prompt: str, payload: dict):
             "content_types": [item.get("type") for item in body.get("content", []) if isinstance(item, dict)],
             "has_image_refs": any(isinstance(item, dict) and item.get("type") == "image_url" for item in body.get("content", [])),
             "has_video_refs": any(isinstance(item, dict) and item.get("type") == "video_url" for item in body.get("content", [])),
-        })
+        }))
         response = _request_json(
             endpoint,
             headers,
@@ -3745,7 +3797,7 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
     provider_model = _provider_model_for_video(model_id)
     endpoint = _video_model_mapping(model_id).get("endpoint") or f"{_heygen_base_url()}/v3/videos"
     request_body = {}
-    print("HEYGEN DIRECT DEBUG START:", {
+    print("HEYGEN DIRECT DEBUG START:", _sanitize_debug_payload({
         "model_id": model_id,
         "provider_model": provider_model,
         "endpoint": endpoint,
@@ -3756,7 +3808,7 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
         "files_count": len(_heygen_files_from_payload(body, payload)),
         "has_start_image": bool(body.get("start_image") or body.get("image_url") or raw_options.get("image_url")),
         "has_input_video": bool(body.get("input_video") or raw_options.get("input_video") or raw_options.get("video_url")),
-    })
+    }))
 
     if provider_model in {"avatar_iv", "avatar_v", "avatar_iii"}:
         avatar_id = raw_options.get("avatar_id") or raw_options.get("heygen_avatar_id") or os.getenv("HEYGEN_AVATAR_ID")
@@ -3829,12 +3881,12 @@ def _call_heygen_direct_video(model_id: str, prompt: str, payload: dict):
     if provider_model != "cinematic_avatar":
         _heygen_direct_common_fields(request_body, body, raw_options, payload)
     try:
-        print("HEYGEN DIRECT REQUEST:", {
+        print("HEYGEN DIRECT REQUEST:", _sanitize_debug_payload({
             "endpoint": endpoint,
             "model_id": model_id,
             "provider_model": provider_model,
             "request_body": request_body,
-        })
+        }))
         headers = _heygen_headers(api_key)
         idempotency_key = payload.get("job_id") or payload.get("generation_id") or ""
         if idempotency_key:
@@ -4034,6 +4086,10 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
     # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
     # =====================================================
     def _short_debug_value(value, limit=220):
+        if isinstance(value, list):
+            return [_short_debug_value(item, limit) for item in value]
+        if isinstance(value, str):
+            value = _strip_url_query(value)
         text = str(value or "")
         if text.startswith("data:image/"):
             return text[:80] + f"... [data image {len(text)} chars]"
@@ -4086,7 +4142,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         public_path = storage_put_bytes(content, generated_key("video-inputs", filename), mime_hint or f"image/{ext}")
         print("KLING DEBUG MATERIALIZED_INPUT_IMAGE:", {
             "path": generated_key("video-inputs", filename),
-            "url": public_path,
+            "url": _strip_url_query(public_path),
             "bytes": len(content),
         })
         return _absolute_public_url(public_path)
@@ -4287,14 +4343,14 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
         if payload.get("job_id"):
             kling_body["external_task_id"] = str(payload.get("job_id"))
     elif is_video_effects:
-        print("KLING DEBUG EFFECT SOURCES:", {
+        print("KLING DEBUG EFFECT SOURCES:", _sanitize_debug_payload({
             "body_effect_scene": body.get("effect_scene"),
             "raw_options_effect_scene": raw_options.get("effect_scene"),
             "video_template_effect_scene": video_template.get("effect_scene"),
             "video_template": video_template,
             "is_video_effects": is_video_effects,
             "video_mode": video_mode,
-        })
+        }))
         effect_scene = str(
             body.get("effect_scene")
             or raw_options.get("effect_scene")
@@ -4517,7 +4573,7 @@ def _call_kling(model_id: str, prompt: str, payload: dict):
                 endpoint = _kling_omni_endpoint(provider_model)
             else:
                 endpoint = _kling_submit_endpoint(provider_model, endpoint_body)
-        print("KLING DEBUG ENDPOINT:", endpoint)
+        print("KLING DEBUG ENDPOINT:", _strip_url_query(endpoint))
         print("KLING DEBUG PAYLOAD:", _sanitize_debug_payload(kling_body))
         print("KLING DEBUG COST:", cost_info)
         response = _request_json(
@@ -4662,7 +4718,7 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
                 ]
             elif prompt_image:
                 runway_body["promptImage"] = _public_input_url(prompt_image)
-        print("RUNWAY REQUEST DEBUG:", {
+        print("RUNWAY REQUEST DEBUG:", _sanitize_debug_payload({
             "endpoint": endpoint,
             "model_id": model_id,
             "provider_model": provider_model,
@@ -4671,7 +4727,7 @@ def _call_runway(model_id: str, prompt: str, payload: dict):
             "has_video_uri": bool(runway_body.get("videoUri")),
             "ratio": runway_body.get("ratio"),
             "duration": runway_body.get("duration"),
-        })
+        }))
         response = _request_json(
             endpoint,
             {
@@ -4787,7 +4843,7 @@ def _call_pixverse(model_id: str, prompt: str, payload: dict):
                 pixverse_body["last_frame_img"] = end_img_id
                 endpoint = f"{_pixverse_base_url()}/video/transition/generate"
         print("PIXVERSE SUBMIT REQUEST:", {
-            "endpoint": endpoint,
+            "endpoint": _strip_url_query(endpoint),
             "frontend_model": model_id,
             "provider_model": provider_model,
             "has_start_image": bool(start_image),
@@ -4975,7 +5031,7 @@ def _call_gemini_video(model_id: str, prompt: str, payload: dict):
     }
     try:
         print("GEMINI VIDEO REQUEST:", {
-            "endpoint": endpoint,
+            "endpoint": _strip_url_query(endpoint),
             "model": provider_model,
             "task": task,
             "aspect_ratio": response_format.get("aspect_ratio"),
@@ -5149,7 +5205,7 @@ def _call_wan(model_id: str, prompt: str, payload: dict):
     try:
         endpoint = _video_model_mapping(model_id).get("endpoint") or _dashscope_video_endpoint()
         print("WAN SUBMIT REQUEST:", {
-            "endpoint": endpoint,
+            "endpoint": _strip_url_query(endpoint),
             "frontend_model": model_id,
             "provider_model": provider_model,
             "has_start_image": bool(start_image),
