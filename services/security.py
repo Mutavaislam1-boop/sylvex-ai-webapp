@@ -408,25 +408,26 @@ def resolve_web_session_uid(account_id):
 # left to race.
 #
 # Both lookups are blocking DB calls - callers MUST use asyncio.to_thread,
-# exactly like resolve_web_session_uid above. Each keeps its own short-TTL
-# cache (far shorter than _WEB_UID_CACHE_TTL's 30s, since the whole point
-# here is making a captured token die promptly) to avoid a DB round trip
-# on every single request while still bounding how long a just-revoked
-# token can keep working across worker processes - that cache only ever
-# delays how soon OTHER requests/processes observe a bump; it is never
-# consulted for the value a revoke itself just produced.
+# exactly like resolve_web_session_uid above. Deliberately UNCACHED, unlike
+# resolve_web_session_uid's 30s _web_uid_cache: this process is one of
+# several worker processes/replicas in production, each with its own
+# memory, and a cache populated here would only ever be consulted by THIS
+# worker - a logout/password-change handled by worker A bumps the
+# generation in the database, but worker B (and every other worker) would
+# keep accepting the token at its own stale cached generation for up to
+# the cache's TTL, during which an already-revoked token is wrongly still
+# honored. That window is exactly what server-side revocation exists to
+# close, so it must not reopen one of its own. Nothing here needs a shared
+# cache (Redis, pub/sub, etc.) to fix this safely - a single indexed-PK
+# lookup per request against Postgres is cheap enough that going without
+# any cache at all is the correct minimal fix, not a stopgap.
 # ---------------------------------------------------------------------------
-_SESSION_REVOCATION_CACHE_TTL=10.0
-_account_generation_cache={}
-_tg_generation_cache={}
 
 def current_web_session_generation(account_id):
  """Blocking DB lookup - call via asyncio.to_thread. Returns account_id's
  current session-generation counter (0 if its sessions have never been
- revoked - sylvex_accounts.session_generation defaults to 0)."""
- now=time.monotonic()
- cached=_account_generation_cache.get(account_id)
- if cached and cached[1]>now: return cached[0]
+ revoked - sylvex_accounts.session_generation defaults to 0). Always a
+ fresh read, never cached - see the module comment above."""
  database_url=_database_url()
  if not database_url: return 0
  from services.account_identity import ensure_account_tables
@@ -440,10 +441,7 @@ def current_web_session_generation(account_id):
   cur.close()
  finally:
   conn.close()
- value=int(row[0]) if row and row[0] else 0
- if len(_account_generation_cache)>5000: _account_generation_cache.clear()
- _account_generation_cache[account_id]=(value,now+_SESSION_REVOCATION_CACHE_TTL)
- return value
+ return int(row[0]) if row and row[0] else 0
 
 def revoke_web_sessions(account_id):
  """Blocking DB write - call via asyncio.to_thread. Invalidates every
@@ -466,9 +464,7 @@ def revoke_web_sessions(account_id):
   cur.close()
  finally:
   conn.close()
- new_generation=int(row[0]) if row else 0
- _account_generation_cache[account_id]=(new_generation,time.monotonic()+_SESSION_REVOCATION_CACHE_TTL)
- return new_generation
+ return int(row[0]) if row else 0
 
 _TG_REVOCATION_TABLE_READY=False
 _tg_revocation_table_lock=threading.Lock()
@@ -500,10 +496,8 @@ def current_tg_session_generation(telegram_id):
  means 0). Nothing in this codebase calls revoke_tg_sessions() yet (see
  its docstring below), so this always returns 0 today; it exists so the
  check is already wired and live the moment such a trigger is added,
- without a second migration."""
- now=time.monotonic()
- cached=_tg_generation_cache.get(telegram_id)
- if cached and cached[1]>now: return cached[0]
+ without a second migration. Always a fresh read, never cached - see the
+ module comment above revoke_web_sessions()."""
  database_url=_database_url()
  if not database_url: return 0
  _ensure_tg_revocation_table(database_url)
@@ -516,10 +510,7 @@ def current_tg_session_generation(telegram_id):
   cur.close()
  finally:
   conn.close()
- value=int(row[0]) if row else 0
- if len(_tg_generation_cache)>5000: _tg_generation_cache.clear()
- _tg_generation_cache[telegram_id]=(value,now+_SESSION_REVOCATION_CACHE_TTL)
- return value
+ return int(row[0]) if row else 0
 
 def revoke_tg_sessions(telegram_id):
  """Blocking DB write - call via asyncio.to_thread. Invalidates every
@@ -546,9 +537,7 @@ def revoke_tg_sessions(telegram_id):
   cur.close()
  finally:
   conn.close()
- new_generation=int(row[0]) if row else 0
- _tg_generation_cache[telegram_id]=(new_generation,time.monotonic()+_SESSION_REVOCATION_CACHE_TTL)
- return new_generation
+ return int(row[0]) if row else 0
 
 def verify_telegram_login_widget(payload, tokens=None):
  # Distinct from validated_user(): the Telegram Login Widget signs with
