@@ -52,3 +52,40 @@ def check_quota(user_id,path):
 
 async def check_request_quota(user_id,path):
  await asyncio.to_thread(check_quota,user_id,path)
+
+# Object Creation abuse protection: a dedicated bucket, deliberately
+# separate from COSTLY's shared 'provider'/'upload' buckets above, checked
+# only at the exact point main.py's public_prostudio_create_object creates
+# a new Object Creation job (never on polling/status-read/jobs-list
+# endpoints, which never call this). Kept distinct so a burst of Object
+# Creation attempts can never exhaust quota shared with unrelated costly
+# endpoints (image/video generation, voice tools, grid planning, ...) and
+# vice versa - Object Creation's own GPT Image reference render + vision
+# analysis pipeline is expensive enough to deserve its own, tighter cap.
+# Uses the same sylvex_request_limits table as check_quota() above - a
+# real Postgres row shared across every worker/replica, not an in-process
+# counter - keyed by the caller's canonical authenticated telegram_id
+# (never IP alone).
+OBJECT_CREATION_BUCKET='object_creation'
+
+def check_object_creation_quota(user_id):
+ dsn=os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')
+ if not dsn:raise SecurityError('generation_queue_unavailable',503)
+ try:
+  ensure_limit_table(dsn)
+  with db_connect(dsn) as conn:
+   with conn.cursor() as cur:
+    for period,default in ((60,3),(86400,20)):
+     limit=int(os.getenv(f'OBJECT_CREATION_REQUESTS_PER_{"MINUTE" if period==60 else "DAY"}',str(default)))
+     window=int(time.time())//period
+     cur.execute('''INSERT INTO sylvex_request_limits(user_id,bucket,window_start,hits) VALUES(%s,%s,%s,1)
+      ON CONFLICT(user_id,bucket) DO UPDATE SET window_start=EXCLUDED.window_start,
+      hits=CASE WHEN sylvex_request_limits.window_start=EXCLUDED.window_start THEN sylvex_request_limits.hits+1 ELSE 1 END
+      RETURNING hits''',(user_id,f'{OBJECT_CREATION_BUCKET}:{period}',window))
+     if cur.fetchone()[0]>limit:raise SecurityError('object_creation_rate_limited',429)
+   conn.commit()
+ except SecurityError:raise
+ except Exception:raise SecurityError('usage_limit_unavailable',503)
+
+async def check_object_creation_request_quota(user_id):
+ await asyncio.to_thread(check_object_creation_quota,user_id)

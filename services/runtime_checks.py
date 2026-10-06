@@ -85,7 +85,7 @@ def validate_runtime():
  for name in ('WEBAPP_URL','R2_ENDPOINT'):
   parsed=urlsplit(os.getenv(name,''))
   if parsed.scheme!='https' or not parsed.hostname:raise RuntimeError(name+' must be an HTTPS URL in production')
- for name in ('PROVIDER_REQUESTS_PER_MINUTE','PROVIDER_REQUESTS_PER_DAY','UPLOAD_REQUESTS_PER_MINUTE','UPLOAD_REQUESTS_PER_DAY'):
+ for name in ('PROVIDER_REQUESTS_PER_MINUTE','PROVIDER_REQUESTS_PER_DAY','UPLOAD_REQUESTS_PER_MINUTE','UPLOAD_REQUESTS_PER_DAY','OBJECT_CREATION_REQUESTS_PER_MINUTE','OBJECT_CREATION_REQUESTS_PER_DAY'):
   if name in os.environ and int(os.environ[name])<=0:raise RuntimeError(name+' must be positive')
 
  if not os.getenv('TELEGRAM_PAYMENT_WEBHOOK_SECRET', '').strip():
