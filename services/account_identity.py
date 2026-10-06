@@ -166,13 +166,22 @@ def ensure_account_tables(database_url):
                 "ON sylvex_accounts(active_telegram_id)"
             )
             # Server-side revocation for sylvex_web_session tokens (security
-            # audit COOKIE-2) - a token whose issued_at predates this
-            # timestamp is rejected even though its signature/expiry still
-            # check out. NULL (the default) means "never revoked" - the
-            # common case for the vast majority of accounts. See
+            # audit COOKIE-2) - a token whose own embedded generation is
+            # less than this counter is rejected even though its
+            # signature/expiry still check out. 0 (the default) means
+            # "never revoked" - the common case for the vast majority of
+            # accounts. A monotonic integer counter, not a timestamp: an
+            # earlier version of this column (sessions_revoked_before,
+            # dropped below) compared a wall-clock issued_at against a
+            # revocation timestamp, where an old token minted in the same
+            # second as a revocation could survive the check while a
+            # fresh token reissued immediately after that same revocation
+            # could just as easily land in that same second - genuinely
+            # ambiguous ordering no amount of clock resolution fixes. See
             # services/security.py's revoke_web_sessions()/
-            # account_session_revoked_before().
-            cur.execute("ALTER TABLE sylvex_accounts ADD COLUMN IF NOT EXISTS sessions_revoked_before TIMESTAMPTZ")
+            # current_web_session_generation().
+            cur.execute("ALTER TABLE sylvex_accounts DROP COLUMN IF EXISTS sessions_revoked_before")
+            cur.execute("ALTER TABLE sylvex_accounts ADD COLUMN IF NOT EXISTS session_generation INTEGER NOT NULL DEFAULT 0")
             _migrate_legacy_negative_id_accounts(cur)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS account_emails (
