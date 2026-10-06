@@ -38,6 +38,7 @@ from services.password_auth import (
 )
 from services.account_email import send_verification_email, send_password_reset_email, send_merge_code_email
 from services import oauth_verify
+from services.login_rate_limit import check_lockout as _check_rate_limit_lockout, record_failure as _record_rate_limit_failure, record_success as _record_rate_limit_success
 
 VERIFICATION_TOKEN_TTL = "24 hours"
 RESET_TOKEN_TTL = "1 hour"
@@ -364,7 +365,17 @@ def register_email_account(database_url, email, password, display_name=None):
 
 
 def login_email_account(database_url, email, password):
+    # RATE-1: tracked by the normalized email string itself, never by
+    # whether an account actually exists for it (see login_rate_limit.py's
+    # module docstring) - so the lockout can never be used to probe
+    # account existence, and so a nonexistent email is throttled on the
+    # exact same schedule as a real one.
     email = normalize_email(email or "")
+    if not email:
+        raise AccountError("invalid_credentials", 401)
+    identity = f"login:{email}"
+    if _check_rate_limit_lockout(database_url, identity).get("locked"):
+        raise AccountError("too_many_attempts", 429)
     conn = db_connect(database_url)
     cur = conn.cursor()
     try:
@@ -374,7 +385,9 @@ def login_email_account(database_url, email, password):
         cur.close()
         conn.close()
     if not row or not row[1] or not verify_password(password or "", row[1]):
+        _record_rate_limit_failure(database_url, identity)
         raise AccountError("invalid_credentials", 401)
+    _record_rate_limit_success(database_url, identity)
     return int(row[0])
 
 
@@ -570,9 +583,21 @@ def resend_verification(database_url, account_id):
 def request_password_reset(database_url, email):
     # Always returns normally (never reveals whether the email exists) -
     # only sends mail when it actually finds an account.
+    #
+    # RATE-1: throttles REQUEST volume per normalized email, independent
+    # of whether the email exists. This endpoint already can't be used to
+    # probe existence via its response, but unlimited requests are both
+    # an email-bombing vector against whoever owns the real inbox and a
+    # timing side channel (actually sending mail takes measurably longer
+    # than the no-op "unknown email" path) - so request volume itself
+    # must be bounded the same way login attempts are.
     email = normalize_email(email or "")
     if not email:
         return
+    identity = f"forgot-password:{email}"
+    if _check_rate_limit_lockout(database_url, identity).get("locked"):
+        return
+    _record_rate_limit_failure(database_url, identity)
     conn = db_connect(database_url)
     cur = conn.cursor()
     row = None
