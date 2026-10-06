@@ -1450,35 +1450,49 @@ def get_crypto_invoice(invoice_id: int):
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+_USER_EVENTS_SCHEMA_LOCK = threading.Lock()
+_USER_EVENTS_SCHEMA_READY = False
 def ensure_user_events_table():
-    if not DATABASE_URL:
+    # SQL-4: this used to re-run its full DDL batch on every call (every
+    # call is on the get_user_state() hot path) - guarded the same way
+    # ensure_prostudio_table() already is, with the ready flag only ever
+    # set after a successful commit, so a failed migration leaves the
+    # next call free to retry rather than wrongly caching the failure.
+    global _USER_EVENTS_SCHEMA_READY
+    if _USER_EVENTS_SCHEMA_READY or not DATABASE_URL:
         return
-
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_events (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            source TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            event_name TEXT,
-            payload JSONB DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        # get_user_state()'s "SELECT ... FROM user_events WHERE telegram_id
-        # = %s ORDER BY created_at DESC LIMIT 20" had nothing to use but a
-        # full table scan - telegram_id wasn't indexed here at all.
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_user_events_user_created
-        ON user_events (telegram_id, created_at DESC)
-        """)
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    with _USER_EVENTS_SCHEMA_LOCK:
+        if _USER_EVENTS_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_events (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                source TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_name TEXT,
+                payload JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            # get_user_state()'s "SELECT ... FROM user_events WHERE telegram_id
+            # = %s ORDER BY created_at DESC LIMIT 20" had nothing to use but a
+            # full table scan - telegram_id wasn't indexed here at all.
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_events_user_created
+            ON user_events (telegram_id, created_at DESC)
+            """)
+            conn.commit()
+            _USER_EVENTS_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 
 # =====================================================
@@ -1486,115 +1500,127 @@ def ensure_user_events_table():
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+_PAYMENT_SCHEMA_LOCK = threading.Lock()
+_PAYMENT_SCHEMA_READY = False
 def ensure_payment_tables():
-    if not DATABASE_URL:
+    # SQL-4: webhook retry storms (PayPal retries, concurrent Stars
+    # purchases) called this on every webhook delivery; guard it the same
+    # way ensure_prostudio_table() already is.
+    global _PAYMENT_SCHEMA_READY
+    if _PAYMENT_SCHEMA_READY or not DATABASE_URL:
         return
-
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS purchases (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            provider TEXT NOT NULL,
-            credits INTEGER DEFAULT 0,
-            amount INTEGER DEFAULT 0,
-            currency TEXT DEFAULT 'USD',
-            payload TEXT,
-            charge_id TEXT UNIQUE,
-            status TEXT DEFAULT 'completed',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        # get_user_state()'s "SELECT ... FROM purchases WHERE telegram_id = %s
-        # ORDER BY created_at DESC LIMIT 10" had no index to use at all -
-        # telegram_id was neither the PK nor covered by any other index, so
-        # every call was a full table scan followed by a sort.
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_purchases_user_created
-        ON purchases (telegram_id, created_at DESC)
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            subscription_type TEXT,
-            payment_method TEXT,
-            amount INTEGER DEFAULT 0,
-            currency TEXT DEFAULT 'USD',
-            starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP,
-            status TEXT DEFAULT 'active',
-            charge_id TEXT UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        # get_user_state() runs two queries against this table for every
-        # session/me and generation call: the active subscription (telegram_id
-        # + status='active' + expires_at > NOW(), ORDER BY expires_at DESC
-        # LIMIT 1) and the latest one regardless of status (telegram_id,
-        # ORDER BY expires_at DESC NULLS LAST LIMIT 1), plus the UPDATE that
-        # expires stale rows the same way. None of that was indexed - every
-        # call scanned the whole subscriptions table. NULLS LAST matches the
-        # latest-subscription query's own ORDER BY exactly so that one can be
-        # served by a pure index scan with no extra sort step; the
-        # active-subscription query still benefits from the telegram_id
-        # prefix narrowing the scan before its status/expires_at filter runs.
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_subscriptions_user_expires
-        ON subscriptions (telegram_id, expires_at DESC NULLS LAST)
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS paypal_orders (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            pack_id TEXT NOT NULL,
-            purchase_type TEXT NOT NULL,
-            paypal_order_id TEXT UNIQUE NOT NULL,
-            paypal_capture_id TEXT UNIQUE,
-            amount INTEGER NOT NULL,
-            currency TEXT DEFAULT 'USD',
-            status TEXT DEFAULT 'created',
-            checkout_url TEXT,
-            payload TEXT,
-            raw_event JSONB DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS paypal_subscriptions (
-            id SERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            pack_id TEXT NOT NULL DEFAULT 'sub_month',
-            plan_id TEXT NOT NULL,
-            paypal_subscription_id TEXT UNIQUE NOT NULL,
-            amount INTEGER NOT NULL DEFAULT 500,
-            currency TEXT DEFAULT 'USD',
-            status TEXT DEFAULT 'pending',
-            payload TEXT,
-            raw_event JSONB DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subscription_reminders (
-            id SERIAL PRIMARY KEY,
-            subscription_id INTEGER NOT NULL,
-            telegram_id BIGINT NOT NULL,
-            days_before INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'sending',
-            sent_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(subscription_id, days_before)
-        )
-        """)
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    with _PAYMENT_SCHEMA_LOCK:
+        if _PAYMENT_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS purchases (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                provider TEXT NOT NULL,
+                credits INTEGER DEFAULT 0,
+                amount INTEGER DEFAULT 0,
+                currency TEXT DEFAULT 'USD',
+                payload TEXT,
+                charge_id TEXT UNIQUE,
+                status TEXT DEFAULT 'completed',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            # get_user_state()'s "SELECT ... FROM purchases WHERE telegram_id = %s
+            # ORDER BY created_at DESC LIMIT 10" had no index to use at all -
+            # telegram_id was neither the PK nor covered by any other index, so
+            # every call was a full table scan followed by a sort.
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_purchases_user_created
+            ON purchases (telegram_id, created_at DESC)
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                subscription_type TEXT,
+                payment_method TEXT,
+                amount INTEGER DEFAULT 0,
+                currency TEXT DEFAULT 'USD',
+                starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                status TEXT DEFAULT 'active',
+                charge_id TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            # get_user_state() runs two queries against this table for every
+            # session/me and generation call: the active subscription (telegram_id
+            # + status='active' + expires_at > NOW(), ORDER BY expires_at DESC
+            # LIMIT 1) and the latest one regardless of status (telegram_id,
+            # ORDER BY expires_at DESC NULLS LAST LIMIT 1), plus the UPDATE that
+            # expires stale rows the same way. None of that was indexed - every
+            # call scanned the whole subscriptions table. NULLS LAST matches the
+            # latest-subscription query's own ORDER BY exactly so that one can be
+            # served by a pure index scan with no extra sort step; the
+            # active-subscription query still benefits from the telegram_id
+            # prefix narrowing the scan before its status/expires_at filter runs.
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_subscriptions_user_expires
+            ON subscriptions (telegram_id, expires_at DESC NULLS LAST)
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS paypal_orders (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                pack_id TEXT NOT NULL,
+                purchase_type TEXT NOT NULL,
+                paypal_order_id TEXT UNIQUE NOT NULL,
+                paypal_capture_id TEXT UNIQUE,
+                amount INTEGER NOT NULL,
+                currency TEXT DEFAULT 'USD',
+                status TEXT DEFAULT 'created',
+                checkout_url TEXT,
+                payload TEXT,
+                raw_event JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS paypal_subscriptions (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                pack_id TEXT NOT NULL DEFAULT 'sub_month',
+                plan_id TEXT NOT NULL,
+                paypal_subscription_id TEXT UNIQUE NOT NULL,
+                amount INTEGER NOT NULL DEFAULT 500,
+                currency TEXT DEFAULT 'USD',
+                status TEXT DEFAULT 'pending',
+                payload TEXT,
+                raw_event JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscription_reminders (
+                id SERIAL PRIMARY KEY,
+                subscription_id INTEGER NOT NULL,
+                telegram_id BIGINT NOT NULL,
+                days_before INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'sending',
+                sent_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(subscription_id, days_before)
+            )
+            """)
+            conn.commit()
+            _PAYMENT_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 
 def ensure_generations_index():
@@ -1719,26 +1745,36 @@ def _to_iso(v):
 # ЗАГРУЗКА ФАЙЛОВ: ensure_user_profiles_table
 # Получает файл или ссылку, приводит её к безопасному формату и передаёт дальше в генерацию или сохранение.
 # =====================================================
+_USER_PROFILES_SCHEMA_LOCK = threading.Lock()
+_USER_PROFILES_SCHEMA_READY = False
 def ensure_user_profiles_table():
-    if not DATABASE_URL:
+    # SQL-4: guarded the same way ensure_prostudio_table() already is.
+    global _USER_PROFILES_SCHEMA_READY
+    if _USER_PROFILES_SCHEMA_READY or not DATABASE_URL:
         return
-
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_profiles (
-            telegram_id BIGINT PRIMARY KEY,
-            display_name TEXT,
-            custom_avatar_url TEXT,
-            theme_preference JSONB DEFAULT '{}'::jsonb,
-            updated_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    with _USER_PROFILES_SCHEMA_LOCK:
+        if _USER_PROFILES_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                telegram_id BIGINT PRIMARY KEY,
+                display_name TEXT,
+                custom_avatar_url TEXT,
+                theme_preference JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            conn.commit()
+            _USER_PROFILES_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 
 # =====================================================
@@ -1826,41 +1862,51 @@ def save_user_profile(telegram_id: int, display_name=None, custom_avatar_url=Non
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+_USER_REFERRALS_SCHEMA_LOCK = threading.Lock()
+_USER_REFERRALS_SCHEMA_READY = False
 def ensure_user_referrals_table():
-    if not DATABASE_URL:
+    # SQL-4: guarded the same way ensure_prostudio_table() already is.
+    global _USER_REFERRALS_SCHEMA_READY
+    if _USER_REFERRALS_SCHEMA_READY or not DATABASE_URL:
         return
-
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_referrals (
-            telegram_id BIGINT PRIMARY KEY,
-            code TEXT UNIQUE NOT NULL,
-            activated_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS referral_attributions (
-            invited_telegram_id BIGINT PRIMARY KEY,
-            inviter_telegram_id BIGINT NOT NULL,
-            referral_code TEXT NOT NULL,
-            joined_at TIMESTAMP DEFAULT NOW(),
-            last_activity_at TIMESTAMP,
-            generation_count INTEGER DEFAULT 0,
-            subscription_count INTEGER DEFAULT 0,
-            last_event_name TEXT
-        )
-        """)
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_referral_attributions_inviter
-        ON referral_attributions (inviter_telegram_id)
-        """)
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    with _USER_REFERRALS_SCHEMA_LOCK:
+        if _USER_REFERRALS_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_referrals (
+                telegram_id BIGINT PRIMARY KEY,
+                code TEXT UNIQUE NOT NULL,
+                activated_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS referral_attributions (
+                invited_telegram_id BIGINT PRIMARY KEY,
+                inviter_telegram_id BIGINT NOT NULL,
+                referral_code TEXT NOT NULL,
+                joined_at TIMESTAMP DEFAULT NOW(),
+                last_activity_at TIMESTAMP,
+                generation_count INTEGER DEFAULT 0,
+                subscription_count INTEGER DEFAULT 0,
+                last_event_name TEXT
+            )
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_referral_attributions_inviter
+            ON referral_attributions (inviter_telegram_id)
+            """)
+            conn.commit()
+            _USER_REFERRALS_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 
 # =====================================================
@@ -3551,35 +3597,45 @@ async def heygen_voice_page():
 # Выполняет отдельный шаг backend-логики SYLVEX.
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
+_ELEVENLABS_SCHEMA_LOCK = threading.Lock()
+_ELEVENLABS_SCHEMA_READY = False
 def ensure_elevenlabs_table():
-    if not DATABASE_URL:
+    # SQL-4: guarded the same way ensure_prostudio_table() already is.
+    global _ELEVENLABS_SCHEMA_READY
+    if _ELEVENLABS_SCHEMA_READY or not DATABASE_URL:
         return
-
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_voice_settings (
-            telegram_id BIGINT,
-            provider TEXT DEFAULT 'elevenlabs',
-            voice_id TEXT,
-            voice_name TEXT,
-            model_id TEXT,
-            stability REAL DEFAULT 0.5,
-            similarity_boost REAL DEFAULT 0.75,
-            style REAL DEFAULT 0.0,
-            speed REAL DEFAULT 1.0,
-            speaker_boost INTEGER DEFAULT 1,
-            language TEXT DEFAULT 'ru',
-            output_format TEXT DEFAULT 'mp3_44100_128',
-            updated_at TEXT,
-            PRIMARY KEY (telegram_id, provider)
-        )
-        """)
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    with _ELEVENLABS_SCHEMA_LOCK:
+        if _ELEVENLABS_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_voice_settings (
+                telegram_id BIGINT,
+                provider TEXT DEFAULT 'elevenlabs',
+                voice_id TEXT,
+                voice_name TEXT,
+                model_id TEXT,
+                stability REAL DEFAULT 0.5,
+                similarity_boost REAL DEFAULT 0.75,
+                style REAL DEFAULT 0.0,
+                speed REAL DEFAULT 1.0,
+                speaker_boost INTEGER DEFAULT 1,
+                language TEXT DEFAULT 'ru',
+                output_format TEXT DEFAULT 'mp3_44100_128',
+                updated_at TEXT,
+                PRIMARY KEY (telegram_id, provider)
+            )
+            """)
+            conn.commit()
+            _ELEVENLABS_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 # =====================================================
 # PYTHON-БЛОК: default_elevenlabs_settings
@@ -7562,99 +7618,110 @@ async def delete_public_prostudio_gallery_item(message_id: int, telegram_id: int
     return {"ok": True}
 
 
+_COMMUNITY_SCHEMA_LOCK = threading.Lock()
+_COMMUNITY_SCHEMA_READY = False
 def ensure_community_tables():
-    if not DATABASE_URL:
+    # SQL-4: guarded the same way ensure_prostudio_table() already is.
+    global _COMMUNITY_SCHEMA_READY
+    if _COMMUNITY_SCHEMA_READY or not DATABASE_URL:
         return
     ensure_user_profiles_table()
-    conn = db_connect(DATABASE_URL)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_posts (
-            id BIGSERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            source_message_id BIGINT NOT NULL,
-            content_type TEXT NOT NULL,
-            media_url TEXT,
-            media_urls JSONB DEFAULT '[]'::jsonb,
-            preview_url TEXT,
-            body TEXT,
-            model TEXT,
-            created_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE (telegram_id, source_message_id)
-        )
-        """)
-        cursor.execute("ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb")
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_likes (
-            post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
-            telegram_id BIGINT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW(),
-            PRIMARY KEY (post_id, telegram_id)
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_comments (
-            id BIGSERIAL PRIMARY KEY,
-            post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
-            telegram_id BIGINT NOT NULL,
-            body TEXT NOT NULL,
-            parent_comment_id BIGINT REFERENCES community_comments(id) ON DELETE SET NULL,
-            edited_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        cursor.execute("ALTER TABLE community_comments ADD COLUMN IF NOT EXISTS parent_comment_id BIGINT REFERENCES community_comments(id) ON DELETE SET NULL")
-        cursor.execute("ALTER TABLE community_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP")
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_comment_likes (
-            comment_id BIGINT NOT NULL REFERENCES community_comments(id) ON DELETE CASCADE,
-            telegram_id BIGINT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW(),
-            PRIMARY KEY (comment_id, telegram_id)
-        )
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts (created_at DESC)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_comments_post ON community_comments (post_id, created_at)")
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_friendships (
-            requester_id BIGINT NOT NULL,
-            addressee_id BIGINT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW(),
-            PRIMARY KEY (requester_id, addressee_id),
-            CHECK (requester_id <> addressee_id)
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_messages (
-            id BIGSERIAL PRIMARY KEY,
-            sender_id BIGINT NOT NULL,
-            recipient_id BIGINT NOT NULL DEFAULT 0,
-            body TEXT NOT NULL,
-            read_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS community_notifications (
-            id BIGSERIAL PRIMARY KEY,
-            telegram_id BIGINT NOT NULL,
-            actor_id BIGINT NOT NULL,
-            kind TEXT NOT NULL,
-            post_id BIGINT REFERENCES community_posts(id) ON DELETE CASCADE,
-            comment_id BIGINT REFERENCES community_comments(id) ON DELETE CASCADE,
-            body TEXT,
-            read_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_messages_pair ON community_messages (sender_id, recipient_id, created_at DESC)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_notifications_user ON community_notifications (telegram_id, created_at DESC)")
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+    with _COMMUNITY_SCHEMA_LOCK:
+        if _COMMUNITY_SCHEMA_READY:
+            return
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_posts (
+                id BIGSERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                source_message_id BIGINT NOT NULL,
+                content_type TEXT NOT NULL,
+                media_url TEXT,
+                media_urls JSONB DEFAULT '[]'::jsonb,
+                preview_url TEXT,
+                body TEXT,
+                model TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (telegram_id, source_message_id)
+            )
+            """)
+            cursor.execute("ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb")
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_likes (
+                post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+                telegram_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (post_id, telegram_id)
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_comments (
+                id BIGSERIAL PRIMARY KEY,
+                post_id BIGINT NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+                telegram_id BIGINT NOT NULL,
+                body TEXT NOT NULL,
+                parent_comment_id BIGINT REFERENCES community_comments(id) ON DELETE SET NULL,
+                edited_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("ALTER TABLE community_comments ADD COLUMN IF NOT EXISTS parent_comment_id BIGINT REFERENCES community_comments(id) ON DELETE SET NULL")
+            cursor.execute("ALTER TABLE community_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP")
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_comment_likes (
+                comment_id BIGINT NOT NULL REFERENCES community_comments(id) ON DELETE CASCADE,
+                telegram_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (comment_id, telegram_id)
+            )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts (created_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_comments_post ON community_comments (post_id, created_at)")
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_friendships (
+                requester_id BIGINT NOT NULL,
+                addressee_id BIGINT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW(),
+                PRIMARY KEY (requester_id, addressee_id),
+                CHECK (requester_id <> addressee_id)
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_messages (
+                id BIGSERIAL PRIMARY KEY,
+                sender_id BIGINT NOT NULL,
+                recipient_id BIGINT NOT NULL DEFAULT 0,
+                body TEXT NOT NULL,
+                read_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_notifications (
+                id BIGSERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                actor_id BIGINT NOT NULL,
+                kind TEXT NOT NULL,
+                post_id BIGINT REFERENCES community_posts(id) ON DELETE CASCADE,
+                comment_id BIGINT REFERENCES community_comments(id) ON DELETE CASCADE,
+                body TEXT,
+                read_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_messages_pair ON community_messages (sender_id, recipient_id, created_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_community_notifications_user ON community_notifications (telegram_id, created_at DESC)")
+            conn.commit()
+            _COMMUNITY_SCHEMA_READY = True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
 
 @app.get("/api/public/community/feed")
