@@ -125,6 +125,58 @@ def website_origins():
  # rather than imported, since this module must not depend on main.py).
  return [o.strip().rstrip('/') for o in os.getenv('WEBSITE_ORIGINS','').split(',') if o.strip()]
 
+def security_response_headers():
+ """Content-Security-Policy + (in production) Strict-Transport-Security,
+ applied to EVERY response - not just the /api/* ones secured_send already
+ adds x-content-type-options/referrer-policy to (see __call__ below:
+ the real Pro Studio UI page itself, the one actually at risk of being
+ framed or of serving injected script, is served from the /webapp/ static
+ mount, which is NOT "protected" and bypasses secured_send entirely - a
+ CSP/HSTS that only reached /api/* JSON responses would never reach the
+ one response that matters for either header).
+ Security audit HDR-1/HDR-2/HDR-3:
+ - frame-ancestors is this app's only clickjacking defense (no
+ X-Frame-Options is sent - it can't express an allow-list the way
+ frame-ancestors can, and every current browser enforces frame-ancestors
+ anyway). Scoped to exactly the two real embedding flows, confirmed
+ against this codebase rather than guessed:
+ 'self' (defensive default) + WEBSITE_ORIGINS (the operator-configured
+ website origin(s) that iframe Pro Studio via sylvex-website/pro-studio.html
+ ?embed=web - see main.py's CORSMiddleware and services/security.py's
+ origin_allowed() above, which already treat this exact env var as the
+ trusted-website allowlist; webapp/js/cabinet.js's hostOrigin() falls back
+ to the same 'https://sylvex.ai' default used here when WEBSITE_ORIGINS
+ is unset) + the real Telegram WebView origins the official
+ telegram-web-app.js integration (loaded throughout webapp/*.html) is
+ embedded under when opened in Telegram Web: https://web.telegram.org and
+ https://*.telegram.org (covers webk./webz. and any other Telegram-run
+ web-client subdomain). Native Telegram desktop/mobile apps render this
+ same page in their own WebView, outside any browser frame-ancestors
+ enforcement, so they are unaffected either way.
+ - object-src 'none' and base-uri 'self' are added as safe, broadly
+ compatible XSS-hardening (object-src blocks legacy plugin content
+ nobody here uses; base-uri stops a <base> tag injection from redirecting
+ every relative URL on the page) without touching script-src/style-src/
+ img-src/connect-src, which would need a full inventory of every external
+ host this app's pages legitimately load (Telegram's own script, R2/CDN
+ media, OAuth SDKs, payment providers, etc.) to restrict without risking
+ exactly the kind of breakage this fix is scoped to avoid.
+ - HSTS only when is_production(): this app is served behind a
+ TLS-terminating proxy that talks plain HTTP to the container
+ (Dockerfile runs uvicorn with --no-proxy-headers), so scope['scheme']
+ here is never a reliable signal for "this connection is really HTTPS" -
+ is_production() is the same signal runtime_checks.validate_runtime()
+ already uses to enforce HTTPS-only config, and never sending it outside
+ production means it can never pin a developer's plain-http localhost
+ into forced HTTPS."""
+ origins=website_origins() or ['https://sylvex.ai']
+ frame_ancestors=' '.join(["'self'",'https://web.telegram.org','https://*.telegram.org',*origins])
+ csp=f"frame-ancestors {frame_ancestors}; object-src 'none'; base-uri 'self'"
+ result=[(b'content-security-policy',csp.encode())]
+ if is_production():
+  result.append((b'strict-transport-security',b'max-age=63072000; includeSubDomains'))
+ return result
+
 def origin_allowed(headers):
  """CSRF guard for the cookie-authenticated website-session surface: the
  sylvex_web_session cookie is necessarily SameSite=None (the Pro Studio
@@ -583,7 +635,17 @@ class SecurityMiddleware:
    if not media_allowed:
     return await JSONResponse({'ok':False,'error':'media_authorization_required'},status_code=403)(scope,receive,send)
   protected=path.startswith('/api/') or path=='/save-settings' or media_path
-  if not protected:return await self.app(scope,receive,send)
+  if not protected:
+   # Unprotected (static/webapp) responses skip secured_send entirely, but
+   # this is exactly where the real Pro Studio HTML page is served from -
+   # the one response frame-ancestors/CSP/HSTS actually need to reach (see
+   # security_response_headers() above). A minimal wrapper, not the full
+   # secured_send machinery (no body buffering/signing needed here).
+   async def unprotected_send(message):
+    if message['type']=='http.response.start':
+     message=dict(message);hs=list(message.get('headers',[]));hs.extend(security_response_headers());message['headers']=hs
+    await send(message)
+   return await self.app(scope,receive,unprotected_send)
   is_public=media_allowed or (method in {'GET','HEAD'} and (path in PUBLIC_GETS or any(p.fullmatch(path) for p in PUBLIC_PATTERNS))) or (method=='POST' and path in PUBLIC_POSTS)
   is_webhook=path in WEBHOOKS
   # CSRF guard: every /api/web/* route authenticates off the sylvex_web_session
@@ -747,7 +809,7 @@ class SecurityMiddleware:
    nonlocal started, pending_start
    if message['type']=='http.response.start':
     started=True;message=dict(message);hs=list(message.get('headers',[]))
-    hs.extend([(b'x-content-type-options',b'nosniff'),(b'referrer-policy',b'same-origin')])
+    hs.extend([(b'x-content-type-options',b'nosniff'),(b'referrer-policy',b'same-origin')]);hs.extend(security_response_headers())
     if tg_session_uid_to_refresh:
      hs.append((b'set-cookie',tg_session_set_cookie_bytes(tg_session_uid_to_refresh)))
     if uid:
