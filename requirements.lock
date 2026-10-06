@@ -1,13 +1,15 @@
 # Tested runtime closure on Python 3.12; reviewed with pip-audit.
 # DEP-2: PyJWT added below (has no dependencies of its own) - it was
 # present in requirements.txt but missing here, so it installed
-# unconstrained. pip-audit flagged pre-existing advisories against
-# pypdf==6.17.0 (DoS via crafted PDFs, fixed 6.18.0/6.18.1/6.19.0) and
-# urllib3==2.7.0 (streaming/proxy-TLS issues, fixed 2.8.0) - left pinned
-# as-is per DEP-2 scope (reported, not silently upgraded); see the
-# dependency-audit task history for the full pip-audit output.
-# tests/test_dependency_lock_consistency.py enforces drift between this
-# file and requirements.txt/the installed environment going forward.
+# unconstrained.
+# Follow-up: pip-audit's pypdf==6.17.0 (DoS via crafted PDFs) and
+# urllib3==2.7.0 (streaming/proxy-TLS DoS/confusion) advisories were
+# closed by upgrading to pypdf==6.19.0 and urllib3==2.8.0 - the minimum
+# versions that resolve every reported ID (pypdf's fixes land across
+# 6.18.0/6.18.1/6.19.0; urllib3's across 2.8.0). No other package was
+# touched. tests/test_dependency_lock_consistency.py enforces drift
+# between this file and requirements.txt/the installed environment
+# going forward.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
@@ -42,7 +44,7 @@ pycparser==3.0
 pydantic==2.13.5
 pydantic-core==2.46.5
 PyJWT==2.15.1
-pypdf==6.17.0
+pypdf==6.19.0
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
 python-dotenv==1.2.3
@@ -58,7 +60,7 @@ tenacity==9.1.4
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 tinycss2==1.5.1
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.52.4
 webencodings==0.5.1
 websockets==16.1.1
