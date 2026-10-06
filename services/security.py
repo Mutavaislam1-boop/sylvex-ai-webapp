@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import re
+import threading
 import time
 from collections import OrderedDict
 from http.cookies import SimpleCookie
@@ -178,8 +179,9 @@ def web_session_secret():
  return hmac.new(key.encode(),b'SYLVEX web session v1',hashlib.sha256).digest()
 
 def create_web_session_token(telegram_id):
- exp=int(time.time())+WEB_SESSION_MAX_AGE
- payload=f'{int(telegram_id)}.{exp}'
+ iat=int(time.time())
+ exp=iat+WEB_SESSION_MAX_AGE
+ payload=f'{int(telegram_id)}.{iat}.{exp}'
  sig=hmac.new(web_session_secret(),payload.encode(),hashlib.sha256).hexdigest()
  return f'{payload}.{sig}'
 
@@ -187,16 +189,24 @@ def verify_web_session_token(token):
  # Carries a sylvex_accounts.account_id (see services/account_identity.py),
  # always positive under the current model; the optional leading '-' is
  # kept accepted only for compatibility with any already-issued cookie.
+ # Returns (account_id, issued_at) - issued_at lets the caller check this
+ # specific token against a later server-side revocation (see
+ # account_session_revoked_before() below; COOKIE-2 in the security audit:
+ # this token used to be pure stateless HMAC with no way to invalidate a
+ # copy captured elsewhere once the real user logs out/changes password/
+ # deletes their account). A legacy 3-field token (no issued_at, from
+ # before this fix) is rejected the same way a tampered one is - a clean
+ # 401 that forces an ordinary re-login, never a crash.
  try:
-  telegram_id_s,exp_s,sig=str(token).split('.',2)
-  if not re.fullmatch(r'-?[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
-  expected=hmac.new(web_session_secret(),f'{telegram_id_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
+  telegram_id_s,iat_s,exp_s,sig=str(token).split('.',3)
+  if not re.fullmatch(r'-?[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',iat_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
+  expected=hmac.new(web_session_secret(),f'{telegram_id_s}.{iat_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
   if not hmac.compare_digest(expected,sig): raise ValueError()
   if int(exp_s)<time.time(): raise ValueError()
   telegram_id=int(telegram_id_s)
   if telegram_id==0: raise ValueError()
  except (ValueError,AttributeError,TypeError): raise SecurityError('invalid_web_session')
- return telegram_id
+ return telegram_id,int(iat_s)
 
 # ---------------------------------------------------------------------------
 # Mini App session continuity (seamless reauth).
@@ -226,32 +236,40 @@ def tg_session_secret():
  return hmac.new(key.encode(),b'SYLVEX tg session v1',hashlib.sha256).digest()
 
 def create_tg_session_token(telegram_id):
- exp=int(time.time())+TG_SESSION_MAX_AGE
- payload=f'{int(telegram_id)}.{exp}'
+ iat=int(time.time())
+ exp=iat+TG_SESSION_MAX_AGE
+ payload=f'{int(telegram_id)}.{iat}.{exp}'
  sig=hmac.new(tg_session_secret(),payload.encode(),hashlib.sha256).hexdigest()
  return f'{payload}.{sig}'
 
 def verify_tg_session_token(token):
+ # Returns (telegram_id, issued_at) - see verify_web_session_token's
+ # docstring above for why issued_at travels with it (COOKIE-2).
  try:
-  telegram_id_s,exp_s,sig=str(token).split('.',2)
-  if not re.fullmatch(r'[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
-  expected=hmac.new(tg_session_secret(),f'{telegram_id_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
+  telegram_id_s,iat_s,exp_s,sig=str(token).split('.',3)
+  if not re.fullmatch(r'[0-9]+',telegram_id_s) or not re.fullmatch(r'[0-9]+',iat_s) or not re.fullmatch(r'[0-9]+',exp_s): raise ValueError()
+  expected=hmac.new(tg_session_secret(),f'{telegram_id_s}.{iat_s}.{exp_s}'.encode(),hashlib.sha256).hexdigest()
   if not hmac.compare_digest(expected,sig): raise ValueError()
   if int(exp_s)<time.time(): raise ValueError()
   telegram_id=int(telegram_id_s)
   if telegram_id<=0: raise ValueError()
  except (ValueError,AttributeError,TypeError): raise SecurityError('invalid_tg_session')
- return telegram_id
+ return telegram_id,int(iat_s)
 
 def tg_session_uid_from_cookie_header(cookie_header):
- if not cookie_header: return 0
+ """Returns (telegram_id, issued_at), or (0, 0) if absent/invalid. Token
+ parsing only - no DB access, so this stays safe to call synchronously on
+ the hot Mini App request path; the caller is responsible for checking
+ the returned issued_at against tg_session_revoked_before() itself (via
+ asyncio.to_thread) wherever that matters."""
+ if not cookie_header: return 0,0
  jar=SimpleCookie()
  try: jar.load(cookie_header)
- except Exception: return 0
+ except Exception: return 0,0
  morsel=jar.get(TG_SESSION_COOKIE)
- if not morsel: return 0
+ if not morsel: return 0,0
  try: return verify_tg_session_token(morsel.value)
- except SecurityError: return 0
+ except SecurityError: return 0,0
 
 def tg_session_set_cookie_bytes(telegram_id):
  """Raw `set-cookie` header value (bytes) for the ASGI response - this
@@ -295,15 +313,18 @@ def _database_url():
  return os.getenv('DATABASE_PUBLIC_URL','').strip() or os.getenv('DATABASE_URL','').strip()
 
 def web_session_account_id_from_cookie_header(cookie_header):
+ """Returns (account_id, issued_at), or (0, 0) if absent/invalid. Token
+ parsing only - no DB access; see tg_session_uid_from_cookie_header's
+ docstring above - same reasoning applies here."""
  # Raw ASGI header parsing - no Starlette Request object at this layer.
- if not cookie_header: return 0
+ if not cookie_header: return 0,0
  jar=SimpleCookie()
  try: jar.load(cookie_header)
- except Exception: return 0
+ except Exception: return 0,0
  morsel=jar.get(WEB_SESSION_COOKIE)
- if not morsel: return 0
+ if not morsel: return 0,0
  try: return verify_web_session_token(morsel.value)
- except SecurityError: return 0
+ except SecurityError: return 0,0
 
 def resolve_web_session_uid(account_id):
  """Blocking DB lookup - call via asyncio.to_thread from async code."""
@@ -335,6 +356,153 @@ def resolve_web_session_uid(account_id):
  if len(_web_uid_cache)>5000: _web_uid_cache.clear()
  _web_uid_cache[account_id]=(telegram_id,now+_WEB_UID_CACHE_TTL)
  return telegram_id
+
+# ---------------------------------------------------------------------------
+# Server-side session revocation (security audit COOKIE-2).
+#
+# Both sylvex_web_session and sylvex_tg_session above are otherwise pure
+# stateless HMAC: a copy of either token captured elsewhere (network
+# capture, a synced device, a misconfigured proxy log) keeps working for
+# its full max-age even after the legitimate user logs out, changes their
+# password, or deletes their account - there was no server-side state to
+# check against. This adds exactly that: a per-subject "revoked before"
+# timestamp, bumped by revoke_web_sessions()/revoke_tg_sessions() on those
+# events, and checked here against the token's own issued_at (see
+# verify_web_session_token/verify_tg_session_token above). A token minted
+# strictly AFTER the revocation timestamp (e.g. the fresh cookie reissued
+# to the same browser right after a password change) is never affected -
+# only tokens that already existed at revocation time die.
+#
+# Both lookups are blocking DB calls - callers MUST use asyncio.to_thread,
+# exactly like resolve_web_session_uid above. Each keeps its own short-TTL
+# cache (far shorter than _WEB_UID_CACHE_TTL's 30s, since the whole point
+# here is making a captured token die promptly) to avoid a DB round trip
+# on every single request while still bounding how long a just-revoked
+# token can keep working across worker processes.
+# ---------------------------------------------------------------------------
+_SESSION_REVOCATION_CACHE_TTL=10.0
+_account_revocation_cache={}
+_tg_revocation_cache={}
+
+def account_session_revoked_before(account_id):
+ """Blocking DB lookup - call via asyncio.to_thread. Returns the epoch
+ second before which account_id's web session tokens are invalid, or 0 if
+ this account's sessions have never been revoked."""
+ now=time.monotonic()
+ cached=_account_revocation_cache.get(account_id)
+ if cached and cached[1]>now: return cached[0]
+ database_url=_database_url()
+ if not database_url: return 0
+ from services.account_identity import ensure_account_tables
+ ensure_account_tables(database_url)
+ from db_pool import db_connect
+ conn=db_connect(database_url)
+ try:
+  cur=conn.cursor()
+  cur.execute('SELECT sessions_revoked_before FROM sylvex_accounts WHERE account_id = %s',(account_id,))
+  row=cur.fetchone()
+  cur.close()
+ finally:
+  conn.close()
+ value=int(row[0].timestamp()) if row and row[0] else 0
+ if len(_account_revocation_cache)>5000: _account_revocation_cache.clear()
+ _account_revocation_cache[account_id]=(value,now+_SESSION_REVOCATION_CACHE_TTL)
+ return value
+
+def revoke_web_sessions(account_id):
+ """Blocking DB write - call via asyncio.to_thread. Invalidates every
+ sylvex_web_session token already issued for this account (logout/
+ password-change/account-delete). A token minted after this call (e.g. a
+ fresh cookie reissued to the same browser right after a password change)
+ is unaffected - see the module comment above."""
+ database_url=_database_url()
+ if not database_url: return
+ from services.account_identity import ensure_account_tables
+ ensure_account_tables(database_url)
+ from db_pool import db_connect
+ conn=db_connect(database_url)
+ try:
+  cur=conn.cursor()
+  cur.execute('UPDATE sylvex_accounts SET sessions_revoked_before = NOW() WHERE account_id = %s',(account_id,))
+  conn.commit()
+  cur.close()
+ finally:
+  conn.close()
+ _account_revocation_cache.pop(account_id,None)
+
+_TG_REVOCATION_TABLE_READY=False
+_tg_revocation_table_lock=threading.Lock()
+
+def _ensure_tg_revocation_table(database_url):
+ global _TG_REVOCATION_TABLE_READY
+ if _TG_REVOCATION_TABLE_READY or not database_url: return
+ with _tg_revocation_table_lock:
+  if _TG_REVOCATION_TABLE_READY: return
+  from db_pool import db_connect
+  conn=db_connect(database_url)
+  try:
+   cur=conn.cursor()
+   cur.execute("""
+    CREATE TABLE IF NOT EXISTS sylvex_tg_session_revocations (
+     telegram_id BIGINT PRIMARY KEY,
+     revoked_before TIMESTAMPTZ NOT NULL
+    )
+   """)
+   conn.commit()
+   cur.close()
+  finally:
+   conn.close()
+  _TG_REVOCATION_TABLE_READY=True
+
+def tg_session_revoked_before(telegram_id):
+ """Blocking DB lookup - call via asyncio.to_thread. Returns the epoch
+ second before which telegram_id's sylvex_tg_session tokens are invalid,
+ or 0 if never revoked. Nothing in this codebase calls
+ revoke_tg_sessions() yet (see services/security.py's module docstring on
+ TG_SESSION_COOKIE - there is currently no Telegram-identity-scoped
+ logout/password-change/account-delete route to trigger it from), so this
+ always returns 0 today; it exists so the check is already wired and live
+ the moment such a trigger is added, without a second migration."""
+ now=time.monotonic()
+ cached=_tg_revocation_cache.get(telegram_id)
+ if cached and cached[1]>now: return cached[0]
+ database_url=_database_url()
+ if not database_url: return 0
+ _ensure_tg_revocation_table(database_url)
+ from db_pool import db_connect
+ conn=db_connect(database_url)
+ try:
+  cur=conn.cursor()
+  cur.execute('SELECT revoked_before FROM sylvex_tg_session_revocations WHERE telegram_id = %s',(telegram_id,))
+  row=cur.fetchone()
+  cur.close()
+ finally:
+  conn.close()
+ value=int(row[0].timestamp()) if row and row[0] else 0
+ if len(_tg_revocation_cache)>5000: _tg_revocation_cache.clear()
+ _tg_revocation_cache[telegram_id]=(value,now+_SESSION_REVOCATION_CACHE_TTL)
+ return value
+
+def revoke_tg_sessions(telegram_id):
+ """Blocking DB write - call via asyncio.to_thread. Invalidates every
+ sylvex_tg_session token already issued for this telegram_id. See
+ tg_session_revoked_before's docstring - not called from anywhere yet."""
+ database_url=_database_url()
+ if not database_url: return
+ _ensure_tg_revocation_table(database_url)
+ from db_pool import db_connect
+ conn=db_connect(database_url)
+ try:
+  cur=conn.cursor()
+  cur.execute("""
+   INSERT INTO sylvex_tg_session_revocations (telegram_id, revoked_before) VALUES (%s, NOW())
+   ON CONFLICT (telegram_id) DO UPDATE SET revoked_before = NOW()
+  """,(telegram_id,))
+  conn.commit()
+  cur.close()
+ finally:
+  conn.close()
+ _tg_revocation_cache.pop(telegram_id,None)
 
 def verify_telegram_login_widget(payload, tokens=None):
  # Distinct from validated_user(): the Telegram Login Widget signs with
@@ -470,7 +638,10 @@ class SecurityMiddleware:
        uid=0
        if not admin:
         cookie_header=headers.get(b'cookie',b'').decode()
-        uid=tg_session_uid_from_cookie_header(cookie_header)
+        uid,tg_issued_at=tg_session_uid_from_cookie_header(cookie_header)
+        if uid:
+         revoked_before=await asyncio.to_thread(tg_session_revoked_before,uid)
+         if revoked_before and tg_issued_at<revoked_before:uid=0
        if not uid:raise
        user={'id':uid};tg_session_uid_to_refresh=uid
      else:
@@ -483,7 +654,10 @@ class SecurityMiddleware:
       uid=0
       if not admin:
        cookie_header=headers.get(b'cookie',b'').decode()
-       web_account_id=web_session_account_id_from_cookie_header(cookie_header)
+       web_account_id,web_issued_at=web_session_account_id_from_cookie_header(cookie_header)
+       if web_account_id:
+        revoked_before=await asyncio.to_thread(account_session_revoked_before,web_account_id)
+        if revoked_before and web_issued_at<revoked_before:web_account_id=0
        if web_account_id:
         # Same CSRF guard as the /api/web/* check above, for the
         # website-embedded Pro Studio path (e.g. a PayPal order creation
