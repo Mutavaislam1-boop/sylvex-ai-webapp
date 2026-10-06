@@ -370,10 +370,10 @@
     function base() {
       setBody(overlay,
         `<div class="sylvexAuth-title">Linked accounts</div>
-         <div class="sylvexAuth-row"><span>Email</span><span class="v">${session.email ? (session.email_verified ? session.email : session.email + ' (unverified)') : 'Not set'}</span></div>
+         <div class="sylvexAuth-row"><span>Email</span><span class="v">${session.email ? S.escapeHtml(session.email_verified ? session.email : session.email + ' (unverified)') : 'Not set'}</span></div>
          <div class="sylvexAuth-row"><span>Google</span><span class="v">${session.oauth && session.oauth.google ? 'Connected' : 'Not connected'}</span></div>
          <div class="sylvexAuth-row"><span>Apple</span><span class="v">${session.oauth && session.oauth.apple ? 'Connected' : 'Not connected'}</span></div>
-         <div class="sylvexAuth-row"><span>Telegram</span><span class="v">${session.telegram_connected ? ('@' + (session.telegram_username || '')) + ' · Connected' : 'Not connected'}</span></div>
+         <div class="sylvexAuth-row"><span>Telegram</span><span class="v">${session.telegram_connected ? ('@' + S.escapeHtml(session.telegram_username || '')) + ' · Connected' : 'Not connected'}</span></div>
          ${session.telegram_connected ? '' : '<div id="wlaConnectHost"></div>'}
          <div class="sylvexAuth-perm">${session.telegram_connected ? 'Connecting Telegram is a one-time, permanent merge and cannot be undone from here.' : 'Connecting Telegram permanently merges its balance, subscription and history into this account.'}</div>`
       );
@@ -387,7 +387,7 @@
       if (!res.ok) {
         setBody(overlay, res.json.conflict
           ? '<div class="sylvexAuth-title">Already connected</div><div class="sylvexAuth-warn">This Telegram account is already connected to another SYLVEX account.</div>'
-          : `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${res.json.error || 'Something went wrong'}</div>`);
+          : `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${S.escapeHtml(res.json.error || 'Something went wrong')}</div>`);
         return;
       }
       if (res.json.status === 'already_linked') { toast('Already connected'); base(); return; }
@@ -406,7 +406,7 @@
         method: 'POST', body: JSON.stringify(Object.assign({}, payload, { confirmed_subscription_merge: !!needsSubConfirm })),
       });
       if (!res.ok) {
-        setBody(overlay, `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${res.json.error || 'Something went wrong'}</div>`);
+        setBody(overlay, `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${S.escapeHtml(res.json.error || 'Something went wrong')}</div>`);
         return;
       }
       if (S.syncWebSession) await S.syncWebSession();
@@ -464,7 +464,7 @@
     function stepCode(email) {
       setBody(overlay,
         `<div class="sylvexAuth-title">Enter the code</div>
-         <div class="sylvexAuth-sub">We sent a 6-digit code to ${email}. It expires in 10 minutes.</div>
+         <div class="sylvexAuth-sub">We sent a 6-digit code to ${S.escapeHtml(email)}. It expires in 10 minutes.</div>
          <div class="sylvexAuth-error" id="tlaCodeErr"></div>
          <input class="sylvexAuth-field" inputmode="numeric" maxlength="6" id="tlaCode" placeholder="6-digit code">
          <button class="sylvexAuth-btn" id="tlaVerify">Continue</button>
@@ -504,7 +504,7 @@
           body: JSON.stringify({ email, code, initData: telegramInitData(), confirmed_subscription_merge: !!preview.requires_subscription_confirmation }),
         });
         if (!res.ok) {
-          setBody(overlay, `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${res.json.error || 'Something went wrong'}</div>`);
+          setBody(overlay, `<div class="sylvexAuth-title">Could not connect</div><div class="sylvexAuth-warn">${S.escapeHtml(res.json.error || 'Something went wrong')}</div>`);
           return;
         }
         if (S.syncUser) await S.syncUser({ force: true });
