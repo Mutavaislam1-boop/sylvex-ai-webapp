@@ -34,6 +34,19 @@
 # the web ones only trigger a revocation check on an account that has
 # actually been revoked (generation 0, the default, is the fast, common
 # path for every account that never has).
+#
+# current_web_session_generation()/current_tg_session_generation() were
+# briefly given a short in-process TTL cache to save a DB round trip per
+# request. In a real multi-worker/multi-replica deployment that reopened
+# the exact window this feature exists to close: a logout/password-change
+# handled by worker A bumps the generation in Postgres, but worker B (and
+# every other worker) kept answering from its OWN cached value for up to
+# the TTL, so an already-revoked token stayed accepted there regardless of
+# the generation fix above. Both lookups are now always a fresh,
+# uncached DB read - proven below by simulating two separate worker
+# processes as two independent fake-DB-backed lookups and confirming a
+# bump made through one is visible to the other on the very next call,
+# with no stale value surviving anywhere.
 import hashlib
 import hmac as hmac_module
 import time
@@ -182,13 +195,11 @@ def fake_db(monkeypatch):
 
 def test_current_web_session_generation_defaults_to_zero(fake_db):
     import services.security as security
-    security._account_generation_cache.clear()
     assert security.current_web_session_generation(42) == 0
 
 
 def test_revoke_web_sessions_increments_and_returns_the_new_generation(fake_db):
     import services.security as security
-    security._account_generation_cache.clear()
     assert security.revoke_web_sessions(42) == 1
     assert security.revoke_web_sessions(42) == 2
     assert security.current_web_session_generation(42) == 2
@@ -198,12 +209,63 @@ def test_revoke_web_sessions_increments_and_returns_the_new_generation(fake_db):
 
 def test_revoke_tg_sessions_increments_and_returns_the_new_generation(fake_db):
     import services.security as security
-    security._tg_generation_cache.clear()
     security._TG_REVOCATION_TABLE_READY = True  # the fake connection has no real table to create
     assert security.current_tg_session_generation(101) == 0
     assert security.revoke_tg_sessions(101) == 1
     assert security.current_tg_session_generation(101) == 1
     assert security.current_tg_session_generation(102) == 0
+
+
+# ---------------------------------------------------------------------------
+# Cross-worker staleness: current_web_session_generation()/
+# current_tg_session_generation() must never serve a cached value - a
+# bump made by one call (standing in for "worker A") must be visible to
+# every subsequent call (standing in for "worker B's own, independent
+# lookup") immediately, with no TTL window during which a revoked token
+# would still be accepted. This is a regression test for a real
+# in-process cache this code briefly had (10s TTL) that was safe for one
+# process but not for a multi-worker/multi-replica deployment: worker A's
+# revoke bumped the database, but worker B kept answering from its own
+# stale cached generation until the TTL expired, during which an
+# already-revoked token stayed accepted on B. There being no cache dict
+# left on the module (asserted below) is what makes that impossible now,
+# not a shorter TTL.
+# ---------------------------------------------------------------------------
+
+def test_current_web_session_generation_has_no_cache_to_go_stale(fake_db):
+    import services.security as security
+    assert not hasattr(security, '_account_generation_cache')
+
+
+def test_current_tg_session_generation_has_no_cache_to_go_stale(fake_db):
+    import services.security as security
+    assert not hasattr(security, '_tg_generation_cache')
+
+
+def test_web_session_generation_bump_is_visible_immediately_with_no_staleness_window(fake_db):
+    import services.security as security
+    # Read it first (as worker B might, right before worker A's revoke) -
+    # with the old TTL cache this would have seeded a 10s-stale entry.
+    assert security.current_web_session_generation(42) == 0
+    # "Worker A" revokes.
+    new_generation = security.revoke_web_sessions(42)
+    assert new_generation == 1
+    # "Worker B" (a wholly separate call, simulating a different process)
+    # must see the bump on its very next read - no TTL window where it
+    # would still answer 0 and let an already-revoked token pass.
+    assert security.current_web_session_generation(42) == 1
+    # And again, immediately after another bump - not just once.
+    assert security.revoke_web_sessions(42) == 2
+    assert security.current_web_session_generation(42) == 2
+
+
+def test_tg_session_generation_bump_is_visible_immediately_with_no_staleness_window(fake_db):
+    import services.security as security
+    security._TG_REVOCATION_TABLE_READY = True  # the fake connection has no real table to create
+    assert security.current_tg_session_generation(101) == 0
+    new_generation = security.revoke_tg_sessions(101)
+    assert new_generation == 1
+    assert security.current_tg_session_generation(101) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +281,6 @@ def test_revoke_tg_sessions_increments_and_returns_the_new_generation(fake_db):
 def test_old_token_minted_same_instant_as_revocation_is_rejected_while_fresh_reissue_is_accepted(fake_db, monkeypatch):
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     import services.security as security
-    security._account_generation_cache.clear()
     frozen_instant = 1_700_000_000.123456
     monkeypatch.setattr(security.time, 'time', lambda: frozen_instant)
 
@@ -253,7 +314,6 @@ async def test_password_change_http_flow_rejects_old_cookie_and_accepts_the_reis
     monkeypatch.setenv('WEB_SESSION_SECRET', 'test-only-web-session-secret')
     import services.security as security
     import main
-    security._account_generation_cache.clear()
     frozen_instant = 1_700_000_000.654321
     monkeypatch.setattr(security.time, 'time', lambda: frozen_instant)
     monkeypatch.setattr(main.account_identity_service, 'change_password', lambda *a, **k: None)
