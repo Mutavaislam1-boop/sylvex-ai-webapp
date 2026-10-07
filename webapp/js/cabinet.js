@@ -8324,6 +8324,13 @@ function openReplaceObjectMaskEditor(e) {
   const state=photoToolStateFor('replace_object');if(!state||!state.files[0])return;
   const modal=ensureReplaceObjectMaskEditor(),token=++replaceObjectEditorRuntime.token,sourceUrl=state.files[0].url;
   modal.classList.add('show');modal.setAttribute('aria-busy','true');
+  // BUG-1: reopening before the previous instance was ever explicitly
+  // closed (closeReplaceObjectMaskEditor is the only other place that
+  // calls removeEventListener) orphaned its resizeHandler - the object
+  // below replaces replaceObjectEditorRuntime wholesale, so that old
+  // handler reference would otherwise be lost rather than detached,
+  // leaking one window 'resize' listener per rapid reopen.
+  if(replaceObjectEditorRuntime.resizeHandler)window.removeEventListener('resize',replaceObjectEditorRuntime.resizeHandler);
   replaceObjectEditorRuntime={token,image:null,canvas:document.getElementById('replaceObjectPhotoCanvas'),strokes:(state.markedPhotoStrokes||[]).map(stroke=>({width:Number(stroke.width)||0,points:(stroke.points||[]).map(point=>({x:Number(point.x)||0,y:Number(point.y)||0}))})),brushSize:28,sourceUrl,resizeHandler:null};
   loadReplaceObjectEditorImage(sourceUrl).then(image=>{
     if(token!==replaceObjectEditorRuntime.token||!modal.classList.contains('show'))return;
