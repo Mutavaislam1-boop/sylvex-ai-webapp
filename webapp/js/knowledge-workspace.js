@@ -132,7 +132,16 @@
   if(mode==='music')playQuickMusic(0,false);
   if(mode==='music')window.parent.postMessage({source:'sylvex-knowledge',action:'music-library-request'},location.origin);
   if(mode==='voice')window.parent.postMessage({source:'sylvex-knowledge',action:'voice-library-request'},location.origin);
-  window.addEventListener('message',event=>{const message=event.data||{};if(message.source!=='sylvex-knowledge-parent')return;if(message.action==='music-library'){loadMusicSlides(message.tracks);return}if(message.action==='voice-library'){voiceLibrary=Array.isArray(message.voices)?message.voices:[];if(Array.isArray(message.demoVoices)&&message.demoVoices.length>=7){demoVoiceLibrary=message.demoVoices.slice(0,7);renderFixedDemoAvatars()}selectedSpeakers=selectedSpeakers.map((speaker,index)=>speaker.id?(voiceLibrary.find(voice=>voice.id===speaker.id)||voiceLibrary[index]||speaker):speaker);renderVoiceSpeakers();setVoicePreview(selectedSpeakers.find(speaker=>speaker.id),false);return}if(message.action!=='text-chat-result')return;document.querySelector('.quick-text-message.loading')?.remove();appendTextMessage('ai',String(message.text||'Не удалось получить ответ.'))});
+  // XSS-4: this iframe is always embedded by a same-origin page (the
+  // Pro Studio parent loads 'knowledge-workspace.html' via a relative
+  // src - see openKnowledgeWorkspace() in cabinet.js - so location.origin
+  // IS the one trusted origin, exactly what every outbound postMessage
+  // above already targets instead of '*'). Reject anything not actually
+  // sent by that parent window at that origin before looking at the
+  // message content at all, so a page merely holding a reference to this
+  // window (e.g. if it ever opened this URL directly) can't spoof a
+  // reply and drive real UI/state changes.
+  window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==window.parent)return;const message=event.data||{};if(message.source!=='sylvex-knowledge-parent')return;if(message.action==='music-library'){loadMusicSlides(message.tracks);return}if(message.action==='voice-library'){voiceLibrary=Array.isArray(message.voices)?message.voices:[];if(Array.isArray(message.demoVoices)&&message.demoVoices.length>=7){demoVoiceLibrary=message.demoVoices.slice(0,7);renderFixedDemoAvatars()}selectedSpeakers=selectedSpeakers.map((speaker,index)=>speaker.id?(voiceLibrary.find(voice=>voice.id===speaker.id)||voiceLibrary[index]||speaker):speaker);renderVoiceSpeakers();setVoicePreview(selectedSpeakers.find(speaker=>speaker.id),false);return}if(message.action!=='text-chat-result')return;document.querySelector('.quick-text-message.loading')?.remove();appendTextMessage('ai',String(message.text||'Не удалось получить ответ.'))});
   document.getElementById('quickPlayerAudio')?.addEventListener('loadedmetadata',event=>{const duration=document.getElementById('quickPlayerDuration');if(duration)duration.textContent=quickAudioTime(event.target.duration)});
   document.getElementById('quickPlayerAudio')?.addEventListener('timeupdate',event=>{const audio=event.target,time=document.getElementById('quickPlayerTime'),seek=document.getElementById('quickPlayerSeek');if(time)time.textContent=quickAudioTime(audio.currentTime);if(seek)seek.value=audio.duration?String(audio.currentTime/audio.duration*100):'0'});
   document.getElementById('quickPlayerSeek')?.addEventListener('input',event=>{const audio=document.getElementById('quickPlayerAudio');if(audio&&audio.duration)audio.currentTime=Number(event.target.value)/100*audio.duration});
