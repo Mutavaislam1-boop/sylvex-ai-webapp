@@ -343,7 +343,7 @@ const editWorkspaceState = createEditWorkspaceState();
 // source (Character/Media/Upload, mutually exclusive) can never be
 // confused with the garment slots or with any normal Pro Studio state.
 // See renderTryOnModal()/generateTryOnTool() below.
-photoToolState.try_on = { generating: false, personSource: null, personImage: '', personLabel: '', characterId: null, garments: [null, null, null] };
+photoToolState.try_on = { generating: false, personSource: null, personImage: '', personLabel: '', characterId: null, characterReferenceUrls: [], garments: [null, null, null] };
 // Character Replace owns its own dedicated state shape too, same reasoning
 // as Try-On above - the source photo, the replacement identity's source
 // (Character/History/Upload, mutually exclusive) and its resolved image(s)
@@ -9156,6 +9156,7 @@ function resetTryOnState() {
   state.personImage = '';
   state.personLabel = '';
   state.characterId = null;
+  state.characterReferenceUrls = [];
   state.garments = [null, null, null];
 }
 
@@ -9215,7 +9216,16 @@ function tryOnGarmentSectionHtml(state) {
 
 function chooseTryOnPersonSource(e, source) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
-  if (source === 'character') return openTryOnCharacterPicker(e);
+  if (source === 'character') {
+    // Character selection reuses the exact same Pro Studio Character picker
+    // (card grid -> open the Character's own page -> pick references ->
+    // "Use Character") that Image mode and Replace Character both use,
+    // instead of a second, bespoke grid - see confirmCharacterDetailSelection()'s
+    // redirect branch for the commit side. Media/Upload keep their own
+    // simpler pickers, unchanged.
+    visualPickerRedirectTarget = 'try_on';
+    return openVisualPicker(null, 'character');
+  }
   if (source === 'media') return openTryOnMediaPicker(e);
   if (source === 'upload') {
     const input = document.getElementById('tryOnUploadFileInput');
@@ -9224,8 +9234,6 @@ function chooseTryOnPersonSource(e, source) {
     input.click();
   }
 }
-
-let tryOnPickerKind = '';
 
 function ensureTryOnPickerModal() {
   let modal = document.getElementById('tryOnPickerModal');
@@ -9242,19 +9250,8 @@ function ensureTryOnPickerModal() {
   return modal;
 }
 
-function openTryOnCharacterPicker(e) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  tryOnPickerKind = 'character';
-  const modal = ensureTryOnPickerModal();
-  const title = document.getElementById('tryOnPickerTitle');
-  if (title) title.textContent = 'Выберите персонажа';
-  renderTryOnPickerGrid();
-  modal.classList.add('show');
-}
-
 function openTryOnMediaPicker(e) {
   if (e) { e.preventDefault(); e.stopPropagation(); }
-  tryOnPickerKind = 'media';
   const modal = ensureTryOnPickerModal();
   const title = document.getElementById('tryOnPickerTitle');
   if (title) title.textContent = 'Выберите фото из медиа';
@@ -9272,48 +9269,21 @@ function renderTryOnPickerGrid() {
   const grid = document.getElementById('tryOnPickerGrid');
   const state = photoToolState.try_on;
   if (!grid || !state) return;
-  if (tryOnPickerKind === 'character') {
-    // Same Character data source the normal Pro Studio Character picker
-    // reads (imageCharacters()/visualPreviewUrl()) - read-only here, never
-    // written back to imageState.characterId.
-    const chars = imageCharacters();
-    grid.innerHTML = chars.length ? chars.map((item) => {
-      const preview = visualPreviewUrl(item);
-      const active = state.personSource === 'character' && state.characterId === item.id;
-      return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.pickTryOnCharacter(event,\'' + S.escapeHtml(item.id) + '\')">'
-        + (preview ? '<img src="' + S.escapeHtml(preview) + '" alt="" />' : '<span class="try-on-picker-placeholder">' + S.escapeHtml((item.name || '?').slice(0, 1)) + '</span>')
-        + '<b>' + S.escapeHtml(item.name || '') + '</b>'
-        + '</button>';
-    }).join('') : '<div class="try-on-picker-empty">Нет персонажей</div>';
-  } else {
-    // Same Media/History source the composer's own upload panel reads
-    // (getGeneratedPhotoHistoryItems()) - read-only here, never routed
-    // through the composer's own upload-target state.
-    const items = getGeneratedPhotoHistoryItems();
-    grid.innerHTML = items.length ? items.map((entry) => {
-      const item = normalizeGeneratedImageItem(entry);
-      if (!item) return '';
-      const active = state.personSource === 'media' && state.personImage === item.url;
-      return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.pickTryOnMedia(event,\'' + S.escapeHtml(item.url) + '\')">'
-        + '<img src="' + S.escapeHtml(item.thumb || item.url) + '" alt="" loading="lazy" decoding="async" />'
-        + '</button>';
-    }).join('') : '<div class="try-on-picker-empty">Пока нет фото</div>';
-  }
-}
-
-function pickTryOnCharacter(e, id) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const state = photoToolState.try_on;
-  const character = imageCharacters().find((item) => item.id === id);
-  if (!state || !character) return;
-  // Only the Character's own primary/avatar preview goes to FASHN - never
-  // its 3 reference images, and never any normal Pro Studio Character state.
-  state.personSource = 'character';
-  state.characterId = id;
-  state.personImage = visualPreviewUrl(character);
-  state.personLabel = character.name || '';
-  closeTryOnPicker(e);
-  renderPhotoToolModal();
+  // Media is the only kind this bespoke picker still handles - Character
+  // selection now goes through the shared Pro Studio Character picker (see
+  // chooseTryOnPersonSource() above). Same Media/History source the
+  // composer's own upload panel reads (getGeneratedPhotoHistoryItems()) -
+  // read-only here, never routed through the composer's own upload-target
+  // state.
+  const items = getGeneratedPhotoHistoryItems();
+  grid.innerHTML = items.length ? items.map((entry) => {
+    const item = normalizeGeneratedImageItem(entry);
+    if (!item) return '';
+    const active = state.personSource === 'media' && state.personImage === item.url;
+    return '<button type="button" class="try-on-picker-card ' + (active ? 'selected' : '') + '" onclick="SYLVEX.pickTryOnMedia(event,\'' + S.escapeHtml(item.url) + '\')">'
+      + '<img src="' + S.escapeHtml(item.thumb || item.url) + '" alt="" loading="lazy" decoding="async" />'
+      + '</button>';
+  }).join('') : '<div class="try-on-picker-empty">Пока нет фото</div>';
 }
 
 function pickTryOnMedia(e, url) {
@@ -9322,6 +9292,7 @@ function pickTryOnMedia(e, url) {
   if (!state || !url) return;
   state.personSource = 'media';
   state.characterId = null;
+  state.characterReferenceUrls = [];
   state.personImage = url;
   state.personLabel = '';
   closeTryOnPicker(e);
@@ -9337,6 +9308,7 @@ async function onTryOnPersonUploadFile(e) {
     const loaded = await readPhotoToolFile(file);
     state.personSource = 'upload';
     state.characterId = null;
+    state.characterReferenceUrls = [];
     state.personImage = loaded.url;
     state.personLabel = loaded.name || '';
     renderPhotoToolModal();
@@ -9351,6 +9323,7 @@ function clearTryOnPerson(e) {
   if (!state) return;
   state.personSource = null;
   state.characterId = null;
+  state.characterReferenceUrls = [];
   state.personImage = '';
   state.personLabel = '';
   renderPhotoToolModal();
@@ -11345,6 +11318,33 @@ function confirmCharacterDetailSelection(e) {
       target.characterId = item.id;
       target.identityImage = visualPreviewUrl(item);
       target.identityLabel = item.name || '';
+      target.characterReferenceUrls = urls.slice(0, 3);
+    }
+    visualPickerRedirectTarget = null;
+    closeCharacterDetail(e);
+    closeImageStylePanel(e);
+    renderPhotoToolModal();
+    toast('Персонаж выбран');
+    return;
+  }
+  // Try-On borrowed this exact picker/detail page too (DUP-1) - same shape
+  // pickTryOnCharacter() used to write by hand, into its own isolated
+  // photoToolState.try_on instead of photoToolState.replace_character or
+  // imageState. Try-On's FASHN request still only ever sends personImage
+  // (the primary preview), but the full reference set is captured here too
+  // (capped at 3, same as Replace Character) so it is never lost by the
+  // migration even though the current generation request doesn't consume it.
+  if (visualPickerRedirectTarget === 'try_on') {
+    const target = photoToolState.try_on;
+    if (item && target) {
+      const library = characterReferenceLibraryFor(item);
+      const urls = characterDetailPendingIds
+        .map((id) => { const entry = library.find((ref) => ref.id === id); return entry ? entry.url : ''; })
+        .filter(Boolean);
+      target.personSource = 'character';
+      target.characterId = item.id;
+      target.personImage = visualPreviewUrl(item);
+      target.personLabel = item.name || '';
       target.characterReferenceUrls = urls.slice(0, 3);
     }
     visualPickerRedirectTarget = null;
@@ -26726,7 +26726,6 @@ async function waitGeneration(jobId, options) {
   S.onQuickImageExtraFile = onQuickImageExtraFile;
   S.chooseTryOnPersonSource = chooseTryOnPersonSource;
   S.closeTryOnPicker = closeTryOnPicker;
-  S.pickTryOnCharacter = pickTryOnCharacter;
   S.pickTryOnMedia = pickTryOnMedia;
   S.onTryOnPersonUploadFile = onTryOnPersonUploadFile;
   S.clearTryOnPerson = clearTryOnPerson;
