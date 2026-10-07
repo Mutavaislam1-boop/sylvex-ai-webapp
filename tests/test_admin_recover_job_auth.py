@@ -46,6 +46,41 @@ def _pglite_available():
     return bool(os.getenv("SYLVEX_TEST_NODE") and os.getenv("SYLVEX_PGLITE_MODULE"))
 
 
+class _FakeAuditCursor:
+    def execute(self, sql, params=()):
+        pass
+
+    def fetchone(self):
+        # No admin_users row ever matches in this fake DB - every caller
+        # that reaches a real admin_users lookup (anyone but the owner
+        # initData shortcut) is correctly denied, exactly as an empty real
+        # table would deny them.
+        return None
+
+    def close(self):
+        pass
+
+
+class _FakeAuditConnection:
+    """Stands in for db_connect() when no real DB is available in this run -
+    swallows the admin_audit_log INSERT _admin_audit() issues without
+    touching any real database, so the auth-only tests below don't need
+    pglite just to exercise the (now unconditional) post-recovery audit
+    write. See test_admin_recover_job_audit_log.py for the real-SQL proof
+    that the INSERT itself is well-formed."""
+    def cursor(self):
+        return _FakeAuditCursor()
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
 def signed(uid, age=0):
     fields = {"user": json.dumps({"id": uid, "first_name": "Test"}), "auth_date": str(int(time.time()) - age)}
     check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
@@ -76,7 +111,15 @@ def app(monkeypatch):
         monkeypatch.setattr(main, "db_connect", lambda *a, **k: database.connect())
         monkeypatch.setattr(main, "ADMIN_SCHEMA_READY", False)
     else:
-        monkeypatch.setattr(main, "DATABASE_URL", "")
+        # No real DB in this run - a successful recovery now also writes an
+        # admin_audit_log entry (remediation item #15), so even the
+        # auth-only tests below need *some* working db_connect/ensure_admin_tables
+        # for that write to land on, not a real Postgres. A trivial in-memory
+        # fake stands in; the dedicated real-SQL audit-log test file verifies
+        # the actual INSERT against pglite instead.
+        monkeypatch.setattr(main, "DATABASE_URL", "fake://test")
+        monkeypatch.setattr(main, "ensure_admin_tables", lambda: None)
+        monkeypatch.setattr(main, "db_connect", lambda *a, **k: _FakeAuditConnection())
 
     main.app.middleware_stack = None
     for mw in main.app.user_middleware:
