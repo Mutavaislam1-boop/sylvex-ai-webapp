@@ -9903,7 +9903,7 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace-sidebar nav button[aria-current],.edit-workspace-sidebar button:hover,.edit-session-item.active{background:var(--edit-selected);border-color:var(--edit-border-strong)}
 .edit-workspace-sidebar .edit-session-new{padding:11px 8px;font-size:12px;font-weight:600}
 .edit-workspace-sidebar h3{font-size:12px;font-weight:500;margin:0;color:var(--edit-muted)}
-#editSessionList{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:8px}
+.edit-workspace-sidebar #editSessionList{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:8px}
 .edit-workspace-sidebar .edit-session-item{display:flex;align-items:center;gap:9px;padding:7px;text-align:left;flex:none}
 .edit-session-item img{width:40px;height:44px;object-fit:contain;border-radius:5px;background:transparent}
 .edit-session-item span{display:grid;gap:5px;min-width:0}.edit-session-item b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:500}.edit-session-item small{font-size:10px;color:var(--edit-muted)}
@@ -9914,6 +9914,19 @@ body.edit-workspace-open{overflow:hidden}
 .edit-workspace[data-sidebar="true"] .edit-workspace-canvas-actions{max-width:calc(100% - 335px)}
 .edit-workspace[data-sidebar="true"] .edit-workspace-action{left:calc(50% + 120px);width:min(880px,calc(100vw - 310px))}
 .edit-workspace[data-sidebar="true"] .edit-workspace-status{left:calc(50% + 120px);max-width:calc(100vw - 310px)}
+/* On the website, retain the actual Pro Studio sidebar and its interactions.
+   A separate history slot prevents background gallery refreshes from replacing
+   Edit sessions. The canvas itself still fills the entire workspace. */
+body.edit-workspace-open #sxSidebar.has-edit-history{z-index:1000021}
+body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:1000022}
+.sx-sidebar.has-edit-history #sxSidebarHistory{display:none!important}
+#editSidebarHistory .sx-sidebar-history-item{flex-shrink:0;border:0;background:transparent;text-align:left;font-family:inherit;cursor:pointer}
+#editSidebarHistory .sx-sidebar-history-item:hover,#editSidebarHistory .sx-sidebar-history-item.active{background:var(--sx-bg-2);color:var(--sx-text)}
+#editSidebarHistory button:disabled{opacity:.5;cursor:default}
+#editSidebarHistory :is(.edit-sidebar-history-heading,#editSessionSync){position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.edit-workspace[data-shared-sidebar="true"] :is(.edit-workspace-action,.edit-workspace-status,.edit-workspace-dock){left:calc(50% + var(--sx-sidebar-w,256px)/2);max-width:calc(100% - var(--sx-sidebar-w,256px) - 36px)}
+.edit-workspace[data-shared-sidebar="true"] .edit-workspace-action{width:min(880px,calc(100% - var(--sx-sidebar-w,256px) - 60px))}
+.edit-workspace[data-shared-sidebar="true"] .edit-workspace-canvas-actions{max-width:calc(100% - var(--sx-sidebar-w,256px) - 100px)}
 /* Let real image alpha reveal the canvas grid; never flatten it onto a card. */
 .edit-chain-node[data-status="ready"] .edit-workspace-frame{background:transparent;box-shadow:none}
 
