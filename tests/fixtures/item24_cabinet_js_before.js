@@ -1262,6 +1262,10 @@ const MODEL_FEATURES = {
 const MODEL_CAPABILITIES_CACHE_KEY = 'sylvex-model-capabilities-v1';
 let fetchedModelCapabilities = null; // {version, models} once loaded, else null
 
+// =====================================================
+// JAVASCRIPT-БЛОК: getModelCapabilities
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function getModelCapabilities(modelId) {
   const fallback = { character: false, object: false, seed: false };
   const raw = String(modelId || '').trim();
@@ -1388,11 +1392,19 @@ function getVideoModelCapabilities(modelId) {
   return { character: build('character'), object: build('object') };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isGrokImageModel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isGrokImageModel(modelId) {
   const raw = String(modelId || '').trim().replace(/-/g, '_');
   return raw === 'grok' || raw === 'grok_pro';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: hidesSeedSettings
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function hidesSeedSettings(modelId) {
   const raw = String(modelId || '').trim().replace(/-/g, '_');
   return isGrokImageModel(raw) || [
@@ -2465,14 +2477,26 @@ const VIDEO_MOTION_PRESETS = [
   'Dance 1', 'Dance 2', 'Cinematic pose', 'Camera orbit', 'Slow motion'
 ];
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentVideoModel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function currentVideoModel() {
   return VIDEO_MODELS.find((item) => item.id === videoState.modelId) || VIDEO_MODELS[0];
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isImageMode
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isImageMode() {
   return studioMode === 'image' || activeCat === 'image';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isVideoMode
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isVideoMode() {
   return studioMode === 'video' || activeCat === 'video';
 }
@@ -2485,6 +2509,10 @@ function isMusicMode() {
   return studioMode === 'music' || activeCat === 'music';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: isVoiceMode
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function isVoiceMode() {
   return studioMode === 'voice' || activeCat === 'voice';
 }
@@ -2498,6 +2526,10 @@ function currentAudioState() {
   return musicState;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentVideoConfig
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 // Phase 1 Batch 3 (see /root/.claude/plans/splendid-moseying-starlight.md
 // roadmap step 3). VIDEO_MODEL_CONFIG above is the local JS-side mirror of
 // the same data services/video_router.py's own VIDEO_MODEL_CONFIG declares
@@ -2580,11 +2612,19 @@ function videoModelSupportsMotionControl(modelId) {
   return !!(local && Array.isArray(local.modes) && local.modes.includes('motion_control'));
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentVideoProvider
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function currentVideoProvider() {
   const config = currentVideoConfig();
   return (config && config.provider) || 'sylvex-router';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: videoModelSettingsSnapshot
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function videoModelSettingsSnapshot() {
   return {
     ratio: videoState.ratio,
@@ -2598,11 +2638,19 @@ function videoModelSettingsSnapshot() {
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: saveCurrentVideoModelSettings
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function saveCurrentVideoModelSettings() {
   if (!videoState.modelId) return;
   videoModelSettings[videoState.modelId] = videoModelSettingsSnapshot();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: restoreVideoModelSettings
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function restoreVideoModelSettings(modelId) {
   const saved = videoModelSettings[modelId || videoState.modelId];
   if (saved) {
@@ -2611,6 +2659,10 @@ function restoreVideoModelSettings(modelId) {
   normalizeVideoStateForModel();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: normalizeVideoStateForModel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function normalizeVideoStateForModel() {
   // Phase 1 Batch 6 fix (roadmap step 6): this force-switch used to check
   // video_effects (a Kling-effects-catalog flag, true only for
@@ -2682,6 +2734,10 @@ function normalizeVideoStateForModel() {
   if (!config.end_image && videoState.endImage) videoState.endImage = '';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: labelItems
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function labelItems(values, suffix) {
   return (values || []).map((value) => {
     const id = String(value);
@@ -2689,6 +2745,10 @@ function labelItems(values, suffix) {
   });
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: videoOptionsPayload
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function videoOptionsPayload(referenceImagesOverride) {
   normalizeVideoStateForModel();
   const config = currentVideoConfig() || {};
@@ -2782,6 +2842,10 @@ function videoOptionsPayload(referenceImagesOverride) {
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: videoOptionLabel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function videoOptionLabel(kind, value) {
   const str = String(value || '');
 
@@ -2883,6 +2947,10 @@ function renderVideoControls() {
   renderVideoReferenceButtons();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickVideoOption
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickVideoOption(kind, value) {
   const config = currentVideoConfig();
   if (kind === 'size' || kind === 'ratio') {
@@ -2925,6 +2993,10 @@ function pickVideoOption(kind, value) {
   renderVideoControls();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: currentComposerModelList
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 // Admin/developer-only - real gate is server-side (re-checked at generate
 // time regardless of this flag), this only hides the entry from everyone
 // else's model picker/Grid node dropdown.
@@ -2958,6 +3030,10 @@ function currentComposerModelList() {
 // =====================================================
 function musicOptionLabel(items, id, fallback) {
   const value = String(id || 'auto');
+  // =====================================================
+  // JAVASCRIPT-БЛОК: item
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const item = (items || []).find((entry) => String(entry.id) === value);
   return item ? (item.label || item.id) : fallback;
 }
@@ -4666,6 +4742,10 @@ function renderVoiceUploadPanel() {
     </div>`;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageVisualReferenceOptions
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageVisualReferenceOptions() {
   const character = selectedImageCharacter();
   const object = selectedImageObject();
@@ -4942,6 +5022,10 @@ let styleSheetCssInjected = false;
 { id:'krea-2', label:'Krea 2', icon:'✤', description:'Генерация креативных визуалов и изображений.' }
   ];
 
+ // =====================================================
+ // JAVASCRIPT-БЛОК: withImageDefaults
+ // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+ // =====================================================
  function withImageDefaults(model) {
   const base = Object.assign({
     sizes: [
@@ -4977,6 +5061,10 @@ let styleSheetCssInjected = false;
   return base;
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: mergeImageModels
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function mergeImageModels(apiModels) {
     const map = new Map();
     IMAGE_MODEL_CATALOG.map(withImageDefaults).forEach((model) => map.set(model.id, model));
@@ -4990,6 +5078,10 @@ let styleSheetCssInjected = false;
     return Array.from(map.values());
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: getTelegramId
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function getTelegramId() {
     try {
       const tg = S.tg;
@@ -4998,6 +5090,10 @@ let styleSheetCssInjected = false;
     } catch { return 0; }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickStudioModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickStudioModel() {
     if (isImageMode()) {
       return imageState.modelId || (IMAGE_MODEL_LIST[0] && IMAGE_MODEL_LIST[0].id) || 'ideogram_3_0';
@@ -5010,6 +5106,10 @@ let styleSheetCssInjected = false;
     return textState.modelId || 'gpt-5.5';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: providerHintForModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function providerHintForModel(model) {
     if (/seedream|seedance/i.test(model)) return 'bytedance';
     if (/byteplus|seed[_-]?2|ark/i.test(model)) return 'byteplus';
@@ -5032,14 +5132,26 @@ let styleSheetCssInjected = false;
     return 'sylvex-router';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickProviderHint
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickProviderHint() {
     return providerHintForModel(pickStudioModel());
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: uiLang
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function uiLang() {
     return (localStorage.getItem('sylvex-lang') || 'en').slice(0, 2);
   }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: localizedGreeting
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function localizedGreeting() {
   return '';
 }
@@ -5074,6 +5186,10 @@ function localizedGreeting() {
     return 'sylvex-prostudio-chat-' + (getTelegramId() || 'anon') + '-' + chatTypeForMode(type);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: lastModeStorageKey
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function lastModeStorageKey() {
     return 'sylvex-prostudio-last-mode-' + (getTelegramId() || 'anon');
   }
@@ -5158,6 +5274,10 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: savedInitialStudioMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function savedInitialStudioMode() {
     if (activeGenerationLocked() && activeGeneration.mode) return activeGeneration.mode;
     try {
@@ -5168,6 +5288,10 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadProStudioSync
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadProStudioSync() {
     const tg = getTelegramId();
     if (!tg) return;
@@ -5191,6 +5315,10 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: isActiveGenerationStatus
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function isActiveGenerationStatus(status) {
     return ['queued', 'submitted', 'running', 'processing', 'provider_processing', 'waiting', 'pending'].includes(String(status || '').toLowerCase());
   }
@@ -5537,6 +5665,10 @@ function localizedGreeting() {
     clearActiveProStudioJob(activeGeneration.jobId);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyCurrentDraft
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyCurrentDraft() {
     if (activeGenerationLocked()) return;
     const ta = document.getElementById('chatInput');
@@ -5551,6 +5683,10 @@ function localizedGreeting() {
     updateSendButton();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: saveCurrentDraftSoon
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function saveCurrentDraftSoon() {
     if (restoringDraft) return;
     const tg = getTelegramId();
@@ -5580,6 +5716,10 @@ function localizedGreeting() {
     }, 450);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: saveVisualItemToBackend
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function saveVisualItemToBackend(kind, item) {
     const tg = getTelegramId();
     if (!tg || !item) return item;
@@ -5633,6 +5773,10 @@ function localizedGreeting() {
     el.innerHTML = '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: showImageModelPicker
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function showImageModelPicker(e) {
     if (e) {
       e.preventDefault();
@@ -5676,7 +5820,15 @@ function localizedGreeting() {
     S.haptic && S.haptic.impact && S.haptic.impact('light');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: currentImageModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function currentImageModel() {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: model
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const model = IMAGE_MODEL_LIST.find((item) => item.id === imageState.modelId) || IMAGE_MODEL_LIST[0];
     if (!model) return null;
 
@@ -5692,6 +5844,10 @@ function localizedGreeting() {
     }, model);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: customVisualKey
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function customVisualKey(kind) {
     return 'sylvex-prostudio-' + kind + '-' + (getTelegramId() || 'anon');
   }
@@ -5729,6 +5885,10 @@ function localizedGreeting() {
     });
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadCustomVisualItems
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function loadCustomVisualItems(kind) {
     const serverItems = serverVisualItems && Array.isArray(serverVisualItems[kind])
       ? serverVisualItems[kind].map(normalizeVisualItem)
@@ -5736,6 +5896,10 @@ function localizedGreeting() {
     try {
       const raw = localStorage.getItem(customVisualKey(kind));
       const list = raw ? JSON.parse(raw) : [];
+      // =====================================================
+      // JAVASCRIPT-БЛОК: localItems
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const localItems = Array.isArray(list) ? list.map(normalizeVisualItem).filter((item) => item && item.id && visualPreviewUrl(item)) : [];
       const seen = new Set();
       return serverItems.concat(localItems).filter((item) => {
@@ -5748,12 +5912,20 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: saveCustomVisualItems
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function saveCustomVisualItems(kind, items) {
     try {
       localStorage.setItem(customVisualKey(kind), JSON.stringify((items || []).slice(0, 50)));
     } catch {}
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageCharacters
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageCharacters() {
     const custom = loadCustomVisualItems('characters');
     const official = PRESET_CHARACTERS.filter((item) => item && (item.official || String(item.id || '').toLowerCase() === 'character_sylvex'));
@@ -5761,18 +5933,34 @@ function localizedGreeting() {
     return official.concat(custom, rest);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageObjects
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageObjects() {
     return loadCustomVisualItems('objects').concat(PRESET_OBJECTS);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: selectedImageCharacter
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function selectedImageCharacter() {
     return imageCharacters().find((item) => item.id === imageState.characterId) || null;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: selectedImageObject
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function selectedImageObject() {
     return imageObjects().find((item) => item.id === imageState.objectId) || null;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: clearSelectedCharacter
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function clearSelectedCharacter() {
     imageState.characterId = null;
     imageState.characterName = '';
@@ -5781,6 +5969,10 @@ function localizedGreeting() {
     imageState.characterReferenceIds = [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: clearSelectedObject
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function clearSelectedObject() {
     imageState.objectId = null;
     imageState.objectName = '';
@@ -5788,6 +5980,10 @@ function localizedGreeting() {
     imageState.objects = '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncImageFeatureAvailability
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function syncImageFeatureAvailability() {
     // Keep selected visual inputs stable when the model changes. The
     // capability matrix still controls model-specific options, but must not
@@ -5795,6 +5991,10 @@ function localizedGreeting() {
     return getModelCapabilities(imageState.modelId);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageFeatureUnavailableToast
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageFeatureUnavailableToast(feature) {
     const label = feature === 'character' ? 'персонажей' : 'объекты';
     toast('Выбранная AI-модель не поддерживает ' + label + '.');
@@ -5849,6 +6049,10 @@ function localizedGreeting() {
     setButtonState(document.getElementById('videoObjectButton'), !capabilities.object.selectable);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: ensureImageReferenceSections
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function ensureImageReferenceSections() {
     let wrap = document.getElementById('imageReferenceSections');
     if (wrap) wrap.remove();
@@ -5871,6 +6075,10 @@ function localizedGreeting() {
     // always-enabled behavior unchanged.
     const gateByModel = isImageMode();
 
+    // =====================================================
+    // JAVASCRIPT-БЛОК: setButtonState
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const setButtonState = (valueEl, disabled) => {
       if (!valueEl) return;
       const btn = valueEl.closest('button');
@@ -5900,14 +6108,26 @@ function localizedGreeting() {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: nextImageCountValue
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function nextImageCountValue() {
     const counts = [1, 2, 3, 4];
     const currentCount = Number(imageState.count || 1);
+    // =====================================================
+    // JAVASCRIPT-БЛОК: currentIndex
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const currentIndex = counts.findIndex((item) => Number(item) === currentCount);
     const safeIndex = currentIndex >= 0 ? currentIndex : 0;
     return Number(counts[(safeIndex + 1) % counts.length] || 1);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: optionLabel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function optionLabel(options, id, fallback) {
     const value = String(id || '');
 
@@ -5919,16 +6139,28 @@ function localizedGreeting() {
       return styleOpt.label || styleOpt.id;
     }
 
+    // =====================================================
+    // JAVASCRIPT-БЛОК: opt
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const opt = (options || []).find((item) => String(item.id) === value);
 
     return opt ? (opt.label || opt.id) : fallback;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageStyleSheetItem
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageStyleSheetItem(id) {
     const value = String(id || '');
     return IMAGE_STYLE_SHEET_ITEMS.find((item) => String(item.id) === value) || null;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updateImageStyleButtonPreview
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function updateImageStyleButtonPreview(styleItem) {
     const styleVal = document.getElementById('imageStyleVal');
     if (!styleVal) return;
@@ -5987,6 +6219,10 @@ function renderUploadPreviewOnButton(button, urls) {
   button.classList.add('has-upload-preview');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: setFramePreview
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function setFramePreview(card, url, label) {
   if (!card) return;
   let preview = card.querySelector(':scope > .studio-frame-preview');
@@ -6219,6 +6455,10 @@ function applyUploadToTarget(url, targetOverride, sourceOverride) {
     return;
   }
   if (target === UPLOAD_TARGETS.VIDEO_REFERENCES) {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: refs
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const refs = currentVideoReferenceImages().filter((item) => item && item !== url);
     refs.unshift(url);
     setCurrentVideoReferenceImages(refs.slice(0, uploadLimitForTarget(target)));
@@ -6254,10 +6494,18 @@ function applyUploadedMediaToTarget(url) {
   applyUploadToTarget(url, getUploadTarget());
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: addVideoReferenceImage
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function addVideoReferenceImage(url) {
   applyUploadToTarget(url, UPLOAD_TARGETS.VIDEO_REFERENCES);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: applyVideoReferenceToState
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function applyVideoReferenceToState(url) {
   if (!url) return;
   videoState.referenceVideoUrl = url;
@@ -10541,6 +10789,10 @@ function openImageUploadTarget(e) {
   openImageUpload(e);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureVisualCreateModal
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureVisualCreateModal() {
   let modal = document.getElementById('visualCreateModal');
   if (modal) return modal;
@@ -10551,6 +10803,10 @@ function ensureVisualCreateModal() {
   return modal;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureVisualPickerModal
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureVisualPickerModal() {
   let modal = document.getElementById('visualPickerModal');
   if (modal) return modal;
@@ -10575,6 +10831,10 @@ function closeVisualPicker(e) {
   closeCharacterDetail();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: visualPickerCardHtml
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function visualPickerCardHtml(item, kind) {
   item = normalizeVisualItem(item) || {};
   const selected = kind === 'character' ? imageState.characterId === item.id : imageState.objectId === item.id;
@@ -11201,6 +11461,10 @@ async function deleteUserVoice(e, resourceId, voiceId) {
   toast('Голос удалён');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: visualCreatePhotoSlot
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function visualCreatePhotoSlot(index) {
   const url = visualCreateDraft.photos[index] || '';
   return '<button class="visual-photo-slot ' + (url ? 'has-photo' : '') + '" type="button" onclick="SYLVEX.pickVisualCreatePhoto(event,' + index + ')">'
@@ -11289,6 +11553,10 @@ function closeVisualCreateModal(e) {
   if (modal) modal.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: updateVisualCreateDraft
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function updateVisualCreateDraft(e, field) {
   const target = e && e.target;
   visualCreateDraft[field] = target ? target.value : '';
@@ -11299,6 +11567,10 @@ function updateVisualCreateDraft(e, field) {
   }
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: visualCreateCanSave
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function visualCreateCanSave() {
   const isCharacter = visualCreateDraft.kind === 'character';
   return String(visualCreateDraft.name || '').trim().length >= 2
@@ -11306,11 +11578,19 @@ function visualCreateCanSave() {
     && (visualCreateDraft.photos || []).filter(Boolean).length > 0;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: updateVisualCreateSaveState
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function updateVisualCreateSaveState() {
   const btn = document.querySelector('#visualCreateModal .visual-create-save');
   if (btn) btn.disabled = !visualCreateCanSave();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickVisualCreatePhoto
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickVisualCreatePhoto(e, index) {
   if (e) {
     e.preventDefault();
@@ -11359,6 +11639,10 @@ function pickVisualCreatePhoto(e, index) {
   input.click();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: removeVisualCreatePhoto
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function removeVisualCreatePhoto(e, index) {
   if (e) {
     e.preventDefault();
@@ -12247,6 +12531,10 @@ async function restorePendingObjectCreationJobs() {
   }
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: saveVisualCreateDraft
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 async function saveVisualCreateDraft(e) {
   if (e) {
     e.preventDefault();
@@ -12523,12 +12811,20 @@ async function addGeneratedImageToCharacterReferences(e) {
   }
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickVisualReference
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickVisualReference(e, kind, id) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
   const list = kind === 'character' ? imageCharacters() : imageObjects();
+  // =====================================================
+  // JAVASCRIPT-БЛОК: item
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const item = list.find((entry) => entry.id === id);
   if (!item) return;
   if (isVideoMode()) {
@@ -12698,6 +12994,10 @@ function currentSelectedUploadImage() {
   return images[images.length - 1] || '';
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: injectImageStyleSheetCss
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function injectImageStyleSheetCss() {
   if (styleSheetCssInjected) return;
   styleSheetCssInjected = true;
@@ -13512,6 +13812,10 @@ function currentSelectedUploadImage() {
   document.head.appendChild(style);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureImageStylePanel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureImageStylePanel() {
   injectImageStyleSheetCss();
 
@@ -13832,11 +14136,19 @@ function closeImageStylePanel(e) {
   if (panel) panel.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: hideImageStyleInfo
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function hideImageStyleInfo() {
   const tooltip = document.getElementById('imageStyleInfoTooltip');
   if (tooltip) tooltip.classList.remove('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: handleImageStyleInfoOutsideTouch
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function handleImageStyleInfoOutsideTouch(e) {
   const tooltip = document.getElementById('imageStyleInfoTooltip');
   if (!tooltip || !tooltip.classList.contains('show')) return;
@@ -13866,6 +14178,10 @@ function toggleImageStyleInfo(e) {
   tooltip.classList.toggle('show');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: pickImageStyleFromPanel
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function pickImageStyleFromPanel(e, value) {
   if (e) {
     e.preventDefault();
@@ -13882,6 +14198,10 @@ function pickImageStyleFromPanel(e, value) {
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelIconKey
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelIconKey(model) {
   const id = String(model && model.id ? model.id : '');
 
@@ -13900,6 +14220,10 @@ function imageModelIconKey(model) {
   return 'nn';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelIconHtml
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelIconHtml(model) {
   const key = model && (model.icon || model.iconKey)
     ? String(model.icon || model.iconKey)
@@ -13927,11 +14251,19 @@ function updateComposerModelDisplay(model) {
   if (iconEl) iconEl.innerHTML = imageModelIconHtml(model);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelDescription
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelDescription(model) {
   if (!model) return 'AI-модель для генерации изображений.';
   return model.description || model.desc || model.subtitle || model.note || 'AI-модель для генерации изображений.';
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: imageModelButton
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function imageModelButton(model) {
   const activeId = isImageMode()
     ? imageState.modelId
@@ -13953,6 +14285,10 @@ function imageModelButton(model) {
     + '</button>';
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyImageDefaults
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyImageDefaults(model) {
     if (!model) return;
     imageState.modelId = model.id;
@@ -13966,6 +14302,10 @@ function imageModelButton(model) {
     imageState.seedreamQuality = '2K';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: syncImageModelOptionDefaults
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function syncImageModelOptionDefaults(model) {
     const cfg = model || currentImageModel();
     if (!cfg) return;
@@ -14005,6 +14345,10 @@ function imageModelButton(model) {
       { id:'9:16', label:'9:16', ratio:'9:16' }
     ];
     const selectedSizeId = imageState.size || '1:1';
+    // =====================================================
+    // JAVASCRIPT-БЛОК: size
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const size = sizeOptions.find((item) => item.id === selectedSizeId) || sizeOptions[0];
     const sizeVal = document.getElementById('imageSizeVal');
     if (sizeVal && size) sizeVal.textContent = size.label || size.ratio || size.id;
@@ -14037,6 +14381,10 @@ function imageModelButton(model) {
     renderImageReferenceSections();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: normalizeImageSeed
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function normalizeImageSeed(value) {
     const raw = String(value ?? '').trim();
     if (!raw) return null;
@@ -14047,15 +14395,27 @@ function imageModelButton(model) {
     return seed;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageSeedInputValue
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageSeedInputValue() {
     return imageState.seed === null || imageState.seed === undefined ? '' : String(imageState.seed);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: currentRecraftTools
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function currentRecraftTools() {
     const model = currentImageModel() || {};
     return Array.isArray(model.recraftTools) ? model.recraftTools.slice() : [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageOptionsPayload
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageOptionsPayload(referenceImages) {
     const capabilities = getModelCapabilities(imageState.modelId);
     const seed = capabilities.seed ? normalizeImageSeed(imageState.seed) : null;
@@ -14070,10 +14430,18 @@ function imageModelButton(model) {
     return payload;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: sanitizeImageSeedInput
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function sanitizeImageSeedInput(value) {
     return String(value || '').replace(/\D+/g, '');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: onImageSeedInput
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function onImageSeedInput(e) {
     const input = e && e.currentTarget ? e.currentTarget : document.getElementById('imageSeedInput');
     if (!input) return;
@@ -14096,6 +14464,10 @@ function imageModelButton(model) {
     tip.hidden = !tip.hidden;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: resetImageSettings
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function resetImageSettings(e) {
     if (e) {
       e.preventDefault();
@@ -14118,6 +14490,10 @@ function imageModelButton(model) {
     tip.hidden = true;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadImageCapabilities
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadImageCapabilities() {
     try {
       const res = await fetch('/api/public/prostudio/image-capabilities', { cache: 'no-store' });
@@ -15176,6 +15552,10 @@ function imageModelButton(model) {
     renderMusicControls();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickImageOption
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickImageOption(e, kind, value) {
     if (e) {
       e.preventDefault();
@@ -15183,6 +15563,10 @@ function imageModelButton(model) {
     }
     if (kind === 'model') {
       if (isImageMode()) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: model
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const model = IMAGE_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           imageState.modelId = model.id;
@@ -15193,6 +15577,10 @@ function imageModelButton(model) {
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
       } else if (isVideoMode()) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: model
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const model = VIDEO_MODELS.find((item) => item.id === value);
         if (model) {
           if (model.id !== videoState.modelId) saveCurrentVideoModelSettings();
@@ -15202,6 +15590,10 @@ function imageModelButton(model) {
           if (mvc) mvc.textContent = model.label || model.name || model.id;
         }
       } else if (isMusicMode()) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: model
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const model = MUSIC_MODEL_LIST.find((item) => item.id === value);
         if (model) {
           musicState.modelId = model.id;
@@ -15392,6 +15784,10 @@ function imageModelButton(model) {
     return j.thumb_url ? [j.thumb_url] : [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickFirstMediaUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickFirstMediaUrl() {
     for (let i = 0; i < arguments.length; i += 1) {
       const value = arguments[i];
@@ -15426,6 +15822,10 @@ function imageModelButton(model) {
     return '';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickFirstCoverUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickFirstCoverUrl() {
     for (let i = 0; i < arguments.length; i += 1) {
       const value = arguments[i];
@@ -15648,7 +16048,15 @@ function imageModelButton(model) {
     return m.thumbUrl ? [m.thumbUrl] : [];
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imagePreviewUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imagePreviewUrl(meta, fallback) {
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const pickUrl = (value) => {
     if (!value) return '';
 
@@ -15667,6 +16075,10 @@ function imageModelButton(model) {
     return '';
   };
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: firstUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const firstUrl = (list) => {
     if (!Array.isArray(list)) return '';
 
@@ -15688,6 +16100,10 @@ function imageModelButton(model) {
     || '';
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: previewImgHtml
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function previewImgHtml(url, alt, fallbackUrl, extraClass) {
     const safeUrl = S.escapeHtml(url || '');
     const safeAlt = S.escapeHtml(alt || 'preview');
@@ -15912,6 +16328,10 @@ function renderGeneratedTelegramButton(url, kind) {
       + '</div>';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: imageGenerationMetadata
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function imageGenerationMetadata(prompt, referenceImages, result, optionsSnapshot) {
     const backendMeta = result && result.metadata && typeof result.metadata === 'object' ? result.metadata : {};
     const options = Object.assign({}, optionsSnapshot || imageState || {}, backendMeta.image_options || backendMeta.settings || {});
@@ -15923,6 +16343,10 @@ function renderGeneratedTelegramButton(url, kind) {
       options.catalog_display_prompt = '';
     }
     const modelId = backendMeta.model || (result && result.model) || options.modelId || imageState.modelId || '';
+    // =====================================================
+    // JAVASCRIPT-БЛОК: model
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const model = IMAGE_MODEL_LIST.find((item) => item.id === modelId) || currentImageModel() || {};
     const images = backendMeta.result_images && backendMeta.result_images.length
       ? backendMeta.result_images.slice()
@@ -16010,6 +16434,10 @@ function renderGeneratedTelegramButton(url, kind) {
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: generationResultMetadata
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function generationResultMetadata(type, prompt, result, referenceImages, optionsSnapshot) {
     if (result && ['image', 'video', 'music', 'voice'].includes(String(result.type || ''))) {
       type = String(result.type || type);
@@ -16074,6 +16502,10 @@ function renderGeneratedTelegramButton(url, kind) {
     kling: ['Building motion...', 'Generating frames...', 'Applying native audio...', 'Rendering video...'],
   };
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: generationKindForCurrentMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function generationKindForCurrentMode() {
     if (isVideoMode()) {
       const model = String(videoState.modelId || '').toLowerCase();
@@ -16085,6 +16517,10 @@ function renderGeneratedTelegramButton(url, kind) {
     return 'text';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: createGenerationProgress
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function createGenerationProgress(kind, modelId) {
     return {
       kind: kind || generationKindForCurrentMode(),
@@ -16096,6 +16532,10 @@ function renderGeneratedTelegramButton(url, kind) {
     };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: generationProgressMessage
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function generationProgressMessage(progress) {
     const p = progress || {};
     const items = GENERATION_STAGE_MESSAGES[p.kind] || GENERATION_STAGE_MESSAGES.text;
@@ -16105,6 +16545,10 @@ function renderGeneratedTelegramButton(url, kind) {
     return items[index] || items[0] || 'Генерация...';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: nextGenerationProgress
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function nextGenerationProgress(progress, completed) {
     const p = Object.assign(createGenerationProgress('text'), progress || {});
     if (completed) {
@@ -16543,6 +16987,10 @@ function renderGeneratedTelegramButton(url, kind) {
           + '<div class="bubble">' + inner + '</div>' + actions + '</div>';
       }
       if (imageUrls.length) {
+        // =====================================================
+        // JAVASCRIPT-БЛОК: imageItems
+        // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+        // =====================================================
         const imageItems = imageUrls.map((url, idx) => ({ url, thumb: imageThumbs[idx] || url }));
         inner += '<div class="gen-img-grid">' + imageItems.map((item, idx) => renderGeneratedImage(item, idx, m.metadata || {})).join('') + '</div>';
       }
@@ -17115,12 +17563,20 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   /* ===== Pricing ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: computePrice
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function computePrice() {
     if (!activeCat) return 0;
     let p = S.CAT_PRICE[activeCat] || 0;
     Object.keys(S.CTRL_PRICE).forEach(k => { p += (S.CTRL_PRICE[k][S.CTRL_IDX[k]] || 0); });
     return p;
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updatePrice
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function updatePrice() {
     const bar = document.getElementById('priceBar');
     if (bar) bar.classList.remove('show');
@@ -17136,6 +17592,10 @@ function renderGeneratedTelegramButton(url, kind) {
   }
 
   /* ===== Studio interactions ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: selMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function selMode(k) {
     if (k !== studioMode) stopTextListen(false);
     studioMode = k;
@@ -17150,6 +17610,10 @@ function renderGeneratedTelegramButton(url, kind) {
   function toggleModelPop(e) {
     showImageModelPicker(e);
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickModel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickModel(e, i) {
     e.stopPropagation();
     S.CTRL_IDX.model = i;
@@ -17158,6 +17622,10 @@ function renderGeneratedTelegramButton(url, kind) {
     document.getElementById('modelPop').classList.remove('show');
     S.haptic.select();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickModelKey
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickModelKey(e, key, label) {
     e.stopPropagation();
     currentModelLabel = label;
@@ -17192,6 +17660,10 @@ function renderGeneratedTelegramButton(url, kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: addMediaLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function addMediaLink(kind) {
     const sheet = document.getElementById('plusSheet');
     if (sheet) sheet.classList.remove('show');
@@ -17311,6 +17783,10 @@ function renderGeneratedTelegramButton(url, kind) {
     return { url: item, thumb: thumb || item };
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: parseMetadataObject
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function parseMetadataObject(value) {
     if (!value) return {};
     if (typeof value === 'object') return value;
@@ -17325,6 +17801,10 @@ function renderGeneratedTelegramButton(url, kind) {
     return {};
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: firstMediaUrlFrom
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function firstMediaUrlFrom(value) {
     if (!value) return '';
     if (typeof value === 'string') return value;
@@ -17450,6 +17930,10 @@ function renderGeneratedTelegramButton(url, kind) {
   // Собирает prompt и настройки, отправляет запрос на backend и запускает ожидание результата.
   // =====================================================
   function addGeneratedImages(urls, thumbs) {
+    // =====================================================
+    // JAVASCRIPT-БЛОК: list
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const list = (urls || []).map((url, index) => normalizeGeneratedImageItem(url, thumbs && thumbs[index])).filter(Boolean);
     if (!list.length) return;
     list.forEach((item) => {
@@ -17545,6 +18029,10 @@ function uploadPhotoButtonHtml() {
     const chooseBtn = document.getElementById('uploadChoosePhotosBtn');
     if (chooseBtn) chooseBtn.hidden = !uploadImages.length && !hasVideoReference;
     const selectedUrl = currentSelectedUploadImage();
+    // =====================================================
+    // JAVASCRIPT-БЛОК: items
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const items = uploadImages.map((url, index) => {
       const safeUrl = S.escapeHtml(url);
       const selected = selectedUrl === url;
@@ -17672,6 +18160,10 @@ function uploadPhotoButtonHtml() {
     toast('Очищено');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: clearVideoReference
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function clearVideoReference(e) {
     if (e) {
       e.preventDefault();
@@ -17705,6 +18197,10 @@ function uploadPhotoButtonHtml() {
     S.haptic && S.haptic.notify && S.haptic.notify('success');
     }
 
+    // =====================================================
+    // JAVASCRIPT-БЛОК: ensureComposerImageDraft
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     function ensureComposerImageDraft() {
   const ta = document.getElementById('chatInput');
   if (!ta) return null;
@@ -17738,6 +18234,10 @@ function renderComposerImageDraft() {
   updateImageUploadButtonPreview();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: removeComposerImageDraft
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function removeComposerImageDraft(e, index) {
   if (e) {
     e.preventDefault();
@@ -17860,6 +18360,10 @@ function onImageViewerWheel(event) {
   navigateImageViewer(null, direction);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureImageViewer
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureImageViewer() {
   let viewer = document.getElementById('imageViewer');
   if (viewer) return viewer;
@@ -17966,6 +18470,10 @@ function closeImageViewer(e) {
   imageViewerWheelTimer = null;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: telegramBotLink
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function telegramBotLink() {
   const explicit = S.TELEGRAM_BOT_LINK || S.BOT_LINK || '';
   if (explicit) return explicit;
@@ -18155,6 +18663,10 @@ function playMusicTrackFromMessage(e, index) {
   }), e);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: restoreImageStateFromGenerationMetadata
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function restoreImageStateFromGenerationMetadata(meta) {
   if (!meta || meta.type !== 'image') return;
   const settings = meta.image_options || meta.settings || {};
@@ -18352,6 +18864,10 @@ function editGeneratedVideo(e) {
   S.haptic && S.haptic.notify && S.haptic.notify('success');
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: ensureGenerationInfoDrawer
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function ensureGenerationInfoDrawer() {
   let drawer = document.getElementById('generationInfoDrawer');
   if (drawer) return drawer;
@@ -18371,6 +18887,10 @@ function ensureGenerationInfoDrawer() {
   return drawer;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: generationInfoRow
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function generationInfoRow(label, value) {
   if (value === undefined || value === null || value === '') return '';
   return '<div class="generation-info-row"><span>' + S.escapeHtml(label) + '</span><b>' + S.escapeHtml(String(value)) + '</b></div>';
@@ -19027,6 +19547,10 @@ function closeUploadPanel(e) {
     form.append('file', file);
     const endpoint = '/api/public/prostudio/upload-media?kind=' + encodeURIComponent(kind || 'image');
     const res = await fetch(endpoint, { method: 'POST', body: form });
+    // =====================================================
+    // JAVASCRIPT-БЛОК: data
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok || !data.url) {
       throw new Error(data.error || 'Не удалось загрузить файл');
@@ -19743,6 +20267,10 @@ function closeUploadPanel(e) {
     toast('Файлы озвучки очищены');
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateText
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateText(key) {
     const lang = (typeof uiLang === 'function' && uiLang()) || 'ru';
     const dict = {
@@ -19774,6 +20302,10 @@ function closeUploadPanel(e) {
     return (dict[lang] && dict[lang][key]) || dict.ru[key] || key;
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: defaultVideoTemplateItems
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function defaultVideoTemplateItems() {
     const base = [
       ['Сброс сумки', 'Предметы динамично высыпаются из сумки на городской переход, камера следует за движением, реалистичный рекламный стиль.'],
@@ -19876,14 +20408,26 @@ function closeUploadPanel(e) {
     if (el) el.remove();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: maybeShowVideoTemplateIntro
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
 function maybeShowVideoTemplateIntro(force) {
   return;
 }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: loadVideoTemplates
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function loadVideoTemplates() {
     if (Array.isArray(videoTemplatesCache)) return videoTemplatesCache;
     try {
       const res = await fetch('/api/public/prostudio/video-templates', { cache: 'default' });
+      // =====================================================
+      // JAVASCRIPT-БЛОК: data
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const data = await res.json().catch(() => ({}));
       const templates = Array.isArray(data.templates) ? data.templates : [];
       // The catalog API enriches built-in cards with real media and tariffs.
@@ -19942,6 +20486,10 @@ function maybeShowVideoTemplateIntro(force) {
     if (overlay) overlay.remove();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateCostLabel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateCostLabel(template) {
     const credits = Number(template && (template.cost_credits || template.cost) || 0);
     if (credits > 0) return '⚡ ' + credits;
@@ -19966,8 +20514,16 @@ function maybeShowVideoTemplateIntro(force) {
     return 'kling_motion_3_0';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateRatios
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateRatios(template) {
     const ratios = Array.isArray(template && template.ratios) ? template.ratios : [];
+    // =====================================================
+    // JAVASCRIPT-БЛОК: clean
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const clean = ratios.filter((ratio) => ['16:9', '1:1', '9:16'].includes(String(ratio)));
     return clean.length ? clean : ['16:9', '1:1', '9:16'];
   }
@@ -19979,11 +20535,19 @@ function maybeShowVideoTemplateIntro(force) {
     return 'Широкий';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: videoTemplateReferenceVideo
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function videoTemplateReferenceVideo(template) {
     if (!template) return '';
     return String(template.reference_video || template.video_url || template.template_video_url || template.preview_video || '').trim();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: normalizeVideoTemplateList
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function normalizeVideoTemplateList(items, includeDefaults = true) {
     const incoming = Array.isArray(items) ? items : [];
     const defaults = includeDefaults ? defaultVideoTemplateItems() : [];
@@ -20120,6 +20684,10 @@ function maybeShowVideoTemplateIntro(force) {
     // catalogType, so look there first and only fall back to the combined
     // list for older call sites that don't pass it).
     const primary = catalogType === 'effects' ? effects : (catalogType === 'templates' ? templates : null);
+    // =====================================================
+    // JAVASCRIPT-БЛОК: template
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const template = (primary && primary.find((item) => String(item.id) === String(id)))
       || effects.concat(templates).find((item) => String(item.id) === String(id));
     if (template) openVideoTemplateModal(template);
@@ -20224,6 +20792,10 @@ function maybeShowVideoTemplateIntro(force) {
     renderVideoTemplateUpload();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: startVideoTemplateGeneration
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function startVideoTemplateGeneration() {
     const template = activeVideoTemplate;
     if (!template) return;
@@ -20378,6 +20950,10 @@ function maybeShowVideoTemplateIntro(force) {
     }
   });
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: updateComposerMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyVoiceWorkspaceMode() {
     const composer = document.getElementById('studioComposer');
     if (composer) composer.dataset.voiceWorkspace = voiceWorkspaceMode;
@@ -20564,6 +21140,10 @@ function maybeShowVideoTemplateIntro(force) {
     applyCurrentDraft();
     updateSendButton();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: genAction
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function genAction(kind, tabKey) {
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
       document.activeElement.blur();
@@ -20646,6 +21226,10 @@ function maybeShowVideoTemplateIntro(force) {
     if (!spent && user.last_generation_cost_credits !== undefined) spent = String(user.last_generation_cost_credits) + ' ⚡️';
     const spentEl = document.getElementById('hdUserLastSpent'); if (spentEl) spentEl.textContent = spent || '—';
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: autoGrow
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function autoGrow(ta) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
@@ -21000,6 +21584,10 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
     if (submissionTimeout) clearTimeout(submissionTimeout);
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: j
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   const j = await res.json().catch(() => ({}));
   if (res.status === 409 && j && j.active_job_id) {
     clearActiveProStudioJob();
@@ -21064,6 +21652,10 @@ async function callGenerateCore(prompt, attachment, referenceImagesOverride, vid
   return j;
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: errorMessage
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function errorMessage(value, fallback) {
   const fallbackText = fallback || 'Генерация не прошла';
   if (value === null || value === undefined || value === '') return fallbackText;
@@ -21086,6 +21678,10 @@ function isNetworkLoadError(value) {
   return /load failed|failed to fetch|networkerror|network request failed|the internet connection appears to be offline/i.test(String(text || ''));
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: translateGenerationError
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function translateGenerationError(value, fallback) {
   if (value && typeof value === 'object' && value.textRequestTimeout) {
     return 'Ответ не получен за отведённое время. Повторите запрос ещё раз.';
@@ -21229,6 +21825,10 @@ function resolveFailureMessage(err, opts) {
   return buildGenerationErrorMessage(err, opts);
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: buildInsufficientBalanceMessage
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImages, imageOptionsSnapshot, videoOptionsSnapshot, audioUploads) {
   const required = Number((err && err.requiredCredits) || 0);
   const balance = Number((err && err.balance) || 0);
@@ -21253,6 +21853,10 @@ function buildInsufficientBalanceMessage(err, prompt, attachment, referenceImage
   };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: estimateFrontendGenerationCredits
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   const known = !!(S.user && S.user.balance !== undefined && S.user.balance !== null);
   const balance = Number((S.user && S.user.balance) || 0);
@@ -21261,6 +21865,10 @@ function estimateFrontendGenerationCredits(imageOptionsSnapshot) {
   return { balance, required: 0, known };
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: updateGenerationLoadingProgress
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 function updateGenerationLoadingProgress(index, completed) {
   if (index === undefined || index === null || index < 0) return;
   const message = chatMessages[index];
@@ -21272,6 +21880,10 @@ function updateGenerationLoadingProgress(index, completed) {
   rememberCurrentChatSpace();
 }
 
+// =====================================================
+// JAVASCRIPT-БЛОК: waitGeneration
+// Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+// =====================================================
 async function waitGeneration(jobId, options) {
   const onProgress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
   const signal = options && options.signal ? options.signal : null;
@@ -21413,6 +22025,10 @@ async function waitGeneration(jobId, options) {
     rememberCurrentChatSpace();
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: resumePendingGeneration
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function resumePendingGeneration(e, index) {
     if (e) {
       e.preventDefault();
@@ -21894,6 +22510,10 @@ async function waitGeneration(jobId, options) {
     rememberCurrentChatSpace();
     if (unlockAfterRender) clearActiveProStudioJob(activeGeneration.jobId);
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: copyMsg
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function sanitizeTextForSpeech(text) {
     return String(text || '')
       .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -22051,6 +22671,10 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: regenMsg
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function regenMsg(i) {
   if (studioMode === 'text') {
     retryTextGeneration(i);
@@ -22443,6 +23067,10 @@ async function waitGeneration(jobId, options) {
     } catch {
       toast('Microphone access denied'); return;
     }
+    // =====================================================
+    // JAVASCRIPT-БЛОК: mime
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const mime = ['audio/webm', 'audio/mp4'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     try {
       mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
@@ -22672,6 +23300,10 @@ async function waitGeneration(jobId, options) {
       if (openKey) openingConversations.delete(openKey);
     }
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: deleteConv
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function deleteConv(e, id, type) {
     e.stopPropagation();
     const tg = getTelegramId(); if (!tg) return;
@@ -22739,6 +23371,10 @@ async function waitGeneration(jobId, options) {
   const paypalSubscriptionRendered = {};
   const paypalSubscriptionRenderAttempts = {};
   let pendingPack = null;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: getPayPalSubscriptionConfig
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function getPayPalSubscriptionConfig(packId) {
     if (packId === 'sub_month') {
       return {
@@ -22756,6 +23392,10 @@ async function waitGeneration(jobId, options) {
     }
     return null;
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: resetPayPalSubscriptionPanel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function resetPayPalSubscriptionPanel() {
     const panel = document.getElementById('paypalSubscriptionPanel');
     if (panel) panel.hidden = true;
@@ -22764,6 +23404,10 @@ async function waitGeneration(jobId, options) {
       if (el) el.hidden = true;
     });
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: showPayPalSubscriptionPanel
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function showPayPalSubscriptionPanel(packId) {
     const config = getPayPalSubscriptionConfig(packId);
     const panel = document.getElementById('paypalSubscriptionPanel');
@@ -22824,6 +23468,10 @@ async function waitGeneration(jobId, options) {
   let _cdTimer = null;
   let _expirySyncTriggeredFor = '';
   let _expiredSubscriptionModalShown = false;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: fmtCountdown
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function fmtCountdown(ms) {
     if (ms <= 0) return '0 д 0 ч 0 м 0 с';
 
@@ -22841,6 +23489,10 @@ async function waitGeneration(jobId, options) {
 
     return totalDays + ' д ' + hours + ' ч ' + minutes + ' м ' + seconds + ' с';
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: fmtDate
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function fmtDate(iso) {
     if (!iso) return '—';
     try { return new Date(iso).toLocaleDateString('ru-RU', { day:'2-digit', month:'long', year:'numeric' }); }
@@ -22982,6 +23634,10 @@ async function waitGeneration(jobId, options) {
     // Live countdown every second while subscription is active.
     if (_cdTimer) clearInterval(_cdTimer);
     if (active && expIso) {
+      // =====================================================
+      // JAVASCRIPT-БЛОК: tickCountdown
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const tickCountdown = () => {
         const ms = new Date(expIso).getTime() - Date.now();
         document.querySelectorAll('[data-sub-cd]').forEach((el) => { el.textContent = fmtCountdown(ms); });
@@ -23135,6 +23791,10 @@ async function waitGeneration(jobId, options) {
     document.getElementById('subActiveModal').classList.add('show');
     pendingPack = 'sub_' + plan;
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: renewFromModal
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function renewFromModal() {
     const user = S.user || {};
     const remainingMs = user.subscription_expires_at ? new Date(user.subscription_expires_at).getTime() - Date.now() : 0;
@@ -23278,6 +23938,10 @@ async function waitGeneration(jobId, options) {
     epSelectedAvatar = u.custom_avatar_url || null;
     const grid = document.getElementById('avatarGrid');
     if (grid) {
+      // =====================================================
+      // JAVASCRIPT-БЛОК: items
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const items = [{ url: null, label: 'TG' }].concat(AVATAR_PRESETS.map((p) => ({ url: p })));
       grid.innerHTML = items.map((it, i) => {
         const sel = (epSelectedAvatar || '') === (it.url || '') ? 'sel' : '';
@@ -23290,6 +23954,10 @@ async function waitGeneration(jobId, options) {
     renderThemeGrid();
     document.getElementById('editProfileModal').classList.add('show');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: pickAvatar
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function pickAvatar(btn) {
     epSelectedAvatar = btn.dataset.url || null;
     document.querySelectorAll('#avatarGrid .av-opt').forEach((el) => el.classList.remove('sel'));
@@ -23438,8 +24106,16 @@ async function waitGeneration(jobId, options) {
     epAppearanceDraft = null;
     closeModal(null, 'editProfileModal');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyTheme
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyTheme(themeId, persist = true) {
     if (isWebEmbed()) { restoreStudioTheme(); return; }
+    // =====================================================
+    // JAVASCRIPT-БЛОК: t
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const t = THEMES.find((x) => x.id === themeId) || THEMES[0];
     document.documentElement.setAttribute('data-theme', t.mode);
     const r = document.documentElement.style;
@@ -23484,6 +24160,10 @@ async function waitGeneration(jobId, options) {
     renderThemeGrid();
     document.getElementById('themeModal').classList.add('show');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyStoredTheme
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyStoredTheme() {
     applyProfileAppearance(currentProfileAppearance());
   }
@@ -23506,6 +24186,10 @@ async function waitGeneration(jobId, options) {
       document.getElementById('refCount').textContent = j.referrals_count || 0;
     } catch { document.getElementById('refLinkVal').textContent = '—'; }
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: copyRefLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function copyRefLink() {
     const v = (_refData && (_refData.link || _refData.code)) || document.getElementById('refLinkVal').textContent;
     if (!v || v === '—') return;
@@ -23513,6 +24197,10 @@ async function waitGeneration(jobId, options) {
     toast('Ссылка скопирована');
     S.haptic && S.haptic.notify && S.haptic.notify('success');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: activateRefLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function activateRefLink() {
     const body = {
       initData: S.tg && S.tg.initData ? S.tg.initData : '',
@@ -23532,11 +24220,19 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Sign out ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: signOut
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function signOut() {
     if (!window.confirm('Выйти из аккаунта SYLVEX?')) return;
     try { localStorage.removeItem('sylvex-theme-id'); } catch {}
     if (S.tg && S.tg.close) S.tg.close();
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: contactAdmin
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function contactAdmin() {
     const url = 'https://t.me/sylvex_admin';
     const tgApp = S.tg;
@@ -23544,6 +24240,10 @@ async function waitGeneration(jobId, options) {
     else if (tgApp && tgApp.openLink)    tgApp.openLink(url);
     else window.open(url, '_blank');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: isTelegramLink
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function isTelegramLink(url) {
     return /^https:\/\/t\.me\//i.test(url || '') || /^tg:\/\//i.test(url || '');
   }
@@ -23568,6 +24268,10 @@ async function waitGeneration(jobId, options) {
     if (tgApp && tgApp.openLink) tgApp.openLink(url, { try_instant_view: false });
     else window.open(url, '_blank');
   }
+  // =====================================================
+  // JAVASCRIPT-БЛОК: payWith
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   async function payWith(method) {
     const packId = pendingPack;
     if (!packId) return;
@@ -23904,6 +24608,10 @@ async function waitGeneration(jobId, options) {
   /* ===== Hero carousel ===== */
   let slideIdx = 0;
   let autoT;
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initHero
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function initHero() {
     const track = document.getElementById('heroTrack');
     const dotsEl = document.getElementById('heroDots');
@@ -23919,6 +24627,10 @@ async function waitGeneration(jobId, options) {
       for (let i = 0; i < n; i++) s += '<div class="dot-i ' + (i === slideIdx ? 'act' : '') + '"></div>';
       dotsEl.innerHTML = s;
     }
+    // =====================================================
+    // JAVASCRIPT-БЛОК: goSlide
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     function goSlide(i) {
       const n = track.children.length;
       slideIdx = ((i % n) + n) % n;
@@ -23954,6 +24666,10 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Wire up DOM ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: bindEvents
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function bindEvents() {
     ['gesturestart','gesturechange','gestureend'].forEach((eventName) => {
       document.addEventListener(eventName, (event) => event.preventDefault(), { passive:false });
@@ -24124,6 +24840,10 @@ async function waitGeneration(jobId, options) {
     const vv = window.visualViewport;
     if (vv) {
       let stableViewportHeight = Math.max(window.innerHeight, vv.height + vv.offsetTop);
+      // =====================================================
+      // JAVASCRIPT-БЛОК: updateKb
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const updateKb = () => {
         if (!usesVirtualKeyboardLayout()) {
           document.documentElement.style.setProperty('--kb', '0px');
@@ -24158,6 +24878,10 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initialViewFromUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   // True when Pro Studio is loaded inside the SYLVEX website's iframe
   // (sylvex-website/pro-studio.html appends ?embed=web) rather than the
   // Telegram Mini App. Never true for Telegram, which never sends this param.
@@ -24223,6 +24947,10 @@ async function waitGeneration(jobId, options) {
     return allowed.has(view) ? view : 'home';
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: applyInitialViewFromUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function applyInitialViewFromUrl() {
     const view = initialViewFromUrl();
     if (view && view !== 'home') switchView(view);
@@ -24254,6 +24982,10 @@ async function waitGeneration(jobId, options) {
     } catch (_) {}
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: handlePaymentReturnFromUrl
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function handlePaymentReturnFromUrl() {
     const params = new URLSearchParams(window.location.search || '');
     if ((params.get('provider') || '').toLowerCase() !== 'paypal') return;
@@ -24276,6 +25008,10 @@ async function waitGeneration(jobId, options) {
     }
   }
 
+  // =====================================================
+  // JAVASCRIPT-БЛОК: initializeProStudioComposerMode
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   function initializeProStudioComposerMode() {
     const composer = document.getElementById('studioComposer');
     const params = new URLSearchParams(window.location.search || '');
@@ -24404,6 +25140,10 @@ async function waitGeneration(jobId, options) {
   function collectMusicPlaylist(seedTrack) {
     const tracks = [];
     const seen = new Set();
+    // =====================================================
+    // JAVASCRIPT-БЛОК: addTrack
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const addTrack = (trackLike) => {
       const track = normalizePlayerTrack(trackLike);
       if (!track || !track.audioUrl || seen.has(track.audioUrl)) return;
@@ -24429,6 +25169,10 @@ async function waitGeneration(jobId, options) {
 
     if (!seedTrack) return tracks;
     const normalizedSeed = normalizePlayerTrack(seedTrack);
+    // =====================================================
+    // JAVASCRIPT-БЛОК: seedIndex
+    // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+    // =====================================================
     const seedIndex = normalizedSeed ? tracks.findIndex((item) => item.audioUrl === normalizedSeed.audioUrl) : -1;
     return {
       tracks,
@@ -24719,7 +25463,15 @@ async function waitGeneration(jobId, options) {
       if (!this.audioEl || !this.progressBar) return;
       e.preventDefault();
       this.progressDragging = true;
+      // =====================================================
+      // JAVASCRIPT-БЛОК: move
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const move = (ev) => this.seekFromEvent(ev);
+      // =====================================================
+      // JAVASCRIPT-БЛОК: up
+      // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+      // =====================================================
       const up = (ev) => {
         this.seekFromEvent(ev);
         this.progressDragging = false;
@@ -25788,6 +26540,10 @@ async function waitGeneration(jobId, options) {
   }
 
   /* ===== Init (called after cabinet.html is injected) ===== */
+  // =====================================================
+  // JAVASCRIPT-БЛОК: init
+  // Выполняет часть frontend-логики: читает состояние, меняет интерфейс или связывает UI с backend.
+  // =====================================================
   // Telegram WebApp initData for the current user - used only to identify
   // the user for presence pings now that administration has moved to the
   // separate SYLVEX Support Bot.

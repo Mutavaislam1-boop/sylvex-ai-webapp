@@ -235,6 +235,11 @@ SHOP_WEBAPP_URL = os.getenv("SHOP_WEBAPP_URL", WEBAPP_URL.rstrip("/") + "/webapp
 # meaningfully open).
 WEBSITE_URL = os.getenv("WEBSITE_URL", "https://sylvex.ai")
 
+# =====================================================
+# PYTHON-БЛОК: env_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def env_value(*names: str, default: str = "") -> str:
     for name in names:
         value = os.getenv(name)
@@ -1092,6 +1097,11 @@ SHOP_ITEMS = {
 }
 
 
+# =====================================================
+# PYTHON-БЛОК: design
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def design(title: str, body: str) -> str:
     return f"""
 <pre>
@@ -1107,16 +1117,31 @@ def design(title: str, body: str) -> str:
 <a href="https://t.me/sylvexai_bot">Official Bot</a>
 """
 
+# =====================================================
+# PYTHON-БЛОК: shop_item
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def shop_item(pack_id: str):
     return SHOP_ITEMS.get((pack_id or "").strip())
 
 
+# =====================================================
+# PYTHON-БЛОК: shop_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def shop_payload(provider: str, telegram_id: int, pack_id: str, item: dict) -> str:
     if item["kind"] == "subscription":
         return f"sylvex_{provider}_sub:{telegram_id}:{item['plan_key']}:{item['usd']:.2f}"
     return f"sylvex_{provider}_credits:{telegram_id}:{item['credits']}:{item['usd']:.2f}"
 
 
+# =====================================================
+# PYTHON-БЛОК: bot_stars_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def bot_stars_payload(telegram_id: int, item: dict, charge_id: str = None) -> str:
     if item["kind"] == "subscription":
         payload = f"sylvex_sub:{telegram_id}:{item['plan_key']}:{item['stars']}"
@@ -1127,6 +1152,11 @@ def bot_stars_payload(telegram_id: int, item: dict, charge_id: str = None) -> st
     return payload
 
 
+# =====================================================
+# PYTHON-БЛОК: parse_shop_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def parse_shop_payload(payload: str) -> dict:
     if not payload or not isinstance(payload, str):
         return {}
@@ -1181,6 +1211,11 @@ def parse_shop_payload(payload: str) -> dict:
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: _has_subscription_purchase
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _has_subscription_purchase(telegram_id: int) -> bool:
     if not DATABASE_URL or not telegram_id:
         return False
@@ -1202,6 +1237,11 @@ def _has_subscription_purchase(telegram_id: int) -> bool:
         conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: _restore_active_subscription
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _restore_active_subscription(telegram_id: int) -> bool:
     if not DATABASE_URL or not telegram_id:
         return False
@@ -1337,6 +1377,11 @@ def create_telegram_stars_invoice_link(telegram_id: int, pack_id: str, item: dic
     return data["result"]
 
 
+# =====================================================
+# PYTHON-БЛОК: crypto_pay_request
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def crypto_pay_request(method: str, payload=None):
     if not CRYPTO_API_KEY:
         raise RuntimeError("CRYPTO_API_KEY / CRIPTO_API_KEY is not configured")
@@ -1356,6 +1401,11 @@ def crypto_pay_request(method: str, payload=None):
     return data.get("result")
 
 
+# =====================================================
+# PYTHON-БЛОК: crypto_invoice_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def crypto_invoice_url(invoice: dict) -> str:
     return (
         invoice.get("mini_app_invoice_url")
@@ -1365,6 +1415,11 @@ def crypto_invoice_url(invoice: dict) -> str:
     )
 
 
+# =====================================================
+# PYTHON-БЛОК: create_crypto_invoice
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def create_crypto_invoice(telegram_id: int, pack_id: str, item: dict) -> dict:
     invoice = crypto_pay_request(
         "createInvoice",
@@ -1381,6 +1436,11 @@ def create_crypto_invoice(telegram_id: int, pack_id: str, item: dict) -> dict:
     return invoice
 
 
+# =====================================================
+# PYTHON-БЛОК: get_crypto_invoice
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def get_crypto_invoice(invoice_id: int):
     result = crypto_pay_request("getInvoices", {"invoice_ids": str(invoice_id)})
     if isinstance(result, dict):
@@ -1392,6 +1452,11 @@ def get_crypto_invoice(invoice_id: int):
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: ensure_user_events_table
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 _USER_EVENTS_SCHEMA_LOCK = threading.Lock()
 _USER_EVENTS_SCHEMA_READY = False
 def ensure_user_events_table():
@@ -1437,6 +1502,11 @@ def ensure_user_events_table():
             conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: ensure_payment_tables
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 _PAYMENT_SCHEMA_LOCK = threading.Lock()
 _PAYMENT_SCHEMA_READY = False
 def ensure_payment_tables():
@@ -1594,6 +1664,11 @@ def ensure_generations_index():
             conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: _sanitize_event_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _sanitize_event_payload(value, max_text=512, max_items=20, depth=3):
     if depth <= 0:
         return None
@@ -1613,6 +1688,11 @@ def _sanitize_event_payload(value, max_text=512, max_items=20, depth=3):
     return str(value)[:max_text]
 
 
+# =====================================================
+# PYTHON-БЛОК: log_user_event
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def log_user_event(
     telegram_id: int,
     source: str,
@@ -1651,6 +1731,11 @@ def log_user_event(
         print("REFERRAL ACTIVITY TRACKING FAILED:", exc)
 
 
+# =====================================================
+# PYTHON-БЛОК: _to_iso
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _to_iso(v):
     if v is None:
         return None
@@ -1779,6 +1864,11 @@ def save_user_profile(telegram_id: int, display_name=None, custom_avatar_url=Non
     return get_user_profile(telegram_id)
 
 
+# =====================================================
+# PYTHON-БЛОК: ensure_user_referrals_table
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 _USER_REFERRALS_SCHEMA_LOCK = threading.Lock()
 _USER_REFERRALS_SCHEMA_READY = False
 def ensure_user_referrals_table():
@@ -1826,11 +1916,21 @@ def ensure_user_referrals_table():
             conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: referral_code_for
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def referral_code_for(telegram_id: int) -> str:
     digest = hashlib.sha1(f"sylvex:{telegram_id}".encode("utf-8")).hexdigest()[:10]
     return f"sylvex_{digest}"
 
 
+# =====================================================
+# PYTHON-БЛОК: get_referral_state
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def get_referral_state(telegram_id: int, activate: bool = False) -> dict:
     if not telegram_id:
         return {}
@@ -1956,6 +2056,11 @@ def track_referral_activity(telegram_id: int, event_type: str, event_name: str):
         conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: get_user_state
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def get_user_state(telegram_id: int, username: str = None, first_name: str = None) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
@@ -2193,6 +2298,11 @@ def get_user_state(telegram_id: int, username: str = None, first_name: str = Non
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: get_fast_user_state
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def get_fast_user_state(telegram_id: int) -> dict:
     if not telegram_id:
         return {
@@ -2267,6 +2377,11 @@ def get_fast_user_state(telegram_id: int) -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: create_purchase_once
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: int, currency: str, payload: str, charge_id: str) -> bool:
     if not DATABASE_URL:
         return False
@@ -2288,6 +2403,11 @@ def create_purchase_once(telegram_id: int, provider: str, credits: int, amount: 
         conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: activate_subscription
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def activate_subscription(telegram_id: int, item: dict, provider: str, amount: int, currency: str, payload: str, charge_id: str) -> bool:
     if not DATABASE_URL:
         return False
@@ -2346,6 +2466,11 @@ def activate_subscription(telegram_id: int, item: dict, provider: str, amount: i
 
 
 
+# =====================================================
+# PYTHON-БЛОК: ensure_user_exists
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def ensure_user_exists(telegram_id: int):
     if not DATABASE_URL or not telegram_id:
         return
@@ -2403,6 +2528,11 @@ def charge_generation_balance(telegram_id: int, generation_id: str, result: dict
         return {"charged": False, "credits": max(0, credits), "balance_after": None, "error": exc.code, "insufficient_balance": exc.status == 402}
 
 
+# =====================================================
+# PYTHON-БЛОК: finalize_shop_payment
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def finalize_shop_payment(telegram_id: int, provider: str, item: dict, amount: int, currency: str, payload: str, charge_id: str):
     if not DATABASE_URL:
         raise RuntimeError("database_not_configured")
@@ -2542,6 +2672,11 @@ def send_subscription_congratulations(telegram_id: int, item: dict, provider: st
         return False
 
 
+# =====================================================
+# PYTHON-БЛОК: reset_developer_subscription
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def reset_developer_subscription(telegram_id: int, reset_credits: bool = False) -> dict:
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not configured")
@@ -2630,6 +2765,11 @@ async def poll_crypto_invoice(invoice_id: int, telegram_id: int, pack_id: str):
             return
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_configured
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_configured() -> bool:
     return bool(PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET)
 
@@ -2645,6 +2785,11 @@ def paypal_subscriptions_configured() -> bool:
     return bool(paypal_configured() and PAYPAL_PRO_MONTHLY_PLAN_ID and PAYPAL_PRO_YEARLY_PLAN_ID)
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_access_token
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_access_token(api_base: str = None) -> str:
     if not paypal_configured():
         raise RuntimeError("PayPal credentials are not configured")
@@ -2667,6 +2812,11 @@ def paypal_access_token(api_base: str = None) -> str:
     return token
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_headers(api_base: str = None) -> dict:
     return {
         "Authorization": f"Bearer {paypal_access_token(api_base)}",
@@ -2675,6 +2825,11 @@ def paypal_headers(api_base: str = None) -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_return_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_return_url(telegram_id: int, pack_id: str, status: str) -> str:
     params = urllib.parse.urlencode({
         "view": "shop",
@@ -2700,10 +2855,20 @@ def paypal_website_return_url(status: str) -> str:
     return f"{WEBSITE_URL.rstrip('/')}/store.html?payment={status}"
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_purchase_type
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_purchase_type(item: dict) -> str:
     return "subscription" if item.get("kind") == "subscription" else "tokens"
 
 
+# =====================================================
+# PYTHON-БЛОК: create_paypal_order
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def create_paypal_order(telegram_id: int, pack_id: str, item: dict, is_website: bool = False) -> dict:
     amount_value = f"{float(item['usd']):.2f}"
     payload = shop_payload("paypal", telegram_id, pack_id, item)
@@ -2750,6 +2915,11 @@ def create_paypal_order(telegram_id: int, pack_id: str, item: dict, is_website: 
     return response.json()
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_approve_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_approve_url(order: dict) -> str:
     for link in order.get("links") or []:
         if link.get("rel") in {"approve", "payer-action"} and link.get("href"):
@@ -2796,6 +2966,11 @@ def save_paypal_order(telegram_id: int, pack_id: str, item: dict, order: dict, c
         conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: verify_paypal_webhook
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def verify_paypal_webhook(headers, event: dict) -> bool:
     if not PAYPAL_WEBHOOK_ID:
         print("PAYPAL WEBHOOK: PAYPAL_WEBHOOK_ID is not configured")
@@ -2838,6 +3013,11 @@ def verify_paypal_webhook(headers, event: dict) -> bool:
     return False
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_capture_details
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_capture_details(resource: dict) -> dict:
     order_id = resource.get("supplementary_data", {}).get("related_ids", {}).get("order_id")
     capture_id = resource.get("id")
@@ -2851,6 +3031,11 @@ def paypal_capture_details(resource: dict) -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: finalize_paypal_capture
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def finalize_paypal_capture(event: dict) -> bool:
     resource = event.get("resource") or {}
     details = paypal_capture_details(resource)
@@ -2998,6 +3183,11 @@ def sync_paypal_subscription_lifecycle_event(event: dict) -> bool:
         conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_subscription_pack_for_plan
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_subscription_pack_for_plan(plan_id: str, plan_type: str = "") -> str:
     normalized_type = (plan_type or "").strip().lower()
     # `and PAYPAL_PRO_MONTHLY_PLAN_ID` guards against an unconfigured (empty
@@ -3060,6 +3250,11 @@ def save_paypal_subscription(telegram_id: int, subscription_id: str, plan_id: st
         conn.close()
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_subscription_id_from_event
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_subscription_id_from_event(event: dict) -> str:
     resource = event.get("resource") or {}
     event_type = event.get("event_type") or ""
@@ -3074,6 +3269,11 @@ def paypal_subscription_id_from_event(event: dict) -> str:
     )
 
 
+# =====================================================
+# PYTHON-БЛОК: paypal_subscription_payment_details
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def paypal_subscription_payment_details(event: dict) -> dict:
     resource = event.get("resource") or {}
     amount = resource.get("amount") or {}
@@ -3091,6 +3291,11 @@ def paypal_subscription_payment_details(event: dict) -> dict:
     return {"amount": cents, "currency": currency, "charge_id": charge_id}
 
 
+# =====================================================
+# PYTHON-БЛОК: activate_paypal_subscription_from_event
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def activate_paypal_subscription_from_event(event: dict) -> bool:
     if event.get("event_type") != "PAYMENT.SALE.COMPLETED":
         return False
@@ -3263,6 +3468,11 @@ def save_kling_settings_to_db(data):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/")
+# =====================================================
+# PYTHON-БЛОК: root
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def root():
     return RedirectResponse("/webapp/index.html")
 
@@ -3274,6 +3484,11 @@ async def root():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/cabinet")
+# =====================================================
+# PYTHON-БЛОК: cabinet
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def cabinet():
     return RedirectResponse("/webapp/index.html")
 
@@ -3284,6 +3499,11 @@ async def cabinet():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/shop")
+# =====================================================
+# PYTHON-БЛОК: shop
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def shop():
     return RedirectResponse("/webapp/index.html?view=shop")
 
@@ -3294,6 +3514,11 @@ async def shop():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/payments")
+# =====================================================
+# PYTHON-БЛОК: payments
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def payments():
     return FileResponse(WEBAPP_DIR / "payments.html")
 
@@ -3304,6 +3529,11 @@ async def payments():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/elevenlabs")
+# =====================================================
+# PYTHON-БЛОК: elevenlabs_page
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def elevenlabs_page():
     return FileResponse(WEBAPP_DIR / "elevenlabs.html")
 
@@ -3314,9 +3544,19 @@ async def elevenlabs_page():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/heygen-voice")
+# =====================================================
+# PYTHON-БЛОК: heygen_voice_page
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def heygen_voice_page():
     return FileResponse(WEBAPP_DIR / "heygen-voice.html")
 
+# =====================================================
+# PYTHON-БЛОК: ensure_elevenlabs_table
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 _ELEVENLABS_SCHEMA_LOCK = threading.Lock()
 _ELEVENLABS_SCHEMA_READY = False
 def ensure_elevenlabs_table():
@@ -3357,6 +3597,11 @@ def ensure_elevenlabs_table():
             cursor.close()
             conn.close()
 
+# =====================================================
+# PYTHON-БЛОК: default_elevenlabs_settings
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def default_elevenlabs_settings() -> dict:
     return {
         "voice_id": ELEVENLABS_DEFAULT_VOICE_ID,
@@ -3371,6 +3616,11 @@ def default_elevenlabs_settings() -> dict:
         "output_format": ELEVENLABS_DEFAULT_OUTPUT_FORMAT,
     }
 
+# =====================================================
+# PYTHON-БЛОК: elevenlabs_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def elevenlabs_headers(content_type: str = "application/json") -> dict:
     if not ELEVENLABS_API_KEY:
         raise RuntimeError("ELEVENLABS_API_KEY is not configured")
@@ -3380,6 +3630,11 @@ def elevenlabs_headers(content_type: str = "application/json") -> dict:
         headers["Content-Type"] = content_type
     return headers
 
+# =====================================================
+# PYTHON-БЛОК: fetch_elevenlabs_models
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def fetch_elevenlabs_models() -> list:
     response = safe_get(
         f"{ELEVENLABS_BASE_URL}/v1/models",
@@ -3404,6 +3659,11 @@ def fetch_elevenlabs_models() -> list:
         })
     return result
 
+# =====================================================
+# PYTHON-БЛОК: fetch_elevenlabs_voices
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def fetch_elevenlabs_voices(limit: int = 80) -> list:
     voices = []
     next_page_token = None
@@ -3571,6 +3831,11 @@ def save_elevenlabs_settings_to_db(data: dict):
         cursor.close()
         conn.close()
 
+# =====================================================
+# PYTHON-БЛОК: default_heygen_voice_settings
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def default_heygen_voice_settings() -> dict:
     return {
         "voice_id": "",
@@ -3581,6 +3846,11 @@ def default_heygen_voice_settings() -> dict:
         "output_format": HEYGEN_DEFAULT_OUTPUT_FORMAT,
     }
 
+# =====================================================
+# PYTHON-БЛОК: heygen_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def heygen_headers() -> dict:
     if not HEYGEN_API_KEY:
         raise RuntimeError("HEYGEN_API_KEY is not configured")
@@ -3762,6 +4032,11 @@ def update_visual_interaction(telegram_id: int, resource_id: str, resource_type:
         conn.close()
     return {"ok": True}
 
+# =====================================================
+# PYTHON-БЛОК: fetch_heygen_voice_page
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def fetch_heygen_voice_page(
     voice_type: str = "public",
     language: str = "",
@@ -3798,6 +4073,11 @@ def fetch_heygen_voice_page(
         "next_token": data.get("next_token"),
     }
 
+# =====================================================
+# PYTHON-БЛОК: fetch_heygen_voices
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def fetch_heygen_voices(limit: int = 100) -> list:
     voices = []
 
@@ -3933,6 +4213,11 @@ def save_heygen_voice_settings_to_db(data: dict):
         cursor.close()
         conn.close()
 
+# =====================================================
+# PYTHON-БЛОК: safe_log_elevenlabs_preview
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def safe_log_elevenlabs_preview(data: dict, payload: dict):
     print("ELEVENLABS PREVIEW REQUEST BODY:", {
         "telegram_id": data.get("telegram_id"),
@@ -3961,6 +4246,11 @@ def safe_log_elevenlabs_preview(data: dict, payload: dict):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/elevenlabs/bootstrap")
+# =====================================================
+# PYTHON-БЛОК: elevenlabs_bootstrap
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def elevenlabs_bootstrap(telegram_id: int = 0):
     warnings = []
     try:
@@ -4024,6 +4314,11 @@ async def save_elevenlabs_settings(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/elevenlabs/preview")
+# =====================================================
+# PYTHON-БЛОК: elevenlabs_preview
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def elevenlabs_preview(request: Request):
     data = await request.json()
     voice_id = data.get("voice_id") or ELEVENLABS_DEFAULT_VOICE_ID
@@ -4226,6 +4521,11 @@ async def public_prostudio_elevenlabs_voices():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/heygen-voice/bootstrap")
+# =====================================================
+# PYTHON-БЛОК: heygen_voice_bootstrap
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def heygen_voice_bootstrap(telegram_id: int = 0):
     warnings = []
     try:
@@ -4333,6 +4633,11 @@ async def save_heygen_voice_settings(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/config")
+# =====================================================
+# PYTHON-БЛОК: public_config
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_config():
     return {
         "ok": True,
@@ -4364,6 +4669,11 @@ async def public_config():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/payment-links")
+# =====================================================
+# PYTHON-БЛОК: payment_links
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def payment_links():
     products = []
     for pack_id, item in SHOP_ITEMS.items():
@@ -4437,6 +4747,11 @@ def verify_telegram_init_data(init_data: str) -> bool:
     except SecurityError:
         return False
 
+# =====================================================
+# PYTHON-БЛОК: fallback_public_user
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def fallback_public_user(payload: dict) -> dict:
     unsafe = payload.get("initDataUnsafe") or {}
     tg_user = unsafe.get("user") or {}
@@ -4485,6 +4800,11 @@ def save_generation(telegram_id: int, generation_type: str, prompt: str, status:
     except Exception as exc:
         print("GENERATION SAVE FAILED:", exc)
 
+# =====================================================
+# PYTHON-БЛОК: ensure_prostudio_table
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 _PROSTUDIO_SCHEMA_READY = False
 
 
@@ -4802,6 +5122,11 @@ def telegram_id_required_response() -> JSONResponse:
     return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
 
 
+# =====================================================
+# PYTHON-БЛОК: _json_list
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _json_list(value) -> list:
     if isinstance(value, list):
         return [item for item in value if item]
@@ -4813,6 +5138,11 @@ def _json_list(value) -> list:
     except Exception:
         return []
 
+# =====================================================
+# PYTHON-БЛОК: _json_obj
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _json_obj(value) -> dict:
     if isinstance(value, dict):
         return value
@@ -4835,12 +5165,22 @@ def _public_error_json(value) -> dict:
         return {}
     return {k: v for k, v in value.items() if k in _PUBLIC_JOB_ERROR_FIELDS}
 
+# =====================================================
+# PYTHON-БЛОК: _safe_json_dumps
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _safe_json_dumps(value) -> str:
     try:
         return json.dumps(value if value is not None else {}, ensure_ascii=False)
     except Exception:
         return "{}"
 
+# =====================================================
+# PYTHON-БЛОК: _sql_text
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def _sql_text(value, max_text: int = 2000) -> str:
     if value is None:
         return ""
@@ -4850,6 +5190,11 @@ def _sql_text(value, max_text: int = 2000) -> str:
         return _safe_json_dumps(_sanitize_event_payload(value, max_text=max_text, max_items=50, depth=5))[:max_text]
     return str(value)[:max_text]
 
+# =====================================================
+# PYTHON-БЛОК: prostudio_debug
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def prostudio_debug(stage: str, **data):
     safe = _sanitize_event_payload(data, max_text=700, max_items=30, depth=4)
     print(f"PROSTUDIO DEBUG {stage}:", safe)
@@ -5242,6 +5587,11 @@ def claim_next_prostudio_generation_job() -> Optional[dict]:
         prostudio_error("WORKER_CLAIM_FAILED", exc)
         return None
 
+# =====================================================
+# PYTHON-БЛОК: requeue_stale_prostudio_jobs
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def requeue_stale_prostudio_jobs():
     """Compatibility entry point: terminally recover abandoned active jobs."""
     if not DATABASE_URL:
@@ -5471,6 +5821,11 @@ def defer_prostudio_job_for_provider(job_id: str, delay_seconds: float = 2.0):
         cursor.close()
         conn.close()
 
+# =====================================================
+# PYTHON-БЛОК: generation_result_urls
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def generation_result_urls(result: Optional[dict], mode: str = "") -> list:
     if not isinstance(result, dict):
         return []
@@ -5496,6 +5851,11 @@ def generation_result_urls(result: Optional[dict], mode: str = "") -> list:
                 urls.append(result.get(key))
     return [str(url).strip() for url in urls if isinstance(url, str) and str(url).strip()]
 
+# =====================================================
+# PYTHON-БЛОК: generation_has_completed_result
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def generation_has_completed_result(result: Optional[dict], mode: str = "") -> bool:
     if not isinstance(result, dict) or not result.get("ok"):
         return False
@@ -5503,6 +5863,11 @@ def generation_has_completed_result(result: Optional[dict], mode: str = "") -> b
         return bool(result.get("text"))
     return bool(generation_result_urls(result, mode))
 
+# =====================================================
+# PYTHON-БЛОК: normalize_generation_status
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_generation_status(result: Optional[dict], mode: str = "") -> str:
     if not isinstance(result, dict):
         return "failed"
@@ -5678,6 +6043,11 @@ def save_prostudio_draft(telegram_id: int, mode: str, draft_text: str = "", conv
         print("PROSTUDIO DRAFT SAVE FAILED:", exc)
         return {}
 
+# =====================================================
+# PYTHON-БЛОК: load_prostudio_drafts
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def load_prostudio_drafts(telegram_id: int) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {}
@@ -5785,6 +6155,11 @@ def save_prostudio_resource(telegram_id: int, resource: dict) -> dict:
         print("PROSTUDIO RESOURCE SAVE FAILED:", exc)
     return item
 
+# =====================================================
+# PYTHON-БЛОК: load_prostudio_resources
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def load_prostudio_resources(telegram_id: int) -> dict:
     if not DATABASE_URL or not telegram_id:
         return {"characters": [], "objects": [], "voices": []}
@@ -6136,6 +6511,11 @@ async def notify_telegram_generation_failed(telegram_id: int, mode: str) -> bool
         return False
 
 
+# =====================================================
+# PYTHON-БЛОК: materialize_data_image_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def materialize_data_image_url(url: str) -> str:
     value = str(url or "")
     if not value.startswith("data:image") or "," not in value:
@@ -6165,6 +6545,11 @@ def materialize_data_image_url(url: str) -> str:
         return value
 
 
+# =====================================================
+# PYTHON-БЛОК: materialize_image_urls
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def materialize_image_urls(image_urls: list) -> list:
     urls = _json_list(image_urls)
     prostudio_debug("IMAGE_MATERIALIZE_START", count=len(urls))
@@ -6634,6 +7019,11 @@ def provider_object_to_dict(value) -> dict:
         return {}
 
 
+# =====================================================
+# PYTHON-БЛОК: create_image_thumbnails
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
     thumbs = []
     if not image_urls:
@@ -6672,6 +7062,11 @@ def create_image_thumbnails(image_urls: list, size: int = 256) -> list:
         thumbs.append(thumb_url)
     return thumbs
 
+# =====================================================
+# PYTHON-БЛОК: attach_image_thumbnails
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def attach_image_thumbnails(result: dict) -> dict:
     images = (
         _json_list(result.get("images"))
@@ -6853,6 +7248,11 @@ def record_character_generation_history(character_id: str, telegram_id: int, job
     except Exception as exc:
         print("PROSTUDIO CHARACTER HISTORY RECORD FAILED:", exc)
 
+# =====================================================
+# PYTHON-БЛОК: payment_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def payment_url(pack_id: str, method: str = "paypal") -> str:
     params = urllib.parse.urlencode({
         "pack_id": pack_id or "",
@@ -6907,6 +7307,11 @@ async def public_save_edit_session(request: Request, session_id: str):
 
 
 @app.get("/api/public/prostudio/conversations")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_conversations
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_conversations(
     telegram_id: int = 0,
     conversation_id: str = "",
@@ -7054,6 +7459,11 @@ async def public_prostudio_conversations(
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.delete("/api/public/prostudio/conversations")
+# =====================================================
+# PYTHON-БЛОК: delete_public_prostudio_conversation
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def delete_public_prostudio_conversation(
     telegram_id: int = 0,
     conversation_id: str = "",
@@ -7814,6 +8224,11 @@ async def public_community_notifications_read(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/sync")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_sync
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
     if not telegram_id:
         return telegram_id_required_response()
@@ -7899,6 +8314,11 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/draft")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_get_draft
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_get_draft(telegram_id: int = 0, mode: str = ""):
     if not telegram_id:
         return telegram_id_required_response()
@@ -7944,6 +8364,11 @@ async def public_prostudio_save_draft(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/resources")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_get_resources
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_get_resources(telegram_id: int = 0):
     if not telegram_id:
         return telegram_id_required_response()
@@ -9279,6 +9704,11 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/prostudio/events")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_event
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_event(request: Request):
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
@@ -9489,6 +9919,11 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/job/{job_id}")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_job
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_job(job_id: str):
     if not DATABASE_URL:
         return JSONResponse(
@@ -11492,6 +11927,11 @@ async def public_prostudio_get_share(share_id: str):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/paypal/create-order")
+# =====================================================
+# PYTHON-БЛОК: public_paypal_create_order
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_paypal_create_order(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or data.get("package") or data.get("plan") or ""
@@ -11556,6 +11996,11 @@ async def public_paypal_create_order(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/paypal/subscription-created")
+# =====================================================
+# PYTHON-БЛОК: public_paypal_subscription_created
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_paypal_subscription_created(request: Request):
     if not paypal_subscriptions_configured():
         return JSONResponse({"ok": False, "error": "paypal_subscriptions_not_configured"}, status_code=502)
@@ -11603,6 +12048,11 @@ async def public_paypal_subscription_created(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/paypal/webhook")
+# =====================================================
+# PYTHON-БЛОК: public_paypal_webhook
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_paypal_webhook(request: Request):
     raw_body = await request.body()
     try:
@@ -11731,6 +12181,11 @@ async def public_lemonsqueezy_webhook(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/stars/invoice")
+# =====================================================
+# PYTHON-БЛОК: public_stars_invoice
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_stars_invoice(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or ""
@@ -11881,6 +12336,11 @@ async def public_stars_webhook(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/stars/confirm")
+# =====================================================
+# PYTHON-БЛОК: public_stars_confirm
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_stars_confirm(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or ""
@@ -11936,6 +12396,11 @@ async def public_stars_confirm(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/dev/success")
+# =====================================================
+# PYTHON-БЛОК: public_dev_payment
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_dev_payment(request: Request):
     data = await request.json()
 
@@ -12003,6 +12468,11 @@ async def public_dev_payment(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/dev/reset")
+# =====================================================
+# PYTHON-БЛОК: public_dev_reset
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_dev_reset(request: Request):
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
@@ -12044,6 +12514,11 @@ async def public_dev_reset(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/payments/crypto/invoice")
+# =====================================================
+# PYTHON-БЛОК: public_crypto_invoice
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_crypto_invoice(request: Request):
     data = await request.json()
     pack_id = data.get("pack_id") or ""
@@ -13391,6 +13866,11 @@ async def public_telegram_referrals(telegram_id: int = 0):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/telegram/referrals")
+# =====================================================
+# PYTHON-БЛОК: public_activate_referrals
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_activate_referrals(request: Request):
     payload = await request.json()
     telegram_id = int(payload.get("telegram_id") or 0)
@@ -13440,6 +13920,11 @@ async def public_activate_referrals(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/events")
+# =====================================================
+# PYTHON-БЛОК: public_log_event
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_log_event(request: Request):
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
@@ -13465,6 +13950,11 @@ async def public_log_event(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/events")
+# =====================================================
+# PYTHON-БЛОК: public_get_events
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_get_events(telegram_id: int = 0):
     if not telegram_id:
         return telegram_id_required_response()
@@ -13506,6 +13996,11 @@ async def public_get_events(telegram_id: int = 0):
     return {"ok": True, "events": events}
 
 
+# =====================================================
+# PYTHON-БЛОК: openai_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def openai_headers():
     return {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
@@ -13516,6 +14011,11 @@ def openai_headers():
 def openai_auth_headers():
     return {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
+# =====================================================
+# PYTHON-БЛОК: image_size
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def image_size(label: str) -> dict:
     ratio = label
     if "x" in label:
@@ -13526,11 +14026,21 @@ def image_size(label: str) -> dict:
             ratio = label
     return {"id": label, "label": ratio, "ratio": ratio, "icon": ratio}
 
+# =====================================================
+# PYTHON-БЛОК: math_gcd
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def math_gcd(a: int, b: int) -> int:
     while b:
         a, b = b, a % b
     return max(a, 1)
 
+# =====================================================
+# PYTHON-БЛОК: default_image_capabilities
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def default_image_capabilities() -> list:
     models = []
     if BYTEPLUS_ARK_API_KEY:
@@ -13620,6 +14130,11 @@ def default_image_capabilities() -> list:
         })
     return models
 
+# =====================================================
+# PYTHON-БЛОК: get_image_capabilities
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def get_image_capabilities() -> dict:
     # =====================================================
     # PYTHON-БЛОК: enrich
@@ -13654,6 +14169,11 @@ def get_image_capabilities() -> dict:
             print("IMAGE_MODELS_JSON FAILED:", exc)
     return {"ok": True, "models": enrich(default_image_capabilities())}
 
+# =====================================================
+# PYTHON-БЛОК: map_image_model_to_provider_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def map_image_model_to_provider_model(frontend_model: str) -> Optional[str]:
     value = (frontend_model or "").strip()
     if not value:
@@ -13664,11 +14184,21 @@ def map_image_model_to_provider_model(frontend_model: str) -> Optional[str]:
         return provider_cfg.get("provider_model")
     return BYTEPLUS_SEEDREAM_MODEL_MAP.get(normalized) or BYTEPLUS_SEEDREAM_MODEL_MAP.get(normalized.replace("-", "_"))
 
+# =====================================================
+# PYTHON-БЛОК: image_provider_mapping
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def image_provider_mapping(frontend_model: str) -> dict:
     value = (frontend_model or "").strip()
     normalized = value.lower()
     return IMAGE_PROVIDER_MODEL_MAP.get(normalized) or IMAGE_PROVIDER_MODEL_MAP.get(normalized.replace("-", "_")) or {}
 
+# =====================================================
+# PYTHON-БЛОК: image_model_features
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def image_model_features(frontend_model: str) -> dict:
     # Repointed to read values from services.model_capabilities (Phase 1,
     # Batch 1 of the master remediation plan) instead of IMAGE_MODEL_FEATURES
@@ -13682,6 +14212,11 @@ def image_model_features(frontend_model: str) -> dict:
     resolved_id = normalized if normalized in IMAGE_MODEL_FEATURES else re.sub(r"_0$", "", normalized)
     return model_capabilities_service.image_character_object_seed(resolved_id)
 
+# =====================================================
+# PYTHON-БЛОК: unknown_byteplus_image_model_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
     return {
         "ok": False,
@@ -13690,6 +14225,11 @@ def unknown_byteplus_image_model_response(frontend_model: str) -> dict:
         "provider": "bytedance",
     }
 
+# =====================================================
+# PYTHON-БЛОК: unknown_image_model_mapping_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def unknown_image_model_mapping_response(frontend_model: str, provider: str = "") -> dict:
     mapping = image_provider_mapping(frontend_model)
     return {
@@ -13701,6 +14241,11 @@ def unknown_image_model_mapping_response(frontend_model: str, provider: str = ""
         "endpoint": mapping.get("endpoint") or "",
     }
 
+# =====================================================
+# PYTHON-БЛОК: find_image_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def find_image_model(model_id: str) -> dict:
     models = get_image_capabilities().get("models") or []
     if model_id:
@@ -13726,6 +14271,11 @@ def find_image_model(model_id: str) -> dict:
             }
     return {}
 
+# =====================================================
+# PYTHON-БЛОК: infer_image_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def infer_image_model(model_id: str, provider: str = "") -> dict:
     value = (model_id or "").strip()
     normalized = value.lower().replace("-", "_").replace(".", "_")
@@ -13739,9 +14289,19 @@ def infer_image_model(model_id: str, provider: str = "") -> dict:
         return {"id": value, "provider": mapping.get("provider"), "api_model": mapping.get("provider_model"), "sizes": [image_size("1:1")], "counts": [1, 2, 3, 4]}
     return {}
 
+# =====================================================
+# PYTHON-БЛОК: is_internal_ui_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def is_internal_ui_model(model: str) -> bool:
     return (model or "").strip().lower() in {"sylvex-pro", "sylvex-lite", "sylvex pro", "sylvex lite"}
 
+# =====================================================
+# PYTHON-БЛОК: invalid_generation_model_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def invalid_generation_model_response(model: str) -> JSONResponse:
     return JSONResponse(
         {
@@ -13752,6 +14312,11 @@ def invalid_generation_model_response(model: str) -> JSONResponse:
         status_code=400,
     )
 
+# =====================================================
+# PYTHON-БЛОК: normalize_image_seed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_image_seed(value):
     if value in (None, ""):
         return None
@@ -13763,6 +14328,11 @@ def normalize_image_seed(value):
         raise ValueError("Seed must be zero or greater")
     return seed
 
+# =====================================================
+# PYTHON-БЛОК: normalize_payload_image_seed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_payload_image_seed(payload: dict):
     opts = payload.get("image_options") or {}
     if not isinstance(opts, dict):
@@ -13772,6 +14342,11 @@ def normalize_payload_image_seed(payload: dict):
     payload["image_options"] = opts
     return seed
 
+# =====================================================
+# PYTHON-БЛОК: is_seedream_request
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def is_seedream_request(payload: dict) -> bool:
     model = str(payload.get("model") or "")
     provider = str(payload.get("provider") or "").lower()
@@ -14713,6 +15288,11 @@ async def generate_animate_photo_video(payload: dict) -> dict:
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: build_image_prompt
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def build_image_prompt(payload: dict) -> str:
     opts = payload.get("image_options") or {}
 
@@ -15077,6 +15657,11 @@ def build_image_prompt(payload: dict) -> str:
 
     return "\n".join(parts).strip()
 
+# =====================================================
+# PYTHON-БЛОК: normalize_image_response
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_image_response(data: dict) -> list:
     images = []
     if not isinstance(data, dict):
@@ -15134,6 +15719,11 @@ def normalize_image_response(data: dict) -> list:
             clean.append(image)
     return clean
 
+# =====================================================
+# PYTHON-БЛОК: safe_provider_json
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def safe_provider_json(response, provider: str, endpoint: str) -> dict:
     status = getattr(response, "status_code", None) or getattr(response, "status", None)
     try:
@@ -15164,6 +15754,11 @@ def safe_provider_json(response, provider: str, endpoint: str) -> dict:
             "body_preview": text[:1000],
         }
 
+# =====================================================
+# PYTHON-БЛОК: safe_image_count
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
     try:
         count = int(value or default)
@@ -15172,6 +15767,11 @@ def safe_image_count(value, default: int = 1, max_count: int = 4) -> int:
     return max(1, min(count, max_count))
 
 
+# =====================================================
+# PYTHON-БЛОК: byteplus_seedream_body
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size: str = "", seed=None, quality: str = "high") -> dict:
     model_key = seedream_frontend_model("", model)
     caps = seedream_capabilities("", model)
@@ -15238,6 +15838,11 @@ def byteplus_seedream_body(model: str, prompt: str, reference_images=None, size:
 
     return body
 
+# =====================================================
+# PYTHON-БЛОК: request_byteplus_seedream_image
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def request_byteplus_seedream_image(model: str, prompt: str, reference_images=None, size: str = "", seed=None, quality: str = "high") -> tuple:
     refs = [u for u in (reference_images or []) if isinstance(u, str) and u.strip()]
     model_key = seedream_frontend_model("", model)
@@ -15542,6 +16147,11 @@ def seedream_merge_references(opts: dict) -> tuple:
     return merged, counts
 
 
+# =====================================================
+# PYTHON-БЛОК: generateBytePlusSeedreamImage
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def generateBytePlusSeedreamImage(payload: dict) -> dict:
     if not BYTEPLUS_ARK_API_KEY:
         return {"ok": False, "error": "Не удалось создать изображение. Попробуйте ещё раз."}
@@ -17366,6 +17976,11 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
     return {"ok": True, "text": text, "provider": provider, "model": model, "provider_model": provider_model, "metadata": data}
 
 
+# =====================================================
+# PYTHON-БЛОК: text_generation
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def text_generation(payload: dict) -> dict:
     prompt = (payload.get("prompt") or "").strip()
     history = payload.get("history") or []
@@ -17495,6 +18110,11 @@ def text_generation(payload: dict) -> dict:
         "metadata": generated.get("metadata") or {},
     }
 
+# =====================================================
+# PYTHON-БЛОК: openai_image_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def openai_image_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").replace(".", "_").lower()
     if raw in OPENAI_IMAGE_MODEL_VARIANTS:
@@ -17507,6 +18127,11 @@ def openai_image_frontend_model(frontend_model: str, provider_model: str = "") -
     return "gpt_image_1"
 
 
+# =====================================================
+# PYTHON-БЛОК: normalize_openai_image_quality
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_openai_image_quality(frontend_model: str, provider_model: str, opts: dict) -> str:
     key = openai_image_frontend_model(frontend_model, provider_model)
     cfg = OPENAI_IMAGE_MODEL_VARIANTS.get(key) or OPENAI_IMAGE_MODEL_VARIANTS["gpt_image_1"]
@@ -17519,6 +18144,11 @@ def normalize_openai_image_quality(frontend_model: str, provider_model: str, opt
     return raw
 
 
+# =====================================================
+# PYTHON-БЛОК: normalize_openai_image_size
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_openai_image_size(size: str, frontend_model: str = "", provider_model: str = "") -> str:
     raw = str(size or "").strip().lower()
     key = openai_image_frontend_model(frontend_model, provider_model)
@@ -17551,6 +18181,11 @@ def normalize_openai_image_size(size: str, frontend_model: str = "", provider_mo
     return "1024x1024"
 
 
+# =====================================================
+# PYTHON-БЛОК: image_reference_urls
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def image_reference_urls(payload: dict) -> list:
     opts = payload.get("image_options") or {}
     refs = []
@@ -17652,6 +18287,11 @@ def openai_image_reference_file(url: str, index: int = 0) -> tuple | None:
         prostudio_error("OPENAI_IMAGE_REFERENCE_LOAD_FAILED", exc, source=_sql_text(raw, 180))
         return None
 
+# =====================================================
+# PYTHON-БЛОК: validate_image_feature_request
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def validate_image_feature_request(payload: dict) -> Optional[dict]:
     opts = payload.get("image_options") or {}
     if is_edit_workspace_request(payload):
@@ -17671,6 +18311,11 @@ def validate_image_feature_request(payload: dict) -> Optional[dict]:
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: validate_video_feature_request
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def validate_video_feature_request(payload: dict) -> Optional[dict]:
     # Phase 1 Batch 5 (see /root/.claude/plans/splendid-moseying-starlight.md,
     # roadmap step 5): mirrors validate_image_feature_request's contract
@@ -17720,6 +18365,11 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
     return None
 
 
+# =====================================================
+# PYTHON-БЛОК: image_dimensions
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def image_dimensions(size: str) -> tuple[int, int]:
     raw = str(size or "").strip().lower()
     if "x" in raw:
@@ -17741,6 +18391,11 @@ def image_dimensions(size: str) -> tuple[int, int]:
     return 1024, 1024
 
 
+# =====================================================
+# PYTHON-БЛОК: normalize_flux_aspect_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_flux_aspect_ratio(size: str) -> str:
     raw = str(size or "").strip().lower()
     aliases = {
@@ -17800,6 +18455,11 @@ def image_error_response(provider: str, frontend_model: str, provider_model: str
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: finalize_image_result
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def finalize_image_result(payload: dict, images: list) -> dict:
     job_id = str(payload.get("job_id") or "")
     if job_id:
@@ -17828,6 +18488,11 @@ async def finalize_image_result(payload: dict, images: list) -> dict:
     return result
 
 
+# =====================================================
+# PYTHON-БЛОК: flux_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def flux_headers() -> dict:
     api_key = os.getenv("BFL_API_KEY") or os.getenv("FLUX_API_KEY") or os.getenv("FLUX-API-KEY")
     if not api_key:
@@ -17913,6 +18578,11 @@ def call_flux_image(frontend_model: str, provider_model: str, endpoint: str, pro
     return images, error, request_payload
 
 
+# =====================================================
+# PYTHON-БЛОК: ideogram_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def ideogram_headers(json_content: bool = True) -> dict:
     api_key = env_value("IDEOGRAM_API_KEY", "IDEOGRAM-API-KEY")
     if not api_key:
@@ -17923,6 +18593,11 @@ def ideogram_headers(json_content: bool = True) -> dict:
     return headers
 
 
+# =====================================================
+# PYTHON-БЛОК: ideogram_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def ideogram_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_")
     if raw in IDEOGRAM_MODEL_VARIANTS:
@@ -17933,6 +18608,11 @@ def ideogram_frontend_model(frontend_model: str, provider_model: str = "") -> st
     return "ideogram_3_0"
 
 
+# =====================================================
+# PYTHON-БЛОК: ideogram_rendering_speed
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def ideogram_rendering_speed(frontend_model: str, provider_model: str, opts: Optional[dict] = None) -> str:
     key = ideogram_frontend_model(frontend_model, provider_model)
     cfg = IDEOGRAM_MODEL_VARIANTS.get(key) or {}
@@ -17943,6 +18623,11 @@ def ideogram_rendering_speed(frontend_model: str, provider_model: str, opts: Opt
     return speed if speed in valid else str(cfg.get("rendering_speed") or "TURBO").upper()
 
 
+# =====================================================
+# PYTHON-БЛОК: ideogram_size_params
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def ideogram_size_params(frontend_model: str, provider_model: str, size: str) -> dict:
     raw = str(size or "").strip().lower().replace("_", "-")
     if raw in {"", "auto"}:
@@ -18006,6 +18691,11 @@ def ideogram_cost_info(frontend_model: str, provider_model: str, rendering_speed
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: recraft_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def recraft_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_")
     if raw in RECRAFT_MODEL_VARIANTS:
@@ -18020,6 +18710,11 @@ def recraft_frontend_model(frontend_model: str, provider_model: str = "") -> str
     return "recraft_v4_1"
 
 
+# =====================================================
+# PYTHON-БЛОК: recraft_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def recraft_headers() -> dict:
     api_key = env_value("RECRAFT_API_KEY", "RECRAFT-API-KEY")
     if not api_key:
@@ -18030,6 +18725,11 @@ def recraft_headers() -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: recraft_size_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def recraft_size_value(size: str) -> str:
     raw = str(size or "").strip()
     if raw.lower() in {"", "auto"}:
@@ -18038,6 +18738,11 @@ def recraft_size_value(size: str) -> str:
     return raw if raw in supported else "1:1"
 
 
+# =====================================================
+# PYTHON-БЛОК: recraft_available_tools
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def recraft_available_tools(frontend_model: str, provider_model: str = "") -> list:
     key = recraft_frontend_model(frontend_model, provider_model)
     cfg = RECRAFT_MODEL_VARIANTS.get(key) or {}
@@ -18072,6 +18777,11 @@ def recraft_cost_info(frontend_model: str, provider_model: str, count: int) -> d
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: normalize_seedream_quality
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def normalize_seedream_quality(frontend_model: str, provider_model: str, opts: dict) -> str:
     """Only seedream_5_0_pro has genuinely different price/output tiers today
     (see SEEDREAM_MODEL_VARIANTS) - every other Seedream variant is priced
@@ -18091,6 +18801,11 @@ def normalize_seedream_quality(frontend_model: str, provider_model: str, opts: d
     return raw if raw in {"1.5K", "2K"} else "2K"
 
 
+# =====================================================
+# PYTHON-БЛОК: seedream_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def seedream_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in SEEDREAM_MODEL_VARIANTS:
@@ -18107,6 +18822,11 @@ def seedream_frontend_model(frontend_model: str, provider_model: str = "") -> st
     return "seedream_5_0_lite"
 
 
+# =====================================================
+# PYTHON-БЛОК: seedream_size_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def seedream_size_value(size: str, quality: str = "2K") -> str:
     raw = str(size or "").strip().lower()
     if str(quality or "").strip().upper() == "1.5K":
@@ -18172,6 +18892,11 @@ def seedream_cost_info(frontend_model: str, provider_model: str, count: int, siz
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: flux_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def flux_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in FLUX_MODEL_VARIANTS:
@@ -18203,6 +18928,11 @@ def flux_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: qwen_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def qwen_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in QWEN_MODEL_VARIANTS:
@@ -18238,6 +18968,11 @@ def qwen_cost_info(frontend_model: str, provider_model: str, count: int) -> dict
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: qwen_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def qwen_headers() -> dict:
     api_key = env_value("DASHSCOPE_API_KEY", "DASHSCOPE-API-KEY", "QWEN_API_KEY", "QWEN-API-KEY")
     if not api_key:
@@ -18248,6 +18983,11 @@ def qwen_headers() -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: qwen_image_size
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def qwen_image_size(size: str, frontend_model: str, provider_model: str = "") -> str:
     ratio = str(size or "").strip().lower().replace("x", ":")
     key = qwen_frontend_model(frontend_model, provider_model)
@@ -18418,6 +19158,11 @@ def call_qwen_image(frontend_model: str, provider_model: str, endpoint: str, pro
     return all_images[:image_count], {}, last_payload
 
 
+# =====================================================
+# PYTHON-БЛОК: google_image_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_image_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in GOOGLE_IMAGE_MODEL_VARIANTS:
@@ -18440,6 +19185,11 @@ def google_image_frontend_model(frontend_model: str, provider_model: str = "") -
     return "nano_banana_2"
 
 
+# =====================================================
+# PYTHON-БЛОК: google_image_aspect_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_image_aspect_ratio(size: str, imagen: bool = False) -> str:
     raw = str(size or "").strip().lower().replace("x", ":")
     if raw in {"", "auto"}:
@@ -18460,6 +19210,11 @@ def google_image_aspect_ratio(size: str, imagen: bool = False) -> str:
     return raw if raw in supported else "1:1"
 
 
+# =====================================================
+# PYTHON-БЛОК: google_image_resolution
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_image_resolution(opts: dict, frontend_model: str, provider_model: str = "") -> str:
     key = google_image_frontend_model(frontend_model, provider_model)
     cfg = GOOGLE_IMAGE_MODEL_VARIANTS.get(key) or GOOGLE_IMAGE_MODEL_VARIANTS["nano_banana_2"]
@@ -18477,6 +19232,11 @@ def google_image_resolution(opts: dict, frontend_model: str, provider_model: str
     return raw
 
 
+# =====================================================
+# PYTHON-БЛОК: google_interactions_image_size
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_interactions_image_size(resolution: str) -> str:
     raw = str(resolution or "").strip().lower()
     if raw in {"0.5k", "0.5", "512", "512px"}:
@@ -18488,6 +19248,11 @@ def google_interactions_image_size(resolution: str) -> str:
     return "1K"
 
 
+# =====================================================
+# PYTHON-БЛОК: google_has_input_image
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_has_input_image(payload: dict) -> bool:
     return bool(image_reference_urls(payload))
 
@@ -18519,6 +19284,11 @@ def google_image_cost_info(frontend_model: str, provider_model: str, count: int,
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: grok_frontend_model
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def grok_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     raw = str(frontend_model or "").strip().replace("-", "_").lower()
     if raw in GROK_MODEL_VARIANTS:
@@ -18529,6 +19299,11 @@ def grok_frontend_model(frontend_model: str, provider_model: str = "") -> str:
     return "grok"
 
 
+# =====================================================
+# PYTHON-БЛОК: grok_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def grok_headers() -> dict:
     api_key = env_value("XAI_API_KEY", "XAI-API-KEY", "GROK_API_KEY", "GROK-API-KEY")
     if not api_key:
@@ -18539,6 +19314,11 @@ def grok_headers() -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: grok_aspect_ratio
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def grok_aspect_ratio(size: str) -> str:
     raw = str(size or "").strip().lower().replace("x", ":")
     supported = {
@@ -18561,6 +19341,11 @@ def grok_aspect_ratio(size: str) -> str:
     return "1:1"
 
 
+# =====================================================
+# PYTHON-БЛОК: grok_resolution_value
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def grok_resolution_value(opts: dict) -> str:
     raw = str(
         (opts or {}).get("resolution")
@@ -18573,6 +19358,11 @@ def grok_resolution_value(opts: dict) -> str:
     return "1k"
 
 
+# =====================================================
+# PYTHON-БЛОК: grok_has_input_image
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def grok_has_input_image(payload: dict) -> bool:
     opts = payload.get("image_options") or {}
     if image_reference_urls(payload):
@@ -18583,6 +19373,11 @@ def grok_has_input_image(payload: dict) -> bool:
     return False
 
 
+# =====================================================
+# PYTHON-БЛОК: grok_input_image_url
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def grok_input_image_url(payload: dict) -> str:
     opts = payload.get("image_options") or {}
     for key in ("image_url", "input_image", "inputImage", "referenceImageUrl"):
@@ -18727,6 +19522,11 @@ def call_grok_image(frontend_model: str, provider_model: str, endpoint: str, pro
     return images, {}, request_payload
 
 
+# =====================================================
+# PYTHON-БЛОК: google_image_headers
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_image_headers() -> dict:
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
@@ -18737,6 +19537,11 @@ def google_image_headers() -> dict:
     }
 
 
+# =====================================================
+# PYTHON-БЛОК: google_local_or_remote_image_part
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_local_or_remote_image_part(url: str) -> dict:
     raw = str(url or "").strip()
     if not raw:
@@ -18784,6 +19589,11 @@ def google_local_or_remote_image_part(url: str) -> dict:
         return {}
 
 
+# =====================================================
+# PYTHON-БЛОК: google_extract_images
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def google_extract_images(data: dict) -> list:
     images = []
 
@@ -18914,6 +19724,11 @@ def call_google_image(frontend_model: str, provider_model: str, endpoint: str, p
     return google_extract_images(data), {}, request_payload
 
 
+# =====================================================
+# PYTHON-БЛОК: sanitized_google_request_payload
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def sanitized_google_request_payload(request_payload: dict) -> dict:
     if not isinstance(request_payload, dict):
         return {}
@@ -19461,6 +20276,11 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
     return images, {}, request_payload
 
 
+# =====================================================
+# PYTHON-БЛОК: image_generation
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def image_generation(payload: dict) -> dict:
     if is_watermark_removal_request(payload):
         prostudio_error(
@@ -19946,6 +20766,11 @@ async def image_generation(payload: dict) -> dict:
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/image-capabilities")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_image_capabilities
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_image_capabilities():
     return get_image_capabilities()
 
@@ -19967,6 +20792,11 @@ async def public_prostudio_model_capabilities(request: Request):
     body = {"ok": True, "version": MODEL_CAPABILITIES_VERSION, "models": model_capabilities_service.serialize_capabilities()}
     return JSONResponse(body, headers={"ETag": f'"{MODEL_CAPABILITIES_VERSION}"'})
 
+# =====================================================
+# PYTHON-БЛОК: prostudio_video_templates_from_env
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def prostudio_video_templates_from_env() -> list:
     raw = os.getenv("VIDEO_TEMPLATES_JSON", "").strip()
     if not raw:
@@ -20045,6 +20875,11 @@ def prostudio_video_templates_from_env() -> list:
         })
     return templates
 
+# =====================================================
+# PYTHON-БЛОК: prostudio_builtin_video_template_slots
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 def video_catalog_template_price(model: str, duration: int, resolution: str, has_video_reference: bool) -> int:
     """Exact fixed catalog-card price: Kling output seconds plus its reference fee."""
     resolution_key = str(resolution or "720p").lower()
@@ -20245,6 +21080,11 @@ async def public_prostudio_kling_effects():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/video-templates")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_video_templates
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_video_templates():
     now = time.time()
     cached = VIDEO_TEMPLATE_CATALOG_CACHE.get("value")
@@ -20454,6 +21294,11 @@ async def public_prostudio_quick_image_catalog():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/download-image")
+# =====================================================
+# PYTHON-БЛОК: download_prostudio_image
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def download_prostudio_image(url: str):
     return await download_prostudio_content(url=url, kind="image")
 
@@ -20464,6 +21309,11 @@ async def download_prostudio_image(url: str):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/public/prostudio/download-content")
+# =====================================================
+# PYTHON-БЛОК: download_prostudio_content
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def download_prostudio_content(url: str, kind: str = "file"):
     import mimetypes
     from urllib.parse import urlparse
@@ -20813,6 +21663,11 @@ async def public_home_idea_realtime(request: Request):
 
 
 @app.post("/api/public/prostudio/generate")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_generate
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_generate(request: Request):
     payload = dict(await request.json())
     for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe"):
@@ -22280,6 +23135,11 @@ async def close_postgresql_pool():
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.post("/api/public/prostudio/transcribe")
+# =====================================================
+# PYTHON-БЛОК: public_prostudio_transcribe
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def public_prostudio_transcribe(request: Request):
     form = await request.form()
     file = form.get("file")
@@ -22453,6 +23313,11 @@ async def public_prostudio_elevenlabs_voice_clone(request: Request):
 # Проверяет входные данные, работает с базой/провайдерами и возвращает JSON-ответ фронтенду.
 # =====================================================
 @app.get("/api/cabinet/{telegram_id}")
+# =====================================================
+# PYTHON-БЛОК: get_cabinet
+# Выполняет отдельный шаг backend-логики SYLVEX.
+# Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
+# =====================================================
 async def get_cabinet(telegram_id: int):
 
     def _sync():
