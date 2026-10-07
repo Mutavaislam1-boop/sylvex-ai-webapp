@@ -6081,13 +6081,24 @@ function renderVideoReferencesPreview() {
   // applyVisualReferenceToVideo()/deleteVisualReference() call site), so
   // reusing the existing renderUploadPreviewOnButton() helper here is
   // display-only: no new state, no change to what gets sent for generation.
+  // previewUrl is only set by applyVisualReferenceToVideo() - a Character/
+  // Object restored by restoreVideoStateFromGenerationMetadata() (Regenerate)
+  // only carries {id,name,kind,references}, so fall back to its first
+  // reference image rather than showing no thumbnail for a selection that
+  // is genuinely set and will be sent.
+  const characterThumb = videoState.characterVisual
+    ? (videoState.characterVisual.previewUrl || (videoState.characterVisual.references || [])[0] || '')
+    : '';
+  const objectThumb = videoState.objectVisual
+    ? (videoState.objectVisual.previewUrl || (videoState.objectVisual.references || [])[0] || '')
+    : '';
   renderUploadPreviewOnButton(
     document.getElementById('videoCharacterButton'),
-    videoState.characterVisual ? [videoState.characterVisual.previewUrl].filter(Boolean) : []
+    characterThumb ? [characterThumb] : []
   );
   renderUploadPreviewOnButton(
     document.getElementById('videoObjectButton'),
-    videoState.objectVisual ? [videoState.objectVisual.previewUrl].filter(Boolean) : []
+    objectThumb ? [objectThumb] : []
   );
 }
 
