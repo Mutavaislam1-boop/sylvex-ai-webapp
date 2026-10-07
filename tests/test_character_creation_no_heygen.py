@@ -54,29 +54,23 @@ def _run_job(monkeypatch, job_id="job-1", telegram_id=42, name="Islam", gender="
     return updates[-1]
 
 
-def test_run_character_creation_job_never_calls_create_heygen_character(stub_image_generation, monkeypatch):
-    called = {"value": False}
-
-    def spy_create_heygen_character(name, avatar_url, references):
-        called["value"] = True
-        return {"response": {}, "photo_avatar_id": "x", "avatar_group_id": "y"}
-
-    monkeypatch.setattr(main, "_create_heygen_character", spy_create_heygen_character)
+def test_create_heygen_character_no_longer_exists(stub_image_generation, monkeypatch):
+    # Removed as item #20 dead code (never called in production - see the
+    # other tests in this file, which prove the job completes fully
+    # without it). Its only other code-path dependency, _find_provider_id,
+    # was removed alongside it for the same reason.
+    assert not hasattr(main, "_create_heygen_character"), "_create_heygen_character was removed as dead code"
+    assert not hasattr(main, "_find_provider_id"), "_find_provider_id was removed as dead code"
     status, result, error = _run_job(monkeypatch)
     assert status == "completed"
     assert error is None
-    assert called["value"] is False, "_create_heygen_character must never be invoked by Character creation"
 
 
 def test_run_character_creation_job_is_structurally_unreachable_from_heygen(stub_image_generation, monkeypatch):
     # There is nothing left in this function that could call out to
     # HeyGen at all - a HeyGen-side 500, a missing API key, a bad
-    # response shape, whatever - so monkeypatching it to always explode
-    # must have zero effect on job completion.
-    def exploding_create_heygen_character(name, avatar_url, references):
-        raise RuntimeError("HEYGEN_API_KEY is not configured")
-
-    monkeypatch.setattr(main, "_create_heygen_character", exploding_create_heygen_character)
+    # response shape, whatever - and the function that used to do so
+    # (_create_heygen_character) no longer exists in the codebase at all.
     status, result, error = _run_job(monkeypatch)
     assert status == "completed"
     assert error is None
@@ -87,10 +81,6 @@ def test_run_character_creation_job_is_structurally_unreachable_from_heygen(stub
 
 
 def test_run_character_creation_job_result_has_no_heygen_key(stub_image_generation, monkeypatch):
-    def exploding_create_heygen_character(name, avatar_url, references):
-        raise AssertionError("must not be called")
-
-    monkeypatch.setattr(main, "_create_heygen_character", exploding_create_heygen_character)
     status, result, error = _run_job(monkeypatch)
     # The old synchronous response shape carried a top-level "heygen" key
     # (the raw HeyGen API response) - there is no provider-registration
@@ -99,10 +89,6 @@ def test_run_character_creation_job_result_has_no_heygen_key(stub_image_generati
 
 
 def test_run_character_creation_job_resource_shape_matches_success_condition(stub_image_generation, monkeypatch):
-    def exploding_create_heygen_character(name, avatar_url, references):
-        raise AssertionError("must not be called")
-
-    monkeypatch.setattr(main, "_create_heygen_character", exploding_create_heygen_character)
     status, result, error = _run_job(monkeypatch)
     assert status == "completed"
     resource = result["resource"]

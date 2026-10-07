@@ -12,7 +12,7 @@
 //   - One Character creation job = one Character card, keyed by job_id
 //     (a map, never a single global "pendingCharacterCreationJob") - so
 //     several jobs can run at once, each with its own independent card.
-//   - pollCharacterCreationJob()/waitCharacterCreationJob(): polls GET
+//   - pollCharacterCreationJob(): polls GET
 //     /api/public/prostudio/job/{id}; onProgress fires on every
 //     still-processing tick (so a pending card can show "1/4", a
 //     progressive Primary Face preview, etc.), and the terminal outcome
@@ -152,8 +152,7 @@ test('createCharacterCreationJob: a response with no job_id is treated as a fail
   );
 });
 
-// ---- pollCharacterCreationJob / waitCharacterCreationJob: polling +
-// progress reporting ----
+// ---- pollCharacterCreationJob: polling + progress reporting ----
 
 function makePollingContext(statuses) {
   const calls = {urls: []};
@@ -170,27 +169,26 @@ function makePollingContext(statuses) {
   };
   const context = vm.createContext(sandbox);
   vm.runInContext(extractFunction('pollCharacterCreationJob'), context);
-  vm.runInContext(extractFunction('waitCharacterCreationJob'), context);
   return {context, calls};
 }
 
-test('waitCharacterCreationJob: polls until completed and returns the result with job_id filled in', async () => {
+test('pollCharacterCreationJob: polls until completed and returns the result with job_id filled in', async () => {
   const {context, calls} = makePollingContext([
     {ok: true, status: 'processing', job_id: 'job-1'},
     {ok: true, status: 'completed', job_id: 'job-1', result: {ok: true, character_id: 'custom_character_abc', resource: {id: 'custom_character_abc'}}},
   ]);
-  const result = await vm.runInContext(`waitCharacterCreationJob('job-1')`, context);
+  const result = await vm.runInContext(`pollCharacterCreationJob('job-1', {})`, context);
   assert.equal(result.character_id, 'custom_character_abc');
   assert.equal(result.job_id, 'job-1');
   assert.equal(calls.urls[0], '/api/public/prostudio/job/job-1');
 });
 
-test('waitCharacterCreationJob: throws a translated error with terminalStatus on a failed job', async () => {
+test('pollCharacterCreationJob: throws a translated error with terminalStatus on a failed job', async () => {
   const {context} = makePollingContext([
     {ok: true, status: 'failed', error: {error: 'OpenAI quota exceeded'}},
   ]);
   await assert.rejects(
-    vm.runInContext(`waitCharacterCreationJob('job-2')`, context),
+    vm.runInContext(`pollCharacterCreationJob('job-2', {})`, context),
     (err) => { assert.equal(err.terminalStatus, 'failed'); return true; },
   );
 });
@@ -498,7 +496,7 @@ function makePollCardContext(jobOutcomes) {
   };
   const context = vm.createContext(sandbox);
   [
-    'pollCharacterCreationJob', 'waitCharacterCreationJob',
+    'pollCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
     'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
@@ -681,7 +679,7 @@ test('startCharacterCreationCardPoll: never polls the same job_id twice at once'
   };
   const context = vm.createContext(sandbox);
   [
-    'pollCharacterCreationJob', 'waitCharacterCreationJob',
+    'pollCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
     'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
@@ -1321,7 +1319,7 @@ function makeObjectPollCardContext(jobOutcomes) {
   };
   const context = vm.createContext(sandbox);
   [
-    'pollObjectCreationJob', 'waitObjectCreationJob',
+    'pollObjectCreationJob',
     'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
     'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
     'pendingObjectCardId', 'objectJobIdFromCardId', 'objectPendingCardDomId', 'objectCreationStageLabel',
