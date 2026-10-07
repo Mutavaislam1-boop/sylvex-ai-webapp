@@ -8735,6 +8735,30 @@ async def _character_creation_heartbeat_loop(job_id: str, finished_event: asynci
             await asyncio.to_thread(heartbeat_prostudio_generation_job, job_id)
 
 
+# classify_openai_creation_error: the billing-limit/safety-policy/generic
+# classification of an OpenAI creation-job failure was duplicated, regex
+# for regex, between _run_character_creation_job and
+# _run_object_creation_job below - this is the one place that logic lives
+# now. Only the safety-policy message differs between Character and
+# Object (safety_message is each caller's own, already-translated
+# user-facing text) - the billing-limit message, both regexes, and the
+# generic fallback truncation are shared because they were always
+# identical.
+def classify_openai_creation_error(error_text: str, safety_message: str) -> dict:
+    if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
+        return {
+            "ok": False,
+            "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
+            "provider": "openai",
+        }
+    if re.search(r"safety_violations|safety system|content policy|moderation", error_text, re.I):
+        # A clean, generic message only - never the raw provider
+        # diagnostic (which can contain response-body fragments), and
+        # never a stack trace.
+        return {"ok": False, "error": safety_message, "provider": "openai"}
+    return {"ok": False, "error": error_text[:1200]}
+
+
 # =====================================================
 # ФОНОВАЯ ЗАДАЧА: _run_character_creation_job
 # Runs off the request/response cycle: fired via asyncio.create_task
@@ -8848,24 +8872,10 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
         # request simply terminates this job as failed, same as any other
         # generation failure.
         prostudio_error("CHARACTER_CREATE_FAILED", exc, telegram_id=telegram_id, name=name, job_id=job_id)
-        error_text = str(exc)
-        if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
-            error_payload = {
-                "ok": False,
-                "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
-                "provider": "openai",
-            }
-        elif re.search(r"safety_violations|safety system|content policy|moderation", error_text, re.I):
-            # A clean, generic message only - never the raw provider
-            # diagnostic (which can contain response-body fragments), and
-            # never a stack trace.
-            error_payload = {
-                "ok": False,
-                "error": "Не удалось сгенерировать референс персонажа: запрос был отклонён системой безопасности провайдера изображений. Попробуйте другое фото или измените описание персонажа.",
-                "provider": "openai",
-            }
-        else:
-            error_payload = {"ok": False, "error": error_text[:1200]}
+        error_payload = classify_openai_creation_error(
+            str(exc),
+            "Не удалось сгенерировать референс персонажа: запрос был отклонён системой безопасности провайдера изображений. Попробуйте другое фото или измените описание персонажа.",
+        )
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None, error_payload)
     finally:
         finished_event.set()
@@ -9190,21 +9200,10 @@ async def _run_object_creation_job(job_id: str, telegram_id: int, name: str, des
         prostudio_debug("OBJECT_JOB_COMPLETED", job_id=job_id, elapsed_seconds=round(time.monotonic() - job_started, 3))
     except Exception as exc:
         prostudio_error("OBJECT_CREATE_FAILED", exc, telegram_id=telegram_id, name=name, job_id=job_id)
-        error_text = str(exc)
-        if re.search(r"billing hard limit|billing limit|insufficient[_ ]quota", error_text, re.I):
-            error_payload = {
-                "ok": False,
-                "error": "Лимит расходов OpenAI исчерпан. Пополните баланс или увеличьте бюджет API-проекта OpenAI.",
-                "provider": "openai",
-            }
-        elif re.search(r"safety_violations|safety system|content policy|moderation", error_text, re.I):
-            error_payload = {
-                "ok": False,
-                "error": "Не удалось сгенерировать референс объекта: запрос был отклонён системой безопасности провайдера изображений. Попробуйте другое фото или измените описание объекта.",
-                "provider": "openai",
-            }
-        else:
-            error_payload = {"ok": False, "error": error_text[:1200]}
+        error_payload = classify_openai_creation_error(
+            str(exc),
+            "Не удалось сгенерировать референс объекта: запрос был отклонён системой безопасности провайдера изображений. Попробуйте другое фото или измените описание объекта.",
+        )
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None, error_payload)
     finally:
         finished_event.set()

@@ -11698,7 +11698,14 @@ async function createCharacterCreationJob(name, photos, gender, description) {
 // primary_url snapshot _record_character_job_progress wrote server-side) -
 // this is what lets a pending Character card show "1/4"/"2/4"/a progressive
 // Primary Face preview instead of a flat "Creating..." for the whole run.
-async function pollCharacterCreationJob(jobId, options) {
+// pollCreationJob: the polling/retry/completed/failed loop shared by
+// pollCharacterCreationJob() and pollObjectCreationJob() below (DUP-2) -
+// only each caller's own fallbackErrorText differs (used for both the
+// "still not ok after 80 retries" transient-error case and the terminal
+// failed/cancelled case); the job endpoint, the 80-retry transient-error
+// backoff, onProgress, the 1500ms poll interval, and the completed/
+// failed/cancelled handling were always identical between them.
+async function pollCreationJob(jobId, options, fallbackErrorText) {
   const onProgress = (options && options.onProgress) || null;
   let transientErrors = 0;
   while (true) {
@@ -11712,7 +11719,7 @@ async function pollCharacterCreationJob(jobId, options) {
     }
     const job = await response.json().catch(() => ({}));
     if (!response.ok || !job.ok) {
-      if (++transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось создать персонажа'));
+      if (++transientErrors > 80) throw new Error(translateGenerationError(job, fallbackErrorText));
       await wait(Math.min(8000, 1200 + transientErrors * 250));
       continue;
     }
@@ -11723,13 +11730,17 @@ async function pollCharacterCreationJob(jobId, options) {
       return result;
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
-      const error = new Error(translateGenerationError(job.error || job, 'Не удалось создать персонажа'));
+      const error = new Error(translateGenerationError(job.error || job, fallbackErrorText));
       error.terminalStatus = job.status;
       throw error;
     }
     if (onProgress) onProgress(job);
     await wait(1500);
   }
+}
+
+async function pollCharacterCreationJob(jobId, options) {
+  return pollCreationJob(jobId, options, 'Не удалось создать персонажа');
 }
 
 // =====================================================
@@ -12163,42 +12174,12 @@ async function createObjectCreationJob(name, photos, description) {
   return data.job_id;
 }
 
-// Polls the same generic per-job endpoint pollCharacterCreationJob()
-// uses, kept as its own function (own fallback error text) rather than
-// reused directly - Object and Character creation are two independent
-// job types with their own cards/maps, never a shared one.
+// Polls the same shared pollCreationJob() loop Character creation uses
+// (DUP-2), with its own fallback error text - Object and Character
+// creation are two independent job types with their own cards/maps,
+// never a shared one.
 async function pollObjectCreationJob(jobId, options) {
-  const onProgress = (options && options.onProgress) || null;
-  let transientErrors = 0;
-  while (true) {
-    let response;
-    try {
-      response = await fetch('/api/public/prostudio/job/' + encodeURIComponent(jobId), { cache: 'no-store' });
-    } catch (error) {
-      if (++transientErrors > 80) throw error;
-      await wait(Math.min(8000, 1200 + transientErrors * 250));
-      continue;
-    }
-    const job = await response.json().catch(() => ({}));
-    if (!response.ok || !job.ok) {
-      if (++transientErrors > 80) throw new Error(translateGenerationError(job, 'Не удалось создать объект'));
-      await wait(Math.min(8000, 1200 + transientErrors * 250));
-      continue;
-    }
-    transientErrors = 0;
-    if (job.status === 'completed') {
-      const result = job.result || {};
-      result.job_id = result.job_id || job.job_id || jobId;
-      return result;
-    }
-    if (job.status === 'failed' || job.status === 'cancelled') {
-      const error = new Error(translateGenerationError(job.error || job, 'Не удалось создать объект'));
-      error.terminalStatus = job.status;
-      throw error;
-    }
-    if (onProgress) onProgress(job);
-    await wait(1500);
-  }
+  return pollCreationJob(jobId, options, 'Не удалось создать объект');
 }
 
 // =====================================================
