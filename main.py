@@ -17840,29 +17840,45 @@ def save_text_pdf(text: str, title: str = "SYLVEX Text") -> str:
         temp = tempfile.NamedTemporaryFile(prefix="sylvex-document-", suffix=".pdf", delete=False)
         path = pathlib.Path(temp.name)
         temp.close()
-        doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
-        styles = getSampleStyleSheet()
-        font_name = "Helvetica"
-        for font_path in (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-        ):
-            if pathlib.Path(font_path).exists():
-                try:
-                    pdfmetrics.registerFont(TTFont("SYLVEXUnicode", font_path))
-                    font_name = "SYLVEXUnicode"
-                    break
-                except Exception:
-                    pass
-        for style_obj in styles.byName.values():
-            style_obj.fontName = font_name
-        story = [Paragraph(escape(title or "SYLVEX Text"), styles["Title"]), Spacer(1, 8)]
-        for block in str(text or "").split("\n"):
-            story.append(Paragraph(escape(block) if block.strip() else "&nbsp;", styles["BodyText"]))
-            story.append(Spacer(1, 4))
-        doc.build(story)
-        return storage_put_file(path, generated_key("documents", filename), "application/pdf", remove_local=True)
+        # BUG-3: everything from here through the upload can fail (doc.build()
+        # on bad content, storage_put_file() on a storage/network error) -
+        # without this, the temp file created above was only ever cleaned up
+        # on the success path (storage_put_file's own remove_local=True).
+        # Narrowly scoped to just this build+upload section, not the whole
+        # function, and the cleanup itself is swallowed so it can never mask
+        # the real doc.build()/storage failure propagating through finally;
+        # the path.exists() check avoids a double-delete error on the
+        # success path, where remove_local=True already removed it.
+        try:
+            doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
+            styles = getSampleStyleSheet()
+            font_name = "Helvetica"
+            for font_path in (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+            ):
+                if pathlib.Path(font_path).exists():
+                    try:
+                        pdfmetrics.registerFont(TTFont("SYLVEXUnicode", font_path))
+                        font_name = "SYLVEXUnicode"
+                        break
+                    except Exception:
+                        pass
+            for style_obj in styles.byName.values():
+                style_obj.fontName = font_name
+            story = [Paragraph(escape(title or "SYLVEX Text"), styles["Title"]), Spacer(1, 8)]
+            for block in str(text or "").split("\n"):
+                story.append(Paragraph(escape(block) if block.strip() else "&nbsp;", styles["BodyText"]))
+                story.append(Spacer(1, 4))
+            doc.build(story)
+            return storage_put_file(path, generated_key("documents", filename), "application/pdf", remove_local=True)
+        finally:
+            try:
+                if path.exists():
+                    path.unlink()
+            except Exception:
+                pass
     except Exception as exc:
         print("TEXT PDF SAVE FAILED:", repr(exc))
         return ""
