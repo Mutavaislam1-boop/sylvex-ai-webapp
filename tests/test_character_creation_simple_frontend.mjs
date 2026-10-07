@@ -168,6 +168,7 @@ function makePollingContext(statuses) {
     },
   };
   const context = vm.createContext(sandbox);
+  vm.runInContext(extractFunction('pollCreationJob'), context);
   vm.runInContext(extractFunction('pollCharacterCreationJob'), context);
   return {context, calls};
 }
@@ -496,7 +497,7 @@ function makePollCardContext(jobOutcomes) {
   };
   const context = vm.createContext(sandbox);
   [
-    'pollCharacterCreationJob',
+    'pollCreationJob', 'pollCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
     'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
@@ -679,7 +680,7 @@ test('startCharacterCreationCardPoll: never polls the same job_id twice at once'
   };
   const context = vm.createContext(sandbox);
   [
-    'pollCharacterCreationJob',
+    'pollCreationJob', 'pollCharacterCreationJob',
     'characterCreationJobsStorageKey', 'readPendingCharacterCreationJobs', 'writePendingCharacterCreationJobs',
     'persistPendingCharacterCreationJob', 'clearPendingCharacterCreationJob',
     'pendingCharacterCardId', 'characterJobIdFromCardId', 'characterPendingCardDomId', 'characterCreationStageLabel',
@@ -1319,7 +1320,7 @@ function makeObjectPollCardContext(jobOutcomes) {
   };
   const context = vm.createContext(sandbox);
   [
-    'pollObjectCreationJob',
+    'pollCreationJob', 'pollObjectCreationJob',
     'objectCreationJobsStorageKey', 'readPendingObjectCreationJobs', 'writePendingObjectCreationJobs',
     'persistPendingObjectCreationJob', 'clearPendingObjectCreationJob',
     'pendingObjectCardId', 'objectJobIdFromCardId', 'objectPendingCardDomId', 'objectCreationStageLabel',
