@@ -361,6 +361,42 @@ function sessionHarness(){
  };
  return {...h,local,cloud,setOwner:v=>owner=v,setOffline:v=>offline=v};
 }
+function sharedSidebarHarness(){
+ const h=sessionHarness(),elements=new Map();
+ const classes=(...initial)=>{const set=new Set(initial);return {contains:name=>set.has(name),add:name=>set.add(name),remove:name=>set.delete(name),toggle:(name,on)=>on?set.add(name):set.delete(name)};};
+ const root={dataset:{},attributes:{'aria-modal':'true'},setAttribute(k,v){this.attributes[k]=v;},removeAttribute(k){delete this.attributes[k];},remove(){elements.delete('editWorkspace');}};
+ const links=['/pro-studio.html','/pro-studio.html?mode=grid','/pro-studio.html?tool=edit_workspace'].map((href,i)=>({href,classList:classes(...(i===0?['is-active']:[]))}));
+ const originalHistory={innerHTML:'Studio history only'},account={onclick:()=>{}},list={classList:classes('sx-sidebar-history-list')},button={};let inserted=0;
+ const sidebar={classList:classes(),querySelector:()=>null,querySelectorAll:()=>links,insertBefore:node=>{elements.set(node.id,node);inserted++;}};
+ for(const [id,node] of Object.entries({editWorkspace:root,sxSidebar:sidebar,sxSidebarHistory:originalHistory,sxSidebarAccountBtn:account,editSessionList:list,editSidebarNew:button,editSessionSync:{}}))elements.set(id,node);
+ h.context.document.getElementById=id=>elements.get(id)||null;
+ h.context.document.createElement=()=>({setAttribute(){},remove(){elements.delete(this.id);}});
+ h.context.URL=URL;h.context.location={href:'https://sylvex.ai/pro-studio.html'};
+ h.context.S={escapeHtml:s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')};
+ return {...h,root,sidebar,originalHistory,account,list,button,links,elements,inserted:()=>inserted};
+}
+test('Edit reuses the website sidebar across workspace resets and restores Studio history on close',()=>{
+ const h=sharedSidebarHarness(),accountHandler=h.account.onclick;
+ h.context.mountEditWorkspaceSidebar(h.root);
+ assert.equal(h.root.attributes.role,'region');assert.equal(h.root.attributes['aria-modal'],undefined);
+ assert.equal(h.context.editWorkspaceSidebar(),'');assert.equal(h.inserted(),1);
+ assert.equal(h.links[2].classList.contains('is-active'),true);assert.equal(h.links[0].classList.contains('is-active'),false);
+ h.context.resetEditWorkspaceSurface();h.context.mountEditWorkspaceSidebar(h.root);
+ assert.equal(h.inserted(),1);assert.ok(h.elements.has('editSidebarHistory'));
+ h.context.closeEditWorkspace();
+ assert.equal(h.elements.has('editSidebarHistory'),false);assert.equal(h.sidebar.classList.contains('has-edit-history'),false);
+ assert.equal(h.originalHistory.innerHTML,'Studio history only');assert.equal(h.account.onclick,accountHandler);
+ assert.equal(h.links[0].classList.contains('is-active'),true);assert.equal(h.links[2].classList.contains('is-active'),false);
+});
+test('shared menu shows only Edit sessions, escapes titles and locks workspace switching during generation',async()=>{
+ const h=sharedSidebarHarness();await h.context.loadEditSessionHistory();
+ h.state.sourceName='<img title="unsafe">';h.context.ensureEditWorkspaceChain();await h.context.saveEditWorkspaceSession();
+ assert.match(h.list.innerHTML,/sx-sidebar-history-item/);assert.match(h.list.innerHTML,/aria-current="true"/);
+ assert.match(h.list.innerHTML,/&lt;img title=&quot;unsafe&quot;>/);assert.doesNotMatch(h.list.innerHTML,/<img|Studio history only/);
+ h.state.busy=true;h.context.renderEditSessionList();assert.equal(h.button.disabled,true);assert.match(h.list.innerHTML,/disabled/);
+ h.state.busy=false;h.context.renderEditSessionList();assert.equal(h.button.disabled,false);assert.doesNotMatch(h.list.innerHTML,/disabled/);
+ assert.equal(h.originalHistory.innerHTML,'Studio history only');
+});
 test('new workspace keeps complete prior chain and restoring preserves links, geometry and tool settings',async()=>{
  const h=sessionHarness();await h.context.loadEditSessionHistory();await h.context.generateEditWorkspace();
  const id=h.state.sessionId;h.state.chain[0].x=-870;h.state.chain[1].y=163;h.state.zoom=225;h.state.viewport={x:130,y:-40};h.state.camera.horizontal=225;h.state.light.layers[0].color='#ff8800';h.state.resize.width=777;

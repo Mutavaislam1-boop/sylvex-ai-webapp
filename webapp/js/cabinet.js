@@ -6747,10 +6747,16 @@ function writeEditSessionLocal(){
 function renderEditSessionList(){
   const host=document.getElementById('editSessionList');if(!host)return;
   const safe=value=>S.escapeHtml(String(value||''));
-  host.innerHTML=editSessions.length?editSessions.map(item=>'<button type="button" class="edit-session-item '+(item.id===editWorkspaceState.sessionId?'active':'')+'" data-edit-session="'+safe(item.id)+'" '+(editWorkspaceLocked()?'disabled':'')+'><img src="'+safe(item.preview_url)+'" alt=""><span><b>'+safe(item.title)+'</b><small>'+item.count+' · '+safe(new Date(item.updatedAt).toLocaleDateString())+'</small></span></button>').join(''):'<p class="edit-session-empty">Здесь появятся ваши рабочие области</p>';
-  if(editSessionsHasMore)host.insertAdjacentHTML('beforeend','<button class="edit-session-more" type="button" onclick="SYLVEX.loadMoreEditSessions(event)">Показать ещё</button>');
+  const shared=host.classList.contains('sx-sidebar-history-list');
+  host.innerHTML=editSessions.length?editSessions.map(item=>{
+    const active=item.id===editWorkspaceState.sessionId;
+    const title=safe(item.title),details=item.count+' · '+safe(new Date(item.updatedAt).toLocaleDateString());
+    return '<button type="button" class="'+(shared?'sx-sidebar-history-item':'edit-session-item')+(active?' active':'')+'" data-edit-session="'+safe(item.id)+'" '+(active?'aria-current="true" ':'')+'title="'+title+' · '+details+'" '+(editWorkspaceLocked()?'disabled':'')+'>'+(shared?'<span class="sx-sidebar-history-text">'+title+'</span>':'<img src="'+safe(item.preview_url)+'" alt=""><span><b>'+title+'</b><small>'+details+'</small></span>')+'</button>';
+  }).join(''):'<p class="'+(shared?'sx-sidebar-history-empty':'edit-session-empty')+'">Здесь появятся ваши рабочие области</p>';
+  if(editSessionsHasMore)host.insertAdjacentHTML('beforeend','<button class="'+(shared?'sx-sidebar-history-item':'edit-session-more')+'" type="button" onclick="SYLVEX.loadMoreEditSessions(event)">Показать ещё</button>');
   host.onclick=e=>{const button=e.target.closest('[data-edit-session]');if(button)void openEditSession(button.dataset.editSession);};
   const status=document.getElementById('editSessionSync');if(status)status.textContent=editSessionSyncStatus;
+  const newButton=document.getElementById('editSidebarNew');if(newButton)newButton.disabled=editWorkspaceLocked();
 }
 function scheduleEditWorkspaceSave(){
   if(!editSessionOwner()||!editWorkspaceState.chain.length)return;
@@ -6846,7 +6852,27 @@ function toggleEditWorkspaceSidebar(e){
 function leaveEditWorkspace(e,destination){
   if(editWorkspaceLocked())return;closeEditWorkspace(e);switchView('tools');setStudioLayout(destination==='grid'?'grid':'classic');
 }
+function mountEditWorkspaceSidebar(root){
+  const sidebar=document.getElementById('sxSidebar');if(!sidebar)return;
+  root.dataset.sharedSidebar='true';
+  // The website sidebar remains mounted, with its existing account, search,
+  // theme and collapse handlers. Only the history slot belongs to Edit.
+  root.setAttribute('role','region');root.removeAttribute('aria-modal');
+  if(root._editSidebarCleanup)return;
+  const history=document.createElement('section');history.id='editSidebarHistory';history.className='sx-sidebar-history';
+  history.setAttribute('aria-label','История Edit');
+  history.innerHTML='<button type="button" id="editSidebarNew" class="sx-sidebar-newchat" title="Новая рабочая область" aria-label="Новая рабочая область" onclick="SYLVEX.newEditWorkspace(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Новая область</span></button><div class="edit-sidebar-history-heading">История Edit</div><div id="editSessionList" class="sx-sidebar-history-list"></div><small id="editSessionSync" aria-live="polite"></small>';
+  sidebar.insertBefore(history,sidebar.querySelector('.sx-sidebar-bottom'));
+  sidebar.classList.add('has-edit-history');
+  const links=Array.from(sidebar.querySelectorAll('.sx-sidebar-studio-link')).map(link=>({link,active:link.classList.contains('is-active')}));
+  links.forEach(({link})=>link.classList.toggle('is-active',new URL(link.href,location.href).searchParams.get('tool')==='edit_workspace'));
+  root._editSidebarCleanup=()=>{
+    history.remove();sidebar.classList.remove('has-edit-history');
+    links.forEach(({link,active})=>link.classList.toggle('is-active',active));
+  };
+}
 function editWorkspaceSidebar(){
+  if(document.getElementById('sxSidebar'))return '';
   return '<button type="button" class="edit-sidebar-toggle" aria-label="История Edit" aria-expanded="'+editWorkspaceState.sidebarOpen+'" onclick="SYLVEX.toggleEditWorkspaceSidebar(event)">☰</button><aside class="edit-workspace-sidebar" aria-label="Меню Edit"><header><b>Edit</b><button type="button" aria-label="Свернуть меню" onclick="SYLVEX.toggleEditWorkspaceSidebar(event)">‹</button></header><nav aria-label="Режимы Studio"><button type="button" onclick="SYLVEX.leaveEditWorkspace(event,\'chat\')">Pro Studio</button><button type="button" onclick="SYLVEX.leaveEditWorkspace(event,\'grid\')">Grid Mode</button><button type="button" aria-current="page">Edit</button></nav><button type="button" class="edit-session-new" onclick="SYLVEX.newEditWorkspace(event)">＋ Новая рабочая область</button><h3>История Edit</h3><div id="editSessionList"></div><small id="editSessionSync" aria-live="polite"></small></aside>';
 }
 // Chain geometry is presentation-only. Source pixels, masks and provider
@@ -7488,8 +7514,8 @@ function initEditWorkspaceStage() {
   const area=()=>{
     const rect=stage.getBoundingClientRect();let left=rect.left+32,right=rect.right-32,top=rect.top+76,bottom=rect.bottom-100;
     const panel=root.querySelector('.edit-workspace-panel'),action=root.querySelector('.edit-workspace-action');
-    const sidebar=root.querySelector('.edit-workspace-sidebar');
-    if(s.sidebarOpen&&sidebar)left=Math.max(left,sidebar.getBoundingClientRect().right+24);
+    const sidebar=root.dataset.sharedSidebar?document.getElementById('sxSidebar'):s.sidebarOpen&&root.querySelector('.edit-workspace-sidebar');
+    if(sidebar)left=Math.max(left,sidebar.getBoundingClientRect().right+24);
     if(panel)right=Math.min(right,panel.getBoundingClientRect().left-24);
     if(action)bottom=Math.min(bottom,action.getBoundingClientRect().top-24);
     return {width:Math.max(80,right-left),height:Math.max(80,bottom-top),x:(left+right)/2-rect.left-rect.width/2,y:(top+bottom)/2-rect.top-rect.height/2};
@@ -7509,8 +7535,11 @@ function initEditWorkspaceStage() {
   root.ondragleave=e=>{if(!root.contains(e.relatedTarget))root.classList.remove('is-dragging');};
   root.ondrop=e=>{e.preventDefault();root.classList.remove('is-dragging');if(!editWorkspaceLocked())onEditWorkspaceFile({target:{files:e.dataTransfer.files,value:''}});};
   root.onkeydown=e=>{
-    if(e.key==='Escape'&&!editWorkspaceLocked()){closeEditWorkspace(e);return;}
-    if(e.key==='Tab'){
+    if(e.key==='Escape'&&!editWorkspaceLocked()){
+      if(document.querySelector('.sx-search-overlay:not([hidden]),.sx-account-menu:not([hidden])'))return;
+      closeEditWorkspace(e);return;
+    }
+    if(e.key==='Tab'&&!root.dataset.sharedSidebar){
       const nodes=Array.from(root.querySelectorAll('button:not(:disabled),input:not([hidden]):not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex="0"]')).filter(el=>el.getClientRects().length);
       const first=nodes[0],last=nodes[nodes.length-1];if(!first)return;
       if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
@@ -7623,12 +7652,13 @@ function openEditWorkspace(e) {
 function closeEditWorkspace(e) {
   if(e){e.preventDefault();e.stopPropagation()}if(editWorkspaceLocked())return;
   ++editSessionOpenVersion;void saveEditWorkspaceSession();
-  const root=document.getElementById('editWorkspace');if(root){clearTimeout(root._editRefreshTimer);root._editObserver?.disconnect();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root.remove();}
+  const root=document.getElementById('editWorkspace');if(root){clearTimeout(root._editRefreshTimer);root._editObserver?.disconnect();root._editNavigationCleanup?.();root._editStopChainMotion?.();clearTimeout(root._editAdvanceTimer);root._cameraOrbit?.destroy();root._lightOrbit?.destroy();root._editSidebarCleanup?.();root.remove();}
   document.body.classList.remove('edit-workspace-open');
   // Keep this editing session when the user closes and reopens the workspace.
 }
 function renderEditWorkspace() {
   const root=document.getElementById('editWorkspace'); if(!root)return;
+  mountEditWorkspaceSidebar(root);
   clearTimeout(root._editRefreshTimer);
   if(root._editObserver)root._editObserver.disconnect();
   root._editNavigationCleanup?.();
