@@ -13621,11 +13621,6 @@ def default_image_capabilities() -> list:
     return models
 
 def get_image_capabilities() -> dict:
-    # =====================================================
-    # PYTHON-БЛОК: enrich
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def enrich(models: list) -> list:
         out = []
         for model in models or []:
@@ -15082,11 +15077,6 @@ def normalize_image_response(data: dict) -> list:
     if not isinstance(data, dict):
         return images
 
-    # =====================================================
-    # PYTHON-БЛОК: add_image
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def add_image(value, mime_type="image/png"):
         if not isinstance(value, str) or not value.strip():
             return
@@ -15103,11 +15093,6 @@ def normalize_image_response(data: dict) -> list:
             elif item.get("b64_json"):
                 add_image(item["b64_json"])
 
-    # =====================================================
-    # PYTHON-БЛОК: walk
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def walk(node):
         if isinstance(node, dict):
             mime_type = node.get("mime_type") or node.get("mimeType") or "image/png"
@@ -15247,11 +15232,6 @@ def request_byteplus_seedream_image(model: str, prompt: str, reference_images=No
     except Exception:
         timeout_seconds = 420 if is_pro_model else 240
 
-    # =====================================================
-    # PYTHON-БЛОК: _send
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def _send(include_refs: bool):
         request_payload = byteplus_seedream_body(model, prompt, refs if include_refs else [], size=size, seed=seed, quality=quality)
         reference_field = "image" if "image" in request_payload else ("image_urls" if "image_urls" in request_payload else None)
@@ -18787,11 +18767,6 @@ def google_local_or_remote_image_part(url: str) -> dict:
 def google_extract_images(data: dict) -> list:
     images = []
 
-    # =====================================================
-    # PYTHON-БЛОК: add_image
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def add_image(value, mime_type="image/png"):
         if isinstance(value, str) and value.strip():
             if value.startswith("http") or value.startswith("/"):
@@ -18799,11 +18774,6 @@ def google_extract_images(data: dict) -> list:
             else:
                 images.append(f"data:{mime_type or 'image/png'};base64,{value}")
 
-    # =====================================================
-    # PYTHON-БЛОК: walk
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def walk(node):
         if isinstance(node, dict):
             mime_type = node.get("mime_type") or node.get("mimeType") or "image/png"
@@ -19980,11 +19950,6 @@ def prostudio_video_templates_from_env() -> list:
     if not isinstance(items, list):
         return []
 
-    # =====================================================
-    # PYTHON-БЛОК: _template_int
-    # Выполняет отдельный шаг backend-логики SYLVEX.
-    # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
-    # =====================================================
     def _template_int(value, default=0):
         try:
             if isinstance(value, str):
