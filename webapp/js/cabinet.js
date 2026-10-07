@@ -459,7 +459,6 @@ let klingEffectsCache = null;
 let activeVideoTemplate = null;
 let videoTemplateUploadUrl = '';
 let videoTemplateRatio = '16:9';
-const VIDEO_TEMPLATE_INTRO_KEY = 'sylvex_video_templates_intro_seen';
 
 // =====================================================
 // ЗАГРУЗКА В MINI APP: setUploadTarget
@@ -1852,14 +1851,6 @@ function applyVoiceAvatarsToList(list, provider) {
   });
 }
 
-const VOICE_STYLE_RU = {
-  Bright:'яркий', Upbeat:'бодрый', Informative:'информативный', Firm:'уверенный',
-  Excitable:'эмоциональный', Youthful:'молодой', Breezy:'лёгкий', 'Easy-going':'непринуждённый',
-  Breathy:'мягкий с придыханием', Clear:'чёткий', Smooth:'плавный', Gravelly:'хрипловатый',
-  Soft:'мягкий', Even:'ровный', Mature:'зрелый', Forward:'напористый', Friendly:'дружелюбный',
-  Casual:'разговорный', Gentle:'нежный', Lively:'живой', Knowledgeable:'компетентный', Warm:'тёплый'
-};
-
 function voiceInitials(value) {
   const clean = String(value || 'Голос').replace(/[^a-zа-яё0-9]/gi, '').toUpperCase();
   return (clean.slice(0, 3) || 'VOX').padEnd(3, 'X');
@@ -2450,7 +2441,6 @@ const VIDEO_MODEL_CONFIG = {
 };
 
 const KLING_VIDEO_BASE_RATIOS = ['16:9','9:16','1:1'];
-const KLING_VIDEO_DURATIONS = [5,10,15];
 const KLING_VIDEO_LONG_DURATIONS = [3,4,5,6,7,8,9,10,11,12,13,14,15];
 const KLING_VIDEO_O1_DURATIONS = [3,4,5,6,7,8,9,10];
 const KLING_VIDEO_SHORT_DURATIONS = [5,10];
@@ -4103,12 +4093,6 @@ function insertVoicePause(event, seconds) {
   VoiceDialogueComposer.runAction('pause', String(Number(seconds)));
 }
 
-function insertVoiceEditorMarkup(value) {
-  // Repeatable editor commands are additive: the same emotion, pause or
-  // sound effect may intentionally appear many times in one script.
-  replaceVoiceEditorSelection(value, false);
-}
-
 function saveVoicePronunciation(event) {
   if (event) event.stopPropagation();
   const word = (document.getElementById('voicePronunciationWord')?.value || '').trim();
@@ -5040,26 +5024,6 @@ let styleSheetCssInjected = false;
 { id:'microsoft-mai-2-5', label:'Microsoft MAI Image 2.5', icon:'▦', description:'Модель Microsoft MAI для создания изображений.' },
 { id:'krea-2', label:'Krea 2', icon:'✤', description:'Генерация креативных визуалов и изображений.' }
   ];
-
-const MODEL_ICON_SVG = {
-  nn: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.1 15.7C10.8 16.5 16.2 12 17.1 6.1C17.3 4.8 19.2 5 19.3 6.3C19.9 14.2 13.1 20.8 5.5 18.1C4.2 17.6 3.8 15.5 5.1 15.7Z" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 15.7C7.2 15.3 8.9 14.3 10.2 12.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M17 6.4L15.3 4.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M5.4 18L3.8 19.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
-
-  chatgptImage: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.8C13.5 2.8 14.7 3.7 15.3 5L16.2 4.8C18.1 4.5 19.8 5.9 20 7.8C20.1 8.8 19.8 9.7 19.2 10.4C20.4 11.2 20.9 12.8 20.4 14.2C19.9 15.7 18.5 16.6 17 16.5C16.7 18.4 15.1 19.8 13.2 19.8C12.3 19.8 11.5 19.5 10.8 18.9C9.8 20.1 8.1 20.5 6.7 19.8C5.3 19.1 4.6 17.6 4.9 16.1C3.4 15.7 2.4 14.3 2.4 12.8C2.4 11.6 3 10.6 3.9 10C3.4 8.7 3.8 7.2 4.9 6.3C6 5.4 7.5 5.3 8.7 6C9.2 4.2 10.4 2.8 12 2.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.7 6L13.8 8.9V14.9L8.8 17.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.3 5L10.2 7.9V13.9L15.2 16.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.9 10L9 12.9L13.8 10.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.1 10.4L15 13.2L10.2 10.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-
-  cdrm: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 6V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M9.2 10V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M14.4 13V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M19.6 7V18" stroke="currentColor" stroke-width="3" stroke-linecap="butt"/><path d="M4 18H6.3M9.2 18H11.5M14.4 18H16.7M19.6 18H21.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
-
-  grokPro: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 17.6C3.9 14.6 4.5 11 7 8.4C9.9 5.4 14.6 5 18 7.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M19.3 5.2L4.7 19.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M19.2 10.3C20.3 13.3 19.6 16.8 17.1 19.2C14.7 21.4 11.3 21.8 8.6 20.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
-
-  grokFlux: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.2 18.5L11.6 4.8L20.8 18.5H3.2Z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M7.9 18.5L11.7 12.1L15.8 18.5" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M18.3 5.2L19 6.8L20.6 7.5L19 8.2L18.3 9.8L17.6 8.2L16 7.5L17.6 6.8L18.3 5.2Z" fill="currentColor"/></svg>',
-
-  idrm: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 4.2C7.9 4.7 6 6.8 6 9.4V10.2H4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10.5 19.8C7.9 19.3 6 17.2 6 14.6V13.8H4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12.5 4.2C15.9 4.2 18.5 6.8 18.5 10.1C20 10.5 21 11.9 21 13.5C21 15.5 19.5 17.1 17.5 17.1H16.8C16.1 18.7 14.6 19.8 12.5 19.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.8 7.5H6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M2.8 12H8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M2.8 16.5H6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 7.2V16.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15 8.4V15.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-
-  craft: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 20V4H12.3C15.8 4 18.1 6 18.1 9.1C18.1 11.5 16.8 13.2 14.7 13.9L19.2 20H15.1L11.2 14.4H8.5V20H5Z" fill="currentColor"/><path d="M8.5 11.5H12C13.5 11.5 14.4 10.6 14.4 9.3C14.4 8 13.5 7.2 12 7.2H8.5V11.5Z" fill="#1a1a1a"/></svg>',
-
-  queen: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.8L14.5 7.2L19.6 7.1L17.1 11.5L19.7 15.8L14.6 15.9L12 20.3L9.4 15.9L4.3 15.8L6.9 11.5L4.4 7.1L9.5 7.2L12 2.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 8.3L17 15.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M17 8.3L7 15.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-
-  microsoft: '<svg class="model-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="8" height="8" fill="currentColor"/><rect x="13" y="3" width="8" height="8" fill="currentColor"/><rect x="3" y="13" width="8" height="8" fill="currentColor"/><rect x="13" y="13" width="8" height="8" fill="currentColor"/></svg>'
-};
 
  // =====================================================
  // JAVASCRIPT-БЛОК: withImageDefaults
@@ -11699,7 +11663,7 @@ function removeVisualCreatePhoto(e, index) {
 // It is also asynchronous: the endpoint validates and returns 202 with a
 // job_id immediately (the actual generation keeps running server-side
 // even if this browser disconnects), so this function only ever returns
-// a job_id - callers must poll it with waitCharacterCreationJob().
+// a job_id - callers must poll it with pollCharacterCreationJob().
 async function createCharacterCreationJob(name, photos, gender, description) {
   const tg = getTelegramId();
   if (!tg) throw new Error('telegram_id_required');
@@ -11766,12 +11730,6 @@ async function pollCharacterCreationJob(jobId, options) {
     if (onProgress) onProgress(job);
     await wait(1500);
   }
-}
-
-// Backward-compatible single-job waiter (no progress reporting) - still
-// used anywhere that only cares about the terminal outcome.
-async function waitCharacterCreationJob(jobId) {
-  return pollCharacterCreationJob(jobId, {});
 }
 
 // =====================================================
@@ -12241,10 +12199,6 @@ async function pollObjectCreationJob(jobId, options) {
     if (onProgress) onProgress(job);
     await wait(1500);
   }
-}
-
-async function waitObjectCreationJob(jobId) {
-  return pollObjectCreationJob(jobId, {});
 }
 
 // =====================================================
@@ -17139,8 +17093,6 @@ function renderGeneratedTelegramButton(url, kind) {
   ];
   let brandMusicTracks=BRAND_MUSIC_FALLBACK.slice(),brandMusicIndex=0,brandMusicDragStart=0,brandMusicLibraryLoaded=false;
   let brandGeneratorStartIndex=0,brandGeneratorObserver=null;
-  function filterBrandGeneratorHistory(){document.querySelectorAll('#chatArea .msg[data-i]').forEach(item=>item.classList.toggle('brand-generator-old',Number(item.dataset.i)<brandGeneratorStartIndex))}
-  function renderBrandGeneratorHeader(config,key){const studio=document.querySelector('[data-view="tools"] .studio');if(!studio)return;let head=studio.querySelector('.brand-generator-head');if(!head){head=document.createElement('div');head.className='brand-generator-head';studio.prepend(head)}const balance=(document.getElementById('homeBalance')?.textContent||'— ⚡️').trim(),avatar=document.getElementById('homeAvatar')?.innerHTML||'SY',video=config.headerVideo?'<video class="brand-generator-head-video" src="'+S.escapeHtml(config.headerVideo)+'" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video><span class="brand-generator-head-shade"></span>':'',topline=key==='suno'?'<div class="suno-brand-topline"><button type="button" onclick="SYLVEX.closeBrandGenerator(event)" aria-label="Закрыть">×</button><span><img src="assets/logo.png" alt=""><b>SYLVEX AI</b></span><i>•••</i></div>':'';head.innerHTML=video+topline+'<div class="brand-generator-name">'+(config.logo?'<img src="'+S.escapeHtml(config.logo)+'" alt="">':'<span></span>')+'<b>'+S.escapeHtml(config.label)+'</b></div><div class="brand-generator-actions"><button class="brand-generator-balance" type="button" onclick="SYLVEX.closeBrandGenerator(event);switchView(\'shop\')"><i>⚡</i><b>'+S.escapeHtml(balance.replace('⚡️','').trim())+'</b><em>＋</em></button><button class="brand-generator-avatar" type="button" onclick="SYLVEX.closeBrandGenerator(event);switchView(\'profile\')">'+avatar+'</button><button class="brand-generator-close" type="button" onclick="SYLVEX.closeBrandGenerator(event)" aria-label="Закрыть">×</button></div>';head.dataset.brand=key}
   function brandMusicShowcaseHtml(){const genres=[['pop','Pop'],['rock','Rock'],['rap','Rap'],['jazz','Jazz'],['soul','Soul'],['rnb','R&B']];return '<section class="brand-music-showcase"><div class="brand-music-genres">'+genres.map((genre,index)=>'<button type="button" class="'+(musicState.genre===genre[0]||index===0&&musicState.genre==='auto'?'is-active':'')+'" onclick="SYLVEX.selectBrandMusicGenre(\''+genre[0]+'\',this)">'+genre[1]+'</button>').join('')+'</div><div class="brand-music-slider" id="brandMusicSlider"><button type="button" class="brand-music-nav prev" onclick="SYLVEX.moveBrandMusic(-1)" aria-label="Предыдущий">‹</button>'+brandMusicTracks.map((track,index)=>'<button type="button" class="brand-music-card" data-brand-track="'+index+'" onclick="SYLVEX.selectBrandMusic('+index+',true)"><img src="'+S.escapeHtml(track.coverUrl||'assets/knowledge-center/music.png')+'" alt=""><span>'+S.escapeHtml(track.genre||track.title)+'</span></button>').join('')+'<button type="button" class="brand-music-nav next" onclick="SYLVEX.moveBrandMusic(1)" aria-label="Следующий">›</button></div><div class="brand-music-player" id="brandMusicPlayer"><span class="brand-music-player-bg"></span><div class="brand-music-player-inner"><span class="brand-music-cover"><img alt=""></span><div class="brand-music-player-body"><b>Выберите трек</b><div class="brand-music-timeline"><time data-brand-time>00:00</time><input type="range" min="0" max="100" value="0" step="0.1" oninput="SYLVEX.seekBrandMusic(this.value)" aria-label="Позиция трека"><time data-brand-duration>00:00</time></div><div class="brand-music-controls"><button type="button" onclick="SYLVEX.toggleBrandMusicRepeat(this)" aria-label="Повтор">↻</button><button type="button" onclick="SYLVEX.moveBrandMusic(-1,true)" aria-label="Предыдущий">◀</button><button type="button" class="brand-music-play" onclick="SYLVEX.toggleBrandMusic()" aria-label="Воспроизвести">▶</button><button type="button" onclick="SYLVEX.moveBrandMusic(1,true)" aria-label="Следующий">▶</button><button type="button" onclick="SYLVEX.shuffleBrandMusic()" aria-label="Перемешать">⌁</button></div></div></div><audio preload="metadata"></audio></div></section>'}
   function updateBrandMusicSlider(){const cards=Array.from(document.querySelectorAll('.brand-music-card')),count=cards.length;if(!count)return;cards.forEach((card,index)=>{let offset=index-brandMusicIndex;if(offset>count/2)offset-=count;if(offset<-count/2)offset+=count;card.dataset.pos=String(Math.max(-2,Math.min(2,offset)));card.classList.toggle('is-active',offset===0)})}
   function renderBrandMusicShowcase(){document.querySelector('.brand-music-showcase')?.remove();const chat=document.getElementById('chatArea');if(!chat)return;chat.insertAdjacentHTML('beforebegin',brandMusicShowcaseHtml());const slider=document.getElementById('brandMusicSlider');if(slider){slider.addEventListener('pointerdown',event=>{brandMusicDragStart=event.clientX;slider.setPointerCapture?.(event.pointerId)});slider.addEventListener('pointerup',event=>{const distance=event.clientX-brandMusicDragStart;if(Math.abs(distance)>35)moveBrandMusic(distance<0?1:-1)});slider.addEventListener('wheel',event=>{if(Math.abs(event.deltaX)<12)return;event.preventDefault();moveBrandMusic(event.deltaX>0?1:-1)},{passive:false})}updateBrandMusicSlider();selectBrandMusic(brandMusicIndex,false);loadBrandMusicLibrary()}
@@ -24095,12 +24047,6 @@ async function waitGeneration(jobId, options) {
     const luminance = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
     return luminance > 0.56 ? '#111111' : '#ffffff';
   }
-  function readableColor(foreground, background) {
-    const rgb = (hex) => { const c = validHex(hex, '#000000').slice(1); return [0,2,4].map((i) => parseInt(c.slice(i,i+2),16) / 255).map((v) => v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4)); };
-    const lum = (hex) => { const c = rgb(hex); return .2126*c[0]+.7152*c[1]+.0722*c[2]; };
-    const a=lum(foreground),b=lum(background),ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
-    return ratio >= 4.5 ? foreground : contrastColor(background);
-  }
   function currentProfileAppearance() {
     let local = null;
     try { local = JSON.parse(localStorage.getItem(appearanceStorageKey()) || 'null'); } catch {}
@@ -26491,8 +26437,6 @@ async function waitGeneration(jobId, options) {
     if(!urls.length)throw new Error(node.type==='video'?'Генерация завершилась без видео':'Генерация завершилась без аудио');
     return {type:kind,url:urls[0],preview_url:raw.thumbnail_url||raw.thumb_url||raw.image_url||'',generation_id:generationId,model:node.model,settings:Object.assign({},node.settings),metadata:raw.metadata||{}};
   }
-
-  function getGridDownstreamNodes(nodeId){const state=loadStudioGridState();return state.edges.filter(edge=>edge.from===nodeId).map(edge=>state.nodes.find(node=>node.id===edge.to)).filter(Boolean)}
 
   async function runGridNode(nodeId,options={}) {
     if(studioGridNodeRuns.has(nodeId))return studioGridNodeRuns.get(nodeId);

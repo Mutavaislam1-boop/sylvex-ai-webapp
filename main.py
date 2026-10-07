@@ -513,11 +513,6 @@ def _generate_voice_avatar_once(provider: str, voice_id: str):
             VOICE_AVATAR_IN_FLIGHT.discard(key)
 
 
-def schedule_voice_avatar(provider: str, voice_id: str) -> str:
-    result = schedule_voice_avatars_batch([{"provider": provider, "voice_id": voice_id}])
-    return result.get(_voice_avatar_identity(provider, voice_id)[0], "")
-
-
 def schedule_voice_avatars_batch(voices: list) -> dict:
     normalized_items = []
     for item in voices or []:
@@ -3389,10 +3384,6 @@ def activate_paypal_subscription_from_event(event: dict) -> bool:
 # entirely reused from finalize_shop_payment()/apply_payment() (idempotent
 # on charge_id) - the same function PayPal and Stars already use.
 # =====================================================
-def lemonsqueezy_configured() -> bool:
-    return bool(LEMONSQUEEZY_API_KEY and LEMONSQUEEZY_STORE_ID)
-
-
 def lemonsqueezy_variant_for_pack(pack_id: str) -> str:
     return {
         "sub_month": LEMONSQUEEZY_VARIANT_MONTH or "",
@@ -3415,49 +3406,6 @@ def lemonsqueezy_headers() -> dict:
         "Accept": "application/vnd.api+json",
         "Content-Type": "application/vnd.api+json",
     }
-
-
-def create_lemonsqueezy_checkout(telegram_id: int, pack_id: str, item: dict, account_id: int = 0) -> dict:
-    variant_id = lemonsqueezy_variant_for_pack(pack_id)
-    if not variant_id:
-        raise RuntimeError("LemonSqueezy variant not configured for pack")
-    # account_id is set only for a Website request (see public_lemonsqueezy_checkout) -
-    # LemonSqueezy then gets the account's own SYLVEX identity, never the
-    # internal telegram_id-shaped storage key that identity maps to. A real
-    # Telegram Mini App request (account_id=0 here) keeps sending its actual
-    # telegram_id, unchanged.
-    custom = {"account_id": str(account_id), "pack_id": pack_id} if account_id else {"telegram_id": str(telegram_id), "pack_id": pack_id}
-    body = {
-        "data": {
-            "type": "checkouts",
-            "attributes": {
-                "checkout_data": {
-                    "custom": custom,
-                },
-                "product_options": {
-                    "redirect_url": SHOP_WEBAPP_URL,
-                },
-            },
-            "relationships": {
-                "store": {"data": {"type": "stores", "id": str(LEMONSQUEEZY_STORE_ID)}},
-                "variant": {"data": {"type": "variants", "id": str(variant_id)}},
-            },
-        }
-    }
-    response = requests.post(
-        f"{LEMONSQUEEZY_API_BASE}/v1/checkouts",
-        headers=lemonsqueezy_headers(),
-        json=body,
-        timeout=30,
-    )
-    if response.status_code >= 400:
-        print("LEMONSQUEEZY CHECKOUT ERROR:", response.status_code, response.text[:1000])
-        raise RuntimeError("LemonSqueezy checkout request failed")
-    return response.json()
-
-
-def lemonsqueezy_checkout_url(checkout: dict) -> str:
-    return (((checkout.get("data") or {}).get("attributes") or {}).get("url")) or ""
 
 
 def verify_lemonsqueezy_webhook(raw_body: bytes, signature_header: str) -> bool:
@@ -8722,88 +8670,6 @@ async def _generate_openai_character_images(job_id: str, name: str, gender: str,
     )
     prostudio_debug("CHARACTER_BACK_DONE", job_id=job_id, elapsed_seconds=round(time.monotonic() - back_started, 3))
     return [primary_url, front_url, side_url, back_url]
-
-
-def _find_provider_id(data, keys: tuple[str, ...]) -> str:
-    if isinstance(data, dict):
-        for key in keys:
-            if data.get(key):
-                return str(data[key])
-        for value in data.values():
-            found = _find_provider_id(value, keys)
-            if found:
-                return found
-    elif isinstance(data, list):
-        for value in data:
-            found = _find_provider_id(value, keys)
-            if found:
-                return found
-    return ""
-
-
-def _create_heygen_character(name: str, avatar_url: str, references: list) -> dict:
-    api_key = env_value("HEYGEN_API_KEY")
-    if not api_key:
-        raise RuntimeError("HEYGEN_API_KEY is not configured")
-    endpoint = env_value(
-        "HEYGEN_PHOTO_AVATAR_CREATE_ENDPOINT",
-        default="https://api.heygen.com/v2/photo_avatar/photo_avatar_group",
-    )
-    def upload_image(value: str, index: int) -> str:
-        file_tuple = image_file_tuple_from_url(value, fallback_name=f"{name}-{index + 1}.png")
-        if not file_tuple:
-            raise RuntimeError(f"Could not read generated character image {index + 1}")
-        filename, content, mime_type = file_tuple
-        upload_response = requests.post(
-            env_value("HEYGEN_ASSET_UPLOAD_ENDPOINT", default="https://upload.heygen.com/v1/asset"),
-            headers={
-                "X-Api-Key": api_key,
-                "Content-Type": mime_type or "image/png",
-            },
-            data=content,
-            timeout=180,
-        )
-        upload_data = safe_provider_json(
-            upload_response,
-            "heygen",
-            env_value("HEYGEN_ASSET_UPLOAD_ENDPOINT", default="https://upload.heygen.com/v1/asset"),
-        )
-        if upload_response.status_code >= 400:
-            detail = upload_data.get("message") or upload_data.get("error") or upload_response.text[:500]
-            raise RuntimeError(f"HeyGen asset upload failed: {detail}")
-        uploaded_url = _find_provider_id(
-            upload_data,
-            ("url", "asset_url", "assetUrl", "image_url", "imageUrl"),
-        )
-        if not uploaded_url:
-            raise RuntimeError(f"HeyGen asset upload returned no URL for {filename}")
-        return uploaded_url
-
-    uploaded_images = [
-        upload_image(value, index)
-        for index, value in enumerate([avatar_url] + references[:3])
-    ]
-    body = {
-        "name": name,
-        "image_url": uploaded_images[0],
-        "image_urls": uploaded_images,
-    }
-    response = requests.post(endpoint, headers=heygen_headers(), json=body, timeout=180)
-    data = safe_provider_json(response, "heygen", endpoint)
-    if response.status_code >= 400:
-        detail = data.get("message") or data.get("error") or response.text[:500]
-        raise RuntimeError(f"HeyGen character creation failed: {detail}")
-    photo_avatar_id = _find_provider_id(
-        data, ("photo_avatar_id", "photoAvatarId", "avatar_id", "avatarId", "id")
-    )
-    group_id = _find_provider_id(data, ("avatar_group_id", "avatarGroupId", "group_id", "groupId"))
-    if not photo_avatar_id and not group_id:
-        raise RuntimeError("HeyGen returned no character id")
-    return {
-        "response": data,
-        "photo_avatar_id": photo_avatar_id,
-        "avatar_group_id": group_id,
-    }
 
 
 # =====================================================
