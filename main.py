@@ -9914,7 +9914,14 @@ async def public_prostudio_active_job(telegram_id: int = 0):
     if not telegram_id:
         return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
     try:
-        job = get_active_prostudio_job(telegram_id)
+        # BUG-4 immediate mitigation: get_active_prostudio_job() is a plain
+        # synchronous DB call - running it directly here blocked this
+        # process's single asyncio event loop (so no other request of any
+        # user could be served) for however long that query took, worse
+        # under Postgres lock contention. asyncio.to_thread() moves it off
+        # the event loop without changing its SQL, retry/backoff, or
+        # return value at all.
+        job = await asyncio.to_thread(get_active_prostudio_job, telegram_id)
     except Exception as exc:
         prostudio_error("ACTIVE_JOB_LOOKUP_FAILED", exc, telegram_id=telegram_id)
         return JSONResponse({"ok": False, "error": "active_job_lookup_failed"}, status_code=500)
@@ -21870,7 +21877,11 @@ async def public_prostudio_generate(request: Request):
     if required_credits <= 0 and not edit_workspace_service.is_free_resize(payload):
         return JSONResponse({"ok": False, "error": "pricing_not_configured", "message": "Не удалось определить стоимость генерации."}, status_code=422)
     try:
-        active_job = get_active_prostudio_job(telegram_id) if telegram_id else {}
+        # BUG-4 immediate mitigation: same blocking-call issue as
+        # public_prostudio_active_job() above - see its comment. This
+        # pre-check runs on every generation submission, so it blocked the
+        # event loop just as often.
+        active_job = await asyncio.to_thread(get_active_prostudio_job, telegram_id) if telegram_id else {}
     except Exception as exc:
         prostudio_error("ACTIVE_JOB_PRECHECK_FAILED", exc, telegram_id=telegram_id)
         return JSONResponse({
