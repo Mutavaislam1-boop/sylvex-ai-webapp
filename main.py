@@ -9981,13 +9981,19 @@ async def public_prostudio_report_error(request: Request):
 
 @app.post("/api/admin/prostudio/recover-job/{job_id}")
 async def admin_recover_prostudio_job(job_id: str, request: Request):
+    # Previously its own standalone check (a single telegram_id configured
+    # via the legacy ADMIN_ID env var, loosely cross-checked against
+    # init_data only "if BOT_TOKEN" - neither requirement actually enforced
+    # if either was unset) - now the exact same _admin_actor() mechanism
+    # every other /api/admin/* route uses (see admin_set/admin_audit/etc.
+    # above), so it accepts the standard Telegram initData OR
+    # X-Admin-Service-Token/Bearer service-token path and is checked against
+    # the real admin_users table, never a second credential. owner_only
+    # mirrors this endpoint's previous effective restrictiveness - only the
+    # single configured admin (in practice the project owner) could ever
+    # call it.
     data = await request.json()
-    telegram_id = int(data.get("telegram_id") or 0)
-    init_data = str(data.get("init_data") or "")
-    if not PROSTUDIO_ADMIN_ID or telegram_id != PROSTUDIO_ADMIN_ID:
-        raise HTTPException(status_code=403, detail="admin_required")
-    if BOT_TOKEN and _telegram_id_from_init_data(init_data) != PROSTUDIO_ADMIN_ID:
-        raise HTTPException(status_code=403, detail="telegram_auth_failed")
+    _admin_actor(data, request, owner_only=True)
     try:
         recovery = await asyncio.to_thread(
             recover_stale_prostudio_job,
