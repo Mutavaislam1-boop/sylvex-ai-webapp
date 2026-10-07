@@ -9993,16 +9993,41 @@ async def admin_recover_prostudio_job(job_id: str, request: Request):
     # single configured admin (in practice the project owner) could ever
     # call it.
     data = await request.json()
-    _admin_actor(data, request, owner_only=True)
+    actor = _admin_actor(data, request, owner_only=True)
+    force = bool(data.get("force", False))
     try:
         recovery = await asyncio.to_thread(
             recover_stale_prostudio_job,
             job_id,
-            bool(data.get("force", False)),
+            force,
         )
     except Exception as exc:
         prostudio_error("PROSTUDIO_ADMIN_STALE_RECOVERY_FAILED", exc, job_id=job_id)
         raise HTTPException(status_code=500, detail="stale_recovery_failed") from exc
+
+    # Remediation item #15: the standard admin_audit_log entry every other
+    # /api/admin/* mutation already writes was missing here. Written only
+    # once recovery has actually succeeded (never on auth failure or a
+    # recovery exception above) - target_telegram_id is left NULL (0) since
+    # this action has no target user, and job_id/force/the recovery result
+    # go into after_data instead, exactly like every other _admin_audit()
+    # call's structured before/after payload.
+    def _audit():
+        ensure_admin_tables()
+        conn = db_connect(DATABASE_URL)
+        cursor = conn.cursor()
+        try:
+            _admin_audit(cursor, actor["telegram_id"], "prostudio_job_recovered", 0,
+                         {}, {"job_id": job_id, "force": force, "recovery": recovery}, "")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    await asyncio.to_thread(_audit)
     return {"ok": True, **recovery}
 
 # =====================================================
