@@ -377,13 +377,16 @@ function sharedSidebarHarness(){
 }
 test('Edit reuses the website sidebar across workspace resets and restores Studio history on close',()=>{
  const h=sharedSidebarHarness(),accountHandler=h.account.onclick;
+ const shell={inert:false};h.elements.set('sxStudioShell',shell);
  h.context.mountEditWorkspaceSidebar(h.root);
+ assert.equal(shell.inert,true);
  assert.equal(h.root.attributes.role,'region');assert.equal(h.root.attributes['aria-modal'],undefined);
  assert.equal(h.context.editWorkspaceSidebar(),'');assert.equal(h.inserted(),1);
  assert.equal(h.links[2].classList.contains('is-active'),true);assert.equal(h.links[0].classList.contains('is-active'),false);
  h.context.resetEditWorkspaceSurface();h.context.mountEditWorkspaceSidebar(h.root);
  assert.equal(h.inserted(),1);assert.ok(h.elements.has('editSidebarHistory'));
  h.context.closeEditWorkspace();
+ assert.equal(shell.inert,false);
  assert.equal(h.elements.has('editSidebarHistory'),false);assert.equal(h.sidebar.classList.contains('has-edit-history'),false);
  assert.equal(h.originalHistory.innerHTML,'Studio history only');assert.equal(h.account.onclick,accountHandler);
  assert.equal(h.links[0].classList.contains('is-active'),true);assert.equal(h.links[2].classList.contains('is-active'),false);

@@ -6859,6 +6859,8 @@ function mountEditWorkspaceSidebar(root){
   // theme and collapse handlers. Only the history slot belongs to Edit.
   root.setAttribute('role','region');root.removeAttribute('aria-modal');
   if(root._editSidebarCleanup)return;
+  const studioShell=document.getElementById('sxStudioShell'),wasInert=studioShell?.inert;
+  if(studioShell)studioShell.inert=true;
   const history=document.createElement('section');history.id='editSidebarHistory';history.className='sx-sidebar-history';
   history.setAttribute('aria-label','История Edit');
   history.innerHTML='<button type="button" id="editSidebarNew" class="sx-sidebar-newchat" title="Новая рабочая область" aria-label="Новая рабочая область" onclick="SYLVEX.newEditWorkspace(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Новая область</span></button><div class="edit-sidebar-history-heading">История Edit</div><div id="editSessionList" class="sx-sidebar-history-list"></div><small id="editSessionSync" aria-live="polite"></small>';
@@ -6868,6 +6870,7 @@ function mountEditWorkspaceSidebar(root){
   links.forEach(({link})=>link.classList.toggle('is-active',new URL(link.href,location.href).searchParams.get('tool')==='edit_workspace'));
   root._editSidebarCleanup=()=>{
     history.remove();sidebar.classList.remove('has-edit-history');
+    if(studioShell)studioShell.inert=wasInert;
     links.forEach(({link,active})=>link.classList.toggle('is-active',active));
   };
 }
