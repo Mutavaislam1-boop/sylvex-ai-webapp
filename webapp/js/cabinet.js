@@ -1,5 +1,3 @@
-console.log("SYLVEX_CABINET_JS_STARTED");
-
 // =====================================================
 // АВТОДОКУМЕНТАЦИЯ SYLVEX: webapp/js/cabinet.js
 // Файл содержит frontend-логику Mini App.
@@ -9,7 +7,6 @@ console.log("SYLVEX_CABINET_JS_STARTED");
 // Pro Studio chat workspace, support modal, hero carousel, pricing logic.
 (function () {
   const S = (window.SYLVEX = window.SYLVEX || {});
-  console.log("CABINET JS NEW VERSION 11.07.2026");
   // Pro Studio state.
   let studioMode = 'pro';
 
@@ -16365,19 +16362,6 @@ function renderGeneratedTelegramButton(url, kind) {
         : (backendMeta.thumbnail_url || backendMeta.thumb_url ? [backendMeta.thumbnail_url || backendMeta.thumb_url] : (result ? generatedThumbsFromResponse(result) : [])));
     const imageUrl = backendMeta.image_url || backendMeta.result_url || images[0] || '';
     const thumbUrl = backendMeta.thumbnail_url || backendMeta.thumb_url || thumbs[0] || '';
-    console.debug('PROSTUDIO IMAGE METADATA DEBUG', {
-      resultKeys: result && typeof result === 'object' ? Object.keys(result) : [],
-      backendMetaKeys: Object.keys(backendMeta || {}),
-      images,
-      thumbs,
-      imageUrl,
-      thumbUrl,
-      previewFallbackUrl: backendMeta.preview_fallback_url || backendMeta.full_url || backendMeta.result_url || imageUrl,
-      modelId,
-      provider: backendMeta.provider || (result && result.provider) || providerHintForModel(modelId),
-      generationCost: backendMeta.generation_cost || (result && result.generation_cost) || '',
-      costCredits: backendMeta.cost_credits !== undefined ? backendMeta.cost_credits : (result && result.cost_credits),
-    });
     const seed = backendMeta.seed !== undefined ? backendMeta.seed : (options.seed === undefined ? null : options.seed);
     const hideReferences = !!options.catalog_reference_hidden;
     const refs = hideReferences ? [] : ((backendMeta.reference_images && backendMeta.reference_images.length)
@@ -17073,7 +17057,6 @@ function renderGeneratedTelegramButton(url, kind) {
     {title:'Electronic',genre:'Electronic',coverUrl:'assets/knowledge-center/music.png'}
   ];
   let brandMusicTracks=BRAND_MUSIC_FALLBACK.slice(),brandMusicIndex=0,brandMusicDragStart=0,brandMusicLibraryLoaded=false;
-  let brandGeneratorStartIndex=0,brandGeneratorObserver=null;
   function brandMusicShowcaseHtml(){const genres=[['pop','Pop'],['rock','Rock'],['rap','Rap'],['jazz','Jazz'],['soul','Soul'],['rnb','R&B']];return '<section class="brand-music-showcase"><div class="brand-music-genres">'+genres.map((genre,index)=>'<button type="button" class="'+(musicState.genre===genre[0]||index===0&&musicState.genre==='auto'?'is-active':'')+'" onclick="SYLVEX.selectBrandMusicGenre(\''+genre[0]+'\',this)">'+genre[1]+'</button>').join('')+'</div><div class="brand-music-slider" id="brandMusicSlider"><button type="button" class="brand-music-nav prev" onclick="SYLVEX.moveBrandMusic(-1)" aria-label="Предыдущий">‹</button>'+brandMusicTracks.map((track,index)=>'<button type="button" class="brand-music-card" data-brand-track="'+index+'" onclick="SYLVEX.selectBrandMusic('+index+',true)"><img src="'+S.escapeHtml(track.coverUrl||'assets/knowledge-center/music.png')+'" alt=""><span>'+S.escapeHtml(track.genre||track.title)+'</span></button>').join('')+'<button type="button" class="brand-music-nav next" onclick="SYLVEX.moveBrandMusic(1)" aria-label="Следующий">›</button></div><div class="brand-music-player" id="brandMusicPlayer"><span class="brand-music-player-bg"></span><div class="brand-music-player-inner"><span class="brand-music-cover"><img alt=""></span><div class="brand-music-player-body"><b>Выберите трек</b><div class="brand-music-timeline"><time data-brand-time>00:00</time><input type="range" min="0" max="100" value="0" step="0.1" oninput="SYLVEX.seekBrandMusic(this.value)" aria-label="Позиция трека"><time data-brand-duration>00:00</time></div><div class="brand-music-controls"><button type="button" onclick="SYLVEX.toggleBrandMusicRepeat(this)" aria-label="Повтор">↻</button><button type="button" onclick="SYLVEX.moveBrandMusic(-1,true)" aria-label="Предыдущий">◀</button><button type="button" class="brand-music-play" onclick="SYLVEX.toggleBrandMusic()" aria-label="Воспроизвести">▶</button><button type="button" onclick="SYLVEX.moveBrandMusic(1,true)" aria-label="Следующий">▶</button><button type="button" onclick="SYLVEX.shuffleBrandMusic()" aria-label="Перемешать">⌁</button></div></div></div><audio preload="metadata"></audio></div></section>'}
   function updateBrandMusicSlider(){const cards=Array.from(document.querySelectorAll('.brand-music-card')),count=cards.length;if(!count)return;cards.forEach((card,index)=>{let offset=index-brandMusicIndex;if(offset>count/2)offset-=count;if(offset<-count/2)offset+=count;card.dataset.pos=String(Math.max(-2,Math.min(2,offset)));card.classList.toggle('is-active',offset===0)})}
   function renderBrandMusicShowcase(){document.querySelector('.brand-music-showcase')?.remove();const chat=document.getElementById('chatArea');if(!chat)return;chat.insertAdjacentHTML('beforebegin',brandMusicShowcaseHtml());const slider=document.getElementById('brandMusicSlider');if(slider){slider.addEventListener('pointerdown',event=>{brandMusicDragStart=event.clientX;slider.setPointerCapture?.(event.pointerId)});slider.addEventListener('pointerup',event=>{const distance=event.clientX-brandMusicDragStart;if(Math.abs(distance)>35)moveBrandMusic(distance<0?1:-1)});slider.addEventListener('wheel',event=>{if(Math.abs(event.deltaX)<12)return;event.preventDefault();moveBrandMusic(event.deltaX>0?1:-1)},{passive:false})}updateBrandMusicSlider();selectBrandMusic(brandMusicIndex,false);loadBrandMusicLibrary()}
@@ -17121,7 +17104,6 @@ function renderGeneratedTelegramButton(url, kind) {
     if(event){event.preventDefault();event.stopPropagation()}
     const config=BRAND_GENERATORS[key];if(!config)return;
     closeBrandPresentation();
-    brandGeneratorObserver?.disconnect();brandGeneratorObserver=null;
     document.body.classList.remove('brand-generator-active');delete document.body.dataset.brandGenerator;
     document.querySelector('.brand-generator-head')?.remove();document.querySelector('.brand-music-showcase')?.remove();
     if(config.mode==='image')imageState.modelId=config.model;else if(config.mode==='video')videoState.modelId=config.model;else if(config.mode==='music')musicState.modelId=config.model;else if(config.mode==='voice')voiceState.modelId=config.model;else if(config.mode==='text')textState.modelId=config.model;
@@ -17129,7 +17111,7 @@ function renderGeneratedTelegramButton(url, kind) {
     if(config.mode==='image')renderImageControls();else if(config.mode==='video')renderVideoControls();else if(config.mode==='music')renderMusicControls();else if(config.mode==='voice')renderVoiceControls();else if(config.mode==='text')renderTextControls();
     updateSendButton();
   }
-  function closeBrandGenerator(event){if(event){event.preventDefault();event.stopPropagation()}brandGeneratorObserver?.disconnect();brandGeneratorObserver=null;document.querySelectorAll('#chatArea .brand-generator-old').forEach(item=>item.classList.remove('brand-generator-old'));document.querySelector('#brandMusicPlayer audio')?.pause();document.body.classList.remove('brand-generator-active');delete document.body.dataset.brandGenerator;document.querySelector('.brand-generator-head')?.remove();document.querySelector('.brand-music-showcase')?.remove();switchView('home')}
+  function closeBrandGenerator(event){if(event){event.preventDefault();event.stopPropagation()}document.querySelectorAll('#chatArea .brand-generator-old').forEach(item=>item.classList.remove('brand-generator-old'));document.querySelector('#brandMusicPlayer audio')?.pause();document.body.classList.remove('brand-generator-active');delete document.body.dataset.brandGenerator;document.querySelector('.brand-generator-head')?.remove();document.querySelector('.brand-music-showcase')?.remove();switchView('home')}
   const APP_MENU_SEARCH_ITEMS=[
     {title:'Главная',note:'Главный экран Mini App',action:'home'},
     {title:'Pro Studio',note:'Генерация изображений, видео, музыки, голоса и текста',action:'tools'},
