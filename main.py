@@ -5112,6 +5112,16 @@ def ensure_prostudio_table():
             cursor.close()
             conn.close()
 
+# telegram_id_required_response: the exact same 400 JSONResponse
+# ({"ok": False, "error": "telegram_id_required"}) was constructed
+# inline, identically, at 32 separate endpoint call sites (DUP-3). This
+# is purely the response construction - how each endpoint obtains,
+# parses, or validates telegram_id before deciding to call this is
+# unchanged.
+def telegram_id_required_response() -> JSONResponse:
+    return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+
+
 # =====================================================
 # PYTHON-БЛОК: _json_list
 # Выполняет отдельный шаг backend-логики SYLVEX.
@@ -7737,7 +7747,7 @@ async def public_community_delete_post(post_id: int, request: Request):
     telegram_id = int(payload.get("telegram_id") or 0)
     init_data = payload.get("initData") or ""
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if init_data and BOT_TOKEN:
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
@@ -7844,7 +7854,7 @@ async def public_community_like(post_id: int, request: Request):
     telegram_id = int(payload.get("telegram_id") or 0)
     init_data = payload.get("initData") or ""
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if init_data and BOT_TOKEN:
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
@@ -7988,7 +7998,7 @@ async def public_community_delete_comment(comment_id: int, request: Request):
     telegram_id = int(payload.get("telegram_id") or 0)
     init_data = payload.get("initData") or ""
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if init_data and BOT_TOKEN:
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
@@ -8020,7 +8030,7 @@ async def public_community_comment_like(comment_id: int, request: Request):
     telegram_id = int(payload.get("telegram_id") or 0)
     init_data = payload.get("initData") or ""
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if init_data and BOT_TOKEN:
         signed_telegram_id = _telegram_id_from_init_data(init_data or actor_init_data.get())
         if not signed_telegram_id or signed_telegram_id != telegram_id:
@@ -8221,7 +8231,7 @@ async def public_community_notifications_read(request: Request):
 # =====================================================
 async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     def _sync():
         resources = load_prostudio_resources(telegram_id)
@@ -8311,7 +8321,7 @@ async def public_prostudio_sync(telegram_id: int = 0, limit: int = 80):
 # =====================================================
 async def public_prostudio_get_draft(telegram_id: int = 0, mode: str = ""):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     drafts = load_prostudio_drafts(telegram_id)
     normalized = (mode or "").strip().lower()
     if normalized:
@@ -8333,7 +8343,7 @@ async def public_prostudio_save_draft(request: Request):
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     draft = save_prostudio_draft(
         telegram_id=telegram_id,
         mode=data.get("mode") or data.get("category") or "image",
@@ -8361,7 +8371,7 @@ async def public_prostudio_save_draft(request: Request):
 # =====================================================
 async def public_prostudio_get_resources(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     return {"ok": True, "resources": load_prostudio_resources(telegram_id)}
 
 # =====================================================
@@ -8379,7 +8389,7 @@ async def public_prostudio_save_resource(request: Request):
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     item = save_prostudio_resource(telegram_id, data)
     if not item:
         return JSONResponse({"ok": False, "error": "invalid_resource"}, status_code=400)
@@ -8393,7 +8403,7 @@ async def public_prostudio_runway_avatar(request: Request):
     name = str(data.get("name") or "").strip()
     photos = _json_list(data.get("photos")) or _json_list(data.get("referenceImages"))
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if len(name) < 2:
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
     if not photos:
@@ -8894,7 +8904,7 @@ async def public_prostudio_create_character(request: Request):
     # user never uploads the final reference set directly.
     photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:1]
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if len(name) < 2:
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
     if not photos:
@@ -8933,7 +8943,7 @@ async def public_prostudio_create_character(request: Request):
 @app.get("/api/public/prostudio/character-creation-jobs")
 async def public_prostudio_character_creation_jobs(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not DATABASE_URL:
         return {"ok": True, "jobs": []}
 
@@ -9221,7 +9231,7 @@ async def public_prostudio_create_object(request: Request):
     # Character creation's own single-photo cap).
     photos = (_json_list(data.get("photos")) or _json_list(data.get("referenceImages")))[:1]
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not name:
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
     if not photos:
@@ -9251,7 +9261,7 @@ async def public_prostudio_create_object(request: Request):
 @app.get("/api/public/prostudio/object-creation-jobs")
 async def public_prostudio_object_creation_jobs(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not DATABASE_URL:
         return {"ok": True, "jobs": []}
 
@@ -9356,7 +9366,7 @@ async def public_prostudio_add_character_reference(resource_id: str, request: Re
     role = str(data.get("role") or "Additional").strip() or "Additional"
     set_primary = bool(data.get("set_primary") or data.get("setPrimary"))
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not url:
         return JSONResponse({"ok": False, "error": "reference_url_required"}, status_code=400)
     resource = await asyncio.to_thread(_load_character_resource, telegram_id, resource_id)
@@ -9389,7 +9399,7 @@ async def public_prostudio_set_character_primary_reference(resource_id: str, req
     telegram_id = int(data.get("telegram_id") or 0)
     reference_id = str(data.get("reference_id") or data.get("referenceId") or "").strip()
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     resource = await asyncio.to_thread(_load_character_resource, telegram_id, resource_id)
     if not resource:
         return JSONResponse({"ok": False, "error": "character_not_found"}, status_code=404)
@@ -9414,7 +9424,7 @@ async def public_prostudio_set_character_primary_reference(resource_id: str, req
 @app.get("/api/public/prostudio/character/{resource_id}/history")
 async def public_prostudio_character_history(resource_id: str, telegram_id: int = 0, limit: int = 50):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not DATABASE_URL:
         return {"ok": True, "items": []}
     safe_limit = max(1, min(int(limit or 50), 200))
@@ -9468,7 +9478,7 @@ async def public_prostudio_character_history(resource_id: str, telegram_id: int 
 @app.delete("/api/public/prostudio/character/{resource_id}/history/{history_id}")
 async def public_prostudio_delete_character_history_entry(resource_id: str, history_id: str, telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not DATABASE_URL:
         return {"ok": True, "deleted": False}
 
@@ -9499,7 +9509,7 @@ async def public_prostudio_delete_character_history_entry(resource_id: str, hist
 @app.delete("/api/public/prostudio/resources/{resource_id}")
 async def public_prostudio_delete_resource(resource_id: str, telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not resource_id or not resource_id.startswith("custom_"):
         return JSONResponse({"ok": False, "error": "only_custom_resources_can_be_deleted"}, status_code=400)
     if not DATABASE_URL:
@@ -9703,7 +9713,7 @@ async def public_prostudio_event(request: Request):
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     log_user_event(
         telegram_id=telegram_id,
         source=data.get("source") or "miniapp",
@@ -9726,7 +9736,7 @@ async def public_prostudio_event(request: Request):
 # =====================================================
 async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "", limit: int = 50):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     jobs = []
     if DATABASE_URL:
         def _sync():
@@ -9777,7 +9787,7 @@ async def public_prostudio_generation_jobs(telegram_id: int = 0, mode: str = "",
 @app.get("/api/public/prostudio/active-job")
 async def public_prostudio_active_job(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     try:
         # BUG-4 immediate mitigation: get_active_prostudio_job() is a plain
         # synchronous DB call - running it directly here blocked this
@@ -9815,7 +9825,7 @@ async def public_prostudio_report_error(request: Request):
     data = await request.json()
     telegram_id = int(actor_id.get() or data.get("telegram_id") or 0)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     def _clean(value, limit):
         return str(value or "").strip()[:limit]
@@ -12185,7 +12195,7 @@ async def public_stars_invoice(request: Request):
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     charge_id = f"stars_{uuid4().hex}"
     try:
@@ -12341,7 +12351,7 @@ async def public_stars_confirm(request: Request):
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     if not charge_id:
         return JSONResponse({"ok": False, "error": "charge_id_required"}, status_code=400)
 
@@ -12518,7 +12528,7 @@ async def public_crypto_invoice(request: Request):
     if not item:
         return JSONResponse({"ok": False, "error": "unknown_pack"}, status_code=400)
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     try:
         invoice = create_crypto_invoice(telegram_id, pack_id, item)
@@ -13720,7 +13730,7 @@ async def account_link_confirm(request: Request):
 # =====================================================
 async def public_telegram_user_state(request: Request, telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     try:
         state = await asyncio.to_thread(get_fast_user_state, int(telegram_id))
         if isinstance(state, dict):
@@ -13744,7 +13754,7 @@ async def public_telegram_user_state(request: Request, telegram_id: int = 0):
 @app.get("/api/public/telegram/profile")
 async def public_telegram_profile_get(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     try:
         profile = await asyncio.to_thread(get_user_profile, int(telegram_id))
         return {"ok": True, "telegram_id": int(telegram_id), "profile": profile}
@@ -13775,7 +13785,7 @@ async def public_telegram_profile(request: Request):
         telegram_id = int(user_data.get("telegram_id") or 0)
 
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     # No separate init_data re-check here: SecurityMiddleware already fully
     # authenticated this request (real initData or, once it goes stale
@@ -13845,7 +13855,7 @@ async def public_telegram_profile(request: Request):
 # =====================================================
 async def public_telegram_referrals(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
     return get_referral_state(int(telegram_id), activate=False)
 
 
@@ -13870,7 +13880,7 @@ async def public_activate_referrals(request: Request):
         telegram_id = int(user_data.get("telegram_id") or 0)
 
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     # No separate init_data re-check here: SecurityMiddleware already fully
     # authenticated this request (real initData or, once it goes stale
@@ -13947,7 +13957,7 @@ async def public_log_event(request: Request):
 # =====================================================
 async def public_get_events(telegram_id: int = 0):
     if not telegram_id:
-        return JSONResponse({"ok": False, "error": "telegram_id_required"}, status_code=400)
+        return telegram_id_required_response()
 
     if not DATABASE_URL:
         return JSONResponse({"ok": False, "error": "database_not_configured"}, status_code=500)
