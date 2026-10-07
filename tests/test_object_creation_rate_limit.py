@@ -141,6 +141,119 @@ def test_f_window_resets_after_the_minute_elapses(quota_db, monkeypatch):
     rl.check_object_creation_quota(777)  # must not raise - fresh window
 
 
+@pytestmark_pglite
+def test_g_canonical_account_resolution_shares_quota_across_linked_identities(quota_db):
+    # Regression for the architecture fix: the limiter must key on the
+    # canonical sylvex_accounts.account_id ("SYLVEX ID"), not on whatever
+    # raw telegram_id-shaped value a given login happens to present, so
+    # every login method linked to one SYLVEX account shares one quota.
+    #
+    # This exercises the exact scenario that raw-telegram_id keying gets
+    # wrong: before a Telegram merge, a website account's only business
+    # identity is its own hidden storage id (S); sylvex_accounts maps
+    # account_id -> active_telegram_id = S. Once the real Telegram identity
+    # (T) merges into it (services.account_identity._do_merge),
+    # active_telegram_id is repointed from S to T, but account_id - the
+    # actual canonical identity - never changes. Calls made under the
+    # website identity (S, pre-merge) and under the Telegram identity (T,
+    # post-merge) are two different *linked* login identities for the same
+    # account and must consume one continuous quota bucket, not two
+    # separate ones keyed on the raw ids that happened to be presented.
+    database, rl = quota_db
+    account_id, storage_id, real_telegram_id = 20001, 900000000001, 555666777
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE sylvex_accounts (account_id BIGINT PRIMARY KEY, "
+                "active_telegram_id BIGINT NOT NULL, merged_telegram_id BIGINT, merged_at TIMESTAMP)"
+            )
+            cur.execute(
+                "INSERT INTO sylvex_accounts (account_id, active_telegram_id) VALUES (%s, %s)",
+                (account_id, storage_id),
+            )
+
+    # Website identity usage, pre-merge: raw id presented is the hidden
+    # storage id, which must resolve to account_id.
+    rl.check_object_creation_quota(storage_id)
+    rl.check_object_creation_quota(storage_id)
+
+    # The merge: active_telegram_id repoints from the storage id to the
+    # real Telegram id; account_id itself is never reassigned.
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sylvex_accounts SET active_telegram_id = %s WHERE account_id = %s",
+                (real_telegram_id, account_id),
+            )
+
+    from services.security import SecurityError
+
+    # Telegram identity usage, post-merge: raw id presented is now the real
+    # telegram_id, which must resolve to the SAME account_id bucket -
+    # continuing the count the website identity already accrued, not
+    # starting a fresh one.
+    rl.check_object_creation_quota(real_telegram_id)  # 3rd hit in the shared bucket (limit is 3)
+    with pytest.raises(SecurityError) as exc_info:
+        rl.check_object_creation_quota(real_telegram_id)  # 4th hit exceeds the shared limit
+    assert exc_info.value.code == "object_creation_rate_limited"
+
+    # Direct proof the underlying row is keyed by account_id, never by
+    # either raw id the two linked identities actually presented.
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT hits FROM sylvex_request_limits WHERE user_id = %s AND bucket = 'object_creation:60'",
+                (account_id,),
+            )
+            row = cur.fetchone()
+    assert row is not None and row[0] == 3
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            for raw_id in (storage_id, real_telegram_id):
+                cur.execute(
+                    "SELECT 1 FROM sylvex_request_limits WHERE user_id = %s AND bucket = 'object_creation:60'",
+                    (raw_id,),
+                )
+                assert cur.fetchone() is None  # neither raw id ever got its own row
+
+
+@pytestmark_pglite
+def test_h_unlinked_telegram_user_falls_back_to_its_own_telegram_id(quota_db):
+    # A real Telegram-only user who never registered/linked a website
+    # account has no sylvex_accounts row at all - even once that table
+    # exists (because other, unrelated accounts created it), their own
+    # telegram_id must remain the quota key unchanged, exactly as before
+    # this fix, since there is no separate canonical account to resolve to.
+    database, rl = quota_db
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE sylvex_accounts (account_id BIGINT PRIMARY KEY, "
+                "active_telegram_id BIGINT NOT NULL, merged_telegram_id BIGINT, merged_at TIMESTAMP)"
+            )
+            cur.execute(
+                "INSERT INTO sylvex_accounts (account_id, active_telegram_id) VALUES (%s, %s)",
+                (30001, 900000000002),
+            )
+
+    unlinked_telegram_id = 888999000
+    for _ in range(3):
+        rl.check_object_creation_quota(unlinked_telegram_id)  # must not raise
+    from services.security import SecurityError
+
+    with pytest.raises(SecurityError):
+        rl.check_object_creation_quota(unlinked_telegram_id)
+
+    with database.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT hits FROM sylvex_request_limits WHERE user_id = %s AND bucket = 'object_creation:60'",
+                (unlinked_telegram_id,),
+            )
+            row = cur.fetchone()
+    assert row is not None and row[0] == 3
+
+
 # ---------------------------------------------------------------------------
 # Part 2: the real route wiring (ASGI, same pattern as test_security_boundaries.py).
 # ---------------------------------------------------------------------------

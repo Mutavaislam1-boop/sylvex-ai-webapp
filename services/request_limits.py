@@ -64,9 +64,38 @@ async def check_request_quota(user_id,path):
 # analysis pipeline is expensive enough to deserve its own, tighter cap.
 # Uses the same sylvex_request_limits table as check_quota() above - a
 # real Postgres row shared across every worker/replica, not an in-process
-# counter - keyed by the caller's canonical authenticated telegram_id
-# (never IP alone).
+# counter - keyed by the caller's canonical SYLVEX identity (never IP
+# alone), resolved by _resolve_canonical_identity() below.
 OBJECT_CREATION_BUCKET='object_creation'
+
+
+def _resolve_canonical_identity(cur, telegram_id):
+ """Maps the business-data id the caller presents (a real Telegram id, or
+ - for a website-embedded session, see services.security's
+ resolve_web_session_uid()/the SecurityMiddleware telegram_id rewrite - the
+ account's current sylvex_accounts.active_telegram_id storage key) to the
+ actual sylvex_accounts.account_id ("SYLVEX ID") that is the one stable
+ identity shared by every login method (Telegram, email/password, Google,
+ Apple) ever linked to that account. Using account_id rather than the
+ telegram_id/active_telegram_id proxy matters across a Telegram merge
+ (services.account_identity._do_merge): active_telegram_id is repointed
+ from the website's hidden storage id to the real Telegram id at that
+ moment, so a quota keyed on it directly would silently start a fresh
+ bucket post-merge; resolving to account_id first keeps one continuous
+ bucket across the merge instead.
+
+ A plain Telegram-only user who never registered/linked a website account
+ has no sylvex_accounts row at all - there is no separate "account" to
+ resolve to, so telegram_id itself already is the canonical identity and
+ is returned unchanged. Same fallback if the sylvex_accounts table simply
+ doesn't exist yet in this environment."""
+ cur.execute("SELECT to_regclass('sylvex_accounts')")
+ if cur.fetchone()[0] is None:
+  return telegram_id
+ cur.execute('SELECT account_id FROM sylvex_accounts WHERE active_telegram_id = %s', (telegram_id,))
+ row = cur.fetchone()
+ return int(row[0]) if row else telegram_id
+
 
 def check_object_creation_quota(user_id):
  dsn=os.getenv('DATABASE_PUBLIC_URL') or os.getenv('DATABASE_URL')
@@ -75,6 +104,7 @@ def check_object_creation_quota(user_id):
   ensure_limit_table(dsn)
   with db_connect(dsn) as conn:
    with conn.cursor() as cur:
+    user_id=_resolve_canonical_identity(cur,user_id)
     for period,default in ((60,3),(86400,20)):
      limit=int(os.getenv(f'OBJECT_CREATION_REQUESTS_PER_{"MINUTE" if period==60 else "DAY"}',str(default)))
      window=int(time.time())//period
