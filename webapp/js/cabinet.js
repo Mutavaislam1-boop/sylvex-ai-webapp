@@ -9551,7 +9551,18 @@ function closePhotoToolModal(e) {
     e.stopPropagation();
   }
   const modal = document.getElementById('photoToolModal');
-  if (modal && !(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference) || (activePhotoTool === 'tattoo' && tattooState.generatingReference)))) {
+  const photoToolGenerationActive = !!(activePhotoTool && ((photoToolState[activePhotoTool] && photoToolState[activePhotoTool].generating) || (activePhotoTool === 'hair_beard' && hairBeardState.generatingReference) || (activePhotoTool === 'tattoo' && tattooState.generatingReference)));
+  // BUG-2: closing was already correctly blocked while a generation is in
+  // progress, but silently - the user got no feedback for why the close
+  // button/overlay click did nothing. Reuses the same toast + the exact
+  // wording Grid Mode already uses for this identical "an action is
+  // blocked by an active generation" case (see studioGridHasActiveRun()
+  // callers above).
+  if (modal && photoToolGenerationActive) {
+    toast('Сначала дождитесь завершения текущей генерации');
+    return;
+  }
+  if (modal) {
     if (activePhotoTool === 'hair_beard') {
       const state = photoToolState.hair_beard;
       if (state) state.files = [];
