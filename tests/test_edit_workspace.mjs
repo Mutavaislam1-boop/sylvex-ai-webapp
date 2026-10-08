@@ -210,6 +210,58 @@ function navigationHarness(){
  const event=(overrides={})=>({pointerId:1,button:0,clientX:300,clientY:200,deltaX:0,deltaY:0,deltaMode:0,target:{closest:()=>null},preventDefault(){},stopPropagation(){},...overrides});
  return {...h,root,stage,listeners,classes,captured,event,cleanup,paints:()=>paints};
 }
+function expandHarness(){
+ const h=harness(),captured=new Set(),listeners={},fields=['width','height','left','right','top','bottom'].map(key=>({dataset:{expandField:key}})),output={};let layouts=0;
+ h.state.mode='expand';h.context.ensureEditWorkspaceChain();
+ const buttons=Object.fromEntries(['left','right','top','bottom'].map(side=>[side,{dataset:{expandHandle:side},focus(){},setPointerCapture:id=>captured.add(id),hasPointerCapture:id=>captured.has(id),releasePointerCapture:id=>captured.delete(id)}]));
+ const root={querySelectorAll:selector=>selector==='[data-expand-handle]'?Object.values(buttons):fields,querySelector:()=>output,_editLayout:()=>layouts++};
+ h.context.document.getElementById=id=>id==='editWorkspace'?root:null;
+ h.context.window={addEventListener:(type,fn)=>listeners[type]=fn,removeEventListener:type=>delete listeners[type]};
+ h.context.initEditExpandHandles(root);
+ const event=(overrides={})=>({pointerId:1,button:0,clientX:300,clientY:200,preventDefault(){},stopPropagation(){},...overrides});
+ return {...h,root,buttons,fields,output,captured,listeners,event,layouts:()=>layouts};
+}
+test('Expand edge drags map screen pixels to margins at every zoom without moving or resizing the source',()=>{
+ for(const zoom of [25,100,400])for(const side of ['left','right','top','bottom']){
+  const h=expandHarness();h.state.zoom=zoom;const original=JSON.stringify({node:h.state.chain[0],viewport:h.state.viewport,width:h.state.width,height:h.state.height});
+  const button=h.buttons[side],delta=200*.2*zoom/100*(side==='left'||side==='top'?-1:1);
+  button.onpointerdown(h.event());button.onpointermove(h.event(side==='left'||side==='right'?{clientX:300+delta}:{clientY:200+delta}));
+  assert.equal(h.state.expand[side],200);assert.equal(Object.values(h.state.expand).reduce((a,b)=>a+b),200);
+  assert.equal(JSON.stringify({node:h.state.chain[0],viewport:h.state.viewport,width:h.state.width,height:h.state.height}),original);
+  assert.equal(h.fields.find(f=>f.dataset.expandField===side).value,'200');assert.ok(h.layouts()>0);
+  assert.equal(h.output.textContent,side==='left'||side==='right'?'1400 × 800 px':'1200 × 1000 px');
+  button.onpointerup(h.event());assert.equal(h.captured.size,0);assert.equal(h.root._editExpandDrag,false);h.root._editExpandCleanup();assert.equal(Object.keys(h.listeners).length,0);
+ }
+});
+test('Expand cancellation restores margins, keyboard controls work, and busy/comparison views cannot change them',()=>{
+ const h=expandHarness(),button=h.buttons.left;
+ button.onpointerdown(h.event());button.onpointermove(h.event({clientX:250}));assert.equal(h.state.expand.left,250);
+ button.onpointercancel(h.event());assert.equal(h.state.expand.left,0);assert.equal(h.captured.size,0);
+ button.onkeydown(h.event({key:'ArrowLeft'}));assert.equal(h.state.expand.left,10);
+ button.onkeydown(h.event({key:'ArrowLeft',shiftKey:true}));assert.equal(h.state.expand.left,110);
+ button.onpointerdown(h.event());button.onpointermove(h.event({clientX:200}));button.onkeydown(h.event({key:'Escape'}));assert.equal(h.state.expand.left,110);
+ button.onkeydown(h.event({key:'Home'}));assert.equal(h.state.expand.left,0);
+ for(const key of ['busy','showBefore']){h.state[key]=true;button.onpointerdown(h.event());button.onkeydown(h.event({key:'ArrowLeft'}));h.context.updateEditExpandField({currentTarget:{value:'1600'}},'width');assert.equal(h.state.expand.left,0);assert.equal(h.captured.size,0);h.state[key]=false;}
+});
+test('Expand exact dimensions and margins stay synchronized, preserve anchors and enforce provider canvas limits',()=>{
+ const h=expandHarness(),set=(key,value)=>h.context.updateEditExpandField({type:'change',currentTarget:{value:String(value)}},key);
+ set('width',1600);assert.equal(h.state.expand.left,200);assert.equal(h.state.expand.right,200);
+ h.context.resetEditExpand();set('right',200);set('width',1800);assert.equal(h.state.expand.left,0);assert.equal(h.state.expand.right,600);
+ set('height',1000);assert.equal(h.state.expand.top,100);assert.equal(h.state.expand.bottom,100);
+ set('left',-100);assert.equal(h.state.expand.left,0);set('width',500);assert.equal(h.context.editExpandSize().width,1200);
+ set('width','invalid');set('width','');assert.equal(h.context.editExpandSize().width,1200);
+ h.context.resetEditExpand();h.context.setEditWorkspaceDimensions(6000,2000);set('right',99999);assert.equal(h.state.expand.right,2192);
+ set('bottom',99999);const size=h.context.editExpandSize();assert.ok(size.width*size.height<=16777216);assert.ok(Math.max(size.width,size.height)<=8192);
+ assert.ok(Object.values(h.state.expand).every(n=>n>=0&&n<=4096));assert.equal(h.context.editWorkspaceValidation(),'');
+});
+test('Expand sends exact dragged margins, retains them on failure, clears only after success, and Undo restores them',async()=>{
+ const h=expandHarness();h.context.setEditExpandMargin('left',200);h.context.setEditExpandMargin('bottom',100);
+ const margins=JSON.stringify(h.state.expand);h.context.callGenerate=async()=>{throw new Error('offline');};await h.context.generateEditWorkspace();assert.equal(JSON.stringify(h.state.expand),margins);
+ h.context.callGenerate=async(...args)=>{h.requests.push(args);return {images:['https://cdn.example/expanded.png']};};await h.context.generateEditWorkspace();
+ assert.equal(JSON.stringify(h.requests[0][4].imageOptions.editWorkspaceExpand),margins);assert.equal(h.requests[0][2][0],'https://cdn.example/source.png');
+ assert.equal(Object.values(h.state.expand).reduce((a,b)=>a+b),0);assert.equal(h.state.chain.length,2);
+ h.context.undoEditWorkspace();assert.equal(JSON.stringify(h.state.expand),margins);assert.equal(h.state.width,1200);assert.equal(h.state.sourceUrl,'https://cdn.example/source.png');
+});
 test('each chain card moves independently at canvas zoom and both attached links follow it',async()=>{
  for(const zoom of [25,100,400]){
   const h=navigationHarness();await h.context.generateEditWorkspace();h.context.setEditWorkspaceDimensions(1200,800);await h.context.generateEditWorkspace();

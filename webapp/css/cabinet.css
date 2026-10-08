@@ -9931,3 +9931,27 @@ body.edit-workspace-open :is(.sx-account-menu,.sx-search-overlay){z-index:100002
 .edit-chain-node[data-status="ready"] .edit-workspace-frame{background:transparent;box-shadow:none}
 
 .edit-workspace-panel-camera>*{flex-shrink:0}
+
+/* Expand adds canvas around the untouched image. Only the new margins have
+   a checker preview; the source's own alpha keeps showing the workspace. */
+.edit-chain-node.is-expanding{z-index:2}
+.edit-chain-node.is-expanding .edit-workspace-frame{border-radius:0;outline:none}
+.edit-expand-preview{position:absolute;inset:0;pointer-events:none}
+.edit-expand-margin{position:absolute;background-color:var(--st-accent-bg,rgba(109,155,255,.12));background-image:repeating-conic-gradient(color-mix(in srgb,var(--edit-text) 7%,transparent) 0% 25%,transparent 0% 50%);background-size:16px 16px}
+.edit-expand-handles{position:absolute;z-index:3;pointer-events:none;outline:calc(1px * var(--edit-expand-ui-scale,1)) dashed var(--st-accent,#6d9bff)}
+.edit-expand-handles button{position:absolute;pointer-events:auto;width:28px;height:28px;display:grid;place-items:center;padding:0;border:1px solid var(--edit-border-strong);border-radius:8px;background:var(--edit-surface-raised);color:var(--edit-text);font:inherit;font-size:18px;line-height:1;touch-action:none;user-select:none;transform:translate(-50%,-50%) scale(var(--edit-expand-ui-scale,1));box-shadow:0 2px 8px var(--st-shadow,rgba(0,0,0,.25))}
+.edit-expand-handles button:hover,.edit-expand-handles button:focus-visible{background:var(--st-accent,#6d9bff);color:var(--st-accent-text,#fff)}
+.edit-expand-handles [data-expand-handle="left"]{left:0;top:50%;cursor:ew-resize}
+.edit-expand-handles [data-expand-handle="right"]{left:100%;top:50%;cursor:ew-resize}
+.edit-expand-handles [data-expand-handle="top"]{left:50%;top:0;cursor:ns-resize}
+.edit-expand-handles [data-expand-handle="bottom"]{left:50%;top:100%;cursor:ns-resize}
+.edit-expand-handles button:disabled{cursor:default;opacity:.4}
+.edit-workspace-action-expand .edit-expand-heading{display:flex;justify-content:space-between;gap:16px;align-items:center;font-size:13px}
+.edit-expand-heading output{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--edit-muted);font-size:12px}
+.edit-workspace-action-expand .edit-expand-help{font-size:11px;line-height:1.5;color:var(--edit-muted);margin:0}
+.edit-workspace-action-expand .edit-expand-dimensions{justify-content:flex-start;flex-wrap:wrap}
+.edit-workspace[data-mode="expand"] .edit-expand-dimensions label input{width:84px}
+.edit-expand-offsets{font-size:11px;color:var(--edit-muted)}
+.edit-expand-offsets summary{cursor:pointer;width:fit-content;padding:4px 0}
+.edit-expand-offsets .edit-workspace-action-row{flex-wrap:wrap;margin-top:8px}
+.edit-workspace-action-expand textarea{min-height:46px;height:46px}
