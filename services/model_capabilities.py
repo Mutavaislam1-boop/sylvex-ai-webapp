@@ -394,20 +394,26 @@ _KLING_OMNI_VIDEO_LIMITS = dict(
     video_max_area=8294400,
 )
 _KLING_MOTION_VIDEO_LIMITS = dict(
-    # Kling Motion Control driving clip: 3-30 s when the output follows the
-    # video's orientation, up to 10 s when it follows the character image.
+    # Kling Motion Control driving clip: MP4/MOV, <=100 MB, 340-3850 px,
+    # 3-30 s when the output follows the video's orientation, up to 10 s
+    # when it follows the character image (Kling v2.6 Motion Control docs
+    # as republished by AI/ML API; Vercel AI Gateway and the AI SDK Kling
+    # provider list the same .mp4/.mov, 100 MB, 340-3850 px, 3-30 s).
     # Pro Studio used to apply the Omni 3-15.5 s / 700 px rule here, which
     # rejected valid 16-30 s clips and sub-700 px phone clips.
     accepts_video=True, video_min_seconds=3, video_max_seconds=30,
     video_max_seconds_by_orientation={"video": 30, "image": 10},
-    video_max_bytes=200 * 1024 * 1024, video_extensions=(".mp4", ".mov"),
+    video_max_bytes=100 * 1024 * 1024, video_extensions=(".mp4", ".mov"),
     video_min_px=340, video_max_px=3850,
 )
 _SEEDANCE_2_INPUTS = dict(
     # BytePlus Seedance 2.0 omni-reference: at most 9 images (the start
-    # frame is sent as a reference_image too), reference videos 2-15 s.
+    # frame is sent as a reference_image too). Reference video (BytePlus
+    # Seedance 2.0 video generation docs): mp4/mov, each 2-15 s and
+    # <=200 MB, at most 3 videos totalling <=15 s - SYLVEX sends one.
     image_slots=9, start_frame_uses_image_slot=True,
     accepts_video=True, video_min_seconds=2, video_max_seconds=15,
+    video_max_bytes=200 * 1024 * 1024, video_extensions=(".mp4", ".mov"),
 )
 _VIDEO_REFERENCE_INPUTS = {
     "seedance_2_0": ReferenceInputLimits(source="_seedance_body", **_SEEDANCE_2_INPUTS),
