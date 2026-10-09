@@ -145,7 +145,6 @@ test('currentComposerModelList: Edit mode picker excludes kling_lip_sync', () =>
   const context = baseContext({videoState: {modelId: 'seedance_2_fast', section: 'edit'}, S: {}});
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext('function isImageMode(){return false;} function isVideoMode(){return true;} function isMusicMode(){return false;} function isVoiceMode(){return false;} var studioMode="video";', context);
-  vm.runInContext('function sylvexTestModeAvailable(){return false;} function filterSylvexTestEntries(list){return (list||[]).filter((item)=>!(item&&item.sylvexTest));}', context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
   vm.runInContext(extractFunction('currentComposerModelList'), context);
   const ids = vm.runInContext(`currentComposerModelList()`, context).map((item) => item.id);
@@ -159,7 +158,7 @@ test('gridVideoModelSupported: kling_lip_sync is selectable in Grid (not avatar,
 });
 
 test('gridModelsForType(video): kling_lip_sync appears in the Grid picker', () => {
-  const context = baseContext({filterSylvexTestEntries: (list) => list});
+  const context = baseContext();
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);
   vm.runInContext(extractFunction('gridModelsForType'), context);

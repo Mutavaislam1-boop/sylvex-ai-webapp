@@ -134,7 +134,6 @@ function extractFunction(name) {
 // serves: {version, models: {<id>: {avatar, modes, ...}}}.
 function loadGridModelContext(fetchedOverride, videoModelId) {
   const context = vm.createContext({
-    filterSylvexTestEntries: (list) => list,
     fetchedModelCapabilities: fetchedOverride || null,
     videoState: {modelId: videoModelId || ''},
     imageState: {}, musicState: {}, voiceState: {}, textState: {},
@@ -331,7 +330,7 @@ test('gridDefaultVideoModel: an unknown/stale current model id does not survive 
 
 function assertPickerAndDefaultAgree(context) {
   const pickerIds = new Set(vm.runInContext(`gridModelsForType('video')`, context).map((item) => item.id));
-  const allIds = vm.runInContext('VIDEO_MODELS', context).map((item) => item.id).filter((id) => id !== 'sylvex_test');
+  const allIds = vm.runInContext('VIDEO_MODELS', context).map((item) => item.id);
   for (const id of allIds) {
     vm.runInContext(`videoState.modelId = ${JSON.stringify(id)};`, context);
     const defaulted = vm.runInContext(`gridDefaultModel('video')`, context);
@@ -358,7 +357,6 @@ test('gridModelsForType and gridDefaultModel agree under a fetched-registry over
 
 test('gridModelsForType: non-video types are unaffected (image/music/voice/text still return their unfiltered lists)', () => {
   const context = vm.createContext({
-    filterSylvexTestEntries: (list) => list,
     fetchedModelCapabilities: null,
     IMAGE_MODEL_LIST: [{id: 'img_1'}],
     MUSIC_MODEL_LIST: [{id: 'music_1'}],
