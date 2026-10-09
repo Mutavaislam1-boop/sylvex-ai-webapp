@@ -69,6 +69,36 @@ class CharacterCapability:
 
 
 @dataclass(frozen=True)
+class ReferenceInputLimits:
+    """What a video model's provider adapter actually forwards for the
+    uploaded/selected reference inputs, and the provider-side limits of an
+    uploaded reference video. Derived from what each _call_<provider>
+    function in services/video_router.py really puts into the provider
+    request (see _VIDEO_REFERENCE_INPUTS below) - not from UI labels.
+
+    image_slots: total reference images (uploaded refs + Character refs +
+      Object refs, plus the start frame when start_frame_uses_image_slot)
+      the adapter forwards. None = forwarded without a known provider cap.
+    video_*: limits of an uploaded reference/edit video; None = no
+      SYLVEX-side pre-check (the provider is the only judge)."""
+    image_slots: Optional[int] = 0
+    start_frame_uses_image_slot: bool = False
+    accepts_video: bool = False
+    video_min_seconds: Optional[float] = None
+    video_max_seconds: Optional[float] = None
+    # Kling Motion Control caps the driving clip by character_orientation.
+    video_max_seconds_by_orientation: dict = field(default_factory=dict)
+    video_max_bytes: Optional[int] = None
+    video_extensions: tuple = ()
+    video_min_px: Optional[int] = None
+    video_max_px: Optional[int] = None
+    video_min_ratio: Optional[float] = None
+    video_max_ratio: Optional[float] = None
+    video_max_area: Optional[int] = None
+    source: str = ""
+
+
+@dataclass(frozen=True)
 class PricingTier:
     axes: tuple = ()
     table: dict = field(default_factory=dict)
@@ -107,6 +137,7 @@ class ModelCapability:
     modes: tuple = ()
 
     avatar: bool = False
+    reference_inputs: ReferenceInputLimits = field(default_factory=ReferenceInputLimits)
 
     pricing: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)
@@ -124,6 +155,7 @@ class ModelCapability:
         data["qualities"] = list(self.qualities)
         data["output_counts"] = list(self.output_counts)
         data["modes"] = list(self.modes)
+        data["reference_inputs"]["video_extensions"] = list(self.reference_inputs.video_extensions)
         return data
 
 
@@ -345,6 +377,73 @@ def _video_pricing(model_id: str, kling_cost_matrix: dict) -> dict:
     return pricing
 
 
+# Reference-input routing per video model, established by a no-network
+# harness that sent every reference input (start/end frame, uploaded image
+# ref, Character ref, Object ref, uploaded video) through each
+# _call_<provider> with the HTTP layer mocked and recorded which values
+# reached the provider request (tests/test_video_reference_routing.py keeps
+# that contract).
+_KLING_OMNI_VIDEO_LIMITS = dict(
+    # Kling Omni reference/base video: MP4/MOV, 3-15.5 s, <=200 MB,
+    # 700-4553 px per side, ratio 0.4-2, <=8,294,400 px area. These are the
+    # limits Pro Studio already enforced before upload (cabinet.js
+    # klingOmniVideoMetadataError); moved here unchanged.
+    accepts_video=True, video_min_seconds=3, video_max_seconds=15.5,
+    video_max_bytes=200 * 1024 * 1024, video_extensions=(".mp4", ".mov"),
+    video_min_px=700, video_max_px=4553, video_min_ratio=0.4, video_max_ratio=2.0,
+    video_max_area=8294400,
+)
+_KLING_MOTION_VIDEO_LIMITS = dict(
+    # Kling Motion Control driving clip: 3-30 s when the output follows the
+    # video's orientation, up to 10 s when it follows the character image.
+    # Pro Studio used to apply the Omni 3-15.5 s / 700 px rule here, which
+    # rejected valid 16-30 s clips and sub-700 px phone clips.
+    accepts_video=True, video_min_seconds=3, video_max_seconds=30,
+    video_max_seconds_by_orientation={"video": 30, "image": 10},
+    video_max_bytes=200 * 1024 * 1024, video_extensions=(".mp4", ".mov"),
+    video_min_px=340, video_max_px=3850,
+)
+_SEEDANCE_2_INPUTS = dict(
+    # BytePlus Seedance 2.0 omni-reference: at most 9 images (the start
+    # frame is sent as a reference_image too), reference videos 2-15 s.
+    image_slots=9, start_frame_uses_image_slot=True,
+    accepts_video=True, video_min_seconds=2, video_max_seconds=15,
+)
+_VIDEO_REFERENCE_INPUTS = {
+    "seedance_2_0": ReferenceInputLimits(source="_seedance_body", **_SEEDANCE_2_INPUTS),
+    "seedance_2_fast": ReferenceInputLimits(source="_seedance_body", **_SEEDANCE_2_INPUTS),
+    "seedance_1_5_pro": ReferenceInputLimits(image_slots=9, start_frame_uses_image_slot=True, accepts_video=True, source="_seedance_body"),
+    "gemini_omni_flash": ReferenceInputLimits(image_slots=None, accepts_video=True, source="_call_gemini_video"),
+    # _heygen_files_from_payload forwards at most 20 files (images + video).
+    "heygen_v3_video_agent": ReferenceInputLimits(image_slots=20, start_frame_uses_image_slot=True, source="_heygen_files_from_payload"),
+    "heygen_cinematic_avatar": ReferenceInputLimits(image_slots=20, start_frame_uses_image_slot=True, accepts_video=True, source="_heygen_files_from_payload"),
+    "kling_o3_omni": ReferenceInputLimits(image_slots=1, start_frame_uses_image_slot=True, source="_call_kling", **_KLING_OMNI_VIDEO_LIMITS),
+    "kling_o3_edit": ReferenceInputLimits(image_slots=1, start_frame_uses_image_slot=True, source="_call_kling", **_KLING_OMNI_VIDEO_LIMITS),
+    "kling_o1": ReferenceInputLimits(image_slots=1, start_frame_uses_image_slot=True, source="_call_kling", **_KLING_OMNI_VIDEO_LIMITS),
+    "kling_motion_3_0": ReferenceInputLimits(image_slots=1, start_frame_uses_image_slot=True, source="_call_kling", **_KLING_MOTION_VIDEO_LIMITS),
+    "kling_motion_2_6": ReferenceInputLimits(image_slots=1, start_frame_uses_image_slot=True, source="_call_kling", **_KLING_MOTION_VIDEO_LIMITS),
+    "kling_lip_sync": ReferenceInputLimits(image_slots=0, accepts_video=True, source="_call_kling is_lip_sync"),
+}
+# Kling models without a video input: one image slot, shared with the start
+# frame (_call_kling uses start_image or reference_images[0], never both).
+for _kling_id in _VIDEO_DEGRADED_SINGLE_IMAGE_MODELS:
+    _VIDEO_REFERENCE_INPUTS.setdefault(_kling_id, ReferenceInputLimits(image_slots=1, start_frame_uses_image_slot=True, source="_call_kling"))
+
+
+def _video_reference_inputs(model_id: str, config: dict) -> ReferenceInputLimits:
+    known = _VIDEO_REFERENCE_INPUTS.get(model_id)
+    if known:
+        return known
+    # Every other adapter (Runway, Luma, MiniMax, PixVerse, Sora, Veo, Grok,
+    # WAN, HeyGen avatar/image) never reads reference_images. A video is
+    # accepted only where the model declares a video upload.
+    return ReferenceInputLimits(
+        image_slots=0,
+        accepts_video=bool(config.get("video_upload")),
+        source="adapter ignores reference_images",
+    )
+
+
 def register_video_models(video_model_config: dict, kling_cost_matrix: Optional[dict] = None) -> None:
     """Populate MODEL_CAPABILITIES for every video model in
     services/video_router.py's VIDEO_MODEL_CONFIG, folding in
@@ -378,6 +477,7 @@ def register_video_models(video_model_config: dict, kling_cost_matrix: Optional[
             ratios=tuple(config.get("ratios") or ()),
             modes=modes,
             avatar=bool(config.get("avatar")),
+            reference_inputs=_video_reference_inputs(model_id, config),
             pricing=_video_pricing(model_id, kling_cost_matrix),
         )
 
@@ -422,3 +522,28 @@ def video_frame_support(model_id: str) -> dict:
     if not cap or cap.category != MediaCategory.VIDEO:
         return {"start_frame": False, "end_frame": False}
     return {"start_frame": bool(cap.start_frame), "end_frame": bool(cap.end_frame)}
+
+
+def video_reference_input_error(model_id: str, *, start_image: bool, uploaded_refs: int,
+                                character_refs: int, object_refs: int, has_video: bool) -> Optional[str]:
+    """Return why a video request carries a reference input the model's
+    adapter would drop, or None when every input reaches the provider.
+    Used by main.validate_video_feature_request() so nothing is silently
+    discarded between the request and the provider call."""
+    cap = get_capability(model_id)
+    if not cap or cap.category != MediaCategory.VIDEO:
+        return None
+    limits = cap.reference_inputs
+    if has_video and not limits.accepts_video:
+        return "Selected model does not accept a reference video"
+    reference_images = uploaded_refs + character_refs + object_refs
+    if uploaded_refs and limits.image_slots == 0:
+        return "Selected model does not accept reference images"
+    if limits.image_slots is None:
+        return None
+    used = reference_images + (1 if start_image and limits.start_frame_uses_image_slot else 0)
+    if reference_images and used > limits.image_slots:
+        if limits.image_slots == 1:
+            return "Selected model accepts only one image (start frame or a single reference image)"
+        return f"Selected model accepts at most {limits.image_slots} images"
+    return None
