@@ -39,6 +39,7 @@ from services.character_prompts import build_character_prompt, infer_character_o
 from services import edit_sessions as edit_sessions_service
 from services.video_router import estimate_video_generation_cost, poll_video_generation, video_generation, _send_generated_videos_to_telegram, _gemini_upload_file_from_url, VIDEO_MODEL_CONFIG as _VIDEO_MODEL_CONFIG, KLING_COST_MATRIX as _KLING_COST_MATRIX
 from services import model_capabilities as model_capabilities_service
+from services import video_probe
 from services.storage import delete as storage_delete, exists as storage_exists, generated_key, get_object as storage_get_object, get_object_range as storage_get_object_range, iter_object as storage_iter_object, key_from_url as storage_key_from_url, object_url as storage_object_url, put_bytes as storage_put_bytes, put_file as storage_put_file, read_bytes as storage_read_bytes, r2_enabled
 from services.prostudio_share import create_or_get_share, get_public_share, increment_downloads
 from provider_concurrency import WORKER_ID, ProviderSlotUnavailable, ensure_provider_slot_table, normalize_provider, provider_slot
@@ -9439,12 +9440,27 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
     public_path = generated_key(public_folder, stored_name)
     public_url = storage_put_bytes(content, public_path, content_type)
     uploaded_kind = "video" if is_video else ("audio" if is_audio else ("file" if is_file else "image"))
+    video_meta = None
+    if uploaded_kind == "video":
+        # Duration/dimensions for the per-model reference-video check at
+        # generation time (validate_reference_video_media). A video ffmpeg
+        # cannot read is still accepted, as before.
+        video_meta = await asyncio.to_thread(video_probe.probe_video_bytes, content, suffix)
+        if video_meta:
+            try:
+                await asyncio.to_thread(
+                    storage_put_bytes, video_probe.encode_sidecar(video_meta),
+                    video_probe.sidecar_key(public_path), "application/json",
+                )
+            except Exception as exc:
+                print("PROSTUDIO VIDEO PROBE SIDECAR FAILED:", type(exc).__name__)
     print("PROSTUDIO MEDIA UPLOAD:", {
         "kind": uploaded_kind,
         "filename": filename,
         "content_type": content_type,
         "bytes": len(content),
         "url": public_url,
+        "video_meta": video_meta,
     })
     return {
         "ok": True,
@@ -9458,6 +9474,7 @@ async def public_prostudio_upload_media(file: UploadFile = File(...), kind: str 
         ),
         "content_type": content_type,
         "bytes": len(content),
+        "video_meta": video_meta,
     }
 
 
@@ -17714,6 +17731,55 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
     return None
 
 
+def _reference_video_meta(url: str) -> dict:
+    """What is known about a reference/edit video URL: its extension, plus
+    size/duration/dimensions from the upload-time probe sidecar when the
+    video is a Pro Studio upload in our storage."""
+    meta = {"extension": video_probe.url_extension(url)}
+    key = storage_key_from_url(url)
+    if not key:
+        return meta
+    try:
+        probed = video_probe.decode_sidecar(storage_read_bytes(video_probe.sidecar_key(key)))
+    except Exception:
+        probed = None
+    if probed:
+        meta.update({k: probed[k] for k in ("bytes", "duration", "width", "height", "extension") if probed.get(k) not in (None, "")})
+    return meta
+
+
+async def validate_reference_video_media(payload: dict) -> Optional[dict]:
+    """Reject a reference/edit video the selected model's documented limits
+    rule out (registry reference_inputs: extension, size, duration -
+    per orientation where it differs - and dimensions). Same response shape
+    as validate_video_feature_request(). Models without known limits, and
+    facts the server cannot know (no probe sidecar), are not checked."""
+    opts = payload.get("video_options") or payload.get("options") or {}
+    model = (opts.get("model") or payload.get("model") or "").strip()
+    capability = model_capabilities_service.get_capability(model)
+    limits = capability.reference_inputs if capability else None
+    if not limits or not limits.accepts_video:
+        return None
+    has_limit = any(value is not None for value in (
+        limits.video_min_seconds, limits.video_max_seconds, limits.video_max_bytes,
+        limits.video_min_px, limits.video_max_px, limits.video_min_ratio, limits.video_max_ratio, limits.video_max_area,
+    )) or bool(limits.video_extensions)
+    if not has_limit:
+        return None
+    urls = []
+    for field in ("input_video", "video_url", "reference_video"):
+        value = str(opts.get(field) or "").strip()
+        if value and not value.startswith("data:") and value not in urls:
+            urls.append(value)
+    orientation = str(opts.get("character_orientation") or ((opts.get("video_template") or {}).get("character_orientation") if isinstance(opts.get("video_template"), dict) else "") or "image")
+    for url in urls:
+        meta = await asyncio.to_thread(_reference_video_meta, url)
+        error = video_probe.reference_video_limit_error(limits, meta, orientation=orientation)
+        if error:
+            return {"ok": False, "type": "video", "error": error, "model": model}
+    return None
+
+
 def image_dimensions(size: str) -> tuple[int, int]:
     raw = str(size or "").strip().lower()
     if "x" in raw:
@@ -20929,7 +20995,7 @@ async def public_prostudio_generate(request: Request):
                 }, status_code=402)
 
     if mode == "video":
-        feature_error = validate_video_feature_request(payload)
+        feature_error = validate_video_feature_request(payload) or await validate_reference_video_media(payload)
         if feature_error:
             return JSONResponse(feature_error, status_code=400)
 
