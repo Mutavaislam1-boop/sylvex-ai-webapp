@@ -3512,8 +3512,14 @@ def _heygen_files_from_payload(body: dict, payload: dict):
             candidates.append(raw_options.get(key))
         if payload.get(key):
             candidates.append(payload.get(key))
-    for key in ("reference_images", "referenceImageUrls", "uploadedImageUrls"):
-        value = raw_options.get(key) or payload.get(key) or body.get(key)
+    # body["reference_images"] is _build_video_payload's merged list
+    # (uploaded refs + gated Character/Object refs). Reading the raw upload
+    # list first used to shadow it, so Character/Object images never
+    # reached HeyGen; every list is collected now and de-duplicated below.
+    for value in (body.get("reference_images"),) + tuple(
+        raw_options.get(key) or payload.get(key)
+        for key in ("reference_images", "referenceImageUrls", "uploadedImageUrls")
+    ):
         if isinstance(value, list):
             candidates.extend(value)
     files = []
@@ -5387,7 +5393,9 @@ async def video_generation(payload: dict) -> dict:
     if not prompt:
         return {"ok": False, "type": "video", "model": model_id, "provider": provider, "error": "Prompt is required"}
 
-    if provider == "seedance" or re.search(r"seedance", model_id, re.I):
+    # runway_seedance2* are Runway-hosted models: they must not be caught by
+    # the BytePlus "seedance" name match below.
+    if provider == "seedance" or (provider != "runway" and re.search(r"seedance", model_id, re.I)):
         result = _call_seedance(model_id, prompt, payload)
     elif provider == "heygen" or re.search(r"heygen", model_id, re.I):
         if model_id == "heygen_v3_video_agent":

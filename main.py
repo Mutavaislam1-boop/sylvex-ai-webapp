@@ -17461,6 +17461,31 @@ def validate_video_feature_request(payload: dict) -> Optional[dict]:
         return {"ok": False, "type": "video", "error": "Selected model does not support a start frame image", "model": model}
     if has_end_image and not frame_support["end_frame"]:
         return {"ok": False, "type": "video", "error": "Selected model does not support an end frame image", "model": model}
+    # Uploaded image refs and uploaded/edit videos: rejected explicitly when
+    # the model's adapter would drop them (no reference slot, or more images
+    # than slots), instead of reaching the provider without them. Counted
+    # exactly as _build_video_payload merges them.
+    def _distinct(*values):
+        seen = []
+        for value in values:
+            for item in (value if isinstance(value, (list, tuple)) else [value]):
+                text = str(item or "").strip()
+                if text and text not in seen:
+                    seen.append(text)
+        return seen
+    uploaded_refs = _distinct(opts.get("reference_images"), opts.get("referenceImageUrls"))
+    if not uploaded_refs and isinstance(payload.get("reference_images"), list):
+        uploaded_refs = _distinct(payload.get("reference_images"))
+    reference_error = model_capabilities_service.video_reference_input_error(
+        model,
+        start_image=has_start_image,
+        uploaded_refs=len(uploaded_refs),
+        character_refs=len(_distinct(opts.get("characterReferences"))[:4]),
+        object_refs=len(_distinct(opts.get("objectReferences"))[:4]),
+        has_video=bool(opts.get("input_video") or opts.get("video_url") or opts.get("reference_video")),
+    )
+    if reference_error:
+        return {"ok": False, "type": "video", "error": reference_error, "model": model}
     return None
 
 
