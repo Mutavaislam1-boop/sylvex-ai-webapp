@@ -75,9 +75,8 @@ def database(tmp_path):
 
 
 def payload(request_id="one-click"):
-    return {"telegram_id": 777, "mode": "image", "model": "sylvex_test",
-            "prompt": "deadlock regression", "client_request_id": request_id,
-            "_sylvex_test_authorized": True}
+    return {"telegram_id": 777, "mode": "image", "model": "seedream_4",
+            "prompt": "deadlock regression", "client_request_id": request_id}
 
 
 def test_restart_skips_unnecessary_job_column_alters(database):

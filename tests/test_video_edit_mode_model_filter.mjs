@@ -113,7 +113,6 @@ function buildModelListContext() {
   vm.runInContext(extractVideoModelConfigWithKling(), context);
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext('function isImageMode(){return false;} function isVideoMode(){return true;} function isMusicMode(){return false;} function isVoiceMode(){return false;} var studioMode="video";', context);
-  vm.runInContext('function sylvexTestModeAvailable(){return !!(S && S.user && S.user.sylvex_test_available);} function filterSylvexTestEntries(list){if(sylvexTestModeAvailable())return list;return (list||[]).filter((item)=>!(item&&item.sylvexTest));}', context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
   vm.runInContext(extractFunction('videoModelSupportsMotionControl'), context);
   vm.runInContext(extractFunction('currentComposerModelList'), context);
@@ -124,7 +123,7 @@ test('currentComposerModelList: generate section returns the full unfiltered VID
   const context = buildModelListContext();
   vm.runInContext('videoState.section = "generate";', context);
   const ids = vm.runInContext('currentComposerModelList().map((m) => m.id)', context);
-  const allVideoModelIds = vm.runInContext('VIDEO_MODELS.map((m) => m.id)', context).filter((id) => id !== 'sylvex_test');
+  const allVideoModelIds = vm.runInContext('VIDEO_MODELS.map((m) => m.id)', context);
   assert.deepEqual(ids.sort(), allVideoModelIds.sort());
 });
 
@@ -254,7 +253,6 @@ test('fetched capability override: picker filter and force-switch agree for ever
   vm.runInContext(extractVideoModelConfigWithKling(), context);
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext('function isImageMode(){return false;} function isVideoMode(){return true;} function isMusicMode(){return false;} function isVoiceMode(){return false;} var studioMode="video";', context);
-  vm.runInContext('function sylvexTestModeAvailable(){return false;} function filterSylvexTestEntries(list){return (list||[]).filter((item)=>!(item&&item.sylvexTest));}', context);
   vm.runInContext(extractFunction('videoModelSupportsEdit'), context);
   vm.runInContext(extractFunction('currentComposerModelList'), context);
   vm.runInContext(extractFunction('currentVideoConfig'), context);

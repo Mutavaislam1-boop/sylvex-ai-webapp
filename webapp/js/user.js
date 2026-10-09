@@ -140,10 +140,6 @@
       referrals_count: state.referrals_count || 0,
       community_posts_count: state.community_posts_count || 0,
       community_likes_count: state.community_likes_count || 0,
-      // Admin/developer-only - server re-checks this at generate time
-      // regardless of what this flag says; it only gates whether the
-      // "SYLVEX Test" model entry/Grid toggle render at all.
-      sylvex_test_available: !!state.sylvex_test_available,
     };
   }
 
@@ -288,7 +284,6 @@
       });
       cacheProfileIdentity(resolved);
       renderUser(resolved);
-      if (S.renderModelPop) S.renderModelPop();
     } catch (err) {
       console.warn('[SYLVEX] user state failed', err);
     }
@@ -374,11 +369,7 @@
         });
         cacheProfileIdentity(authoritativeUser);
         renderUser(authoritativeUser);
-        // Telegram sync returns profile/balance data, not model permissions.
-        // Load the server's permission flag on successful login too, so the
-        // existing SYLVEX Test entries are available in every model picker.
-        await fetchUserState(telegramId);
-        return S.user || authoritativeUser;
+        return authoritativeUser;
       }
     } catch (err) {
       console.warn('[SYLVEX] user sync failed', err);
