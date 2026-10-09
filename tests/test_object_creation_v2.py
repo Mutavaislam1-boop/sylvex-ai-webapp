@@ -43,6 +43,19 @@ import pytest
 import main
 
 
+@pytest.fixture(autouse=True)
+def _creation_job_settlement(monkeypatch):
+    """Character/Object creation now reserves a composed SYLVEX price at job
+    creation and settles it on success (see test_billing_coverage.py); the
+    settlement is recorded here instead of touching a database."""
+    charges = []
+    monkeypatch.setattr(
+        main, "charge_generation_balance",
+        lambda telegram_id, job_id, result, payload: charges.append((job_id, payload["price_snapshot"]["final_credits"])) or {"charged": True},
+    )
+    return charges
+
+
 class FakeRequest:
     def __init__(self, data):
         self._data = data
@@ -168,7 +181,7 @@ class FakeConnection:
 def test_create_object_creation_job_requires_a_database(monkeypatch):
     monkeypatch.setattr(main, "DATABASE_URL", "")
     with pytest.raises(main.SecurityError):
-        main.create_object_creation_job(42, "Bag", "leather", ["https://cdn.sylvex.ai/a.jpg"])
+        main.create_object_creation_job(42, "Bag", "leather", ["https://cdn.sylvex.ai/a.jpg"], 36)
 
 
 def test_create_object_creation_job_inserts_an_already_processing_row(monkeypatch):
@@ -177,19 +190,26 @@ def test_create_object_creation_job_inserts_an_already_processing_row(monkeypatc
     monkeypatch.setattr(main, "DATABASE_URL", "postgres://test")
     monkeypatch.setattr(main, "db_connect", lambda url: connection)
     monkeypatch.setattr(main, "ensure_prostudio_table", lambda: None)
+    monkeypatch.setattr(main, "ensure_reservations", lambda connect: None)
+    reserved = []
+    monkeypatch.setattr(main, "reserve_generation", lambda cur, uid, job_id, credits: reserved.append((uid, job_id, credits)))
 
-    job_id = main.create_object_creation_job(42, "Bag", "leather", ["https://cdn.sylvex.ai/a.jpg"])
+    job_id = main.create_object_creation_job(42, "Bag", "leather", ["https://cdn.sylvex.ai/a.jpg"], 36)
 
     assert job_id
     assert connection.committed is True
-    assert len(cursor.executed) == 1
-    sql, params = cursor.executed[0]
+    # The composed price is reserved in the same transaction as the insert.
+    assert reserved == [(42, job_id, 36)]
+    inserts = [entry for entry in cursor.executed if "INSERT INTO prostudio_generation_jobs" in entry[0]]
+    assert len(inserts) == 1
+    sql, params = inserts[0]
     assert "'processing'" in sql
     assert "'queued'" not in sql
     assert "object_creation" in sql
     assert params[0] == job_id
     assert params[1] == 42
     request_json = json.loads(params[3])
+    assert request_json.pop("price_snapshot")["final_credits"] == 36
     assert request_json == {
         "name": "Bag", "description": "leather",
         "photos": ["https://cdn.sylvex.ai/a.jpg"],
@@ -231,7 +251,7 @@ def _terminal_update(updates):
 def test_run_object_creation_job_marks_completed_with_a_single_reference(stub_object_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "leather", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "leather", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
 
     job_id, status, result, error = _terminal_update(updates)
     assert job_id == "job-1"
@@ -252,7 +272,7 @@ def test_run_object_creation_job_marks_completed_with_a_single_reference(stub_ob
 
 def test_run_object_creation_job_keeps_original_source_as_metadata_only(stub_object_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
     _, _, result, _ = _terminal_update(updates)
     resource = result["resource"]
     assert resource["originalSourceImages"] == ["https://cdn.sylvex.ai/source.jpg"]
@@ -262,7 +282,7 @@ def test_run_object_creation_job_keeps_original_source_as_metadata_only(stub_obj
 
 def test_run_object_creation_job_objectprompt_separate_from_user_description(stub_object_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "User-entered description", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "User-entered description", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
     _, _, result, _ = _terminal_update(updates)
     resource = result["resource"]
     assert resource["description"] == "User-entered description"
@@ -284,7 +304,7 @@ def test_run_object_creation_job_prompt_analysis_failure_does_not_fail_the_job(m
     monkeypatch.setattr(main, "get_prostudio_generation_job_status", lambda job_id: "processing")
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "Dark brown leather", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "Dark brown leather", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
 
     job_id, status, result, error = _terminal_update(updates)
     assert status == "completed"
@@ -309,7 +329,7 @@ def test_run_object_creation_job_prompt_analysis_failure_falls_back_to_name_with
     monkeypatch.setattr(main, "get_prostudio_generation_job_status", lambda job_id: "processing")
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
 
     _, status, result, error = _terminal_update(updates)
     assert status == "completed"
@@ -331,7 +351,7 @@ def test_run_object_creation_job_reference_generation_failure_fails_the_job(monk
     monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: save_calls.append(resource) or resource)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-2", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-2", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
 
     job_id, status, result, error = _terminal_update(updates)
     assert status == "failed"
@@ -349,7 +369,7 @@ def test_run_object_creation_job_translates_billing_limit_errors(monkeypatch):
     monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: None)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-3", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-3", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
 
     _, status, _, error = _terminal_update(updates)
     assert status == "failed"
@@ -365,7 +385,7 @@ def test_run_object_creation_job_translates_safety_violation_errors(monkeypatch)
     monkeypatch.setattr(main, "heartbeat_prostudio_generation_job", lambda job_id: None)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-4", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-4", 42, "Bag", "", ["https://cdn.sylvex.ai/source.jpg"], credits=36))
 
     _, status, _, error = _terminal_update(updates)
     assert status == "failed"
@@ -379,7 +399,7 @@ def test_run_object_creation_job_skips_resource_save_when_job_already_terminal(s
     monkeypatch.setattr(main, "save_prostudio_resource", lambda telegram_id, resource: save_calls.append(resource) or resource)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_object_creation_job("job-terminal", 42, "Bag", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-terminal", 42, "Bag", "", ["https://cdn.sylvex.ai/a.jpg"], credits=36))
 
     assert save_calls == []
     # No terminal (completed/failed) update - the already-terminal job row
@@ -408,7 +428,7 @@ def test_run_object_creation_job_heartbeats_continuously_during_generation(monke
     monkeypatch.setattr(main, "_generate_object_reference_image", slow_reference)
     monkeypatch.setattr(main, "_analyze_object_prompt", fake_prompt)
 
-    asyncio.run(main._run_object_creation_job("job-heartbeat", 42, "Bag", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-heartbeat", 42, "Bag", "", ["https://cdn.sylvex.ai/a.jpg"], credits=36))
 
     assert len(heartbeats) >= 2
     assert all(job_id == "job-heartbeat" for job_id in heartbeats)
@@ -418,7 +438,7 @@ def test_run_object_creation_job_heartbeats_continuously_during_generation(monke
 
 def test_run_object_creation_job_records_reference_then_saving_stage_progress(stub_object_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
-    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_object_creation_job("job-1", 42, "Bag", "", ["https://cdn.sylvex.ai/a.jpg"], credits=36))
     processing_updates = [entry for entry in updates if entry[1] == "processing"]
     stages = [entry[2]["stage"] for entry in processing_updates]
     assert stages == ["reference", "saving"]
@@ -456,7 +476,7 @@ async def _noop_quota_check(telegram_id):
 def test_create_object_caps_photos_at_exactly_one_before_queuing(monkeypatch):
     received = {}
     monkeypatch.setattr(main, "check_object_creation_request_quota", _noop_quota_check)
-    monkeypatch.setattr(main, "create_object_creation_job", lambda telegram_id, name, description, photos: received.setdefault("photos", list(photos)) or "job-xyz")
+    monkeypatch.setattr(main, "create_object_creation_job", lambda telegram_id, name, description, photos, credits=0: received.setdefault("photos", list(photos)) or "job-xyz")
 
     async def noop_worker(*a, **k):
         pass
@@ -475,7 +495,7 @@ def test_create_object_returns_202_with_job_id_without_waiting_for_generation(mo
     monkeypatch.setattr(main, "check_object_creation_request_quota", _noop_quota_check)
     monkeypatch.setattr(main, "create_object_creation_job", lambda *a, **k: "job-xyz")
 
-    async def slow_worker(job_id, telegram_id, name, description, photos):
+    async def slow_worker(job_id, telegram_id, name, description, photos, credits=0):
         await asyncio.sleep(0.05)
         finished["value"] = True
 

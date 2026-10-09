@@ -13,6 +13,7 @@ text_request in main.py) - this mirrors that existing raw-requests pattern,
 just adding `stream: true` and parsing the resulting SSE body, which no
 other part of the codebase does yet.
 """
+from services.billing_safety import require_billing_scope
 import json
 
 import requests
@@ -49,6 +50,7 @@ def stream_assistant_reply(api_key, api_base, model, messages, timeout=90):
     """Yields text deltas from OpenAI's Responses API streaming endpoint as
     they arrive. Raises RuntimeError with a caller-safe message on failure -
     never propagates a raw provider exception/stack trace upward."""
+    require_billing_scope("stream_assistant_reply")
     if not api_key:
         raise RuntimeError("openai_not_configured")
 
@@ -112,6 +114,7 @@ def mint_realtime_session(api_key, sdp, instructions, safety_user_id, model, voi
     caller. Mirrors main.py's existing /api/public/home-idea/realtime proxy
     exactly, just parameterized (model/instructions/voice) for Assistant's
     own gated endpoint."""
+    require_billing_scope("mint_realtime_session")
     if not api_key:
         raise RuntimeError("openai_not_configured")
     import hashlib

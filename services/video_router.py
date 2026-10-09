@@ -4,6 +4,7 @@ from services.safe_io import safe_get, safe_client_get, safe_local_path, read_up
 # Этот файл подписан русскими пояснениями для быстрой навигации по проекту.
 # Комментарии описывают назначение блоков и не меняют работу приложения.
 # =====================================================
+from services.billing_safety import require_billing_scope
 import os
 import math
 import json
@@ -5333,6 +5334,7 @@ def _call_hedra(model_id: str, prompt: str, payload: dict):
 # Связан с API, базой данных, провайдерами или подготовкой данных для Mini App.
 # =====================================================
 async def video_generation(payload: dict) -> dict:
+    require_billing_scope("video_generation")
     # Defense in depth: dispatch_prostudio_provider_request() in main.py
     # must always route an Animate Photo job to generate_animate_photo_video()
     # (main.py's own isolated Runway Gen-4.5 flow) before it ever reaches

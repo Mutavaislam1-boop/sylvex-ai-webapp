@@ -527,6 +527,8 @@ def test_realtime_session_requires_subscription(env, monkeypatch):
 def test_realtime_session_mints_session_and_never_exposes_key(env, monkeypatch):
     main, _ = env
     _set_subscriber(main, monkeypatch, active=True)
+    # Transport check: lift the no-tariff gate (tested in test_billing_coverage.py).
+    monkeypatch.setattr(main, "UNPRICED_HELPERS", frozenset())
 
     captured = {}
     def fake_mint(api_key, sdp, instructions, uid, model):
