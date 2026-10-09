@@ -41,6 +41,19 @@ import pytest
 import main
 
 
+@pytest.fixture(autouse=True)
+def _creation_job_settlement(monkeypatch):
+    """Character/Object creation now reserves a composed SYLVEX price at job
+    creation and settles it on success (see test_billing_coverage.py); the
+    settlement is recorded here instead of touching a database."""
+    charges = []
+    monkeypatch.setattr(
+        main, "charge_generation_balance",
+        lambda telegram_id, job_id, result, payload: charges.append((job_id, payload["price_snapshot"]["final_credits"])) or {"charged": True},
+    )
+    return charges
+
+
 class FakeRequest:
     def __init__(self, data):
         self._data = data
@@ -232,7 +245,7 @@ class FakeConnection:
 def test_create_character_creation_job_requires_a_database(monkeypatch):
     monkeypatch.setattr(main, "DATABASE_URL", "")
     with pytest.raises(main.SecurityError):
-        main.create_character_creation_job(42, "Islam", "male", "tall", ["https://cdn.sylvex.ai/a.jpg"])
+        main.create_character_creation_job(42, "Islam", "male", "tall", ["https://cdn.sylvex.ai/a.jpg"], 132)
 
 
 def test_create_character_creation_job_inserts_an_already_processing_row(monkeypatch):
@@ -241,13 +254,19 @@ def test_create_character_creation_job_inserts_an_already_processing_row(monkeyp
     monkeypatch.setattr(main, "DATABASE_URL", "postgres://test")
     monkeypatch.setattr(main, "db_connect", lambda url: connection)
     monkeypatch.setattr(main, "ensure_prostudio_table", lambda: None)
+    monkeypatch.setattr(main, "ensure_reservations", lambda connect: None)
+    reserved = []
+    monkeypatch.setattr(main, "reserve_generation", lambda cur, uid, job_id, credits: reserved.append((uid, job_id, credits)))
 
-    job_id = main.create_character_creation_job(42, "Islam", "male", "tall", ["https://cdn.sylvex.ai/a.jpg"])
+    job_id = main.create_character_creation_job(42, "Islam", "male", "tall", ["https://cdn.sylvex.ai/a.jpg"], 132)
 
     assert job_id
     assert connection.committed is True
-    assert len(cursor.executed) == 1
-    sql, params = cursor.executed[0]
+    # The composed price is reserved in the same transaction as the insert.
+    assert reserved == [(42, job_id, 132)]
+    inserts = [entry for entry in cursor.executed if "INSERT INTO prostudio_generation_jobs" in entry[0]]
+    assert len(inserts) == 1
+    sql, params = inserts[0]
     # Never 'queued' - a queued row would race the generic worker pool's
     # claim_next_prostudio_generation_job() (which only looks at 'queued'
     # rows for ANY mode) into failing it with "Unknown generation mode"
@@ -258,6 +277,7 @@ def test_create_character_creation_job_inserts_an_already_processing_row(monkeyp
     assert params[0] == job_id
     assert params[1] == 42
     request_json = json.loads(params[3])
+    assert request_json.pop("price_snapshot")["final_credits"] == 132
     assert request_json == {
         "name": "Islam", "gender": "male", "description": "tall",
         "photos": ["https://cdn.sylvex.ai/a.jpg"],
@@ -304,7 +324,7 @@ def _terminal_update(updates):
 def test_run_character_creation_job_marks_completed_with_character_id_and_resource(stub_character_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     job_id, status, result, error = _terminal_update(updates)
     assert job_id == "job-1"
@@ -325,7 +345,7 @@ def test_run_character_creation_job_marks_completed_with_character_id_and_resour
 
 def test_run_character_creation_job_reference_library_uses_main_front_side_back_roles(stub_character_pipeline, monkeypatch):
     updates = _capture_job_updates(monkeypatch)
-    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
     _, _, result, _ = _terminal_update(updates)
     roles = [entry["role"] for entry in result["resource"]["referenceLibrary"]]
     assert roles == ["Primary Face", "Full Body Front", "Full Body Side", "Full Body Back"]
@@ -335,7 +355,7 @@ def test_run_character_creation_job_keeps_source_photo_only_as_metadata(stub_cha
     # The raw uploaded source photo must not become a 5th Character
     # reference - it is kept only as originalSourceImages metadata.
     updates = _capture_job_updates(monkeypatch)
-    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/source.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-1", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/source.jpg"], credits=132))
     _, _, terminal_result, _ = _terminal_update(updates)
     resource = terminal_result["resource"]
     assert resource["originalSourceImages"] == ["https://cdn.sylvex.ai/source.jpg"]
@@ -350,7 +370,7 @@ def test_run_character_creation_job_marks_failed_on_generation_error(monkeypatch
     monkeypatch.setattr(main, "_generate_openai_character_images", failing_generate)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_character_creation_job("job-2", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-2", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     assert len(updates) == 1
     job_id, status, result, error = updates[0]
@@ -367,7 +387,7 @@ def test_run_character_creation_job_translates_billing_limit_errors(monkeypatch)
     monkeypatch.setattr(main, "_generate_openai_character_images", failing_generate)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_character_creation_job("job-3", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-3", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     _, status, _, error = updates[0]
     assert status == "failed"
@@ -390,7 +410,7 @@ def test_run_character_creation_job_translates_safety_violation_errors_into_a_cl
     monkeypatch.setattr(main, "_generate_openai_character_images", failing_generate)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_character_creation_job("job-4", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-4", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     assert len(updates) == 1
     job_id, status, result, error = updates[0]
@@ -435,7 +455,7 @@ def test_run_character_creation_job_heartbeats_continuously_during_generation(mo
 
     monkeypatch.setattr(main, "_generate_openai_character_images", slow_generate)
 
-    asyncio.run(main._run_character_creation_job("job-heartbeat", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-heartbeat", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     # Several ticks happened *while generation was still running* - not
     # just one heartbeat fired after it already finished.
@@ -467,7 +487,7 @@ def test_run_character_creation_job_skips_resource_save_when_job_already_termina
     monkeypatch.setattr(main, "_generate_openai_character_images", fake_generate)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_character_creation_job("job-terminal", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-terminal", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     assert save_calls == []
     # The already-terminal job row is left exactly as it was - this
@@ -492,7 +512,7 @@ def test_run_character_creation_job_cancelled_status_also_blocks_resource_save(m
     monkeypatch.setattr(main, "_generate_openai_character_images", fake_generate)
     updates = _capture_job_updates(monkeypatch)
 
-    asyncio.run(main._run_character_creation_job("job-cancelled", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-cancelled", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     assert save_calls == []
     assert updates == []
@@ -525,7 +545,7 @@ def test_run_character_creation_job_full_regression_long_running_completes_exact
 
     monkeypatch.setattr(main, "_generate_openai_character_images", slow_generate)
 
-    asyncio.run(main._run_character_creation_job("job-long", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"]))
+    asyncio.run(main._run_character_creation_job("job-long", 42, "Islam", "male", "", ["https://cdn.sylvex.ai/a.jpg"], credits=132))
 
     assert len(save_calls) == 1
     job_id, status, result, error = _terminal_update(updates)
@@ -568,7 +588,7 @@ def test_create_character_requires_telegram_id():
 
 def test_create_character_caps_photos_at_exactly_one_before_queuing(monkeypatch):
     received = {}
-    monkeypatch.setattr(main, "create_character_creation_job", lambda telegram_id, name, gender, description, photos: received.setdefault("photos", list(photos)) or "job-xyz")
+    monkeypatch.setattr(main, "create_character_creation_job", lambda telegram_id, name, gender, description, photos, credits=0: received.setdefault("photos", list(photos)) or "job-xyz")
 
     async def noop_worker(*a, **k):
         pass
@@ -587,7 +607,7 @@ def test_create_character_returns_202_with_job_id_without_waiting_for_generation
 
     monkeypatch.setattr(main, "create_character_creation_job", lambda *a, **k: "job-xyz")
 
-    async def slow_worker(job_id, telegram_id, name, gender, description, photos):
+    async def slow_worker(job_id, telegram_id, name, gender, description, photos, credits=0):
         await asyncio.sleep(0.05)
         finished["value"] = True
 

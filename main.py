@@ -9,6 +9,7 @@ import math
 import pathlib
 import json
 import hmac
+import contextvars
 import hashlib
 import uuid
 import urllib.parse
@@ -68,7 +69,7 @@ from services.account_identity import AccountError
 from services import oauth_verify
 from services.request_limits import check_request_quota, ensure_limit_table, check_object_creation_request_quota
 from services.paypal_binding import make_binding, read_binding
-from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation
+from services.billing_safety import apply_payment, ensure_reservations, reserve_generation, release_generation, settle_generation, billing_scope, require_billing_scope, assert_reserved
 from services.price_engine import apply_snapshot_to_estimate
 from services import edit_workspace as edit_workspace_service
 from services import assistant_store
@@ -454,6 +455,7 @@ def _voice_avatar_prompt(provider: str, voice_id: str, seed: int) -> str:
 
 
 def _generate_voice_avatar_once(provider: str, voice_id: str):
+    require_billing_scope("_generate_voice_avatar_once")
     key, seed = _voice_avatar_identity(provider, voice_id)
     try:
         if not DATABASE_URL or not OPENAI_API_KEY:
@@ -517,7 +519,7 @@ def schedule_voice_avatars_batch(voices: list) -> dict:
         if voice_id:
             key, seed = _voice_avatar_identity(provider, voice_id)
             normalized_items.append((provider, voice_id, key, seed))
-    if not normalized_items or not DATABASE_URL or not VOICE_AVATAR_AUTO_GENERATION:
+    if not normalized_items or not DATABASE_URL or not VOICE_AVATAR_AUTO_GENERATION or "voice_avatar_generation" in UNPRICED_HELPERS:
         return {}
     ensure_prostudio_table()
     conn = db_connect(DATABASE_URL); cursor = conn.cursor()
@@ -4024,6 +4026,8 @@ async def save_elevenlabs_settings(request: Request):
 # =====================================================
 @app.post("/api/elevenlabs/preview")
 async def elevenlabs_preview(request: Request):
+    if "elevenlabs_preview_legacy" in UNPRICED_HELPERS:
+        return unpriced_helper_response("elevenlabs_preview_legacy")
     data = await request.json()
     voice_id = data.get("voice_id") or ELEVENLABS_DEFAULT_VOICE_ID
     model_id = data.get("model_id") or ELEVENLABS_DEFAULT_MODEL_ID
@@ -4103,19 +4107,36 @@ async def elevenlabs_preview(request: Request):
 
 # =====================================================
 # API ENDPOINT: public_prostudio_voice_preview
-# Генерирует короткий preview выбранного Gemini TTS или Runway TTS голоса для Mini App.
-# Не создаёт job, не пишет историю генераций и не списывает баланс.
+# Генерирует короткий preview выбранного голоса для Mini App.
+# Не создаёт job и не пишет историю; списывает тариф озвучки на фиксированном
+# тексте-примере (резерв -> вызов провайдера -> списание или возврат).
 # =====================================================
+VOICE_PREVIEW_SAMPLE_TEXT = "Привет! Это пример голоса в SYLVEX."
+
+
 @app.post("/api/public/prostudio/voice-preview")
 async def public_prostudio_voice_preview(request: Request):
     data = await request.json()
     model = str(data.get("model") or "")
+    # Previews are billed per use at the existing voice tariff of the
+    # selected model, always on the fixed sample text - a client-supplied
+    # text is ignored so a preview can never be used as free TTS.
+    data["text"] = VOICE_PREVIEW_SAMPLE_TEXT
     if model.startswith("elevenlabs_") or model in {"eleven_v3", "eleven_multilingual_v2", "eleven_flash_v2_5", "eleven_flash_v2"}:
-        result = await elevenlabs_voice_preview(data)
+        preview, price_model = elevenlabs_voice_preview, (model if model.startswith("elevenlabs_") else f"elevenlabs_{model}")
     elif model.startswith("runway_") or model in {"eleven_multilingual_v2"}:
-        result = await runway_voice_preview(data)
+        preview, price_model = runway_voice_preview, model
     else:
-        result = await gemini_tts_voice_preview(data)
+        preview, price_model = gemini_tts_voice_preview, model or "gemini_3_1_flash_tts_preview"
+    estimate = calculate_generation_price({
+        "mode": "voice", "model": price_model, "prompt": VOICE_PREVIEW_SAMPLE_TEXT,
+        "voice_options": {"model": price_model},
+    })
+    credits = int((estimate.get("price_snapshot") or {}).get("final_credits") or 0) if estimate.get("pricing_available") else 0
+    result = await run_billed_helper(
+        int(data.get("telegram_id") or 0), credits, "voice_preview", lambda: preview(data),
+        client_request_id=str(data.get("client_request_id") or ""), model=price_model,
+    )
     status_code = 200 if result.get("ok") or result.get("success") else 502
     return JSONResponse(result, status_code=status_code)
 
@@ -5067,16 +5088,22 @@ def create_prostudio_generation_job(payload: dict) -> str:
     return job_id
 
 
-def reserve_direct_text_generation(telegram_id: int, credits: int) -> str:
-    """Reserve text credits before calling a provider; text is not queued as a media job."""
+def reserve_direct_text_generation(telegram_id: int, credits: int, generation_id: str = "") -> str:
+    """Reserve credits before calling a provider for work that is not queued
+    as a media job (direct text, priced helpers). A caller-supplied
+    generation_id is the idempotency key: reusing it is refused, so a
+    retried request can never reserve or charge twice."""
     if not DATABASE_URL or not telegram_id:
         raise SecurityError("generation_queue_unavailable", 503)
-    generation_id = f"text-{uuid4()}"
+    generation_id = generation_id or f"text-{uuid4()}"
     ensure_reservations(lambda: db_connect(DATABASE_URL))
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        cursor.execute("SELECT 1 FROM generation_reservations WHERE generation_id = %s", (generation_id,))
+        if cursor.fetchone():
+            raise SecurityError("duplicate_request", 409)
         reserve_generation(cursor, telegram_id, generation_id, credits)
         conn.commit()
         return generation_id
@@ -5086,6 +5113,82 @@ def reserve_direct_text_generation(telegram_id: int, credits: int) -> str:
     finally:
         cursor.close()
         conn.close()
+
+
+def helper_generation_id(label: str, telegram_id: int, client_request_id: str = "") -> str:
+    key = str(client_request_id or "").strip()[:128]
+    if not key:
+        return f"helper-{label}-{uuid4()}"
+    digest = hashlib.sha256(f"{label}:{telegram_id}:{key}".encode("utf-8")).hexdigest()[:32]
+    return f"helper-{label}-{digest}"
+
+
+async def run_billed_helper(telegram_id: int, credits: int, label: str, call, *, client_request_id: str = "", model: str = "", provider: str = ""):
+    """Priced helper call (Grid plan, idea routing, voice tools, previews,
+    assistant AI mode): reserve the SYLVEX price, dispatch inside one billing
+    scope, settle on success, release on failure. Unknown/zero price fails
+    closed before any provider is contacted."""
+    credits = int(credits or 0)
+    if not telegram_id:
+        raise SecurityError("telegram_id_required", 401)
+    if credits <= 0:
+        raise SecurityError("pricing_not_configured", 402)
+    generation_id = helper_generation_id(label, telegram_id, client_request_id)
+    await asyncio.to_thread(reserve_direct_text_generation, telegram_id, credits, generation_id)
+    try:
+        with billing_scope(generation_id, credits):
+            result = await call()
+    except BaseException:
+        await asyncio.to_thread(release_direct_text_generation, generation_id)
+        raise
+    ok = result.get("ok", result.get("success")) if isinstance(result, dict) else bool(result)
+    if not ok:
+        await asyncio.to_thread(release_direct_text_generation, generation_id)
+        return result
+    billing = await asyncio.to_thread(
+        charge_generation_balance, telegram_id, generation_id,
+        result if isinstance(result, dict) else {},
+        {"mode": "helper", "model": model or label, "provider": provider, "price_snapshot": {"final_credits": credits}},
+    )
+    if not billing.get("charged") and not billing.get("already_charged"):
+        await asyncio.to_thread(release_direct_text_generation, generation_id)
+        raise SecurityError("billing_failed", 503)
+    if isinstance(result, dict):
+        result.setdefault("cost_credits", credits)
+    return result
+
+
+# Provider-backed helpers with no SYLVEX tariff. Each stays blocked until it
+# has a price and is routed through run_billed_helper(); removing an entry
+# without that wiring still fails closed at the dispatcher guard.
+UNPRICED_HELPERS = frozenset({
+    "home_idea_realtime",        # OpenAI Realtime voice session
+    "assistant_realtime",        # OpenAI Realtime voice session
+    "elevenlabs_preview_legacy", # unused endpoint, arbitrary text TTS
+    "runway_avatar",             # unused endpoint
+    "transcribe",                # dictation (OpenAI/Gemini STT)
+    "voice_clone",               # ElevenLabs instant voice clone
+    "voice_avatar_generation",   # automatic voice avatar images
+})
+
+
+def unpriced_helper_response(operation: str) -> JSONResponse:
+    """Provider-backed helper with no SYLVEX tariff: blocked, never free."""
+    print("UNPRICED_HELPER_BLOCKED:", {"operation": operation})
+    return JSONResponse(
+        {"ok": False, "error": "pricing_not_configured", "message": "Функция временно недоступна."},
+        status_code=402,
+    )
+
+
+def helper_text_price(model: str, prompt: str) -> int:
+    """Existing SYLVEX text tariff for one helper call; 0 = no tariff."""
+    raw = str(model or "").strip()
+    for candidate in dict.fromkeys([raw, raw.replace("-", "_").replace(".", "_")]):
+        estimate = calculate_generation_price({"mode": "text", "model": candidate, "prompt": prompt})
+        if estimate.get("pricing_available", False):
+            return int((estimate.get("price_snapshot") or {}).get("final_credits") or estimate.get("credits") or 0)
+    return 0
 
 
 def release_direct_text_generation(generation_id: str) -> None:
@@ -7972,6 +8075,8 @@ async def public_prostudio_save_resource(request: Request):
 
 @app.post("/api/public/prostudio/runway-avatar")
 async def public_prostudio_runway_avatar(request: Request):
+    if "runway_avatar" in UNPRICED_HELPERS:
+        return unpriced_helper_response("runway_avatar")
     data = await request.json()
     telegram_id = int(data.get("telegram_id") or 0)
     name = str(data.get("name") or "").strip()
@@ -8145,6 +8250,7 @@ async def _record_character_job_progress(
 
 
 async def _generate_openai_character_images(job_id: str, name: str, gender: str, description: str, photos: list) -> list:
+    require_billing_scope("_generate_openai_character_images")
     # Character creation: the user supplies exactly one ordinary source
     # photo (which may be a plain selfie, not already a studio reference),
     # and AI automatically builds the standard 4-reference set from it -
@@ -8259,8 +8365,8 @@ async def _generate_openai_character_images(job_id: str, name: str, gender: str,
 # =====================================================
 # СОХРАНЕНИЕ В БАЗУ ДАННЫХ: create_character_creation_job
 # Character creation gets its own job lane in prostudio_generation_jobs
-# rather than going through create_prostudio_generation_job(): it is free
-# (no credit reservation) and must never be blocked by - or block - an
+# rather than going through create_prostudio_generation_job(): it reserves
+# its own composed price (4 x GPT Image 2 shot) and must never be blocked by - or block - an
 # unrelated image/video/music/voice job, so it skips that function's
 # single-active-job-per-user check entirely. The row is inserted already
 # 'processing' (never 'queued'), so the generic worker pool's
@@ -8268,14 +8374,52 @@ async def _generate_openai_character_images(job_id: str, name: str, gender: str,
 # rows - can never pick it up and fail it with "Unknown generation mode"
 # before _run_character_creation_job() gets to it.
 # =====================================================
-def create_character_creation_job(telegram_id: int, name: str, gender: str, description: str, photos: list) -> str:
+def _gpt_image_2_shot_price() -> int:
+    """Existing GPT Image 2 tariff for one Character/Object reference shot
+    (1024x1024, high quality, one reference image - the exact request
+    _openai_character_shot() sends)."""
+    estimate = calculate_generation_price({
+        "mode": "image", "category": "image", "provider": "openai", "model": "gpt_image_2", "prompt": "",
+        "image_options": {"modelId": "gpt_image_2", "size": "1024x1024", "quality": "high", "count": 1,
+                          "referenceImageUrls": ["reference"]},
+    })
+    if not estimate.get("pricing_available", False):
+        return 0
+    return int((estimate.get("price_snapshot") or {}).get("final_credits") or 0)
+
+
+CHARACTER_CREATION_SHOTS = 4  # Primary face + full body front/side/back
+
+
+def character_creation_price() -> int:
+    unit = _gpt_image_2_shot_price()
+    return unit * CHARACTER_CREATION_SHOTS if unit > 0 else 0
+
+
+def object_creation_price(name: str, description: str) -> int:
+    image = _gpt_image_2_shot_price()
+    vision = helper_text_price("gpt-5.5", _object_prompt_instruction_text(name, description))
+    return image + vision if image > 0 and vision > 0 else 0
+
+
+def _creation_job_price_snapshot(credits: int, kind: str) -> dict:
+    return {"pricing_version": "composed", "final_credits": int(credits), "currency": "⚡",
+            "parameters": {"mode": kind}}
+
+
+def create_character_creation_job(telegram_id: int, name: str, gender: str, description: str, photos: list, credits: int = 0) -> str:
     if not DATABASE_URL:
         raise SecurityError("generation_queue_unavailable", 503)
     ensure_prostudio_table()
+    if int(credits or 0) <= 0:
+        raise SecurityError("pricing_not_configured", 402)
     job_id = str(uuid4())
+    ensure_reservations(lambda: db_connect(DATABASE_URL))
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        reserve_generation(cursor, telegram_id, job_id, int(credits))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
                 id, telegram_id, mode, model, provider, prompt, status, request_json, heartbeat_at
@@ -8284,7 +8428,8 @@ def create_character_creation_job(telegram_id: int, name: str, gender: str, desc
             job_id,
             telegram_id,
             name,
-            _safe_json_dumps({"name": name, "gender": gender, "description": description, "photos": photos}),
+            _safe_json_dumps({"name": name, "gender": gender, "description": description, "photos": photos,
+                              "price_snapshot": _creation_job_price_snapshot(credits, "character_creation")}),
         ))
         conn.commit()
     finally:
@@ -8355,7 +8500,26 @@ def classify_openai_creation_error(error_text: str, safety_message: str) -> dict
 # GET /api/public/prostudio/job/{job_id}, the same endpoint every other
 # Pro Studio generation job already uses.
 # =====================================================
-async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, gender: str, description: str, photos: list):
+async def _settle_creation_job(job_id: str, telegram_id: int, credits: int, kind: str, result: dict) -> bool:
+    billing = await asyncio.to_thread(
+        charge_generation_balance, telegram_id, job_id, result,
+        {"mode": kind, "model": "gpt-image-2", "provider": "openai",
+         "price_snapshot": _creation_job_price_snapshot(credits, kind)},
+    )
+    return bool(billing.get("charged") or billing.get("already_charged"))
+
+
+async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, gender: str, description: str, photos: list, credits: int = 0):
+    if int(credits or 0) <= 0:
+        # Never dispatch an unpriced creation job; its row must not hang in 'processing'.
+        await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None,
+                                {"ok": False, "error": "pricing_not_configured"})
+        return
+    with billing_scope(job_id, credits):
+        await _run_character_creation_job_billed(job_id, telegram_id, name, gender, description, photos, credits)
+
+
+async def _run_character_creation_job_billed(job_id: str, telegram_id: int, name: str, gender: str, description: str, photos: list, credits: int):
     job_started = time.monotonic()
     finished_event = asyncio.Event()
     heartbeat_task = asyncio.create_task(
@@ -8445,6 +8609,8 @@ async def _run_character_creation_job(job_id: str, telegram_id: int, name: str, 
             # "provider_processing".
             "result_url": final_resource["previewUrl"],
         }
+        if not await _settle_creation_job(job_id, telegram_id, credits, "character_creation", result):
+            raise RuntimeError("character_creation_billing_failed")
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
         prostudio_debug("CHARACTER_JOB_COMPLETED", job_id=job_id, elapsed_seconds=round(time.monotonic() - job_started, 3))
     except Exception as exc:
@@ -8483,8 +8649,11 @@ async def public_prostudio_create_character(request: Request):
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
     if not photos:
         return JSONResponse({"ok": False, "error": "reference_image_required"}, status_code=400)
+    credits = character_creation_price()
+    if credits <= 0:
+        return unpriced_helper_response("character_creation")
     try:
-        job_id = await asyncio.to_thread(create_character_creation_job, telegram_id, name, gender, description, photos)
+        job_id = await asyncio.to_thread(create_character_creation_job, telegram_id, name, gender, description, photos, credits)
     except SecurityError:
         raise
     except Exception as exc:
@@ -8495,7 +8664,7 @@ async def public_prostudio_create_character(request: Request):
     # made this request disconnects. Kept on app.state.background_tasks
     # (same convention as the generation worker loop) only to prevent
     # premature garbage collection; it is not awaited there either.
-    task = asyncio.create_task(_run_character_creation_job(job_id, telegram_id, name, gender, description, photos))
+    task = asyncio.create_task(_run_character_creation_job(job_id, telegram_id, name, gender, description, photos, credits))
     background_tasks = getattr(app.state, "background_tasks", None)
     if isinstance(background_tasks, list):
         background_tasks.append(task)
@@ -8683,14 +8852,19 @@ async def _analyze_object_prompt(job_id: str, name: str, description: str, image
     return text[:600]
 
 
-def create_object_creation_job(telegram_id: int, name: str, description: str, photos: list) -> str:
+def create_object_creation_job(telegram_id: int, name: str, description: str, photos: list, credits: int = 0) -> str:
     if not DATABASE_URL:
         raise SecurityError("generation_queue_unavailable", 503)
     ensure_prostudio_table()
+    if int(credits or 0) <= 0:
+        raise SecurityError("pricing_not_configured", 402)
     job_id = str(uuid4())
+    ensure_reservations(lambda: db_connect(DATABASE_URL))
     conn = db_connect(DATABASE_URL)
     cursor = conn.cursor()
     try:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", (telegram_id,))
+        reserve_generation(cursor, telegram_id, job_id, int(credits))
         cursor.execute("""
             INSERT INTO prostudio_generation_jobs (
                 id, telegram_id, mode, model, provider, prompt, status, request_json, heartbeat_at
@@ -8699,7 +8873,8 @@ def create_object_creation_job(telegram_id: int, name: str, description: str, ph
             job_id,
             telegram_id,
             name,
-            _safe_json_dumps({"name": name, "description": description, "photos": photos}),
+            _safe_json_dumps({"name": name, "description": description, "photos": photos,
+                              "price_snapshot": _creation_job_price_snapshot(credits, "object_creation")}),
         ))
         conn.commit()
     finally:
@@ -8708,7 +8883,17 @@ def create_object_creation_job(telegram_id: int, name: str, description: str, ph
     return job_id
 
 
-async def _run_object_creation_job(job_id: str, telegram_id: int, name: str, description: str, photos: list):
+async def _run_object_creation_job(job_id: str, telegram_id: int, name: str, description: str, photos: list, credits: int = 0):
+    if int(credits or 0) <= 0:
+        # Never dispatch an unpriced creation job; its row must not hang in 'processing'.
+        await asyncio.to_thread(update_prostudio_generation_job, job_id, "failed", None,
+                                {"ok": False, "error": "pricing_not_configured"})
+        return
+    with billing_scope(job_id, credits):
+        await _run_object_creation_job_billed(job_id, telegram_id, name, description, photos, credits)
+
+
+async def _run_object_creation_job_billed(job_id: str, telegram_id: int, name: str, description: str, photos: list, credits: int):
     job_started = time.monotonic()
     finished_event = asyncio.Event()
     # The same generic heartbeat loop Character creation uses - it only
@@ -8780,6 +8965,8 @@ async def _run_object_creation_job(job_id: str, telegram_id: int, name: str, des
             "resource": final_resource,
             "result_url": final_resource["previewUrl"],
         }
+        if not await _settle_creation_job(job_id, telegram_id, credits, "object_creation", result):
+            raise RuntimeError("object_creation_billing_failed")
         await asyncio.to_thread(update_prostudio_generation_job, job_id, "completed", result)
         prostudio_debug("OBJECT_JOB_COMPLETED", job_id=job_id, elapsed_seconds=round(time.monotonic() - job_started, 3))
     except Exception as exc:
@@ -8818,14 +9005,17 @@ async def public_prostudio_create_object(request: Request):
     # SecurityError('object_creation_rate_limited', 429) when exceeded,
     # caught by the global SecurityError handler below.
     await check_object_creation_request_quota(telegram_id)
+    credits = object_creation_price(name, description)
+    if credits <= 0:
+        return unpriced_helper_response("object_creation")
     try:
-        job_id = await asyncio.to_thread(create_object_creation_job, telegram_id, name, description, photos)
+        job_id = await asyncio.to_thread(create_object_creation_job, telegram_id, name, description, photos, credits)
     except SecurityError:
         raise
     except Exception as exc:
         prostudio_error("OBJECT_JOB_CREATE_FAILED", exc, telegram_id=telegram_id, name=name)
         return JSONResponse({"ok": False, "error": str(exc)[:1200]}, status_code=502)
-    task = asyncio.create_task(_run_object_creation_job(job_id, telegram_id, name, description, photos))
+    task = asyncio.create_task(_run_object_creation_job(job_id, telegram_id, name, description, photos, credits))
     background_tasks = getattr(app.state, "background_tasks", None)
     if isinstance(background_tasks, list):
         background_tasks.append(task)
@@ -12476,6 +12666,18 @@ async def web_assistant_message(request: Request):
     messages.extend(history_messages)
     messages.append({"role": "user", "content": last_user_content})
 
+    # AI mode is billed per message at the existing text tariff of the
+    # assistant model: reserved before the stream opens, charged once any
+    # text was produced, released when nothing was (error/disconnect).
+    assistant_credits = helper_text_price(OPENAI_ASSISTANT_MODEL, json.dumps(messages, ensure_ascii=False))
+    if assistant_credits <= 0:
+        return unpriced_helper_response("assistant_ai")
+    assistant_generation_id = helper_generation_id("assistant", telegram_id, client_request_id)
+    try:
+        await asyncio.to_thread(reserve_direct_text_generation, telegram_id, assistant_credits, assistant_generation_id)
+    except SecurityError as exc:
+        return JSONResponse({"ok": False, "error": exc.code, "paywall": exc.status == 402}, status_code=exc.status)
+
     stream_id = uuid4().hex
     with _ASSISTANT_STOP_LOCK:
         _ASSISTANT_STOP_FLAGS[stream_id] = False
@@ -12485,6 +12687,7 @@ async def web_assistant_message(request: Request):
         collected = []
         error_code = None
         cancelled = False
+        billing_settled = False
         try:
             yield f"data: {json.dumps({'type': 'start', 'stream_id': stream_id, 'conversation_id': conversation_id})}\n\n"
             q = queue_module.Queue()
@@ -12501,7 +12704,9 @@ async def web_assistant_message(request: Request):
                 except Exception as exc:
                     q.put(("error", str(exc) or "ai_temporarily_unavailable"))
 
-            threading.Thread(target=worker, daemon=True).start()
+            with billing_scope(assistant_generation_id, assistant_credits):
+                worker_context = contextvars.copy_context()
+            threading.Thread(target=worker_context.run, args=(worker,), daemon=True).start()
             while True:
                 kind, value = await asyncio.to_thread(q.get)
                 if kind == "delta":
@@ -12515,9 +12720,20 @@ async def web_assistant_message(request: Request):
                     break
                 else:
                     break
+            final_text = "".join(collected)
+            if final_text:
+                billing = await asyncio.to_thread(
+                    charge_generation_balance, telegram_id, assistant_generation_id,
+                    {"type": "text", "model": OPENAI_ASSISTANT_MODEL},
+                    {"mode": "assistant", "model": OPENAI_ASSISTANT_MODEL, "provider": "openai",
+                     "price_snapshot": {"final_credits": assistant_credits}},
+                )
+                billing_settled = bool(billing.get("charged") or billing.get("already_charged"))
         finally:
             with _ASSISTANT_STOP_LOCK:
                 _ASSISTANT_STOP_FLAGS.pop(stream_id, None)
+            if not billing_settled:
+                await asyncio.to_thread(release_direct_text_generation, assistant_generation_id)
 
         final_text = "".join(collected)
         prompt_block = _assistant_extract_prompt(final_text)
@@ -12705,6 +12921,8 @@ async def web_assistant_realtime_session(request: Request):
             "ok": False, "error": "subscription_required",
             "message": "Live voice mode is available with SYLVEX Pro.",
         }, status_code=403)
+    if "assistant_realtime" in UNPRICED_HELPERS:
+        return unpriced_helper_response("assistant_realtime")
     if not OPENAI_API_KEY:
         return JSONResponse({"ok": False, "error": "openai_not_configured"}, status_code=503)
     await check_request_quota(telegram_id, "/api/web/assistant/realtime/session")
@@ -16760,6 +16978,7 @@ def with_text_media_attachment(messages: list, attachment: dict, provider: str) 
 
 
 def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, language: str = "") -> tuple[bool, str]:
+    require_billing_scope("openai_transcribe_bytes")
     if not content:
         return False, "Файл пустой или недоступен"
     if not OPENAI_API_KEY:
@@ -16790,6 +17009,7 @@ def openai_transcribe_bytes(content: bytes, filename: str, content_type: str, la
 
 def gemini_transcribe_bytes(content: bytes, content_type: str, language: str = "") -> tuple[bool, str]:
     """Fallback speech recognition when the primary OpenAI endpoint is unavailable."""
+    require_billing_scope("gemini_transcribe_bytes")
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
         return False, "GEMINI_API_KEY is not configured"
@@ -16966,6 +17186,7 @@ def quick_text_reply(prompt: str, attachment: dict, history: list, tool: str, ou
 
 
 def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: str, provider_model: str, messages: list, extra_body: Optional[dict] = None) -> tuple[bool, str, dict]:
+    require_billing_scope("openai_compatible_text_request")
     if not api_key:
         return False, f"{provider.upper()} API key is not configured", {}
     endpoint = endpoint_base.rstrip("/") + "/chat/completions"
@@ -16988,6 +17209,7 @@ def openai_compatible_text_request(provider: str, endpoint_base: str, api_key: s
 
 
 def openai_responses_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
+    require_billing_scope("openai_responses_text_request")
     if not OPENAI_API_KEY:
         return False, "OPENAI API key is not configured", {}
     response_input = []
@@ -17036,6 +17258,7 @@ def openai_responses_text_request(provider_model: str, messages: list) -> tuple[
 
 
 def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str, dict]:
+    require_billing_scope("gemini_text_request")
     api_key = env_value("GEMINI_API_KEY", "GEMINI-API-KEY", "GOOGLE_API_KEY", "GOOGLE-API-KEY")
     if not api_key:
         return False, "GEMINI_API_KEY is not configured", {}
@@ -17101,6 +17324,7 @@ def gemini_text_request(provider_model: str, messages: list) -> tuple[bool, str,
 
 
 def call_text_provider(model: str, messages: list, attachment: Optional[dict] = None) -> dict:
+    require_billing_scope("call_text_provider")
     cfg = TEXT_MODEL_VARIANTS.get(model) or TEXT_MODEL_VARIANTS["gpt-5.5"]
     provider = cfg.get("provider") or "openai"
     provider_model = cfg.get("provider_model") or model
@@ -17131,6 +17355,7 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
 
 
 def text_generation(payload: dict) -> dict:
+    require_billing_scope("text_generation")
     prompt = (payload.get("prompt") or "").strip()
     history = payload.get("history") or []
     mode = payload.get("mode") or "text"
@@ -19213,6 +19438,7 @@ def call_ideogram_image(frontend_model: str, provider_model: str, endpoint: str,
 
 
 async def image_generation(payload: dict) -> dict:
+    require_billing_scope("image_generation")
     if is_watermark_removal_request(payload):
         prostudio_error(
             "WATERMARK_REMOVAL_MISROUTED_TO_GENERIC_IMAGE_GENERATION",
@@ -20399,18 +20625,26 @@ Media generation must not start. Prompts must remain editable.
 User task:
 {task}
 """.strip()
-        generated = await asyncio.to_thread(text_generation, {
+        planner_model = str((body or {}).get("model") or "gpt-5.5")
+        generated = await run_billed_helper(
+            int((body or {}).get("telegram_id") or 0),
+            helper_text_price(planner_model, planner_prompt),
+            "grid_plan",
+            lambda: asyncio.to_thread(text_generation, {
             "prompt": planner_prompt,
             "mode": "text",
             "category": "text",
-            "model": str((body or {}).get("model") or "gpt-5.5"),
+            "model": planner_model,
             "provider": "sylvex-router",
             "text_options": {"tool": "text", "style": "neutral", "format": "json", "language": "auto"},
             "history": [],
             "attachment": None,
             "telegram_id": (body or {}).get("telegram_id"),
             "job_id": f"grid-plan:{uuid.uuid4()}",
-        })
+            }),
+            client_request_id=str((body or {}).get("client_request_id") or ""),
+            model=planner_model,
+        )
         if not generated.get("ok"):
             return JSONResponse(generated, status_code=502)
         raw = str(generated.get("text") or "").strip()
@@ -20455,6 +20689,8 @@ User task:
         if not clean_nodes:
             raise ValueError("planner_nodes_missing")
         return {"ok": True, "action": "plan", "nodes": clean_nodes, "edges": clean_edges, "provider": generated.get("provider"), "model": generated.get("model")}
+    except SecurityError:
+        raise
     except (json.JSONDecodeError, ValueError) as exc:
         prostudio_error("GRID_PLANNER_INVALID_RESPONSE", exc)
         return JSONResponse({"ok": False, "error": "planner_invalid_response", "message": "Не удалось построить цепочку. Попробуйте уточнить задачу."}, status_code=502)
@@ -20482,11 +20718,20 @@ async def public_home_idea_route(request: Request):
 Не запускай генерацию и не обещай, что она уже началась.
 Сообщение пользователя: {message}
 """.strip()
-        result = await asyncio.to_thread(text_generation, {
-            "prompt": instruction, "mode": "text", "category": "text", "model": "gpt-5.6",
-            "provider": "openai", "text_options": {"tool": "text", "format": "json", "style": "neutral"},
-            "history": history[-12:] if isinstance(history, list) else [], "attachment": attachment,
-        })
+        idea_history = history[-12:] if isinstance(history, list) else []
+        idea_price_text = instruction + " ".join(str(item.get("content") or "") for item in idea_history if isinstance(item, dict))
+        result = await run_billed_helper(
+            int((body or {}).get("telegram_id") or 0),
+            helper_text_price("gpt-5.6", idea_price_text),
+            "home_idea_route",
+            lambda: asyncio.to_thread(text_generation, {
+                "prompt": instruction, "mode": "text", "category": "text", "model": "gpt-5.6",
+                "provider": "openai", "text_options": {"tool": "text", "format": "json", "style": "neutral"},
+                "history": idea_history, "attachment": attachment,
+            }),
+            client_request_id=str((body or {}).get("client_request_id") or ""),
+            model="gpt-5.6",
+        )
         if not result.get("ok"):
             return JSONResponse(result, status_code=502)
         raw = str(result.get("text") or "").strip()
@@ -20499,6 +20744,8 @@ async def public_home_idea_route(request: Request):
         return {"ok": True, "reply": str(route.get("reply") or "Готов помочь."), "ready": ready,
                 "mode": mode if ready else "", "model": str(route.get("model") or "") if ready else "",
                 "prompt": str(route.get("prompt") or "") if ready else ""}
+    except SecurityError:
+        raise
     except Exception as exc:
         prostudio_error("HOME_IDEA_ROUTE_FAILED", exc)
         return JSONResponse({"ok": False, "error": "idea_route_failed", "message": "SYLVEX временно не смог обработать идею."}, status_code=500)
@@ -20507,6 +20754,8 @@ async def public_home_idea_route(request: Request):
 @app.post("/api/public/home-idea/realtime")
 async def public_home_idea_realtime(request: Request):
     """Create a protected OpenAI Realtime WebRTC session; the standard API key stays on the server."""
+    if "home_idea_realtime" in UNPRICED_HELPERS:
+        return unpriced_helper_response("home_idea_realtime")
     if not OPENAI_API_KEY:
         return JSONResponse({"ok": False, "error": "openai_not_configured"}, status_code=503)
     sdp = (await request.body()).decode("utf-8", errors="ignore").strip()
@@ -20790,7 +21039,8 @@ async def public_prostudio_generate(request: Request):
         provider_call_started_at = time.monotonic()
         prostudio_debug("TEXT_PROVIDER_REQUEST_SENT", telegram_id=telegram_id, model=selected_model)
         try:
-            result = await asyncio.to_thread(text_generation, payload)
+            with billing_scope(generation_id, required_credits):
+                result = await asyncio.to_thread(text_generation, payload)
         except Exception as exc:
             release_direct_text_generation(generation_id)
             fail_text_request(exc)
@@ -20925,6 +21175,7 @@ async def dispatch_prostudio_provider_request(
     text_modes: set,
 ) -> dict:
     """Perform one initial provider submission/generation attempt."""
+    require_billing_scope("dispatch_prostudio_provider_request")
     result = None
     if mode == "image" and is_edit_workspace_request(payload):
         edit_mode = str((payload.get("image_options") or {}).get("editWorkspaceMode") or "edit")
@@ -21057,7 +21308,50 @@ async def provider_call_with_retry(job_id: str, provider: str, operation) -> dic
     )
 
 
+def verify_job_reservation(job_id: str, credits: int) -> None:
+    """The job's own reservation must still be held before any dispatch."""
+    if not DATABASE_URL:
+        raise SecurityError("billing_unavailable", 503)
+    conn = db_connect(DATABASE_URL)
+    cursor = conn.cursor()
+    try:
+        assert_reserved(cursor, job_id, credits)
+    finally:
+        cursor.close()
+        conn.close()
+
+
 async def run_prostudio_provider_request(
+    job_id: str,
+    payload: dict,
+    mode: str,
+    selected_model: str,
+    selected_provider: str,
+    text_modes: set,
+    provider: str,
+) -> tuple[dict, str]:
+    """Billing gate for every queued job: a known SYLVEX price, the job's own
+    held reservation, and one billing scope for all of its provider calls
+    (retries and polling included). Settlement/release happen in the worker
+    via charge_generation_balance()/update_prostudio_generation_job()."""
+    snapshot = payload.get("price_snapshot") if isinstance(payload.get("price_snapshot"), dict) else {}
+    credits = int(snapshot.get("final_credits") or 0)
+    free = mode == "image" and edit_workspace_service.is_free_resize(payload)
+    try:
+        if not free:
+            if credits <= 0:
+                raise SecurityError("pricing_not_configured", 402)
+            await asyncio.to_thread(verify_job_reservation, job_id, credits)
+        with billing_scope(job_id, credits, free=free):
+            return await _run_prostudio_provider_request_billed(
+                job_id, payload, mode, selected_model, selected_provider, text_modes, provider,
+            )
+    except SecurityError as exc:
+        prostudio_debug("JOB_BILLING_BLOCKED", job_id=job_id, mode=mode, reason=exc.code, credits=credits)
+        return {"ok": False, "type": mode, "error": "Генерация недоступна: стоимость не подтверждена.", "raw_error": exc.code}, "failed"
+
+
+async def _run_prostudio_provider_request_billed(
     job_id: str,
     payload: dict,
     mode: str,
@@ -21985,6 +22279,8 @@ async def close_postgresql_pool():
 # =====================================================
 @app.post("/api/public/prostudio/transcribe")
 async def public_prostudio_transcribe(request: Request):
+    if "transcribe" in UNPRICED_HELPERS:
+        return unpriced_helper_response("transcribe")
     form = await request.form()
     file = form.get("file")
     if not file or not hasattr(file, "read"):
@@ -22078,26 +22374,45 @@ async def public_prostudio_voice_text_tool(request: Request):
         {"role": "user", "content": instruction},
     ]
     provider_errors = {}
-    result_text = ""
-    if OPENAI_API_KEY:
-        openai_model = env_value("OPENAI_VOICE_TEXT_MODEL", default="gpt-5-mini")
-        ok, result_text, _data = await asyncio.to_thread(
-            openai_compatible_text_request,
-            "openai",
-            OPENAI_API_BASE,
-            OPENAI_API_KEY,
-            openai_model,
-            messages,
-        )
-        if not ok:
-            provider_errors["openai"] = result_text
-            result_text = ""
-    if not result_text:
-        gemini_model = env_value("GEMINI_VOICE_TEXT_MODEL", default="gemini-2.5-flash")
-        ok, result_text, _data = await asyncio.to_thread(gemini_text_request, gemini_model, messages)
-        if not ok:
-            provider_errors["gemini"] = result_text
-            result_text = ""
+    openai_model = env_value("OPENAI_VOICE_TEXT_MODEL", default="gpt-5-mini")
+    gemini_model = env_value("GEMINI_VOICE_TEXT_MODEL", default="gemini-2.5-flash")
+    price_text = instruction + messages[0]["content"]
+    # Priced per use with the existing text tariff of whichever model may
+    # answer (OpenAI first, Gemini fallback); a model without a tariff is
+    # never called.
+    openai_credits = helper_text_price(openai_model, price_text) if OPENAI_API_KEY else 0
+    gemini_credits = helper_text_price(gemini_model, price_text)
+
+    async def run_text_tool():
+        result_text = ""
+        if openai_credits:
+            ok, result_text, _data = await asyncio.to_thread(
+                openai_compatible_text_request,
+                "openai",
+                OPENAI_API_BASE,
+                OPENAI_API_KEY,
+                openai_model,
+                messages,
+            )
+            if not ok:
+                provider_errors["openai"] = result_text
+                result_text = ""
+        if not result_text and gemini_credits:
+            ok, result_text, _data = await asyncio.to_thread(gemini_text_request, gemini_model, messages)
+            if not ok:
+                provider_errors["gemini"] = result_text
+                result_text = ""
+        return {"ok": bool(result_text), "text": result_text}
+
+    tool_result = await run_billed_helper(
+        int(payload.get("telegram_id") or 0),
+        max(openai_credits, gemini_credits),
+        "voice_text_tool",
+        run_text_tool,
+        client_request_id=str(payload.get("client_request_id") or ""),
+        model=openai_model if openai_credits else gemini_model,
+    )
+    result_text = tool_result.get("text") or ""
     if not result_text:
         print("PROSTUDIO ERROR VOICE_TEXT_TOOL_FAILED:", {
             "action": action,
@@ -22118,6 +22433,8 @@ async def public_prostudio_voice_text_tool(request: Request):
 # =====================================================
 @app.post("/api/public/prostudio/elevenlabs/voice-clone")
 async def public_prostudio_elevenlabs_voice_clone(request: Request):
+    if "voice_clone" in UNPRICED_HELPERS:
+        return unpriced_helper_response("voice_clone")
     form = await request.form()
     file = form.get("file")
     if not file or not hasattr(file, "read"):

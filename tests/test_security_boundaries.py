@@ -282,6 +282,9 @@ async def test_multipart_header_cannot_bypass_json_identity(client,monkeypatch):
 @pytest.mark.asyncio
 async def test_raw_sdp_is_preserved(client,monkeypatch):
  import main
+ # Transport/identity check: the endpoint's no-tariff gate is lifted here
+ # (that gate has its own tests in test_billing_coverage.py).
+ monkeypatch.setattr(main,'UNPRICED_HELPERS',frozenset())
  monkeypatch.setattr(main,'OPENAI_API_KEY','test-only')
  response=Mock(status_code=201,text='answer-sdp',content=b'answer-sdp',headers={'content-type':'application/sdp'})
  post=Mock(return_value=response);monkeypatch.setattr(main.requests,'post',post)
@@ -305,6 +308,8 @@ async def test_assistant_realtime_sdp_passes_middleware_and_quota_checked_once(c
  monkeypatch.setattr(security,'resolve_web_session_uid',lambda account_id:555555)
  monkeypatch.setattr(main,'OPENAI_API_KEY','test-only')
  monkeypatch.setattr(main,'get_user_state',lambda telegram_id:{'subscription_status':'active'})
+ # Transport check: lift the no-tariff gate (tested in test_billing_coverage.py).
+ monkeypatch.setattr(main,'UNPRICED_HELPERS',frozenset())
 
  handler_quota_calls=[]
  async def spy_quota(uid,path):handler_quota_calls.append((uid,path))
@@ -345,6 +350,9 @@ async def test_assistant_message_public_route_never_triggers_middleware_quota_wi
 @pytest.mark.asyncio
 async def test_voice_clone_form_cannot_claim_other_user(client,monkeypatch):
  import main
+ # Transport/identity check: the endpoint's no-tariff gate is lifted here
+ # (that gate has its own tests in test_billing_coverage.py).
+ monkeypatch.setattr(main,'UNPRICED_HELPERS',frozenset())
  clone=AsyncMock();monkeypatch.setattr(main,'elevenlabs_clone_voice_from_audio',clone)
  r=await client.post('/api/public/prostudio/elevenlabs/voice-clone',files={'file':('test.wav',b'RIFFtest','audio/wav')},data={'telegram_id':'999'},headers={'X-Telegram-Init-Data':signed()})
  assert r.status_code==403
