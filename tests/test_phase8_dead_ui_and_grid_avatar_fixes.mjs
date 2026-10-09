@@ -73,7 +73,7 @@ function loadGridModelContext() {
   // Batch 8 correction - see test_grid_video_model_filter.mjs), which
   // reads fetchedModelCapabilities - both must be present in the sandbox
   // or the extracted function throws a ReferenceError.
-  const context = vm.createContext({filterSylvexTestEntries: (list) => list, fetchedModelCapabilities: null});
+  const context = vm.createContext({fetchedModelCapabilities: null});
   vm.runInContext(extractConstObject('VIDEO_MODEL_CONFIG'), context);
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);
@@ -119,7 +119,7 @@ test('gridDefaultModel(video): falls back past an avatar model the main composer
   // which builds its fallback chain from gridModelsForType('video') - so
   // this context needs the same pieces as loadGridModelContext(), not
   // just VIDEO_MODEL_CONFIG.
-  const context = vm.createContext({fetchedModelCapabilities: null, filterSylvexTestEntries: (list) => list, videoState: {modelId: 'heygen_avatar_iv'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
+  const context = vm.createContext({fetchedModelCapabilities: null, videoState: {modelId: 'heygen_avatar_iv'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
   vm.runInContext(extractConstObject('VIDEO_MODEL_CONFIG'), context);
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);
@@ -131,7 +131,7 @@ test('gridDefaultModel(video): falls back past an avatar model the main composer
 });
 
 test('gridDefaultModel(video): a non-avatar current selection passes through unchanged', () => {
-  const context = vm.createContext({fetchedModelCapabilities: null, filterSylvexTestEntries: (list) => list, videoState: {modelId: 'runway_gen4_5'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
+  const context = vm.createContext({fetchedModelCapabilities: null, videoState: {modelId: 'runway_gen4_5'}, imageState: {}, musicState: {}, voiceState: {}, textState: {}, IMAGE_MODEL_LIST: [], MUSIC_MODEL_LIST: [], VOICE_MODEL_LIST: []});
   vm.runInContext(extractConstObject('VIDEO_MODEL_CONFIG'), context);
   vm.runInContext(extractConstArray('VIDEO_MODELS'), context);
   vm.runInContext(extractFunction('gridVideoModelSupported'), context);

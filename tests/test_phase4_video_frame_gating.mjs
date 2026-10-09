@@ -3,9 +3,8 @@
 // Regression tests for the Pro Studio A-Z audit's Phase 4 fix: video
 // start/end frame state must be cleared when switching to a model that
 // doesn't support it, and the composer's Start/End Frame cards must be
-// hidden for such models. Uses the same node:vm extraction pattern as
-// tests/test_miniapp_sylvex_test.mjs to run the real cabinet.js functions
-// without booting the whole app.
+// hidden for such models. Uses node:vm extraction to run the real
+// cabinet.js functions without booting the whole app.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';

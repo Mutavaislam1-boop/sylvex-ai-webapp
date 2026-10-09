@@ -1,7 +1,6 @@
 # Regression tests for the security audit's UPLOAD-2 / R2-1 finding:
 #
-# Both /api/admin/references/upload-media and /api/admin/sylvex-test/upload-file
-# pick a stored object's content_type by (1) trusting a client-declared type
+# /api/admin/references/upload-media picks a stored object's content_type by (1) trusting a client-declared type
 # against a small allowlist, else (2) magic-byte sniffing, else (3) a fallback
 # that was written as `content_type or "application/octet-stream"` - which
 # KEPT the original client-declared content_type (e.g. "text/html") whenever
@@ -123,36 +122,6 @@ async def test_references_upload_still_sniffs_a_real_png_correctly(client):
     )
     assert response.status_code == 200, response.text
     assert response.json()["content_type"] == "image/png"
-
-
-# ---------------------------------------------------------------------------
-# /api/admin/sylvex-test/upload-file
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_sylvex_test_upload_forces_octet_stream_when_sniff_fails_despite_malicious_declared_type(client):
-    response = await client.post(
-        "/api/admin/sylvex-test/upload-file",
-        json={
-            "initData": signed(),
-            "content_type": "text/html",
-            "content_base64": base64.b64encode(MALICIOUS_HTML).decode(),
-        },
-    )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["content_type"] == "application/octet-stream"
-    assert body["url"].split("?")[0].endswith(".bin")
-
-
-@pytest.mark.asyncio
-async def test_sylvex_test_upload_forces_octet_stream_when_sniff_fails_with_no_declared_type(client):
-    response = await client.post(
-        "/api/admin/sylvex-test/upload-file",
-        json={"initData": signed(), "content_base64": base64.b64encode(MALICIOUS_HTML).decode()},
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()["content_type"] == "application/octet-stream"
 
 
 # ---------------------------------------------------------------------------
