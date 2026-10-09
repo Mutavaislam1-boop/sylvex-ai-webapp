@@ -62,8 +62,11 @@ PUBLIC_POSTS = frozenset({
  # never calls OpenAI regardless of what a tampered client claims, since
  # the guide-vs-AI choice is re-derived server-side from get_user_state().
  '/api/web/assistant/message',
+ # Telegram bot media re-hosting: authenticated inside the handler by the
+ # TELEGRAM_MEDIA_SERVICE_TOKEN header, never by a user session.
+ '/api/internal/telegram-media',
 })
-MULTIPART_ROUTES = frozenset({'/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
+MULTIPART_ROUTES = frozenset({'/api/internal/telegram-media','/api/public/prostudio/upload-media','/api/public/prostudio/transcribe','/api/public/prostudio/elevenlabs/voice-clone','/api/web/assistant/files'})
 WEBHOOKS = frozenset({'/api/public/payments/stars/webhook','/api/public/payments/paypal/webhook','/api/public/payments/lemonsqueezy/webhook'})
 # Routes whose own handler resolves the real authenticated user id itself
 # (after subscription state is known, for /assistant/message) and calls

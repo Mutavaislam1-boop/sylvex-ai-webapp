@@ -563,3 +563,196 @@ def test_home_idea_refuses_audio_attachments_it_would_have_to_transcribe(ledger,
         "telegram_id": 101, "message": "listen", "attachment": {"mime": "audio/ogg", "url": "https://cdn/a.ogg"}}))))
     assert status == 400 and body["error"] == "attachment_not_supported"
     assert ledger.balance(101) == 100
+
+
+# ------------------------------------------------ main Text: usage settlement
+
+def _text_route(monkeypatch, balance_uid=101):
+    monkeypatch.setattr(main, "get_user_state", lambda telegram_id, **k: {"subscription_status": "active", "balance": 10 ** 6})
+    monkeypatch.setattr(main, "get_active_prostudio_job", lambda telegram_id: {})
+    monkeypatch.setattr(main, "save_prostudio_message", lambda payload, result: "conv-1")
+    main.PROSTUDIO_TEXT_RESPONSE_CACHE.clear()
+
+
+def _text_payload(**extra):
+    return dict({"telegram_id": 101, "mode": "text", "model": "gpt-5.5", "prompt": "Write a slogan",
+                 "text_options": {"tool": "text", "style": "neutral"}}, **extra)
+
+
+def _usage_result(input_tokens, output_tokens, seen=None):
+    def fake(payload):
+        if seen is not None:
+            seen.append({"scope": current_billing_scope(), "payload": dict(payload)})
+        return {"ok": True, "type": "text", "text": "Done", "provider": "openai", "model": "gpt-5.5",
+                "metadata": {"usage": {"input_tokens": input_tokens, "output_tokens": output_tokens}}}
+    return fake
+
+
+def test_text_reservation_is_an_upper_bound_not_a_512_token_guess():
+    payload = _text_payload(prompt="п" * 1000, history=[{"role": "user", "content": "x" * 50}] * 12)
+    credits, input_bound, output_cap = main.text_generation_reservation(payload)
+    # Cyrillic is 2 UTF-8 bytes per character; only the last 10 history items are sent.
+    assert input_bound >= 2000 + 10 * 50 and input_bound < 2000 + 12 * 50 + 4000
+    assert output_cap == main.TEXT_MAX_OUTPUT_TOKENS
+    assert credits == main.text_tokens_credits("gpt-5.5", input_bound, output_cap)
+    estimate = main.calculate_generation_price(payload)
+    assert estimate["credits"] == credits and estimate["billing"] == "usage"
+    # The writing style is a prompt setting, never a priced addition.
+    assert estimate["price_snapshot"]["additions"] == {}
+    capped = main.text_generation_reservation(dict(payload, text_options={"max_output_tokens": 1000}))
+    assert capped[2] == 1000 and capped[0] < credits
+    assert main.text_output_cap({"text_options": {"max_output_tokens": 10 ** 9}}) == main.TEXT_MAX_OUTPUT_TOKENS
+    assert main.text_output_cap({"text_options": {"max_output_tokens": 1}}) == main.TEXT_MIN_OUTPUT_TOKENS
+
+
+def test_text_document_reservation_uses_measured_text_or_the_extraction_bound():
+    doc = {"prompt": "sum up", "attachment": {"url": "https://cdn.test/a.txt", "name": "a.txt", "mime": "text/plain"}}
+    unmeasured = main.text_generation_reservation(_text_payload(**doc))[1]
+    measured = main.text_generation_reservation(_text_payload(**doc, **{main.TEXT_ATTACHMENT_BYTES_KEY: 1000}))[1]
+    assert unmeasured - measured == main.TEXT_DOCUMENT_BYTE_BOUND - 1000
+    image = main.text_generation_reservation(_text_payload(attachment={"url": "https://cdn.test/a.png", "name": "a.png", "mime": "image/png"}))[1]
+    assert image > main.TEXT_IMAGE_TOKEN_BOUND
+
+
+def test_text_generate_reserves_the_bound_and_settles_on_reported_usage(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    seen = []
+    # gpt-5.5 at $5 / $30 per 1M: 1,000 in + 500 out = $0.02 -> 3 credits.
+    monkeypatch.setattr(main, "text_generation", _usage_result(1000, 500, seen))
+    payload = _text_payload()
+    reserved = main.text_generation_reservation(dict(payload, output_token_cap=main.TEXT_MAX_OUTPUT_TOKENS))[0]
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(payload))))
+    assert status == 200 and body["ok"]
+    assert seen[0]["scope"]["credits"] == reserved and reserved > 3
+    assert seen[0]["payload"]["output_token_cap"] == main.TEXT_MAX_OUTPUT_TOKENS
+    assert body["cost_credits"] == 3 and body["reserved_credits"] == reserved and body["generation_cost"] == "3 ⚡"
+    (generation_id, uid, mode, model, credits), = ledger.charges()
+    assert (uid, mode, credits) == (101, "text", 3)
+    assert ledger.reservation(generation_id) == ("charged", reserved)
+    assert ledger.balance(101) == 97
+
+
+def test_text_generate_client_cannot_raise_the_output_cap_or_fake_a_measurement(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    seen = []
+    monkeypatch.setattr(main, "text_generation", _usage_result(10, 10, seen))
+    monkeypatch.setattr(main, "text_attachment_plain_text", lambda attachment: "y" * 5000)
+    payload = _text_payload(output_token_cap=10 ** 9, attachment={"url": "https://cdn.test/a.txt", "name": "a.txt", "mime": "text/plain"},
+                            **{main.TEXT_ATTACHMENT_BYTES_KEY: 0})
+    status, _ = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(payload))))
+    assert status == 200
+    sent = seen[0]["payload"]
+    assert sent["output_token_cap"] == main.TEXT_MAX_OUTPUT_TOKENS
+    assert sent[main.TEXT_ATTACHMENT_BYTES_KEY] == 5000
+
+
+def test_text_generate_unknown_usage_settles_at_the_reservation(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", lambda payload: {"ok": True, "text": "Done", "provider": "openai", "metadata": {}})
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(_text_payload()))))
+    assert status == 200 and body["cost_credits"] == body["reserved_credits"] > 0
+    assert ledger.balance(101) == 100 - body["reserved_credits"]
+
+
+def test_text_generate_usage_above_the_reservation_never_charges_more(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", _usage_result(10 ** 7, 10 ** 7))
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(_text_payload()))))
+    assert status == 200 and body["cost_credits"] == body["reserved_credits"]
+    assert ledger.balance(101) == 100 - body["reserved_credits"]
+
+
+def test_text_generate_local_quick_reply_is_free_and_fully_refunded(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", lambda payload: {"ok": True, "text": "Hi!", "provider": "sylvex-fast"})
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(_text_payload(prompt="hi")))))
+    assert status == 200 and body["cost_credits"] == 0
+    assert ledger.balance(101) == 100
+
+
+def test_text_generate_provider_failure_is_fully_refunded(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", lambda payload: {"ok": False, "error": "provider down"})
+    status, _ = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(_text_payload()))))
+    assert status == 502
+    assert ledger.balance(101) == 100 and ledger.charges() == []
+
+
+def test_text_generate_retry_with_same_request_id_charges_once(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    calls = []
+    monkeypatch.setattr(main, "text_generation", _usage_result(1000, 500, calls))
+    payload = _text_payload(client_request_id="req-1")
+    first = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(payload))))
+    second = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(payload))))
+    assert first == second and len(calls) == 1
+    assert len(ledger.charges()) == 1 and ledger.balance(101) == 97
+
+
+def test_text_generate_needs_balance_for_the_upper_bound(ledger, monkeypatch):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", _no_network)
+    payload = _text_payload(telegram_id=202)
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(payload))))
+    assert status == 402
+    assert ledger.balance(202) == 1 and ledger.charges() == []
+
+
+# ---------------------------------- Text attachments: no unpriced transcription
+
+TEXT_MEDIA_PAYLOADS = {
+    "audio_attachment": {"attachment": {"url": "https://cdn.test/a.mp3", "name": "a.mp3", "mime": "audio/mpeg"}},
+    "video_attachment": {"attachment": {"url": "https://cdn.test/a.mp4", "name": "a.mp4", "content_type": "video/mp4"}},
+    "audio_to_text": {"model": "gemini_2_5_flash", "text_options": {"tool": "audio_to_text"}},
+    "video_to_text": {"model": "gemini_2_5_flash", "text_options": {"tool": "video_to_text"},
+                      "attachment": {"url": "https://cdn.test/a.mp4", "name": "a.mp4", "mime": "video/mp4"}},
+    "video_prompt": {"model": "gemini_2_5_flash", "text_options": {"tool": "video_prompt"}},
+}
+
+
+@pytest.mark.parametrize("case", sorted(TEXT_MEDIA_PAYLOADS))
+def test_text_generate_refuses_audio_video_before_reserving(ledger, monkeypatch, case):
+    _text_route(monkeypatch)
+    monkeypatch.setattr(main, "text_generation", _no_network)
+    monkeypatch.setattr(main, "openai_transcribe_bytes", _no_network)
+    status, body = _body(asyncio.run(main.public_prostudio_generate(FakeRequest(_text_payload(**TEXT_MEDIA_PAYLOADS[case])))))
+    assert status == 422 and body["error"] == "pricing_not_configured"
+    assert ledger.balance(101) == 100 and ledger.charges() == []
+    assert main.calculate_generation_price(_text_payload(**TEXT_MEDIA_PAYLOADS[case]))["pricing_available"] is False
+
+
+@pytest.mark.parametrize("case", sorted(TEXT_MEDIA_PAYLOADS))
+def test_text_generation_never_transcribes_or_sends_media(monkeypatch, case):
+    for name in ("openai_transcribe_bytes", "gemini_transcribe_bytes", "call_text_provider", "_extract_audio_from_video_for_dubbing", "_text_attachment_bytes"):
+        monkeypatch.setattr(main, name, _no_network)
+    with billing_scope("text-media", 5):
+        result = main.text_generation(_text_payload(**TEXT_MEDIA_PAYLOADS[case]))
+    assert result["ok"] is False and result["error"] == "pricing_not_configured"
+
+
+def test_text_generation_always_sends_the_output_cap(monkeypatch):
+    sent = []
+    monkeypatch.setattr(main, "call_text_provider", lambda model, messages, attachment=None, max_output_tokens=None: sent.append(max_output_tokens) or {"ok": True, "text": "x", "metadata": {}})
+    with billing_scope("text-cap", 5):
+        main.text_generation(_text_payload(prompt="Write a long essay about rivers"))
+        main.text_generation(_text_payload(prompt="Write a long essay about rivers", text_options={"max_output_tokens": 700}))
+    assert sent == [main.TEXT_MAX_OUTPUT_TOKENS, 700]
+
+
+# ------------------------------------------------- ElevenLabs: TTS only
+
+@pytest.mark.parametrize("voice_options,priced", [
+    ({"model": "elevenlabs_eleven_v3"}, True),
+    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "text_to_speech"}, True),
+    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "speech_to_speech"}, False),
+    ({"model": "elevenlabs_multilingual_sts_v2"}, False),
+    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dubbing"}, False),
+    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "dialogue"}, False),
+    ({"model": "elevenlabs_eleven_v3", "elevenlabs_tool": "voice_design"}, False),
+])
+def test_only_elevenlabs_text_to_speech_has_a_tariff(voice_options, priced):
+    estimate = main.calculate_generation_price({"mode": "voice", "model": voice_options["model"], "prompt": "x" * 120, "voice_options": voice_options})
+    assert bool(estimate.get("pricing_available")) is priced
+    if priced:
+        # The existing TTS tariff is unchanged: 2 credits per started 50 characters.
+        assert estimate["credits"] == 6

@@ -48,6 +48,10 @@ def sylvex_additions(payload: dict) -> dict[str, Decimal]:
     additions: dict[str, Decimal] = {}
     if is_free_resize(payload):
         return additions
+    # Text is billed on provider token usage; its writing "style" and other
+    # text options are prompt settings, not priced SYLVEX assets.
+    if str(payload.get("mode") or payload.get("category") or "").lower() in {"text", "chat", "pro", "lite"}:
+        return additions
     if _option(payload, "style", "style_id", "selected_style"):
         additions["style"] = STYLE_CREDITS
     if _option(payload, "character", "character_id", "selected_character"):

@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from routers.video_templates import router as video_templates_router
 
-from services.audio_router import audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
+from services.audio_router import ELEVENLABS_PRICED_TOOLS, audio_generation, elevenlabs_clone_voice_from_audio, elevenlabs_dispatch_tool, elevenlabs_voice_preview, fetch_elevenlabs_prostudio_voices, fetch_runway_voices, gemini_tts_voice_preview, runway_voice_preview, _extract_audio_from_video_for_dubbing, _mux_video_with_audio, _send_generated_audio_to_telegram
 from services.error_translator import raw_error_text, translate_provider_error
 from services.prompt_optimizer import optimize_prompt_for_model
 from services.character_prompts import build_character_prompt, infer_character_operation
@@ -5129,11 +5129,11 @@ def text_tokens_credits(model: str, input_tokens: int, output_tokens: int) -> in
 
 
 def helper_text_reservation(model: str, input_text: str, max_output_tokens: int, image_count: int = 0) -> int:
-    """Upper bound for one capped helper LLM call: every input character
-    counted as a token (natural text never tokenizes above one token per
-    character), each image at HELPER_IMAGE_TOKEN_BOUND, and the full output
-    cap that is sent to the provider. The charge settles on actual usage."""
-    input_tokens = len(str(input_text or "")) + max(0, int(image_count or 0)) * HELPER_IMAGE_TOKEN_BOUND
+    """Upper bound for one capped helper LLM call: every input UTF-8 byte
+    counted as a token (a byte-level tokenizer never emits more tokens than
+    bytes), each image at HELPER_IMAGE_TOKEN_BOUND, and the full output cap
+    that is sent to the provider. The charge settles on actual usage."""
+    input_tokens = len(str(input_text or "").encode("utf-8")) + max(0, int(image_count or 0)) * HELPER_IMAGE_TOKEN_BOUND
     return text_tokens_credits(model, input_tokens, int(max_output_tokens or 0))
 
 
@@ -5184,6 +5184,78 @@ def text_generation_price_input(payload: dict) -> tuple:
         else:
             parts.append(text_attachment_plain_text(attachment))
     return "\n".join(parts), images
+
+
+# Main Text product (/generate): every request is sent with an output cap, so
+# the reservation below is a true upper bound; the charge then settles on the
+# provider-reported usage and the difference is returned to the user.
+TEXT_MIN_OUTPUT_TOKENS = 256
+TEXT_MAX_OUTPUT_TOKENS = max(TEXT_MIN_OUTPUT_TOKENS, int(os.getenv("TEXT_MAX_OUTPUT_TOKENS") or 8000))
+# A user-attached image is sent at its uploaded size. Upper bound per image
+# across the vision paths: OpenAI patch models cap at 1536 patches x 2.46,
+# tile models at 85 + 170 x 8 tiles; Gemini/Grok stay below this.
+TEXT_IMAGE_TOKEN_BOUND = 4000
+# text_attachment_plain_text() returns at most 60000 characters; at up to 4
+# UTF-8 bytes each this bounds a document whose text was not measured.
+TEXT_DOCUMENT_BYTE_BOUND = 60000 * 4
+# Server-side measurement of the attached document (set by /generate only).
+TEXT_ATTACHMENT_BYTES_KEY = "_sylvex_attachment_text_bytes"
+
+
+def text_output_cap(payload: dict) -> int:
+    """Output tokens the provider may return for one Text request: the
+    client's max_output_tokens clamped to [TEXT_MIN, TEXT_MAX], or TEXT_MAX."""
+    opts = payload.get("text_options") if isinstance(payload.get("text_options"), dict) else {}
+    try:
+        requested = int(opts.get("max_output_tokens") or 0)
+    except (TypeError, ValueError):
+        requested = 0
+    if requested <= 0:
+        return TEXT_MAX_OUTPUT_TOKENS
+    return max(TEXT_MIN_OUTPUT_TOKENS, min(TEXT_MAX_OUTPUT_TOKENS, requested))
+
+
+def text_media_attachment(payload: dict) -> bool:
+    """Audio/video attachment, or a tool that only works on one. The Text
+    product has no tariff for transcription or audio/video input tokens, so
+    these requests are refused before any provider is contacted."""
+    attachment = payload.get("attachment") if isinstance(payload.get("attachment"), dict) else {}
+    mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
+    opts = payload.get("text_options") if isinstance(payload.get("text_options"), dict) else {}
+    tool = str(opts.get("tool") or "").strip().lower()
+    return mime.startswith(("audio/", "video/")) or tool in {"audio_to_text", "video_to_text", "video_prompt"}
+
+
+def text_generation_reservation(payload: dict) -> tuple:
+    """(credits, input_token_bound, output_token_cap) for one main Text
+    request. Input is bounded by UTF-8 bytes (a byte-level tokenizer never
+    emits more tokens than bytes) of the system prompt, last 10 history
+    items, prompt and attachment label; an image adds TEXT_IMAGE_TOKEN_BOUND;
+    a document adds its measured text bytes when /generate measured it, else
+    TEXT_DOCUMENT_BYTE_BOUND. Output is the cap sent to the provider."""
+    model = normalize_text_model(payload.get("model") or "gpt-5.5")
+    opts = payload.get("text_options") if isinstance(payload.get("text_options"), dict) else {}
+    tool = str(opts.get("tool") or "text").strip().lower()
+    parts = [text_system_prompt(tool, str(opts.get("style") or "neutral").strip().lower(), str(opts.get("format") or "markdown").strip().lower())]
+    for item in (payload.get("history") or [])[-10:]:
+        if isinstance(item, dict) and item.get("content"):
+            parts.append(str(item.get("content")))
+    parts.append(f"Mode: {payload.get('mode') or 'text'}\nTool: {tool}\nPrompt: {payload.get('prompt') or ''}")
+    attachment = payload.get("attachment") if isinstance(payload.get("attachment"), dict) else {}
+    if attachment:
+        parts.append(f"Attached document text:\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')}) {attachment.get('content_type')}")
+    input_tokens = len("\n\n".join(parts).encode("utf-8"))
+    if attachment:
+        mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
+        measured = payload.get(TEXT_ATTACHMENT_BYTES_KEY)
+        if mime.startswith("image/"):
+            input_tokens += TEXT_IMAGE_TOKEN_BOUND
+        elif isinstance(measured, int) and not isinstance(measured, bool) and measured >= 0:
+            input_tokens += measured
+        else:
+            input_tokens += TEXT_DOCUMENT_BYTE_BOUND
+    output_cap = text_output_cap(payload)
+    return text_tokens_credits(model, input_tokens, output_cap), input_tokens, output_cap
 
 
 def text_generation_usage_credits(model: str):
@@ -9320,6 +9392,39 @@ def _log_upload_media_rejected(reason, media_kind, suffix, mime, size_bytes, sta
         "height": height,
         "status": status,
     })
+
+
+# Telegram bot inputs (photos, reference videos) re-hosted in SYLVEX storage,
+# so providers receive a signed SYLVEX URL and never a Telegram file URL
+# (those embed the bot token). The bot authenticates with a shared secret
+# header; without TELEGRAM_MEDIA_SERVICE_TOKEN configured the route refuses.
+TELEGRAM_MEDIA_SERVICE_TOKEN = os.getenv("TELEGRAM_MEDIA_SERVICE_TOKEN", "").strip()
+TELEGRAM_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".m4v", ".webm"}
+TELEGRAM_MEDIA_MAX_BYTES = 25 * 1024 * 1024  # Bot API downloads stop at 20 MB
+
+
+@app.post("/api/internal/telegram-media")
+async def internal_telegram_media(request: Request):
+    presented = str(request.headers.get("x-sylvex-media-token") or "").strip()
+    if not TELEGRAM_MEDIA_SERVICE_TOKEN:
+        return JSONResponse({"ok": False, "error": "telegram_media_not_configured"}, status_code=503)
+    if not presented or not hmac.compare_digest(presented, TELEGRAM_MEDIA_SERVICE_TOKEN):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    form = await request.form()
+    file = form.get("file")
+    if not file or not hasattr(file, "read"):
+        return JSONResponse({"ok": False, "error": "file_required"}, status_code=400)
+    suffix = pathlib.Path(getattr(file, "filename", "") or "").suffix.lower()
+    if suffix not in TELEGRAM_MEDIA_EXTENSIONS:
+        return JSONResponse({"ok": False, "error": "unsupported_media_format"}, status_code=400)
+    content = await read_upload(file, TELEGRAM_MEDIA_MAX_BYTES)
+    if not content:
+        return JSONResponse({"ok": False, "error": "empty_file"}, status_code=400)
+    content_type = validated_upload_type(content, suffix)
+    key = generated_key("telegram-inputs", f"{uuid4().hex}{suffix}")
+    url = await asyncio.to_thread(storage_put_bytes, content, key, content_type)
+    print("TELEGRAM MEDIA REHOSTED:", {"key": key, "content_type": content_type, "bytes": len(content)})
+    return {"ok": True, "url": url, "content_type": content_type, "bytes": len(content)}
 
 
 # =====================================================
@@ -17031,6 +17136,9 @@ def gemini_transcribe_bytes(content: bytes, content_type: str, language: str = "
 
 
 def text_media_transcript(payload: dict, attachment: dict, tool: str) -> tuple[str, str]:
+    # Paid transcription with no SYLVEX tariff inside the Text product.
+    if text_media_attachment(dict(payload or {}, attachment=attachment)):
+        return "", "pricing_not_configured"
     if tool not in {"audio_to_text", "video_to_text", "video_prompt", "structured_dialogue", "translate", "summarize", "extract", "text", "document", "prompt", "rewrite"}:
         return "", ""
     if not isinstance(attachment, dict):
@@ -17334,6 +17442,11 @@ def call_text_provider(model: str, messages: list, attachment: Optional[dict] = 
 
 def text_generation(payload: dict) -> dict:
     require_billing_scope("text_generation")
+    if text_media_attachment(payload):
+        # Transcription and audio/video input tokens have no SYLVEX tariff:
+        # fail closed before any provider is contacted.
+        print("UNPRICED_HELPER_BLOCKED:", {"operation": "text_media_attachment"})
+        return {"ok": False, "error": "pricing_not_configured", "message": "Аудио и видео во вложениях пока недоступны в Text."}
     prompt = (payload.get("prompt") or "").strip()
     history = payload.get("history") or []
     mode = payload.get("mode") or "text"
@@ -17419,7 +17532,7 @@ def text_generation(payload: dict) -> dict:
         prompt = (prompt + f"\n\nAttachment: {attachment.get('name')} ({attachment.get('mime')})").strip()
     messages.append({"role": "user", "content": f"Mode: {mode}\nTool: {tool}\nPrompt: {prompt}"})
 
-    generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap"))
+    generated = call_text_provider(model, messages, attachment, payload.get("output_token_cap") or text_output_cap(payload))
     if not generated.get("ok"):
         return generated
     text = generated.get("text") or ""
@@ -19155,6 +19268,10 @@ def estimate_generation_cost(payload: dict) -> dict:
         duration = max(1, int(float(options.get("duration") or 5)))
         characters = max(1, len(str(payload.get("prompt") or "")))
         if model.startswith("elevenlabs_"):
+            # Existing per-character TTS tariff; every other ElevenLabs tool
+            # has no confirmed cost basis and is not priced (fail closed).
+            if elevenlabs_dispatch_tool(payload) not in ELEVENLABS_PRICED_TOOLS:
+                return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
             credits = max(1, (characters + 49) // 50 * 2)
         elif model in {
             "gemini_3_1_flash_tts_preview",
@@ -19186,13 +19303,13 @@ def estimate_generation_cost(payload: dict) -> dict:
         return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True}
     if mode in {"text", "chat", "pro", "lite"}:
         model = normalize_text_model(payload.get("model") or "gpt-5.5")
-        if not text_token_rates(model):
+        if not text_token_rates(model) or text_media_attachment(payload):
             return {"credits": 0, "cost_usd": 0, "generation_cost": "", "pricing_available": False}
-        source_text = str(payload.get("prompt") or "") + " ".join(str(item.get("content") or "") for item in (payload.get("history") or []) if isinstance(item, dict))
-        input_tokens = max(1, (len(source_text) + 3) // 4)
-        output_tokens = max(256, int((payload.get("text_options") or {}).get("max_output_tokens") or 512))
-        credits = max(1, text_tokens_credits(model, input_tokens, output_tokens))
-        return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True, "estimated_input_tokens": input_tokens, "estimated_output_tokens": output_tokens}
+        # Reservation upper bound; /generate settles on reported usage.
+        credits, input_tokens, output_tokens = text_generation_reservation(payload)
+        credits = max(1, credits)
+        return {"credits": credits, "cost_usd": round(credits / 150, 4), "generation_cost": f"{credits} ⚡", "pricing_available": True,
+                "billing": "usage", "max_credits": credits, "max_input_tokens": input_tokens, "output_token_cap": output_tokens}
     if mode == "video" and is_animate_photo_request(payload):
         # Animate Photo is a flat 5-second Runway Gen-4.5 clip (unlike the
         # generic per-second/per-model video pricing table below) - always
@@ -20857,7 +20974,8 @@ async def public_home_idea_realtime(request: Request):
 @app.post("/api/public/prostudio/generate")
 async def public_prostudio_generate(request: Request):
     payload = dict(await request.json())
-    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe"):
+    for internal_key in ("job_id", "generation_id", "load_test", "skip_telegram", "balance_charged", "cost_credits", "price_snapshot", "initData", "init_data", "initDataUnsafe",
+                         "output_token_cap", TEXT_ATTACHMENT_BYTES_KEY):
         payload.pop(internal_key, None)
     telegram_id = int(payload.get("telegram_id") or 0)
     mode = (payload.get("mode") or payload.get("category") or "text").lower()
@@ -20927,6 +21045,25 @@ async def public_prostudio_generate(request: Request):
         feature_error = validate_image_feature_request(payload)
         if feature_error:
             return JSONResponse(feature_error, status_code=400)
+    if mode in text_modes:
+        if text_media_attachment(payload):
+            # No SYLVEX tariff for transcription or audio/video input tokens:
+            # refused before any reservation or provider call.
+            print("UNPRICED_HELPER_BLOCKED:", {"operation": "text_media_attachment"})
+            return JSONResponse({"ok": False, "error": "pricing_not_configured",
+                                 "message": "Аудио и видео во вложениях пока недоступны в Text."}, status_code=422)
+        payload["output_token_cap"] = text_output_cap(payload)
+        attachment = payload.get("attachment") if isinstance(payload.get("attachment"), dict) else {}
+        attachment_mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
+        if attachment and not attachment_mime.startswith("image/"):
+            # Measure the document text once so the reservation bounds what
+            # text_generation() will actually send.
+            try:
+                document_text = await asyncio.to_thread(text_attachment_plain_text, attachment)
+            except Exception as exc:
+                prostudio_error("TEXT_ATTACHMENT_MEASURE_FAILED", exc, telegram_id=telegram_id)
+            else:
+                payload[TEXT_ATTACHMENT_BYTES_KEY] = len(str(document_text or "").encode("utf-8"))
     cost_estimate = calculate_generation_price(payload)
     payload["price_snapshot"] = cost_estimate.get("price_snapshot") or {}
     if not cost_estimate.get("pricing_available", mode in {"image", "video"}):
@@ -21127,9 +21264,16 @@ async def public_prostudio_generate(request: Request):
         if not result.get("ok"):
             release_direct_text_generation(generation_id)
             return complete_text_request(JSONResponse(result, status_code=502))
-        result["cost_credits"] = required_credits
-        result["generation_cost"] = cost_estimate.get("generation_cost") or f"{required_credits} ⚡"
-        billing = charge_generation_balance(telegram_id, generation_id, result, payload)
+        # Settle on the provider-reported usage; the rest of the reservation
+        # is returned. Unknown usage settles at the reserved upper bound.
+        charged_credits = settled_helper_credits(
+            required_credits, text_generation_usage_credits(normalize_text_model(payload.get("model") or "gpt-5.5"))(result), "text")
+        settle_payload = dict(payload)
+        settle_payload["price_snapshot"] = dict(payload.get("price_snapshot") or {}, final_credits=charged_credits, reserved_credits=required_credits)
+        result["cost_credits"] = charged_credits
+        result["reserved_credits"] = required_credits
+        result["generation_cost"] = f"{charged_credits} ⚡"
+        billing = charge_generation_balance(telegram_id, generation_id, result, settle_payload)
         if not billing.get("charged") and not billing.get("already_charged"):
             release_direct_text_generation(generation_id)
             return complete_text_request(JSONResponse({"ok": False, "error": "billing_failed"}, status_code=503))

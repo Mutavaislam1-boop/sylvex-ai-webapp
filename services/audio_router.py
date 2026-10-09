@@ -437,6 +437,23 @@ def _elevenlabs_audio_tool(payload: dict) -> str:
     return tool if tool in ELEVENLABS_AUDIO_TOOLS else "text_to_speech"
 
 
+# Only text-to-speech has a confirmed SYLVEX cost basis (per character).
+# Speech-to-speech, dialogue, dubbing and voice design are billed by
+# ElevenLabs on other units (audio minutes, generations); until their cost
+# basis is confirmed they stay blocked, in pricing and at dispatch.
+ELEVENLABS_PRICED_TOOLS = frozenset({"text_to_speech"})
+
+
+def elevenlabs_dispatch_tool(payload: dict) -> str:
+    """The ElevenLabs endpoint this payload will really call: an *_sts_v2
+    model always goes to speech-to-speech whatever the tool selector says."""
+    voice_options = payload.get("voice_options") or {}
+    frontend_model = payload.get("model") or voice_options.get("model") or "elevenlabs_eleven_v3"
+    if _elevenlabs_voice_model_mapping(frontend_model) in ELEVENLABS_STS_MODELS:
+        return "speech_to_speech"
+    return _elevenlabs_audio_tool(payload)
+
+
 # =====================================================
 # ЗАПРОС К AI-ПРОВАЙДЕРУ: _runway_voice_model_mapping
 # Сопоставляет модель озвучки Runway из Mini App с официальным ID Runway API.
@@ -2010,6 +2027,9 @@ async def elevenlabs_voice_generation(payload: dict) -> dict:
         tool = "speech_to_speech"
     elif tool == "speech_to_speech" and provider_model not in ELEVENLABS_STS_MODELS:
         provider_model = ELEVENLABS_DEFAULT_STS_MODEL
+    if tool not in ELEVENLABS_PRICED_TOOLS:
+        print("UNPRICED_HELPER_BLOCKED:", {"operation": f"elevenlabs_{tool}"})
+        return _audio_error(provider, frontend_model, provider_model, "pricing_not_configured", type="voice", tool=tool)
     if not api_key:
         return _audio_error(provider, frontend_model, provider_model, "ELEVENLABS_API_KEY is not configured", type="voice")
 
