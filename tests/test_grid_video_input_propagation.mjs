@@ -76,7 +76,6 @@ function buildPayloadContext() {
     getTelegramId: () => 0,
     uiLang: () => 'ru',
     loadStudioGridState: () => ({projectId: 'grid_project_test'}),
-    gridTestModeEnabled: () => false,
   });
   vm.runInContext(extractVideoModelConfigWithKling(), context);
   vm.runInContext(extractFunction('gridGenerationPayload'), context);
