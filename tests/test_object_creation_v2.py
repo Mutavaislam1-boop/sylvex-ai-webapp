@@ -116,7 +116,7 @@ def test_object_prompt_fallback_uses_name_when_description_empty():
 def test_analyze_object_prompt_sends_image_and_instruction_to_call_text_provider(monkeypatch):
     captured = {}
 
-    def fake_call_text_provider(model, messages):
+    def fake_call_text_provider(model, messages, attachment=None, max_output_tokens=None):
         captured["model"] = model
         captured["messages"] = messages
         return {"ok": True, "text": "Black structured leather shoulder bag."}
@@ -139,13 +139,13 @@ def test_analyze_object_prompt_raises_without_an_image():
 
 
 def test_analyze_object_prompt_raises_when_provider_call_fails(monkeypatch):
-    monkeypatch.setattr(main, "call_text_provider", lambda model, messages: {"ok": False, "error": "quota exceeded"})
+    monkeypatch.setattr(main, "call_text_provider", lambda model, messages, *args: {"ok": False, "error": "quota exceeded"})
     with pytest.raises(RuntimeError):
         asyncio.run(main._analyze_object_prompt("job-1", "Bag", "", "https://cdn.sylvex.ai/source.jpg"))
 
 
 def test_analyze_object_prompt_raises_on_empty_text(monkeypatch):
-    monkeypatch.setattr(main, "call_text_provider", lambda model, messages: {"ok": True, "text": "   "})
+    monkeypatch.setattr(main, "call_text_provider", lambda model, messages, *args: {"ok": True, "text": "   "})
     with pytest.raises(RuntimeError):
         asyncio.run(main._analyze_object_prompt("job-1", "Bag", "", "https://cdn.sylvex.ai/source.jpg"))
 
@@ -223,7 +223,7 @@ def stub_object_pipeline(monkeypatch):
     async def fake_reference(job_id, name, description, source_photo):
         return "https://cdn.sylvex.ai/generated/reference.png"
 
-    async def fake_prompt(job_id, name, description, image_url):
+    async def fake_prompt(job_id, name, description, image_url, usage=None):
         return "Black structured leather shoulder bag."
 
     monkeypatch.setattr(main, "_generate_object_reference_image", fake_reference)
@@ -294,7 +294,7 @@ def test_run_object_creation_job_prompt_analysis_failure_does_not_fail_the_job(m
     async def fake_reference(job_id, name, description, source_photo):
         return "https://cdn.sylvex.ai/generated/reference.png"
 
-    async def failing_prompt(job_id, name, description, image_url):
+    async def failing_prompt(job_id, name, description, image_url, usage=None):
         raise RuntimeError("vision analysis failed")
 
     monkeypatch.setattr(main, "_generate_object_reference_image", fake_reference)
@@ -319,7 +319,7 @@ def test_run_object_creation_job_prompt_analysis_failure_falls_back_to_name_with
     async def fake_reference(job_id, name, description, source_photo):
         return "https://cdn.sylvex.ai/generated/reference.png"
 
-    async def failing_prompt(job_id, name, description, image_url):
+    async def failing_prompt(job_id, name, description, image_url, usage=None):
         raise RuntimeError("vision analysis failed")
 
     monkeypatch.setattr(main, "_generate_object_reference_image", fake_reference)
@@ -341,7 +341,7 @@ def test_run_object_creation_job_reference_generation_failure_fails_the_job(monk
     async def failing_reference(job_id, name, description, source_photo):
         raise RuntimeError("OpenAI object image generation failed (status=500): boom")
 
-    async def fake_prompt(job_id, name, description, image_url):
+    async def fake_prompt(job_id, name, description, image_url, usage=None):
         return "Black bag."
 
     monkeypatch.setattr(main, "_generate_object_reference_image", failing_reference)
@@ -422,7 +422,7 @@ def test_run_object_creation_job_heartbeats_continuously_during_generation(monke
         await asyncio.sleep(0.08)
         return "https://cdn.sylvex.ai/generated/reference.png"
 
-    async def fake_prompt(job_id, name, description, image_url):
+    async def fake_prompt(job_id, name, description, image_url, usage=None):
         return "Black bag."
 
     monkeypatch.setattr(main, "_generate_object_reference_image", slow_reference)
